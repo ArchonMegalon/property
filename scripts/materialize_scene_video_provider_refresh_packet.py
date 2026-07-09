@@ -77,16 +77,36 @@ def _blockers(row: dict[str, Any]) -> list[str]:
     ]
 
 
+def _credit_state(row: dict[str, Any]) -> str:
+    return str(row.get("credit_state") or dict(row.get("checks") or {}).get("credit_state") or "").strip()
+
+
+def _inventory_value(row: dict[str, Any], key: str) -> int:
+    try:
+        return max(0, int(_account_inventory(row).get(key) or 0))
+    except Exception:
+        return 0
+
+
+def _inventory_text(row: dict[str, Any], key: str) -> str:
+    return str(_account_inventory(row).get(key) or "").strip()
+
+
 def _magicfit_packet(row: dict[str, Any]) -> dict[str, Any]:
     blockers = _blockers(row)
     expected_count = _expected_count(row)
+    credit_state = _credit_state(row)
     return {
         "provider": "magicfit",
         "expected_account_count": expected_count,
+        "tracked_account_count": _inventory_value(row, "tracked_account_count"),
+        "unavailable_account_count": _inventory_value(row, "unavailable_account_count"),
+        "availability_reason": _inventory_text(row, "availability_reason"),
         "runtime_account_count": _runtime_count(row),
         "visible_account_gap": _visible_gap(row),
         "runtime_status": str(row.get("status") or ""),
         "runtime_blockers": blockers,
+        "credit_state": credit_state,
         "credential_contract": {
             "preferred_accounts_json_env": "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON",
             "fallback_accounts_json_env": "MAGICFIT_ACCOUNTS_JSON",
@@ -99,7 +119,7 @@ def _magicfit_packet(row: dict[str, Any]) -> dict[str, Any]:
                 ["MAGICFIT_EMAIL", "MAGICFIT_PASSWORD"],
             ],
         },
-        "credit_refresh_required": "magicfit_insufficient_credits" in blockers,
+        "credit_refresh_required": credit_state in {"constrained", "insufficient"} or "magicfit_insufficient_credits" in blockers,
         "proof_contract": {
             "proof_render_required": True,
             "credit_marker": "magicfit_insufficient_credits",
@@ -134,6 +154,9 @@ def _omagic_packet(row: dict[str, Any]) -> dict[str, Any]:
         "provider": "omagic",
         "aliases": ["magic"],
         "expected_account_count": expected_count,
+        "tracked_account_count": _inventory_value(row, "tracked_account_count"),
+        "unavailable_account_count": _inventory_value(row, "unavailable_account_count"),
+        "availability_reason": _inventory_text(row, "availability_reason"),
         "runtime_account_count": _runtime_count(row),
         "visible_account_gap": _visible_gap(row),
         "runtime_status": str(row.get("status") or ""),

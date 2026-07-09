@@ -72,6 +72,7 @@ class PropertyDecisionWorkbenchRunContract:
     source_variant_display_total: int = 0
     selected_platform_count: int = 0
     route_previews: list[object] = field(default_factory=list)
+    current_property: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

@@ -53,7 +53,10 @@ from app.api.routes.public_tour_payloads import (
     redacted_public_tour_scenes as _payload_redacted_public_tour_scenes,
     require_public_tour_viewable as _payload_require_public_tour_viewable,
 )
-from app.product.property_tour_hosting import _PROPERTY_GENERATED_RECONSTRUCTION_VIEWER_VERSION
+from app.product.property_tour_hosting import (
+    _PROPERTY_GENERATED_RECONSTRUCTION_VIEWER_VERSION,
+    _hosted_property_tour_preview_image_url,
+)
 from app.product.service import _property_feedback_reason_map, build_product_service
 from app.services.public_clickrank import clickrank_head_snippet, request_hostname, request_path
 from app.services.property_market_catalog import currency_code_for_country, supported_currency_codes
@@ -1873,6 +1876,179 @@ def _public_tour_is_generated_reconstruction_only(payload: dict[str, object]) ->
         return False
     provider = str(generated_reconstruction.get("provider") or "").strip().lower()
     return provider == "propertyquarry_generated_reconstruction"
+
+
+def _generated_reconstruction_public_shell_ready(payload: dict[str, object]) -> bool:
+    generated_reconstruction = payload.get("generated_reconstruction")
+    if not isinstance(generated_reconstruction, dict):
+        return False
+    if str(generated_reconstruction.get("provider") or "").strip().lower() != "propertyquarry_generated_reconstruction":
+        return False
+    if _truthy(generated_reconstruction.get("verified_provider_capture")):
+        return False
+    slug = str(payload.get("slug") or "").strip()
+    if not slug:
+        return False
+    if str(generated_reconstruction.get("viewer_version") or "").strip() != _PROPERTY_GENERATED_RECONSTRUCTION_VIEWER_VERSION:
+        return False
+    bundle_dir = _tour_bundle_dir(slug)
+    if bundle_dir is None:
+        return False
+    bundle_root = bundle_dir.resolve()
+
+    def _bundle_file(relpath: object) -> Path | None:
+        safe_relpath = _public_tour_safe_asset_relpath(relpath)
+        if not safe_relpath:
+            return None
+        candidate = (bundle_root / safe_relpath).resolve()
+        if bundle_root not in candidate.parents or not candidate.is_file():
+            return None
+        return candidate
+
+    viewer_path = _bundle_file(generated_reconstruction.get("viewer_relpath"))
+    walkthrough_path = _bundle_file(generated_reconstruction.get("walkthrough_video_relpath"))
+    walkthrough_sidecar_path = _bundle_file(generated_reconstruction.get("walkthrough_sidecar_relpath"))
+    if viewer_path is None or walkthrough_path is None or walkthrough_sidecar_path is None:
+        return False
+
+    photo_paths = [
+        path
+        for path in (
+            _bundle_file(raw_relpath)
+            for raw_relpath in list(generated_reconstruction.get("photo_relpaths") or [])
+        )
+        if path is not None
+    ]
+    if len(photo_paths) < 2:
+        return False
+    floorplan_path = _bundle_file(generated_reconstruction.get("floorplan_relpath"))
+    if floorplan_path is None and len(photo_paths) < 3:
+        return False
+
+    route_labels = [
+        str(label or "").strip()
+        for label in list(generated_reconstruction.get("route_labels") or [])
+        if str(label or "").strip()
+    ]
+    if not route_labels:
+        return False
+    try:
+        room_stop_count = int(generated_reconstruction.get("room_stop_count") or len(route_labels))
+    except Exception:
+        return False
+    if room_stop_count <= 0 or room_stop_count != len(route_labels):
+        return False
+
+    walkthrough_route_labels = [
+        str(label or "").strip()
+        for label in list(generated_reconstruction.get("walkthrough_route_labels") or [])
+        if str(label or "").strip()
+    ]
+    try:
+        walkthrough_stop_count = int(generated_reconstruction.get("walkthrough_stop_count") or len(walkthrough_route_labels))
+    except Exception:
+        return False
+    if not walkthrough_route_labels or walkthrough_stop_count <= 0 or walkthrough_stop_count != len(walkthrough_route_labels):
+        return False
+    if walkthrough_stop_count < room_stop_count:
+        return False
+
+    receipt: dict[str, object] = {}
+    receipt_path = _bundle_file(generated_reconstruction.get("manifest_relpath"))
+    if receipt_path is not None:
+        try:
+            parsed_receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False
+        if not isinstance(parsed_receipt, dict):
+            return False
+        receipt = parsed_receipt
+
+    walkable_scene = (
+        dict(generated_reconstruction.get("walkable_scene") or {})
+        if isinstance(generated_reconstruction.get("walkable_scene"), dict)
+        else {}
+    )
+    if not walkable_scene and isinstance(receipt.get("walkable_scene"), dict):
+        walkable_scene = dict(receipt.get("walkable_scene") or {})
+    if str(walkable_scene.get("kind") or "").strip() != "generated_reconstruction_layout":
+        return False
+    route_stops = list(walkable_scene.get("route") or []) if isinstance(walkable_scene.get("route"), list) else []
+    room_stops = list(walkable_scene.get("rooms") or []) if isinstance(walkable_scene.get("rooms"), list) else []
+    if len(route_stops) != room_stop_count or len(room_stops) != room_stop_count:
+        return False
+    route_stop_labels: list[str] = []
+    room_stop_labels: list[str] = []
+    for stop in route_stops:
+        if not isinstance(stop, dict):
+            return False
+        label = str(stop.get("label") or stop.get("room") or stop.get("name") or "").strip()
+        focus = dict(stop.get("focus") or {}) if isinstance(stop.get("focus"), dict) else {}
+        camera = dict(stop.get("camera") or {}) if isinstance(stop.get("camera"), dict) else {}
+        if not label or not focus or not camera:
+            return False
+        route_stop_labels.append(label)
+    for room in room_stops:
+        if not isinstance(room, dict):
+            return False
+        label = str(room.get("label") or room.get("room") or room.get("name") or "").strip()
+        position = dict(room.get("position") or {}) if isinstance(room.get("position"), dict) else {}
+        focus = dict(room.get("focus") or {}) if isinstance(room.get("focus"), dict) else {}
+        if not label or not position or not focus:
+            return False
+        room_stop_labels.append(label)
+    if [label.lower() for label in route_stop_labels] != [label.lower() for label in route_labels]:
+        return False
+    if [label.lower() for label in room_stop_labels] != [label.lower() for label in route_labels]:
+        return False
+
+    coverage = (
+        dict(generated_reconstruction.get("walkthrough_coverage_proof") or {})
+        if isinstance(generated_reconstruction.get("walkthrough_coverage_proof"), dict)
+        else {}
+    )
+    if not coverage and isinstance(receipt.get("walkthrough"), dict):
+        coverage = (
+            dict(dict(receipt.get("walkthrough") or {}).get("coverage_proof") or {})
+            if isinstance(dict(receipt.get("walkthrough") or {}).get("coverage_proof"), dict)
+            else {}
+        )
+    if not coverage:
+        try:
+            parsed_sidecar = json.loads(walkthrough_sidecar_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False
+        if isinstance(parsed_sidecar, dict):
+            coverage = (
+                dict(parsed_sidecar.get("walkthrough_coverage_proof") or {})
+                if isinstance(parsed_sidecar.get("walkthrough_coverage_proof"), dict)
+                else {}
+            )
+    if str(coverage.get("status") or "").strip().lower() != "pass":
+        return False
+
+    if receipt:
+        geometry = dict(receipt.get("geometry") or {}) if isinstance(receipt.get("geometry"), dict) else {}
+        try:
+            wall_rect_count = int(geometry.get("wall_rect_count") or 0)
+        except Exception:
+            wall_rect_count = 0
+        if wall_rect_count < 4:
+            return False
+        room_dimensions = dict(receipt.get("room_dimensions_m") or {}) if isinstance(receipt.get("room_dimensions_m"), dict) else {}
+        try:
+            width_m = float(room_dimensions.get("width") or 0.0)
+            depth_m = float(room_dimensions.get("depth") or 0.0)
+            height_m = float(room_dimensions.get("height") or 0.0)
+        except Exception:
+            return False
+        if width_m <= 0.0 or depth_m <= 0.0 or height_m <= 0.0:
+            return False
+    return True
+
+
+def _generated_reconstruction_public_viewer_enabled(payload: dict[str, object]) -> bool:
+    return _public_tour_is_generated_reconstruction_only(payload) and _generated_reconstruction_public_shell_ready(payload)
 
 
 def _public_tour_request_prefers_embedded_media(request: Request) -> bool:
@@ -5034,12 +5210,13 @@ def _render_tour_unavailable_page(
     return response
 
 
-def _public_tour_security_headers(*, cache_control: str = "no-store") -> dict[str, str]:
+def _public_tour_security_headers(*, cache_control: str = "no-store", allow_base_uri_self: bool = False) -> dict[str, str]:
+    base_uri_policy = "'self'" if allow_base_uri_self else "'none'"
     return {
         "Cache-Control": cache_control,
         "Content-Security-Policy": (
             "default-src 'self'; "
-            "base-uri 'none'; "
+            f"base-uri {base_uri_policy}; "
             "object-src 'none'; "
             "frame-ancestors 'self'; "
             "img-src 'self' data: blob: https:; "
@@ -5075,18 +5252,13 @@ def public_tour_payload(slug: str) -> JSONResponse:
 @router.get("/tours/files/{slug}/{asset_path:path}")
 @router.head("/tours/files/{slug}/{asset_path:path}")
 def public_tour_file(slug: str, asset_path: str, request: Request):
-    payload = _load_tour(slug)
+    payload = _load_tour_with_private_receipt(slug)
     _require_public_tour_viewable(payload)
     safe_relpath = _public_tour_safe_asset_relpath(asset_path)
     safe_name = PurePosixPath(safe_relpath).name
     generated_asset_kind = _generated_reconstruction_non_tour_asset(payload, safe_relpath)
     if generated_asset_kind == "viewer":
-        embed_requested = _truthy(
-            request.query_params.get("embed")
-            or request.query_params.get("embedded")
-            or request.query_params.get("raw")
-        )
-        if not embed_requested:
+        if not _generated_reconstruction_public_viewer_enabled(payload):
             primary_control_path = _public_tour_primary_control_path(payload)
             if primary_control_path:
                 return RedirectResponse(
@@ -5122,6 +5294,11 @@ def public_tour_file(slug: str, asset_path: str, request: Request):
     file_path = _asset_file(slug, asset_path)
     media_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
     headers = _public_tour_security_headers(cache_control="public, max-age=86400, immutable")
+    if generated_asset_kind == "viewer":
+        headers = _public_tour_security_headers(cache_control="no-cache, max-age=0, must-revalidate")
+        headers["Cross-Origin-Resource-Policy"] = "same-origin"
+        headers["X-Frame-Options"] = "SAMEORIGIN"
+        headers["X-PropertyQuarry-Tour-Asset-Kind"] = "generated-reconstruction-viewer"
     if manifest_row.get("sha256"):
         headers["X-PropertyQuarry-Asset-SHA256"] = str(manifest_row["sha256"])
     if manifest_row.get("privacy_class"):
@@ -5166,6 +5343,10 @@ def public_tour_walkthrough(slug: str):
         raise HTTPException(status_code=404, detail="tour_disabled_fallback")
     video_relpath = _public_tour_safe_asset_relpath(str(payload.get("video_relpath") or "").strip())
     if not video_relpath:
+        video_relpath = _public_tour_safe_asset_relpath(
+            str(dict(payload.get("generated_reconstruction") or {}).get("walkthrough_video_relpath") or "").strip()
+        )
+    if not video_relpath:
         raise HTTPException(status_code=404, detail="tour_walkthrough_unavailable")
     file_path = _asset_file(slug, video_relpath)
     media_type = mimetypes.guess_type(str(file_path))[0] or "video/mp4"
@@ -5174,6 +5355,34 @@ def public_tour_walkthrough(slug: str):
         media_type=media_type,
         headers=_public_tour_security_headers(cache_control="public, max-age=86400, immutable"),
     )
+
+
+@router.get("/tours/{slug}/layout-preview", response_class=HTMLResponse)
+@router.head("/tours/{slug}/layout-preview", response_class=HTMLResponse)
+def public_tour_generated_layout_preview(slug: str, request: Request) -> HTMLResponse:
+    try:
+        payload = _load_tour_with_private_receipt(slug)
+        _require_public_tour_viewable(payload)
+        if _tour_payload_is_disabled_fallback(payload):
+            raise HTTPException(status_code=404, detail="tour_disabled_fallback")
+        primary_control_path = _public_tour_primary_control_path(payload)
+        if primary_control_path:
+            return RedirectResponse(
+                primary_control_path,
+                status_code=302,
+                headers=_public_tour_security_headers(),
+            )
+        if _generated_reconstruction_layout_preview_relpath(payload):
+            return _generated_reconstruction_public_launch_response(payload, layout_focus=True, request=request)
+        if _public_tour_is_generated_reconstruction_only(payload):
+            return _generated_reconstruction_public_launch_response(payload, layout_focus=True, request=request)
+        html_body = _generated_reconstruction_layout_preview_html(slug=slug, payload=payload)
+        return HTMLResponse(html_body, headers=_public_tour_security_headers(allow_base_uri_self=True))
+    except HTTPException as exc:
+        detail = str(exc.detail or "").strip().lower()
+        if exc.status_code == 404 and detail in {"tour_disabled_fallback", "tour_generated_layout_preview_unavailable"}:
+            return _render_generated_reconstruction_not_tour_page(request)
+        raise
 
 
 def _tour_control_html(payload: dict[str, object], *, viewer_mode: str = "", fullscreen: bool = False) -> str:
@@ -5252,6 +5461,12 @@ def _safe_matterport_external_url(value: object) -> str:
 def _public_tour_walkthrough_media_context(payload: dict[str, object]) -> tuple[str, str]:
     slug = str(payload.get("slug") or "").strip()
     video_relpath = _public_tour_safe_asset_relpath(str(payload.get("video_relpath") or "").strip())
+    if not video_relpath:
+        generated_reconstruction = payload.get("generated_reconstruction")
+        if isinstance(generated_reconstruction, dict):
+            video_relpath = _public_tour_safe_asset_relpath(
+                str(generated_reconstruction.get("walkthrough_video_relpath") or "").strip()
+            )
     raw_video_url = str(payload.get("video_url") or "").strip()
     video_url = ""
     mime_source_path = ""
@@ -5263,6 +5478,1171 @@ def _public_tour_walkthrough_media_context(payload: dict[str, object]) -> tuple[
         mime_source_path = urllib.parse.urlparse(raw_video_url).path
     video_mime_type = mimetypes.guess_type(mime_source_path)[0] or "video/mp4"
     return video_url, video_mime_type
+
+
+def _generated_reconstruction_walkthrough_scenes(payload: dict[str, object]) -> list[dict[str, str]]:
+    generated_reconstruction = payload.get("generated_reconstruction")
+    if not isinstance(generated_reconstruction, dict):
+        return []
+    walkthrough_labels: list[str] = []
+    for raw_label in list(
+        generated_reconstruction.get("walkthrough_route_labels")
+        or dict(generated_reconstruction.get("walkthrough_coverage_proof") or {}).get("segments_expected")
+        or generated_reconstruction.get("route_labels")
+        or []
+    ):
+        label = str(raw_label or "").strip()
+        if label and label.lower() not in {item.lower() for item in walkthrough_labels}:
+            walkthrough_labels.append(label)
+    scenes: list[dict[str, str]] = []
+    floorplan_relpath = _public_tour_safe_asset_relpath(str(generated_reconstruction.get("floorplan_relpath") or "").strip())
+    if floorplan_relpath:
+        scenes.append(
+            {
+                "name": "Route floorplan",
+                "role": "floorplan",
+                "asset_relpath": floorplan_relpath,
+                "mime_type": mimetypes.guess_type(floorplan_relpath)[0] or "image/jpeg",
+            }
+        )
+    for index, raw_relpath in enumerate(list(generated_reconstruction.get("photo_relpaths") or []), start=1):
+        relpath = _public_tour_safe_asset_relpath(str(raw_relpath or "").strip())
+        if not relpath:
+            continue
+        label = (
+            walkthrough_labels[min(index - 1, len(walkthrough_labels) - 1)]
+            if walkthrough_labels
+            else f"Room photo {index:02d}"
+        )
+        scenes.append(
+            {
+                "name": label,
+                "role": "photo",
+                "asset_relpath": relpath,
+                "mime_type": mimetypes.guess_type(relpath)[0] or "image/jpeg",
+            }
+        )
+    return scenes
+
+
+def _payload_with_generated_reconstruction_walkthrough(payload: dict[str, object]) -> dict[str, object]:
+    generated_reconstruction = payload.get("generated_reconstruction")
+    if not isinstance(generated_reconstruction, dict):
+        return {}
+    walkthrough_relpath = _public_tour_safe_asset_relpath(
+        str(generated_reconstruction.get("walkthrough_video_relpath") or "").strip()
+    )
+    if not walkthrough_relpath:
+        return {}
+    augmented = dict(payload)
+    augmented["video_relpath"] = walkthrough_relpath
+    augmented.setdefault("video_provider", "propertyquarry_generated_reconstruction")
+    existing_scenes = list(augmented.get("scenes") or []) if isinstance(augmented.get("scenes"), list) else []
+    if not existing_scenes:
+        generated_scenes = _generated_reconstruction_walkthrough_scenes(payload)
+        if generated_scenes:
+            augmented["scenes"] = generated_scenes
+    return augmented
+
+
+def _generated_reconstruction_route_labels(payload: dict[str, object]) -> list[str]:
+    generated_reconstruction = payload.get("generated_reconstruction")
+    if not isinstance(generated_reconstruction, dict):
+        return []
+    labels: list[str] = []
+    for raw_label in list(generated_reconstruction.get("route_labels") or []):
+        label = str(raw_label or "").strip()
+        if label and label.lower() not in {item.lower() for item in labels}:
+            labels.append(label)
+    return labels
+
+
+def _normalized_generated_reconstruction_label(value: object) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip().lower())
+
+
+def _generated_reconstruction_launch_route_actions(
+    payload: dict[str, object],
+    *,
+    scene_entries: list[dict[str, str]],
+) -> list[dict[str, object]]:
+    generated_reconstruction = payload.get("generated_reconstruction")
+    if not isinstance(generated_reconstruction, dict):
+        return []
+    route_labels = _generated_reconstruction_route_labels(payload)
+    coverage = (
+        dict(generated_reconstruction.get("walkthrough_coverage_proof") or {})
+        if isinstance(generated_reconstruction.get("walkthrough_coverage_proof"), dict)
+        else {}
+    )
+    coverage_segments = [dict(row) for row in list(coverage.get("coverage_segments") or []) if isinstance(row, dict)]
+    photo_scene_indices: list[int] = []
+    photo_scene_index_by_label: dict[str, int] = {}
+    floorplan_scene_index = -1
+    for index, row in enumerate(scene_entries):
+        role = str(row.get("role") or "").strip().lower()
+        label_key = _normalized_generated_reconstruction_label(row.get("preview_label") or row.get("name"))
+        if role == "floorplan" and floorplan_scene_index < 0:
+            floorplan_scene_index = index
+        if role != "photo":
+            continue
+        photo_scene_indices.append(index)
+        if label_key and label_key not in photo_scene_index_by_label:
+            photo_scene_index_by_label[label_key] = index
+    fallback_scene_index = floorplan_scene_index if floorplan_scene_index >= 0 else (photo_scene_indices[0] if photo_scene_indices else (0 if scene_entries else -1))
+    actions: list[dict[str, object]] = []
+    for index, label in enumerate(route_labels):
+        start_seconds = 0.0
+        end_seconds = 0.0
+        matched = False
+        for segment in coverage_segments:
+            segment_label = str(segment.get("segment") or "").strip()
+            if segment_label.lower() != label.lower():
+                continue
+            try:
+                start_seconds = max(0.0, float(segment.get("start") or 0.0))
+            except Exception:
+                start_seconds = 0.0
+            try:
+                end_seconds = max(start_seconds, float(segment.get("end") or 0.0))
+            except Exception:
+                end_seconds = start_seconds
+            matched = True
+            break
+        if not matched and index < len(coverage_segments):
+            try:
+                start_seconds = max(0.0, float(coverage_segments[index].get("start") or 0.0))
+            except Exception:
+                start_seconds = 0.0
+            try:
+                end_seconds = max(start_seconds, float(coverage_segments[index].get("end") or 0.0))
+            except Exception:
+                end_seconds = start_seconds
+        normalized_label = _normalized_generated_reconstruction_label(label)
+        scene_index = photo_scene_index_by_label.get(normalized_label, -1)
+        if scene_index < 0 and photo_scene_indices and index < len(photo_scene_indices):
+            scene_index = photo_scene_indices[index]
+        if scene_index < 0:
+            scene_index = fallback_scene_index
+        resolved_label = ""
+        focus_mode = ""
+        if 0 <= scene_index < len(scene_entries):
+            resolved_label = _normalized_generated_reconstruction_label(
+                scene_entries[scene_index].get("preview_label") or scene_entries[scene_index].get("name")
+            )
+            focus_mode = str(scene_entries[scene_index].get("role") or scene_entries[scene_index].get("kind") or "").strip().lower()
+        actions.append(
+            {
+                "index": index,
+                "label": label,
+                "start_seconds": round(start_seconds, 3),
+                "end_seconds": round(end_seconds, 3),
+                "scene_index": scene_index,
+                "focus_label": label if normalized_label and normalized_label != resolved_label else "",
+                "focus_mode": focus_mode,
+                "cue_label": _generated_reconstruction_focus_mode_label(focus_mode),
+            }
+        )
+    for index, action in enumerate(actions):
+        start_seconds = max(0.0, float(action.get("start_seconds") or 0.0))
+        end_seconds = max(start_seconds, float(action.get("end_seconds") or 0.0))
+        if index + 1 < len(actions):
+            next_start = max(0.0, float(actions[index + 1].get("start_seconds") or 0.0))
+            if next_start > end_seconds:
+                end_seconds = next_start
+        duration_seconds = max(0.0, end_seconds - start_seconds)
+        action["end_seconds"] = round(end_seconds, 3)
+        action["duration_seconds"] = round(duration_seconds, 3)
+        action["duration_label"] = _generated_reconstruction_duration_label(duration_seconds)
+    return actions
+
+
+def _generated_reconstruction_focus_mode_label(value: object) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized == "floorplan":
+        return "Floorplan cue"
+    if normalized == "photo":
+        return "Photo cue"
+    if normalized == "document":
+        return "Document cue"
+    return "Reference cue"
+
+
+def _generated_reconstruction_duration_label(value: object) -> str:
+    try:
+        numeric_seconds = float(value or 0.0)
+    except Exception:
+        return ""
+    total_seconds = max(1, int(round(numeric_seconds))) if numeric_seconds > 0 else 0
+    if total_seconds <= 0:
+        return ""
+    minutes, seconds = divmod(total_seconds, 60)
+    if minutes and seconds:
+        return f"{minutes}m {seconds:02d}s"
+    if minutes:
+        return f"{minutes}m"
+    return f"{seconds}s"
+
+
+def _render_generated_reconstruction_not_tour_page(request: Request) -> HTMLResponse:
+    return _render_tour_unavailable_page(
+        request,
+        status_code=404,
+        title="This tour link is no longer available.",
+        summary="This link points to a generated layout reconstruction, not a published 3D tour.",
+        status_label="Tour unavailable",
+        rows=[
+            {
+                "label": "Surface",
+                "value": "Generated reconstruction",
+                "detail": "PropertyQuarry no longer presents generated layout reconstructions as public 3D tours.",
+            },
+            {
+                "label": "Next step",
+                "value": "Open PropertyQuarry",
+                "detail": "Use the property page for the diorama and walkthrough, or request a fresh 3D tour once provider media is ready.",
+            },
+        ],
+    )
+
+
+def _generated_reconstruction_public_launch_response(
+    payload: dict[str, object],
+    *,
+    layout_focus: bool = False,
+    request: Request | None = None,
+) -> HTMLResponse:
+    launch_payload = _generated_reconstruction_launch_payload(payload, layout_focus=layout_focus)
+    if not launch_payload:
+        raise HTTPException(status_code=404, detail="tour_generated_layout_preview_unavailable")
+    if request is not None and _truthy(request.query_params.get("browser_shell_probe")):
+        launch_payload = {**launch_payload, "_generated_reconstruction_browser_shell_probe": True}
+    return HTMLResponse(
+        _generated_reconstruction_public_launch_html(launch_payload),
+        headers=_public_tour_security_headers(allow_base_uri_self=True),
+    )
+
+
+def _generated_reconstruction_launch_payload(
+    payload: dict[str, object],
+    *,
+    layout_focus: bool = False,
+) -> dict[str, object]:
+    generated_reconstruction = payload.get("generated_reconstruction")
+    if not isinstance(generated_reconstruction, dict):
+        return {}
+    if not _generated_reconstruction_public_shell_ready(payload):
+        return {}
+    augmented = dict(payload)
+    generated_scenes = _generated_reconstruction_walkthrough_scenes(payload)
+    if generated_scenes:
+        augmented["scenes"] = generated_scenes
+    walkthrough_relpath = _public_tour_safe_asset_relpath(
+        str(generated_reconstruction.get("walkthrough_video_relpath") or "").strip()
+    )
+    if walkthrough_relpath:
+        augmented["video_relpath"] = walkthrough_relpath
+        augmented.setdefault("video_provider", "propertyquarry_generated_reconstruction")
+        augmented.setdefault("video_coverage_proof", "boundary_verified_frame_continuation")
+    lead_preview_url = ""
+    for key in ("diorama_preview_relpath", "preview_relpath"):
+        relpath = _public_tour_safe_asset_relpath(
+            str(payload.get(key) or generated_reconstruction.get(key) or "").strip()
+        )
+        if relpath:
+            lead_preview_url = _public_tour_file_url(str(payload.get("slug") or "").strip(), relpath)
+            break
+    if not lead_preview_url:
+        lead_preview_url = _hosted_property_tour_preview_image_url(f"/tours/{str(payload.get('slug') or '').strip()}")
+    if lead_preview_url:
+        augmented["_lead_preview_url"] = lead_preview_url
+    augmented["_generated_reconstruction_public_shell"] = True
+    if layout_focus:
+        augmented["_generated_reconstruction_layout_focus"] = True
+    return augmented
+
+
+def _generated_reconstruction_layout_preview_relpath(payload: dict[str, object]) -> str:
+    generated_reconstruction = payload.get("generated_reconstruction")
+    if not isinstance(generated_reconstruction, dict):
+        return ""
+    provider = str(generated_reconstruction.get("provider") or "").strip().lower()
+    if provider != "propertyquarry_generated_reconstruction":
+        return ""
+    if bool(generated_reconstruction.get("verified_provider_capture")):
+        return ""
+    viewer_version = str(generated_reconstruction.get("viewer_version") or "").strip()
+    if viewer_version != _PROPERTY_GENERATED_RECONSTRUCTION_VIEWER_VERSION:
+        return ""
+    if not _generated_reconstruction_public_shell_ready(payload):
+        return ""
+    viewer_relpath = _public_tour_safe_asset_relpath(str(generated_reconstruction.get("viewer_relpath") or "").strip())
+    if not viewer_relpath:
+        return ""
+    return viewer_relpath
+
+
+def _generated_reconstruction_layout_preview_html(*, slug: str, payload: dict[str, object]) -> str:
+    if not _generated_reconstruction_public_shell_ready(payload):
+        raise HTTPException(status_code=404, detail="tour_generated_layout_preview_unavailable")
+    viewer_relpath = _generated_reconstruction_layout_preview_relpath(payload)
+    if not viewer_relpath:
+        raise HTTPException(status_code=404, detail="tour_generated_layout_preview_unavailable")
+    viewer_path = _asset_file(slug, viewer_relpath)
+    html_body = viewer_path.read_text(encoding="utf-8")
+    base_href = f"/tours/files/{urllib.parse.quote(slug, safe='')}/generated-reconstruction/"
+    if "<base " not in html_body:
+        if "<head>" in html_body:
+            html_body = html_body.replace("<head>", f'<head>\n  <base href="{html.escape(base_href)}">', 1)
+        elif "<html>" in html_body:
+            html_body = html_body.replace(
+                "<html>",
+                f'<html><head><base href="{html.escape(base_href)}"></head>',
+                1,
+            )
+        else:
+            html_body = f'<!doctype html><html><head><base href="{html.escape(base_href)}"></head><body>{html_body}</body></html>'
+    return html_body
+
+
+def _generated_reconstruction_public_launch_html(payload: dict[str, object]) -> str:
+    slug = str(payload.get("slug") or "").strip()
+    title_text = str(payload.get("display_title") or payload.get("title") or slug or "Layout walkthrough").strip()
+    title = html.escape(title_text)
+    layout_focus = bool(payload.get("_generated_reconstruction_layout_focus"))
+    launch_mode = "layout_preview" if layout_focus else "tour_public_launch"
+    video_url, video_mime_type = _public_tour_walkthrough_media_context(payload)
+    route_labels = _generated_reconstruction_route_labels(payload)
+    scenes, _, _ = _tour_control_media_context(payload)
+    route_stop_count = len(route_labels)
+    photo_evidence_count = sum(1 for scene in scenes if str(scene.get("role") or "").strip().lower() == "photo")
+    floorplan_evidence_count = sum(1 for scene in scenes if str(scene.get("role") or "").strip().lower() == "floorplan")
+    scene_entries: list[dict[str, str]] = []
+    for scene in scenes:
+        image_url = str(scene.get("image_url") or "").strip()
+        scene_name = str(scene.get("name") or "Scene").strip() or "Scene"
+        mime_type = str(scene.get("mime_type") or "").strip().lower()
+        role = str(scene.get("role") or "").strip().lower()
+        is_pdf = mime_type.startswith("application/pdf")
+        scene_entries.append(
+            {
+                "url": image_url,
+                "name": scene_name,
+                "mime_type": mime_type,
+                "role": role,
+                "kind": "document" if is_pdf else "image",
+                "preview_label": "Plan reference" if role == "floorplan" else scene_name,
+            }
+        )
+    media_cards = "".join(
+        (
+            f"""
+            <button class="media-card" type="button" data-target="{html.escape(scene['url'])}" data-kind="{html.escape(scene['kind'])}" data-role="{html.escape(scene['role'])}" data-name="{html.escape(scene['name'])}" data-preview-label="{html.escape(scene['preview_label'])}">
+              <img src="{html.escape(scene['url'])}" alt="{html.escape(scene['name'])}" referrerpolicy="no-referrer">
+              <strong>{html.escape(scene['name'])}</strong>
+            </button>"""
+            if scene["kind"] != "document"
+            else f"""
+            <button class="media-card media-card-doc" type="button" data-target="{html.escape(scene['url'])}" data-kind="document" data-role="{html.escape(scene['role'])}" data-name="{html.escape(scene['name'])}" data-preview-label="{html.escape(scene['preview_label'])}">
+              <span class="doc-mark">PDF</span>
+              <strong>{html.escape(scene['name'])}</strong>
+            </button>"""
+            )
+        for scene in scene_entries
+    )
+    first_scene_url_raw = str(scene_entries[0].get("url") or "").strip() if scene_entries else ""
+    first_scene_url = html.escape(first_scene_url_raw)
+    first_scene_name = html.escape(str(scene_entries[0].get("name") or "Reference scene")) if scene_entries else "Reference scene"
+    lead_preview_url_raw = str(payload.get("_lead_preview_url") or first_scene_url_raw or "").strip()
+    lead_preview_url = html.escape(lead_preview_url_raw)
+    route_actions = _generated_reconstruction_launch_route_actions(payload, scene_entries=scene_entries)
+    initial_route_action = dict(route_actions[0]) if route_actions else {}
+    initial_route_label = html.escape(
+        str(initial_route_action.get("focus_label") or initial_route_action.get("label") or "Route stop").strip() or "Route stop"
+    )
+    initial_route_position = (
+        f"Stop {int(initial_route_action.get('index') or 0) + 1} / {len(route_actions)}"
+        if route_actions
+        else "Route stop"
+    )
+    initial_route_mode = _generated_reconstruction_focus_mode_label(initial_route_action.get("focus_mode"))
+    initial_route_summary_parts = [
+        part
+        for part in (
+            initial_route_mode,
+            str(initial_route_action.get("duration_label") or "").strip(),
+        )
+        if part
+    ]
+    initial_route_summary = html.escape(" · ".join(initial_route_summary_parts) or initial_route_mode or "Reference cue")
+    has_floorplan_reference = any(str(scene.get("role") or "").strip().lower() == "floorplan" for scene in scene_entries)
+    layout_viewer_relpath = _generated_reconstruction_layout_preview_relpath(payload)
+    layout_viewer_open_url_raw = (
+        f"/tours/files/{urllib.parse.quote(slug, safe='')}/{urllib.parse.quote(layout_viewer_relpath, safe='/')}"
+        if slug and layout_viewer_relpath
+        else ""
+    )
+    layout_viewer_embed_url_raw = (
+        f"/tours/files/{urllib.parse.quote(slug, safe='')}/{urllib.parse.quote(layout_viewer_relpath, safe='/')}?embed=1"
+        if slug and layout_viewer_relpath
+        else ""
+    )
+    if layout_viewer_embed_url_raw and bool(payload.get("_generated_reconstruction_browser_shell_probe")):
+        layout_viewer_embed_url_raw = f"{layout_viewer_embed_url_raw}&shell_probe=1"
+    layout_viewer_open_url = html.escape(layout_viewer_open_url_raw)
+    layout_viewer_embed_url = html.escape(layout_viewer_embed_url_raw)
+    layout_viewer_poster_url_raw = lead_preview_url_raw or first_scene_url_raw
+    layout_viewer_poster_url = html.escape(layout_viewer_poster_url_raw)
+    route_stat_label = f"{route_stop_count} stop{'s' if route_stop_count != 1 else ''}"
+    photo_stat_label = f"{photo_evidence_count} photo{'s' if photo_evidence_count != 1 else ''}"
+    plan_stat_label = f"{floorplan_evidence_count} plan cue{'s' if floorplan_evidence_count != 1 else ''}"
+    hero_eyebrow = "PropertyQuarry layout preview" if layout_focus else "PropertyQuarry layout tour"
+    hero_sub = (
+        "Start in the interactive layout viewer, then compare the room route and source images from the same generated reconstruction."
+        if layout_focus
+        else "Walk the likely room order, inspect the floorplan, and compare the source images from one guided surface. This is built from the floorplan and listing photos, not from a captured provider tour."
+    )
+    lead_preview_badge = "Generated diorama"
+    lead_preview_title = "Start with room adjacency" if layout_focus else "Likely spatial layout"
+    lead_preview_copy = (
+        "Open the layout viewer first, then use the walkthrough and source deck to double-check room order, connections, and likely light."
+        if layout_focus
+        else "Built from the floorplan and listing photos so you can screen room order, adjacency, and likely light before opening the walkthrough."
+    )
+    primary_cta_href = (
+        "#layout-viewer"
+        if layout_focus and layout_viewer_embed_url_raw
+        else "#walkthrough"
+    )
+    primary_cta_label = (
+        "Open layout viewer"
+        if layout_focus and layout_viewer_embed_url_raw
+        else ("Play walkthrough" if video_url else "Start room route")
+    )
+    secondary_cta_href = "#walkthrough" if layout_focus else "#reference-focus"
+    secondary_cta_label = (
+        "Play room route"
+        if layout_focus and video_url
+        else ("Start room route" if layout_focus else ("Review floorplan cue" if has_floorplan_reference else "Review reference deck"))
+    )
+    route_markup = "".join(
+        f"""
+        <li>
+          <button class="route-action" type="button" data-route-index="{int(action['index'])}" data-route-label="{html.escape(str(action['label'] or 'Route stop'))}" data-seek-start="{float(action['start_seconds']):.3f}" data-seek-end="{float(action['end_seconds']):.3f}" data-duration-seconds="{float(action['duration_seconds']):.3f}" data-duration-label="{html.escape(str(action.get('duration_label') or ''))}" data-cue-label="{html.escape(str(action.get('cue_label') or 'Reference cue'))}" data-scene-index="{int(action['scene_index'])}" data-focus-label="{html.escape(str(action['focus_label'] or ''))}" data-focus-mode="{html.escape(str(action['focus_mode'] or ''))}">
+            <span class="route-step">{int(action['index']) + 1}</span>
+            <span class="route-copy">
+              <strong class="route-name">{html.escape(str(action['label'] or 'Route stop'))}</strong>
+              <span class="route-meta">
+                <span class="route-pill">{html.escape(str(action.get('cue_label') or 'Reference cue'))}</span>
+                {f'<span class="route-pill muted">{html.escape(str(action.get("duration_label") or ""))}</span>' if str(action.get("duration_label") or "").strip() else ''}
+              </span>
+            </span>
+          </button>
+        </li>"""
+        for action in route_actions
+    )
+    layout_viewer_section = (
+        f'''
+      <section class="card layout-viewer-card" id="layout-viewer">
+        <div class="layout-viewer-head">
+          <div class="stack">
+            <div class="eyebrow">{"Layout-first viewer" if layout_focus else "Spatial layout viewer"}</div>
+            <h2>{"Start in the layout viewer" if layout_focus else "Walk the generated layout"}</h2>
+            <p class="layout-viewer-note">{"The layout viewer is the main entrypoint on this page. Use the walkthrough and source deck below to cross-check what the generated route is suggesting." if layout_focus else "The same disclosed reconstruction, but with an interactive room-to-room spatial pass."}</p>
+          </div>
+          <a class="mini-btn" id="layout-viewer-open" href="{layout_viewer_open_url}" target="_blank" rel="noopener noreferrer">Open full viewer</a>
+        </div>
+        <div class="layout-viewer-shell">
+          <div class="layout-viewer-poster" id="layout-viewer-poster" style="{f"background-image:linear-gradient(180deg, rgba(255,252,245,.12), rgba(255,252,245,.02)), url('{layout_viewer_poster_url}');" if layout_viewer_poster_url_raw else ''}">
+            <div class="layout-viewer-poster-copy">
+              <div class="eyebrow">{"Layout-first entry" if layout_focus else "Interactive layout viewer"}</div>
+              <strong>{"Loading the room layout" if layout_focus else "Loading spatial layout"}</strong>
+              <p>{"The generated layout opens first here so you can judge adjacency and route order before committing to the walkthrough." if layout_focus else "Room-to-room pass from the same generated reconstruction, with the disclosed layout ready inside the viewer."}</p>
+            </div>
+          </div>
+          <iframe id="layout-viewer-frame" src="{layout_viewer_embed_url}" title="{html.escape(title_text)} spatial layout viewer" loading="lazy" referrerpolicy="no-referrer"></iframe>
+        </div>
+        <p class="layout-viewer-note">Generated from the floorplan and listing photos. Use it to judge adjacency, route order, and approximate spatial proportion.</p>
+      </section>'''
+        if layout_viewer_embed_url_raw
+        else ""
+    )
+    return f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{title} | PropertyQuarry</title>
+    <style>
+      :root {{ color-scheme: light; --ink:#17130c; --muted:#766d5e; --paper:#f6f0e5; --card:rgba(255,252,245,.84); --line:rgba(54,42,27,.14); --gold:#a77c2b; --gold-soft:rgba(167,124,43,.14); --shadow:0 24px 70px rgba(68,47,24,.12); }}
+      * {{ box-sizing:border-box; }}
+      html, body {{ margin:0; min-height:100%; background:radial-gradient(circle at 18% 10%, rgba(255,255,255,.92), transparent 28%), linear-gradient(135deg,#faf6ed 0%,#efe4d1 48%,#d9c4a5 100%); color:var(--ink); font-family:Aptos, ui-sans-serif, system-ui, sans-serif; }}
+      body {{ padding:18px; }}
+      .shell {{ width:min(1320px, 100%); margin:0 auto; display:grid; gap:18px; }}
+      .hero {{ display:grid; grid-template-columns:minmax(0, 1.3fr) minmax(320px, .7fr); gap:18px; }}
+      .card {{ border:1px solid var(--line); border-radius:28px; background:var(--card); box-shadow:var(--shadow); }}
+      .hero-main {{ padding:24px; display:grid; gap:14px; }}
+      .eyebrow {{ color:var(--muted); font-size:12px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; }}
+      h1 {{ margin:0; font-family:Georgia, ui-serif, serif; font-size:clamp(34px, 5vw, 62px); line-height:.92; letter-spacing:-.055em; }}
+      .sub {{ margin:0; color:var(--muted); font-size:15px; line-height:1.5; max-width:52ch; }}
+      .actions {{ display:flex; flex-wrap:wrap; gap:10px; }}
+      .btn {{ min-height:46px; display:inline-flex; align-items:center; justify-content:center; border-radius:999px; padding:0 16px; font:inherit; font-weight:700; text-decoration:none; border:1px solid var(--line); }}
+      .btn.primary {{ background:#17130c; color:#fff7eb; border-color:#17130c; }}
+      .btn.secondary {{ background:var(--gold-soft); color:#6c4c16; }}
+      .hero-side {{ padding:0; display:grid; gap:0; align-content:start; overflow:hidden; }}
+      .lead-preview-shell {{ position:relative; min-height:420px; background:linear-gradient(160deg, #b69f7b 0%, #7f694c 100%); }}
+      .lead-preview-shell img {{ display:block; width:100%; min-height:420px; height:100%; object-fit:cover; background:#111; }}
+      .lead-preview-shell::after {{ content:""; position:absolute; inset:0; background:linear-gradient(180deg, rgba(17,13,9,.04) 0%, rgba(17,13,9,.14) 42%, rgba(17,13,9,.58) 100%); pointer-events:none; }}
+      .lead-preview-overlay {{ position:absolute; inset:auto 18px 18px 18px; z-index:1; display:grid; gap:10px; align-content:end; color:#fff7eb; text-shadow:0 2px 12px rgba(17,13,9,.24); }}
+      .lead-preview-badge {{ min-height:30px; width:fit-content; max-width:100%; display:inline-flex; align-items:center; padding:0 11px; border-radius:999px; border:1px solid rgba(255,247,235,.18); background:rgba(255,247,235,.12); color:inherit; font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }}
+      .lead-preview-title {{ max-width:11ch; font-family:Georgia, ui-serif, serif; font-size:clamp(26px, 3vw, 38px); line-height:.94; letter-spacing:-.04em; text-wrap:balance; }}
+      .lead-preview-caption {{ padding:16px 18px 18px; display:grid; gap:12px; border-top:1px solid rgba(54,42,27,.08); background:linear-gradient(180deg, rgba(255,252,245,.86), rgba(255,252,245,.72)); }}
+      .lead-preview-copy {{ margin:0; max-width:38ch; color:#5d5141; font-size:13px; line-height:1.45; }}
+      .lead-preview-stats {{ display:flex; flex-wrap:wrap; gap:8px; }}
+      .lead-preview-stat {{ min-height:30px; display:inline-flex; align-items:center; padding:0 11px; border-radius:999px; border:1px solid rgba(54,42,27,.1); background:rgba(255,255,255,.58); color:#6c4c16; font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }}
+      .stack {{ display:grid; gap:10px; }}
+      .kv {{ display:grid; gap:4px; border:1px solid var(--line); border-radius:18px; padding:12px 13px; background:rgba(255,255,255,.44); }}
+      .kv b {{ font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; }}
+      .stage {{ display:grid; grid-template-columns:minmax(0, 1.15fr) minmax(320px, .85fr); gap:18px; }}
+      .video-card {{ padding:16px; display:grid; gap:12px; }}
+      .video-stage {{ position:relative; overflow:hidden; border-radius:22px; border:1px solid var(--line); background:#111; }}
+      .video-stage video, .video-stage img {{ display:block; width:100%; min-height:360px; max-height:62vh; object-fit:cover; background:#111; }}
+      .walkthrough-hud {{ position:absolute; top:16px; left:16px; z-index:2; display:grid; gap:8px; max-width:min(72%, 460px); padding:14px 16px; border-radius:18px; background:linear-gradient(180deg, rgba(23,19,12,.78), rgba(23,19,12,.46)); color:#fff7eb; box-shadow:0 18px 40px rgba(16,12,7,.24); backdrop-filter:blur(10px); pointer-events:none; }}
+      .walkthrough-chip-row {{ display:flex; flex-wrap:wrap; gap:8px; }}
+      .walkthrough-chip {{ min-height:30px; display:inline-flex; align-items:center; padding:0 10px; border-radius:999px; border:1px solid rgba(255,247,235,.16); background:rgba(255,247,235,.12); color:inherit; font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }}
+      .walkthrough-chip.muted {{ background:rgba(255,247,235,.08); color:rgba(255,247,235,.88); }}
+      .walkthrough-stop-label {{ font-family:Georgia, ui-serif, serif; font-size:clamp(24px, 2.9vw, 34px); line-height:.98; letter-spacing:-.04em; text-wrap:balance; text-shadow:0 1px 0 rgba(0,0,0,.18); }}
+      .walkthrough-toolbar {{ display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; }}
+      .walkthrough-nav {{ display:flex; flex-wrap:wrap; gap:8px; }}
+      .mini-btn {{ min-height:40px; display:inline-flex; align-items:center; justify-content:center; border-radius:999px; padding:0 14px; border:1px solid var(--line); background:rgba(255,255,255,.58); color:#6c4c16; font:inherit; font-weight:700; cursor:pointer; }}
+      .mini-btn[disabled] {{ opacity:.42; cursor:default; }}
+      .walkthrough-route-summary {{ color:var(--muted); font-size:13px; font-weight:700; letter-spacing:.02em; }}
+      .walkthrough-progress {{ display:grid; gap:8px; }}
+      .walkthrough-progress-head {{ display:flex; align-items:center; justify-content:space-between; gap:12px; color:var(--muted); font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }}
+      .walkthrough-progress-track {{ position:relative; height:12px; border-radius:999px; background:rgba(108,76,22,.12); overflow:visible; }}
+      .walkthrough-progress-fill {{ position:absolute; inset:0 auto 0 0; width:0%; border-radius:999px; background:linear-gradient(90deg, #8c6620 0%, #d7b36c 100%); box-shadow:0 10px 18px rgba(140,102,32,.18); }}
+      .walkthrough-progress-marker {{ position:absolute; top:50%; width:14px; height:14px; margin:0; border:2px solid #fff7eb; border-radius:999px; background:rgba(167,124,43,.34); box-shadow:0 0 0 1px rgba(23,19,12,.06); transform:translate(-50%, -50%); cursor:pointer; }}
+      .walkthrough-progress-marker[data-focus-mode="floorplan"] {{ background:rgba(99,126,172,.5); }}
+      .walkthrough-progress-marker.is-active {{ background:#17130c; box-shadow:0 0 0 3px rgba(167,124,43,.22); }}
+      .video-note {{ margin:0; color:var(--muted); font-size:13px; line-height:1.45; }}
+      .sidebar {{ padding:18px; display:grid; gap:16px; align-content:start; }}
+      .sidebar-block {{ display:grid; gap:10px; align-content:start; }}
+      .sidebar h2 {{ margin:0; font-size:16px; letter-spacing:-.02em; }}
+      .reference-focus {{ display:grid; gap:10px; }}
+      .reference-shell {{ overflow:hidden; border-radius:20px; border:1px solid var(--line); background:rgba(255,255,255,.58); min-height:220px; display:grid; }}
+      .reference-shell img {{ display:block; width:100%; min-height:220px; height:100%; object-fit:cover; background:#fff; }}
+      .reference-shell-doc {{ min-height:220px; padding:18px; display:grid; align-content:center; gap:10px; background:linear-gradient(160deg, rgba(255,255,255,.72), rgba(247,239,225,.88)); }}
+      .reference-shell-doc strong {{ font-size:14px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }}
+      .reference-shell-doc b {{ font-family:Georgia, ui-serif, serif; font-size:28px; line-height:1; }}
+      .reference-meta {{ display:grid; gap:6px; }}
+      .reference-badge-row {{ display:flex; flex-wrap:wrap; gap:8px; }}
+      .reference-badge {{ min-height:28px; display:inline-flex; align-items:center; padding:0 10px; border-radius:999px; border:1px solid var(--line); background:rgba(255,255,255,.64); color:#6c4c16; font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }}
+      .reference-meta b {{ font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.1em; }}
+      .reference-meta strong {{ font-size:17px; line-height:1.2; }}
+      .reference-meta a {{ min-height:44px; display:inline-flex; align-items:center; justify-content:center; width:fit-content; max-width:100%; padding:0 16px; border-radius:999px; border:1px solid var(--line); background:rgba(255,255,255,.58); color:#6c4c16; font-weight:700; text-decoration:none; }}
+      .route-list {{ margin:0; padding-left:20px; display:grid; gap:8px; color:var(--ink); }}
+      .route-list li {{ line-height:1.35; }}
+      .route-action {{ width:100%; display:grid; grid-template-columns:auto 1fr; gap:10px; align-items:center; text-align:left; border:1px solid var(--line); border-radius:16px; background:rgba(255,255,255,.46); padding:10px 12px; color:inherit; font:inherit; cursor:pointer; }}
+      .route-action.is-active {{ border-color:rgba(108,76,22,.46); box-shadow:0 0 0 2px rgba(167,124,43,.16); background:rgba(255,255,255,.78); }}
+      .route-step {{ min-width:28px; height:28px; display:inline-grid; place-items:center; border-radius:999px; background:var(--gold-soft); color:#6c4c16; font-size:12px; font-weight:700; }}
+      .route-copy {{ display:grid; gap:5px; min-width:0; }}
+      .route-name {{ display:block; font-size:14px; line-height:1.2; }}
+      .route-meta {{ display:flex; flex-wrap:wrap; gap:6px; }}
+      .route-pill {{ min-height:24px; display:inline-flex; align-items:center; padding:0 8px; border-radius:999px; background:rgba(167,124,43,.14); color:#6c4c16; font-size:10px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }}
+      .route-pill.muted {{ background:rgba(23,19,12,.06); color:var(--muted); }}
+      .media-grid {{ display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }}
+      .media-card {{ width:100%; text-align:left; border:1px solid var(--line); border-radius:18px; background:rgba(255,255,255,.42); padding:0; color:inherit; cursor:pointer; overflow:hidden; }}
+      .media-card img {{ display:block; width:100%; aspect-ratio:1.25; object-fit:cover; background:#fff; }}
+      .media-card strong, .media-card .doc-mark {{ display:block; padding:10px 12px 12px; }}
+      .media-card-doc {{ min-height:170px; display:grid; align-content:center; justify-items:start; padding:16px; }}
+      .media-card.is-active {{ border-color:rgba(108,76,22,.46); box-shadow:0 0 0 2px rgba(167,124,43,.16); background:rgba(255,255,255,.76); }}
+      .doc-mark {{ font-size:28px; font-family:Georgia, ui-serif, serif; padding-bottom:2px; }}
+      .disclosure {{ margin:0; color:var(--muted); font-size:13px; line-height:1.45; }}
+      .layout-viewer-card {{ padding:18px; display:grid; gap:14px; }}
+      .layout-viewer-head {{ display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; gap:12px; }}
+      .layout-viewer-head h2 {{ margin:0; font-size:clamp(24px, 3.2vw, 34px); line-height:.98; letter-spacing:-.04em; font-family:Georgia, ui-serif, serif; }}
+      .layout-viewer-shell {{ position:relative; overflow:hidden; border-radius:24px; border:1px solid var(--line); background:linear-gradient(180deg, #f1e6d6, #e4d3bb); min-height:560px; }}
+      .layout-viewer-shell iframe {{ position:relative; z-index:2; display:block; width:100%; height:min(78vh, 860px); min-height:560px; border:0; background:#111; opacity:0; transition:opacity .24s ease; }}
+      .layout-viewer-shell.is-ready iframe {{ opacity:1; }}
+      .layout-viewer-poster {{ position:absolute; inset:0; z-index:1; display:grid; align-content:end; padding:22px; background-position:center; background-size:cover; background-repeat:no-repeat; transition:opacity .24s ease, visibility .24s ease; }}
+      .layout-viewer-poster::after {{ content:""; position:absolute; inset:0; background:linear-gradient(180deg, rgba(17,13,9,.1) 0%, rgba(17,13,9,.2) 40%, rgba(17,13,9,.72) 100%); }}
+      .layout-viewer-shell.is-ready .layout-viewer-poster {{ opacity:0; visibility:hidden; }}
+      .layout-viewer-poster-copy {{ position:relative; z-index:1; display:grid; gap:8px; width:min(420px, 100%); padding:18px; border-radius:22px; background:linear-gradient(180deg, rgba(23,19,12,.78), rgba(23,19,12,.52)); color:#fff7eb; box-shadow:0 18px 42px rgba(16,12,7,.18); backdrop-filter:blur(10px); }}
+      .layout-viewer-poster-copy strong {{ font-family:Georgia, ui-serif, serif; font-size:clamp(26px, 3vw, 34px); line-height:.96; letter-spacing:-.04em; }}
+      .layout-viewer-poster-copy p {{ margin:0; color:rgba(255,247,235,.88); font-size:13px; line-height:1.45; }}
+      .layout-viewer-note {{ margin:0; color:var(--muted); font-size:13px; line-height:1.5; max-width:62ch; }}
+      @media (max-width: 980px) {{
+        body {{ padding:10px; }}
+        .hero, .stage {{ grid-template-columns:1fr; }}
+        .sidebar-route {{ order:1; }}
+        .sidebar-reference {{ order:2; }}
+        .sidebar-deck {{ order:3; }}
+        .media-grid {{ grid-template-columns:repeat(2, minmax(0,1fr)); }}
+        .video-stage video, .video-stage img {{ min-height:280px; max-height:42vh; }}
+        .walkthrough-hud {{ max-width:calc(100% - 32px); }}
+        .layout-viewer-shell {{ min-height:460px; }}
+        .layout-viewer-shell iframe {{ min-height:460px; height:66vh; }}
+      }}
+      @media (max-width: 620px) {{
+        .hero-main, .hero-side, .video-card, .sidebar {{ border-radius:22px; }}
+        .lead-preview-shell, .lead-preview-shell img {{ min-height:320px; }}
+        .media-grid {{ grid-template-columns:1fr 1fr; }}
+        .walkthrough-hud {{ top:12px; left:12px; right:12px; padding:12px 13px; }}
+        .walkthrough-stop-label {{ font-size:22px; }}
+        .layout-viewer-shell {{ min-height:380px; }}
+        .layout-viewer-shell iframe {{ min-height:380px; height:58vh; }}
+      }}
+    </style>
+  </head>
+  <body>
+    <div class="shell" data-launch-mode="{html.escape(launch_mode)}">
+      <section class="hero">
+        <div class="card hero-main">
+          <div class="eyebrow">{html.escape(hero_eyebrow)}</div>
+          <h1>{title}</h1>
+          <p class="sub">{html.escape(hero_sub)}</p>
+          <div class="actions">
+            <a class="btn primary" href="{html.escape(primary_cta_href)}">{html.escape(primary_cta_label)}</a>
+            <a class="btn secondary" href="{html.escape(secondary_cta_href)}">{html.escape(secondary_cta_label)}</a>
+          </div>
+        </div>
+        <aside class="card hero-side" id="lead-preview-panel">
+          <div class="lead-preview-shell">
+            {f'<img id="lead-preview-image" src="{lead_preview_url}" alt="{html.escape(title_text)} generated diorama" referrerpolicy="no-referrer">' if lead_preview_url_raw else ''}
+            <div class="lead-preview-overlay">
+              <span class="lead-preview-badge" id="lead-preview-badge">{html.escape(lead_preview_badge)}</span>
+              <strong class="lead-preview-title">{html.escape(lead_preview_title)}</strong>
+            </div>
+          </div>
+          <div class="lead-preview-caption">
+            <p class="lead-preview-copy" id="lead-preview-copy">{html.escape(lead_preview_copy)}</p>
+            <div class="lead-preview-stats" id="lead-preview-stats">
+              <span class="lead-preview-stat">{html.escape(route_stat_label)}</span>
+              <span class="lead-preview-stat">{html.escape(photo_stat_label)}</span>
+              <span class="lead-preview-stat">{html.escape(plan_stat_label)}</span>
+            </div>
+          </div>
+        </aside>
+      </section>
+      {layout_viewer_section if layout_focus else ''}
+      <section class="stage">
+        <div class="card video-card" id="walkthrough">
+          <h2>Walkthrough</h2>
+          {f'''<div class="video-stage">
+            <div class="walkthrough-hud" id="walkthrough-hud" aria-live="polite" aria-atomic="true">
+              <div class="walkthrough-chip-row">
+                <span class="walkthrough-chip" id="walkthrough-stop-position">{html.escape(initial_route_position)}</span>
+                <span class="walkthrough-chip muted" id="walkthrough-stop-mode">{html.escape(initial_route_mode)}</span>
+              </div>
+              <strong class="walkthrough-stop-label" id="walkthrough-stop-name">{initial_route_label}</strong>
+            </div>
+            <video id="tour-video" controls playsinline webkit-playsinline="true" preload="metadata" poster="{first_scene_url}"><source src="{html.escape(video_url)}" type="{html.escape(video_mime_type)}"></video>
+          </div>''' if video_url else f'''<div class="video-stage">
+            <div class="walkthrough-hud" id="walkthrough-hud" aria-live="polite" aria-atomic="true">
+              <div class="walkthrough-chip-row">
+                <span class="walkthrough-chip" id="walkthrough-stop-position">{html.escape(initial_route_position)}</span>
+                <span class="walkthrough-chip muted" id="walkthrough-stop-mode">{html.escape(initial_route_mode)}</span>
+              </div>
+              <strong class="walkthrough-stop-label" id="walkthrough-stop-name">{initial_route_label}</strong>
+            </div>
+            <img src="{first_scene_url}" alt="{first_scene_name}">
+          </div>'''}
+          <div class="walkthrough-toolbar">
+            <div class="walkthrough-nav">
+              <button type="button" class="mini-btn" id="route-prev" aria-label="Go to previous route stop">Previous stop</button>
+              <button type="button" class="mini-btn" id="route-next" aria-label="Go to next route stop">Next stop</button>
+            </div>
+            <div class="walkthrough-route-summary" id="walkthrough-route-summary">{initial_route_summary}</div>
+          </div>
+          <div class="walkthrough-progress" aria-label="Walkthrough route progress">
+            <div class="walkthrough-progress-head">
+              <span id="walkthrough-progress-status">Route progress</span>
+              <span id="walkthrough-progress-time">0:00 / 0:00</span>
+            </div>
+            <div class="walkthrough-progress-track" id="walkthrough-progress-track">
+              <span class="walkthrough-progress-fill" id="walkthrough-progress-fill"></span>
+            </div>
+          </div>
+          <p class="video-note">The walkthrough follows the room route and keeps the floorplan visible as a secondary cue instead of pretending to be a captured 360 tour.</p>
+        </div>
+        <aside class="card sidebar">
+          <section class="reference-focus sidebar-block sidebar-reference" id="reference-focus">
+            <h2>Reference focus</h2>
+            <div class="reference-shell" id="reference-shell"></div>
+            <div class="reference-meta">
+              <b>Selected</b>
+              <div class="reference-badge-row">
+                <span class="reference-badge" id="reference-focus-kind">Reference cue</span>
+              </div>
+              <strong id="reference-focus-name">Reference scene</strong>
+              <a id="reference-focus-open" href="#" target="_blank" rel="noopener noreferrer">Open source image</a>
+            </div>
+          </section>
+          <section class="sidebar-block sidebar-route">
+            <h2>Room route</h2>
+            <ol class="route-list">{route_markup or '<li>Route labels unavailable</li>'}</ol>
+          </section>
+          <section class="sidebar-block sidebar-deck" id="reference-deck">
+            <h2>Reference deck</h2>
+            <div class="media-grid" id="media-grid">{media_cards or '<p class="disclosure">Reference media unavailable.</p>'}</div>
+          </section>
+        </aside>
+      </section>
+      {'' if layout_focus else layout_viewer_section}
+    </div>
+    <script>
+      const mediaCards = Array.from(document.querySelectorAll('[data-target]'));
+      const routeActions = Array.from(document.querySelectorAll('.route-action'));
+      const routeMetadata = routeActions
+        .map((action) => ({{
+          action,
+          routeIndex: Number(action.getAttribute('data-route-index')),
+          label: String(action.getAttribute('data-route-label') || '').trim(),
+          startSeconds: Number(action.getAttribute('data-seek-start')),
+          endSeconds: Number(action.getAttribute('data-seek-end')),
+          durationSeconds: Number(action.getAttribute('data-duration-seconds')),
+          durationLabel: String(action.getAttribute('data-duration-label') || '').trim(),
+          cueLabel: String(action.getAttribute('data-cue-label') || '').trim(),
+          sceneIndex: Number(action.getAttribute('data-scene-index')),
+          focusLabel: String(action.getAttribute('data-focus-label') || '').trim(),
+          focusMode: String(action.getAttribute('data-focus-mode') || '').trim(),
+        }}))
+      const routeMetadataByIndex = new Map(
+        routeMetadata
+          .filter((item) => Number.isFinite(item.routeIndex))
+          .map((item) => [item.routeIndex, item])
+      );
+      const routeTimeline = routeMetadata
+        .filter((item) => Number.isFinite(item.startSeconds))
+        .sort((left, right) => left.startSeconds - right.startSeconds);
+      const walkthroughVideo = document.getElementById('tour-video');
+      const referenceShell = document.getElementById('reference-shell');
+      const referenceFocusName = document.getElementById('reference-focus-name');
+      const referenceFocusKind = document.getElementById('reference-focus-kind');
+      const referenceFocusOpen = document.getElementById('reference-focus-open');
+      const walkthroughStopName = document.getElementById('walkthrough-stop-name');
+      const walkthroughStopPosition = document.getElementById('walkthrough-stop-position');
+      const walkthroughStopMode = document.getElementById('walkthrough-stop-mode');
+      const walkthroughRouteSummary = document.getElementById('walkthrough-route-summary');
+      const walkthroughProgressTrack = document.getElementById('walkthrough-progress-track');
+      const walkthroughProgressFill = document.getElementById('walkthrough-progress-fill');
+      const walkthroughProgressTime = document.getElementById('walkthrough-progress-time');
+      const routePrev = document.getElementById('route-prev');
+      const routeNext = document.getElementById('route-next');
+      const layoutViewerShell = document.querySelector('.layout-viewer-shell');
+      const layoutViewerFrame = document.getElementById('layout-viewer-frame');
+      const progressMarkers = new Map();
+      let pendingLayoutViewerRouteIndex = Number.NaN;
+      let layoutViewerSyncedRouteIndex = Number.NaN;
+      let layoutViewerLastState = null;
+      let layoutViewerRouteButtonCount = 0;
+      let layoutViewerFloorplanStopCount = 0;
+      let layoutViewerRouteSyncAttempts = 0;
+      let layoutViewerRouteSyncTimerId = 0;
+      let layoutViewerReadyAttempts = 0;
+      let manualRouteHoldUntil = 0;
+      function holdManualRoute(milliseconds = 1400) {{
+        manualRouteHoldUntil = Date.now() + Math.max(0, Number(milliseconds) || 0);
+      }}
+      function scheduleLayoutViewerRouteSync(delayMs = 0) {{
+        if (layoutViewerRouteSyncTimerId) {{
+          window.clearTimeout(layoutViewerRouteSyncTimerId);
+        }}
+        layoutViewerRouteSyncTimerId = window.setTimeout(() => {{
+          layoutViewerRouteSyncTimerId = 0;
+          applyLayoutViewerRouteSync();
+        }}, Math.max(0, Number(delayMs) || 0));
+      }}
+      function mediaCardByIndex(rawIndex) {{
+        const index = Number(rawIndex);
+        if (!Number.isFinite(index) || index < 0 || !mediaCards[index]) return null;
+        return mediaCards[index];
+      }}
+      function formatClock(rawSeconds) {{
+        const totalSeconds = Math.max(0, Math.floor(Number(rawSeconds) || 0));
+        const minutes = Math.floor(totalSeconds / 60);
+        const seconds = totalSeconds % 60;
+        return String(minutes) + ':' + String(seconds).padStart(2, '0');
+      }}
+      function routeCueLabel(rawMode) {{
+        const normalized = String(rawMode || '').trim().toLowerCase();
+        if (normalized === 'floorplan') return 'Floorplan cue';
+        if (normalized === 'photo') return 'Photo cue';
+        if (normalized === 'document') return 'Document cue';
+        return 'Reference cue';
+      }}
+      function effectiveTimelineTotal() {{
+        if (walkthroughVideo && Number.isFinite(walkthroughVideo.duration) && walkthroughVideo.duration > 0.05) {{
+          return Number(walkthroughVideo.duration);
+        }}
+        return routeTimeline.reduce((maxValue, item) => {{
+          const endValue = Number.isFinite(item.endSeconds) ? item.endSeconds : item.startSeconds;
+          return endValue > maxValue ? endValue : maxValue;
+        }}, 0);
+      }}
+      function routeDurationLabel(routeItem) {{
+        const label = String(routeItem?.durationLabel || '').trim();
+        if (label) return label;
+        const seconds = Number(routeItem?.durationSeconds);
+        if (!Number.isFinite(seconds) || seconds <= 0.05) return '';
+        if (seconds >= 60) {{
+          const rounded = Math.round(seconds);
+          const minutes = Math.floor(rounded / 60);
+          const remainder = rounded % 60;
+          return remainder ? String(minutes) + 'm ' + String(remainder).padStart(2, '0') + 's' : String(minutes) + 'm';
+        }}
+        return String(Math.max(1, Math.round(seconds))) + 's';
+      }}
+      function setActiveRoute(action) {{
+        routeActions.forEach((node) => node.classList.toggle('is-active', node === action));
+      }}
+      function setActiveProgressMarker(routeItem) {{
+        progressMarkers.forEach((marker, routeIndex) => {{
+          marker.classList.toggle('is-active', !!routeItem && routeIndex === routeItem.routeIndex);
+        }});
+      }}
+      function updateRouteTransport(routeItem) {{
+        const routeIndex = Number(routeItem?.routeIndex);
+        const maxIndex = routeMetadata.length - 1;
+        if (routePrev) {{
+          routePrev.disabled = !Number.isFinite(routeIndex) || routeIndex <= 0;
+        }}
+        if (routeNext) {{
+          routeNext.disabled = !Number.isFinite(routeIndex) || routeIndex >= maxIndex;
+        }}
+      }}
+      function updateWalkthroughProgress(routeItem, options = {{}}) {{
+        const currentTime = Number.isFinite(options.currentTime) ? Number(options.currentTime) : (
+          walkthroughVideo && Number.isFinite(walkthroughVideo.currentTime)
+            ? Number(walkthroughVideo.currentTime)
+            : Number(routeItem?.startSeconds || 0)
+        );
+        const totalDuration = effectiveTimelineTotal();
+        const clampedTime = totalDuration > 0 ? Math.max(0, Math.min(currentTime, totalDuration)) : Math.max(0, currentTime);
+        if (walkthroughProgressFill) {{
+          const pct = totalDuration > 0 ? (clampedTime / totalDuration) * 100 : 0;
+          walkthroughProgressFill.style.width = Math.max(0, Math.min(100, pct)).toFixed(2) + '%';
+        }}
+        if (walkthroughProgressTime) {{
+          walkthroughProgressTime.textContent = formatClock(clampedTime) + ' / ' + formatClock(totalDuration);
+        }}
+        if (walkthroughRouteSummary) {{
+          const parts = [];
+          const cueLabel = String(routeItem?.cueLabel || routeCueLabel(routeItem?.focusMode || '')).trim();
+          const durationLabel = routeDurationLabel(routeItem);
+          if (cueLabel) parts.push(cueLabel);
+          if (durationLabel) parts.push(durationLabel);
+          walkthroughRouteSummary.textContent = parts.join(' · ') || 'Reference cue';
+        }}
+        setActiveProgressMarker(routeItem || null);
+        updateRouteTransport(routeItem || null);
+      }}
+      function renderProgressMarkers() {{
+        if (!walkthroughProgressTrack || progressMarkers.size || !routeTimeline.length) return;
+        const totalDuration = effectiveTimelineTotal();
+        routeTimeline.forEach((item) => {{
+          const marker = document.createElement('button');
+          marker.type = 'button';
+          marker.className = 'walkthrough-progress-marker';
+          marker.dataset.routeIndex = String(item.routeIndex);
+          marker.dataset.focusMode = String(item.focusMode || '').trim().toLowerCase();
+          marker.setAttribute('aria-label', 'Jump to ' + String(item.label || 'route stop'));
+          const leftPct = totalDuration > 0 ? (Math.max(0, item.startSeconds) / totalDuration) * 100 : 0;
+          marker.style.left = Math.max(0, Math.min(100, leftPct)).toFixed(2) + '%';
+          marker.addEventListener('click', () => syncRouteSelection(item, {{ seek: true, forceFocus: true }}));
+          walkthroughProgressTrack.append(marker);
+          progressMarkers.set(item.routeIndex, marker);
+        }});
+      }}
+      function selectAdjacentRoute(offset) {{
+        if (!routeMetadata.length) return;
+        const activeIndex = routeMetadata.findIndex((item) => item.action.classList.contains('is-active'));
+        const startIndex = activeIndex >= 0 ? activeIndex : 0;
+        const nextIndex = Math.max(0, Math.min(routeMetadata.length - 1, startIndex + offset));
+        const routeItem = routeMetadata[nextIndex];
+        if (!routeItem) return;
+        syncRouteSelection(routeItem, {{ seek: true, forceFocus: true, manual: true }});
+      }}
+      function applyLayoutViewerRouteSync() {{
+        if (!layoutViewerFrame || !Number.isFinite(pendingLayoutViewerRouteIndex)) return;
+        try {{
+          const viewerWindow = layoutViewerFrame.contentWindow;
+          const debug = viewerWindow && viewerWindow.__pqReconstructionDebug;
+          if (debug && typeof debug.setRouteView === 'function') {{
+            const nextRouteIndex = Number(pendingLayoutViewerRouteIndex);
+            const applyRoute = () => {{
+              if (Number(pendingLayoutViewerRouteIndex) !== nextRouteIndex) return;
+              try {{
+	                const liveDebug = layoutViewerFrame?.contentWindow?.__pqReconstructionDebug;
+	                if (liveDebug && typeof liveDebug.setRouteView === 'function') {{
+	                  liveDebug.setRouteView(nextRouteIndex, {{ immediate: true }});
+	                  layoutViewerSyncedRouteIndex = nextRouteIndex;
+	                  layoutViewerRouteSyncAttempts = 0;
+	                  return;
+	                }}
+              }} catch (_error) {{
+                // Retry below.
+              }}
+              if (layoutViewerRouteSyncAttempts >= 100) return;
+              layoutViewerRouteSyncAttempts += 1;
+              scheduleLayoutViewerRouteSync(160);
+            }};
+            applyRoute();
+            return;
+          }}
+        }} catch (_error) {{
+          return;
+        }}
+        if (layoutViewerRouteSyncAttempts >= 100) return;
+        layoutViewerRouteSyncAttempts += 1;
+        scheduleLayoutViewerRouteSync(160);
+      }}
+      function syncLayoutViewerRoute(routeItem) {{
+        if (!layoutViewerFrame || !routeItem) return;
+        const routeIndex = Number(routeItem.routeIndex);
+        if (!Number.isFinite(routeIndex)) return;
+        pendingLayoutViewerRouteIndex = routeIndex;
+        layoutViewerRouteSyncAttempts = 0;
+        scheduleLayoutViewerRouteSync();
+      }}
+      function layoutViewerRenderedReady() {{
+        if (!layoutViewerFrame) return false;
+        try {{
+          const viewerWindow = layoutViewerFrame.contentWindow;
+          const debug = viewerWindow && viewerWindow.__pqReconstructionDebug;
+          if (!debug) return false;
+          const liveState = typeof debug.getLiveState === 'function'
+            ? debug.getLiveState()
+            : null;
+	          const metrics = liveState && typeof liveState === 'object'
+	            ? liveState
+	            : (typeof debug.getRenderMetrics === 'function' ? debug.getRenderMetrics() : null);
+	          if (metrics && metrics.ready) {{
+	            layoutViewerLastState = metrics;
+	            const doc = layoutViewerFrame.contentDocument;
+	            layoutViewerRouteButtonCount = Number(doc?.querySelectorAll('.route-button').length || layoutViewerRouteButtonCount || 0);
+	            layoutViewerFloorplanStopCount = Number(doc?.querySelectorAll('.floorplan-stop').length || layoutViewerFloorplanStopCount || 0);
+	          }}
+	          return Boolean(
+	            metrics &&
+            metrics.ready &&
+            Number(metrics.frameCount || 0) >= 2 &&
+            Number(metrics.renderCalls || 0) > 0 &&
+            Number(metrics.renderTriangles || 0) > 0
+          );
+        }} catch (_error) {{
+          return false;
+        }}
+      }}
+      function revealLayoutViewerWhenReady() {{
+        if (!layoutViewerShell || !layoutViewerFrame) return;
+        if (layoutViewerRenderedReady()) {{
+	          layoutViewerShell.classList.add('is-ready');
+	          layoutViewerReadyAttempts = 0;
+	          return;
+        }}
+        if (layoutViewerReadyAttempts >= 48) return;
+        layoutViewerReadyAttempts += 1;
+        window.setTimeout(revealLayoutViewerWhenReady, 180);
+      }}
+      function renderReferenceFocus(card, options = {{}}) {{
+        if (!referenceShell || !referenceFocusName || !referenceFocusOpen || !card) return;
+        const target = String(card.getAttribute('data-target') || '').trim();
+        const kind = String(card.getAttribute('data-kind') || 'image').trim();
+        const role = String(card.getAttribute('data-role') || '').trim();
+        const name = String(card.getAttribute('data-name') || 'Reference scene').trim() || 'Reference scene';
+        const previewLabel = String(card.getAttribute('data-preview-label') || name).trim() || name;
+        const focusLabel = String(options?.focusLabel || '').trim();
+        const selectedLabel = focusLabel || previewLabel || name;
+        referenceShell.replaceChildren();
+        if (kind === 'document') {{
+          const doc = document.createElement('div');
+          doc.className = 'reference-shell-doc';
+          const eyebrow = document.createElement('strong');
+          eyebrow.textContent = 'Reference file';
+          const title = document.createElement('b');
+          title.textContent = previewLabel;
+          const note = document.createElement('span');
+          note.className = 'disclosure';
+          note.textContent = 'Use the original document for dimension and doorway checks.';
+          doc.append(eyebrow, title, note);
+          referenceShell.append(doc);
+          referenceFocusOpen.textContent = 'Open document';
+        }} else {{
+          const image = document.createElement('img');
+          image.id = 'reference-focus-image';
+          image.src = target;
+          image.alt = name;
+          image.referrerPolicy = 'no-referrer';
+          referenceShell.append(image);
+          referenceFocusOpen.textContent = role === 'floorplan' ? 'Open floorplan' : 'Open source image';
+        }}
+        referenceFocusName.textContent = selectedLabel;
+        if (referenceFocusKind) {{
+          referenceFocusKind.textContent = routeCueLabel(role || kind);
+        }}
+        referenceFocusOpen.href = target || '#';
+        referenceShell.dataset.focusTarget = target;
+        referenceShell.dataset.focusRole = role;
+        referenceShell.dataset.focusLabel = selectedLabel;
+        mediaCards.forEach((node) => node.classList.toggle('is-active', node === card));
+      }}
+      function updateWalkthroughHud(routeItem, options = {{}}) {{
+        if (!routeItem) return;
+        const card = options.card || mediaCardByIndex(routeItem.sceneIndex);
+        const label = String(options.label || routeItem.focusLabel || routeItem.label || card?.getAttribute('data-preview-label') || card?.getAttribute('data-name') || 'Route stop').trim() || 'Route stop';
+        const step = Number(routeItem.routeIndex);
+        if (walkthroughStopPosition) {{
+          walkthroughStopPosition.textContent = Number.isFinite(step) && step >= 0 && routeMetadata.length
+            ? 'Stop ' + String(step + 1) + ' / ' + String(routeMetadata.length)
+            : 'Route stop';
+        }}
+        if (walkthroughStopMode) {{
+          walkthroughStopMode.textContent = routeCueLabel(routeItem.focusMode || card?.getAttribute('data-role') || '');
+        }}
+        if (walkthroughStopName) {{
+          walkthroughStopName.textContent = label;
+        }}
+        updateWalkthroughProgress(routeItem, options);
+      }}
+      function syncRouteSelection(routeItem, options = {{}}) {{
+        if (!routeItem || !routeItem.action) return;
+        if (options.manual === true) {{
+          const selectedDurationMs = Number(routeItem.durationSeconds || 0) * 1000;
+          holdManualRoute(Math.min(30000, Math.max(8000, selectedDurationMs + 1000)));
+        }}
+        const card = mediaCardByIndex(routeItem.sceneIndex);
+        const selectedLabel = String(routeItem.focusLabel || routeItem.label || card?.getAttribute('data-preview-label') || card?.getAttribute('data-name') || 'Route stop').trim() || 'Route stop';
+        const expectedTarget = String(card?.getAttribute('data-target') || '').trim();
+        const currentTarget = String(referenceShell?.dataset.focusTarget || '').trim();
+        const currentLabel = String(referenceFocusName?.textContent || '').trim();
+        if (!routeItem.action.classList.contains('is-active')) {{
+          setActiveRoute(routeItem.action);
+        }}
+        if (card && (options.forceFocus === true || currentTarget !== expectedTarget || currentLabel !== selectedLabel)) {{
+          renderReferenceFocus(card, {{ focusLabel: String(routeItem.focusLabel || '').trim() }});
+        }}
+        updateWalkthroughHud(routeItem, {{ card, label: selectedLabel }});
+        syncLayoutViewerRoute(routeItem);
+        if (options.seek === true) {{
+          seekWalkthrough(routeItem.startSeconds, {{ play: options.playAfterSeek === true }});
+        }}
+      }}
+      function syncRouteFromPlayback() {{
+        if (!walkthroughVideo || !routeTimeline.length) return;
+        if (Date.now() < manualRouteHoldUntil) return;
+        const currentTime = Number(walkthroughVideo.currentTime || 0);
+        let selected = routeTimeline[0];
+        routeTimeline.forEach((item) => {{
+          if (currentTime + 0.05 >= item.startSeconds) {{
+            selected = item;
+          }}
+        }});
+        syncRouteSelection(selected);
+      }}
+      function seekWalkthrough(rawStartSeconds, options = {{}}) {{
+        if (!walkthroughVideo) return;
+        const startSeconds = Number(rawStartSeconds);
+        if (!Number.isFinite(startSeconds)) return;
+        const duration = Number.isFinite(walkthroughVideo.duration) ? Number(walkthroughVideo.duration) : 0;
+        const clamped = duration > 0 ? Math.max(0, Math.min(startSeconds, Math.max(0, duration - 0.15))) : Math.max(0, startSeconds);
+        try {{
+          walkthroughVideo.currentTime = clamped;
+          if (options.play === true) {{
+            walkthroughVideo.play().catch(() => null);
+          }}
+        }} catch (_error) {{
+          return;
+        }}
+      }}
+      mediaCards.forEach((card) => {{
+        card.addEventListener('click', () => {{
+          walkthroughVideo?.pause?.();
+          renderReferenceFocus(card);
+        }});
+      }});
+      routeActions.forEach((action) => {{
+        action.addEventListener('click', () => {{
+          const routeItem = routeMetadataByIndex.get(Number(action.getAttribute('data-route-index')));
+          if (!routeItem) return;
+          syncRouteSelection(routeItem, {{ seek: true, forceFocus: true, manual: true }});
+        }});
+      }});
+      if (routePrev) {{
+        routePrev.addEventListener('click', () => selectAdjacentRoute(-1));
+      }}
+      if (routeNext) {{
+        routeNext.addEventListener('click', () => selectAdjacentRoute(1));
+      }}
+      if (layoutViewerFrame) {{
+        layoutViewerFrame.addEventListener('load', () => {{
+          layoutViewerShell?.classList.remove('is-ready');
+          layoutViewerReadyAttempts = 0;
+	          layoutViewerRouteSyncAttempts = 0;
+	          scheduleLayoutViewerRouteSync();
+	          revealLayoutViewerWhenReady();
+	        }});
+	      }}
+	      window.__pqLayoutViewerShellDebug = {{
+	        getState: () => ({{
+	          ready: Boolean(layoutViewerShell?.classList.contains('is-ready')),
+	          pendingRouteIndex: Number.isFinite(pendingLayoutViewerRouteIndex) ? Number(pendingLayoutViewerRouteIndex) : -1,
+	          syncedRouteIndex: Number.isFinite(layoutViewerSyncedRouteIndex) ? Number(layoutViewerSyncedRouteIndex) : -1,
+	          routeActionCount: Number(routeActions.length || 0),
+	          mediaCardCount: Number(mediaCards.length || 0),
+	          layoutViewerRouteButtonCount: Number(layoutViewerRouteButtonCount || 0),
+	          layoutViewerFloorplanStopCount: Number(layoutViewerFloorplanStopCount || 0),
+	          layoutViewerState: layoutViewerLastState && typeof layoutViewerLastState === 'object' ? {{ ...layoutViewerLastState }} : null,
+	        }}),
+	      }};
+	      if (mediaCards.length) {{
+        renderReferenceFocus(mediaCards[0]);
+      }} else if (referenceShell && referenceFocusOpen) {{
+        const note = document.createElement('p');
+        note.className = 'disclosure';
+        note.textContent = 'Reference media unavailable.';
+        referenceShell.append(note);
+        referenceFocusOpen.hidden = true;
+      }}
+      if (routeActions.length) {{
+        const firstRoute = routeMetadataByIndex.get(0) || routeMetadata[0];
+        if (firstRoute) {{
+          renderProgressMarkers();
+          syncRouteSelection(firstRoute, {{ forceFocus: true }});
+        }} else {{
+          setActiveRoute(routeActions[0]);
+        }}
+      }}
+      if (walkthroughVideo) {{
+        walkthroughVideo.addEventListener('loadedmetadata', () => {{
+          renderProgressMarkers();
+          syncRouteFromPlayback();
+          updateWalkthroughProgress(routeMetadata.find((item) => item.action.classList.contains('is-active')) || routeTimeline[0] || null);
+        }});
+        walkthroughVideo.addEventListener('seeking', () => {{
+          syncRouteFromPlayback();
+          updateWalkthroughProgress(routeMetadata.find((item) => item.action.classList.contains('is-active')) || routeTimeline[0] || null);
+        }});
+        walkthroughVideo.addEventListener('timeupdate', () => {{
+          syncRouteFromPlayback();
+          updateWalkthroughProgress(routeMetadata.find((item) => item.action.classList.contains('is-active')) || routeTimeline[0] || null);
+        }});
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('autoplay') === '1' || params.get('pane') === 'flythrough-pane') {{
+          walkthroughVideo.defaultMuted = true;
+          walkthroughVideo.muted = true;
+          walkthroughVideo.autoplay = true;
+          walkthroughVideo.setAttribute('muted', '');
+          walkthroughVideo.setAttribute('autoplay', '');
+          walkthroughVideo.play().catch(() => null);
+        }}
+      }} else {{
+        renderProgressMarkers();
+        updateWalkthroughProgress(routeMetadata.find((item) => item.action.classList.contains('is-active')) || routeTimeline[0] || null);
+      }}
+    </script>
+  </body>
+</html>"""
 
 
 def _tour_control_media_context(payload: dict[str, object]) -> tuple[list[dict[str, str]], str, str]:
@@ -5997,6 +7377,123 @@ def _tour_control_walkable_html(
 </html>"""
 
 
+@router.api_route("/tours/{slug}", methods=["GET", "HEAD"], response_class=HTMLResponse)
+def public_tour_page(
+    slug: str,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+) -> Response:
+    hostname = request_hostname(request)
+    try:
+        payload = _load_tour_with_private_receipt(slug)
+        _require_public_tour_viewable(payload)
+        if _tour_payload_is_disabled_fallback(payload):
+            raise HTTPException(status_code=404, detail="tour_disabled_fallback")
+        primary_control_path = _public_tour_primary_control_path(payload)
+        if primary_control_path and not _public_tour_request_prefers_embedded_media(request):
+            return RedirectResponse(
+                primary_control_path,
+                status_code=302,
+                headers=_public_tour_security_headers(),
+            )
+        if _public_tour_is_generated_reconstruction_only(payload):
+            return _generated_reconstruction_public_launch_response(payload, request=request)
+        rendered_payload = _redacted_public_tour_payload(payload, expose_asset_relpaths=True)
+        rendered_facts, research_snapshot = _merged_facts_with_listing_research(payload, dict(payload.get("facts") or {}))
+        rendered_facts.pop("public_preference_snapshot", None)
+        feedback_context = _live_property_feedback_context(
+            container=container,
+            payload=payload,
+            slug=slug,
+        )
+        live_feedback_facts = dict(feedback_context.get("facts") or {}) if isinstance(feedback_context.get("facts"), dict) else {}
+        if live_feedback_facts:
+            rendered_facts.update(live_feedback_facts)
+        shortlist_compare = _public_shortlist_comparison_context(
+            container=container,
+            payload=payload,
+            slug=slug,
+            facts=rendered_facts,
+        )
+        rendered_payload["facts"] = _redacted_public_tour_facts(
+            payload,
+            rendered_facts,
+            privacy_mode=str(rendered_payload.get("tour_privacy_mode") or "anonymous_public"),
+        )
+        rendered_payload["_public_research_completed"] = bool(research_snapshot)
+        rendered_payload["_feedback_enabled"] = bool(str(payload.get("principal_id") or "").strip())
+        rendered_payload["_feedback_suggestions"] = dict(feedback_context.get("feedback_suggestions") or {})
+        rendered_payload["_learning_summary"] = dict(feedback_context.get("learning_summary") or {})
+        rendered_payload["_shortlist_compare"] = dict(shortlist_compare or {})
+        return HTMLResponse(
+            _tour_html(rendered_payload, hostname=hostname, path=request_path(request)),
+            headers=_public_tour_security_headers(),
+        )
+    except HTTPException as exc:
+        detail = str(exc.detail or "").strip().lower()
+        if exc.status_code == 404 and detail == "tour_generated_layout_preview_unavailable":
+            return _render_generated_reconstruction_not_tour_page(request)
+        if exc.status_code == 404 and detail == "tour_disabled_fallback":
+            return _render_tour_unavailable_page(
+                request,
+                status_code=404,
+                title="This tour link is no longer available.",
+                summary="This old link no longer opens as a 3D tour. Ask the sender for a fresh tour link.",
+                status_label="Tour unavailable",
+                rows=[
+                    {
+                        "label": "Tour",
+                        "value": "Unavailable",
+                        "detail": "This link points to an old tour format that is no longer shown.",
+                    },
+                    {
+                        "label": "Next step",
+                        "value": "Request a fresh 3D tour",
+                        "detail": "Only live tours and licensed panorama tours remain available on this surface.",
+                    },
+                ],
+            )
+        if exc.status_code == 404 and detail == "tour_not_found":
+            return _render_tour_unavailable_page(
+                request,
+                status_code=404,
+                title="This tour link is no longer available.",
+                summary="Ask the sender to share a fresh apartment-tour link or open PropertyQuarry for the latest property page.",
+                status_label="Tour unavailable",
+                rows=[
+                    {
+                        "label": "Tour state",
+                        "value": "Unavailable",
+                        "detail": "The share bundle may have been replaced, removed, or never finished publishing.",
+                    },
+                    {
+                        "label": "Next step",
+                        "value": "Request a fresh tour",
+                        "detail": f"A current link will open the branded {_public_tour_host_brand_label(hostname, fallback='this domain')} view when the bundle is ready.",
+                    },
+                ],
+            )
+        return _render_tour_unavailable_page(
+            request,
+            status_code=max(int(exc.status_code), 500) if int(exc.status_code) >= 500 else 500,
+            title="This tour is temporarily unavailable.",
+            summary="The tour link exists, but the published bundle is not ready to render right now. Open PropertyQuarry or ask the sender to republish it.",
+            status_label="Tour unavailable",
+            rows=[
+                {
+                    "label": "Tour state",
+                    "value": "Publish problem",
+                    "detail": "The hosted tour bundle is missing required scenes or metadata.",
+                },
+                {
+                    "label": "Recovery",
+                    "value": "Open PropertyQuarry",
+                    "detail": "The sender can regenerate or resend the latest branded property-tour link.",
+                },
+            ],
+        )
+
+
 @router.get("/tours/{slug}/control", response_class=HTMLResponse)
 @router.head("/tours/{slug}/control", response_class=HTMLResponse)
 def public_tour_control(slug: str, request: Request) -> HTMLResponse:
@@ -6036,7 +7533,10 @@ def public_tour_control_viewer(slug: str, viewer_mode: str, request: Request) ->
     )
     if _public_tour_request_embeds_walkthrough(request):
         rendered_payload["_tour_control_embed_walkthrough"] = True
-    return HTMLResponse(_tour_control_html(rendered_payload, viewer_mode=viewer_mode, fullscreen=fullscreen), headers=_public_tour_security_headers())
+    return HTMLResponse(
+        _tour_control_html(rendered_payload, viewer_mode=viewer_mode, fullscreen=fullscreen),
+        headers=_public_tour_security_headers(),
+    )
 
 
 @router.post("/tours/{slug}/request-details", response_class=JSONResponse)
@@ -6113,7 +7613,7 @@ async def public_tour_feedback(
             source_id=f"public-tour:{slug}",
             dedupe_key="",
         )
-    except Exception as exc:
+    except Exception:
         log.exception(
             "public tour feedback persistence failed slug=%s principal_hash=%s reaction=%s",
             slug,
@@ -6134,155 +7634,10 @@ async def public_tour_feedback(
         {
             "status": "captured_external",
             "trust": "untrusted_external",
-            "message": "Feedback was captured as an external review signal. Sign in to apply it to a ranking profile.",
+            "message": "Feedback captured as an external signal.",
             "reaction": reaction,
-            "reason_keys": reason_keys,
+            "reason_keys": list(reason_keys),
+            "reason_labels": [_feedback_reason_label(reason_key) for reason_key in reason_keys],
+            "note": note[:500],
         }
     )
-
-
-@router.post("/tours/{slug}/filters", response_class=JSONResponse)
-async def public_tour_filter_update(
-    slug: str,
-    body: dict[str, object] = Body(default_factory=dict),
-    container: AppContainer = Depends(get_container),
-) -> JSONResponse:
-    payload = _load_tour_with_private_receipt(slug)
-    if _tour_payload_is_disabled_fallback(payload):
-        raise HTTPException(status_code=404, detail="tour_disabled_fallback")
-    principal_id = str(payload.get("principal_id") or "").strip()
-    if not principal_id:
-        raise HTTPException(status_code=409, detail="tour_filter_update_unavailable")
-    if not isinstance(body, dict):
-        raise HTTPException(status_code=422, detail="invalid_tour_filter_payload")
-    raise _public_tour_authenticated_action_required("filters")
-
-
-@router.api_route("/tours/{slug}", methods=["GET", "HEAD"], response_class=HTMLResponse)
-def public_tour_page(
-    slug: str,
-    request: Request,
-    container: AppContainer = Depends(get_container),
-) -> Response:
-    hostname = request_hostname(request)
-    try:
-        payload = _load_tour_with_private_receipt(slug)
-        _require_public_tour_viewable(payload)
-        if _tour_payload_is_disabled_fallback(payload):
-            raise HTTPException(status_code=404, detail="tour_disabled_fallback")
-        primary_control_path = _public_tour_primary_control_path(payload)
-        if primary_control_path and not _public_tour_request_prefers_embedded_media(request):
-            return RedirectResponse(
-                primary_control_path,
-                status_code=302,
-                headers=_public_tour_security_headers(),
-            )
-        if _public_tour_is_generated_reconstruction_only(payload):
-            return _render_tour_unavailable_page(
-                request,
-                status_code=404,
-                title="This tour link is no longer available.",
-                summary="This old link no longer opens as a 3D tour.",
-                status_label="Tour unavailable",
-                rows=[
-                    {
-                        "label": "Tour",
-                        "value": "Unavailable",
-                        "detail": "PropertyQuarry now opens only live tours or licensed panorama exports on this surface.",
-                    },
-                    {
-                        "label": "Next step",
-                        "value": "Request a fresh 3D tour",
-                        "detail": "Open the property page and request a new tour when suitable media is available.",
-                    },
-                ],
-            )
-        rendered_payload = _redacted_public_tour_payload(payload, expose_asset_relpaths=True)
-        rendered_facts, research_snapshot = _merged_facts_with_listing_research(payload, dict(payload.get("facts") or {}))
-        rendered_facts.pop("public_preference_snapshot", None)
-        feedback_context = _live_property_feedback_context(
-            container=container,
-            payload=payload,
-            slug=slug,
-        )
-        live_feedback_facts = dict(feedback_context.get("facts") or {}) if isinstance(feedback_context.get("facts"), dict) else {}
-        if live_feedback_facts:
-            rendered_facts.update(live_feedback_facts)
-        shortlist_compare = _public_shortlist_comparison_context(
-            container=container,
-            payload=payload,
-            slug=slug,
-            facts=rendered_facts,
-        )
-        rendered_payload["facts"] = _redacted_public_tour_facts(
-            payload,
-            rendered_facts,
-            privacy_mode=str(rendered_payload.get("tour_privacy_mode") or "anonymous_public"),
-        )
-        rendered_payload["_public_research_completed"] = bool(research_snapshot)
-        rendered_payload["_feedback_enabled"] = bool(str(payload.get("principal_id") or "").strip())
-        rendered_payload["_feedback_suggestions"] = dict(feedback_context.get("feedback_suggestions") or {})
-        rendered_payload["_learning_summary"] = dict(feedback_context.get("learning_summary") or {})
-        rendered_payload["_shortlist_compare"] = dict(shortlist_compare or {})
-        return HTMLResponse(_tour_html(rendered_payload, hostname=hostname, path=request_path(request)), headers=_public_tour_security_headers())
-    except HTTPException as exc:
-        detail = str(exc.detail or "").strip().lower()
-        if exc.status_code == 404 and detail == "tour_disabled_fallback":
-            return _render_tour_unavailable_page(
-                request,
-                status_code=404,
-                title="This tour link is no longer available.",
-                summary="This old link no longer opens as a 3D tour. Ask the sender for a fresh tour link.",
-                status_label="Tour unavailable",
-                rows=[
-                    {
-                        "label": "Tour",
-                        "value": "Unavailable",
-                        "detail": "This link points to an old tour format that is no longer shown.",
-                    },
-                    {
-                        "label": "Next step",
-                        "value": "Request a fresh 3D tour",
-                        "detail": "Only live tours and licensed panorama tours remain available on this surface.",
-                    },
-                ],
-            )
-        if exc.status_code == 404 and detail == "tour_not_found":
-            return _render_tour_unavailable_page(
-                request,
-                status_code=404,
-                title="This tour link is no longer available.",
-                summary="Ask the sender to share a fresh apartment-tour link or open PropertyQuarry for the latest property page.",
-                status_label="Tour unavailable",
-                rows=[
-                    {
-                        "label": "Tour state",
-                        "value": "Unavailable",
-                        "detail": "The share bundle may have been replaced, removed, or never finished publishing.",
-                    },
-                    {
-                        "label": "Next step",
-                        "value": "Request a fresh tour",
-                        "detail": f"A current link will open the branded {_public_tour_host_brand_label(hostname, fallback='this domain')} view when the bundle is ready.",
-                    },
-                ],
-            )
-        return _render_tour_unavailable_page(
-            request,
-            status_code=max(int(exc.status_code), 500) if int(exc.status_code) >= 500 else 500,
-            title="This tour is temporarily unavailable.",
-            summary="The tour link exists, but the published bundle is not ready to render right now. Open PropertyQuarry or ask the sender to republish it.",
-            status_label="Tour unavailable",
-            rows=[
-                {
-                    "label": "Tour state",
-                    "value": "Publish problem",
-                    "detail": "The hosted tour bundle is missing required scenes or metadata.",
-                },
-                {
-                    "label": "Recovery",
-                    "value": "Open PropertyQuarry",
-                    "detail": "The sender can regenerate or resend the latest branded property-tour link.",
-                },
-            ],
-        )

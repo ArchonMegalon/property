@@ -44,6 +44,7 @@ Runs the focused PropertyQuarry release bundle:
   - public-safe tour delivery contract shape for polished 3D tours, panorama imports, and walkthroughs
   - hard browser-rendered 3D and walkthrough quality gates that fail on blank viewers, loading-only states, CSP/frame/network errors, missing room coverage, or frame jumps
   - live generated-reconstruction GLB export smoke that fails when Blender/NumPy tooling is missing or generated previews leak as public 3D tours
+  - service-owned generated-reconstruction smoke that fails when the app bundle writer misses the first-party walkthrough contract, human route labels, delivery metadata, or public-safe layout-preview lane
   - required live mobile surface smoke: scripts/propertyquarry_live_mobile_surface_smoke.py against a deployed stack, including a current /app/research/{id} detail route
   - property artifact provider and sent-link manifest contracts
   - Brilliant Directories public-directory projection contracts
@@ -58,7 +59,37 @@ EOF
 fi
 
 cd "${EA_ROOT}"
+scene_video_shared_env_file="${PROPERTYQUARRY_SCENE_VIDEO_SHARED_ENV_FILE:-state/runtime/property_scene_video_shared.env}"
+scene_video_shared_env_runtime_file="${PROPERTYQUARRY_SCENE_VIDEO_SHARED_ENV_RUNTIME_FILE:-/home/ea/property_scene_video_shared.env}"
+python3 scripts/property_scene_video_shared_env.py --output "${scene_video_shared_env_file}" >/dev/null
 tour_export_incoming_dir="${PROPERTYQUARRY_TOUR_EXPORT_INCOMING_DIR:-${PROPERTYQUARRY_TOUR_EXPORT_DROP_DIR:-${EA_ROOT}/state/incoming_property_tours}}"
+
+copy_scene_video_shared_env_to_container() {
+  local container="$1"
+  if [[ ! -f "${scene_video_shared_env_file}" ]]; then
+    echo "error: missing scene-video shared env file ${scene_video_shared_env_file}" >&2
+    return 1
+  fi
+  docker exec -i "${container}" sh -lc '
+    umask 077
+    cat > "$1"
+    chmod 600 "$1"
+  ' sh "${scene_video_shared_env_runtime_file}" < "${scene_video_shared_env_file}"
+}
+
+docker_exec_scene_video_python() {
+  local container="$1"
+  shift
+  copy_scene_video_shared_env_to_container "${container}"
+  docker exec "${container}" sh -lc '
+    set -a
+    . "$1"
+    set +a
+    shift
+    exec python "$@"
+  ' sh "${scene_video_shared_env_runtime_file}" "$@"
+}
+
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_docs_links.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_security_posture.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_repo_isolation.py
@@ -81,6 +112,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_property_tour_controls.py \
   --summary-only
 property_api_container="${PROPERTYQUARRY_API_CONTAINER_NAME:-propertyquarry-api}"
 property_render_container="${PROPERTYQUARRY_RENDER_CONTAINER_NAME:-propertyquarry-render-tools}"
+property_render_service="${PROPERTYQUARRY_RENDER_SERVICE:-propertyquarry-render-tools}"
 if command -v docker >/dev/null 2>&1 && docker inspect "${property_api_container}" >/dev/null 2>&1; then
   docker exec "${property_api_container}" python /app/scripts/verify_property_tour_controls.py \
     --tour-root /data/public_property_tours \
@@ -112,21 +144,21 @@ if command -v docker >/dev/null 2>&1 && docker inspect "${property_api_container
     --runtime-container "${property_api_container}" \
     --write _completion/tours/property-tour-vendor-tooling-current.json \
     > /dev/null
-  docker exec "${property_api_container}" python /app/scripts/property_scene_video_readiness_report.py \
+  docker_exec_scene_video_python "${property_api_container}" /app/scripts/property_scene_video_readiness_report.py \
     --output /data/artifacts/property-scene-video-readiness-release-gate-live-container.json
-  docker exec "${property_api_container}" python /app/scripts/verify_property_scene_video_readiness.py \
+  docker_exec_scene_video_python "${property_api_container}" /app/scripts/verify_property_scene_video_readiness.py \
     --receipt /data/artifacts/property-scene-video-readiness-release-gate-live-container.json \
     --output /data/artifacts/property-scene-video-readiness-release-gate-verifier-live-container.json \
     > /dev/null
-  docker exec "${property_api_container}" python /app/scripts/property_scene_video_runtime_status.py \
+  docker_exec_scene_video_python "${property_api_container}" /app/scripts/property_scene_video_runtime_status.py \
     --receipt /data/artifacts/property-scene-video-readiness-release-gate-live-container.json \
     --output /data/artifacts/property-scene-video-runtime-status-release-gate-live-container.json \
     > /dev/null
-  docker exec "${property_api_container}" python /app/scripts/materialize_scene_video_provider_refresh_packet.py \
+  docker_exec_scene_video_python "${property_api_container}" /app/scripts/materialize_scene_video_provider_refresh_packet.py \
     --receipt /data/artifacts/property-scene-video-readiness-release-gate-live-container.json \
     --output /data/artifacts/property-scene-video-provider-refresh-packet-release-gate-live-container.json \
     > /dev/null
-  docker exec "${property_api_container}" python /app/scripts/verify_scene_video_provider_refresh_packet.py \
+  docker_exec_scene_video_python "${property_api_container}" /app/scripts/verify_scene_video_provider_refresh_packet.py \
     --packet /data/artifacts/property-scene-video-provider-refresh-packet-release-gate-live-container.json \
     --output /data/artifacts/property-scene-video-provider-refresh-packet-release-gate-verifier-live-container.json \
     > /dev/null
@@ -157,6 +189,7 @@ else
     --write _completion/tours/property-tour-vendor-tooling-current.json \
     > /dev/null
   PYTHONPATH=ea "${PYTHON_BIN}" scripts/property_scene_video_readiness_report.py \
+    --load-shared-env \
     --output _completion/scene_video_readiness/release-gate.json
   PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_property_scene_video_readiness.py \
     --receipt _completion/scene_video_readiness/release-gate.json \
@@ -226,20 +259,36 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_live_authenticated_smoke.py
   > /dev/null
 runtime_reconstruction_container="${PROPERTYQUARRY_RUNTIME_RECONSTRUCTION_CONTAINER:-${property_render_container}}"
 runtime_reconstruction_slug="${PROPERTYQUARRY_RUNTIME_RECONSTRUCTION_SMOKE_SLUG:-runtime-reconstruction-release-gate-$(date +%Y%m%d%H%M%S)}"
+service_generated_reconstruction_slug="${PROPERTYQUARRY_SERVICE_GENERATED_RECONSTRUCTION_SMOKE_SLUG:-service-generated-reconstruction-release-gate-$(date +%Y%m%d%H%M%S)}"
 walkthrough_quality_process_timeout_seconds="${PROPERTYQUARRY_WALKTHROUGH_QUALITY_PROCESS_TIMEOUT_SECONDS:-180}"
 walkthrough_quality_ffprobe_timeout_seconds="${PROPERTYQUARRY_WALKTHROUGH_QUALITY_FFPROBE_TIMEOUT_SECONDS:-20}"
 walkthrough_quality_frame_sample_timeout_seconds="${PROPERTYQUARRY_WALKTHROUGH_QUALITY_FRAME_SAMPLE_TIMEOUT_SECONDS:-45}"
-if ! command -v docker >/dev/null 2>&1 || ! docker inspect "${runtime_reconstruction_container}" >/dev/null 2>&1; then
-  echo "error: generated-reconstruction GLB release gate requires live container ${runtime_reconstruction_container}" >&2
-  exit 2
-fi
+PYTHONPATH=ea "${PYTHON_BIN}" scripts/ensure_propertyquarry_render_bridge_runtime.py \
+  --container "${property_render_container}" \
+  --service "${property_render_service}" \
+  --compose-file "${PROPERTYQUARRY_COMPOSE_FILE:-docker-compose.property.yml}" \
+  --project-name "${PROPERTYQUARRY_COMPOSE_PROJECT_NAME:-${COMPOSE_PROJECT_NAME:-}}" \
+  --write _completion/tours/property-render-bridge-runtime-release-gate.json \
+  > /dev/null
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/property_runtime_reconstruction_smoke.py \
   --container "${runtime_reconstruction_container}" \
   --slug "${runtime_reconstruction_slug}" \
   --public-base-url "${PROPERTYQUARRY_RUNTIME_RECONSTRUCTION_BASE_URL:-${live_mobile_base_url}}" \
+  --host-header "${PROPERTYQUARRY_LIVE_HOST_HEADER:-propertyquarry.com}" \
   --require-public-contract \
+  --require-browser-shell \
   --require-glb \
   --write _completion/tours/property-runtime-reconstruction-release-gate.json \
+  --fail-on-error \
+  > /dev/null
+PYTHONPATH=ea "${PYTHON_BIN}" scripts/property_service_generated_reconstruction_smoke.py \
+  --container "${property_api_container}" \
+  --slug "${service_generated_reconstruction_slug}" \
+  --public-base-url "${PROPERTYQUARRY_SERVICE_GENERATED_RECONSTRUCTION_BASE_URL:-${live_mobile_base_url}}" \
+  --host-header "${PROPERTYQUARRY_LIVE_HOST_HEADER:-propertyquarry.com}" \
+  --require-public-contract \
+  --require-browser-shell \
+  --write _completion/tours/property-service-generated-reconstruction-release-gate.json \
   --fail-on-error \
   > /dev/null
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_3d_browser_gate.py \
@@ -250,6 +299,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_3d_browser_gate.py \
   > /dev/null
 if ! PYTHONPATH=ea timeout "${walkthrough_quality_process_timeout_seconds}" "${PYTHON_BIN}" scripts/propertyquarry_walkthrough_quality_gate.py \
   --tour-root "${EA_PUBLIC_TOUR_DIR:-${EA_ROOT}/state/public_property_tours}" \
+  --service-generated-reconstruction-receipt _completion/tours/property-service-generated-reconstruction-release-gate.json \
   --ffprobe-timeout-seconds "${walkthrough_quality_ffprobe_timeout_seconds}" \
   --frame-sample-timeout-seconds "${walkthrough_quality_frame_sample_timeout_seconds}" \
   --write _completion/smoke/property-live-walkthrough-quality-release-gate.json \
@@ -323,6 +373,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_gold_status.py \
   --tour-delivery-contract-receipt _completion/tour_delivery/property-tour-delivery-contract-release-gate.json \
   --browser-3d-gate-receipt _completion/smoke/property-live-3d-browser-gate-release-gate.json \
   --runtime-reconstruction-receipt _completion/tours/property-runtime-reconstruction-release-gate.json \
+  --service-generated-reconstruction-receipt _completion/tours/property-service-generated-reconstruction-release-gate.json \
   --walkthrough-quality-receipt _completion/smoke/property-live-walkthrough-quality-release-gate.json \
   --scene-video-readiness-receipt _completion/scene_video_readiness/release-gate.json \
   --scene-video-readiness-verifier-receipt _completion/scene_video_readiness/release-gate-verifier.json \
@@ -425,6 +476,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_propertyquarry_workspace_redesign.py \
   tests/e2e/test_propertyquarry_soft_filter_equivalence.py \
   tests/e2e/test_propertyquarry_greenfield_browser.py \
+  tests/e2e/test_propertyquarry_flagship_flow.py \
   tests/e2e/test_propertyquarry_public_tour_browser.py \
   tests/e2e/test_propertyquarry_packet_engagement_browser.py \
   tests/e2e/test_propertyquarry_feedback_browser.py \

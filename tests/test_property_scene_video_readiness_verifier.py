@@ -174,6 +174,39 @@ def test_scene_video_readiness_verifier_requires_actions_for_missing_mootion_rem
     assert "next_action_missing:mootion:mootion_browseract_bridge_not_ready" in result["blockers"]
 
 
+def test_scene_video_readiness_verifier_requires_action_for_magicfit_credit_constraint() -> None:
+    module = _load_script()
+    receipt = _receipt()
+    magicfit = receipt["providers"][1]  # type: ignore[index]
+    magicfit["ready"] = True  # type: ignore[index]
+    magicfit["status"] = "ready"  # type: ignore[index]
+    magicfit["blockers"] = []  # type: ignore[index]
+    magicfit["runtime_account_count"] = 2  # type: ignore[index]
+    magicfit["credit_state"] = "constrained"  # type: ignore[index]
+    magicfit["account_inventory"] = {  # type: ignore[index]
+        "expected_account_count": 2,
+        "runtime_account_count": 2,
+        "tracked_account_count": 3,
+        "unavailable_account_count": 1,
+        "availability_reason": "one_account_depleted",
+        "visible_account_gap": 0,
+    }
+    receipt["next_actions"] = [
+        action
+        for action in receipt["next_actions"]  # type: ignore[index]
+        if not (
+            isinstance(action, dict)
+            and action.get("provider") == "magicfit"
+            and action.get("reason") in {"provider_account_visibility_gap", "magicfit_insufficient_credits"}
+        )
+    ]
+
+    result = module.validate_receipt(receipt)
+
+    assert result["status"] == "fail"
+    assert "next_action_missing:magicfit:magicfit_credit_constrained" in result["blockers"]
+
+
 def test_scene_video_readiness_verifier_accepts_actions_for_missing_mootion_remote_lane() -> None:
     module = _load_script()
     receipt = _receipt()

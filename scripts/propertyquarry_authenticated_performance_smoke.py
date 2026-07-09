@@ -40,6 +40,9 @@ DEFAULT_ROUTE_BUDGET_MS = {
     "/app/settings/invitations": 1200,
 }
 DEFAULT_SEARCH_COMPRESSED_MAX_BYTES = 240_000
+PERFORMANCE_SMOKE_LOCATION_QUERY = "1020 Vienna"
+PERFORMANCE_SMOKE_MIN_AREA_M2 = 60
+PERFORMANCE_SMOKE_MAX_PRICE_EUR = 1600
 
 FORBIDDEN_CUSTOMER_NOISE = (
     "billing truth",
@@ -439,7 +442,9 @@ def _property_preferences_payload(*, saved_candidates: list[dict[str, object]] |
         "language_code": "de",
         "listing_mode": "rent",
         "property_type": "apartment",
-        "location_query": "1020 Vienna",
+        "location_query": PERFORMANCE_SMOKE_LOCATION_QUERY,
+        "min_area_m2": PERFORMANCE_SMOKE_MIN_AREA_M2,
+        "max_price_eur": PERFORMANCE_SMOKE_MAX_PRICE_EUR,
         "selected_platforms": ["willhaben", "derstandard_at"],
         "active_search_agent_id": "perf-watch-1020",
         "search_agents": [
@@ -449,17 +454,21 @@ def _property_preferences_payload(*, saved_candidates: list[dict[str, object]] |
                 "enabled": True,
                 "country_code": "AT",
                 "region_code": "vienna",
-                "location_query": "1020 Vienna",
+                "location_query": PERFORMANCE_SMOKE_LOCATION_QUERY,
                 "listing_mode": "rent",
                 "property_type": "apartment",
+                "min_area_m2": PERFORMANCE_SMOKE_MIN_AREA_M2,
+                "max_price_eur": PERFORMANCE_SMOKE_MAX_PRICE_EUR,
                 "notification_limit": 3,
                 "notification_period": "day",
                 "preferences_json": {
                     "country_code": "AT",
                     "region_code": "vienna",
-                    "location_query": "1020 Vienna",
+                    "location_query": PERFORMANCE_SMOKE_LOCATION_QUERY,
                     "listing_mode": "rent",
                     "property_type": "apartment",
+                    "min_area_m2": PERFORMANCE_SMOKE_MIN_AREA_M2,
+                    "max_price_eur": PERFORMANCE_SMOKE_MAX_PRICE_EUR,
                     "selected_platforms": ["willhaben", "derstandard_at"],
                 },
             },
@@ -608,9 +617,9 @@ def _start_synthetic_run(client: TestClient) -> str:
                     "region_code": "vienna",
                     "listing_mode": "rent",
                     "property_type": ["apartment"],
-                    "location_query": "1020 Vienna",
-                    "min_area_m2": 60,
-                    "max_price_eur": 1600,
+                    "location_query": PERFORMANCE_SMOKE_LOCATION_QUERY,
+                    "min_area_m2": PERFORMANCE_SMOKE_MIN_AREA_M2,
+                    "max_price_eur": PERFORMANCE_SMOKE_MAX_PRICE_EUR,
                 },
                 "max_results_per_source": 1,
             },

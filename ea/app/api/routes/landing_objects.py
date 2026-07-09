@@ -755,7 +755,7 @@ def _propertyquarry_handoff_media_payload(
     ready_tour_href = ""
     if resolved_tour_url:
         if property_tour_hosting._is_branded_public_tour_url(resolved_tour_url):
-            ready_tour_href = str(property_tour_hosting._hosted_property_tour_first_party_open_url(resolved_tour_url) or "").strip()
+            ready_tour_href = str(property_tour_hosting._hosted_property_tour_verified_open_url(resolved_tour_url) or "").strip()
         else:
             ready_tour_href = resolved_tour_url
     if ready_tour_href:

@@ -7,6 +7,13 @@
 {% set full_results_total = ([results|length, summary_results_total]|max) %}
 {% set first_paint_result_limit = 24 if (surface_mode in ['properties', 'shortlist']) else full_results_total %}
 {% set visible_results = results[:first_paint_result_limit] %}
+{% macro pqx_results_route_preview_text(value, fallback='') -%}
+  {%- set raw = (value or '')|string|trim -%}
+  {%- set lowered = raw|lower -%}
+  {%- if not raw or lowered.startswith('http://') or lowered.startswith('https://') or 'google.com/maps' in lowered or 'maps.google.' in lowered -%}{{ fallback }}
+  {%- else -%}{{ raw }}
+  {%- endif -%}
+{%- endmacro %}
 {% set location_mismatch = namespace(total=(run_summary.get('location_mismatch_candidate_total') or 0)|int) %}
 {% if not location_mismatch.total %}
   {% for source in run_sources %}
@@ -17,6 +24,18 @@
 {% set score_demoted_total = (run.get('score_demoted_total') or run_summary.get('score_demoted_total') or run_summary.get('filtered_low_fit_total') or 0)|int %}
 {% set results_label = 'saved opportunities' if is_shortlist_surface and brief.get('search_goal') == 'investment' else ('saved homes' if is_shortlist_surface else ('matching opportunities' if brief.get('search_goal') == 'investment' else 'matching homes')) %}
 {% set shortlist_compact_actions = is_shortlist_surface %}
+{% set route_previews = run.get('route_previews') or [] %}
+{% set progress_current_property = namespace(card=(run.get('current_property') or {})) %}
+{% if not progress_current_property.card and selected %}
+  {% set progress_current_property.card = selected %}
+{% elif not progress_current_property.card and visible_results %}
+  {% set progress_current_property.card = visible_results[0] %}
+{% endif %}
+{% set current_property = progress_current_property.card %}
+{% set current_property_orientation = current_property.get('orientation_preview') or {} %}
+{% set current_property_image = current_property_orientation.get('thumb_image_url') or current_property_orientation.get('image_url') or current_property.get('preview_image_url') or '' %}
+{% set current_property_status_label = current_property.get('status_label') or ('Best so far' if current_property else '') %}
+{% set current_property_status_detail = current_property.get('status_detail') or current_property.get('fit_summary') or current_property.get('summary') or '' %}
 <section class="pqx-result-panel active{% if is_research_surface and not results %} is-empty-research{% endif %}" data-pqx-mobile-panel="results">
   <div class="pqx-result-panel-head">
     <div class="pqx-results-headline">
@@ -48,6 +67,49 @@
     </div>
   </div>
   {% include "app/_property_recent_run_strip.html" %}
+  {% if current_property or route_previews %}
+  <div class="pqx-route-preview-strip">
+    {% if current_property %}
+    <article class="pqx-current-property-card">
+      {% if current_property.get('map_url') %}<a class="pqx-current-property-link" href="{{ current_property.get('map_url') }}" target="_blank" rel="noreferrer">{% else %}<div class="pqx-current-property-link">{% endif %}
+        {% if current_property_image %}<img class="pqx-current-property-thumb" src="{{ current_property_image }}" alt="{{ current_property_orientation.get('alt') or current_property.get('title') or 'Current property map preview' }}">{% endif %}
+        <div class="pqx-current-property-copy">
+          <span class="pqx-small">{{ current_property_status_label or 'Current property' }}</span>
+          <strong>{{ current_property.get('title') or 'Property under review' }}</strong>
+          <div class="pqx-current-property-meta">
+            {% if current_property.get('source_label') %}<span>{{ current_property.get('source_label') }}</span>{% endif %}
+            {% if current_property.get('location_label') %}<span>{{ current_property.get('location_label') }}</span>{% endif %}
+            {% if current_property.get('price_display') %}<span>{{ current_property.get('price_display') }}</span>{% endif %}
+            {% if current_property.get('layout_display') %}<span>{{ current_property.get('layout_display') }}</span>{% endif %}
+          </div>
+          {% if current_property_status_detail %}<p class="pqx-note">{{ current_property_status_detail }}</p>{% endif %}
+        </div>
+      {% if current_property.get('map_url') %}</a>{% else %}</div>{% endif %}
+    </article>
+    {% endif %}
+    {% for route in route_previews[:3] %}
+    <article class="pqx-route-preview-card">
+      {% if route.get('map_url') %}<a class="pqx-route-preview-link" href="{{ route.get('map_url') }}" target="_blank" rel="noreferrer">{% endif %}
+        <div class="pqx-route-preview-head">
+          <span class="pqx-small">{{ pqx_results_route_preview_text(route.get('label'), 'Route') }}</span>
+          <strong>{{ pqx_results_route_preview_text(route.get('title'), 'Route preview') }}</strong>
+        </div>
+        {% if route.get('preview_image_url') %}<img class="pqx-route-preview-thumb" src="{{ route.get('preview_image_url') }}" alt="{{ route.get('preview_alt') or route.get('title') or 'Route preview' }}">{% else %}
+        <svg class="pqx-route-preview-svg" viewBox="0 0 144 68" aria-hidden="true">
+          <circle cx="12" cy="56" r="5"></circle>
+          <path d="{{ route.get('preview_path') or 'M 12 56 C 42 48, 96 24, 132 18' }}"></path>
+          <circle cx="132" cy="18" r="5"></circle>
+        </svg>
+        {% endif %}
+        <div class="pqx-route-preview-meta">
+          <span>{{ pqx_results_route_preview_text(route.get('detail'), '') }}</span>
+          <b>{{ pqx_results_route_preview_text(route.get('mode_label'), 'Route') }}</b>
+        </div>
+      {% if route.get('map_url') %}</a>{% endif %}
+    </article>
+    {% endfor %}
+  </div>
+  {% endif %}
 	<div class="pqx-results-list" id="results-list" data-workbench-results-table data-results-total="{{ full_results_total }}" data-results-rendered="{{ visible_results|length }}">
 		    <span hidden></span>
 	    <span class="pqx-route-preview-strip" hidden data-pqx-route-preview-strip></span>
@@ -139,7 +201,6 @@
               aria-label="Open area map for {{ candidate.get('title') or 'property' }}"
             >
               <img src="{{ primary_preview_url }}" alt="" loading="lazy" decoding="async" fetchpriority="low">
-              <span class="pqx-thumb-atlas-label">Map</span>
             </button>
           </span>
           {% endif %}

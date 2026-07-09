@@ -66,6 +66,13 @@ def _int_value(row: dict[str, Any], key: str) -> int:
         return 0
 
 
+def _effective_tracked_account_count(row: dict[str, Any]) -> int:
+    tracked = _int_value(row, "tracked_account_count")
+    if tracked > 0:
+        return tracked
+    return _int_value(row, "expected_account_count")
+
+
 def _has_onemin_boundary(row: dict[str, Any]) -> bool:
     return "ONEMIN_*" in {str(value or "").strip() for value in list(row.get("do_not_touch") or [])}
 
@@ -111,6 +118,24 @@ def _validate_gap(provider: str, row: dict[str, Any]) -> list[str]:
     if visible_gap != calculated_gap:
         return [f"{provider}_visible_account_gap_mismatch"]
     return []
+
+
+def _validate_tracked_inventory(provider: str, row: dict[str, Any]) -> list[str]:
+    blockers: list[str] = []
+    expected = _int_value(row, "expected_account_count")
+    tracked = _effective_tracked_account_count(row)
+    unavailable = _int_value(row, "unavailable_account_count")
+    availability_reason = str(row.get("availability_reason") or "").strip()
+    if tracked < REQUIRED_EXPECTED_ACCOUNT_COUNTS[provider]:
+        blockers.append(f"{provider}_expected_account_count_below_required")
+    if tracked and expected and expected > tracked:
+        blockers.append(f"{provider}_expected_account_count_exceeds_tracked_inventory")
+    if tracked > expected:
+        if unavailable != tracked - expected:
+            blockers.append(f"{provider}_unavailable_account_count_mismatch")
+        if not availability_reason:
+            blockers.append(f"{provider}_availability_reason_missing")
+    return blockers
 
 
 def _post_refresh_guidance(row: dict[str, Any]) -> str:
@@ -247,10 +272,9 @@ def verify_packet(packet: dict[str, Any], *, packet_path: str | None = None) -> 
             blockers.append(f"{provider}_safe_env_merge_guidance_missing")
         if not _has_secure_account_json_guidance(row):
             blockers.append(f"{provider}_secure_account_json_mode_guidance_missing")
-        if _int_value(row, "expected_account_count") < REQUIRED_EXPECTED_ACCOUNT_COUNTS[provider]:
-            blockers.append(f"{provider}_expected_account_count_below_required")
         blockers.extend(_merge_guidance_blockers(provider, row))
         blockers.extend(_validate_gap(provider, row))
+        blockers.extend(_validate_tracked_inventory(provider, row))
 
     magicfit = providers.get("magicfit") or {}
     magicfit_contract = magicfit.get("credential_contract") if isinstance(magicfit.get("credential_contract"), dict) else {}

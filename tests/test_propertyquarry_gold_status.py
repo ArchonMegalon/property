@@ -585,7 +585,7 @@ def _security_posture_payload(*, status: str = "pass") -> dict[str, object]:
     }
 
 
-def _release_hygiene_payload(*, status: str = "pass") -> dict[str, object]:
+def _release_hygiene_payload(*, status: str = "pass", tracked_dirty_path_count: int = 0) -> dict[str, object]:
     failures = [] if status == "pass" else ["release manifest runtime commit does not match current HEAD or deployed parent"]
     return {
         "schema": "propertyquarry.release_hygiene_receipt.v1",
@@ -600,6 +600,7 @@ def _release_hygiene_payload(*, status: str = "pass") -> dict[str, object]:
         "manifest_runtime_commit": "d8426c7",
         "head_commit": "88cdc13",
         "parent_commit": "6d80515",
+        "tracked_dirty_path_count": tracked_dirty_path_count,
     }
 
 
@@ -719,27 +720,82 @@ def _runtime_reconstruction_payload(
     *,
     status: str = "pass",
     glb: bool = True,
+    browser_shell: bool = True,
     public_contract: bool = True,
+    required_paths: bool = True,
+    route_label_quality: bool = True,
+    walkthrough_label_quality: bool = True,
+    walkthrough_generated: bool = True,
+    walkthrough_status: str = "pass",
+    honest_disclosure: bool = True,
+    browser_shell_status: str | None = None,
+    browser_failures: list[str] | None = None,
+    public_failures: list[str] | None = None,
 ) -> dict[str, object]:
     glb_size = 30700 if glb else 0
+    normalized_browser_failures = list(browser_failures or ([] if browser_shell else ["layout_preview_heading_wrong"]))
+    normalized_public_failures = list(public_failures or ([] if public_contract else ["viewer_not_redirected"]))
+    normalized_browser_shell_status = str(
+        browser_shell_status if browser_shell_status is not None else ("pass" if browser_shell else "failed")
+    )
     return {
         "contract_name": "propertyquarry.runtime_reconstruction_smoke.v1",
         "generated_at": "2026-06-29T10:02:00Z",
         "status": status,
-        "glb_required": True,
+        "glb_required": glb,
         "glb_non_empty": glb,
         "glb_manifest_ok": glb,
-        "glb_capability_ok": glb,
-        "required_paths_ok": glb,
+        "glb_capability_ok": True,
+        "required_paths_ok": required_paths,
+        "route_label_quality_ok": route_label_quality,
+        "walkthrough_label_quality_ok": walkthrough_label_quality,
+        "walkthrough_generated_ok": walkthrough_generated,
+        "honest_disclosure_ok": honest_disclosure,
+        "browser_shell_ok": browser_shell,
         "public_route_contract_ok": public_contract,
         "viewer_url": "https://propertyquarry.com/tours/files/demo/generated-reconstruction/viewer.html",
         "details": {
             "glb_export_status": "generated" if glb else "failed",
             "paths": {"glb": {"size_bytes": glb_size}},
+            "walkthrough_status": walkthrough_status,
+        },
+        "browser_shell": {
+            "status": normalized_browser_shell_status,
+            "failures": normalized_browser_failures,
         },
         "public_route_contract": {
             "status": "pass" if public_contract else "failed",
-            "failures": [] if public_contract else ["viewer_not_redirected"],
+            "failures": normalized_public_failures,
+        },
+    }
+
+
+def _service_generated_reconstruction_payload(
+    *,
+    status: str = "pass",
+    browser_shell: bool = True,
+    required_paths: bool = True,
+    top_level_video_contract: bool = True,
+    route_label_quality: bool = True,
+    walkthrough_generated: bool = True,
+    delivery_contract: bool = True,
+    public_contract: bool = True,
+) -> dict[str, object]:
+    return {
+        "contract_name": "propertyquarry.service_generated_reconstruction_smoke.v1",
+        "generated_at": "2026-06-29T10:03:00Z",
+        "status": status,
+        "browser_shell_ok": browser_shell,
+        "required_paths_ok": required_paths,
+        "top_level_video_contract_ok": top_level_video_contract,
+        "route_label_quality_ok": route_label_quality,
+        "walkthrough_generated_ok": walkthrough_generated,
+        "delivery_contract_ok": delivery_contract,
+        "public_route_contract_ok": public_contract,
+        "viewer_url": "https://propertyquarry.com/tours/demo-generated-reconstruction",
+        "browser_shell": {
+            "status": "pass" if browser_shell else "failed",
+            "failures": [] if browser_shell else ["launch_shell_media_grid_map_label_present"],
         },
     }
 
@@ -1500,7 +1556,7 @@ def test_gold_status_blocks_when_walkthrough_quality_gate_fails_even_if_video_ex
     assert jump_failure["frame_delta_stats"]["max_delta"] == 60.064
 
 
-def test_gold_status_blocks_when_generated_reconstruction_glb_gate_fails_even_if_browser_3d_passes(
+def test_gold_status_blocks_when_generated_reconstruction_runtime_gate_fails_even_if_browser_3d_passes(
     tmp_path: Path,
 ) -> None:
     performance = _write_json(tmp_path / "performance.json", _performance_payload())
@@ -1527,7 +1583,7 @@ def test_gold_status_blocks_when_generated_reconstruction_glb_gate_fails_even_if
     browser_3d_gate = _write_json(tmp_path / "browser-3d-gate.json", _browser_3d_gate_payload())
     runtime_reconstruction = _write_json(
         tmp_path / "runtime-reconstruction.json",
-        _runtime_reconstruction_payload(status="fail", glb=False),
+        _runtime_reconstruction_payload(status="fail", glb=False, required_paths=False),
     )
     walkthrough_quality = _write_json(
         tmp_path / "walkthrough-quality.json",
@@ -1554,8 +1610,405 @@ def test_gold_status_blocks_when_generated_reconstruction_glb_gate_fails_even_if
     assert blocker["glb_non_empty"] is False
     assert blocker["glb_manifest_ok"] is False
     assert "property_runtime_reconstruction_smoke.py" in blocker["action"]
+    assert "--require-public-contract" in blocker["action"]
     assert "--require-glb" in blocker["action"]
-    assert "Blender/NumPy" in blocker["action"]
+    assert "model export" in blocker["action"]
+
+
+def test_gold_status_blocks_generated_reconstruction_runtime_without_real_glb_even_when_public_contract_passes(
+    tmp_path: Path,
+) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(tmp_path / "discovery.json", {"status": "ready", "import_count": 2, "rejected_count": 0})
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+    browser_3d_gate = _write_json(tmp_path / "browser-3d-gate.json", _browser_3d_gate_payload())
+    runtime_reconstruction = _write_json(
+        tmp_path / "runtime-reconstruction.json",
+        _runtime_reconstruction_payload(status="pass", glb=False, public_contract=True, required_paths=True),
+    )
+    walkthrough_quality = _write_json(
+        tmp_path / "walkthrough-quality.json",
+        _walkthrough_quality_gate_payload(),
+    )
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+        browser_3d_gate_receipt_path=browser_3d_gate,
+        runtime_reconstruction_receipt_path=runtime_reconstruction,
+        walkthrough_quality_receipt_path=walkthrough_quality,
+    )
+
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "generated_reconstruction_glb")
+    assert receipt["status"] == "blocked"
+    assert receipt["generated_reconstruction_glb"]["ready"] is False
+    assert receipt["generated_reconstruction_glb"]["glb_required"] is False
+    assert receipt["generated_reconstruction_glb"]["glb_non_empty"] is False
+    assert receipt["generated_reconstruction_glb"]["glb_manifest_ok"] is False
+    assert receipt["generated_reconstruction_glb"]["route_label_quality_ok"] is True
+    assert receipt["generated_reconstruction_glb"]["walkthrough_label_quality_ok"] is True
+    assert receipt["generated_reconstruction_glb"]["walkthrough_generated_ok"] is True
+    assert receipt["generated_reconstruction_glb"]["browser_shell_ok"] is True
+    assert blocker["glb_non_empty"] is False
+    assert blocker["glb_manifest_ok"] is False
+
+
+def test_gold_status_blocks_generated_reconstruction_when_browser_shell_proof_is_missing(
+    tmp_path: Path,
+) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(tmp_path / "discovery.json", {"status": "ready", "import_count": 2, "rejected_count": 0})
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+    browser_3d_gate = _write_json(tmp_path / "browser-3d-gate.json", _browser_3d_gate_payload())
+    runtime_reconstruction = _write_json(
+        tmp_path / "runtime-reconstruction.json",
+        _runtime_reconstruction_payload(status="pass", browser_shell=False, public_contract=True, required_paths=True),
+    )
+    walkthrough_quality = _write_json(
+        tmp_path / "walkthrough-quality.json",
+        _walkthrough_quality_gate_payload(),
+    )
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+        browser_3d_gate_receipt_path=browser_3d_gate,
+        runtime_reconstruction_receipt_path=runtime_reconstruction,
+        walkthrough_quality_receipt_path=walkthrough_quality,
+    )
+
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "generated_reconstruction_glb")
+    assert receipt["status"] == "blocked"
+    assert receipt["generated_reconstruction_glb"]["ready"] is False
+    assert receipt["generated_reconstruction_glb"]["browser_shell_ok"] is False
+    assert blocker["browser_shell_ok"] is False
+    assert "--require-browser-shell" in blocker["action"]
+    assert "--host-header propertyquarry.com" in blocker["action"]
+
+
+def test_gold_status_blocks_generated_reconstruction_when_browser_shell_status_is_not_pass(
+    tmp_path: Path,
+) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(tmp_path / "discovery.json", {"status": "ready", "import_count": 2, "rejected_count": 0})
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+    browser_3d_gate = _write_json(tmp_path / "browser-3d-gate.json", _browser_3d_gate_payload())
+    runtime_reconstruction = _write_json(
+        tmp_path / "runtime-reconstruction.json",
+        _runtime_reconstruction_payload(
+            status="pass",
+            browser_shell=True,
+            browser_shell_status="failed",
+            browser_failures=["browser_shell_probe_timeout"],
+        ),
+    )
+    walkthrough_quality = _write_json(tmp_path / "walkthrough-quality.json", _walkthrough_quality_gate_payload())
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+        browser_3d_gate_receipt_path=browser_3d_gate,
+        runtime_reconstruction_receipt_path=runtime_reconstruction,
+        walkthrough_quality_receipt_path=walkthrough_quality,
+    )
+
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "generated_reconstruction_glb")
+    assert receipt["status"] == "blocked"
+    assert receipt["generated_reconstruction_glb"]["ready"] is False
+    assert receipt["generated_reconstruction_glb"]["browser_shell_ok"] is True
+    assert receipt["generated_reconstruction_glb"]["browser_shell_status"] == "failed"
+    assert blocker["browser_shell_status"] == "failed"
+    assert blocker["browser_shell_failures"] == ["browser_shell_probe_timeout"]
+
+
+def test_gold_status_blocks_generated_reconstruction_without_honest_generated_disclosure(
+    tmp_path: Path,
+) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(tmp_path / "discovery.json", {"status": "ready", "import_count": 2, "rejected_count": 0})
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+    browser_3d_gate = _write_json(tmp_path / "browser-3d-gate.json", _browser_3d_gate_payload())
+    runtime_reconstruction = _write_json(
+        tmp_path / "runtime-reconstruction.json",
+        _runtime_reconstruction_payload(status="pass", honest_disclosure=False),
+    )
+    walkthrough_quality = _write_json(tmp_path / "walkthrough-quality.json", _walkthrough_quality_gate_payload())
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+        browser_3d_gate_receipt_path=browser_3d_gate,
+        runtime_reconstruction_receipt_path=runtime_reconstruction,
+        walkthrough_quality_receipt_path=walkthrough_quality,
+    )
+
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "generated_reconstruction_glb")
+    assert receipt["status"] == "blocked"
+    assert receipt["generated_reconstruction_glb"]["ready"] is False
+    assert receipt["generated_reconstruction_glb"]["honest_disclosure_ok"] is False
+    assert blocker["honest_disclosure_ok"] is False
+
+
+def test_gold_status_generated_reconstruction_blocker_surfaces_walkthrough_and_runtime_truth_split(
+    tmp_path: Path,
+) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(tmp_path / "discovery.json", {"status": "ready", "import_count": 2, "rejected_count": 0})
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+    browser_3d_gate = _write_json(tmp_path / "browser-3d-gate.json", _browser_3d_gate_payload())
+    runtime_reconstruction = _write_json(
+        tmp_path / "runtime-reconstruction.json",
+        _runtime_reconstruction_payload(
+            status="failed",
+            browser_shell=False,
+            public_contract=False,
+            walkthrough_generated=False,
+            walkthrough_status="failed",
+            public_failures=["canonical_not_shell_or_control"],
+        ),
+    )
+    release_hygiene = _write_json(
+        tmp_path / "release-hygiene.json",
+        _release_hygiene_payload(status="fail", tracked_dirty_path_count=4),
+    )
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+        browser_3d_gate_receipt_path=browser_3d_gate,
+        runtime_reconstruction_receipt_path=runtime_reconstruction,
+        release_hygiene_receipt_path=release_hygiene,
+    )
+
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "generated_reconstruction_glb")
+    assert receipt["status"] == "blocked"
+    assert receipt["generated_reconstruction_glb"]["ready"] is False
+    assert receipt["generated_reconstruction_glb"]["walkthrough_generated_ok"] is False
+    assert receipt["generated_reconstruction_glb"]["walkthrough_status"] == "failed"
+    assert receipt["generated_reconstruction_glb"]["public_contract_failures"] == ["canonical_not_shell_or_control"]
+    assert receipt["generated_reconstruction_glb"]["tracked_dirty_path_count"] == 4
+    assert "image-baked /app code" in receipt["generated_reconstruction_glb"]["note"]
+    assert blocker["walkthrough_generated_ok"] is False
+    assert blocker["walkthrough_status"] == "failed"
+    assert blocker["public_contract_failures"] == ["canonical_not_shell_or_control"]
+    assert blocker["manifest_runtime_commit"] == "d8426c7"
+    assert blocker["head_commit"] == "88cdc13"
+    assert blocker["tracked_dirty_path_count"] == 4
+    assert "image-baked /app code" in blocker["action"]
+    assert any("host worktree changes do not count as runtime proof" in note for note in receipt["notes"])
+
+
+def test_gold_status_blocks_when_service_generated_reconstruction_smoke_fails(tmp_path: Path) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(tmp_path / "discovery.json", {"status": "ready", "import_count": 2, "rejected_count": 0})
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+    browser_3d_gate = _write_json(tmp_path / "browser-3d-gate.json", _browser_3d_gate_payload())
+    runtime_reconstruction = _write_json(tmp_path / "runtime-reconstruction.json", _runtime_reconstruction_payload())
+    service_generated_reconstruction = _write_json(
+        tmp_path / "service-generated-reconstruction.json",
+        _service_generated_reconstruction_payload(delivery_contract=False),
+    )
+    walkthrough_quality = _write_json(
+        tmp_path / "walkthrough-quality.json",
+        _walkthrough_quality_gate_payload(),
+    )
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+        browser_3d_gate_receipt_path=browser_3d_gate,
+        runtime_reconstruction_receipt_path=runtime_reconstruction,
+        service_generated_reconstruction_receipt_path=service_generated_reconstruction,
+        walkthrough_quality_receipt_path=walkthrough_quality,
+    )
+
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "service_generated_reconstruction")
+    assert receipt["status"] == "blocked"
+    assert receipt["service_generated_reconstruction"]["ready"] is False
+    assert receipt["service_generated_reconstruction"]["delivery_contract_ok"] is False
+    assert blocker["delivery_contract_ok"] is False
+    assert "property_service_generated_reconstruction_smoke.py" in blocker["action"]
+    assert "--require-public-contract" in blocker["action"]
+
+
+def test_gold_status_blocks_when_service_generated_reconstruction_browser_shell_proof_is_missing(tmp_path: Path) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(tmp_path / "discovery.json", {"status": "ready", "import_count": 2, "rejected_count": 0})
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
+    browser_3d_gate = _write_json(tmp_path / "browser-3d-gate.json", _browser_3d_gate_payload())
+    runtime_reconstruction = _write_json(tmp_path / "runtime-reconstruction.json", _runtime_reconstruction_payload())
+    service_generated_reconstruction = _write_json(
+        tmp_path / "service-generated-reconstruction.json",
+        _service_generated_reconstruction_payload(browser_shell=False),
+    )
+    walkthrough_quality = _write_json(
+        tmp_path / "walkthrough-quality.json",
+        _walkthrough_quality_gate_payload(),
+    )
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+        browser_3d_gate_receipt_path=browser_3d_gate,
+        runtime_reconstruction_receipt_path=runtime_reconstruction,
+        service_generated_reconstruction_receipt_path=service_generated_reconstruction,
+        walkthrough_quality_receipt_path=walkthrough_quality,
+    )
+
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "service_generated_reconstruction")
+    assert receipt["status"] == "blocked"
+    assert receipt["service_generated_reconstruction"]["ready"] is False
+    assert receipt["service_generated_reconstruction"]["browser_shell_ok"] is False
+    assert blocker["browser_shell_ok"] is False
+    assert "--require-browser-shell" in blocker["action"]
+    assert "--host-header propertyquarry.com" in blocker["action"]
 
 
 def test_gold_status_surfaces_magicfit_renderer_configuration_when_magicfit_mode_is_missing(tmp_path: Path) -> None:
@@ -1717,6 +2170,10 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
         tmp_path / "runtime-reconstruction.json",
         _runtime_reconstruction_payload(),
     )
+    service_generated_reconstruction = _write_json(
+        tmp_path / "service-generated-reconstruction.json",
+        _service_generated_reconstruction_payload(),
+    )
     walkthrough_quality = _write_json(tmp_path / "walkthrough-quality.json", _walkthrough_quality_gate_payload())
     scene_video = _write_json(tmp_path / "scene-video-readiness.json", _scene_video_readiness_payload())
     scene_video_verifier = _write_json(tmp_path / "scene-video-readiness-verifier.json", _scene_video_readiness_verifier_payload())
@@ -1748,6 +2205,7 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
         tour_delivery_contract_receipt_path=tour_delivery_contract,
         browser_3d_gate_receipt_path=browser_3d_gate,
         runtime_reconstruction_receipt_path=runtime_reconstruction,
+        service_generated_reconstruction_receipt_path=service_generated_reconstruction,
         walkthrough_quality_receipt_path=walkthrough_quality,
         scene_video_readiness_receipt_path=scene_video,
         scene_video_readiness_verifier_receipt_path=scene_video_verifier,
@@ -1792,6 +2250,7 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
         "tour_delivery_contract_shape",
         "browser_rendered_3d",
         "generated_reconstruction_glb",
+        "service_generated_reconstruction",
         "walkthrough_quality",
         "scene_video_readiness",
         "scene_video_provider_refresh_packet",
@@ -1802,6 +2261,14 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
     assert receipt["browser_rendered_3d"]["ready"] is True
     assert receipt["generated_reconstruction_glb"]["ready"] is True
     assert receipt["generated_reconstruction_glb"]["glb_size_bytes"] == 30700
+    assert receipt["generated_reconstruction_glb"]["browser_shell_ok"] is True
+    assert receipt["generated_reconstruction_glb"]["route_label_quality_ok"] is True
+    assert receipt["generated_reconstruction_glb"]["walkthrough_label_quality_ok"] is True
+    assert receipt["generated_reconstruction_glb"]["walkthrough_generated_ok"] is True
+    assert receipt["service_generated_reconstruction"]["ready"] is True
+    assert receipt["service_generated_reconstruction"]["browser_shell_ok"] is True
+    assert receipt["service_generated_reconstruction"]["top_level_video_contract_ok"] is True
+    assert receipt["service_generated_reconstruction"]["delivery_contract_ok"] is True
     assert receipt["walkthrough_quality"]["ready"] is True
     assert receipt["scene_video_readiness"]["ready"] is True
     assert receipt["scene_video_readiness"]["actionability_ready"] is True

@@ -417,11 +417,19 @@ def test_property_shortlist_templates_expose_visual_actions_without_hidden_agent
     assert '>Open walkthrough</a>' not in results
     assert '>Open 3D tour</a>' not in results
     assert '>Map</a>' not in results
-    assert 'pqx-thumb-atlas-label">Map<' in results
+    assert 'pqx-thumb-atlas-label">Map<' not in results
+    assert 'pqx-thumb-atlas-label">Map<' not in script
     assert "Open properties first." not in results
     assert "pqx_visual_provider_label" in review
     assert "pqx_visual_provider_label" in workbench
     assert "visualProviderLabel" in script
+    assert "selected.get('diorama_preview_url')" in review
+    assert "selected.get('diorama_preview_url')" in workbench
+    assert "candidate?.diorama_preview_url" in feedback_script
+    assert "selected.get('verified_tour_url') or selected.get('open_tour_url')" in review
+    assert "selected.get('verified_tour_url') or selected.get('open_tour_url')" in workbench
+    assert "candidate?.verified_tour_url" in feedback_script
+    assert "candidate?.open_tour_url" in feedback_script
     assert "{{ selected_tour.get('provider_label') or '3D tour' }}" not in review
     assert "{{ selected_tour.get('provider_label') or '3D tour' }}" not in workbench
     assert "{{ selected_flythrough.get('provider_label') or 'Walkthrough' }}" not in review
@@ -1089,11 +1097,47 @@ def test_propertyquarry_research_rows_use_auto_confirmed_listing_facts() -> None
         mismatch_reasons=[],
     )
 
-    tags_by_title = {row["title"]: row["tag"] for row in rows}
-    assert tags_by_title["Location fit"] == "From listing"
-    assert tags_by_title["Budget signal"] == "From listing"
-    assert tags_by_title["Layout signal"] == "From listing"
-    assert tags_by_title["Listing facts"] == "From listing"
+    rows_by_title = {row["title"]: row for row in rows}
+    assert rows_by_title["Location fit"]["tag"] == "Strong"
+    assert rows_by_title["Layout signal"]["tag"] == "Layout"
+    assert "Budget signal" not in rows_by_title
+    assert "Listing facts" not in rows_by_title
+
+
+def test_propertyquarry_research_budget_signal_uses_selected_budget_ceiling() -> None:
+    facts = {
+        "price_display": "EUR 1,490",
+        "price_eur": 1490.0,
+    }
+
+    rows = landing_property_research._property_packet_score_rows(
+        facts=facts,
+        preferences={"max_price_eur": 1700},
+        match_reasons=[],
+        mismatch_reasons=[],
+    )
+
+    budget_row = next(row for row in rows if row["title"] == "Budget signal")
+    assert budget_row["tag"] == "Strong"
+    assert budget_row["detail"] == "EUR 1 490 is within the EUR 1 700 budget ceiling."
+
+
+def test_propertyquarry_research_budget_signal_flags_price_above_selected_budget() -> None:
+    facts = {
+        "price_display": "EUR 1,940",
+        "price_eur": 1940.0,
+    }
+
+    rows = landing_property_research._property_packet_score_rows(
+        facts=facts,
+        preferences={"max_price_eur": 1700},
+        match_reasons=[],
+        mismatch_reasons=[],
+    )
+
+    budget_row = next(row for row in rows if row["title"] == "Budget signal")
+    assert budget_row["tag"] == "Risk"
+    assert budget_row["detail"] == "EUR 1 940 is EUR 240 above the EUR 1 700 budget ceiling."
 
 
 def test_propertyquarry_research_everyday_fit_rows_use_named_confirmed_distances() -> None:
@@ -1149,7 +1193,7 @@ def test_propertyquarry_selected_distance_rows_follow_selected_nearby_filters() 
 
 
 def test_propertyquarry_single_distance_row_follows_user_keyword_priority() -> None:
-    selected_distance_rows, _ = landing_property_research._property_distance_panel_rows(
+    selected_distance_rows, selected_distance_copy = landing_property_research._property_distance_panel_rows(
         facts={
             "nearest_playground_m": 320,
             "nearest_playground_name": "Volksgarten Playground",
@@ -1171,7 +1215,36 @@ def test_propertyquarry_single_distance_row_follows_user_keyword_priority() -> N
     )
     assert len(selected_distance_rows) == 1
     assert selected_distance_rows[0]["title"] == "Playground"
+    assert selected_distance_copy == "Playground distance from this search."
     assert "Nearest playground: Volksgarten Playground is 320 m away; selected limit 450 m | source: OpenStreetMap." in selected_distance_rows[0]["detail"]
+
+
+def test_propertyquarry_single_distance_row_ignores_json_key_order_without_explicit_keyword_order() -> None:
+    selected_distance_rows, selected_distance_copy = landing_property_research._property_distance_panel_rows(
+        facts={
+            "nearest_library_m": 260,
+            "nearest_library_name": "Wissenschaftliches Kabinett",
+            "nearest_library_source": "OpenStreetMap",
+            "nearest_supermarket_m": 189,
+            "nearest_supermarket_name": "Billa",
+            "nearest_supermarket_source": "OpenStreetMap",
+        },
+        preferences={
+            "keyword_preferences_json": json.dumps(
+                {
+                    "library nearby": "nice_to_have",
+                    "supermarket nearby": "nice_to_have",
+                }
+            ),
+            "max_distance_to_library_m": 1000,
+            "max_distance_to_supermarket_m": 500,
+        },
+        single_selected_distance_filter=True,
+    )
+    assert len(selected_distance_rows) == 1
+    assert selected_distance_rows[0]["title"] == "Supermarket"
+    assert selected_distance_copy == "Supermarket distance from this search."
+    assert "Nearest supermarket: Billa is 189 m away; selected limit 500 m | source: OpenStreetMap." in selected_distance_rows[0]["detail"]
 
 
 def test_propertyquarry_selected_distance_rows_prefers_explicit_keyword_preferences() -> None:
@@ -1322,6 +1395,7 @@ def test_propertyquarry_route_previews_require_values_and_name_unnamed_distances
             "ranked_candidates": [
                 {
                     "title": "Unnamed daily-life evidence",
+                    "fit_summary": "Daily errands look walkable from here.",
                     "property_facts": {
                         "nearest_supermarket_m": 420,
                         "nearest_pharmacy_m": "",
@@ -1340,22 +1414,142 @@ def test_propertyquarry_route_previews_require_values_and_name_unnamed_distances
             "detail": "420 m from the property",
             "mode_label": "Walk",
             "map_url": "https://www.google.com/maps/dir/?api=1&origin=Unnamed%20daily-life%20evidence&destination=Nearest%20supermarket&travelmode=walking",
-            "preview_path": "M 12.0 56.0 C 42.0 48.0, 96.0 24.0, 132.0 18.0",
         }
     ]
+    assert "preview_path" not in rows[0]
     assert "unknown" not in json.dumps(rows).lower()
     assert "with no value" not in json.dumps(rows).lower()
+
+
+def test_propertyquarry_route_previews_render_real_walk_thumbnails_when_geometry_is_available(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        landing_property_workspace_helpers,
+        "_property_route_preview_geometry",
+        lambda **_kwargs: {
+            "points": (
+                (16.3890, 48.2210),
+                (16.3912, 48.2218),
+                (16.3941, 48.2231),
+                (16.3954, 48.2240),
+            ),
+            "distance_m": 435,
+            "duration_min": 6,
+        },
+    )
+    monkeypatch.setattr(
+        landing_view_models,
+        "_cached_preview_image_url",
+        lambda **_kwargs: "/app/api/property/map-previews/walk-route.png",
+    )
+
+    rows = landing_property_workspace_helpers._property_progress_route_preview_rows(
+        run_summary={
+            "ranked_candidates": [
+                {
+                    "title": "Nordbahnviertel family flat",
+                    "property_facts": {
+                        "map_lat": 48.2210,
+                        "map_lng": 16.3890,
+                        "nearest_playground_m": 320,
+                        "nearest_playground_name": "Freizeitareal Nordbahnviertel",
+                        "nearest_playground_lat": 48.2240,
+                        "nearest_playground_lng": 16.3954,
+                    },
+                }
+            ]
+        },
+        property_preferences={"enable_family_mode": True},
+    )
+
+    assert rows[0]["title"] == "Freizeitareal Nordbahnviertel"
+    assert rows[0]["detail"] == "435 m on foot"
+    assert rows[0]["mode_label"] == "Walk 6 min"
+    assert rows[0]["preview_image_url"] == "/app/api/property/map-previews/walk-route.png"
+    assert rows[0]["preview_alt"] == "Playground route to Freizeitareal Nordbahnviertel"
+    assert rows[0]["preview_path"].startswith("M")
+
+
+def test_propertyquarry_progress_current_property_restores_best_so_far_card(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        landing_view_models,
+        "_cached_preview_image_url",
+        lambda **_kwargs: "/app/api/property/map-previews/current-property.png",
+    )
+    card = landing_property_workspace_helpers._property_progress_current_property_card(
+        run_summary={
+            "ranked_candidates": [
+                {
+                    "title": "Nordbahnviertel family flat",
+                    "source_label": "Willhaben | Austria | Rent | 1020 Vienna",
+                    "fit_summary": "Lift and transit fit.",
+                    "price_display": "EUR 1,420",
+                    "layout_display": "3 rooms | 78 m2",
+                    "property_facts": {
+                        "postal_name": "1020 Vienna",
+                        "map_lat": 48.221,
+                        "map_lng": 16.395,
+                    },
+                }
+            ]
+        }
+    )
+
+    assert card["status_label"] == "Best so far"
+    assert card["title"] == "Nordbahnviertel family flat"
+    assert card["location_label"] == "1020 Vienna"
+    assert card["source_label"] == "Willhaben"
+    assert card["orientation_preview"]["image_url"] == "/app/api/property/map-previews/current-property.png"
+
+
+def test_propertyquarry_progress_current_property_falls_back_to_source_top_candidate(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        landing_view_models,
+        "_cached_preview_image_url",
+        lambda **_kwargs: "/app/api/property/map-previews/current-source.png",
+    )
+    card = landing_property_workspace_helpers._property_progress_current_property_card(
+        run_summary={
+            "ranked_candidates": [],
+            "sources": [
+                {
+                    "source_label": "Willhaben | Austria | Rent | 1020 Vienna",
+                    "top_candidates": [
+                        {
+                            "title": "Current shortlist lead",
+                            "fit_summary": "Near the old Danube with a better walk-to-playground fit.",
+                            "fit_score": 68,
+                            "property_facts": {
+                                "postal_name": "1220 Vienna",
+                                "map_lat": 48.243,
+                                "map_lng": 16.432,
+                            },
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    assert card["status_label"] == "Current property"
+    assert card["title"] == "Current shortlist lead"
+    assert card["orientation_preview"]["image_url"] == "/app/api/property/map-previews/current-source.png"
 
 
 def test_propertyquarry_browser_route_preview_uses_confirmed_distance_fallback_copy() -> None:
     body = _read_workbench_bundle()
 
-    assert "Nearest ${String(label || 'place').toLowerCase()}" in body
-    assert "const distance = Number(facts[distanceKey] || 0);" in body
-    assert "if (!Number.isFinite(distance) || distance <= 0) return;" in body
+    assert "const direct = Array.isArray(runPayload?.route_previews)" in body
+    assert "return direct.slice(0, 3);" in body
     assert "const routePreviewText = (value, fallback = '') => {" in body
     assert "lowered.includes('google.com/maps')" in body
     assert "const href = routePreviewHref(route?.map_url);" in body
+    assert "const currentPropertyCardPayload = (runPayload) => {" in body
+    assert "pqx-current-property-card" in body
+    assert "pqx-route-preview-thumb" in body
+    assert "const routePreviewPath = (originLat, originLng, targetLat, targetLng) => {" not in body
+    assert "route?.preview_path || 'M 12 56 C 42 48, 96 24, 132 18'" not in body
 
 
 def test_propertyquarry_research_missing_rows_respect_confirmed_distance_aliases() -> None:
@@ -3657,7 +3851,7 @@ def test_propertyquarry_running_panel_replaces_internal_status_message_with_prog
     assert "Could not load property search status." not in visible_source
     assert "Homes" in visible_source
     assert "179" in visible_source
-    assert "29 providers selected" in visible_source
+    assert "29 sources selected" in visible_source
     assert "Homes" in visible_source
     assert "all found homes are checked" in visible_source
     assert 'data-pqx-run-reliability' not in response.text
@@ -4475,6 +4669,9 @@ def test_propertyquarry_shortlist_bootstrap_uses_compact_client_payload(monkeypa
     assert "property_facts_json" not in serialized
     assert "ranked_candidates" not in payload["run"].get("summary", {})
     assert "sources" not in payload["run"].get("summary", {})
+    assert payload["run"]["current_property"]["title"] == "Compact payload apartment"
+    assert payload["run"]["current_property"]["status_label"] == "Best so far"
+    assert "raw_model_notes" not in json.dumps(payload["run"]["current_property"])
     result = payload["results"][0]
     assert result["title"] == "Compact payload apartment"
     assert result["property_facts"]["has_floorplan"] is True
@@ -5029,9 +5226,9 @@ def test_propertyquarry_fast_ranked_run_renders_sample_homes_for_anonymous_visit
     candidates = payload["summary"]["ranked_candidates"]
     assert candidates
     assert candidates[0]["packet_url"].startswith("/app/example/shortlist?candidate=")
-    assert candidates[0]["diorama_preview_url"] == "/static/property/home/example-shortlist-home-1.png"
-    assert candidates[1]["diorama_preview_url"] == "/static/property/home/example-shortlist-home-2.png"
-    assert candidates[2]["diorama_preview_url"] == "/static/property/home/example-shortlist-home-3.png"
+    assert candidates[0]["diorama_preview_url"].startswith("/static/property/home/example-shortlist-home-1.png?v=")
+    assert candidates[1]["diorama_preview_url"].startswith("/static/property/home/example-shortlist-home-2.png?v=")
+    assert candidates[2]["diorama_preview_url"].startswith("/static/property/home/example-shortlist-home-3.png?v=")
 
 
 def test_propertyquarry_fast_ranked_run_opaque_public_url_still_renders_sample_homes_for_anonymous_visitors() -> None:
@@ -5056,7 +5253,7 @@ def test_propertyquarry_fast_ranked_run_opaque_public_url_still_renders_sample_h
     payload = json.loads(html.unescape(payload_match.group(1)))
     candidates = payload["summary"]["ranked_candidates"]
     assert candidates[0]["packet_url"].startswith("/app/example/shortlist?candidate=")
-    assert candidates[0]["diorama_preview_url"] == "/static/property/home/example-shortlist-home-1.png"
+    assert candidates[0]["diorama_preview_url"].startswith("/static/property/home/example-shortlist-home-1.png?v=")
 
 
 def test_propertyquarry_prepare_run_payload_synthesizes_first_party_packet_for_listing_only_candidate() -> None:
@@ -5089,6 +5286,63 @@ def test_propertyquarry_prepare_run_payload_synthesizes_first_party_packet_for_l
     assert candidate["packet_url"].endswith("?run_id=run-listing-only-fast")
     assert candidate["detail_href"] == candidate["packet_url"]
     assert candidate["property_url"] == "https://www.immobilienscout24.de/expose/listing-only-loft"
+
+
+def test_propertyquarry_prepare_run_payload_derives_generated_layout_diorama_for_fast_ranked_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    generated_reconstruction_url = "https://propertyquarry.com/tours/fast-generated-layout"
+    diorama_url = "https://cdn.example.test/fast-generated-diorama.png"
+    listing_photo_url = "https://cdn.example.test/fast-generated-photo.jpg"
+    run_payload = {
+        "run_id": "run-fast-generated-layout",
+        "status": "completed",
+        "summary": {
+            "status": "completed",
+            "ranked_candidates": [
+                {
+                    "title": "Generated layout shortlist flat",
+                    "property_url": "https://www.immobilienscout24.de/expose/generated-layout-shortlist-flat",
+                    "source_label": "ImmoScout24",
+                    "tour_url": generated_reconstruction_url,
+                    "preview_image_url": listing_photo_url,
+                    "property_facts": {
+                        "price_display": "EUR 2,050",
+                        "postal_name": "1020 Vienna",
+                        "preview_image_url": listing_photo_url,
+                        "image_url": listing_photo_url,
+                        "media_urls_json": [listing_photo_url],
+                    },
+                }
+            ],
+        },
+    }
+
+    monkeypatch.setattr(
+        landing_routes,
+        "_property_visual_ready_tour_url",
+        lambda *, tour_url="", open_tour_url="": (
+            generated_reconstruction_url
+            if str(tour_url or open_tour_url).strip() == generated_reconstruction_url
+            else ""
+        ),
+    )
+    monkeypatch.setattr(
+        landing_routes,
+        "_hosted_property_tour_telegram_preview_image_url_for_style",
+        lambda tour_url, *, diorama_style_hint="": diorama_url if tour_url == generated_reconstruction_url else "",
+    )
+
+    normalized = landing_routes._propertyquarry_prepare_run_payload(
+        product=object(),
+        run_payload=run_payload,
+        backfill_cached_previews=False,
+    )
+
+    candidate = normalized["summary"]["ranked_candidates"][0]
+    assert candidate["preview_image_url"] == listing_photo_url
+    assert candidate["diorama_preview_url"] == diorama_url
+    assert candidate["tour_url"] == generated_reconstruction_url
 
 
 def test_propertyquarry_fast_ranked_run_open_property_stays_first_party_for_listing_only_candidates(
@@ -6708,8 +6962,8 @@ def test_propertyquarry_example_shortlist_rows_keep_static_diorama_preview_when_
 
     assert rows[0]["tour_href"] == "/tours/demo-home-tour/control/matterport"
     assert rows[0]["walkthrough_href"] == "/tours/demo-home-tour?pane=flythrough-pane&autoplay=1"
-    assert rows[0]["scope_preview"]["image_url"] == "/static/property/home/example-shortlist-home-1.png"
-    assert rows[0]["scope_preview"]["preview_image_url"] == "/static/property/home/example-shortlist-home-1.png"
+    assert rows[0]["scope_preview"]["image_url"].startswith("/static/property/home/example-shortlist-home-1.png?v=")
+    assert rows[0]["scope_preview"]["preview_image_url"].startswith("/static/property/home/example-shortlist-home-1.png?v=")
 
 
 def test_propertyquarry_example_media_targets_prefer_propertyquarry_3dvista_private_viewer(
@@ -8288,6 +8542,10 @@ def test_property_workbench_candidate_snapshot_carries_detail_state() -> None:
         recovered_by_filter=True,
         relaxed_filter_label="Match bar",
         preview_image_url="https://img.example.com/1.jpg",
+        diorama_preview_url="https://img.example.com/1-diorama.jpg",
+        tour_url="https://propertyquarry.com/tours/cand-1/control/matterport",
+        verified_tour_url="https://propertyquarry.com/tours/cand-1/control/matterport",
+        open_tour_url="https://propertyquarry.com/tours/cand-1/control/matterport",
     )
     assert snapshot["candidate_ref"] == "cand-1"
     assert snapshot["listing_fact_confirmation"]["status"] == "confirmed"
@@ -8296,6 +8554,221 @@ def test_property_workbench_candidate_snapshot_carries_detail_state() -> None:
     assert snapshot["flythrough"]["status"] == "ready"
     assert snapshot["official_evidence_rows"][0]["title"] == "Cadastre"
     assert snapshot["household_alignment_label"] == "aligned"
+    assert snapshot["diorama_preview_url"] == "https://img.example.com/1-diorama.jpg"
+    assert snapshot["verified_tour_url"] == "https://propertyquarry.com/tours/cand-1/control/matterport"
+
+
+def test_property_workbench_selected_review_prefers_diorama_cover(monkeypatch) -> None:
+    principal_id = "pq-workbench-diorama-cover"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    diorama_url = "https://cdn.example.test/selected-home-diorama.png"
+    photo_url = "https://cdn.example.test/selected-home-photo.jpg"
+    candidate = {
+        "title": "Diorama-first family flat",
+        "summary": "EUR 2,250 · 92 m² · 1020 Wien",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/diorama-family-flat",
+        "source_ref": "willhaben:diorama-family-flat",
+        "preview_image_url": photo_url,
+        "diorama_preview_url": diorama_url,
+        "property_facts": {
+            "price_eur": 2250.0,
+            "area_m2": 92.0,
+            "rooms": 3.0,
+            "postal_name": "1020 Wien",
+        },
+    }
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "done",
+            "summary": {
+                "sources_total": 1,
+                "listing_total": 1,
+                "ranked_candidates": [candidate],
+                "sources": [
+                    {
+                        "source_label": "Willhaben | Austria | Rent | 1020 Vienna",
+                        "listing_total": 1,
+                        "top_candidates": [candidate],
+                    }
+                ],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    response = client.get("/app/properties", params={"run_id": "run-diorama-cover"}, headers={"host": "propertyquarry.com"})
+    assert response.status_code == 200
+    assert re.search(
+        rf'<img[^>]+src="{re.escape(diorama_url)}"[^>]+data-pw-cover-image',
+        response.text,
+        flags=re.IGNORECASE,
+    )
+    assert not re.search(
+        rf'<img[^>]+src="{re.escape(photo_url)}"[^>]+data-pw-cover-image',
+        response.text,
+        flags=re.IGNORECASE,
+    )
+
+
+def test_property_workspace_payload_derives_diorama_preview_from_ready_generated_layout(monkeypatch) -> None:
+    diorama_url = "https://cdn.example.test/workbench-derived-diorama.png"
+    generated_reconstruction_url = "https://propertyquarry.com/tours/workbench-derived-layout"
+    listing_photo_url = "https://cdn.example.test/workbench-derived-photo.jpg"
+
+    monkeypatch.setattr(
+        landing_property_workspace_payload,
+        "_property_visual_ready_tour_url",
+        lambda *, tour_url="", open_tour_url="": (
+            generated_reconstruction_url
+            if str(tour_url or open_tour_url).strip() == generated_reconstruction_url
+            else ""
+        ),
+    )
+    monkeypatch.setattr(
+        landing_property_workspace_payload,
+        "_hosted_property_tour_telegram_preview_image_url_for_style",
+        lambda tour_url, *, diorama_style_hint="": diorama_url if tour_url == generated_reconstruction_url else "",
+    )
+
+    payload = landing_property_workspace_payload.property_workspace_payload(
+        "properties",
+        status={"workspace": {"name": "Derived Diorama Results Office"}, "channels": {}},
+        property_state={
+            "commercial": {},
+            "billing_truth": {},
+            "preferences": {
+                "listing_mode": "rent",
+                "search_goal": "home",
+                "location_query": "1020 Wien",
+            },
+            "run": {
+                "run_id": "run-derived-workbench-diorama",
+                "status": "processed",
+                "property_search_preferences": {
+                    "listing_mode": "rent",
+                    "search_goal": "home",
+                    "location_query": "1020 Wien",
+                },
+                "summary": {
+                    "status": "processed",
+                    "ranked_candidates": [
+                        {
+                            "candidate_ref": "cand-derived-workbench-diorama",
+                            "title": "Generated layout workbench flat",
+                            "summary": "Ready generated layout should surface the diorama in workbench payloads.",
+                            "source_label": "Willhaben",
+                            "source_ref": "willhaben:derived-workbench-diorama",
+                            "property_url": "https://example.test/source/derived-workbench-diorama",
+                            "tour_url": generated_reconstruction_url,
+                            "property_facts": {
+                                "price_display": "EUR 1,980",
+                                "monthly_rent_eur": 1980,
+                                "area_m2": 81,
+                                "rooms": 3,
+                                "postal_name": "1020 Wien",
+                                "preview_image_url": listing_photo_url,
+                                "image_url": listing_photo_url,
+                                "media_urls_json": [listing_photo_url],
+                            },
+                        }
+                    ],
+                    "sources": [],
+                },
+            },
+        },
+    )
+
+    result = payload["decision_workbench"]["results"][0]
+    assert result["preview_image_url"] == listing_photo_url
+    assert result["diorama_preview_url"] == diorama_url
+
+
+def test_property_workbench_selected_review_derives_diorama_cover_from_ready_generated_layout(monkeypatch) -> None:
+    principal_id = "pq-workbench-derived-diorama-cover"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Derived Diorama Property Office")
+
+    diorama_url = "https://cdn.example.test/selected-home-derived-diorama.png"
+    photo_url = "https://cdn.example.test/selected-home-derived-photo.jpg"
+    generated_reconstruction_url = "https://propertyquarry.com/tours/selected-home-derived-layout"
+    candidate = {
+        "title": "Derived diorama family flat",
+        "summary": "EUR 2,250 · 92 m² · 1020 Wien",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/derived-diorama-family-flat",
+        "source_ref": "willhaben:derived-diorama-family-flat",
+        "tour_url": generated_reconstruction_url,
+        "preview_image_url": photo_url,
+        "property_facts": {
+            "price_eur": 2250.0,
+            "area_m2": 92.0,
+            "rooms": 3.0,
+            "postal_name": "1020 Wien",
+            "preview_image_url": photo_url,
+            "image_url": photo_url,
+            "media_urls_json": [photo_url],
+        },
+    }
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "done",
+            "summary": {
+                "sources_total": 1,
+                "listing_total": 1,
+                "ranked_candidates": [candidate],
+                "sources": [
+                    {
+                        "source_label": "Willhaben | Austria | Rent | 1020 Vienna",
+                        "listing_total": 1,
+                        "top_candidates": [candidate],
+                    }
+                ],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(
+        landing_property_workspace_payload,
+        "_property_visual_ready_tour_url",
+        lambda *, tour_url="", open_tour_url="": (
+            generated_reconstruction_url
+            if str(tour_url or open_tour_url).strip() == generated_reconstruction_url
+            else ""
+        ),
+    )
+    monkeypatch.setattr(
+        landing_property_workspace_payload,
+        "_hosted_property_tour_telegram_preview_image_url_for_style",
+        lambda tour_url, *, diorama_style_hint="": diorama_url if tour_url == generated_reconstruction_url else "",
+    )
+
+    response = client.get("/app/properties", params={"run_id": "run-derived-diorama-cover"}, headers={"host": "propertyquarry.com"})
+    assert response.status_code == 200
+    assert re.search(
+        rf'<img[^>]+src="{re.escape(diorama_url)}"[^>]+data-pw-cover-image',
+        response.text,
+        flags=re.IGNORECASE,
+    )
+    assert not re.search(
+        rf'<img[^>]+src="{re.escape(photo_url)}"[^>]+data-pw-cover-image',
+        response.text,
+        flags=re.IGNORECASE,
+    )
 
 
 def test_property_console_context_skips_feedback_and_profile_hydration_on_properties(monkeypatch) -> None:
@@ -10473,6 +10946,338 @@ def test_property_research_detail_summarizes_marketing_copy_when_fit_summary_is_
     assert "Immobilien suchen und finden auf willhaben" not in page.text
 
 
+def test_property_research_detail_prefers_generated_diorama_for_hero_media(monkeypatch) -> None:
+    principal_id = "pq-research-detail-diorama-hero"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Diorama Hero Office")
+
+    diorama_url = "https://cdn.example.test/generated-diorama.png"
+    listing_photo_url = "https://img.example.test/listing-photo.jpg"
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str, lightweight: bool = False):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "Property scouting run completed.",
+            "property_search_preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "search_goal": "home",
+                "location_query": "1180 Wien",
+            },
+            "summary": {
+                "sources_total": 1,
+                "listing_total": 1,
+                "ranked_candidates": [
+                    {
+                        "candidate_ref": "cand-diorama-hero",
+                        "title": "Family flat with generated preview",
+                        "summary": "Quiet side street, good light, and a verified generated diorama preview.",
+                        "recommendation": "shortlist",
+                        "review_url": "/app/research/cand-diorama-hero",
+                        "property_url": "https://example.test/source/diorama-hero",
+                        "source_label": "Willhaben",
+                        "fit_score": 78,
+                        "diorama_preview_url": diorama_url,
+                        "property_facts": {
+                            "price_display": "EUR 1,790",
+                            "monthly_rent_eur": 1790,
+                            "area_m2": 82,
+                            "rooms": 3,
+                            "postal_name": "1180 Wien",
+                            "preview_image_url": listing_photo_url,
+                            "image_url": listing_photo_url,
+                            "media_urls_json": [listing_photo_url],
+                        },
+                    }
+                ],
+                "sources": [],
+            },
+            "events": [
+                {"step": "completed", "message": "Property scouting run completed.", "status": "processed"},
+            ],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    page = client.get("/app/research/cand-diorama-hero", params={"run_id": "run-diorama-hero"}, headers=headers)
+
+    assert page.status_code == 200
+    hero_image_match = re.search(
+        r'<img src="([^"]+)" alt="Family flat with generated preview" loading="lazy" data-prd-hero-image',
+        page.text,
+    )
+    assert hero_image_match is not None
+    assert hero_image_match.group(1) == diorama_url
+    assert re.search(r">\s*Diorama\s*<", page.text)
+
+
+def test_property_research_detail_derives_generated_diorama_from_reconstruction_bundle(monkeypatch) -> None:
+    principal_id = "pq-research-detail-generated-diorama-derived"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Derived Diorama Office")
+
+    diorama_url = "https://cdn.example.test/derived-generated-diorama.png"
+    listing_photo_url = "https://img.example.test/generated-layout-photo.jpg"
+    generated_reconstruction_url = "https://propertyquarry.com/tours/derived-generated-layout"
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str, lightweight: bool = False):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "Property scouting run completed.",
+            "property_search_preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "search_goal": "home",
+                "location_query": "1090 Wien",
+            },
+            "summary": {
+                "sources_total": 1,
+                "listing_total": 1,
+                "ranked_candidates": [
+                    {
+                        "candidate_ref": "cand-generated-derived-diorama",
+                        "title": "Generated layout flat",
+                        "summary": "Generated reconstruction is ready and should surface the derived diorama in the hero stage.",
+                        "recommendation": "shortlist",
+                        "review_url": "/app/research/cand-generated-derived-diorama",
+                        "property_url": "https://example.test/source/generated-derived-diorama",
+                        "source_label": "Willhaben",
+                        "fit_score": 82,
+                        "generated_reconstruction_url": generated_reconstruction_url,
+                        "property_facts": {
+                            "price_display": "EUR 1,860",
+                            "monthly_rent_eur": 1860,
+                            "area_m2": 79,
+                            "rooms": 3,
+                            "postal_name": "1090 Wien",
+                            "preview_image_url": listing_photo_url,
+                            "image_url": listing_photo_url,
+                            "media_urls_json": [listing_photo_url],
+                        },
+                    }
+                ],
+                "sources": [],
+            },
+            "events": [
+                {"step": "completed", "message": "Property scouting run completed.", "status": "processed"},
+            ],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(
+        landing_routes,
+        "_hosted_property_tour_telegram_preview_image_url_for_style",
+        lambda tour_url, *, diorama_style_hint="": diorama_url if tour_url == generated_reconstruction_url else "",
+    )
+
+    page = client.get(
+        "/app/research/cand-generated-derived-diorama",
+        params={"run_id": "run-generated-derived-diorama"},
+        headers=headers,
+    )
+
+    assert page.status_code == 200
+    hero_image_match = re.search(
+        r'<img src="([^"]+)" alt="Generated layout flat" loading="lazy" data-prd-hero-image',
+        page.text,
+    )
+    assert hero_image_match is not None
+    assert hero_image_match.group(1) == diorama_url
+    assert re.search(r">\s*Diorama\s*<", page.text)
+
+
+def test_property_research_detail_derives_generated_diorama_from_ready_layout_media_payload(monkeypatch) -> None:
+    principal_id = "pq-research-detail-generated-diorama-from-media-payload"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Media Payload Diorama Office")
+
+    diorama_url = "https://cdn.example.test/media-payload-generated-diorama.png"
+    listing_photo_url = "https://img.example.test/media-payload-listing-photo.jpg"
+    generated_reconstruction_href = "https://propertyquarry.com/tours/media-payload-generated-layout"
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str, lightweight: bool = False):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "Property scouting run completed.",
+            "property_search_preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "search_goal": "home",
+                "location_query": "1070 Wien",
+            },
+            "summary": {
+                "sources_total": 1,
+                "listing_total": 1,
+                "ranked_candidates": [
+                    {
+                        "candidate_ref": "cand-generated-diorama-from-media-payload",
+                        "title": "Generated layout media payload flat",
+                        "summary": "The detail hero should use the generated diorama even when the candidate only carries the ready layout via media payload.",
+                        "recommendation": "shortlist",
+                        "review_url": "/app/research/cand-generated-diorama-from-media-payload",
+                        "property_url": "https://example.test/source/generated-media-payload-diorama",
+                        "source_label": "Willhaben",
+                        "fit_score": 80,
+                        "property_facts": {
+                            "price_display": "EUR 1,740",
+                            "monthly_rent_eur": 1740,
+                            "area_m2": 74,
+                            "rooms": 3,
+                            "postal_name": "1070 Wien",
+                            "preview_image_url": listing_photo_url,
+                            "image_url": listing_photo_url,
+                            "media_urls_json": [listing_photo_url],
+                        },
+                    }
+                ],
+                "sources": [],
+            },
+            "events": [
+                {"step": "completed", "message": "Property scouting run completed.", "status": "processed"},
+            ],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(
+        landing_routes,
+        "_property_tour_media_payload",
+        lambda _candidate: {
+            "generated_reconstruction_ready": True,
+            "generated_reconstruction_href": generated_reconstruction_href,
+            "generated_reconstruction_label": "Open layout tour",
+            "generated_reconstruction_status_detail": "Generated from the floor plan and listing photos.",
+            "status_label": "Layout tour available",
+            "status_detail": "Generated from the floor plan and listing photos.",
+            "primary_href": generated_reconstruction_href,
+            "primary_label": "Open layout tour",
+            "show_status_line": True,
+        },
+    )
+    monkeypatch.setattr(
+        landing_routes,
+        "_hosted_property_tour_telegram_preview_image_url_for_style",
+        lambda tour_url, *, diorama_style_hint="": diorama_url if tour_url == generated_reconstruction_href else "",
+    )
+
+    page = client.get(
+        "/app/research/cand-generated-diorama-from-media-payload",
+        params={"run_id": "run-generated-diorama-from-media-payload"},
+        headers=headers,
+    )
+
+    assert page.status_code == 200
+    hero_image_match = re.search(
+        r'<img src="([^"]+)" alt="Generated layout media payload flat" loading="lazy" data-prd-hero-image',
+        page.text,
+    )
+    assert hero_image_match is not None
+    assert hero_image_match.group(1) == diorama_url
+    assert "Diorama" in page.text
+
+
+def test_property_research_detail_highlights_do_not_treat_listing_facts_as_signals(monkeypatch) -> None:
+    principal_id = "pq-research-detail-highlight-truth"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Highlight Truth Office")
+
+    def _forbidden_provider_preview(property_url_value: str, *, prefer_fast: bool = False):
+        raise AssertionError("research detail highlight render should not fetch provider previews synchronously")
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str, lightweight: bool = False):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "Property scouting run completed.",
+            "property_search_preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "search_goal": "home",
+                "location_query": "1220 Wien",
+            },
+            "summary": {
+                "sources_total": 1,
+                "listing_total": 1,
+                "ranked_candidates": [
+                    {
+                        "candidate_ref": "cand-highlight-truth",
+                        "title": "Signal truth apartment",
+                        "summary": "Useful shortlist option with clear listing facts.",
+                        "recommendation": "shortlist",
+                        "review_url": "/app/research/cand-highlight-truth",
+                        "property_url": "https://example.test/source/highlight-truth",
+                        "source_label": "Willhaben",
+                        "fit_score": 79,
+                        "property_facts": {
+                            "price_display": "EUR 1,490",
+                            "price_eur": 1490.0,
+                            "area_m2": 71,
+                            "rooms": 3,
+                            "postal_name": "1220 Wien",
+                            "listing_fact_confirmation": {
+                                "status": "confirmed",
+                                "label": "Listing facts",
+                                "summary": "4 listing facts read automatically from the listing.",
+                                "fields": ["price", "area", "rooms", "location"],
+                            },
+                        },
+                    }
+                ],
+                "sources": [],
+            },
+            "events": [
+                {"step": "completed", "message": "Property scouting run completed.", "status": "processed"},
+            ],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(
+        landing_property_research,
+        "_merge_property_facts_with_source_research",
+        lambda *, property_url, property_facts, image_urls=(): dict(property_facts),
+    )
+    monkeypatch.setattr(
+        landing_property_research,
+        "_property_apply_location_hint_research",
+        lambda *, facts, title="", summary="": dict(facts),
+    )
+    monkeypatch.setattr(landing_routes, "_property_scout_page_preview_with_timeout", _forbidden_provider_preview)
+
+    page = client.get("/app/research/cand-highlight-truth", params={"run_id": "run-highlight-truth"}, headers=headers)
+
+    assert page.status_code == 200
+    visible_text = re.sub(r"<script\\b[^>]*>.*?</script>", " ", page.text, flags=re.IGNORECASE | re.DOTALL)
+    visible_text = re.sub(r"<style\\b[^>]*>.*?</style>", " ", visible_text, flags=re.IGNORECASE | re.DOTALL)
+    visible_text = re.sub(r"<[^>]+>", " ", visible_text)
+    visible_text = " ".join(html.unescape(visible_text).split())
+    assert "What stands out" in visible_text
+    assert "Location fit" in visible_text
+    assert "1220 Wien" in visible_text
+    assert "Layout signal" in visible_text
+    assert "3 rooms | 71 m2" in visible_text
+    assert "Budget signal" not in visible_text
+    assert "Listing facts" not in visible_text
+    assert "From listing" not in visible_text
+
+
 def test_property_research_detail_replaces_other_homes_with_selected_distance_checks(monkeypatch) -> None:
     principal_id = "pq-research-detail-selected-distances"
     client = build_property_client(principal_id=principal_id)
@@ -10578,6 +11383,7 @@ def test_property_research_detail_replaces_other_homes_with_selected_distance_ch
     assert "Selected daily-life flat" in page.text
     assert "Nearby distances" in page.text
     assert 'data-research-selected-distances' in page.text
+    assert "Supermarket distance from this search." in page.text
     assert "Nearest supermarket: BILLA Praterstern is 280 m away; selected limit 500 m" in page.text
     assert "Nearest playground distance is not listed yet; selected limit 450 m." not in page.text
     assert "Nearest pharmacy distance is not listed yet; selected limit 300 m." not in page.text
@@ -10603,6 +11409,11 @@ def test_property_enriched_candidate_facts_backfill_source_research_for_selected
         "_merge_property_facts_with_source_research",
         _fake_merge_property_facts_with_source_research,
     )
+    monkeypatch.setattr(
+        landing_property_research,
+        "_property_apply_location_hint_research",
+        lambda *, facts, title="", summary="": dict(facts),
+    )
 
     facts = landing_property_research._property_enriched_candidate_facts(
         candidate={
@@ -10622,6 +11433,64 @@ def test_property_enriched_candidate_facts_backfill_source_research_for_selected
     assert facts["nearest_supermarket_m"] == 310
     assert facts["nearest_supermarket_name"] == "BILLA Heinestrasse"
     assert isinstance(facts.get("listing_research_snapshot"), dict)
+
+
+def test_property_enriched_candidate_facts_use_fast_location_hint_before_source_research(monkeypatch) -> None:
+    apply_calls: list[dict[str, object]] = []
+    merge_calls: list[tuple[str, dict[str, object]]] = []
+
+    def _fake_apply_location_hint_research(*, facts: dict[str, object], title: str = "", summary: str = "") -> dict[str, object]:
+        apply_calls.append({"facts": dict(facts), "title": title, "summary": summary})
+        merged = dict(facts)
+        merged["nearest_supermarket_m"] = 189
+        merged["nearest_supermarket_name"] = "Billa"
+        merged["nearest_supermarket_source"] = "OpenStreetMap (postal area estimate)"
+        merged["location_hint_research_attempted"] = True
+        snapshot = dict(merged.get("listing_research_snapshot") or {})
+        snapshot.update(
+            {
+                "nearest_supermarket_m": 189,
+                "nearest_supermarket_name": "Billa",
+                "nearest_supermarket_source": "OpenStreetMap (postal area estimate)",
+                "location_hint_research_attempted": True,
+            }
+        )
+        merged["listing_research_snapshot"] = snapshot
+        return merged
+
+    def _fake_merge_property_facts_with_source_research(*, property_url: str, property_facts: dict[str, object], image_urls=()):
+        merge_calls.append((property_url, dict(property_facts)))
+        return dict(property_facts)
+
+    monkeypatch.setattr(
+        landing_property_research,
+        "_property_apply_location_hint_research",
+        _fake_apply_location_hint_research,
+    )
+    monkeypatch.setattr(
+        landing_property_research,
+        "_merge_property_facts_with_source_research",
+        _fake_merge_property_facts_with_source_research,
+    )
+
+    facts = landing_property_research._property_enriched_candidate_facts(
+        candidate={
+            "title": "Fast location-hint nearby home",
+            "summary": "1010 Wien",
+            "property_url": "https://example.test/fast-location-hint-home",
+            "property_facts": {"postal_name": "1010 Wien"},
+        },
+        preferences={
+            "max_distance_to_supermarket_m": 500,
+            "keyword_preferences": {"supermarket nearby": "important"},
+        },
+    )
+
+    assert len(apply_calls) == 1
+    assert merge_calls == []
+    assert facts["nearest_supermarket_m"] == 189
+    assert facts["nearest_supermarket_name"] == "Billa"
+    assert facts["location_hint_research_attempted"] is True
 
 
 def test_property_enriched_candidate_facts_retry_missing_nearby_rows_after_location_hint_attempt(monkeypatch) -> None:
@@ -10647,6 +11516,11 @@ def test_property_enriched_candidate_facts_retry_missing_nearby_rows_after_locat
         landing_property_research,
         "_merge_property_facts_with_source_research",
         _fake_merge_property_facts_with_source_research,
+    )
+    monkeypatch.setattr(
+        landing_property_research,
+        "_property_apply_location_hint_research",
+        lambda *, facts, title="", summary="": dict(facts),
     )
 
     facts = landing_property_research._property_enriched_candidate_facts(
@@ -10969,6 +11843,11 @@ def test_property_research_detail_uses_matching_workspace_distance_filters_when_
         _fake_merge_property_facts_with_source_research,
     )
     monkeypatch.setattr(
+        landing_property_research,
+        "_property_apply_location_hint_research",
+        lambda *, facts, title="", summary="": dict(facts),
+    )
+    monkeypatch.setattr(
         landing_routes,
         "_propertyquarry_refresh_candidate_preview_if_needed",
         lambda *, product, candidate, allow_network=False: dict(candidate),
@@ -11046,7 +11925,7 @@ def test_property_research_detail_uses_matching_workspace_distance_filters_when_
     assert page.status_code == 200
     assert "Nearby distances" in page.text
     assert 'data-research-selected-distances' in page.text
-    assert "Distances for the nearby filters saved on this workspace." in page.text
+    assert "Supermarket distance saved on this workspace." in page.text
     assert "Nearest supermarket: Billa Graben is 189 m away; selected limit 500 m | source: OpenStreetMap (postal area estimate)." in page.text
     assert "Other homes" not in page.text
     assert 'data-research-ranking-list' not in page.text
@@ -11083,6 +11962,11 @@ def test_property_research_detail_uses_matching_search_agent_distance_filters_wh
         landing_property_research,
         "_merge_property_facts_with_source_research",
         _fake_merge_property_facts_with_source_research,
+    )
+    monkeypatch.setattr(
+        landing_property_research,
+        "_property_apply_location_hint_research",
+        lambda *, facts, title="", summary="": dict(facts),
     )
     monkeypatch.setattr(
         landing_routes,
@@ -11202,7 +12086,7 @@ def test_property_research_detail_uses_matching_search_agent_distance_filters_wh
     assert page.status_code == 200
     assert "Nearby distances" in page.text
     assert 'data-research-selected-distances' in page.text
-    assert "Distances for the nearby filters saved on this workspace." in page.text
+    assert "Supermarket distance saved on this workspace." in page.text
     unescaped_page = html.unescape(page.text)
     assert "Nearest supermarket: Billa Graben is 189 m away; selected limit 500 m | source: OpenStreetMap (postal area estimate)." in page.text
     assert "Nearest playground: Volksgarten Playground is 688 m away; selected limit 1000 m | source: OpenStreetMap (postal area estimate)." not in page.text
@@ -11210,6 +12094,161 @@ def test_property_research_detail_uses_matching_search_agent_distance_filters_wh
     assert "selected limit 200 m" not in page.text
     assert "Other homes" not in page.text
     assert 'data-research-ranking-list' not in page.text
+
+
+def test_property_research_detail_search_agent_single_row_prefers_default_filter_priority_over_json_key_order(monkeypatch) -> None:
+    principal_id = "pq-research-detail-search-agent-live-priority"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Search Agent Live Priority Office")
+
+    def _fake_merge_property_facts_with_source_research(*, property_url: str, property_facts: dict[str, object], image_urls=()):
+        merged = dict(property_facts)
+        merged["nearest_library_m"] = 260
+        merged["nearest_library_name"] = "Wissenschaftliches Kabinett"
+        merged["nearest_library_source"] = "OpenStreetMap (postal area estimate)"
+        merged["nearest_supermarket_m"] = 189
+        merged["nearest_supermarket_name"] = "Billa"
+        merged["nearest_supermarket_source"] = "OpenStreetMap (postal area estimate)"
+        merged["nearest_subway_m"] = 133
+        merged["nearest_subway_name"] = "Graben"
+        merged["nearest_subway_source"] = "OpenStreetMap (postal area estimate)"
+        merged["location_hint_research_attempted"] = True
+        merged["listing_research_snapshot"] = {
+            "nearest_library_m": 260,
+            "nearest_supermarket_m": 189,
+            "nearest_subway_m": 133,
+            "location_hint_research_attempted": True,
+        }
+        merged["listing_research_meta"] = {"strategy": "provider_html_plus_geo"}
+        return merged
+
+    monkeypatch.setattr(
+        landing_property_research,
+        "_merge_property_facts_with_source_research",
+        _fake_merge_property_facts_with_source_research,
+    )
+    monkeypatch.setattr(
+        landing_property_research,
+        "_property_apply_location_hint_research",
+        lambda *, facts, title="", summary="": dict(facts),
+    )
+    monkeypatch.setattr(
+        landing_routes,
+        "_propertyquarry_refresh_candidate_preview_if_needed",
+        lambda *, product, candidate, allow_network=False: dict(candidate),
+    )
+    monkeypatch.setattr(
+        OnboardingService,
+        "compact_status",
+        lambda self, *, principal_id: {
+            "workspace": {"name": "Search Agent Live Priority Office"},
+            "property_search_preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "location_query": "1010 Vienna, 1020 Vienna",
+                "search_agents": [
+                    {
+                        "agent_id": "agent-live-priority",
+                        "enabled": False,
+                        "is_active": False,
+                        "location_query": "1010 Vienna, 1020 Vienna, 1090 Vienna, 1190 Vienna, 1200 Vienna",
+                        "selected_location_values": [
+                            "1010 Vienna",
+                            "1020 Vienna",
+                            "1090 Vienna",
+                            "1190 Vienna",
+                            "1200 Vienna",
+                        ],
+                        "preferences_json": {
+                            "country_code": "AT",
+                            "listing_mode": "rent",
+                            "location_query": "1010 Vienna, 1020 Vienna, 1090 Vienna, 1190 Vienna, 1200 Vienna",
+                            "selected_location_values": [
+                                "1010 Vienna",
+                                "1020 Vienna",
+                                "1090 Vienna",
+                                "1190 Vienna",
+                                "1200 Vienna",
+                            ],
+                            "keyword_preferences_json": json.dumps(
+                                {
+                                    "library nearby": "nice_to_have",
+                                    "supermarket nearby": "nice_to_have",
+                                    "underground nearby": "nice_to_have",
+                                }
+                            ),
+                            "max_distance_to_library_m": 1000,
+                            "max_distance_to_supermarket_m": 500,
+                            "max_distance_to_subway_m": 500,
+                        },
+                    }
+                ],
+            },
+        },
+    )
+
+    candidate = {
+        "candidate_ref": "cand-search-agent-live-priority",
+        "title": "Nearby brief should not default to library",
+        "fit_summary": "The one-row nearby rail should prefer the product default order when no explicit keyword order exists.",
+        "recommendation": "shortlist",
+        "review_url": "/app/research/cand-search-agent-live-priority",
+        "property_url": "https://example.test/search-agent-live-priority-home",
+        "source_label": "Willhaben",
+        "fit_score": 81,
+        "property_facts": {
+            "price_display": "EUR 3,553.94",
+            "area_m2": 144.79,
+            "rooms": 3.5,
+            "postal_name": "1010 Wien",
+            "address": "1010 Wien",
+        },
+    }
+
+    monkeypatch.setattr(
+        landing_routes,
+        "_property_console_context",
+        lambda **_kwargs: {
+            "preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "location_query": "1020 Vienna",
+            },
+            "commercial": {},
+            "run": {
+                "run_id": "run-search-agent-live-priority",
+                "property_search_preferences": {
+                    "country_code": "AT",
+                    "listing_mode": "rent",
+                    "location_query": "1010 Vienna, 1020 Vienna",
+                    "keywords": "",
+                    "keyword_preferences": {},
+                    "keyword_preferences_json": "{}",
+                },
+                "summary": {
+                    "sources_total": 1,
+                    "listing_total": 1,
+                    "ranked_candidates": [candidate],
+                    "sources": [],
+                },
+            },
+        },
+    )
+
+    page = client.get(
+        "/app/research/cand-search-agent-live-priority",
+        params={"run_id": "run-search-agent-live-priority"},
+        headers=headers,
+    )
+
+    assert page.status_code == 200
+    assert "Nearby distances" in page.text
+    assert 'data-research-selected-distances' in page.text
+    assert "Supermarket distance saved on this workspace." in page.text
+    assert "Nearest supermarket: Billa is 189 m away; selected limit 500 m | source: OpenStreetMap (postal area estimate)." in page.text
+    assert "Library distance saved on this workspace." not in page.text
+    assert "Nearest library: Wissenschaftliches Kabinett" not in page.text
 
 
 def test_property_research_detail_backfills_postal_scope_nearby_distances_for_matching_search_agent_overlay(monkeypatch) -> None:
@@ -11350,7 +12389,7 @@ def test_property_research_detail_backfills_postal_scope_nearby_distances_for_ma
     assert page.status_code == 200
     assert "Nearby distances" in page.text
     assert 'data-research-selected-distances' in page.text
-    assert "Distances for the nearby filters saved on this workspace." in page.text
+    assert "Supermarket distance saved on this workspace." in page.text
     unescaped_page = html.unescape(page.text)
     assert "Nearest supermarket: Billa Graben is 189 m away; selected limit 500 m | source: OpenStreetMap (postal area estimate)." in page.text
     assert "Nearest playground: Volksgarten Playground is 688 m away; selected limit 1000 m | source: OpenStreetMap (postal area estimate)." not in page.text
@@ -11625,7 +12664,7 @@ def test_property_research_detail_uses_recent_matching_run_distance_filters_when
     assert page.status_code == 200
     assert "Nearby distances" in page.text
     assert 'data-research-selected-distances' in page.text
-    assert "Distances for the nearby filters from your latest matching search." in page.text
+    assert "Supermarket distance from your latest matching search." in page.text
     unescaped_page = html.unescape(page.text)
     assert "Nearest supermarket: Billa Graben is 189 m away; selected limit 500 m | source: OpenStreetMap (postal area estimate)." in page.text
     assert "Nearest playground: Volksgarten Playground is 688 m away; selected limit 1000 m | source: OpenStreetMap (postal area estimate)." not in page.text
@@ -12260,6 +13299,67 @@ def test_property_workspace_payload_ready_tour_snapshot_includes_nested_tour_wit
     assert result["tour"]["url"] == verified_url
     assert result["tour"]["embed_url"] == verified_url
     assert result["tour"]["control_label"] == "Open 3D tour"
+
+
+def test_property_workspace_payload_ready_tour_snapshot_accepts_top_level_open_tour_url_without_base_tour(
+    monkeypatch,
+) -> None:
+    ready_open_url = "https://propertyquarry.com/tours/workspace-open-only/control/matterport"
+    monkeypatch.setattr(
+        landing_property_workspace_payload,
+        "_property_visual_ready_tour_url",
+        lambda *, tour_url="", open_tour_url="": str(open_tour_url or tour_url or "").strip(),
+    )
+
+    payload = landing_property_workspace_payload.property_workspace_payload(
+        "shortlist",
+        status={},
+        property_state={
+            "commercial": {},
+            "billing_truth": {},
+            "preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "search_goal": "home",
+                "location_query": "1010 Vienna",
+            },
+            "run": {
+                "run_id": "run-workspace-open-only-tour",
+                "property_search_preferences": {
+                    "country_code": "AT",
+                    "listing_mode": "rent",
+                    "search_goal": "home",
+                    "location_query": "1010 Vienna",
+                },
+                "summary": {
+                    "ranked_candidates": [
+                        {
+                            "candidate_ref": "workspace-open-only-tour",
+                            "title": "Workspace open-only tour",
+                            "property_url": "https://example.test/workspace-open-only-tour",
+                            "open_tour_url": ready_open_url,
+                            "tour_status": "ready",
+                            "fit_score": 84,
+                            "property_facts": {
+                                "postal_name": "1010 Wien",
+                                "price_display": "EUR 2,100",
+                                "area_m2": 74,
+                                "rooms": 3,
+                            },
+                        }
+                    ],
+                    "sources": [],
+                },
+            },
+        },
+    )
+
+    result = payload["decision_workbench"]["results"][0]
+
+    assert result["tour"]["status"] == "ready"
+    assert result["tour"]["url"] == ready_open_url
+    assert result["open_tour_url"] == ready_open_url
+    assert result["verified_tour_url"] == ready_open_url
 
 
 def test_property_workspace_payload_generated_reconstruction_snapshot_does_not_include_ready_tour(
@@ -13270,51 +14370,41 @@ def test_property_research_media_treats_krpano_only_bundle_as_needing_rebuild(mo
     assert payload["status_detail"] == "A real 3D tour is not available for this listing yet."
 
 
-def test_property_research_media_never_uses_generated_reconstruction_as_tour(monkeypatch) -> None:
+def test_property_research_media_surfaces_generated_reconstruction_as_layout_tour(monkeypatch) -> None:
     monkeypatch.setattr(landing_property_research.property_tour_hosting, "_hosted_property_tour_verified_open_url", lambda _url: "")
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
-        "_hosted_property_tour_generated_reconstruction_asset_url",
-        lambda _url, *, asset_key="viewer_relpath": pytest.fail("generated reconstruction must not be resolved as a 3D tour"),
+        "_hosted_property_tour_first_party_open_url",
+        lambda _url: "https://propertyquarry.com/tours/generated-tour",
     )
 
     payload = landing_property_research._property_tour_media_payload(
         {
-            "tour_url": "https://propertyquarry.com/tours/generated-tour",
+            "generated_reconstruction_url": "https://propertyquarry.com/tours/generated-tour",
             "property_url": "https://example.test/listing",
         }
     )
 
     assert payload["hosted_ready"] is False
-    assert payload["generated_reconstruction_ready"] is False
-    assert payload["generated_reconstruction_href"] == ""
+    assert payload["generated_reconstruction_ready"] is True
+    assert payload["generated_reconstruction_href"] == "https://propertyquarry.com/tours/generated-tour"
     assert payload["has_live_viewer"] is False
     assert payload["embed_href"] == ""
-    assert payload["primary_href"] == ""
-    assert payload["primary_label"] == ""
-    assert payload["provider_label"] == ""
-    assert payload["provider_key"] == ""
-    assert payload["status_label"] == "3D tour unavailable"
+    assert payload["primary_href"] == "https://propertyquarry.com/tours/generated-tour"
+    assert payload["primary_label"] == "Open layout tour"
+    assert payload["provider_label"] == "Layout tour"
+    assert payload["provider_key"] == "propertyquarry_generated_reconstruction"
+    assert payload["status_label"] == "Layout tour available"
+    assert payload["generated_reconstruction_label"] == "Open layout tour"
+    assert payload["generated_reconstruction_status_detail"].startswith("Generated from the floor plan")
 
 
-def test_property_research_media_keeps_generated_reconstruction_off_customer_surface(monkeypatch) -> None:
+def test_property_research_media_uses_generated_reconstruction_layout_tour_when_bundle_is_ready(monkeypatch) -> None:
     monkeypatch.setattr(landing_property_research.property_tour_hosting, "_hosted_property_tour_verified_open_url", lambda _url: "")
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
-        "_hosted_property_tour_generated_reconstruction_asset_urls",
-        lambda _url, *, asset_key="photo_relpaths": (
-            "https://propertyquarry.com/tours/files/generated-preview/photo-01.webp",
-            "https://propertyquarry.com/tours/files/generated-preview/photo-02.webp",
-        ),
-    )
-    monkeypatch.setattr(
-        landing_property_research.property_tour_hosting,
-        "_hosted_property_tour_generated_reconstruction_asset_url",
-        lambda _url, *, asset_key="viewer_relpath": (
-            "https://propertyquarry.com/tours/files/generated-preview/floorplan.webp"
-            if asset_key == "floorplan_relpath"
-            else ""
-        ),
+        "_hosted_property_tour_first_party_open_url",
+        lambda _url: "https://propertyquarry.com/tours/generated-preview",
     )
 
     payload = landing_property_research._property_tour_media_payload(
@@ -13327,15 +14417,15 @@ def test_property_research_media_keeps_generated_reconstruction_off_customer_sur
     )
 
     assert payload["hosted_ready"] is False
-    assert payload["generated_reconstruction_ready"] is False
-    assert payload["generated_reconstruction_href"] == ""
+    assert payload["generated_reconstruction_ready"] is True
+    assert payload["generated_reconstruction_href"] == "https://propertyquarry.com/tours/generated-preview"
     assert payload["has_live_viewer"] is False
     assert payload["embed_href"] == ""
-    assert payload["status_label"] == "3D tour unavailable"
-    assert payload["status_detail"] == "3D tour generation is waiting for a floor plan or usable room photos."
-    assert payload["show_status_line"] is False
-    assert payload["primary_label"] == "Open property"
-    assert payload["primary_href"] == "https://propertyquarry.com/app/research/generated-preview"
+    assert payload["status_label"] == "Layout tour available"
+    assert payload["status_detail"].startswith("Generated from the floor plan and listing photos.")
+    assert payload["show_status_line"] is True
+    assert payload["primary_label"] == "Open layout tour"
+    assert payload["primary_href"] == "https://propertyquarry.com/tours/generated-preview"
 
 
 def test_property_research_media_uses_generic_vendor_tour_copy(monkeypatch) -> None:
@@ -13883,7 +14973,7 @@ def test_property_run_live_board_replaces_stale_zero_review_copy_while_pages_rem
     )
 
     assert snapshot["aggregate_label"] == "4097 homes found · 6 checks left"
-    assert snapshot["phase_label"] == "Checking remaining checks"
+    assert snapshot["phase_label"] == "4097 homes found · 6 search pages left"
     assert "0 to review" not in snapshot["summary_label"].lower()
 
 
@@ -14275,6 +15365,35 @@ def test_property_run_live_board_prefers_ranked_candidates_when_high_fit_total_i
     assert snapshot["phase_label"] == "2 matching homes ready"
 
 
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("Reviewing candidate 12 of 60 for Willhaben | Austria | Rent | 1020 Vienna.", "Property fit"),
+        ("Scoring enriched candidate 13 of 60 for Willhaben | Austria | Rent | 1020 Vienna.", "Ranking"),
+        ("Ranked 14 of 60 for Willhaben | Austria | Rent | 1020 Vienna.", "Shortlist"),
+    ],
+)
+def test_property_run_live_board_uses_specific_candidate_progress_labels_without_generic_review_copy(
+    message: str,
+    expected: str,
+) -> None:
+    snapshot = property_surface_state.build_property_run_live_board_snapshot(
+        {
+            "status": "running",
+            "progress": 41,
+            "message": message,
+            "summary": {
+                "sources_total": 6,
+                "reviewed_listing_total": 14,
+                "sources": [],
+            },
+        },
+        plan_key="plus",
+    )
+
+    assert snapshot["phase_label"] == expected
+
+
 def test_property_run_live_board_surfaces_engine_insight_categories() -> None:
     cases = [
         (
@@ -14283,7 +15402,7 @@ def test_property_run_live_board_surfaces_engine_insight_categories() -> None:
         ),
         (
             "Operating costs are missing for candidate 12 of 60 and need verification.",
-            "Checking homes",
+            "Cost detail needs verification for candidate 12/60",
         ),
         (
             "Postal code mismatch outside selected scope for candidate 13 of 60.",
@@ -14303,7 +15422,7 @@ def test_property_run_live_board_surfaces_engine_insight_categories() -> None:
         ),
         (
             "Energy certificate is missing for candidate 17 of 60.",
-            "Checking homes",
+            "Energy detail needs verification for candidate 17/60",
         ),
         (
             "School distance is within the selected preference for candidate 18 of 60.",
@@ -14323,7 +15442,7 @@ def test_property_run_live_board_surfaces_engine_insight_categories() -> None:
         ),
         (
             "Supermarket and pharmacy are farther than preferred for candidate 21 of 60.",
-            "Checking homes",
+            "Daily errands are farther than preferred for candidate 21/60",
         ),
         (
             "No balcony or terrace found for candidate 22 of 60.",
@@ -14829,6 +15948,25 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     monkeypatch.setattr(ProductService, "list_handoffs", _fake_handoffs)
     monkeypatch.setattr(landing_property_research, "_property_investment_research_access_level", lambda *args, **kwargs: "full")
     monkeypatch.setattr(
+        landing_property_workspace_helpers,
+        "_property_route_preview_geometry",
+        lambda **_kwargs: {
+            "points": (
+                (13.4048, 52.5201),
+                (13.4061, 52.5192),
+                (13.4088, 52.5182),
+                (13.4102, 52.5175),
+            ),
+            "distance_m": 820,
+            "duration_min": 11,
+        },
+    )
+    monkeypatch.setattr(
+        landing_view_models,
+        "_cached_preview_image_url",
+        lambda **_kwargs: "/app/api/property/map-previews/greenfield-route.png",
+    )
+    monkeypatch.setattr(
         landing_property_research,
         "_property_investment_research_snapshot",
         lambda **kwargs: {
@@ -14999,9 +16137,12 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert '<article class="pqx-result pqx-card"' in search.text
     assert "matching homes" in search.text
     assert "Match" in search.text
-    assert "Providers" in search.text
     assert "Map" in search.text
     assert 'data-pqx-route-preview-strip' in search.text
+    assert "Best so far" in search.text
+    assert 'class="pqx-current-property-card"' in search.text
+    assert 'class="pqx-route-preview-thumb"' in search.text
+    assert "/app/api/property/map-previews/greenfield-route.png" in search.text
     assert "Your route" in search.text
     assert "Berlin Hauptbahnhof" in search.text
     assert "Berlin Hauptbahnhof" in search.text
@@ -18584,12 +19725,16 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert "event_label = 'Preparing'" in running_body
     assert "event_label = 'Details'" in running_body
     assert "event_label = 'Checks'" in running_body
-    assert "event_label = 'Reviewing'" in running_body
+    assert "event_label = 'Property fit'" in running_body
+    assert "event_label = 'Ranking'" in running_body
+    assert "event_label = 'Tradeoffs'" in running_body
     assert "event_label = 'Shortlist'" in running_body
     assert "event_label = 'Property page'" in running_body
-    assert "event_label = 'Search rules'" in running_body
+    assert "event_label = 'Location filter'" in running_body
+    assert "event_label = 'Layout filter'" in running_body
     assert "event_label = 'Done'" in running_body
     assert "event_label = 'Checking again'" in running_body
+    assert "pqx-current-property-card" in body
     assert "progress_message_display" in body
     assert "reliability_message_display" in body
     landing_body = (repo_root / "ea/app/api/routes/landing.py").read_text(encoding="utf-8")
@@ -18600,13 +19745,23 @@ def test_property_workspace_running_state_explains_slow_provider_checks() -> Non
     assert "return 'Preparing';" in script_body
     assert "return 'Details';" in script_body
     assert "return 'Checks';" in script_body
-    assert "return 'Reviewing';" in script_body
+    assert "return 'Property fit';" in script_body
+    assert "return 'Ranking';" in script_body
+    assert "return 'Tradeoffs';" in script_body
     assert "return 'Shortlist';" in script_body
     assert "return 'Property page';" in script_body
-    assert "return 'Search rules';" in script_body
+    assert "return 'Location filter';" in script_body
+    assert "return 'Layout filter';" in script_body
     assert "return 'Done';" in script_body
     assert "return 'Checking again';" in script_body
-    assert "['Reviewing', 'Search rules'].includes(label)" in script_body
+    assert "const currentPropertyCardPayload = (runPayload) => {" in script_body
+    assert "const renderCurrentPropertyCard = (runPayload) => {" in script_body
+    assert "Checking homes" not in script_body
+    assert "Scoring homes" not in script_body
+    assert "Updating shortlist" not in script_body
+    assert "Checking homes" not in state_source
+    assert "Scoring homes" not in state_source
+    assert "Updating shortlist" not in state_source
     assert "message.includes('suppressed_generic_listing_page')" in script_body
     assert "message.includes('checking run status')" in script_body
     assert "message.includes('could not load property search status')" in script_body
@@ -20058,9 +21213,9 @@ def test_propertyquarry_provider_fact_never_uses_source_variant_count(monkeypatc
     response = client.get("/app/properties", params={"run_id": "run-variant-heavy"}, headers=headers)
 
     assert response.status_code == 200
-    assert re.search(r"<span>Providers</span><strong>\s*3\s*</strong>", response.text)
+    assert re.search(r"<span>Sources</span><strong>\s*3\s*</strong>", response.text)
     assert re.search(r"<span>Listings</span><strong>\s*2160\s*</strong>", response.text)
-    assert "<span>Providers</span><strong>156</strong>" not in response.text
+    assert "<span>Sources</span><strong>156</strong>" not in response.text
     assert "<span>Source checks</span>" not in response.text
     assert "Selected providers searched 2160 listings." in response.text
     assert "Source variants" not in response.text
@@ -21720,6 +22875,81 @@ def test_propertyquarry_results_selected_review_keeps_blocked_tour_retry_state_o
     assert 'data-pw-visual-state="blocked"' in rendered_html
     assert "Tour not available yet." in visible_text
     assert 'disabled aria-disabled="true"' not in rendered_html
+
+
+def test_propertyquarry_results_selected_review_opens_nested_ready_tour_on_first_paint(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-results-selected-review-ready-tour")
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    hosted_href = "https://propertyquarry.com/tours/nested-ready-selected-review/control/matterport"
+    candidate = {
+        "candidate_ref": "nested-ready-selected-review",
+        "title": "Nested ready selected-review loft",
+        "property_url": "https://example.test/nested-ready-selected-review",
+        "source_url": "https://example.test/nested-ready-selected-review",
+        "source_ref": "example:nested-ready-selected-review",
+        "fit_score": 88,
+        "location_label": "Vienna",
+        "packet_url": "/app/research/nested-ready-selected-review?run_id=run-selected-review-ready-tour",
+        "floorplan_url": "https://example.test/nested-ready-selected-review/floorplan.webp",
+        "tour_status": "ready",
+        "tour": {
+            "status": "ready",
+            "url": "https://propertyquarry.com/tours/nested-ready-selected-review",
+            "detail": "Hosted 3D tour is ready.",
+        },
+        "flythrough": {},
+        "property_facts": {
+            "price_eur": 2190.0,
+            "area_m2": 79,
+            "postal_name": "1070 Wien",
+            "rooms": 3,
+        },
+    }
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "Property scouting run completed.",
+            "property_search_preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "search_goal": "home",
+                "location_query": "Vienna",
+            },
+            "summary": {
+                "status": "processed",
+                "ranked_candidates": [candidate],
+                "sources": [
+                    {
+                        "source_label": "Willhaben | Austria | Rent | Vienna",
+                        "top_candidates": [candidate],
+                    }
+                ],
+            },
+            "events": [{"step": "completed", "message": "Property scouting run completed.", "status": "processed"}],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(
+        landing_property_workspace_payload,
+        "_property_visual_ready_tour_url",
+        lambda *, tour_url="", open_tour_url="": hosted_href if str(tour_url or open_tour_url).strip() else "",
+    )
+    response = client.get("/app/search", params={"run_id": "run-selected-review-ready-tour"}, headers={"host": "propertyquarry.com"})
+    rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", response.text, flags=re.IGNORECASE | re.DOTALL)
+    rendered_html = re.sub(r"<style\b[^>]*>.*?</style>", " ", rendered_html, flags=re.IGNORECASE | re.DOTALL)
+    visible_text = re.sub(r"<[^>]+>", " ", rendered_html)
+
+    assert response.status_code == 200
+    assert f'href="{hosted_href}"' in rendered_html
+    assert '>Open 3D tour</a>' in rendered_html
+    assert 'data-pw-visual-request="tour"' not in rendered_html
+    assert "3D tour is ready." in visible_text
 
 
 def test_propertyquarry_shortlist_fails_honestly_when_ranked_candidates_are_not_admissible(monkeypatch) -> None:
@@ -24481,7 +25711,86 @@ def test_property_research_packet_uses_hosted_tour_href_for_ready_hero_action(mo
     assert 'data-pw-visual-request="tour"' not in rendered_html
 
 
-def test_property_research_packet_does_not_open_generated_reconstruction_as_3d_tour(monkeypatch) -> None:
+def test_property_research_packet_uses_nested_ready_tour_payload_for_hero_action(monkeypatch) -> None:
+    principal_id = "pq-research-packet-nested-tour-ready"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    hosted_href = "https://propertyquarry.com/tours/nested-tour-penthouse/control/matterport"
+    candidate = {
+        "title": "Nested-tour penthouse",
+        "summary": "EUR 2,780 · 101 m² · 1070 Wien",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/nested-tour-penthouse",
+        "source_ref": "willhaben:nested-tour-penthouse",
+        "tour_status": "ready",
+        "tour": {
+            "url": "https://propertyquarry.com/tours/nested-tour-penthouse",
+        },
+        "property_facts": {
+            "price_eur": 2780.0,
+            "area_m2": 101.0,
+            "postal_name": "1070 Wien",
+        },
+    }
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "done",
+            "summary": {
+                "sources_total": 1,
+                "listing_total": 1,
+                "ranked_candidates": [candidate],
+                "sources": [
+                    {
+                        "source_label": "Willhaben | Austria | Rent | 1070 Vienna",
+                        "listing_total": 1,
+                        "top_candidates": [candidate],
+                    }
+                ],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(landing_property_research, "_property_investment_research_snapshot", lambda **kwargs: {})
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_verified_open_url",
+        lambda _url: hosted_href,
+    )
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_verified_provider",
+        lambda _url: "matterport",
+    )
+
+    packet_ref = landing_property_research._property_candidate_ref(
+        {
+            **candidate,
+            "source_label": "Willhaben | Austria | Rent | 1070 Vienna",
+        }
+    )
+    packet = client.get(
+        f"/app/research/{packet_ref}",
+        params={"run_id": "run-nested-tour-ready"},
+        headers={"host": "propertyquarry.com"},
+    )
+
+    assert packet.status_code == 200
+    rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", packet.text, flags=re.IGNORECASE | re.DOTALL)
+    rendered_html = re.sub(r"<style\b[^>]*>.*?</style>", " ", rendered_html, flags=re.IGNORECASE | re.DOTALL)
+    assert f'href="{hosted_href}"' in rendered_html
+    assert '>Open 3D tour</a>' in rendered_html
+    assert "3D tour is ready." in rendered_html
+    assert 'data-pw-visual-request="tour"' not in rendered_html
+
+
+def test_property_research_packet_surfaces_generated_reconstruction_as_layout_tour(monkeypatch) -> None:
     principal_id = "pq-research-packet-generated-reconstruction"
     client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Office")
@@ -24528,8 +25837,18 @@ def test_property_research_packet_does_not_open_generated_reconstruction_as_3d_t
     monkeypatch.setattr(landing_property_research.property_tour_hosting, "_hosted_property_tour_verified_open_url", lambda _url: "")
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
-        "_hosted_property_tour_generated_reconstruction_asset_url",
-        lambda _url, *, asset_key="viewer_relpath": pytest.fail("generated reconstruction must not be linked as a 3D tour"),
+        "_hosted_property_tour_first_party_open_url",
+        lambda _url: "https://propertyquarry.com/tours/generated-reconstruction-loft",
+    )
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_generated_reconstruction_bundle_ready",
+        lambda _url: True,
+    )
+    monkeypatch.setattr(
+        landing_routes,
+        "_hosted_property_tour_telegram_preview_image_url_for_style",
+        lambda _tour_url, *, diorama_style_hint="": "https://cdn.example.test/generated-reconstruction-diorama.png",
     )
 
     packet_ref = landing_property_research._property_candidate_ref(
@@ -24546,14 +25865,45 @@ def test_property_research_packet_does_not_open_generated_reconstruction_as_3d_t
     assert packet.status_code == 200
     rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", packet.text, flags=re.IGNORECASE | re.DOTALL)
     rendered_html = re.sub(r"<style\b[^>]*>.*?</style>", " ", rendered_html, flags=re.IGNORECASE | re.DOTALL)
-    assert 'data-prd-visual-card="generated_reconstruction"' not in packet.text
-    assert "generated-reconstruction/viewer.html" not in rendered_html
-    assert ">Open 3D tour</a>" not in rendered_html
-    assert 'data-pw-visual-request="tour"' in rendered_html
-    assert "Request 3D tour" in rendered_html
-    assert 'data-prd-visual-card="tour"' in packet.text
-    assert "3D tour unavailable" in rendered_html
+    assert 'data-prd-visual-card="generated_reconstruction"' in packet.text
+    assert ">Open layout tour</a>" in rendered_html
+    assert 'data-pw-visual-request="tour"' not in rendered_html
+    assert "Request 3D tour" not in rendered_html
+    assert "Layout tour available" in rendered_html
+    assert "generated-reconstruction-diorama.png" in rendered_html
     assert "Hosted viewer unavailable. Rebuild it here." not in rendered_html
+
+
+def test_property_research_packet_accepts_generated_reconstruction_launch_page_as_layout_tour(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate = {
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/generated-reconstruction-only-loft",
+        "review_url": "https://propertyquarry.com/app/research/generated-reconstruction-only-loft",
+        "tour_status": "ready",
+        "tour_url": "https://propertyquarry.com/tours/generated-reconstruction-only-loft",
+    }
+
+    monkeypatch.setattr(landing_property_research.property_tour_hosting, "_hosted_property_tour_verified_open_url", lambda _url: "")
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_first_party_open_url",
+        lambda _url: "https://propertyquarry.com/tours/generated-reconstruction-only-loft",
+    )
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_generated_reconstruction_bundle_ready",
+        lambda _url: True,
+    )
+    payload = landing_property_research._property_tour_media_payload(candidate)
+
+    assert payload["hosted_ready"] is False
+    assert payload["generated_reconstruction_ready"] is True
+    assert payload["has_live_viewer"] is False
+    assert payload["embed_href"] == ""
+    assert payload["primary_href"] == "https://propertyquarry.com/tours/generated-reconstruction-only-loft"
+    assert payload["primary_label"] == "Open layout tour"
+    assert payload["status_label"] == "Layout tour available"
 
 
 def test_property_research_packet_shows_ready_walkthrough_inside_visual_console(monkeypatch) -> None:

@@ -73,7 +73,11 @@ from app.product.property_surface_state import (
     property_run_public_eta_label,
 )
 from app.product.property_search_storage import _property_search_compact_candidate_preview_url
-from app.product.service import build_product_service
+from app.product.service import (
+    _hosted_property_tour_telegram_preview_image_url_for_style,
+    _property_visual_ready_tour_url,
+    build_product_service,
+)
 from app.services.property_billing import (
     brilliant_directories_billing_webhook_receipt,
     capture_paypal_property_order,
@@ -521,6 +525,60 @@ def _property_search_lightweight_tour_payload(value: object) -> dict[str, object
     }
 
 
+def _property_search_candidate_diorama_preview_url(candidate: dict[str, object]) -> str:
+    raw = dict(candidate or {})
+    direct_preview = _property_search_lightweight_image_url(
+        raw.get("diorama_preview_url")
+        or (
+            dict(raw.get("diorama_scene") or {})
+            if isinstance(raw.get("diorama_scene"), dict)
+            else {}
+        ).get("image_url")
+        or (
+            dict(raw.get("diorama_scene") or {})
+            if isinstance(raw.get("diorama_scene"), dict)
+            else {}
+        ).get("preview_image_url")
+    )
+    if direct_preview:
+        return direct_preview
+    style_hint = str(raw.get("diorama_style_hint") or "").strip()
+    raw_tour_payload = dict(raw.get("tour") or {}) if isinstance(raw.get("tour"), dict) else {}
+    raw_tour_url = str(
+        raw.get("generated_reconstruction_url")
+        or raw.get("tour_url")
+        or raw.get("verified_tour_url")
+        or raw_tour_payload.get("tour_url")
+        or raw_tour_payload.get("url")
+        or ""
+    ).strip()
+    raw_open_tour_url = str(
+        raw.get("open_tour_url")
+        or raw.get("verified_tour_url")
+        or raw_tour_payload.get("open_tour_url")
+        or raw_tour_payload.get("embed_url")
+        or ""
+    ).strip()
+    ready_tour_url = _property_visual_ready_tour_url(
+        tour_url=raw_tour_url,
+        open_tour_url=raw_open_tour_url,
+    )
+    if not ready_tour_url:
+        return ""
+    preview_url = _hosted_property_tour_telegram_preview_image_url_for_style(
+        ready_tour_url,
+        diorama_style_hint=style_hint,
+    )
+    if not preview_url:
+        try:
+            from app.product import property_tour_hosting
+
+            preview_url = property_tour_hosting._hosted_property_tour_preview_image_url(ready_tour_url)  # type: ignore[attr-defined]
+        except Exception:
+            preview_url = ""
+    return _property_search_lightweight_image_url(preview_url)
+
+
 def _property_search_lightweight_candidate_payload(
     candidate: dict[str, object],
     *,
@@ -600,6 +658,9 @@ def _property_search_lightweight_candidate_payload(
     diorama_scene = _property_search_lightweight_image_payload(raw.get("diorama_scene"))
     if diorama_scene:
         compact["diorama_scene"] = diorama_scene
+    diorama_preview_url = _property_search_candidate_diorama_preview_url(raw)
+    if diorama_preview_url:
+        compact["diorama_preview_url"] = diorama_preview_url
     tour_payload = _property_search_lightweight_tour_payload(raw.get("tour"))
     if tour_payload:
         compact["tour"] = tour_payload

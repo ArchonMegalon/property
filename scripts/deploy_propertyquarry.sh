@@ -111,6 +111,11 @@ Environment:
                                   Hard timeout for the gate's ffprobe metadata read. Default 20.
   PROPERTYQUARRY_WALKTHROUGH_QUALITY_FRAME_SAMPLE_TIMEOUT_SECONDS
                                   Hard timeout for the gate's ffmpeg frame sampling step. Default 45.
+  PROPERTYQUARRY_WALKTHROUGH_QUALITY_TOUR_ROOT
+                                  Optional walkthrough-quality tour root override. Defaults to
+                                  state/public_property_tours and is useful when deploy gates run
+                                  from an isolated worktree that should verify against the shared
+                                  live tour asset root.
 EOF
 }
 
@@ -133,6 +138,38 @@ while [[ $# -gt 0 ]]; do
 done
 
 cd "${APP_ROOT}"
+scene_video_shared_env_file="${PROPERTYQUARRY_SCENE_VIDEO_SHARED_ENV_FILE:-state/runtime/property_scene_video_shared.env}"
+scene_video_shared_env_runtime_file="${PROPERTYQUARRY_SCENE_VIDEO_SHARED_ENV_RUNTIME_FILE:-/home/ea/property_scene_video_shared.env}"
+
+materialize_scene_video_shared_env() {
+  python3 scripts/property_scene_video_shared_env.py --output "${scene_video_shared_env_file}" >/dev/null
+}
+
+copy_scene_video_shared_env_to_container() {
+  local container="$1"
+  if [[ ! -f "${scene_video_shared_env_file}" ]]; then
+    echo "Missing scene-video shared env file: ${scene_video_shared_env_file}" >&2
+    return 1
+  fi
+  docker exec -i "${container}" sh -lc '
+    umask 077
+    cat > "$1"
+    chmod 600 "$1"
+  ' sh "${scene_video_shared_env_runtime_file}" < "${scene_video_shared_env_file}"
+}
+
+docker_exec_scene_video_python() {
+  local container="$1"
+  shift
+  copy_scene_video_shared_env_to_container "${container}" || return 1
+  docker exec "${container}" sh -lc '
+    set -a
+    . "$1"
+    set +a
+    shift
+    exec python "$@"
+  ' sh "${scene_video_shared_env_runtime_file}" "$@"
+}
 
 normalise_deploy_process_priority() {
   local current_pid parent_pid pgid pid nice_value
@@ -190,6 +227,8 @@ and EA_API_TOKEN or Cloudflare Access settings, then rerun deploy.
 EOF
   exit 2
 fi
+
+materialize_scene_video_shared_env
 
 strip_env_value() {
   local value="${1//$'\r'/}"
@@ -1436,6 +1475,10 @@ elif [[ "${presentation_e2e_mode}" != "0" && "${presentation_e2e_mode}" != "fals
   exit 2
 fi
 
+service_generated_reconstruction_receipt="_completion/tours/property-service-generated-reconstruction-current.json"
+service_generated_reconstruction_slug="${PROPERTYQUARRY_SERVICE_GENERATED_RECONSTRUCTION_SMOKE_SLUG:-service-generated-reconstruction-deploy-$(date +%Y%m%d%H%M%S)}"
+service_generated_reconstruction_verified_for_walkthrough=0
+
 if (( run_presentation_e2e == 1 )); then
   presentation_e2e_receipt="${deploy_tmp_dir}/propertyquarry_deploy_presentation_e2e.json"
   presentation_provider_matrix_args=()
@@ -1471,13 +1514,30 @@ if (( run_presentation_e2e == 1 )); then
   fi
   cp "${browser_3d_gate_receipt}" _completion/smoke/property-live-3d-browser-gate-latest.json
 
+  settle_runtime_priorities 2
+  if ! PYTHONPATH=ea "${deploy_python_bin}" scripts/property_service_generated_reconstruction_smoke.py \
+    --container "${api_container_name}" \
+    --slug "${service_generated_reconstruction_slug}" \
+    --public-base-url "${base_url}" \
+    --host-header "propertyquarry.com" \
+    --require-public-contract \
+    --require-browser-shell \
+    --write "${service_generated_reconstruction_receipt}" >/dev/null; then
+    echo "PropertyQuarry service generated-reconstruction smoke failed." >&2
+    cat "${service_generated_reconstruction_receipt}" >&2 2>/dev/null || true
+    exit 1
+  fi
+  service_generated_reconstruction_verified_for_walkthrough=1
+
   walkthrough_quality_receipt="${deploy_tmp_dir}/propertyquarry_deploy_walkthrough_quality.json"
+  walkthrough_quality_tour_root="${PROPERTYQUARRY_WALKTHROUGH_QUALITY_TOUR_ROOT:-state/public_property_tours}"
   walkthrough_quality_process_timeout_seconds="${PROPERTYQUARRY_WALKTHROUGH_QUALITY_PROCESS_TIMEOUT_SECONDS:-180}"
   walkthrough_quality_ffprobe_timeout_seconds="${PROPERTYQUARRY_WALKTHROUGH_QUALITY_FFPROBE_TIMEOUT_SECONDS:-20}"
   walkthrough_quality_frame_sample_timeout_seconds="${PROPERTYQUARRY_WALKTHROUGH_QUALITY_FRAME_SAMPLE_TIMEOUT_SECONDS:-45}"
   settle_runtime_priorities 2
   if ! PYTHONPATH=ea timeout "${walkthrough_quality_process_timeout_seconds}" "${deploy_python_bin}" scripts/propertyquarry_walkthrough_quality_gate.py \
-    --tour-root state/public_property_tours \
+    --tour-root "${walkthrough_quality_tour_root}" \
+    --service-generated-reconstruction-receipt "${service_generated_reconstruction_receipt}" \
     --ffprobe-timeout-seconds "${walkthrough_quality_ffprobe_timeout_seconds}" \
     --frame-sample-timeout-seconds "${walkthrough_quality_frame_sample_timeout_seconds}" \
     --write "${walkthrough_quality_receipt}" >/dev/null; then
@@ -1555,35 +1615,51 @@ if ! docker exec --user root "${api_container_name}" python /app/scripts/materia
 fi
 docker cp "${api_container_name}:${tour_import_manifest_container_receipt}" "${import_manifest_receipt}" >/dev/null
 
+if (( service_generated_reconstruction_verified_for_walkthrough != 1 )); then
+  settle_runtime_priorities 2
+  if ! PYTHONPATH=ea "${deploy_python_bin}" scripts/property_service_generated_reconstruction_smoke.py \
+    --container "${api_container_name}" \
+    --slug "${service_generated_reconstruction_slug}" \
+    --public-base-url "${base_url}" \
+    --host-header "propertyquarry.com" \
+    --require-public-contract \
+    --require-browser-shell \
+    --write "${service_generated_reconstruction_receipt}" >/dev/null; then
+    echo "PropertyQuarry service generated-reconstruction smoke failed." >&2
+    cat "${service_generated_reconstruction_receipt}" >&2 2>/dev/null || true
+    exit 1
+  fi
+fi
+
 settle_runtime_priorities 2
-if ! docker exec "${api_container_name}" python /app/scripts/property_scene_video_readiness_report.py \
+if ! docker_exec_scene_video_python "${api_container_name}" /app/scripts/property_scene_video_readiness_report.py \
   --output "${scene_video_container_receipt}" >/dev/null; then
   echo "PropertyQuarry live scene-video readiness refresh failed." >&2
   docker exec "${api_container_name}" cat "${scene_video_container_receipt}" >&2 2>/dev/null || true
   exit 1
 fi
-if ! docker exec "${api_container_name}" python /app/scripts/verify_property_scene_video_readiness.py \
+if ! docker_exec_scene_video_python "${api_container_name}" /app/scripts/verify_property_scene_video_readiness.py \
   --receipt "${scene_video_container_receipt}" \
   --output "${scene_video_verifier_container_receipt}" >/dev/null; then
   echo "PropertyQuarry live scene-video readiness verifier failed." >&2
   docker exec "${api_container_name}" cat "${scene_video_verifier_container_receipt}" >&2 2>/dev/null || true
   exit 1
 fi
-if ! docker exec "${api_container_name}" python /app/scripts/property_scene_video_runtime_status.py \
+if ! docker_exec_scene_video_python "${api_container_name}" /app/scripts/property_scene_video_runtime_status.py \
   --receipt "${scene_video_container_receipt}" \
   --output "${scene_video_runtime_status_container_receipt}" >/dev/null; then
   echo "PropertyQuarry live scene-video runtime-status refresh failed." >&2
   docker exec "${api_container_name}" cat "${scene_video_runtime_status_container_receipt}" >&2 2>/dev/null || true
   exit 1
 fi
-if ! docker exec "${api_container_name}" python /app/scripts/materialize_scene_video_provider_refresh_packet.py \
+if ! docker_exec_scene_video_python "${api_container_name}" /app/scripts/materialize_scene_video_provider_refresh_packet.py \
   --receipt "${scene_video_container_receipt}" \
   --output "${scene_video_refresh_packet_container_receipt}" >/dev/null; then
   echo "PropertyQuarry live scene-video provider refresh-packet generation failed." >&2
   docker exec "${api_container_name}" cat "${scene_video_refresh_packet_container_receipt}" >&2 2>/dev/null || true
   exit 1
 fi
-if ! docker exec "${api_container_name}" python /app/scripts/verify_scene_video_provider_refresh_packet.py \
+if ! docker_exec_scene_video_python "${api_container_name}" /app/scripts/verify_scene_video_provider_refresh_packet.py \
   --packet "${scene_video_refresh_packet_container_receipt}" \
   --output "${scene_video_refresh_packet_verifier_container_receipt}" >/dev/null; then
   echo "PropertyQuarry live scene-video provider refresh-packet verifier failed." >&2
@@ -1657,6 +1733,7 @@ if ! PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_gold_status.py 
   --billing-receipt _completion/brilliant_directories/BRILLIANT_DIRECTORIES_PROVIDER_VERIFICATION.generated.json \
   --map-preview-flagship-receipt _completion/smoke/property-live-map-preview-flagship-latest.json \
   --browser-3d-gate-receipt _completion/smoke/property-live-3d-browser-gate-latest.json \
+  --service-generated-reconstruction-receipt "${service_generated_reconstruction_receipt}" \
   --walkthrough-quality-receipt _completion/smoke/property-live-walkthrough-quality-latest.json \
   --scene-video-readiness-receipt "${scene_video_receipt}" \
   --scene-video-readiness-verifier-receipt "${scene_video_verifier_receipt}" \

@@ -36,9 +36,9 @@ from app.api.routes.landing_property_workspace_helpers import (
     _property_counterfactual_rows,
     _property_family_filters_active,
     _property_market_filter_capabilities,
+    _property_progress_current_property_card,
     _property_progress_route_preview_rows,
     _property_run_reliability_summary,
-    _property_route_preview_path,
     _property_search_guard_rows,
     _property_search_worker_slots,
     _property_suppression_rows,
@@ -59,10 +59,12 @@ from app.product.property_surface_state import (
 from app.product.property_score_methodology import build_property_score_methodology
 from app.product.property_delivery_governance import property_delivery_governance_rows
 from app.product.service import (
+    _hosted_property_tour_telegram_preview_image_url_for_style,
     _hosted_property_visual_progress_snapshot,
     _hosted_property_visual_progress_stage_label,
     _property_visual_eta_label,
     _property_visual_progress_pct,
+    _property_visual_ready_tour_url,
     _property_visual_terminal_status_for_reason,
     _property_visual_unavailable_detail,
 )
@@ -174,6 +176,60 @@ def _property_workbench_client_image_payload(value: object) -> dict[str, object]
     return compact
 
 
+def _property_workbench_candidate_diorama_preview_url(candidate: dict[str, object]) -> str:
+    raw = dict(candidate or {})
+    direct_preview = _property_workbench_client_image_url(
+        raw.get("diorama_preview_url")
+        or (
+            dict(raw.get("diorama_scene") or {})
+            if isinstance(raw.get("diorama_scene"), dict)
+            else {}
+        ).get("image_url")
+        or (
+            dict(raw.get("diorama_scene") or {})
+            if isinstance(raw.get("diorama_scene"), dict)
+            else {}
+        ).get("preview_image_url")
+    )
+    if direct_preview:
+        return direct_preview
+    style_hint = str(raw.get("diorama_style_hint") or "").strip()
+    raw_tour_payload = dict(raw.get("tour") or {}) if isinstance(raw.get("tour"), dict) else {}
+    raw_tour_url = str(
+        raw.get("generated_reconstruction_url")
+        or raw.get("tour_url")
+        or raw.get("verified_tour_url")
+        or raw_tour_payload.get("url")
+        or raw_tour_payload.get("tour_url")
+        or ""
+    ).strip()
+    raw_open_tour_url = str(
+        raw.get("open_tour_url")
+        or raw.get("verified_tour_url")
+        or raw_tour_payload.get("embed_url")
+        or raw_tour_payload.get("open_tour_url")
+        or ""
+    ).strip()
+    ready_tour_url = _property_visual_ready_tour_url(
+        tour_url=raw_tour_url,
+        open_tour_url=raw_open_tour_url,
+    )
+    if not ready_tour_url:
+        return ""
+    preview_url = _hosted_property_tour_telegram_preview_image_url_for_style(
+        ready_tour_url,
+        diorama_style_hint=style_hint,
+    )
+    if not preview_url:
+        try:
+            from app.product import property_tour_hosting
+
+            preview_url = property_tour_hosting._hosted_property_tour_preview_image_url(ready_tour_url)  # type: ignore[attr-defined]
+        except Exception:
+            preview_url = ""
+    return _property_workbench_client_image_url(preview_url)
+
+
 _PROPERTY_WORKBENCH_CLIENT_FACT_KEYS = (
     "price_display",
     "rent_display",
@@ -254,6 +310,9 @@ def _property_workbench_client_tour_payload(value: object) -> dict[str, object]:
             "status_detail",
             "eta_label",
             "progress_pct",
+            "control_label",
+            "provider_label",
+            "provider_key",
         )
         if raw.get(key) not in (None, "", [], {})
     }
@@ -320,6 +379,8 @@ def _property_workbench_client_candidate_payload(
             "source_virtual_tour_url",
             "vendor_tour_url",
             "tour_url",
+            "verified_tour_url",
+            "open_tour_url",
             "tour_status",
             "tour_provider",
             "flythrough_url",
@@ -347,6 +408,9 @@ def _property_workbench_client_candidate_payload(
     diorama_scene = _property_workbench_client_image_payload(raw.get("diorama_scene"))
     if diorama_scene:
         compact["diorama_scene"] = diorama_scene
+    diorama_preview_url = _property_workbench_candidate_diorama_preview_url(raw)
+    if diorama_preview_url:
+        compact["diorama_preview_url"] = diorama_preview_url
     tour_payload = _property_workbench_client_tour_payload(raw.get("tour"))
     if tour_payload:
         compact["tour"] = tour_payload
@@ -428,6 +492,14 @@ def _property_workbench_client_run_payload(run_payload: dict[str, object]) -> di
     route_previews = [dict(row) for row in list(raw_run.get("route_previews") or []) if isinstance(row, dict)]
     if route_previews:
         compact_run["route_previews"] = route_previews[:3]
+    current_property = dict(raw_run.get("current_property") or {}) if isinstance(raw_run.get("current_property"), dict) else {}
+    if current_property:
+        compact_current_property = _property_workbench_client_candidate_payload(current_property)
+        for key in ("status_label", "status_detail"):
+            if current_property.get(key) not in (None, "", [], {}):
+                compact_current_property[key] = current_property.get(key)
+        if compact_current_property:
+            compact_run["current_property"] = compact_current_property
     reliability = dict(raw_run.get("reliability") or {}) if isinstance(raw_run.get("reliability"), dict) else {}
     if reliability:
         compact_run["reliability"] = {
@@ -1344,34 +1416,60 @@ def property_workspace_payload(
     def _normalize_verified_candidate_tour(candidate: dict[str, object]) -> dict[str, object]:
         normalized = dict(candidate)
         tour_payload = dict(normalized.get("tour") or {}) if isinstance(normalized.get("tour"), dict) else {}
-        raw_tour_url = str(normalized.get("tour_url") or tour_payload.get("url") or tour_payload.get("embed_url") or "").strip()
-        if not raw_tour_url:
+        raw_tour_url = str(
+            normalized.get("generated_reconstruction_url")
+            or normalized.get("tour_runtime_url")
+            or normalized.get("tour_url")
+            or normalized.get("verified_tour_url")
+            or tour_payload.get("tour_url")
+            or tour_payload.get("url")
+            or tour_payload.get("embed_url")
+            or ""
+        ).strip()
+        raw_open_tour_url = str(
+            normalized.get("open_tour_url")
+            or normalized.get("verified_tour_url")
+            or tour_payload.get("open_tour_url")
+            or tour_payload.get("url")
+            or tour_payload.get("embed_url")
+            or ""
+        ).strip()
+        if not raw_tour_url and not raw_open_tour_url:
             if tour_payload:
                 normalized["tour"] = tour_payload
             return normalized
-        normalized["tour_runtime_url"] = raw_tour_url
-        try:
+        normalized["tour_runtime_url"] = raw_tour_url or raw_open_tour_url
+        ready_tour_url = _property_visual_ready_tour_url(
+            tour_url=raw_tour_url,
+            open_tour_url=raw_open_tour_url,
+        )
+        if ready_tour_url:
+            normalized["tour_url"] = ready_tour_url
+            normalized["verified_tour_url"] = ready_tour_url
+            normalized["open_tour_url"] = ready_tour_url
+            tour_payload["url"] = ready_tour_url
+            if str(tour_payload.get("embed_url") or "").strip():
+                tour_payload["embed_url"] = ready_tour_url
+            elif "embed_url" not in tour_payload:
+                tour_payload["embed_url"] = ready_tour_url
+            normalized["tour"] = tour_payload
+        elif raw_tour_url:
             from app.product import property_tour_hosting
 
-            verified_tour_url = str(property_tour_hosting._hosted_property_tour_first_party_open_url(raw_tour_url) or "").strip()  # type: ignore[attr-defined]
-        except Exception:
-            verified_tour_url = ""
-        if verified_tour_url:
-            normalized["tour_url"] = verified_tour_url
-            tour_payload["url"] = verified_tour_url
-            if str(tour_payload.get("embed_url") or "").strip():
-                tour_payload["embed_url"] = verified_tour_url
-            elif "embed_url" not in tour_payload:
-                tour_payload["embed_url"] = verified_tour_url
-            normalized["tour"] = tour_payload
-        elif property_tour_hosting._is_branded_public_tour_url(raw_tour_url):  # type: ignore[attr-defined]
-            normalized["tour_url"] = ""
-            if tour_payload:
-                tour_payload["url"] = ""
-                if "embed_url" in tour_payload:
-                    tour_payload["embed_url"] = ""
+            if property_tour_hosting._is_branded_public_tour_url(raw_tour_url):  # type: ignore[attr-defined]
+                normalized["tour_url"] = ""
+                normalized["verified_tour_url"] = ""
+                normalized["open_tour_url"] = ""
+                if tour_payload:
+                    tour_payload["url"] = ""
+                    if "embed_url" in tour_payload:
+                        tour_payload["embed_url"] = ""
+                    normalized["tour"] = tour_payload
+            elif tour_payload:
                 normalized["tour"] = tour_payload
         elif tour_payload:
+            normalized["open_tour_url"] = raw_open_tour_url
+            normalized["tour_url"] = ""
             normalized["tour"] = tour_payload
         return normalized
 
@@ -1601,6 +1699,9 @@ def property_workspace_payload(
     run_status_label = str(run_health.get("status_label") or "").strip() or "Queued"
     run_status_note = str(run_health.get("status_note") or "").strip()
     run_in_progress = bool(run_id and bool(run_health.get("in_progress")))
+    progress_current_property = _property_progress_current_property_card(
+        run_summary=run_summary,
+    ) if wants_run_views else {}
     progress_route_previews = _property_progress_route_preview_rows(
         run_summary=run_summary,
         property_preferences=property_preferences,
@@ -1685,6 +1786,7 @@ def property_workspace_payload(
                 source_variant_display_total=run_source_variant_total,
                 selected_platform_count=len(selected_platforms),
                 route_previews=[],
+                current_property={},
             ),
             brief=PropertyDecisionWorkbenchBriefContract(
                 country=str(property_state.get("country_label") or "Market"),
@@ -2377,8 +2479,24 @@ def property_workspace_payload(
 
     def _tour_payload(candidate: dict[str, object]) -> dict[str, object]:
         raw_tour_payload = dict(candidate.get("tour") or {}) if isinstance(candidate.get("tour"), dict) else {}
-        tour_url = str(candidate.get("tour_url") or "").strip()
-        runtime_tour_url = str(candidate.get("tour_runtime_url") or "").strip()
+        tour_url = str(
+            candidate.get("tour_url")
+            or candidate.get("verified_tour_url")
+            or raw_tour_payload.get("tour_url")
+            or raw_tour_payload.get("url")
+            or raw_tour_payload.get("embed_url")
+            or ""
+        ).strip()
+        runtime_tour_url = str(
+            candidate.get("tour_runtime_url")
+            or candidate.get("open_tour_url")
+            or candidate.get("verified_tour_url")
+            or raw_tour_payload.get("open_tour_url")
+            or raw_tour_payload.get("url")
+            or raw_tour_payload.get("embed_url")
+            or raw_tour_payload.get("provider_url")
+            or ""
+        ).strip()
         property_facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
         if not tour_url:
             try:
@@ -2411,6 +2529,37 @@ def property_workspace_payload(
             eta_minutes = ""
         provider_key = ""
         provider_label = ""
+        ready_tour_url = _property_visual_ready_tour_url(
+            tour_url=tour_url,
+            open_tour_url=runtime_tour_url,
+        )
+        if ready_tour_url:
+            try:
+                from app.product import property_tour_hosting
+
+                provider_key = property_tour_hosting._hosted_property_tour_verified_provider(tour_url or ready_tour_url)  # type: ignore[attr-defined]
+            except Exception:
+                provider_key = ""
+            provider_label = _visual_provider_label(provider_key) if provider_key else "3D tour"
+            visual_runtime = _visual_runtime_payload(
+                candidate,
+                request_kind="tour",
+                status="ready",
+                ready_url=ready_tour_url,
+            )
+            return {
+                "status": "ready",
+                "label": "3D tour available",
+                "url": ready_tour_url,
+                "embed_url": ready_tour_url,
+                "eta_label": visual_runtime["eta_label"],
+                "progress_pct": visual_runtime["progress_pct"],
+                "provider_label": provider_label,
+                "provider_key": provider_key,
+                "status_detail": "3D tour is ready.",
+                "recovery_label": "",
+                "control_label": "Open 3D tour",
+            }
         if tour_url:
             try:
                 from app.product import property_tour_hosting
@@ -3314,6 +3463,9 @@ def property_workspace_payload(
         fit_summary = _clean_property_candidate_detail_copy(candidate.get("fit_summary") or "")
         if not fit_summary:
             fit_summary = summarize_property_description_copy(_clean_property_candidate_copy(candidate.get("summary") or ""))
+        diorama_preview_url = _property_workbench_candidate_diorama_preview_url(candidate)
+        ready_tour_url = str(tour_payload.get("url") or "").strip()
+        ready_tour_status = str(tour_payload.get("status") or "").strip().lower()
         workbench_results.append(
             build_property_workbench_candidate_snapshot(
                 candidate_ref=candidate_ref,
@@ -3324,6 +3476,7 @@ def property_workspace_payload(
                 preview_image_url=_property_workbench_lightweight_image_url(
                     candidate.get("preview_image_url") or _property_candidate_preview_image(candidate)
                 ),
+                diorama_preview_url=diorama_preview_url,
                 source_label=_compact_provider_label(candidate.get("source_label") or ""),
                 location_label=str(facts.get("district") or facts.get("postal_name") or facts.get("city") or facts.get("address") or "").strip(),
                 price_display=price_line,
@@ -3358,6 +3511,9 @@ def property_workspace_payload(
                 floorplan_url=floorplan_url,
                 source_virtual_tour_url=provider_tour_url,
                 vendor_tour_url=provider_tour_url,
+                tour_url=ready_tour_url,
+                verified_tour_url=ready_tour_url if ready_tour_status == "ready" else "",
+                open_tour_url=ready_tour_url if ready_tour_status == "ready" else "",
                 property_facts=facts,
                 listing_fact_confirmation=dict(facts.get("listing_fact_confirmation") or {}) if isinstance(facts.get("listing_fact_confirmation"), dict) else {},
                 assessment=dict(candidate.get("assessment") or {}) if isinstance(candidate.get("assessment"), dict) else {},
@@ -4759,6 +4915,7 @@ def property_workspace_payload(
             "message": run_status_note or run_message,
             "events": run_events[-10:],
             "route_previews": progress_route_previews,
+            "current_property": progress_current_property,
             "provider_display_total": run_provider_display_total,
             "source_variant_display_total": run_source_variant_total,
             "selected_platform_count": len(selected_platforms),
@@ -4799,6 +4956,7 @@ def property_workspace_payload(
             source_variant_display_total=run_source_variant_total,
             selected_platform_count=len(selected_platforms),
             route_previews=progress_route_previews,
+            current_property=progress_current_property,
         ),
         brief=PropertyDecisionWorkbenchBriefContract(
             country=str(property_state.get("country_label") or "Market"),

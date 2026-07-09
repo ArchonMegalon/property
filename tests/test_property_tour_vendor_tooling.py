@@ -200,6 +200,46 @@ def test_vendor_tooling_reports_magicfit_renderer_credentials_from_process_suffi
     assert "chummer-secret" not in serialized
 
 
+def test_vendor_tooling_reports_magicfit_renderer_credentials_from_generated_shared_env_file(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo_root = tmp_path / "repo"
+    ea_root = tmp_path / "ea"
+    shared_env = repo_root / "state" / "runtime" / "property_scene_video_shared.env"
+    (repo_root / "scripts").mkdir(parents=True)
+    (repo_root / "scripts" / "render_magicfit_property_flythrough.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+    shared_env.parent.mkdir(parents=True)
+    shared_env.write_text(
+        "PROPERTYQUARRY_MAGICFIT_EMAIL=bridge@example.com\nPROPERTYQUARRY_MAGICFIT_PASSWORD=bridge-secret\n",
+        encoding="utf-8",
+    )
+    ea_root.mkdir(parents=True)
+    monkeypatch.setattr("scripts.verify_property_tour_vendor_tooling._repo_root", lambda: repo_root)
+    monkeypatch.setenv("PROPERTYQUARRY_ROOT", str(repo_root))
+    monkeypatch.setenv("PROPERTYQUARRY_EA_ROOT", str(ea_root))
+    monkeypatch.setattr("scripts.verify_property_tour_vendor_tooling._python_module_status", lambda module: {"available": True, "path": "/usr/bin/python3", "version": "ok"})
+    monkeypatch.delenv("PROPERTYQUARRY_MAGICFIT_EMAIL", raising=False)
+    monkeypatch.delenv("PROPERTYQUARRY_MAGICFIT_PASSWORD", raising=False)
+    monkeypatch.delenv("MAGICFIT_EMAIL", raising=False)
+    monkeypatch.delenv("MAGICFIT_PASSWORD", raising=False)
+
+    receipt = build_vendor_tooling_receipt(
+        drop_dir=tmp_path / "incoming",
+        tour_root=tmp_path / "public_tours",
+        wine_prefix=tmp_path / "wine",
+        installer_roots=[],
+        runtime_container="",
+    )
+    serialized = json.dumps(receipt).lower()
+
+    assert receipt["magicfit_renderer"]["credentials_configured"] is True
+    assert receipt["magicfit_renderer"]["ready"] is True
+    assert receipt["magicfit_renderer"]["credential_sources"] == [str(shared_env.resolve())]
+    assert "bridge@example.com" not in serialized
+    assert "bridge-secret" not in serialized
+
+
 def test_vendor_tooling_reports_missing_omagic_runtime_adapter(tmp_path: Path, monkeypatch) -> None:
     repo_root = tmp_path / "repo"
     (repo_root / "scripts").mkdir(parents=True)
@@ -252,6 +292,52 @@ def test_vendor_tooling_reports_omagic_adapter_config_env_names_without_leaking_
     assert receipt["omagic_adapter"]["credential_env_names"] == ["PROPERTYQUARRY_OMAGIC_API_KEY"]
     assert "secret-render-command" not in serialized
     assert "secret-api-key" not in serialized
+
+
+def test_vendor_tooling_loads_omagic_adapter_env_names_from_generated_shared_env_file(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    repo_root = tmp_path / "repo"
+    shared_env = repo_root / "state" / "runtime" / "property_scene_video_shared.env"
+    (repo_root / "scripts").mkdir(parents=True)
+    (repo_root / "scripts" / "render_omagic_property_model_walkthrough.py").write_text(
+        "#!/usr/bin/env python3\n",
+        encoding="utf-8",
+    )
+    shared_env.parent.mkdir(parents=True)
+    shared_env.write_text(
+        "\n".join(
+            [
+                "PROPERTYQUARRY_OMAGIC_MODEL_UPLOAD_ENABLED=1",
+                "PROPERTYQUARRY_OMAGIC_RENDER_COMMAND=python /app/scripts/render_magicai_model_upload_adapter.py",
+                "PROPERTYQUARRY_OMAGIC_API_KEY=shared-omagic-secret",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("scripts.verify_property_tour_vendor_tooling._repo_root", lambda: repo_root)
+    monkeypatch.delenv("PROPERTYQUARRY_OMAGIC_MODEL_UPLOAD_ENABLED", raising=False)
+    monkeypatch.delenv("PROPERTYQUARRY_OMAGIC_RENDER_COMMAND", raising=False)
+    monkeypatch.delenv("PROPERTYQUARRY_OMAGIC_API_KEY", raising=False)
+
+    receipt = build_vendor_tooling_receipt(
+        drop_dir=tmp_path / "incoming",
+        tour_root=tmp_path / "public_tours",
+        wine_prefix=tmp_path / "wine",
+        installer_roots=[],
+        runtime_container="",
+        runtime_only=True,
+    )
+    serialized = json.dumps(receipt)
+
+    assert receipt["omagic_adapter"]["ready"] is True
+    assert receipt["omagic_adapter"]["status"] == "pass"
+    assert receipt["omagic_adapter"]["model_upload_adapter_enabled"] is True
+    assert receipt["omagic_adapter"]["render_command_env_names"] == ["PROPERTYQUARRY_OMAGIC_RENDER_COMMAND"]
+    assert receipt["omagic_adapter"]["credential_env_names"] == ["PROPERTYQUARRY_OMAGIC_API_KEY"]
+    assert "shared-omagic-secret" not in serialized
 
 
 def test_vendor_tooling_runtime_only_checks_target_container_for_omagic_adapter(

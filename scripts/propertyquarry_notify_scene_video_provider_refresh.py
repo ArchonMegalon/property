@@ -80,8 +80,11 @@ def _merge_command(row: dict[str, Any]) -> str:
 def _provider_summary_lines(row: dict[str, Any]) -> list[str]:
     provider = str(row.get("provider") or "").strip().lower()
     expected = _positive_int(row.get("expected_account_count"))
+    tracked = _positive_int(row.get("tracked_account_count"))
+    unavailable = _positive_int(row.get("unavailable_account_count"))
     runtime = _positive_int(row.get("runtime_account_count"))
     visible_gap = _positive_int(row.get("visible_account_gap"))
+    credit_state = str(row.get("credit_state") or "").strip()
     blockers = [
         str(value or "").strip()
         for value in list(row.get("runtime_blockers") or [])
@@ -90,6 +93,13 @@ def _provider_summary_lines(row: dict[str, Any]) -> list[str]:
     lines = [f"{_provider_label(provider)} accounts visible: {runtime}/{expected}."]
     if visible_gap > 0:
         lines[0] = f"{_provider_label(provider)} accounts visible: {runtime}/{expected} ({visible_gap} missing)."
+    if tracked > expected:
+        tracked_line = f"Tracked inventory: {tracked}."
+        if unavailable > 0:
+            tracked_line = f"Tracked inventory: {tracked} ({unavailable} unavailable)."
+        lines.append(tracked_line)
+    if credit_state and credit_state != "funded":
+        lines.append(f"Credit state: {credit_state}.")
     if blockers:
         lines.append(f"Blockers: {', '.join(blockers)}.")
     command = _merge_command(row)
@@ -112,7 +122,14 @@ def _actionable_providers(packet: dict[str, Any]) -> list[dict[str, Any]]:
         if not isinstance(raw_row, dict):
             continue
         row = dict(raw_row)
-        if _positive_int(row.get("visible_account_gap")) > 0 or list(row.get("runtime_blockers") or []):
+        credit_refresh_required = row.get("credit_refresh_required") is True
+        credit_state = str(row.get("credit_state") or "").strip().lower()
+        if (
+            _positive_int(row.get("visible_account_gap")) > 0
+            or list(row.get("runtime_blockers") or [])
+            or credit_refresh_required
+            or credit_state in {"constrained", "insufficient"}
+        ):
             rows.append(row)
     return rows
 

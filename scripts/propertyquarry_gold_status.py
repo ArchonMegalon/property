@@ -168,6 +168,7 @@ DEFAULT_RECEIPT_PATTERNS = {
     "map_preview_flagship": ("_completion/smoke/property-live-map-preview-flagship*.json",),
     "browser_3d_gate": ("_completion/smoke/property-live-3d-browser-gate*.json",),
     "runtime_reconstruction": ("_completion/tours/property-runtime-reconstruction*.json",),
+    "service_generated_reconstruction": ("_completion/tours/property-service-generated-reconstruction*.json",),
     "walkthrough_quality": ("_completion/smoke/property-live-walkthrough-quality*.json",),
     "scene_video_readiness": (
         "_completion/scene_video_readiness/release-gate.json",
@@ -215,6 +216,7 @@ DEFAULT_RECEIPT_FALLBACKS = {
     "map_preview_flagship": "_completion/smoke/property-live-map-preview-flagship-latest.json",
     "browser_3d_gate": "_completion/smoke/property-live-3d-browser-gate-latest.json",
     "runtime_reconstruction": "_completion/tours/property-runtime-reconstruction-release-gate.json",
+    "service_generated_reconstruction": "_completion/tours/property-service-generated-reconstruction-current.json",
     "walkthrough_quality": "_completion/smoke/property-live-walkthrough-quality-latest.json",
     "scene_video_readiness": "_completion/scene_video_readiness/release-gate.json",
     "scene_video_readiness_verifier": "_completion/scene_video_readiness/release-gate-verifier.json",
@@ -285,7 +287,14 @@ def _scene_video_runtime_status_next_actions(payload: dict[str, Any]) -> list[di
         blockers = [str(value or "").strip() for value in list(row.get("blockers") or []) if str(value or "").strip()]
         if blockers:
             normalized["blockers"] = blockers
-        for key in ("runtime_account_count", "expected_account_count", "visible_account_gap", "credit_state"):
+        for key in (
+            "runtime_account_count",
+            "expected_account_count",
+            "tracked_account_count",
+            "unavailable_account_count",
+            "visible_account_gap",
+            "credit_state",
+        ):
             value = row.get(key)
             if value not in (None, ""):
                 normalized[key] = value
@@ -1253,6 +1262,7 @@ def build_gold_status_receipt(
     map_preview_flagship_receipt_path: Path | None = None,
     browser_3d_gate_receipt_path: Path | None = None,
     runtime_reconstruction_receipt_path: Path | None = None,
+    service_generated_reconstruction_receipt_path: Path | None = None,
     walkthrough_quality_receipt_path: Path | None = None,
     scene_video_readiness_receipt_path: Path | None = None,
     scene_video_readiness_verifier_receipt_path: Path | None = None,
@@ -1291,6 +1301,11 @@ def build_gold_status_receipt(
     map_preview_flagship = _load_json(map_preview_flagship_receipt_path) if map_preview_flagship_receipt_path is not None else {}
     browser_3d_gate = _load_json(browser_3d_gate_receipt_path) if browser_3d_gate_receipt_path is not None else {}
     runtime_reconstruction = _load_json(runtime_reconstruction_receipt_path) if runtime_reconstruction_receipt_path is not None else {}
+    service_generated_reconstruction = (
+        _load_json(service_generated_reconstruction_receipt_path)
+        if service_generated_reconstruction_receipt_path is not None
+        else {}
+    )
     walkthrough_quality = _load_json(walkthrough_quality_receipt_path) if walkthrough_quality_receipt_path is not None else {}
     scene_video_readiness = _load_json(scene_video_readiness_receipt_path) if scene_video_readiness_receipt_path is not None else {}
     scene_video_readiness_verifier = _load_json(scene_video_readiness_verifier_receipt_path) if scene_video_readiness_verifier_receipt_path is not None else {}
@@ -1329,6 +1344,11 @@ def build_gold_status_receipt(
             **({"map_preview_flagship": map_preview_flagship} if map_preview_flagship_receipt_path is not None else {}),
             **({"browser_rendered_3d": browser_3d_gate} if browser_3d_gate_receipt_path is not None else {}),
             **({"generated_reconstruction_glb": runtime_reconstruction} if runtime_reconstruction_receipt_path is not None else {}),
+            **(
+                {"service_generated_reconstruction": service_generated_reconstruction}
+                if service_generated_reconstruction_receipt_path is not None
+                else {}
+            ),
             **({"walkthrough_quality": walkthrough_quality} if walkthrough_quality_receipt_path is not None else {}),
             **({"scene_video_readiness": scene_video_readiness} if scene_video_readiness_receipt_path is not None else {}),
             **({"scene_video_readiness_verifier": scene_video_readiness_verifier} if scene_video_readiness_verifier_receipt_path is not None else {}),
@@ -1437,16 +1457,50 @@ def build_gold_status_receipt(
     runtime_reconstruction_details = dict(runtime_reconstruction.get("details") or {})
     runtime_reconstruction_paths = dict(runtime_reconstruction_details.get("paths") or {})
     runtime_reconstruction_glb = dict(runtime_reconstruction_paths.get("glb") or {})
+    runtime_reconstruction_browser_shell = dict(runtime_reconstruction.get("browser_shell") or {})
+    runtime_reconstruction_public_contract = dict(runtime_reconstruction.get("public_route_contract") or {})
+    runtime_reconstruction_browser_failures = [
+        str(failure or "").strip()
+        for failure in list(runtime_reconstruction_browser_shell.get("failures") or [])
+        if str(failure or "").strip()
+    ]
+    runtime_reconstruction_public_failures = [
+        str(failure or "").strip()
+        for failure in (
+            list(runtime_reconstruction.get("public_contract_failures") or [])
+            or list(runtime_reconstruction_public_contract.get("failures") or [])
+        )
+        if str(failure or "").strip()
+    ]
+    runtime_reconstruction_walkthrough_status = str(runtime_reconstruction_details.get("walkthrough_status") or "")
     runtime_reconstruction_ok = (
         runtime_reconstruction_receipt_path is None
         or (
             runtime_reconstruction.get("status") == "pass"
+            and runtime_reconstruction_browser_shell.get("status") == "pass"
+            and runtime_reconstruction.get("browser_shell_ok") is True
             and runtime_reconstruction.get("public_route_contract_ok") is True
-            and runtime_reconstruction.get("glb_capability_ok") is True
-            and runtime_reconstruction.get("glb_manifest_ok") is True
             and runtime_reconstruction.get("glb_non_empty") is True
-            and runtime_reconstruction.get("glb_required") is True
+            and runtime_reconstruction.get("glb_manifest_ok") is True
+            and runtime_reconstruction.get("glb_capability_ok") is True
             and runtime_reconstruction.get("required_paths_ok") is True
+            and runtime_reconstruction.get("honest_disclosure_ok") is True
+            and runtime_reconstruction.get("route_label_quality_ok") is True
+            and runtime_reconstruction.get("walkthrough_label_quality_ok") is True
+            and runtime_reconstruction.get("walkthrough_generated_ok") is True
+        )
+    )
+    service_generated_reconstruction_ok = (
+        service_generated_reconstruction_receipt_path is None
+        or (
+            service_generated_reconstruction.get("status") == "pass"
+            and service_generated_reconstruction.get("browser_shell_ok") is True
+            and service_generated_reconstruction.get("required_paths_ok") is True
+            and service_generated_reconstruction.get("top_level_video_contract_ok") is True
+            and service_generated_reconstruction.get("route_label_quality_ok") is True
+            and service_generated_reconstruction.get("walkthrough_generated_ok") is True
+            and service_generated_reconstruction.get("delivery_contract_ok") is True
+            and service_generated_reconstruction.get("public_route_contract_ok") is True
         )
     )
     walkthrough_quality_ok = walkthrough_quality_receipt_path is None or _hard_gate_receipt_ok(walkthrough_quality)
@@ -1604,6 +1658,12 @@ def build_gold_status_receipt(
             and not list(release_hygiene.get("failures") or [])
         )
     )
+    release_hygiene_manifest_runtime_commit = str(release_hygiene.get("manifest_runtime_commit") or "")
+    release_hygiene_head_commit = str(release_hygiene.get("head_commit") or "")
+    try:
+        release_hygiene_tracked_dirty_path_count = int(release_hygiene.get("tracked_dirty_path_count") or 0)
+    except Exception:
+        release_hygiene_tracked_dirty_path_count = 0
     furniture_style_contract_ok = (
         furniture_style_contract_receipt_path is None
         or (
@@ -1756,9 +1816,38 @@ def build_gold_status_receipt(
                 "glb_manifest_ok": runtime_reconstruction.get("glb_manifest_ok"),
                 "glb_capability_ok": runtime_reconstruction.get("glb_capability_ok"),
                 "required_paths_ok": runtime_reconstruction.get("required_paths_ok"),
+                "route_label_quality_ok": runtime_reconstruction.get("route_label_quality_ok"),
+                "walkthrough_label_quality_ok": runtime_reconstruction.get("walkthrough_label_quality_ok"),
+                "walkthrough_generated_ok": runtime_reconstruction.get("walkthrough_generated_ok"),
+                "walkthrough_status": runtime_reconstruction_walkthrough_status,
+                "browser_shell_ok": runtime_reconstruction.get("browser_shell_ok"),
+                "browser_shell_status": runtime_reconstruction_browser_shell.get("status"),
+                "browser_shell_failures": runtime_reconstruction_browser_failures,
                 "public_route_contract_ok": runtime_reconstruction.get("public_route_contract_ok"),
+                "public_contract_failures": runtime_reconstruction_public_failures,
+                "honest_disclosure_ok": runtime_reconstruction.get("honest_disclosure_ok"),
+                "manifest_runtime_commit": release_hygiene_manifest_runtime_commit,
+                "head_commit": release_hygiene_head_commit,
+                "tracked_dirty_path_count": release_hygiene_tracked_dirty_path_count if release_hygiene_receipt_path is not None else None,
                 "viewer_url": str(runtime_reconstruction.get("viewer_url") or ""),
-                "action": "rerun property_runtime_reconstruction_smoke.py with --require-glb and --require-public-contract; fix Blender/NumPy/runtime export or generated-preview route leakage before claiming generated reconstruction readiness",
+                "action": "rerun property_runtime_reconstruction_smoke.py with --require-public-contract --require-browser-shell --require-glb --host-header propertyquarry.com; because propertyquarry-api and propertyquarry-render-tools run image-baked /app code rather than a bind-mounted repo, rebuild/recreate the runtime first whenever /version or release hygiene shows repo/runtime drift, then fix model export, honest generated-preview disclosure, walkthrough generation, launch-shell, layout-preview, or public-contract failures before claiming generated reconstruction readiness",
+            }
+        )
+    if not service_generated_reconstruction_ok:
+        blockers.append(
+            {
+                "area": "service_generated_reconstruction",
+                "status": service_generated_reconstruction.get("status")
+                or ("not_configured" if service_generated_reconstruction_receipt_path is None else "missing"),
+                "required_paths_ok": service_generated_reconstruction.get("required_paths_ok"),
+                "top_level_video_contract_ok": service_generated_reconstruction.get("top_level_video_contract_ok"),
+                "route_label_quality_ok": service_generated_reconstruction.get("route_label_quality_ok"),
+                "walkthrough_generated_ok": service_generated_reconstruction.get("walkthrough_generated_ok"),
+                "delivery_contract_ok": service_generated_reconstruction.get("delivery_contract_ok"),
+                "public_route_contract_ok": service_generated_reconstruction.get("public_route_contract_ok"),
+                "browser_shell_ok": service_generated_reconstruction.get("browser_shell_ok"),
+                "viewer_url": str(service_generated_reconstruction.get("viewer_url") or ""),
+                "action": "rerun property_service_generated_reconstruction_smoke.py --container propertyquarry-api --require-public-contract --require-browser-shell --host-header propertyquarry.com --public-base-url https://propertyquarry.com and fix the service-owned bundle writer, launch shell, walkthrough contract, route-label, delivery, or public-contract failures before claiming generated reconstruction end-to-end coverage",
             }
         )
     if not map_preview_flagship_ok:
@@ -1781,7 +1870,7 @@ def build_gold_status_receipt(
                 "failed_count": walkthrough_quality.get("failed_count"),
                 "video_relpath": str(walkthrough_quality.get("video_relpath") or ""),
                 "failed_checks": _failed_receipt_checks(walkthrough_quality),
-                "action": "rerun propertyquarry_walkthrough_quality_gate.py after generating a walkthrough with explicit room coverage, sufficient duration, and frame-continuity proof",
+                "action": "rerun propertyquarry_walkthrough_quality_gate.py --service-generated-reconstruction-receipt _completion/tours/property-service-generated-reconstruction-current.json after generating a walkthrough with explicit room coverage, sufficient duration, and frame-continuity proof",
             }
         )
     if not scene_video_readiness_verifier_ok:
@@ -2211,11 +2300,23 @@ def build_gold_status_receipt(
             "area": "generated_reconstruction_glb",
             "status": "pass",
             "viewer_url": str(runtime_reconstruction.get("viewer_url") or ""),
+            "browser_shell_ok": runtime_reconstruction.get("browser_shell_ok"),
             "public_route_contract_ok": runtime_reconstruction.get("public_route_contract_ok"),
             "glb_size_bytes": runtime_reconstruction_glb.get("size_bytes"),
             "receipt_path": str(runtime_reconstruction_receipt_path),
         }
         if runtime_reconstruction_receipt_path is not None and runtime_reconstruction_ok
+        else None,
+        {
+            "area": "service_generated_reconstruction",
+            "status": "pass",
+            "viewer_url": str(service_generated_reconstruction.get("viewer_url") or ""),
+            "browser_shell_ok": service_generated_reconstruction.get("browser_shell_ok"),
+            "delivery_contract_ok": service_generated_reconstruction.get("delivery_contract_ok"),
+            "public_route_contract_ok": service_generated_reconstruction.get("public_route_contract_ok"),
+            "receipt_path": str(service_generated_reconstruction_receipt_path),
+        }
+        if service_generated_reconstruction_receipt_path is not None and service_generated_reconstruction_ok
         else None,
         {
             "area": "walkthrough_quality",
@@ -2281,6 +2382,7 @@ def build_gold_status_receipt(
             and map_preview_flagship_ok
             and browser_3d_gate_ok
             and runtime_reconstruction_ok
+            and service_generated_reconstruction_ok
             and walkthrough_quality_ok
             and scene_video_readiness_verifier_ok
             and scene_video_provider_refresh_packet_verifier_ok
@@ -2322,12 +2424,20 @@ def build_gold_status_receipt(
             )
         if missing_provider_modes:
             notes.append("Every required tour provider mode must stay backed by verified evidence.")
+        if not release_hygiene_ok:
+            notes.append(
+                "Release-manifest authority is blocked until /version matches the candidate commit; PropertyQuarry API and render containers run image-baked /app code, so host worktree changes do not count as runtime proof until rebuild/recreate."
+            )
         if "magicfit" in missing_provider_modes and vendor_tooling_receipt_path is not None and not bool(magicfit_renderer.get("ready")):
             notes.append("MagicFit is still blocked on renderer configuration, not just a missing imported walkthrough asset.")
         if not browser_3d_gate_ok:
             notes.append("3D browser readiness is blocked until the viewer renders in Chromium, not merely until a tour route exists.")
         if not runtime_reconstruction_ok:
-            notes.append("Generated reconstruction readiness is blocked until the live runtime exports a non-empty GLB and public routes reject generated previews as 3D tours.")
+            notes.append(
+                "Generated reconstruction readiness is blocked until a rebuilt/restarted live runtime matching the release manifest emits walkthrough video/sidecar proof alongside any required GLB export and keeps generated public routes fail-closed to shell/control surfaces instead of pretending a ready 3D tour exists."
+            )
+        if not service_generated_reconstruction_ok:
+            notes.append("Service-generated reconstruction readiness is blocked until the app bundle writer emits the first-party walkthrough contract, human route labels, delivery metadata, and a browser-proven public-safe launch shell in a live smoke.")
         if not map_preview_flagship_ok:
             notes.append("Map preview readiness is blocked until generated thumbnails pass the visual-asset gate, not merely until the PNG route exists.")
         if not walkthrough_quality_ok:
@@ -2440,11 +2550,38 @@ def build_gold_status_receipt(
             "glb_manifest_ok": runtime_reconstruction.get("glb_manifest_ok") if runtime_reconstruction_receipt_path is not None else None,
             "glb_capability_ok": runtime_reconstruction.get("glb_capability_ok") if runtime_reconstruction_receipt_path is not None else None,
             "required_paths_ok": runtime_reconstruction.get("required_paths_ok") if runtime_reconstruction_receipt_path is not None else None,
+            "route_label_quality_ok": runtime_reconstruction.get("route_label_quality_ok") if runtime_reconstruction_receipt_path is not None else None,
+            "walkthrough_label_quality_ok": runtime_reconstruction.get("walkthrough_label_quality_ok") if runtime_reconstruction_receipt_path is not None else None,
+            "walkthrough_generated_ok": runtime_reconstruction.get("walkthrough_generated_ok") if runtime_reconstruction_receipt_path is not None else None,
+            "walkthrough_status": runtime_reconstruction_walkthrough_status if runtime_reconstruction_receipt_path is not None else "",
+            "browser_shell_ok": runtime_reconstruction.get("browser_shell_ok") if runtime_reconstruction_receipt_path is not None else None,
+            "browser_shell_status": runtime_reconstruction_browser_shell.get("status") if runtime_reconstruction_receipt_path is not None else "",
+            "browser_shell_failures": runtime_reconstruction_browser_failures if runtime_reconstruction_receipt_path is not None else [],
             "public_route_contract_ok": runtime_reconstruction.get("public_route_contract_ok") if runtime_reconstruction_receipt_path is not None else None,
+            "public_contract_failures": runtime_reconstruction_public_failures if runtime_reconstruction_receipt_path is not None else [],
+            "honest_disclosure_ok": runtime_reconstruction.get("honest_disclosure_ok") if runtime_reconstruction_receipt_path is not None else None,
             "viewer_url": str(runtime_reconstruction.get("viewer_url") or ""),
             "glb_size_bytes": runtime_reconstruction_glb.get("size_bytes"),
+            "manifest_runtime_commit": release_hygiene_manifest_runtime_commit if release_hygiene_receipt_path is not None else "",
+            "head_commit": release_hygiene_head_commit if release_hygiene_receipt_path is not None else "",
+            "tracked_dirty_path_count": release_hygiene_tracked_dirty_path_count if release_hygiene_receipt_path is not None else None,
             "receipt_path": str(runtime_reconstruction_receipt_path) if runtime_reconstruction_receipt_path is not None else "",
-            "note": "Hard generated-reconstruction gate: OBJ/viewer existence does not prove GLB export, and generated previews must not leak as public 3D tours.",
+            "note": "Hard generated-reconstruction gate: first-party browser shell, viewer readiness, human route quality, walkthrough coverage, and public-route safety are required; PropertyQuarry runtime containers use image-baked /app code, so repo-only changes do not count as runtime proof until rebuild/recreate.",
+        },
+        "service_generated_reconstruction": {
+            "status": service_generated_reconstruction.get("status")
+            or ("not_configured" if service_generated_reconstruction_receipt_path is None else "missing"),
+            "ready": service_generated_reconstruction_ok if service_generated_reconstruction_receipt_path is not None else None,
+            "required_paths_ok": service_generated_reconstruction.get("required_paths_ok") if service_generated_reconstruction_receipt_path is not None else None,
+            "top_level_video_contract_ok": service_generated_reconstruction.get("top_level_video_contract_ok") if service_generated_reconstruction_receipt_path is not None else None,
+            "route_label_quality_ok": service_generated_reconstruction.get("route_label_quality_ok") if service_generated_reconstruction_receipt_path is not None else None,
+            "walkthrough_generated_ok": service_generated_reconstruction.get("walkthrough_generated_ok") if service_generated_reconstruction_receipt_path is not None else None,
+            "delivery_contract_ok": service_generated_reconstruction.get("delivery_contract_ok") if service_generated_reconstruction_receipt_path is not None else None,
+            "public_route_contract_ok": service_generated_reconstruction.get("public_route_contract_ok") if service_generated_reconstruction_receipt_path is not None else None,
+            "browser_shell_ok": service_generated_reconstruction.get("browser_shell_ok") if service_generated_reconstruction_receipt_path is not None else None,
+            "viewer_url": str(service_generated_reconstruction.get("viewer_url") or ""),
+            "receipt_path": str(service_generated_reconstruction_receipt_path) if service_generated_reconstruction_receipt_path is not None else "",
+            "note": "Hard service-owned generated-reconstruction gate: the app bundle writer must emit the first-party walkthrough contract, human route labels, delivery metadata, and a browser-proven public-safe launch shell without relying on a stale static bundle.",
         },
         "map_preview_flagship": {
             "status": map_preview_flagship.get("status") or ("not_configured" if map_preview_flagship_receipt_path is None else "missing"),
@@ -2755,6 +2892,7 @@ def main() -> int:
     parser.add_argument("--map-preview-flagship-receipt", default="")
     parser.add_argument("--browser-3d-gate-receipt", default="")
     parser.add_argument("--runtime-reconstruction-receipt", default="")
+    parser.add_argument("--service-generated-reconstruction-receipt", default="")
     parser.add_argument("--walkthrough-quality-receipt", default="")
     parser.add_argument("--scene-video-readiness-receipt", default="")
     parser.add_argument("--scene-video-readiness-verifier-receipt", default="")
@@ -2793,6 +2931,11 @@ def main() -> int:
             Path(args.runtime_reconstruction_receipt)
             if args.runtime_reconstruction_receipt
             else _default_receipt_path("runtime_reconstruction")
+        ),
+        service_generated_reconstruction_receipt_path=(
+            Path(args.service_generated_reconstruction_receipt)
+            if args.service_generated_reconstruction_receipt
+            else _default_receipt_path("service_generated_reconstruction")
         ),
         walkthrough_quality_receipt_path=Path(args.walkthrough_quality_receipt) if args.walkthrough_quality_receipt else _default_receipt_path("walkthrough_quality"),
         scene_video_readiness_receipt_path=(

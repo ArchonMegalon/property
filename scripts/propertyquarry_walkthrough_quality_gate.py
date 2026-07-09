@@ -4,14 +4,22 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
+import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+import urllib.parse
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from property_tour_runtime_paths import preferred_public_tour_root, running_container_public_tour_dir
 
 
 DEFAULT_DEMO_SLUG = "luxury-residence-with-breathtaking-skyline-views-danubeflats-vienna-layout-first-742df65557"
+DEFAULT_RUNTIME_CONTAINER = "propertyquarry-api"
 
 
 def _utc_now() -> str:
@@ -86,33 +94,94 @@ def _frame_delta_stats(
     path: Path,
     *,
     fps: float = 2.0,
+    max_sampled_frames: int = 8,
     timeout_seconds: float | None = None,
 ) -> dict[str, object]:
     try:
         from PIL import Image, ImageChops, ImageStat
     except Exception as exc:
         return {"ok": False, "error": f"PIL unavailable: {exc}"}
+    duration_seconds = 0.0
+    metadata = _video_metadata(path, timeout_seconds=timeout_seconds)
+    try:
+        format_payload = dict(metadata.get("format") or {}) if isinstance(metadata.get("format"), dict) else {}
+        streams = list(metadata.get("streams") or []) if isinstance(metadata.get("streams"), list) else []
+        stream = dict(streams[0]) if streams and isinstance(streams[0], dict) else {}
+        duration_seconds = float(format_payload.get("duration") or stream.get("duration") or 0.0)
+    except Exception:
+        duration_seconds = 0.0
+    effective_fps = float(fps)
+    if duration_seconds > 0.0 and max_sampled_frames > 0:
+        effective_fps = min(effective_fps, max(0.2, float(max_sampled_frames) / duration_seconds))
     resolved_timeout = _timeout_seconds(timeout_seconds)
     with tempfile.TemporaryDirectory(prefix="pq-walkthrough-frames-") as tmp:
-        frame_pattern = str(Path(tmp) / "frame-%04d.jpg")
+        frames: list[Path] = []
         try:
-            completed = subprocess.run(
-                [
-                    "ffmpeg",
-                    "-hide_banner",
-                    "-loglevel",
-                    "error",
-                    "-i",
-                    str(path),
-                    "-vf",
-                    f"fps={fps},scale=160:-1",
-                    frame_pattern,
-                ],
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=resolved_timeout,
-            )
+            if duration_seconds > 0.0:
+                sample_count = max(6, min(max_sampled_frames, int(round(duration_seconds / 8.0)) + 1))
+                timestamps = [
+                    round((duration_seconds * index) / max(sample_count - 1, 1), 3)
+                    for index in range(sample_count)
+                ]
+                for index, timestamp in enumerate(timestamps):
+                    frame_path = Path(tmp) / f"frame-{index:04d}.jpg"
+                    completed = subprocess.run(
+                        [
+                            "ffmpeg",
+                            "-hide_banner",
+                            "-loglevel",
+                            "error",
+                            "-ss",
+                            f"{timestamp:.3f}",
+                            "-i",
+                            str(path),
+                            "-frames:v",
+                            "1",
+                            "-vf",
+                            "scale=160:-1",
+                            str(frame_path),
+                        ],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                        timeout=None,
+                    )
+                    if completed.returncode != 0:
+                        return {
+                            "ok": False,
+                            "error": "ffmpeg_frame_sampling_failed",
+                            "returncode": completed.returncode,
+                            "stderr": (completed.stderr or "").strip()[:400],
+                        }
+                    if frame_path.is_file():
+                        frames.append(frame_path)
+            else:
+                frame_pattern = str(Path(tmp) / "frame-%04d.jpg")
+                completed = subprocess.run(
+                    [
+                        "ffmpeg",
+                        "-hide_banner",
+                        "-loglevel",
+                        "error",
+                        "-i",
+                        str(path),
+                        "-vf",
+                        f"fps={effective_fps:.4f},scale=160:-1",
+                        frame_pattern,
+                    ],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=resolved_timeout,
+                )
+                if completed.returncode != 0:
+                    return {
+                        "ok": False,
+                        "error": "ffmpeg_frame_sampling_failed",
+                        "returncode": completed.returncode,
+                        "stderr": (completed.stderr or "").strip()[:400],
+                    }
+                frames = sorted(Path(tmp).glob("frame-*.jpg"))
         except subprocess.TimeoutExpired:
             timeout_label = int(resolved_timeout) if resolved_timeout and float(resolved_timeout).is_integer() else resolved_timeout
             return {
@@ -120,14 +189,6 @@ def _frame_delta_stats(
                 "error": f"ffmpeg_frame_sampling_timeout:{timeout_label}s",
                 "timeout_seconds": resolved_timeout,
             }
-        if completed.returncode != 0:
-            return {
-                "ok": False,
-                "error": "ffmpeg_frame_sampling_failed",
-                "returncode": completed.returncode,
-                "stderr": (completed.stderr or "").strip()[:400],
-            }
-        frames = sorted(Path(tmp).glob("frame-*.jpg"))
         deltas: list[float] = []
         previous = None
         for frame in frames:
@@ -142,6 +203,8 @@ def _frame_delta_stats(
             previous = image
         return {
             "ok": bool(frames),
+            "sampling_fps": round(effective_fps, 4),
+            "source_duration_seconds": round(duration_seconds, 3),
             "sampled_frame_count": len(frames),
             "delta_count": len(deltas),
             "max_delta": max(deltas) if deltas else 0.0,
@@ -260,7 +323,11 @@ def _candidate_has_publish_signal(payload: dict[str, Any]) -> bool:
     return bool(coverage)
 
 
-def _selected_walkthrough_payload(payload: dict[str, Any]) -> dict[str, Any]:
+def _selected_walkthrough_payload(
+    payload: dict[str, Any],
+    *,
+    force_generated_reconstruction: bool = False,
+) -> dict[str, Any]:
     active = dict(payload)
     generated = payload.get("generated_reconstruction")
     generated_candidate: dict[str, Any] = {}
@@ -278,10 +345,125 @@ def _selected_walkthrough_payload(payload: dict[str, Any]) -> dict[str, Any]:
             coverage = generated.get("walkthrough_coverage_proof")
             if isinstance(coverage, dict):
                 generated_candidate["walkthrough_coverage_proof"] = dict(coverage)
+    if force_generated_reconstruction and generated_candidate:
+        return generated_candidate
     active["_walkthrough_candidate"] = "published_video"
     if generated_candidate and (not str(active.get("video_relpath") or "").strip() or not _candidate_has_publish_signal(active)):
         return generated_candidate
     return active
+
+
+def _service_generated_reconstruction_slug(receipt: dict[str, Any]) -> str:
+    for key in ("slug", "demo_slug"):
+        value = str(receipt.get(key) or "").strip()
+        if value:
+            return value
+    details = dict(receipt.get("details") or {}) if isinstance(receipt.get("details"), dict) else {}
+    for key in ("slug", "demo_slug"):
+        value = str(details.get(key) or "").strip()
+        if value:
+            return value
+    for key in ("tour_url", "viewer_url"):
+        raw_url = str(receipt.get(key) or details.get(key) or "").strip()
+        if not raw_url:
+            continue
+        parsed = urllib.parse.urlparse(raw_url)
+        parts = [part for part in parsed.path.split("/") if part]
+        if len(parts) >= 2 and parts[0] == "tours":
+            return urllib.parse.unquote(parts[1]).strip()
+    return ""
+
+
+def _selected_walkthrough_slug(
+    *,
+    requested_slug: str,
+    service_generated_reconstruction_receipt: dict[str, Any],
+) -> tuple[str, str, str]:
+    requested = str(requested_slug or "").strip()
+    service_slug = _service_generated_reconstruction_slug(service_generated_reconstruction_receipt)
+    if service_slug and (not requested or requested == DEFAULT_DEMO_SLUG):
+        return service_slug, service_slug, "service_generated_reconstruction_receipt"
+    if requested:
+        return requested, service_slug, ("requested_demo_slug" if requested != DEFAULT_DEMO_SLUG else "default_demo_slug")
+    if service_slug:
+        return service_slug, service_slug, "service_generated_reconstruction_receipt"
+    return DEFAULT_DEMO_SLUG, "", "default_demo_slug"
+
+
+def _resolve_walkthrough_tour_root(
+    configured_root: str,
+    *,
+    slug: str,
+    force_generated_reconstruction: bool = False,
+) -> Path:
+    configured_path = Path(configured_root or "state/public_property_tours").expanduser()
+    repo_root = Path(__file__).resolve().parents[1]
+    preferred_root = preferred_public_tour_root(
+        configured_root=configured_path,
+        repo_root=repo_root,
+        runtime_container=str(os.getenv("PROPERTYQUARRY_RUNTIME_CONTAINER") or "").strip(),
+    )
+    runtime_volume_root = running_container_public_tour_dir(str(os.getenv("PROPERTYQUARRY_RUNTIME_CONTAINER") or "").strip())
+    candidates: list[Path] = []
+    for candidate in (configured_path, runtime_volume_root, preferred_root):
+        if candidate is None:
+            continue
+        try:
+            resolved = candidate.expanduser().resolve()
+        except OSError:
+            continue
+        if resolved not in candidates:
+            candidates.append(resolved)
+    scored: list[tuple[int, float, int, Path]] = []
+    for index, candidate_root in enumerate(candidates):
+        manifest_path = candidate_root / slug / "tour.json"
+        if not manifest_path.is_file():
+            continue
+        payload = _selected_walkthrough_payload(
+            _load_json(manifest_path),
+            force_generated_reconstruction=force_generated_reconstruction,
+        )
+        video_relpath = str(payload.get("video_relpath") or "").strip()
+        video_path = (candidate_root / slug / video_relpath).resolve() if video_relpath else candidate_root / "__missing__"
+        has_video = int(bool(video_relpath) and video_path.is_file())
+        try:
+            manifest_mtime = float(manifest_path.stat().st_mtime)
+        except OSError:
+            manifest_mtime = 0.0
+        scored.append((has_video, manifest_mtime, -index, candidate_root))
+    if scored:
+        return max(scored)[3]
+    return preferred_root.resolve()
+
+
+def _copy_runtime_bundle_to_temp_root(slug: str, *, container_name: str = "") -> tempfile.TemporaryDirectory[str] | None:
+    docker_bin = shutil.which("docker")
+    if not docker_bin or not slug:
+        return None
+    normalized_container = str(
+        container_name or os.getenv("PROPERTYQUARRY_RUNTIME_CONTAINER") or DEFAULT_RUNTIME_CONTAINER
+    ).strip()
+    if not normalized_container:
+        return None
+    tmp_root = tempfile.TemporaryDirectory(prefix="pq-walkthrough-runtime-bundle-")
+    destination_root = Path(tmp_root.name)
+    completed = subprocess.run(
+        [
+            docker_bin,
+            "cp",
+            f"{normalized_container}:/data/public_property_tours/{slug}",
+            str(destination_root),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+    copied_manifest = destination_root / slug / "tour.json"
+    if completed.returncode != 0 or not copied_manifest.is_file():
+        tmp_root.cleanup()
+        return None
+    return tmp_root
 
 
 def build_walkthrough_quality_receipt(
@@ -292,16 +474,69 @@ def build_walkthrough_quality_receipt(
     min_duration_seconds: float,
     ffprobe_timeout_seconds: float = 20.0,
     frame_sample_timeout_seconds: float = 45.0,
+    service_generated_reconstruction_receipt_path: str = "",
 ) -> dict[str, object]:
-    root = Path(tour_root or "state/public_property_tours")
-    slug = str(demo_slug or DEFAULT_DEMO_SLUG).strip()
+    service_receipt_path = Path(str(service_generated_reconstruction_receipt_path or "").strip()) if str(service_generated_reconstruction_receipt_path or "").strip() else None
+    service_receipt = _load_json(service_receipt_path) if service_receipt_path is not None and service_receipt_path.is_file() else {}
+    requested_slug = str(demo_slug or DEFAULT_DEMO_SLUG).strip()
+    slug, service_slug, selection_source = _selected_walkthrough_slug(
+        requested_slug=requested_slug,
+        service_generated_reconstruction_receipt=service_receipt,
+    )
+    temp_root: tempfile.TemporaryDirectory[str] | None = None
+    force_generated_reconstruction = bool(service_slug) and slug == service_slug
+    root = _resolve_walkthrough_tour_root(
+        tour_root,
+        slug=slug,
+        force_generated_reconstruction=force_generated_reconstruction,
+    )
     bundle = root / slug
     manifest_payload = _load_json(bundle / "tour.json")
-    payload = _selected_walkthrough_payload(manifest_payload)
+    payload = _selected_walkthrough_payload(
+        manifest_payload,
+        force_generated_reconstruction=force_generated_reconstruction,
+    )
+    initial_video_relpath = str(payload.get("video_relpath") or "").strip()
+    initial_video_path = (bundle / initial_video_relpath).resolve() if initial_video_relpath else bundle / "__missing__"
+    if (not manifest_payload or not initial_video_relpath or not initial_video_path.is_file()) and slug:
+        temp_root = _copy_runtime_bundle_to_temp_root(slug)
+        if temp_root is not None:
+            root = Path(temp_root.name)
+            bundle = root / slug
+            manifest_payload = _load_json(bundle / "tour.json")
+            payload = _selected_walkthrough_payload(
+                manifest_payload,
+                force_generated_reconstruction=force_generated_reconstruction,
+            )
     checks: list[dict[str, object]] = []
+    if service_receipt_path is not None:
+        checks.append(
+            _check(
+                "service_generated_reconstruction_receipt_present",
+                bool(service_receipt),
+                receipt_path=str(service_receipt_path),
+            )
+        )
+        checks.append(
+            _check(
+                "service_generated_reconstruction_bundle_selected",
+                bool(service_slug) and slug == service_slug,
+                service_generated_reconstruction_slug=service_slug,
+                selected_slug=slug,
+                selection_source=selection_source,
+            )
+        )
     video_relpath = str(payload.get("video_relpath") or "").strip()
     video_path = bundle / video_relpath if video_relpath else Path()
     checks.append(_check("tour_manifest_present", bool(payload), manifest=str(bundle / "tour.json")))
+    if service_receipt_path is not None:
+        checks.append(
+            _check(
+                "walkthrough_candidate_matches_service_generated_reconstruction",
+                str(payload.get("_walkthrough_candidate") or "").strip() == "generated_reconstruction",
+                walkthrough_candidate=str(payload.get("_walkthrough_candidate") or "").strip(),
+            )
+        )
     checks.append(_check("walkthrough_video_declared", bool(video_relpath), video_relpath=video_relpath))
     checks.append(_check("walkthrough_video_file_present", bool(video_path and video_path.is_file()), video_path=str(video_path)))
 
@@ -358,22 +593,30 @@ def build_walkthrough_quality_receipt(
         )
     )
     failed = [row for row in checks if not row.get("ok")]
-    return {
-        "contract_name": "propertyquarry.walkthrough_quality_gate.v1",
-        "generated_at": _utc_now(),
-        "status": "pass" if not failed else "fail",
-        "tour_root": str(root),
-        "demo_slug": slug,
-        "video_relpath": video_relpath,
-        "walkthrough_candidate": str(payload.get("_walkthrough_candidate") or "").strip(),
-        "check_count": len(checks),
-        "failed_count": len(failed),
-        "checks": checks,
-        "notes": [
-            "A video file alone is not walkthrough readiness.",
-            "Gold requires explicit room coverage proof and a frame-delta continuity check.",
-        ],
-    }
+    try:
+        return {
+            "contract_name": "propertyquarry.walkthrough_quality_gate.v1",
+            "generated_at": _utc_now(),
+            "status": "pass" if not failed else "fail",
+            "tour_root": str(root),
+            "demo_slug": slug,
+            "requested_demo_slug": requested_slug,
+            "selection_source": selection_source,
+            "service_generated_reconstruction_slug": service_slug,
+            "service_generated_reconstruction_receipt_path": str(service_receipt_path) if service_receipt_path is not None else "",
+            "video_relpath": video_relpath,
+            "walkthrough_candidate": str(payload.get("_walkthrough_candidate") or "").strip(),
+            "check_count": len(checks),
+            "failed_count": len(failed),
+            "checks": checks,
+            "notes": [
+                "A video file alone is not walkthrough readiness.",
+                "Gold requires explicit room coverage proof and a frame-delta continuity check.",
+            ],
+        }
+    finally:
+        if temp_root is not None:
+            temp_root.cleanup()
 
 
 def main() -> int:
@@ -392,6 +635,7 @@ def main() -> int:
         type=float,
         default=float(os.getenv("PROPERTYQUARRY_WALKTHROUGH_QUALITY_FRAME_SAMPLE_TIMEOUT_SECONDS", "45") or 45),
     )
+    parser.add_argument("--service-generated-reconstruction-receipt", default="")
     parser.add_argument("--write", default="_completion/smoke/property-live-walkthrough-quality-latest.json")
     args = parser.parse_args()
     receipt = build_walkthrough_quality_receipt(
@@ -401,6 +645,7 @@ def main() -> int:
         min_duration_seconds=max(1.0, float(args.min_duration_seconds or 30.0)),
         ffprobe_timeout_seconds=max(1.0, float(args.ffprobe_timeout_seconds or 20.0)),
         frame_sample_timeout_seconds=max(1.0, float(args.frame_sample_timeout_seconds or 45.0)),
+        service_generated_reconstruction_receipt_path=str(args.service_generated_reconstruction_receipt or "").strip(),
     )
     output = json.dumps(receipt, ensure_ascii=True, indent=2, sort_keys=True)
     if args.write:

@@ -4,8 +4,11 @@ objective: >
   packet, operator, and settings flows.
 required_test_modules:
   - tests/e2e/test_propertyquarry_phase_regression_browser.py
+  - tests/e2e/test_propertyquarry_flagship_flow.py
   - tests/e2e/test_propertyquarry_public_tour_browser.py
 required_browser_workflows:
+  - mobile_flagship_search_to_walkthrough_flow
+  - mobile_flagship_walkthrough_decodes_nonblack_frame
   - shortlist_page_loads
   - research_packet_opens
   - packet_dashboard_loads
@@ -19,5 +22,7 @@ fail_closed_conditions:
   - any prior-phase primary affordance disappears
   - visual or interaction regression breaks core PQ loop
   - hosted tour or walkthrough playback regresses while the rest of the packet flow stays green
+  - browser proof comes from stale image-baked runtime containers whose /version release manifest does not match the candidate commit
 exit_criteria:
   - browser regression suite passes after every phase
+  - runtime/browser proof comes from rebuilt or restarted containers whose /version release manifest matches the candidate commit

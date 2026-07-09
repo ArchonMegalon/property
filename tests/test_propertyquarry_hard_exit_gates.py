@@ -368,6 +368,197 @@ def test_walkthrough_quality_gate_can_select_generated_reconstruction_candidate(
     assert receipt["video_relpath"] == "generated-reconstruction/generated-walkthrough.mp4"
 
 
+def test_walkthrough_quality_gate_prefers_service_generated_reconstruction_receipt_slug_and_candidate(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from scripts import propertyquarry_walkthrough_quality_gate as gate
+
+    slug = "service-generated"
+    bundle = tmp_path / slug
+    generated_dir = bundle / "generated-reconstruction"
+    generated_dir.mkdir(parents=True)
+    (bundle / "published.mp4").write_bytes(b"published-video")
+    (generated_dir / "generated-walkthrough.mp4").write_bytes(b"generated-video")
+    (generated_dir / "generated-walkthrough.quality.json").write_text(
+        json.dumps(
+            {
+                "route_labels": ["entry/hall", "living room", "kitchen", "bedroom"],
+                "covered_route_labels": ["entry/hall", "living room", "kitchen", "bedroom"],
+                "walkthrough_coverage_proof": {
+                    "status": "pass",
+                    "segments_expected": ["entry/hall", "living room", "kitchen", "bedroom"],
+                    "segments_visited": ["entry/hall", "living room", "kitchen", "bedroom"],
+                    "coverage_segments": [
+                        {"segment": "entry/hall", "index": 1},
+                        {"segment": "living room", "index": 2},
+                        {"segment": "kitchen", "index": 3},
+                        {"segment": "bedroom", "index": 4},
+                    ],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (bundle / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "video_relpath": "published.mp4",
+                "walkthrough_coverage_proof": {
+                    "status": "pass",
+                    "segments_expected": ["published room"],
+                    "segments_visited": ["published room"],
+                    "coverage_segments": [{"segment": "published room", "start": 0, "end": 12}],
+                },
+                "generated_reconstruction": {
+                    "provider": "propertyquarry_generated_reconstruction",
+                    "verified_provider_capture": False,
+                    "walkthrough_video_relpath": "generated-reconstruction/generated-walkthrough.mp4",
+                    "walkthrough_sidecar_relpath": "generated-reconstruction/generated-walkthrough.quality.json",
+                    "walkthrough_coverage_proof": {
+                        "status": "pass",
+                        "segments_expected": ["entry/hall", "living room", "kitchen", "bedroom"],
+                        "segments_visited": ["entry/hall", "living room", "kitchen", "bedroom"],
+                        "coverage_segments": [
+                            {"segment": "entry/hall", "start": 0, "end": 10},
+                            {"segment": "living room", "start": 10, "end": 22},
+                            {"segment": "kitchen", "start": 22, "end": 34},
+                            {"segment": "bedroom", "start": 34, "end": 45},
+                        ],
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    service_receipt_path = tmp_path / "service-generated-reconstruction.json"
+    service_receipt_path.write_text(
+        json.dumps(
+            {
+                "status": "pass",
+                "slug": slug,
+                "details": {"slug": slug},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(gate, "_video_metadata", lambda _path, *, timeout_seconds=None: {"format": {"duration": "45"}})
+    monkeypatch.setattr(
+        gate,
+        "_frame_delta_stats",
+        lambda _path, *, timeout_seconds=None: {"ok": True, "sampled_frame_count": 20, "delta_count": 19, "max_delta": 12.0},
+    )
+
+    receipt = gate.build_walkthrough_quality_receipt(
+        tour_root=str(tmp_path),
+        demo_slug=gate.DEFAULT_DEMO_SLUG,
+        max_jump_delta=42.0,
+        min_duration_seconds=30.0,
+        service_generated_reconstruction_receipt_path=str(service_receipt_path),
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["demo_slug"] == slug
+    assert receipt["requested_demo_slug"] == gate.DEFAULT_DEMO_SLUG
+    assert receipt["selection_source"] == "service_generated_reconstruction_receipt"
+    assert receipt["service_generated_reconstruction_slug"] == slug
+    assert receipt["walkthrough_candidate"] == "generated_reconstruction"
+    assert receipt["video_relpath"] == "generated-reconstruction/generated-walkthrough.mp4"
+    service_checks = {
+        row["name"]: row["ok"]
+        for row in receipt["checks"]
+        if row["name"].startswith("service_generated_reconstruction")
+        or row["name"] == "walkthrough_candidate_matches_service_generated_reconstruction"
+    }
+    assert service_checks == {
+        "service_generated_reconstruction_receipt_present": True,
+        "service_generated_reconstruction_bundle_selected": True,
+        "walkthrough_candidate_matches_service_generated_reconstruction": True,
+    }
+
+
+def test_walkthrough_quality_gate_resolves_runtime_root_when_configured_root_misses_selected_slug(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from scripts import propertyquarry_walkthrough_quality_gate as gate
+
+    configured_root = tmp_path / "configured"
+    configured_root.mkdir()
+    runtime_root = tmp_path / "runtime"
+    slug = "service-generated-runtime-root"
+    bundle = runtime_root / slug
+    generated_dir = bundle / "generated-reconstruction"
+    generated_dir.mkdir(parents=True)
+    (generated_dir / "generated-walkthrough.mp4").write_bytes(b"generated-video")
+    (generated_dir / "generated-walkthrough.quality.json").write_text(
+        json.dumps(
+            {
+                "route_labels": ["entry/hall", "living room", "kitchen", "bedroom"],
+                "covered_route_labels": ["entry/hall", "living room", "kitchen", "bedroom"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (bundle / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "generated_reconstruction": {
+                    "provider": "propertyquarry_generated_reconstruction",
+                    "verified_provider_capture": False,
+                    "walkthrough_video_relpath": "generated-reconstruction/generated-walkthrough.mp4",
+                    "walkthrough_sidecar_relpath": "generated-reconstruction/generated-walkthrough.quality.json",
+                        "walkthrough_coverage_proof": {
+                            "status": "pass",
+                            "segments_expected": ["entry/hall", "living room", "kitchen", "bedroom"],
+                            "segments_visited": ["entry/hall", "living room", "kitchen", "bedroom"],
+                            "coverage_segments": [
+                                {"segment": "entry/hall", "index": 1},
+                                {"segment": "living room", "index": 2},
+                                {"segment": "kitchen", "index": 3},
+                                {"segment": "bedroom", "index": 4},
+                            ],
+                        },
+                    },
+                }
+            ),
+        encoding="utf-8",
+    )
+    service_receipt_path = tmp_path / "service-generated-runtime-root.json"
+    service_receipt_path.write_text(
+        json.dumps(
+            {
+                "status": "pass",
+                "slug": slug,
+                "details": {"slug": slug},
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(gate, "preferred_public_tour_root", lambda **_kwargs: runtime_root)
+    monkeypatch.setattr(gate, "_video_metadata", lambda _path, *, timeout_seconds=None: {"format": {"duration": "45"}})
+    monkeypatch.setattr(
+        gate,
+        "_frame_delta_stats",
+        lambda _path, *, timeout_seconds=None: {"ok": True, "sampled_frame_count": 20, "delta_count": 19, "max_delta": 12.0},
+    )
+
+    receipt = gate.build_walkthrough_quality_receipt(
+        tour_root=str(configured_root),
+        demo_slug=gate.DEFAULT_DEMO_SLUG,
+        max_jump_delta=42.0,
+        min_duration_seconds=30.0,
+        service_generated_reconstruction_receipt_path=str(service_receipt_path),
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["tour_root"] == str(runtime_root.resolve())
+    assert receipt["demo_slug"] == slug
+    assert receipt["walkthrough_candidate"] == "generated_reconstruction"
+
+
 def test_walkthrough_quality_gate_passes_with_complete_coverage_and_continuity(
     monkeypatch,
     tmp_path: Path,
@@ -647,6 +838,7 @@ def test_deploy_and_release_scripts_wire_3d_walkthrough_and_map_preview_as_exit_
 
     assert 'if ! PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_3d_browser_gate.py' in deploy
     assert 'if ! PYTHONPATH=ea timeout "${walkthrough_quality_process_timeout_seconds}" "${deploy_python_bin}" scripts/propertyquarry_walkthrough_quality_gate.py' in deploy
+    assert '--service-generated-reconstruction-receipt "${service_generated_reconstruction_receipt}"' in deploy
     assert '--ffprobe-timeout-seconds "${walkthrough_quality_ffprobe_timeout_seconds}"' in deploy
     assert '--frame-sample-timeout-seconds "${walkthrough_quality_frame_sample_timeout_seconds}"' in deploy
     assert 'if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_map_preview_flagship_gate.py' in deploy
@@ -656,6 +848,7 @@ def test_deploy_and_release_scripts_wire_3d_walkthrough_and_map_preview_as_exit_
     assert "scripts/propertyquarry_3d_browser_gate.py" in release
     assert "scripts/propertyquarry_walkthrough_quality_gate.py" in release
     assert 'if ! PYTHONPATH=ea timeout "${walkthrough_quality_process_timeout_seconds}" "${PYTHON_BIN}" scripts/propertyquarry_walkthrough_quality_gate.py' in release
+    assert "--service-generated-reconstruction-receipt _completion/tours/property-service-generated-reconstruction-release-gate.json" in release
     assert "scripts/propertyquarry_map_preview_flagship_gate.py" in release
     assert "scripts/property_runtime_reconstruction_smoke.py" in release
     assert "--require-glb" in release

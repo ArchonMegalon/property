@@ -3167,12 +3167,15 @@
         {% set visual_actions.items = visual_actions.items + [action] %}
       {% endif %}
     {% endfor %}
-    {% set visual_ready_tour = research_media.get('hosted_ready') %}
+    {% set visual_ready_tour = research_media.get('hosted_ready') or research_media.get('generated_reconstruction_ready') %}
+    {% set visual_ready_layout = research_media.get('generated_reconstruction_ready') and not research_media.get('hosted_ready') %}
     {% set visual_ready_walkthrough = research_media.get('walkthrough_href') %}
     {% set primary_visual_actions = namespace(items=[]) %}
     {% for action in visual_actions.items %}
       {% set action_label = (action.get('label') or '')|lower %}
-      {% if action.get('kind') == 'tour' or '3d tour' in action_label or 'matterport' in action_label or '3dvista' in action_label or 'original tour' in action_label %}
+      {% if action.get('kind') == 'generated_reconstruction' or 'layout tour' in action_label %}
+        {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'generated_reconstruction', 'eyebrow': 'Layout tour', 'title': 'Layout tour', 'copy': action.get('status_detail') or research_media.get('generated_reconstruction_status_detail') or research_media.get('status_detail') or 'Open the generated layout tour here.', 'action': action}] %}
+      {% elif action.get('kind') == 'tour' or '3d tour' in action_label or 'matterport' in action_label or '3dvista' in action_label or 'original tour' in action_label %}
         {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'tour', 'eyebrow': '3D tour', 'title': '3D tour', 'copy': action.get('status_detail') or research_media.get('status_detail') or 'Open or request it here.', 'action': action}] %}
       {% elif action.get('kind') == 'flythrough' or 'walkthrough' in action_label %}
         {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'walkthrough', 'eyebrow': 'Walkthrough', 'title': 'Walkthrough', 'copy': action.get('status_detail') or research_media.get('walkthrough_status_detail') or 'Open or request it here.', 'action': action}] %}
@@ -3200,12 +3203,12 @@
       detail=''
     ) %}
     {% if visual_ready_tour %}
-      {% set visual_rail.kind = 'tour' %}
+      {% set visual_rail.kind = 'generated_reconstruction' if visual_ready_layout else 'tour' %}
       {% set visual_rail.state = 'ready' %}
-      {% set visual_rail.label = research_media.get('status_label') or 'Open 3D tour' %}
+      {% set visual_rail.label = research_media.get('status_label') or ('Open layout tour' if visual_ready_layout else 'Open 3D tour') %}
       {% set visual_rail.eta = '' %}
       {% set visual_rail.progress = 100 %}
-      {% set visual_rail.detail = research_visual_status_line or research_media.get('status_detail') or '3D tour is ready.' %}
+      {% set visual_rail.detail = research_visual_status_line or (research_media.get('generated_reconstruction_status_detail') if visual_ready_layout else research_media.get('status_detail')) or ('Layout tour is ready.' if visual_ready_layout else '3D tour is ready.') %}
     {% elif visual_status.active %}
       {% set visual_rail.kind = visual_status.active.get('kind') or '' %}
       {% set visual_rail.state = visual_status.active.get('state') or '' %}
@@ -3232,6 +3235,8 @@
     {% set visual_rail_label_display = visual_rail.label or '' %}
     {% if visual_rail.state == 'ready' and visual_rail.kind == 'tour' %}
       {% set visual_rail_label_display = '3D tour' %}
+    {% elif visual_rail.state == 'ready' and visual_rail.kind == 'generated_reconstruction' %}
+      {% set visual_rail_label_display = 'Layout tour' %}
     {% elif visual_rail.state == 'ready' and visual_rail.kind in ['flythrough', 'walkthrough'] %}
       {% set visual_rail_label_display = 'Walkthrough' %}
     {% elif visual_rail.state in visual_pending_states and visual_rail.kind == 'tour' %}
@@ -3240,16 +3245,23 @@
       {% set visual_rail_label_display = 'Preparing walkthrough' %}
     {% endif %}
     {% set research_media_badge_label = research_media.get('status_label') or 'Media' %}
-    {% if visual_ready_tour %}
+    {% if visual_ready_layout %}
+      {% set research_media_badge_label = 'Layout tour' %}
+    {% elif visual_ready_tour %}
       {% set research_media_badge_label = '3D tour' %}
     {% elif visual_ready_walkthrough %}
       {% set research_media_badge_label = 'Walkthrough' %}
     {% endif %}
     <section class="prd-media-stack">
-      {% set inline_media_preview = research_preview_image or research_location_preview.get('image_url') or '' %}
+      {% set inline_media_preview = research_hero_preview_image or research_preview_image or research_location_preview.get('image_url') or '' %}
+      {% set inline_media_fallback = research_location_preview.get('image_url') if research_location_preview.get('image_url') and inline_media_preview != research_location_preview.get('image_url') else '' %}
       <section class="prd-media-frame prd-panel{% if research_media.get('has_live_viewer') %} prd-media-frame-live{% endif %}" data-object-media-stage>
         <div class="prd-media-badge">
-          {% if research_media.get('show_status_line') %}
+          {% if visual_ready_tour or visual_ready_walkthrough %}
+            {{ research_media_badge_label }}
+          {% elif research_hero_preview_kind == 'diorama' %}
+            Diorama
+          {% elif research_media.get('show_status_line') %}
             {{ research_media_badge_label }}
           {% elif research_preview_image %}
             Photos
@@ -3260,13 +3272,9 @@
           {% endif %}
         </div>
         {% if inline_media_preview %}
-        <img src="{{ inline_media_preview }}" alt="{{ research_title }}" loading="lazy" data-prd-hero-image{% if research_location_preview.get('image_url') and inline_media_preview != research_location_preview.get('image_url') %} data-prd-hero-fallback-src="{{ research_location_preview.get('image_url') or '' }}"{% endif %}>
+        <img src="{{ inline_media_preview }}" alt="{{ research_title }}" loading="lazy" data-prd-hero-image{% if inline_media_fallback %} data-prd-hero-fallback-src="{{ inline_media_fallback }}"{% endif %}>
         {% elif research_media.get('embed_href') %}
         <div class="prd-media-empty">Open the 3D tour to inspect the space.</div>
-        {% elif research_preview_image %}
-        <img src="{{ research_preview_image }}" alt="{{ research_title }}" loading="lazy" data-prd-hero-image data-prd-hero-fallback-src="{{ research_location_preview.get('image_url') or '' }}">
-        {% elif research_location_preview.get('image_url') %}
-        <img src="{{ research_location_preview.get('image_url') }}" alt="{{ research_location_preview.get('alt') or research_title }}" loading="lazy" data-prd-hero-image>
         {% else %}
         <div class="prd-media-empty">{{ research_media.get('status_detail') or 'No media attached yet.' }}</div>
         {% endif %}
@@ -3298,7 +3306,7 @@
             <strong>{{ visual_card.get('title') }}</strong>
           </div>
           <p class="prd-visual-card-copy">{{ visual_card.get('copy') }}</p>
-          {% if visual_card.get('key') == 'tour' %}
+          {% if visual_card.get('key') in ['tour', 'generated_reconstruction'] %}
           <p class="prd-visual-evidence" data-prd-visual-evidence="tour">
             {% if action.get('href') %}
             Open now.
@@ -3427,7 +3435,7 @@
 
       <aside class="prd-summary-stack">
         {% if research_location_preview.get('image_url') %}
-        <section class="prd-map-card prd-panel">
+        <section class="prd-map-card prd-panel prd-map-inline">
           <div class="prd-map-inline">
             <button
               class="prd-map-thumb is-inline"
@@ -4551,7 +4559,12 @@
         payload?.verified_tour_url,
         payload?.open_tour_url,
       );
-      const state = String(resolvedFlythroughUrl ? 'ready' : rawFlythroughState || 'pending').trim().toLowerCase();
+      const malformedReadyState = rawFlythroughState === 'ready' && !resolvedFlythroughUrl;
+      const state = String(
+        resolvedFlythroughUrl
+          ? 'ready'
+          : (malformedReadyState ? 'blocked' : rawFlythroughState || 'pending')
+      ).trim().toLowerCase();
       const retryableTerminal = visualTerminalStates.includes(state) && !resolvedFlythroughUrl;
       return {
         state,
@@ -4565,10 +4578,10 @@
             retryableTerminal,
           }),
         href: resolvedFlythroughUrl,
-        detail: String(payload?.status_detail || '').trim(),
-        eta: String(payload?.eta_label || '').trim(),
-        progress: Number(payload?.progress_pct || 0) || 0,
-        pollSeconds: Number(payload?.poll_after_seconds || 0) || 0,
+        detail: malformedReadyState ? 'Walkthrough is not available yet.' : String(payload?.status_detail || '').trim(),
+        eta: malformedReadyState ? '' : String(payload?.eta_label || '').trim(),
+        progress: malformedReadyState ? 0 : (Number(payload?.progress_pct || 0) || 0),
+        pollSeconds: malformedReadyState ? 0 : (Number(payload?.poll_after_seconds || 0) || 0),
       };
     }
     const payloadStatusLabel = String(payload?.status_label || fallbackLabel || '').trim();
@@ -4580,7 +4593,12 @@
       || (rawTourState === 'ready' && rawReadyTourUrl && !isRawHostedTourBase(rawReadyTourUrl) ? rawReadyTourUrl : '')
       || ''
     ).trim();
-    const state = String(openTourUrl ? 'ready' : rawTourState || 'pending').trim().toLowerCase();
+    const malformedReadyState = rawTourState === 'ready' && !openTourUrl;
+    const state = String(
+      openTourUrl
+        ? 'ready'
+        : (malformedReadyState ? 'blocked' : rawTourState || 'pending')
+    ).trim().toLowerCase();
     const retryableTerminal = visualTerminalStates.includes(state) && !openTourUrl;
       return {
         state,
@@ -4594,10 +4612,10 @@
             retryableTerminal,
           }),
       href: openTourUrl,
-      detail: String(payload?.status_detail || '').trim(),
-      eta: String(payload?.eta_label || '').trim(),
-      progress: Number(payload?.progress_pct || 0) || 0,
-      pollSeconds: Number(payload?.poll_after_seconds || 0) || 0,
+      detail: malformedReadyState ? 'A real 3D tour is not available yet.' : String(payload?.status_detail || '').trim(),
+      eta: malformedReadyState ? '' : String(payload?.eta_label || '').trim(),
+      progress: malformedReadyState ? 0 : (Number(payload?.progress_pct || 0) || 0),
+      pollSeconds: malformedReadyState ? 0 : (Number(payload?.poll_after_seconds || 0) || 0),
     };
   };
   const scheduleVisualStatusPoll = (requestKind, options = {}) => {
@@ -4823,7 +4841,7 @@
           sourceRef,
           propertyUrl,
           pollSeconds: nextState.pollSeconds,
-          firstPollDelaySeconds: requestKind === 'tour' ? 0.2 : 0,
+          firstPollDelaySeconds: 1,
         });
         requestSucceeded = true;
       } catch (error) {

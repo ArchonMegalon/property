@@ -101,11 +101,40 @@ def download(url: str, out_path: Path) -> None:
                 handle.write(chunk)
 
 
+def set_input_value(locator, value: str) -> None:
+    try:
+        locator.fill(value, timeout=5000)
+    except PlaywrightTimeoutError:
+        locator.evaluate(
+            """(node, nextValue) => {
+                node.scrollIntoView({ block: 'center', inline: 'nearest' });
+                node.focus();
+                const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+                if (descriptor && typeof descriptor.set === 'function') {
+                    descriptor.set.call(node, nextValue);
+                } else {
+                    node.value = nextValue;
+                }
+                node.dispatchEvent(new Event("input", { bubbles: true }));
+                node.dispatchEvent(new Event("change", { bubbles: true }));
+            }""",
+            value,
+        )
+    current_value = ""
+    with contextlib.suppress(Exception):
+        current_value = str(locator.input_value(timeout=3000) or "")
+    if current_value != value:
+        raise RuntimeError("magicfit_input_fill_unverified")
+
+
 def maybe_login(page) -> None:
     print("magicfit: open home", flush=True)
     page.goto(MAGICFIT_HOME_URL, wait_until="domcontentloaded", timeout=120000)
     page.wait_for_timeout(4000)
-    body = page.locator("body").inner_text(timeout=10000)
+    body = visible_body_text(page)
+    if not body:
+        page.wait_for_timeout(3000)
+        body = visible_body_text(page)
     if not re.search(r"login|sign in|email|password", body, re.I):
         print("magicfit: already logged in", flush=True)
         return
@@ -115,10 +144,10 @@ def maybe_login(page) -> None:
         raise RuntimeError("magicfit_credentials_missing")
     email_field = page.locator("input[type=email], input[name*=email i], input[placeholder*=email i]").first
     if email_field.count():
-        email_field.fill(email)
+        set_input_value(email_field, email)
     password_field = page.locator("input[type=password]").first
     if password_field.count():
-        password_field.fill(password)
+        set_input_value(password_field, password)
     submit = page.get_by_role("button", name=re.compile(r"sign in|login|continue|submit", re.I)).first
     if submit.count():
         submit.click()
@@ -150,9 +179,32 @@ def select_option_from_known_current(page, *, current_options: list[str], option
     return False
 
 
+def prompt_input_locator(page):
+    selectors = [
+        '[contenteditable="true"][role="textbox"]',
+        'textarea[placeholder*="describe" i]',
+        '[role="textbox"]',
+        '[contenteditable="true"]',
+    ]
+    for selector in selectors:
+        locator = page.locator(selector).first
+        with contextlib.suppress(Exception):
+            if locator.count():
+                return locator
+    return page.locator('[contenteditable="true"][role="textbox"]').first
+
+
 def fill_prompt(page, prompt: str) -> None:
-    box = page.locator('[contenteditable="true"][role="textbox"]').first
-    box.wait_for(timeout=10000)
+    box = prompt_input_locator(page)
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        with contextlib.suppress(Exception):
+            if box.count() and box.is_visible(timeout=1000):
+                break
+        page.wait_for_timeout(1000)
+        box = prompt_input_locator(page)
+    else:
+        raise RuntimeError("magicfit_prompt_input_missing")
     box.evaluate(
         """(node) => {
             node.scrollIntoView({ block: 'center', inline: 'nearest' });
@@ -269,7 +321,7 @@ def visible_body_text(page) -> str:
 
 def raise_if_credit_blocked(page) -> None:
     body_text = visible_body_text(page)
-    if re.search(r"\bnot enough credits\b|\bbuy credits\b", body_text, flags=re.IGNORECASE):
+    if re.search(r"\bnot enough credits\b|\binsufficient credits\b|\bbuy more credits\b", body_text, flags=re.IGNORECASE):
         raise RuntimeError("magicfit_not_enough_credits")
 
 

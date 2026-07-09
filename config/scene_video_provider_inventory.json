@@ -2,8 +2,11 @@
   "contract_name": "propertyquarry.scene_video_provider_inventory.v1",
   "providers": {
     "magicfit": {
-      "expected_account_count": 3,
-      "notes": "Count-only inventory from operator report; credential values stay in runtime secret stores."
+      "expected_account_count": 2,
+      "tracked_account_count": 3,
+      "unavailable_account_count": 1,
+      "availability_reason": "one_account_depleted",
+      "notes": "Count-only inventory from operator report; three accounts are tracked in operator inventory, one is currently depleted, and two should be runtime-visible for new renders. Credential values stay in runtime secret stores."
     },
     "omagic": {
       "expected_account_count": 8,

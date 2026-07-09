@@ -422,6 +422,9 @@ class PropertyWorkbenchCandidateSnapshot:
     floorplan_url: str = ""
     source_virtual_tour_url: str = ""
     vendor_tour_url: str = ""
+    tour_url: str = ""
+    verified_tour_url: str = ""
+    open_tour_url: str = ""
     property_facts: dict[str, object] = field(default_factory=dict)
     listing_fact_confirmation: dict[str, object] = field(default_factory=dict)
     assessment: dict[str, object] = field(default_factory=dict)
@@ -444,6 +447,7 @@ class PropertyWorkbenchCandidateSnapshot:
     recovered_by_filter: bool = False
     relaxed_filter_label: str = ""
     preview_image_url: str = ""
+    diorama_preview_url: str = ""
     repair_flag_label: str = ""
     repair_flag_detail: str = ""
 

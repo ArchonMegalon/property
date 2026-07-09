@@ -4,7 +4,9 @@ from functools import lru_cache
 import json
 import re
 
+import urllib.error
 import urllib.parse
+import urllib.request
 from typing import Any
 
 from app.product.property_surface_state import build_property_run_reliability_snapshot
@@ -939,59 +941,231 @@ def _property_candidate_route_evidence(
     return rows[:4]
 
 
-def _property_route_preview_path(
+def _property_route_distance_label(meters: int) -> str:
+    if meters >= 1000:
+        kilometers = meters / 1000.0
+        if kilometers >= 10 or abs(round(kilometers) - kilometers) < 0.05:
+            return f"{round(kilometers):.0f} km"
+        return f"{kilometers:.1f} km"
+    return f"{meters} m"
+
+
+def _property_route_preview_float(value: object) -> float | None:
+    try:
+        return float(str(value or "").strip())
+    except Exception:
+        return None
+
+
+def _property_route_preview_profile(mode: str) -> str:
+    normalized = str(mode or "").strip().lower()
+    return {
+        "walking": "foot",
+        "driving": "car",
+        "bicycling": "bike",
+    }.get(normalized, "")
+
+
+@lru_cache(maxsize=192)
+def _property_route_preview_geometry(
     *,
-    origin_lat: object = "",
-    origin_lng: object = "",
+    origin_lat_key: int,
+    origin_lng_key: int,
+    target_lat_key: int,
+    target_lng_key: int,
+    mode: str,
+) -> dict[str, object]:
+    profile = _property_route_preview_profile(mode)
+    if not profile:
+        return {}
+    origin_lat = origin_lat_key / 10000.0
+    origin_lng = origin_lng_key / 10000.0
+    target_lat = target_lat_key / 10000.0
+    target_lng = target_lng_key / 10000.0
+    if abs(origin_lat - target_lat) < 0.00001 and abs(origin_lng - target_lng) < 0.00001:
+        return {}
+    request = urllib.request.Request(
+        "https://router.project-osrm.org/route/v1/"
+        f"{urllib.parse.quote(profile)}/"
+        f"{origin_lng:.5f},{origin_lat:.5f};{target_lng:.5f},{target_lat:.5f}"
+        "?overview=full&geometries=geojson&steps=false",
+        headers={"User-Agent": "PropertyQuarry/1.0"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=4.0) as response:
+            payload = json.loads(response.read().decode("utf-8", errors="ignore"))
+    except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError):
+        return {}
+    routes = list(payload.get("routes") or []) if isinstance(payload, dict) else []
+    route = routes[0] if routes and isinstance(routes[0], dict) else {}
+    geometry = dict(route.get("geometry") or {}) if isinstance(route.get("geometry"), dict) else {}
+    coordinates = list(geometry.get("coordinates") or []) if isinstance(geometry.get("coordinates"), list) else []
+    points: list[tuple[float, float]] = []
+    for raw_point in coordinates:
+        if not isinstance(raw_point, (list, tuple)) or len(raw_point) < 2:
+            continue
+        try:
+            points.append((float(raw_point[0]), float(raw_point[1])))
+        except (TypeError, ValueError):
+            continue
+    if len(points) < 2:
+        return {}
+    try:
+        distance_m = int(round(float(route.get("distance") or 0.0)))
+    except Exception:
+        distance_m = 0
+    try:
+        duration_min = max(0, int(round(float(route.get("duration") or 0.0) / 60.0)))
+    except Exception:
+        duration_min = 0
+    return {
+        "points": tuple(points),
+        "distance_m": distance_m,
+        "duration_min": duration_min,
+    }
+
+
+def _property_route_preview_media(
+    *,
+    origin_lat: object,
+    origin_lng: object,
     target_lat: object = "",
     target_lng: object = "",
-) -> str:
-    def _float(value: object) -> float | None:
-        try:
-            return float(str(value or "").strip())
-        except Exception:
-            return None
+    target_query: str = "",
+    mode: str,
+    label: str,
+    title: str,
+) -> dict[str, object]:
+    origin_lat_value = _property_route_preview_float(origin_lat)
+    origin_lng_value = _property_route_preview_float(origin_lng)
+    target_lat_value = _property_route_preview_float(target_lat)
+    target_lng_value = _property_route_preview_float(target_lng)
+    if origin_lat_value is None or origin_lng_value is None:
+        return {}
+    if target_lat_value is None or target_lng_value is None:
+        if not str(target_query or "").strip():
+            return {}
+        from app.api.routes import landing_view_models
 
-    start_x = 12.0
-    start_y = 56.0
-    end_x = 132.0
-    end_y = 18.0
-    o_lat = _float(origin_lat)
-    o_lng = _float(origin_lng)
-    t_lat = _float(target_lat)
-    t_lng = _float(target_lng)
-    if all(value is not None for value in (o_lat, o_lng, t_lat, t_lng)):
-        lat_delta = max(-1.0, min(1.0, (t_lat or 0.0) - (o_lat or 0.0)))
-        lng_delta = max(-1.0, min(1.0, (t_lng or 0.0) - (o_lng or 0.0)))
-        end_y = max(12.0, min(60.0, 38.0 - lat_delta * 18.0))
-        control_1_y = max(10.0, min(60.0, 52.0 - lat_delta * 10.0))
-        control_2_y = max(10.0, min(60.0, 24.0 - lat_delta * 8.0))
-        control_1_x = max(30.0, min(58.0, 42.0 + lng_delta * 12.0))
-        control_2_x = max(82.0, min(110.0, 96.0 + lng_delta * 12.0))
-    else:
-        control_1_x = 42.0
-        control_1_y = 48.0
-        control_2_x = 96.0
-        control_2_y = 24.0
-    return (
-        f"M {start_x:.1f} {start_y:.1f} "
-        f"C {control_1_x:.1f} {control_1_y:.1f}, {control_2_x:.1f} {control_2_y:.1f}, {end_x:.1f} {end_y:.1f}"
+        geocoded = landing_view_models._forward_geocode_preview_point(str(target_query or "").strip())
+        if geocoded is None:
+            return {}
+        target_lat_value, target_lng_value = geocoded
+    if target_lat_value is None or target_lng_value is None:
+        return {}
+
+    route = _property_route_preview_geometry(
+        origin_lat_key=int(round(origin_lat_value * 10000.0)),
+        origin_lng_key=int(round(origin_lng_value * 10000.0)),
+        target_lat_key=int(round(target_lat_value * 10000.0)),
+        target_lng_key=int(round(target_lng_value * 10000.0)),
+        mode=mode,
     )
+    points = [
+        (float(point[0]), float(point[1]))
+        for point in list(route.get("points") or [])
+        if isinstance(point, (list, tuple)) and len(point) == 2
+    ]
+    if len(points) < 2:
+        return {}
 
+    from app.api.routes import landing_view_models
+
+    west = min(float(point[0]) for point in points)
+    south = min(float(point[1]) for point in points)
+    east = max(float(point[0]) for point in points)
+    north = max(float(point[1]) for point in points)
+    fit_bounds = (west, south, east, north)
+    render_bounds = landing_view_models._expand_geo_bounds(fit_bounds, padding_ratio=0.18)
+    center_lon = (render_bounds[0] + render_bounds[2]) / 2.0
+    center_lat = (render_bounds[1] + render_bounds[3]) / 2.0
+    zoom = landing_view_models._preview_zoom_for_bounds(
+        render_bounds,
+        fit_bounds=fit_bounds,
+        width=296,
+        height=160,
+        max_zoom=16,
+    )
+    preview_bounds = landing_view_models._tile_crop_geo_bounds(
+        center_lat=center_lat,
+        center_lon=center_lon,
+        zoom=zoom,
+        width=296,
+        height=160,
+    )
+    line_path, _ = landing_view_models._project_lonlat_to_preview_polyline(
+        points,
+        preview_bounds,
+        width=296.0,
+        height=160.0,
+    )
+    compact_preview_bounds = landing_view_models._tile_crop_geo_bounds(
+        center_lat=center_lat,
+        center_lon=center_lon,
+        zoom=zoom,
+        width=144,
+        height=68,
+    )
+    compact_preview_path, _ = landing_view_models._project_lonlat_to_preview_polyline(
+        points,
+        compact_preview_bounds,
+        width=144.0,
+        height=68.0,
+    )
+    if not line_path or not compact_preview_path:
+        return {}
+    title_label = str(title or label or "route").strip() or "route"
+    mode_label = str(mode or "walking").strip().lower()
+    image_url = landing_view_models._cached_preview_image_url(
+        cache_key={
+            "kind": "route-preview",
+            "mode": mode_label,
+            "label": str(label or "").strip(),
+            "title": title_label,
+            "origin_lat_key": int(round(origin_lat_value * 10000.0)),
+            "origin_lng_key": int(round(origin_lng_value * 10000.0)),
+            "target_lat_key": int(round(target_lat_value * 10000.0)),
+            "target_lng_key": int(round(target_lng_value * 10000.0)),
+            "zoom": zoom,
+            "width": 296,
+            "height": 160,
+            "overlay_mode": "route_line_v1",
+            "route_distance_m": int(route.get("distance_m") or 0),
+            "route_duration_min": int(route.get("duration_min") or 0),
+        },
+        center_lat=center_lat,
+        center_lon=center_lon,
+        zoom=zoom,
+        overlay_rows=[
+            {
+                "path": line_path,
+                "path_kind": "line",
+                "selected": True,
+                "show_endpoint_markers": True,
+                "stroke_width_px": 7,
+                "halo_width_px": 13,
+            }
+        ],
+        draw_overlay=True,
+        width=296,
+        height=160,
+    )
+    return {
+        "preview_path": compact_preview_path,
+        "preview_image_url": image_url,
+        "preview_alt": f"{str(label or 'Route').strip()} route to {title_label}",
+        "route_distance_m": int(route.get("distance_m") or 0),
+        "route_duration_min": int(route.get("duration_min") or 0),
+    }
 
 def _property_progress_route_preview_rows(
     *,
     run_summary: dict[str, object],
     property_preferences: dict[str, object],
 ) -> list[dict[str, str]]:
-    ranked_candidates = [
-        dict(row)
-        for row in list(run_summary.get("ranked_candidates") or [])
-        if isinstance(row, dict)
-    ]
-    if not ranked_candidates:
+    candidate, _is_best_so_far = _property_progress_primary_candidate(run_summary)
+    if not candidate:
         return []
-    candidate = ranked_candidates[0]
     facts = _property_candidate_display_facts(candidate)
 
     origin_lat = facts.get("map_lat") or facts.get("lat") or facts.get("latitude")
@@ -1011,28 +1185,39 @@ def _property_progress_route_preview_rows(
             ((mode, label, minutes) for mode, label, minutes in commute_specs if minutes > 0),
             ("transit", "Transit", 0),
         )
+        route_preview = _property_route_preview_media(
+            origin_lat=origin_lat,
+            origin_lng=origin_lng,
+            target_query=commute_destination,
+            mode=selected_mode,
+            label="Your route",
+            title=commute_destination,
+        )
         detail = (
             f"{mode_label} <= {mode_minutes} min"
             if mode_minutes > 0
             else f"{mode_label} route from the property"
         )
-        rows.append(
-            {
-                "title": commute_destination,
-                "label": "Your route",
-                "detail": detail,
-                "mode_label": mode_label,
-                "map_url": _property_candidate_directions_url(
-                    candidate,
-                    target_query=commute_destination,
-                    mode=selected_mode,
-                ),
-                "preview_path": _property_route_preview_path(
-                    origin_lat=origin_lat,
-                    origin_lng=origin_lng,
-                ),
-            }
-        )
+        mode_display = mode_label
+        if int(route_preview.get("route_distance_m") or 0) > 0:
+            detail = f"{_property_route_distance_label(int(route_preview.get('route_distance_m') or 0))} route"
+        if int(route_preview.get("route_duration_min") or 0) > 0:
+            mode_display = f"{mode_label} {int(route_preview.get('route_duration_min') or 0)} min"
+        row = {
+            "title": commute_destination,
+            "label": "Your route",
+            "detail": detail,
+            "mode_label": mode_display,
+            "map_url": _property_candidate_directions_url(
+                candidate,
+                target_query=commute_destination,
+                mode=selected_mode,
+            ),
+        }
+        for key in ("preview_path", "preview_image_url", "preview_alt"):
+            if route_preview.get(key) not in (None, "", [], {}):
+                row[key] = route_preview.get(key)
+        rows.append(row)
 
     route_specs = (
         ("School", "nearest_school_m", "nearest_school_name", "nearest_school_lat", "nearest_school_lng", "transit", True),
@@ -1053,30 +1238,182 @@ def _property_progress_route_preview_rows(
             continue
         raw_place_name = str(facts.get(name_key) or "").strip()
         place_name = raw_place_name or f"Nearest {label.lower()}"
-        rows.append(
-            {
-                "title": place_name,
-                "label": label,
-                "detail": f"{meters} m from the property",
-                "mode_label": "Transit" if mode == "transit" else "Walk",
-                "map_url": _property_candidate_directions_url(
-                    candidate,
-                    target_lat=facts.get(lat_key),
-                    target_lng=facts.get(lng_key),
-                    target_query=place_name,
-                    mode=mode,
-                ),
-                "preview_path": _property_route_preview_path(
-                    origin_lat=origin_lat,
-                    origin_lng=origin_lng,
-                    target_lat=facts.get(lat_key),
-                    target_lng=facts.get(lng_key),
-                ),
-            }
+        route_preview = _property_route_preview_media(
+            origin_lat=origin_lat,
+            origin_lng=origin_lng,
+            target_lat=facts.get(lat_key),
+            target_lng=facts.get(lng_key),
+            target_query=place_name,
+            mode=mode,
+            label=label,
+            title=place_name,
         )
+        detail = f"{meters} m from the property"
+        if int(route_preview.get("route_distance_m") or 0) > 0:
+            distance_label = _property_route_distance_label(int(route_preview.get("route_distance_m") or 0))
+            detail = f"{distance_label} on foot" if mode == "walking" else f"{distance_label} route"
+        mode_display = "Transit" if mode == "transit" else "Walk"
+        if int(route_preview.get("route_duration_min") or 0) > 0:
+            mode_display = (
+                f"Walk {int(route_preview.get('route_duration_min') or 0)} min"
+                if mode == "walking"
+                else f"{mode_display} {int(route_preview.get('route_duration_min') or 0)} min"
+            )
+        row = {
+            "title": place_name,
+            "label": label,
+            "detail": detail,
+            "mode_label": mode_display,
+            "map_url": _property_candidate_directions_url(
+                candidate,
+                target_lat=facts.get(lat_key),
+                target_lng=facts.get(lng_key),
+                target_query=place_name,
+                mode=mode,
+            ),
+        }
+        for key in ("preview_path", "preview_image_url", "preview_alt"):
+            if route_preview.get(key) not in (None, "", [], {}):
+                row[key] = route_preview.get(key)
+        rows.append(row)
         if len(rows) >= 3:
             break
     return rows[:3]
+
+
+def _property_progress_primary_candidate(run_summary: dict[str, object]) -> tuple[dict[str, object], bool]:
+    ranked_candidates = [
+        dict(row)
+        for row in list(run_summary.get("ranked_candidates") or [])
+        if isinstance(row, dict) and _property_candidate_is_rankable(row)
+    ]
+    if ranked_candidates:
+        return ranked_candidates[0], True
+
+    collected: list[dict[str, object]] = []
+    for source in [dict(row) for row in list(run_summary.get("sources") or []) if isinstance(row, dict)]:
+        source_label = str(source.get("source_label") or source.get("label") or source.get("platform") or "").strip()
+        for candidate in [dict(row) for row in list(source.get("top_candidates") or []) if isinstance(row, dict)]:
+            if not _property_candidate_is_rankable(candidate):
+                continue
+            candidate.setdefault("source_label", source_label)
+            collected.append(candidate)
+    collected.sort(key=lambda item: float(item.get("ranking_score") or item.get("fit_score") or 0.0), reverse=True)
+    if collected:
+        return collected[0], False
+    return {}, False
+
+
+def _property_progress_current_property_card(
+    *,
+    run_summary: dict[str, object],
+) -> dict[str, object]:
+    candidate, is_best_so_far = _property_progress_primary_candidate(run_summary)
+    if not candidate:
+        return {}
+    facts = _property_candidate_display_facts(candidate)
+    title = sanitize_property_marketing_copy(
+        str(candidate.get("title") or candidate.get("property_url") or "Property").strip()
+    ) or "Property"
+    location_label = _first_fact_text(
+        facts,
+        "postal_name",
+        "district",
+        "city",
+        "exact_address",
+        "street_address",
+        "address",
+    )
+    layout_display = str(candidate.get("layout_display") or "").strip()
+    if not layout_display:
+        area_value = facts.get("area_m2") or facts.get("area_sqm")
+        rooms_value = facts.get("rooms")
+        layout_parts = [
+            f"{rooms_value} rooms" if str(rooms_value or "").strip() else "",
+            f"{area_value} m2" if str(area_value or "").strip() else "",
+        ]
+        layout_display = " | ".join(part for part in layout_parts if part)
+    detail = summarize_property_description_copy(
+        str(candidate.get("compare_reason") or candidate.get("fit_summary") or candidate.get("summary") or "").strip()
+    )
+    if not detail:
+        detail = location_label or layout_display or str(candidate.get("price_display") or "").strip()
+    map_url = (
+        str(candidate.get("map_url") or "").strip()
+        or _property_candidate_maps_url(candidate)
+    )
+    orientation_preview = _property_progress_map_preview(
+        candidate,
+        facts=facts,
+        fallback_map_url=map_url,
+        fallback_label=location_label or title,
+    )
+    card = {
+        "status_label": "Best so far" if is_best_so_far else "Current property",
+        "status_detail": detail,
+        "title": title,
+        "source_label": _compact_provider_label(candidate.get("source_label") or candidate.get("source_platform") or ""),
+        "location_label": location_label,
+        "price_display": str(candidate.get("price_display") or facts.get("price_display") or facts.get("rent_display") or "").strip(),
+        "layout_display": layout_display,
+        "map_url": map_url,
+    }
+    preview_image_url = _property_candidate_preview_image(candidate)
+    if preview_image_url:
+        card["preview_image_url"] = preview_image_url
+    if orientation_preview:
+        card["orientation_preview"] = orientation_preview
+    return {
+        key: value
+        for key, value in card.items()
+        if value not in (None, "", [], {})
+    }
+
+
+def _property_progress_map_preview(
+    candidate: dict[str, object],
+    *,
+    facts: dict[str, object],
+    fallback_map_url: str,
+    fallback_label: str,
+) -> dict[str, object]:
+    existing = dict(candidate.get("orientation_preview") or {}) if isinstance(candidate.get("orientation_preview"), dict) else {}
+    if str(existing.get("image_url") or existing.get("thumb_image_url") or "").strip():
+        return existing
+    try:
+        lat = float(facts.get("map_lat") or facts.get("lat") or facts.get("latitude") or 0.0)
+    except Exception:
+        lat = 0.0
+    try:
+        lng = float(facts.get("map_lng") or facts.get("lng") or facts.get("lon") or facts.get("longitude") or 0.0)
+    except Exception:
+        lng = 0.0
+    if not (lat or lng):
+        return {}
+    from app.api.routes import landing_view_models
+
+    image_url = landing_view_models._cached_preview_image_url(
+        cache_key={
+            "kind": "current-property-progress-point",
+            "label": fallback_label,
+            "lat_key": int(round(lat * 10000.0)),
+            "lon_key": int(round(lng * 10000.0)),
+            "zoom": 15,
+            "overlay_mode": "pin_v1",
+        },
+        center_lat=lat,
+        center_lon=lng,
+        zoom=15,
+        pin=(320.0, 184.0),
+        draw_overlay=False,
+        materialize="async",
+    )
+    return {
+        "image_url": image_url,
+        "thumb_image_url": image_url,
+        "alt": f"Map around {fallback_label or 'the property'}",
+        "map_url": fallback_map_url,
+    }
 
 
 def _property_candidate_preview_image(candidate: dict[str, object]) -> str:

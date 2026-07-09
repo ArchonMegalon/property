@@ -320,6 +320,35 @@ def test_scene_video_provider_refresh_packet_verifier_rejects_weakened_expected_
     assert "omagic_expected_account_count_below_required" in receipt["blockers"]
 
 
+def test_scene_video_provider_refresh_packet_verifier_accepts_lower_visible_magicfit_count_when_tracked_inventory_explains_it(
+    tmp_path: Path,
+) -> None:
+    materializer = _load_script()
+    verifier = _load_verifier()
+
+    receipt_path = tmp_path / "receipt.json"
+    source_receipt = _receipt()
+    source_receipt["providers"][0]["status"] = "ready"  # type: ignore[index]
+    source_receipt["providers"][0]["blockers"] = []  # type: ignore[index]
+    source_receipt["providers"][0]["runtime_account_count"] = 2  # type: ignore[index]
+    source_receipt["providers"][0]["credit_state"] = "constrained"  # type: ignore[index]
+    source_receipt["providers"][0]["account_inventory"] = {  # type: ignore[index]
+        "expected_account_count": 2,
+        "tracked_account_count": 3,
+        "unavailable_account_count": 1,
+        "availability_reason": "one_account_depleted",
+        "runtime_account_count": 2,
+        "visible_account_gap": 0,
+    }
+    receipt_path.write_text(json.dumps(source_receipt), encoding="utf-8")
+    packet = materializer.build_packet(source_receipt, receipt_path=receipt_path)
+
+    receipt = verifier.verify_packet(packet, packet_path=str(tmp_path / "packet.json"))
+
+    assert receipt["status"] == "pass"
+    assert "magicfit_expected_account_count_below_required" not in receipt["blockers"]
+
+
 def test_scene_video_provider_refresh_packet_verifier_rejects_missing_expected_count_guard(tmp_path: Path) -> None:
     materializer = _load_script()
     verifier = _load_verifier()

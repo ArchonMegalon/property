@@ -18,6 +18,7 @@ from app.product.property_evidence_overlays import build_property_evidence_overl
 from app.product.projections.common import compact_text
 from app.product.service import (
     _hosted_property_visual_progress_snapshot,
+    _property_apply_location_hint_research,
     _property_currency_code_from_facts,
     _property_cooling_corridor_match_reason,
     _property_enrich_missing_fact_research,
@@ -357,10 +358,16 @@ def _property_enriched_candidate_facts(
     *,
     candidate: dict[str, object],
     preferences: dict[str, object] | None = None,
+    force_source_research_for_selected_distances: bool = False,
 ) -> dict[str, object]:
     facts = _property_candidate_display_facts(candidate)
     title = str(candidate.get("title") or "").strip()
     summary = str(candidate.get("summary") or "").strip()
+    facts = _property_apply_location_hint_research(
+        facts=facts,
+        title=title,
+        summary=summary,
+    )
     if not any(
         str(facts.get(key) or "").strip()
         for key in ("description", "description_text", "object_description", "listing_description", "summary")
@@ -442,9 +449,15 @@ def _property_enriched_candidate_facts(
         and any(str(row.get("tag") or "").strip().casefold() == "to check" for row in selected_distance_rows)
     )
     needs_nearby_retry = not selected_distance_rows and not available_distance_rows
+    should_force_selected_distance_refresh = bool(
+        force_source_research_for_selected_distances and selected_distance_rows
+    )
     if (
         property_url
-        and ((needs_distance_backfill and not location_hint_attempted) or needs_nearby_retry)
+        and (
+            should_force_selected_distance_refresh
+            or ((needs_distance_backfill and not location_hint_attempted) or needs_nearby_retry)
+        )
     ):
         facts = _merge_property_facts_with_source_research(
             property_url=property_url,
@@ -670,7 +683,7 @@ def _property_tour_source_gap_detail(candidate: dict[str, object]) -> str:
 
 
 def _property_hosted_tour_ready(tour_url: str) -> bool:
-    return bool(property_tour_hosting._hosted_property_tour_first_party_open_url(tour_url))
+    return bool(property_tour_hosting._hosted_property_tour_verified_open_url(tour_url))
 
 
 def _property_hosted_tour_disabled_fallback(tour_url: object) -> bool:
@@ -717,7 +730,13 @@ def _customer_facing_vendor_tour_url(value: object) -> str:
 
 
 def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, object]:
-    tour_url = str(candidate.get("tour_url") or "").strip()
+    raw_tour_payload = dict(candidate.get("tour") or {}) if isinstance(candidate.get("tour"), dict) else {}
+    tour_url = str(
+        candidate.get("tour_url")
+        or raw_tour_payload.get("url")
+        or raw_tour_payload.get("embed_url")
+        or ""
+    ).strip()
     if tour_url and _property_hosted_tour_disabled_fallback(tour_url):
         tour_url = ""
     vendor_tour_url = _customer_facing_vendor_tour_url(candidate.get("vendor_tour_url"))
@@ -746,10 +765,21 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
         status_updated_at=status_updated_at,
     )
     hosted_tour_ready = _property_hosted_tour_ready(tour_url)
-    verified_tour_href = property_tour_hosting._hosted_property_tour_first_party_open_url(tour_url) if hosted_tour_ready else ""
+    verified_tour_href = property_tour_hosting._hosted_property_tour_verified_open_url(tour_url) if hosted_tour_ready else ""
     verified_tour_provider = property_tour_hosting._hosted_property_tour_verified_provider(tour_url) if hosted_tour_ready else ""
-    generated_reconstruction_href = ""
-    generated_reconstruction_ready = False
+    generated_reconstruction_source_url = str(candidate.get("generated_reconstruction_url") or "").strip()
+    if (
+        not generated_reconstruction_source_url
+        and tour_url
+        and property_tour_hosting._hosted_property_tour_generated_reconstruction_bundle_ready(tour_url)
+    ):
+        generated_reconstruction_source_url = tour_url
+    generated_reconstruction_href = (
+        property_tour_hosting._hosted_property_tour_first_party_open_url(generated_reconstruction_source_url)
+        if generated_reconstruction_source_url and not _property_hosted_tour_disabled_fallback(generated_reconstruction_source_url)
+        else ""
+    )
+    generated_reconstruction_ready = bool(generated_reconstruction_href)
     open_tour_href = verified_tour_href
     embed_href = verified_tour_href if hosted_tour_ready else ""
     verified_walkthrough_href = property_tour_hosting._hosted_property_tour_walkthrough_open_url(
@@ -785,6 +815,9 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
     if hosted_tour_ready:
         status_label = "3D tour available"
         status_detail = "3D tour is ready."
+    elif generated_reconstruction_ready:
+        status_label = "Layout tour available"
+        status_detail = "Generated from the floor plan and listing photos. Open it as a layout aid while captured 3D media is still unavailable."
     elif tour_url:
         status_label = "3D tour unavailable"
         status_detail = _hosted_tour_rebuild_detail()
@@ -819,25 +852,44 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
         "hosted_ready": hosted_tour_ready,
         "generated_reconstruction_ready": generated_reconstruction_ready,
         "generated_reconstruction_href": generated_reconstruction_href,
+        "generated_reconstruction_label": "Open layout tour" if generated_reconstruction_ready else "",
+        "generated_reconstruction_status_detail": (
+            "Generated from the floor plan and listing photos. Open it as a layout aid while captured 3D media is still unavailable."
+            if generated_reconstruction_ready
+            else ""
+        ),
         "show_status_line": bool(
             hosted_tour_ready
+            or generated_reconstruction_ready
             or tour_url
             or vendor_tour_url
             or status in {"queued", "pending", "processing", "running", "in_progress", "started", "rendering", "repairing"}
         ),
-        "primary_href": open_tour_href or (vendor_tour_url or review_url),
+        "primary_href": open_tour_href or generated_reconstruction_href or (vendor_tour_url or review_url),
         "primary_label": (
             "Open 3D tour"
             if open_tour_href
-            else ("Open original tour" if vendor_tour_url else ("Open property" if review_url else ""))
+            else (
+                "Open layout tour"
+                if generated_reconstruction_href
+                else ("Open original tour" if vendor_tour_url else ("Open property" if review_url else ""))
+            )
         ),
         "secondary_href": review_url,
         "secondary_label": "Open property" if review_url else "",
         "tertiary_href": vendor_tour_url if hosted_tour_ready and vendor_tour_url and vendor_tour_url != tour_url else "",
         "tertiary_label": "Open original tour" if hosted_tour_ready and vendor_tour_url and vendor_tour_url != tour_url else "",
         "walkthrough_href": verified_walkthrough_href,
-        "provider_label": "3D tour" if open_tour_href or vendor_tour_url else "",
-        "provider_key": verified_tour_provider or vendor_tour_provider,
+        "provider_label": (
+            "3D tour"
+            if open_tour_href or vendor_tour_url
+            else ("Layout tour" if generated_reconstruction_href else "")
+        ),
+        "provider_key": (
+            verified_tour_provider
+            or vendor_tour_provider
+            or ("propertyquarry_generated_reconstruction" if generated_reconstruction_ready else "")
+        ),
         "walkthrough_provider_label": "Walkthrough" if walkthrough_provider or walkthrough_ready else "",
         "walkthrough_provider_key": walkthrough_provider,
         "walkthrough_status_detail": (
@@ -1126,9 +1178,14 @@ def _property_packet_score_rows(
     match_reasons: list[str],
     mismatch_reasons: list[str],
 ) -> list[dict[str, str]]:
+    def _positive_float(value: object) -> float | None:
+        try:
+            parsed = float(str(value or "").strip())
+        except Exception:
+            return None
+        return parsed if parsed > 0.0 else None
+
     rows: list[dict[str, str]] = []
-    confirmation = dict(facts.get("listing_fact_confirmation") or {}) if isinstance(facts.get("listing_fact_confirmation"), dict) else {}
-    confirmed_fields = {str(value or "").strip().lower() for value in list(confirmation.get("fields") or []) if str(value or "").strip()}
     selected_locations = {str(value).strip().lower() for value in str(preferences.get("location_query") or "").split(",") if str(value).strip()}
     fact_address = str(facts.get("address") or facts.get("postal_name") or "").strip()
     if fact_address:
@@ -1137,18 +1194,46 @@ def _property_packet_score_rows(
             _object_detail_row(
                 "Location fit",
                 fact_address,
-                "From listing" if "location" in confirmed_fields else ("Strong" if fits_location else "Check"),
+                "Strong" if fits_location and selected_locations else ("Check" if selected_locations else "Location"),
             )
         )
-    price_value = str(
-        facts.get("price_display")
-        or facts.get("rent_display")
-        or facts.get("price")
-        or facts.get("price_eur")
-        or ""
-    ).strip()
-    if price_value:
-        rows.append(_object_detail_row("Budget signal", price_value, "From listing" if "price" in confirmed_fields else "Budget"))
+    budget_limit_eur = next(
+        (
+            amount
+            for amount in (
+                _positive_float(preferences.get("max_price_eur")),
+                _positive_float(preferences.get("max_total_price_eur")),
+                _positive_float(preferences.get("max_purchase_price_eur")),
+                _positive_float(preferences.get("max_rent_eur")),
+                _positive_float(preferences.get("max_total_rent_eur")),
+                _positive_float(preferences.get("max_monthly_rent_eur")),
+            )
+            if amount is not None
+        ),
+        None,
+    )
+    price_amount_eur = _property_investment_price_eur(facts)
+    if budget_limit_eur is not None and isinstance(price_amount_eur, float):
+        currency_code = _property_currency_code_from_facts(facts)
+        price_label = _property_money_amount_label(price_amount_eur, currency_code=currency_code)
+        budget_label = _property_money_amount_label(budget_limit_eur, currency_code=currency_code)
+        if price_amount_eur <= budget_limit_eur:
+            rows.append(
+                _object_detail_row(
+                    "Budget signal",
+                    f"{price_label} is within the {budget_label} budget ceiling.",
+                    "Strong",
+                )
+            )
+        else:
+            over_budget_label = _property_money_amount_label(price_amount_eur - budget_limit_eur, currency_code=currency_code)
+            rows.append(
+                _object_detail_row(
+                    "Budget signal",
+                    f"{price_label} is {over_budget_label} above the {budget_label} budget ceiling.",
+                    "Risk",
+                )
+            )
     area_value = str(facts.get("area_m2") or facts.get("living_area_m2") or "").strip()
     rooms_value = _property_rooms_display(facts)
     if area_value or rooms_value:
@@ -1158,15 +1243,7 @@ def _property_packet_score_rows(
                 f"{area_value} m2" if area_value else "",
             ) if part
         )
-        rows.append(_object_detail_row("Layout signal", detail, "From listing" if {"area", "rooms"} & confirmed_fields else "Layout"))
-    if confirmed_fields:
-        rows.append(
-            _object_detail_row(
-                str(confirmation.get("label") or "Core details"),
-                str(confirmation.get("summary") or "Core details were read from the listing automatically."),
-                "From listing",
-            )
-        )
+        rows.append(_object_detail_row("Layout signal", detail, "Layout"))
     if match_reasons:
         rows.append(_object_detail_row("Best fit signal", match_reasons[0], "Positive"))
     if mismatch_reasons:
@@ -1649,6 +1726,23 @@ def _property_ordered_keyword_markers(preferences: dict[str, object]) -> tuple[s
     return tuple(ordered)
 
 
+def _property_ordered_explicit_keyword_markers(preferences: dict[str, object]) -> tuple[str, ...]:
+    ordered: list[str] = []
+    seen: set[str] = set()
+
+    for raw_value in (preferences.get("keywords"), preferences.get("avoid_keywords")):
+        text = str(raw_value or "").strip()
+        if not text:
+            continue
+        for token in text.replace(";", ",").split(","):
+            normalized = str(token or "").strip().casefold()
+            if not normalized or normalized in seen:
+                continue
+            ordered.append(normalized)
+            seen.add(normalized)
+    return tuple(ordered)
+
+
 def _property_keyword_preference_states(preferences: dict[str, object]) -> dict[str, str]:
     source: dict[str, object] = {}
     raw_value = preferences.get("keyword_preferences")
@@ -2121,20 +2215,108 @@ def _property_available_nearby_distance_rows(
     return rows
 
 
+def _property_distance_panel_copy(
+    *,
+    selected_rows: list[dict[str, str]],
+    single_selected_distance_filter: bool = False,
+    copy_scope: str = "current",
+) -> str:
+    if not selected_rows:
+        return ""
+    normalized_scope = str(copy_scope or "current").strip().lower()
+    if single_selected_distance_filter and len(selected_rows) == 1:
+        title = str(selected_rows[0].get("title") or "").strip()
+        subject = f"{title} distance" if title else "Selected nearby distance"
+        if normalized_scope == "recent":
+            return f"{subject} from your latest matching search."
+        if normalized_scope == "workspace":
+            return f"{subject} saved on this workspace."
+        return f"{subject} from this search."
+    if normalized_scope == "recent":
+        return "Distances for the nearby filters from your latest matching search."
+    if normalized_scope == "workspace":
+        return "Distances for the nearby filters saved on this workspace."
+    return "Distances for the nearby filters in this search."
+
+
+def _property_keyword_state_priority(value: object) -> int:
+    normalized = str(value or "").strip().casefold()
+    if normalized in {"must_have", "required"}:
+        return 4
+    if normalized == "important":
+        return 3
+    if normalized in {"nice_to_have", "prefer", "preferred"}:
+        return 2
+    if _property_preference_value_is_selected(value):
+        return 1
+    return 0
+
+
+def _property_primary_selected_distance_row(
+    *,
+    selected_rows: list[dict[str, str]],
+    preferences: dict[str, object],
+) -> dict[str, str]:
+    if not selected_rows:
+        return {}
+    if len(selected_rows) == 1:
+        return dict(selected_rows[0])
+    explicit_markers = _property_ordered_explicit_keyword_markers(preferences)
+    explicit_marker_position = {marker: index for index, marker in enumerate(explicit_markers)}
+    keyword_states = _property_keyword_preference_states(preferences)
+    spec_by_title = {
+        str(spec.get("title") or "").strip().casefold(): spec
+        for spec in _PROPERTY_RESEARCH_DISTANCE_ROW_SPECS
+        if str(spec.get("title") or "").strip()
+    }
+    title_order = {
+        str(spec.get("title") or "").strip().casefold(): index
+        for index, spec in enumerate(_PROPERTY_RESEARCH_DISTANCE_ROW_SPECS)
+        if str(spec.get("title") or "").strip()
+    }
+
+    def _row_rank(row: dict[str, str]) -> tuple[int, int, int, int]:
+        title_key = str(row.get("title") or "").strip().casefold()
+        spec = spec_by_title.get(title_key) or {}
+        keyword_markers = tuple(str(marker or "").strip().casefold() for marker in spec.get("keyword_markers", ()) if str(marker or "").strip())
+        explicit_positions = [explicit_marker_position[marker] for marker in keyword_markers if marker in explicit_marker_position]
+        explicit_position = min(explicit_positions) if explicit_positions else len(explicit_marker_position) + len(title_order)
+        state_priority = max((_property_keyword_state_priority(keyword_states.get(marker)) for marker in keyword_markers), default=0)
+        spec_index = title_order.get(title_key, len(title_order))
+        has_explicit_priority = 1 if explicit_positions else 0
+        return (
+            -has_explicit_priority,
+            explicit_position,
+            -state_priority,
+            spec_index,
+        )
+
+    return dict(min(selected_rows, key=_row_rank))
+
+
 def _property_distance_panel_rows(
     *,
     facts: dict[str, object],
     preferences: dict[str, object],
     single_selected_distance_filter: bool = False,
+    copy_scope: str = "current",
 ) -> tuple[list[dict[str, str]], str]:
     selected_rows = _property_selected_distance_rows(
         facts=facts,
         preferences=preferences,
     )
     if single_selected_distance_filter and selected_rows:
-        selected_rows = selected_rows[:1]
+        primary_row = _property_primary_selected_distance_row(
+            selected_rows=selected_rows,
+            preferences=preferences,
+        )
+        selected_rows = [primary_row] if primary_row else []
     if selected_rows:
-        return selected_rows, "Distances for the nearby filters in this search."
+        return selected_rows, _property_distance_panel_copy(
+            selected_rows=selected_rows,
+            single_selected_distance_filter=single_selected_distance_filter,
+            copy_scope=copy_scope,
+        )
     return [], ""
 
 

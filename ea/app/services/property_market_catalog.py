@@ -463,6 +463,34 @@ PROVIDERS: tuple[PropertyProviderSpec, ...] = (
         trust_tier="standard",
     ),
     PropertyProviderSpec(
+        key="glorit_at",
+        label="Glorit",
+        country_code="AT",
+        host_markers=("glorit.at", "www.glorit.at"),
+        listing_path_markers=("/wohnung-kaufen/", "/wohnung-mieten/", "/immobilien/"),
+        search_urls={
+            "rent": "https://glorit.at/wohnung-mieten/",
+            "buy": "https://glorit.at/wohnung-kaufen/",
+        },
+        description="Vienna developer-direct residential provider with first-party new-build purchase listings.",
+        family="developer_projects",
+        trust_tier="trusted",
+        supported_listing_modes=("buy", "rent"),
+        coverage="vienna",
+        floorplan_reliability="medium",
+        duplicate_rate="low",
+        tour_availability="occasional",
+        scan_reliability="browser_required",
+        filter_pushdown_strength="weak",
+        official_source_quality="developer_primary",
+        last_verified="2026-07-09",
+        access_mode="browser_public_web",
+        browser_access_allowed=True,
+        maximum_concurrency=1,
+        requests_per_hour=20,
+        supported_region_codes=("wien", "vienna", "at-9"),
+    ),
+    PropertyProviderSpec(
         key="genossenschaften_at",
         label="Genossenschaften",
         country_code="AT",
@@ -2722,6 +2750,9 @@ PROPERTY_PLATFORM_ALIAS_MAP: dict[str, str] = {
     "remaxat": "remax_at",
     "remax_at": "remax_at",
     "remaxaustria": "remax_at",
+    "glorit": "glorit_at",
+    "gloritat": "glorit_at",
+    "glorit_at": "glorit_at",
     "genossenschaften": "genossenschaften_at",
     "genossenschaft": "genossenschaften_at",
     "cooperatives": "genossenschaften_at",
@@ -5209,6 +5240,7 @@ def _build_provider_search_url(
         return _append_query(base_url, query_items)
     if provider.key in {
         "immowelt_at",
+        "glorit_at",
         "findmyhome_at",
         "gesiba_at",
         "oesw_at",
@@ -5706,6 +5738,11 @@ def generated_source_specs(
                 row["fetch_timeout_seconds"] = 8
                 row["fallback_listing_urls"] = [
                     "https://www.remax.at/de/ib/remax-first-wien/immobilien",
+                ]
+            if provider.key == "glorit_at":
+                row["fetch_timeout_seconds"] = 10
+                row["fallback_listing_urls"] = [
+                    "https://glorit.at/wohnung-kaufen/1220-wien-arminenstrasse-4a-8?t=top201",
                 ]
             rows.append(row)
     return tuple(rows)

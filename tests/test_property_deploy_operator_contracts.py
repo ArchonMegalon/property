@@ -263,6 +263,24 @@ def test_propertyquarry_compose_mounts_operator_tour_export_drop() -> None:
     assert "./state/incoming_property_tours:/data/incoming_property_tours" in compose
 
 
+def test_propertyquarry_runtime_images_use_image_baked_app_code_not_repo_bind_mounts() -> None:
+    compose = _read("docker-compose.property.yml")
+
+    assert "./config:/app/config:ro" in compose
+    assert "./ea:/app" not in compose
+    assert "./scripts:/app/scripts" not in compose
+    assert ".:/app" not in compose
+
+
+def test_propertyquarry_render_runtime_keeps_playwright_for_magicfit_render_lane() -> None:
+    dockerfile = _read("ea/Dockerfile.property")
+
+    assert "COPY scripts/render_magicfit_property_flythrough.py /app/scripts/render_magicfit_property_flythrough.py" in dockerfile
+    assert "PLAYWRIGHT_BROWSERS_PATH=/ms-playwright" in dockerfile
+    assert "python -m playwright install --with-deps chromium" in dockerfile
+    assert "chown -R ea:ea /ms-playwright" in dockerfile
+
+
 def test_property_tour_export_scripts_share_container_incoming_path() -> None:
     discovery = _read("scripts/discover_property_tour_exports.py")
     manifest = _read("scripts/materialize_property_tour_export_manifest.py")
@@ -416,11 +434,17 @@ def test_property_deploy_refreshes_scene_video_receipts_before_gold_status() -> 
         '_completion/scene_video_readiness/provider-refresh-packet.json',
         '_completion/scene_video_readiness/provider-refresh-packet-verifier.json',
         '_completion/scene_video_readiness/provider-refresh-telegram-report.json',
-        'python /app/scripts/property_scene_video_readiness_report.py',
-        'python /app/scripts/verify_property_scene_video_readiness.py',
-        'python /app/scripts/property_scene_video_runtime_status.py',
-        'python /app/scripts/materialize_scene_video_provider_refresh_packet.py',
-        'python /app/scripts/verify_scene_video_provider_refresh_packet.py',
+        'scene_video_shared_env_file="${PROPERTYQUARRY_SCENE_VIDEO_SHARED_ENV_FILE:-state/runtime/property_scene_video_shared.env}"',
+        'scene_video_shared_env_runtime_file="${PROPERTYQUARRY_SCENE_VIDEO_SHARED_ENV_RUNTIME_FILE:-/home/ea/property_scene_video_shared.env}"',
+        "materialize_scene_video_shared_env",
+        "copy_scene_video_shared_env_to_container",
+        "docker_exec_scene_video_python",
+        "scripts/property_scene_video_shared_env.py",
+        "/app/scripts/property_scene_video_readiness_report.py",
+        "/app/scripts/verify_property_scene_video_readiness.py",
+        "/app/scripts/property_scene_video_runtime_status.py",
+        "/app/scripts/materialize_scene_video_provider_refresh_packet.py",
+        "/app/scripts/verify_scene_video_provider_refresh_packet.py",
         'scripts/propertyquarry_notify_scene_video_provider_refresh.py',
         '--scene-video-readiness-receipt "${scene_video_receipt}"',
         '--scene-video-readiness-verifier-receipt "${scene_video_verifier_receipt}"',
@@ -436,8 +460,14 @@ def test_property_release_gate_wires_scene_video_refresh_packet_verifier_into_go
     release_gate = _read("scripts/property_release_gates.sh")
 
     for required in (
+        'scene_video_shared_env_file="${PROPERTYQUARRY_SCENE_VIDEO_SHARED_ENV_FILE:-state/runtime/property_scene_video_shared.env}"',
+        'scene_video_shared_env_runtime_file="${PROPERTYQUARRY_SCENE_VIDEO_SHARED_ENV_RUNTIME_FILE:-/home/ea/property_scene_video_shared.env}"',
+        "copy_scene_video_shared_env_to_container",
+        "docker_exec_scene_video_python",
+        "scripts/property_scene_video_shared_env.py",
         "scripts/verify_property_scene_video_readiness.py",
         "--output /data/artifacts/property-scene-video-readiness-release-gate-verifier-live-container.json",
+        "--load-shared-env",
         "--output _completion/scene_video_readiness/release-gate-verifier.json",
         "scripts/property_scene_video_runtime_status.py",
         "--output /data/artifacts/property-scene-video-runtime-status-release-gate-live-container.json",
@@ -488,6 +518,12 @@ def test_property_gold_refresh_wires_scene_video_runtime_status_into_gold_status
     refresh_script = _read("scripts/refresh_propertyquarry_current_gold_receipts.sh")
 
     for required in (
+        'scene_video_shared_env_file="${PROPERTYQUARRY_SCENE_VIDEO_SHARED_ENV_FILE:-state/runtime/property_scene_video_shared.env}"',
+        'scene_video_shared_env_runtime_file="${PROPERTYQUARRY_SCENE_VIDEO_SHARED_ENV_RUNTIME_FILE:-/home/ea/property_scene_video_shared.env}"',
+        "copy_scene_video_shared_env_to_container",
+        "docker_exec_scene_video_python",
+        "refresh_scene_video_receipts",
+        "scripts/property_scene_video_shared_env.py",
         "scripts/property_scene_video_runtime_status.py",
         "property-scene-video-runtime-status-current.json",
         "_completion/scene_video_readiness/runtime-status.json",
@@ -521,16 +557,62 @@ def test_property_gold_refresh_can_send_scene_video_provider_refresh_notificatio
 def test_property_release_gate_runs_generated_reconstruction_glb_smoke() -> None:
     release_gate = _read("scripts/property_release_gates.sh")
 
+    assert "scripts/ensure_propertyquarry_render_bridge_runtime.py" in release_gate
     assert "live generated-reconstruction GLB export smoke" in release_gate
+    assert "service-owned generated-reconstruction smoke" in release_gate
     assert "scripts/property_runtime_reconstruction_smoke.py" in release_gate
+    assert "scripts/property_service_generated_reconstruction_smoke.py" in release_gate
     assert "PROPERTYQUARRY_RUNTIME_RECONSTRUCTION_CONTAINER" in release_gate
     assert "PROPERTYQUARRY_RUNTIME_RECONSTRUCTION_SMOKE_SLUG" in release_gate
     assert "PROPERTYQUARRY_RUNTIME_RECONSTRUCTION_BASE_URL" in release_gate
+    assert "PROPERTYQUARRY_SERVICE_GENERATED_RECONSTRUCTION_SMOKE_SLUG" in release_gate
+    assert "PROPERTYQUARRY_SERVICE_GENERATED_RECONSTRUCTION_BASE_URL" in release_gate
+    assert "PROPERTYQUARRY_LIVE_HOST_HEADER" in release_gate
     assert "--require-public-contract" in release_gate
+    assert "scripts/property_service_generated_reconstruction_smoke.py" in release_gate
+    assert '--host-header "${PROPERTYQUARRY_LIVE_HOST_HEADER:-propertyquarry.com}"' in release_gate
+    assert "--require-browser-shell" in release_gate
+    assert "--require-browser-shell" in release_gate
+    assert '--host-header "${PROPERTYQUARRY_LIVE_HOST_HEADER:-propertyquarry.com}"' in release_gate
     assert "--require-glb" in release_gate
+    assert "_completion/tours/property-render-bridge-runtime-release-gate.json" in release_gate
     assert "_completion/tours/property-runtime-reconstruction-release-gate.json" in release_gate
+    assert "_completion/tours/property-service-generated-reconstruction-release-gate.json" in release_gate
     assert "--runtime-reconstruction-receipt _completion/tours/property-runtime-reconstruction-release-gate.json" in release_gate
+    assert "--service-generated-reconstruction-receipt _completion/tours/property-service-generated-reconstruction-release-gate.json" in release_gate
     assert "--fail-on-error" in release_gate
+
+
+def test_property_gold_refresh_runs_generated_reconstruction_browser_shell_smoke() -> None:
+    refresh_script = _read("scripts/refresh_propertyquarry_current_gold_receipts.sh")
+
+    assert "scripts/ensure_propertyquarry_render_bridge_runtime.py" in refresh_script
+    assert "scripts/property_runtime_reconstruction_smoke.py" in refresh_script
+    assert "scripts/property_service_generated_reconstruction_smoke.py" in refresh_script
+    assert "--public-base-url \"${BASE_URL}\"" in refresh_script
+    assert '--host-header "${HOST_HEADER}"' in refresh_script
+    assert "--require-public-contract" in refresh_script
+    assert "--require-browser-shell" in refresh_script
+    assert "--require-browser-shell" in refresh_script
+    assert "--require-glb" in refresh_script
+    assert "_completion/tours/property-render-bridge-runtime-current.json" in refresh_script
+    assert "_completion/tours/property-runtime-reconstruction-release-gate.json" in refresh_script
+    assert "PROPERTYQUARRY_SERVICE_GENERATED_RECONSTRUCTION_SMOKE_SLUG" in refresh_script
+    assert "_completion/tours/property-service-generated-reconstruction-current.json" in refresh_script
+    assert "--service-generated-reconstruction-receipt" in refresh_script
+
+
+def test_property_deploy_refreshes_service_generated_reconstruction_before_gold_status() -> None:
+    deploy_script = _read("scripts/deploy_propertyquarry.sh")
+
+    assert "scripts/property_service_generated_reconstruction_smoke.py" in deploy_script
+    assert "PROPERTYQUARRY_SERVICE_GENERATED_RECONSTRUCTION_SMOKE_SLUG" in deploy_script
+    assert "_completion/tours/property-service-generated-reconstruction-current.json" in deploy_script
+    assert '--host-header "propertyquarry.com"' in deploy_script
+    assert "--require-browser-shell" in deploy_script
+    assert '--service-generated-reconstruction-receipt "${service_generated_reconstruction_receipt}"' in deploy_script
+    assert deploy_script.index('if ! PYTHONPATH=ea "${deploy_python_bin}" scripts/property_service_generated_reconstruction_smoke.py') < deploy_script.index('if ! PYTHONPATH=ea timeout "${walkthrough_quality_process_timeout_seconds}" "${deploy_python_bin}" scripts/propertyquarry_walkthrough_quality_gate.py')
+    assert deploy_script.index('service_generated_reconstruction_receipt="_completion/tours/property-service-generated-reconstruction-current.json"') < deploy_script.index('if ! PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_gold_status.py')
 
 
 def test_property_release_gate_sends_gold_notification_when_green() -> None:
@@ -599,6 +681,7 @@ def test_property_dockerfile_allowlists_runtime_scripts() -> None:
     assert "COPY scripts/property_magicfit_env.py /app/scripts/property_magicfit_env.py" in dockerfile
     assert "COPY scripts/render_magicfit_property_flythrough.py /app/scripts/render_magicfit_property_flythrough.py" in dockerfile
     assert "COPY scripts/render_omagic_property_model_walkthrough.py /app/scripts/render_omagic_property_model_walkthrough.py" in dockerfile
+    assert "COPY scripts/render_magicai_model_upload_adapter.py /app/scripts/render_magicai_model_upload_adapter.py" in dockerfile
     assert "COPY scripts/property_scene_video_readiness_report.py /app/scripts/property_scene_video_readiness_report.py" in dockerfile
     assert "COPY scripts/verify_property_scene_video_readiness.py /app/scripts/verify_property_scene_video_readiness.py" in dockerfile
     assert "COPY scripts/materialize_scene_video_provider_refresh_packet.py /app/scripts/materialize_scene_video_provider_refresh_packet.py" in dockerfile
@@ -612,6 +695,7 @@ def test_property_dockerfile_allowlists_runtime_scripts() -> None:
     assert "COPY scripts/materialize_property_tour_export_manifest.py /app/scripts/materialize_property_tour_export_manifest.py" in dockerfile
     assert "COPY scripts/property_tour_runtime_paths.py /app/scripts/property_tour_runtime_paths.py" in dockerfile
     assert "COPY scripts/generate_property_reconstruction.py /app/scripts/generate_property_reconstruction.py" in dockerfile
+    assert "COPY scripts/property_reconstruction_render_bridge.py /app/scripts/property_reconstruction_render_bridge.py" in dockerfile
     assert "COPY scripts/import_magicfit_walkthrough.py /app/scripts/import_magicfit_walkthrough.py" in dockerfile
     assert "COPY scripts/verify_property_tour_controls.py /app/scripts/verify_property_tour_controls.py" in dockerfile
     assert "COPY scripts/verify_property_tour_vendor_tooling.py /app/scripts/verify_property_tour_vendor_tooling.py" in dockerfile
@@ -634,6 +718,7 @@ def test_property_web_dockerfile_keeps_reconstruction_lightweight_and_excludes_b
     assert "COPY scripts/render_magicfit_property_flythrough.py /app/scripts/render_magicfit_property_flythrough.py" in dockerfile
     assert "COPY scripts/render_onemin_property_i2v_segment.py /app/scripts/render_onemin_property_i2v_segment.py" in dockerfile
     assert "COPY scripts/render_omagic_property_model_walkthrough.py /app/scripts/render_omagic_property_model_walkthrough.py" in dockerfile
+    assert "COPY scripts/render_magicai_model_upload_adapter.py /app/scripts/render_magicai_model_upload_adapter.py" in dockerfile
     assert "COPY scripts/property_scene_video_readiness_report.py /app/scripts/property_scene_video_readiness_report.py" in dockerfile
     assert "COPY scripts/discover_property_tour_exports.py /app/scripts/discover_property_tour_exports.py" in dockerfile
     assert "COPY scripts/materialize_property_tour_export_manifest.py /app/scripts/materialize_property_tour_export_manifest.py" in dockerfile
@@ -663,6 +748,7 @@ def test_property_runtime_copied_scripts_do_not_depend_on_fleet_paths() -> None:
         "render_magicfit_property_flythrough.py",
         "render_onemin_property_i2v_segment.py",
         "render_omagic_property_model_walkthrough.py",
+        "render_magicai_model_upload_adapter.py",
         "property_scene_video_readiness_report.py",
         "verify_property_scene_video_readiness.py",
         "materialize_scene_video_provider_refresh_packet.py",
@@ -677,6 +763,7 @@ def test_property_runtime_copied_scripts_do_not_depend_on_fleet_paths() -> None:
         "materialize_property_tour_export_manifest.py",
         "property_tour_runtime_paths.py",
         "generate_property_reconstruction.py",
+        "property_reconstruction_render_bridge.py",
         "import_magicfit_walkthrough.py",
         "verify_property_tour_controls.py",
         "verify_property_tour_vendor_tooling.py",
@@ -696,22 +783,25 @@ def test_property_compose_container_names_are_recoverable() -> None:
     assert "propertyquarry-render-tools:" in compose
     assert "dockerfile: ea/Dockerfile.property" in compose
     assert "image: propertyquarry-render-runtime:latest" in compose
-    assert "profiles:" in compose
-    assert "- render-tools" in compose
     assert 'container_name: "${PROPERTYQUARRY_API_CONTAINER_NAME:-propertyquarry-api}"' in compose
     assert 'container_name: "${PROPERTYQUARRY_SCHEDULER_CONTAINER_NAME:-propertyquarry-scheduler}"' in compose
     assert 'container_name: "${PROPERTYQUARRY_DB_CONTAINER_NAME:-propertyquarry-db-live}"' in compose
     assert 'container_name: "${PROPERTYQUARRY_RENDER_CONTAINER_NAME:-propertyquarry-render-tools}"' in compose
+    assert compose.count("path: ./state/runtime/property_scene_video_shared.env") == 3
     assert "EA_SCHEDULER_HEARTBEAT_PATH: /data/artifacts/propertyquarry-scheduler-heartbeat.json" in compose
     assert 'EA_SCHEDULER_HEARTBEAT_MAX_AGE_SECONDS: "${EA_SCHEDULER_HEARTBEAT_MAX_AGE_SECONDS:-900}"' in compose
     assert 'test: ["CMD", "python", "-m", "app.scheduler_healthcheck"]' in compose
     scheduler_section = compose.split("  propertyquarry-scheduler:", 1)[1].split("  propertyquarry-db:", 1)[0]
     assert "disable: true" not in scheduler_section
     render_section = compose.split("  propertyquarry-render-tools:", 1)[1].split("  propertyquarry-db:", 1)[0]
+    assert "profiles:" not in render_section
+    assert "- render-tools" not in render_section
+    assert 'command: ["python", "/app/scripts/property_reconstruction_render_bridge.py"]' in render_section
     assert "command -v ffmpeg" in render_section
     assert "command -v blender" in render_section
     assert "command -v colmap" in render_section
     assert "command -v exiftool" in render_section
     assert "command -v convert" in render_section
     assert "python -c 'import numpy'" in render_section
+    assert "http://127.0.0.1:8091/health" in render_section
     assert "http://127.0.0.1:8090/health/live" not in render_section

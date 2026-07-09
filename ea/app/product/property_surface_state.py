@@ -1784,9 +1784,9 @@ def _parse_property_run_message_info(value: object) -> dict[str, str]:
     if candidate_match:
         verb = str(candidate_match.group(1) or "").strip().lower()
         phase_label = (
-            "Checking homes"
+            "Property fit"
             if verb.startswith("review")
-            else ("Scoring homes" if verb.startswith("scor") else "Updating shortlist")
+            else ("Ranking" if verb.startswith("scor") else "Shortlist")
         )
         return {
             "raw": text,
@@ -1885,6 +1885,25 @@ def _property_run_candidate_reason_label(value: object) -> str:
     for tokens, label in positive_signals:
         if any(token in normalized for token in tokens) and any(token in normalized for token in ("found", "confirmed", "available", "evidence", "clear", "ready")):
             return f"{label} on candidate {ordinal}"
+    soft_concern_labels = (
+        (("operating cost", "monthly cost", "total cost", "betriebskosten", "price"), "Cost detail needs verification"),
+        (("heating", "heizung"), "Heating detail needs verification"),
+        (("energy", "energy certificate", "energieausweis"), "Energy detail needs verification"),
+        (("internet", "broadband", "fiber", "fibre", "high-speed"), "Internet detail needs verification"),
+        (("noise", "traffic noise", "nuisance"), "Noise detail needs verification"),
+        (("flood", "water", "groundwater"), "Water risk needs a closer look"),
+        (("air quality", "pollution", "emissions"), "Air quality needs verification"),
+        (("crime", "safety"), "Safety detail needs verification"),
+        (("parking", "garage"), "Parking detail needs verification"),
+        (("winter", "driving"), "Winter access needs verification"),
+        (("septic", "senkgrube"), "Wastewater detail needs verification"),
+        (("sunlight", "orientation", "light"), "Light and orientation detail needs verification"),
+    )
+    for tokens, label in soft_concern_labels:
+        if any(token in normalized for token in tokens) and any(
+            token in normalized for token in ("missing", "unknown", "unclear", "risk", "burden", "verify", "verification")
+        ):
+            return f"{label} for candidate {ordinal}"
     soft_concern_tokens = (
         ("operating cost", "monthly cost", "total cost", "betriebskosten", "price"),
         ("heating", "heizung"),
@@ -1992,7 +2011,7 @@ def _property_run_candidate_reason_label(value: object) -> str:
         token in normalized for token in ("far", "farther", "beyond", "outside")
     ):
         if not measured_distance_match:
-            return ""
+            return f"Daily errands are farther than preferred for candidate {ordinal}"
     if "below" in normalized and ("/m2" in normalized or "area" in normalized):
         return f"Area was below the minimum for candidate {ordinal}"
     if "outside the move-in horizon" in normalized:
@@ -3179,9 +3198,13 @@ def build_property_workbench_candidate_snapshot(
     floorplan_url: str = "",
     source_virtual_tour_url: str = "",
     vendor_tour_url: str = "",
+    tour_url: str = "",
+    verified_tour_url: str = "",
+    open_tour_url: str = "",
     recovered_by_filter: bool = False,
     relaxed_filter_label: str = "",
     preview_image_url: str = "",
+    diorama_preview_url: str = "",
     repair_flag_label: str = "",
     repair_flag_detail: str = "",
 ) -> dict[str, object]:
@@ -3216,6 +3239,9 @@ def build_property_workbench_candidate_snapshot(
         floorplan_url=str(floorplan_url or "").strip(),
         source_virtual_tour_url=str(source_virtual_tour_url or "").strip(),
         vendor_tour_url=str(vendor_tour_url or "").strip(),
+        tour_url=str(tour_url or "").strip(),
+        verified_tour_url=str(verified_tour_url or "").strip(),
+        open_tour_url=str(open_tour_url or "").strip(),
         property_facts=dict(property_facts or {}),
         listing_fact_confirmation=dict(listing_fact_confirmation or {}),
         assessment=dict(assessment or {}),
@@ -3238,6 +3264,7 @@ def build_property_workbench_candidate_snapshot(
         recovered_by_filter=bool(recovered_by_filter),
         relaxed_filter_label=str(relaxed_filter_label or "").strip(),
         preview_image_url=str(preview_image_url or "").strip(),
+        diorama_preview_url=str(diorama_preview_url or "").strip(),
         repair_flag_label=str(repair_flag_label or "").strip(),
         repair_flag_detail=str(repair_flag_detail or "").strip(),
     ).to_dict()

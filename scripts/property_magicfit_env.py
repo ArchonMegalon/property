@@ -56,6 +56,11 @@ def _load_accounts_from_json_text(raw_accounts: str) -> list[dict[str, object]]:
         loaded = json.loads(raw_accounts)
     except Exception:
         return []
+    if isinstance(loaded, dict):
+        nested_accounts = loaded.get("accounts")
+        if not isinstance(nested_accounts, list):
+            return []
+        loaded = nested_accounts
     if not isinstance(loaded, list):
         return []
     return [row for row in loaded if isinstance(row, dict)]
@@ -96,20 +101,23 @@ def _apply_accounts_json_defaults(values: dict[str, str], sources: dict[str, str
     if values.get("PROPERTYQUARRY_MAGICFIT_EMAIL") and values.get("PROPERTYQUARRY_MAGICFIT_PASSWORD"):
         return
     accounts_path = values.get("PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE") or values.get("MAGICFIT_ACCOUNTS_JSON_FILE") or ""
-    source_key = (
+    file_source_key = (
         "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE"
         if values.get("PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE")
         else "MAGICFIT_ACCOUNTS_JSON_FILE"
     )
+    loaded: list[dict[str, object]] = []
+    source_key = ""
     if accounts_path:
         path = _resolve_accounts_json_file_path(accounts_path)
-        if not path.is_file():
-            return
-        try:
-            loaded = _load_accounts_from_json_text(path.read_text(encoding="utf-8"))
-        except Exception:
-            return
-    else:
+        if path.is_file():
+            try:
+                loaded = _load_accounts_from_json_text(path.read_text(encoding="utf-8"))
+            except Exception:
+                loaded = []
+            if loaded:
+                source_key = file_source_key
+    if not loaded:
         raw_accounts = values.get("PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON") or values.get("MAGICFIT_ACCOUNTS_JSON") or ""
         source_key = (
             "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON"
@@ -119,6 +127,8 @@ def _apply_accounts_json_defaults(values: dict[str, str], sources: dict[str, str
         if not raw_accounts:
             return
         loaded = _load_accounts_from_json_text(raw_accounts)
+        if not loaded:
+            return
     credentialed_accounts: list[dict[str, object]] = []
     for row in loaded:
         email = str(row.get("email") or row.get("username") or row.get("login") or "").strip()

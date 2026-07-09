@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import io
+import html
 import json
 import re
 import socket
@@ -79,6 +81,44 @@ def _write_cube_face_png(path: Path, *, label: str, fill: tuple[int, int, int]) 
     image.save(path)
 
 
+def _remote_png_bytes(
+    *,
+    label: str,
+    size: tuple[int, int] = (1600, 1100),
+    fill: tuple[int, int, int] = (228, 220, 210),
+) -> bytes:
+    image = Image.new("RGB", size, fill)
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((56, 56, size[0] - 56, size[1] - 56), outline=(248, 245, 240), width=14)
+    draw.rectangle((88, 88, size[0] - 88, 250), fill=(30, 31, 34))
+    draw.text((126, 136), "PropertyQuarry", fill=(248, 245, 240))
+    draw.text((126, 186), label, fill=(233, 221, 206))
+    draw.rectangle((124, 328, 976, 916), fill=(239, 234, 227), outline=(164, 104, 66), width=8)
+    draw.rectangle((1034, 328, 1446, 610), fill=(181, 194, 164))
+    draw.rectangle((1034, 650, 1446, 916), fill=(215, 194, 166))
+    payload = io.BytesIO()
+    image.save(payload, format="PNG")
+    return payload.getvalue()
+
+
+def _stub_remote_png(
+    context: BrowserContext,
+    *,
+    url_pattern: str,
+    label: str,
+    size: tuple[int, int] = (1600, 1100),
+) -> None:
+    body = _remote_png_bytes(label=label, size=size)
+    context.route(
+        url_pattern,
+        lambda route: route.fulfill(
+            status=200,
+            content_type="image/png",
+            body=body,
+        ),
+    )
+
+
 def _write_h264_flythrough(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     command = [
@@ -132,6 +172,70 @@ def _video_frame_brightness(page: Page) -> float:
             }"""
         )
     )
+
+
+def _unexpected_console_errors(messages: list[str]) -> list[str]:
+    filtered: list[str] = []
+    for message in messages:
+        normalized = str(message or "").strip()
+        if not normalized:
+            continue
+        lowered = normalized.lower()
+        if "cross-origin-opener-policy header has been ignored" in lowered and "origin was untrustworthy" in lowered:
+            continue
+        filtered.append(normalized)
+    return filtered
+
+
+def _generated_reconstruction_layout_viewer_state(page: Page) -> dict[str, object]:
+    state = page.evaluate(
+        """() => {
+            const shell = document.querySelector('.layout-viewer-shell');
+            const frame = document.getElementById('layout-viewer-frame');
+            const doc = frame?.contentDocument;
+            const debug = frame?.contentWindow?.__pqReconstructionDebug;
+            const metrics = debug && typeof debug.getRenderMetrics === 'function'
+              ? debug.getRenderMetrics()
+              : null;
+            return {
+              shellReady: Boolean(shell && shell.classList.contains('is-ready')),
+              routeLabel: String(doc?.getElementById('viewer-route-label')?.textContent || '').trim(),
+              routePosition: String(doc?.getElementById('viewer-route-position')?.textContent || '').trim(),
+              focusReadout: String(doc?.getElementById('viewer-focus-readout')?.textContent || '').trim(),
+              renderReadout: String(doc?.getElementById('viewer-render-readout')?.textContent || '').trim(),
+              metrics: metrics && typeof metrics === 'object' ? metrics : {},
+            };
+        }"""
+    )
+    assert isinstance(state, dict)
+    return state
+
+
+def _wait_for_generated_reconstruction_layout_viewer_ready(
+    page: Page,
+    *,
+    timeout_ms: int = 10_000,
+) -> dict[str, object]:
+    page.wait_for_function(
+        """() => {
+            const shell = document.querySelector('.layout-viewer-shell');
+            const frame = document.getElementById('layout-viewer-frame');
+            const doc = frame?.contentDocument;
+            const debug = frame?.contentWindow?.__pqReconstructionDebug;
+            if (!shell || !doc || !debug || typeof debug.getRenderMetrics !== 'function') {
+              return false;
+            }
+            const metrics = debug.getRenderMetrics();
+            return shell.classList.contains('is-ready')
+              && String(doc.getElementById('viewer-render-readout')?.textContent || '').trim() === 'Ready'
+              && Boolean(metrics && metrics.ready)
+              && Number(metrics.frameCount || 0) >= 2
+              && Number(metrics.renderCalls || 0) > 0
+              && Number(metrics.renderTriangles || 0) > 0;
+        }""",
+        timeout=timeout_ms,
+    )
+    return _generated_reconstruction_layout_viewer_state(page)
 
 
 def _choose_research_visual_style(page: Page, *, label: str = "Urban jungle") -> None:
@@ -569,7 +673,7 @@ def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
     monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", browser_base_url)
     _wait_for_http(local_base_url)
     try:
-        yield {"base_url": browser_base_url, "client": test_client}
+        yield {"base_url": browser_base_url, "client": test_client, "bundle_root": bundle_root}
     finally:
         server.should_exit = True
         thread.join(timeout=10.0)
@@ -1627,6 +1731,120 @@ def test_propertyquarry_completed_run_opens_fast_ranked_shell_in_real_browser(
         )
         assert all("/app/assets/property-workbench." not in str(url) for url in resource_urls)
         assert duration_ms > 0
+    finally:
+        context.close()
+
+
+def test_propertyquarry_fast_ranked_shell_uses_generated_diorama_from_ready_layout_on_first_paint(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    generated_reconstruction_url = "https://propertyquarry.com/tours/fast-generated-layout"
+    diorama_url = "https://cdn.example.test/fast-generated-diorama.png"
+    photo_url = "https://cdn.example.test/fast-generated-photo.jpg"
+    original_get_run_status = ProductService.get_property_search_run_status
+    original_list_runs = ProductService.list_property_search_runs
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str, lightweight: bool = False, account_email: str = ""):
+        if principal_id == "pq-greenfield-browser" and run_id == "run-fast-generated-layout":
+            return {
+                "run_id": run_id,
+                "principal_id": principal_id,
+                "status_url": f"/app/api/signals/property/search/run/{run_id}",
+                "status": "processed",
+                "progress": 100,
+                "message": "Generated layout shortlist ready.",
+                "summary": {
+                    "status": "processed",
+                    "ranked_candidates": [
+                        {
+                            "candidate_ref": "fast-generated-layout-flat",
+                            "title": "Generated layout shortlist flat",
+                            "property_url": "https://www.immobilienscout24.de/expose/generated-layout-shortlist-flat",
+                            "source_label": "ImmoScout24",
+                            "tour_url": generated_reconstruction_url,
+                            "preview_image_url": photo_url,
+                            "property_facts": {
+                                "price_display": "EUR 2,050",
+                                "postal_name": "1020 Vienna",
+                                "preview_image_url": photo_url,
+                                "image_url": photo_url,
+                                "media_urls_json": [photo_url],
+                            },
+                        }
+                    ],
+                },
+            }
+        try:
+            return original_get_run_status(
+                self,
+                principal_id=principal_id,
+                run_id=run_id,
+                lightweight=lightweight,
+                account_email=account_email,
+            )
+        except TypeError:
+            try:
+                return original_get_run_status(
+                    self,
+                    principal_id=principal_id,
+                    run_id=run_id,
+                    lightweight=lightweight,
+                )
+            except TypeError:
+                return original_get_run_status(self, principal_id=principal_id, run_id=run_id)
+
+    def _fake_list_runs(self, *, principal_id: str, limit: int = 24, hydrate: bool = False):
+        if principal_id == "pq-greenfield-browser":
+            return [
+                {
+                    "run_id": "run-fast-generated-layout",
+                    "status": "processed",
+                    "summary": {
+                        "status": "processed",
+                        "ranked_candidates": [
+                            {
+                                "candidate_ref": "fast-generated-layout-flat",
+                                "title": "Generated layout shortlist flat",
+                                "property_url": "https://www.immobilienscout24.de/expose/generated-layout-shortlist-flat",
+                            }
+                        ],
+                    },
+                }
+            ]
+        return original_list_runs(self, principal_id=principal_id, limit=limit, hydrate=hydrate)
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(ProductService, "list_property_search_runs", _fake_list_runs)
+    monkeypatch.setattr(
+        landing_routes,
+        "_property_visual_ready_tour_url",
+        lambda *, tour_url="", open_tour_url="": (
+            generated_reconstruction_url
+            if str(tour_url or open_tour_url).strip() == generated_reconstruction_url
+            else ""
+        ),
+    )
+    monkeypatch.setattr(
+        landing_routes,
+        "_hosted_property_tour_telegram_preview_image_url_for_style",
+        lambda tour_url, *, diorama_style_hint="": diorama_url if tour_url == generated_reconstruction_url else "",
+    )
+
+    context = _new_context(browser, mobile=False, width=1440, height=900)
+    _stub_remote_png(context, url_pattern="**/fast-generated-diorama.png", label="Fast generated diorama")
+    page: Page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/shortlist/run/run-fast-generated-layout", wait_until="networkidle")
+        assert response is not None and response.ok
+        expect(page.locator("[data-pq-fast-ranked-run]")).to_be_visible()
+        first_row = page.locator("[data-pq-fast-list] .pq-fast-row:not(.pq-fast-skeleton)").first
+        first_row.wait_for(timeout=5000)
+        expect(first_row).to_contain_text("Generated layout shortlist flat")
+        expect(first_row.locator(".pq-fast-thumb")).to_have_attribute("data-visual-kind", "diorama")
+        expect(first_row.locator(".pq-fast-thumb img")).to_have_attribute("src", diorama_url)
     finally:
         context.close()
 
@@ -5471,6 +5689,231 @@ def test_propertyquarry_3d_tour_request_is_user_initiated_in_real_browser(
         context.close()
 
 
+def test_propertyquarry_research_detail_never_shows_fake_open_tour_for_generated_reconstruction_status(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=True, width=390, height=844)
+    page: Page = context.new_page()
+    visual_requests: list[dict[str, object]] = []
+    visual_status_polls = 0
+
+    def _capture_visual_request(route) -> None:
+        payload = route.request.post_data_json or {}
+        visual_requests.append(payload if isinstance(payload, dict) else {})
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "generated_at": "2026-07-08T10:00:00+00:00",
+                    "status": "created",
+                    "property_url": visual_requests[-1].get("property_url", ""),
+                    "title": "Family flat near Tiergarten",
+                    "request_kind": "tour",
+                    "tour_url": "",
+                    "tour_status": "pending",
+                    "flythrough_url": "",
+                    "flythrough_status": "",
+                    "status_label": "3D tour queued",
+                    "status_detail": "3D tour is queued after your request.",
+                    "eta_label": "about 10 min",
+                    "progress_pct": 16,
+                    "poll_after_seconds": 1,
+                    "delivery_status": "queued",
+                    "blocked_reason": "",
+                    "source_ref": visual_requests[-1].get("source_ref", ""),
+                    "run_id": visual_requests[-1].get("run_id", ""),
+                    "candidate_ref": visual_requests[-1].get("candidate_ref", ""),
+                }
+            ),
+        )
+
+    def _capture_visual_status(route) -> None:
+        nonlocal visual_status_polls
+        visual_status_polls += 1
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "generated_at": "2026-07-08T10:00:03+00:00",
+                    "status": "ready",
+                    "property_url": "https://www.immobilienscout24.de/expose/family-tiergarten",
+                    "title": "Family flat near Tiergarten",
+                    "request_kind": "tour",
+                    "tour_url": "https://propertyquarry.com/tours/generated-layout-tiergarten",
+                    "open_tour_url": "",
+                    "generated_reconstruction_url": "https://propertyquarry.com/tours/generated-layout-tiergarten",
+                    "tour_status": "ready",
+                    "flythrough_url": "",
+                    "flythrough_status": "",
+                    "status_label": "Open 3D tour",
+                    "status_detail": "3D tour is ready.",
+                    "eta_label": "",
+                    "progress_pct": 100,
+                    "poll_after_seconds": 0,
+                    "source_ref": "immobilienscout24:family-tiergarten",
+                    "run_id": "run-42",
+                    "candidate_ref": "family-tiergarten",
+                }
+            ),
+        )
+
+    page.route("**/app/api/signals/willhaben/property-tour", _capture_visual_request)
+    page.route("**/app/api/signals/property/visual-status?**", _capture_visual_status)
+    try:
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42&full=1", wait_until="networkidle")
+        assert response is not None and response.ok
+
+        family_row = page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").first
+        expect(family_row).to_be_visible()
+        packet_href = str(family_row.get_attribute("data-candidate-packet-url") or "").strip()
+        assert packet_href
+        packet_url = packet_href if packet_href.startswith("http") else f"{base_url}{packet_href}"
+
+        response = page.goto(packet_url, wait_until="networkidle")
+        assert response is not None and response.ok
+        page.wait_for_timeout(400)
+        expect(page.get_by_role("button", name="Open 3D tour")).to_have_count(0)
+        fallback_button = page.get_by_role("button", name=re.compile("(Request|Retry) 3D tour", re.I)).first
+        expect(fallback_button).to_be_visible()
+        assert str(fallback_button.get_attribute("data-pw-visual-href") or "").strip() == ""
+
+        fallback_button.click()
+        _choose_research_visual_style(page)
+        page.wait_for_timeout(2200)
+        assert len(visual_requests) == 1
+        assert visual_requests[0]["request_kind"] == "tour"
+        assert visual_status_polls >= 1
+        expect(page.get_by_role("button", name="Open 3D tour")).to_have_count(0)
+        refreshed_button = page.get_by_role("button", name=re.compile("(Request|Retry) 3D tour", re.I)).first
+        expect(refreshed_button).to_be_visible()
+        assert str(refreshed_button.get_attribute("data-pw-visual-href") or "").strip() == ""
+    finally:
+        context.close()
+
+
+def test_propertyquarry_research_detail_surfaces_generated_diorama_and_layout_tour_in_real_browser(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import landing_property_research
+
+    base_url = str(propertyquarry_browser_server["base_url"])
+    client = propertyquarry_browser_server["client"]
+    assert isinstance(client, TestClient)
+
+    candidate = {
+        "title": "Generated reconstruction loft",
+        "summary": "EUR 1,950 · 76 m² · 1020 Wien",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/generated-reconstruction-loft",
+        "source_ref": "willhaben:generated-reconstruction-loft",
+        "tour_status": "ready",
+        "tour_url": "https://propertyquarry.com/tours/generated-reconstruction-loft",
+        "property_facts": {
+            "price_eur": 1950.0,
+            "area_m2": 76.0,
+            "postal_name": "1020 Wien",
+        },
+    }
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        if principal_id == "pq-greenfield-browser" and run_id == "run-generated-reconstruction-browser":
+            return {
+                "run_id": run_id,
+                "principal_id": principal_id,
+                "status_url": f"/app/api/signals/property/search/run/{run_id}",
+                "status": "processed",
+                "progress": 100,
+                "message": "done",
+                "summary": {
+                    "sources_total": 1,
+                    "listing_total": 1,
+                    "ranked_candidates": [candidate],
+                    "sources": [
+                        {
+                            "source_label": "Willhaben | Austria | Rent | 1020 Vienna",
+                            "listing_total": 1,
+                            "top_candidates": [candidate],
+                        }
+                    ],
+                },
+                "events": [],
+            }
+        return original_get_run_status(self, principal_id=principal_id, run_id=run_id)
+
+    original_get_run_status = ProductService.get_property_search_run_status
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(landing_property_research, "_property_investment_research_snapshot", lambda **kwargs: {})
+    monkeypatch.setattr(landing_property_research.property_tour_hosting, "_hosted_property_tour_verified_open_url", lambda _url: "")
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_first_party_open_url",
+        lambda _url: f"{base_url}/tours/generated-reconstruction-loft",
+    )
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_generated_reconstruction_bundle_ready",
+        lambda _url: True,
+    )
+    monkeypatch.setattr(
+        landing_routes,
+        "_hosted_property_tour_telegram_preview_image_url_for_style",
+        lambda _tour_url, *, diorama_style_hint="": "https://cdn.example.test/generated-reconstruction-diorama.png",
+    )
+
+    packet_ref = landing_property_research._property_candidate_ref(
+        {
+            **candidate,
+            "source_label": "Willhaben | Austria | Rent | 1020 Vienna",
+        }
+    )
+
+    bundle_root = Path(str(propertyquarry_browser_server["bundle_root"]))
+    _write_generated_reconstruction_public_launch_fixture(bundle_root, slug="generated-reconstruction-loft")
+    context = _new_context(browser, mobile=True, width=390, height=844)
+    _stub_remote_png(
+        context,
+        url_pattern="https://cdn.example.test/generated-reconstruction-diorama.png",
+        label="Generated reconstruction diorama",
+    )
+    page: Page = context.new_page()
+    try:
+        _issue_browser_workspace_session(client=client, context=context, base_url=base_url)
+        response = page.goto(
+            f"{base_url}/app/research/{packet_ref}?run_id=run-generated-reconstruction-browser",
+            wait_until="networkidle",
+        )
+        assert response is not None and response.ok
+        expect(page.locator("[data-property-research-detail]")).to_be_visible()
+        expect(page.locator("[data-prd-hero-image]")).to_have_attribute(
+            "src",
+            "https://cdn.example.test/generated-reconstruction-diorama.png",
+        )
+        expect(page.get_by_role("link", name="Open layout tour").first).to_be_visible()
+        expect(page.locator("[data-prd-visual-card='generated_reconstruction']")).to_be_visible()
+        expect(page.locator(".prd-status-badge")).to_contain_text("Layout tour available")
+        expect(page.get_by_role("button", name=re.compile("Request 3D tour", re.I))).to_have_count(0)
+        _assert_no_horizontal_overflow(page)
+        open_layout_tour = page.get_by_role("link", name="Open layout tour").first
+        expect(open_layout_tour).to_have_attribute("href", re.compile(r".*/tours/generated-reconstruction-loft$"))
+        with page.expect_navigation(wait_until="domcontentloaded"):
+            open_layout_tour.click()
+        assert page.url.endswith("/tours/generated-reconstruction-loft")
+        public_text = page.locator("body").inner_text().lower()
+        assert "generated reconstruction" in public_text
+        assert "room route" in public_text
+        assert "reference deck" in public_text
+        assert "tour unavailable" not in public_text
+        assert page.locator("#tour-video").count() == 1
+        _assert_no_horizontal_overflow(page)
+    finally:
+        context.close()
+
+
 def test_propertyquarry_blocked_3d_tour_can_be_retried_from_research_packet_in_real_browser(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],
@@ -7768,6 +8211,556 @@ def test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_b
         ]
         assert not noisy_console_errors, f"console={noisy_console_errors}; responses={error_responses}; failed={failed_requests}"
         assert failed_requests == []
+    finally:
+        context.close()
+
+
+def _write_generated_reconstruction_public_launch_fixture(bundle_root: Path, *, slug: str) -> tuple[list[str], list[str]]:
+    bundle_dir = bundle_root / slug
+    reconstruction_dir = bundle_dir / "generated-reconstruction"
+    reconstruction_dir.mkdir(parents=True, exist_ok=True)
+    route_labels = [
+        "entry/hall",
+        "living area",
+        "sleeping area",
+        "balcony/terrace",
+        "living area detail 2",
+        "balcony/terrace return",
+    ]
+    walkthrough_route_labels = [
+        "entry/hall",
+        "living area",
+        "sleeping area",
+        "balcony/terrace",
+        "living area detail 2",
+        "balcony/terrace return",
+        "balcony detail 2",
+    ]
+    walkable_scene = {
+        "kind": "generated_reconstruction_layout",
+        "route": [
+            {
+                "label": label,
+                "focus": {"x": 1.0 + (index * 0.9), "y": 1.45, "z": 0.5 + ((index % 2) * 0.35)},
+                "camera": {"x": -1.25 + (index * 0.95), "y": 1.7, "z": 2.25 - (index * 0.12)},
+            }
+            for index, label in enumerate(route_labels)
+        ],
+        "rooms": [
+            {
+                "label": label,
+                "position": {"x": -0.4 + (index * 0.95), "y": 0.0, "z": 0.3 + ((index % 2) * 0.4)},
+                "focus": {"x": 1.0 + (index * 0.9), "y": 1.45, "z": 0.5 + ((index % 2) * 0.35)},
+            }
+            for index, label in enumerate(route_labels)
+        ],
+    }
+    coverage_proof = {
+        "status": "pass",
+        "segments_expected": walkthrough_route_labels,
+        "segments_visited": walkthrough_route_labels,
+        "coverage_segments": [
+            {"segment": "entry/hall", "start": 0.0, "end": 0.4},
+            {"segment": "living area", "start": 0.4, "end": 0.8},
+            {"segment": "sleeping area", "start": 0.8, "end": 1.2},
+            {"segment": "balcony/terrace", "start": 1.2, "end": 1.6},
+            {"segment": "living area detail 2", "start": 1.6, "end": 2.0},
+            {"segment": "balcony/terrace return", "start": 2.0, "end": 2.4},
+            {"segment": "balcony detail 2", "start": 2.4, "end": 3.0},
+        ],
+    }
+    _write_floorplan_png(reconstruction_dir / "source-floorplan.png")
+    _write_h264_flythrough(reconstruction_dir / "generated-walkthrough.mp4")
+    _write_cube_face_png(bundle_dir / "diorama-preview.png", label="Generated diorama", fill=(128, 98, 76))
+    photo_specs = [
+        ("photo-01.png", "Entry", (89, 92, 104)),
+        ("photo-02.png", "Living", (122, 88, 72)),
+        ("photo-03.png", "Bedroom", (78, 104, 86)),
+        ("photo-04.png", "Balcony", (110, 120, 82)),
+        ("photo-05.png", "Living detail", (138, 104, 84)),
+    ]
+    for filename, label, fill in photo_specs:
+        _write_cube_face_png(reconstruction_dir / filename, label=label, fill=fill)
+    viewer_route_labels_json = json.dumps(route_labels, ensure_ascii=False)
+    (reconstruction_dir / "viewer.html").write_text(
+        f"""<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Layout preview | PropertyQuarry</title>
+    <style>
+      :root {{ color-scheme: light; }}
+      * {{ box-sizing: border-box; }}
+      body {{
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background:
+          radial-gradient(circle at 18% 14%, rgba(255,255,255,.92), transparent 24%),
+          linear-gradient(160deg, #f3e8d8 0%, #ddc7a9 54%, #b79973 100%);
+        color: #17130c;
+        font-family: Aptos, ui-sans-serif, system-ui, sans-serif;
+      }}
+      main {{
+        width: min(880px, calc(100vw - 32px));
+        min-height: min(72vh, 620px);
+        display: grid;
+        gap: 18px;
+        align-content: start;
+        padding: 28px;
+        border-radius: 28px;
+        border: 1px solid rgba(54, 42, 27, .12);
+        background: rgba(255, 252, 245, .82);
+        box-shadow: 0 24px 70px rgba(68, 47, 24, .12);
+      }}
+      .eyebrow {{
+        color: #766d5e;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: .12em;
+        text-transform: uppercase;
+      }}
+      h1 {{
+        margin: 0;
+        font-family: Georgia, ui-serif, serif;
+        font-size: clamp(30px, 4vw, 48px);
+        line-height: .94;
+        letter-spacing: -.05em;
+      }}
+      p {{
+        margin: 0;
+        color: #5d5141;
+        line-height: 1.45;
+      }}
+      .viewer-stage {{
+        display: grid;
+        gap: 14px;
+        padding: 18px;
+        border-radius: 24px;
+        border: 1px solid rgba(54, 42, 27, .1);
+        background: linear-gradient(180deg, rgba(255,255,255,.74), rgba(248,242,232,.84));
+      }}
+      .viewer-route-label {{
+        font-family: Georgia, ui-serif, serif;
+        font-size: clamp(24px, 3vw, 34px);
+        line-height: .96;
+        letter-spacing: -.04em;
+      }}
+      .viewer-chip-row {{
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }}
+      .viewer-chip {{
+        min-height: 30px;
+        display: inline-flex;
+        align-items: center;
+        padding: 0 11px;
+        border-radius: 999px;
+        background: rgba(167,124,43,.14);
+        color: #6c4c16;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+      }}
+      .viewer-grid {{
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }}
+      .viewer-card {{
+        padding: 14px 15px;
+        border-radius: 18px;
+        border: 1px solid rgba(54, 42, 27, .08);
+        background: rgba(255,255,255,.64);
+      }}
+      .viewer-card b {{
+        display: block;
+        margin-bottom: 4px;
+        color: #766d5e;
+        font-size: 11px;
+        letter-spacing: .08em;
+        text-transform: uppercase;
+      }}
+      @media (max-width: 720px) {{
+        main {{ width: calc(100vw - 18px); padding: 18px; }}
+        .viewer-grid {{ grid-template-columns: 1fr; }}
+      }}
+    </style>
+  </head>
+  <body>
+    <main data-pq-reconstruction-viewer>
+      <div class="eyebrow">PropertyQuarry layout viewer</div>
+      <h1>Generated layout viewer</h1>
+      <p>Fixture viewer for the room-route shell. It exposes the same debug hooks the public launch uses to prove route sync and readiness.</p>
+      <section class="viewer-stage">
+        <div class="viewer-chip-row">
+          <span class="viewer-chip" id="viewer-route-position">Stop 1 / {len(route_labels)}</span>
+          <span class="viewer-chip" id="viewer-route-mode">Layout route</span>
+        </div>
+        <strong class="viewer-route-label" id="viewer-route-label">{html.escape(route_labels[0])}</strong>
+        <div class="viewer-grid">
+          <div class="viewer-card">
+            <b>Current focus</b>
+            <span id="viewer-focus-readout">{html.escape(route_labels[0])}</span>
+          </div>
+          <div class="viewer-card">
+            <b>Render status</b>
+            <span id="viewer-render-readout">Loading route renderer</span>
+          </div>
+        </div>
+      </section>
+    </main>
+    <script>
+      const routeLabels = {viewer_route_labels_json};
+      const routePosition = document.getElementById('viewer-route-position');
+      const routeLabel = document.getElementById('viewer-route-label');
+      const focusReadout = document.getElementById('viewer-focus-readout');
+      const renderReadout = document.getElementById('viewer-render-readout');
+      let activeIndex = 0;
+      const metrics = {{
+        ready: false,
+        frameCount: 0,
+        renderCalls: 0,
+        renderTriangles: 0,
+      }};
+      function updateRoute(index) {{
+        const normalized = Math.max(0, Math.min(routeLabels.length - 1, Number(index) || 0));
+        activeIndex = normalized;
+        const label = String(routeLabels[normalized] || `Stop ${{normalized + 1}}`).trim();
+        routePosition.textContent = `Stop ${{normalized + 1}} / ${{routeLabels.length}}`;
+        routeLabel.textContent = label;
+        focusReadout.textContent = label;
+      }}
+      function markReady() {{
+        metrics.ready = true;
+        metrics.frameCount = 3;
+        metrics.renderCalls = 4;
+        metrics.renderTriangles = 2048;
+        renderReadout.textContent = 'Ready';
+      }}
+      window.__pqReconstructionDebug = {{
+        setRouteView(index) {{
+          updateRoute(index);
+          return activeIndex;
+        }},
+        getRenderMetrics() {{
+          return {{ ...metrics }};
+        }},
+      }};
+      updateRoute(0);
+      window.requestAnimationFrame(() => window.requestAnimationFrame(markReady));
+    </script>
+  </body>
+</html>
+""",
+        encoding="utf-8",
+    )
+    (reconstruction_dir / "model.obj").write_text("o propertyquarry_generated_layout\nv 0 0 0\n", encoding="utf-8")
+    (reconstruction_dir / "model.mtl").write_text("newmtl walls\nKd 0.8 0.8 0.8\n", encoding="utf-8")
+    (reconstruction_dir / "generated-walkthrough.quality.json").write_text(
+        json.dumps(
+            {
+                "route_labels": walkthrough_route_labels,
+                "covered_route_labels": walkthrough_route_labels,
+                "walkthrough_coverage_proof": coverage_proof,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (reconstruction_dir / "reconstruction.json").write_text(
+        json.dumps(
+            {
+                "provider": "propertyquarry_generated_reconstruction",
+                "verified_provider_capture": False,
+                "satisfies_verified_tour_gate": False,
+                "room_dimensions_m": {"width": 8.0, "depth": 5.5, "height": 2.8},
+                "geometry": {"wall_rect_count": 8},
+                "walkable_scene": walkable_scene,
+                "route_labels": route_labels,
+                "walkthrough_route_labels": walkthrough_route_labels,
+                "viewer": {
+                    "relpath": "viewer.html",
+                    "version": "propertyquarry_3d_tour_viewer_v3",
+                },
+                "walkthrough": {
+                    "status": "generated",
+                    "coverage_proof": coverage_proof,
+                },
+                "model": {
+                    "glb_export": {
+                        "status": "failed",
+                        "reason": "not_required_for_browser_fixture",
+                    }
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    scenes = [
+        {
+            "scene_id": "floorplan-1",
+            "name": "Route floorplan",
+            "role": "floorplan",
+            "asset_relpath": "generated-reconstruction/source-floorplan.png",
+            "mime_type": "image/png",
+        }
+    ]
+    scenes.extend(
+        {
+            "scene_id": f"photo-{index}",
+            "name": label,
+            "role": "photo",
+            "asset_relpath": f"generated-reconstruction/{filename}",
+            "mime_type": "image/png",
+        }
+        for index, (filename, label, _fill) in enumerate(photo_specs, start=1)
+    )
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "title": "Generated reconstruction public launch",
+                "display_title": "Generated reconstruction public launch",
+                "hosted_url": f"https://propertyquarry.com/tours/{slug}",
+                "public_url": f"https://propertyquarry.com/tours/{slug}",
+                "diorama_preview_relpath": "diorama-preview.png",
+                "preview_relpath": "diorama-preview.png",
+                "photo_count": len(photo_specs),
+                "media": {"source_photos": {"count": len(photo_specs)}},
+                "generated_reconstruction": {
+                    "provider": "propertyquarry_generated_reconstruction",
+                    "viewer_version": "propertyquarry_3d_tour_viewer_v3",
+                    "viewer_relpath": "generated-reconstruction/viewer.html",
+                    "manifest_relpath": "generated-reconstruction/reconstruction.json",
+                    "model_relpath": "generated-reconstruction/model.obj",
+                    "material_relpath": "generated-reconstruction/model.mtl",
+                    "glb_model_relpath": "",
+                    "glb_export_status": "failed",
+                    "floorplan_relpath": "generated-reconstruction/source-floorplan.png",
+                    "photo_relpaths": [
+                        "generated-reconstruction/photo-01.png",
+                        "generated-reconstruction/photo-02.png",
+                        "generated-reconstruction/photo-03.png",
+                        "generated-reconstruction/photo-04.png",
+                        "generated-reconstruction/photo-05.png",
+                    ],
+                    "route_labels": route_labels,
+                    "room_stop_count": len(route_labels),
+                    "walkthrough_route_labels": walkthrough_route_labels,
+                    "walkthrough_stop_count": len(walkthrough_route_labels),
+                    "walkthrough_video_relpath": "generated-reconstruction/generated-walkthrough.mp4",
+                    "walkthrough_sidecar_relpath": "generated-reconstruction/generated-walkthrough.quality.json",
+                    "walkthrough_coverage_proof": coverage_proof,
+                    "walkable_scene": walkable_scene,
+                    "verified_provider_capture": False,
+                    "satisfies_verified_tour_gate": False,
+                },
+                "video_relpath": "generated-reconstruction/generated-walkthrough.mp4",
+                "video_sidecar_relpath": "generated-reconstruction/generated-walkthrough.quality.json",
+                "video_provider": "propertyquarry_generated_reconstruction",
+                "video_provider_key": "propertyquarry_generated_reconstruction",
+                "video_coverage_proof": "boundary_verified_frame_continuation",
+                "scenes": scenes,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return route_labels, walkthrough_route_labels
+
+
+def test_propertyquarry_generated_reconstruction_public_launch_renders_honest_shell_in_real_browser(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    bundle_root = Path(str(propertyquarry_browser_server["bundle_root"]))
+    slug = "generated-reconstruction-public-e2e"
+    route_labels, _ = _write_generated_reconstruction_public_launch_fixture(bundle_root, slug=slug)
+
+    context = _new_context(browser, mobile=False)
+    page: Page = context.new_page()
+    console_errors: list[str] = []
+    failed_requests: list[str] = []
+    page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
+    page.on("pageerror", lambda exc: console_errors.append(str(exc)))
+    page.on("requestfailed", lambda request: failed_requests.append(f"{request.url} :: {request.failure}"))
+    try:
+        response = page.goto(f"{base_url}/tours/{slug}", wait_until="domcontentloaded")
+        assert response is not None
+        assert response.status == 200
+        assert page.locator('[data-launch-mode="tour_public_launch"]').count() == 1
+        body_text = page.inner_text("body").lower()
+        assert "generated reconstruction" in body_text
+        assert "room route" in body_text
+        assert "reference deck" in body_text
+        assert "tour unavailable" not in body_text
+        assert page.locator("#tour-video").count() == 1
+        assert page.locator("#tour-video source").get_attribute("src").endswith(f"/tours/{slug}/walkthrough")
+        assert page.locator(".route-action").count() == len(route_labels)
+        assert page.locator("#media-grid .media-card").count() == 6
+        assert page.locator("#reference-shell").count() == 1
+        lead_preview_src = page.locator("#lead-preview-image").get_attribute("src")
+        assert lead_preview_src is not None
+        assert lead_preview_src.endswith(f"/tours/files/{slug}/diorama-preview.png")
+        layout_viewer_src = page.locator("#layout-viewer-frame").get_attribute("src")
+        assert layout_viewer_src is not None
+        parsed_layout_viewer_src = urllib.parse.urlparse(layout_viewer_src)
+        assert parsed_layout_viewer_src.path.endswith(f"/tours/files/{slug}/generated-reconstruction/viewer.html")
+        assert urllib.parse.parse_qs(parsed_layout_viewer_src.query) == {"embed": ["1"]}
+        viewer_state = _wait_for_generated_reconstruction_layout_viewer_ready(page)
+        assert viewer_state["shellReady"] is True
+        assert viewer_state["routeLabel"] == route_labels[0]
+        assert viewer_state["routePosition"] == f"Stop 1 / {len(route_labels)}"
+        assert viewer_state["focusReadout"] == route_labels[0]
+        assert viewer_state["renderReadout"] == "Ready"
+        initial_metrics = dict(viewer_state.get("metrics") or {})
+        assert bool(initial_metrics.get("ready"))
+        assert int(initial_metrics.get("frameCount") or 0) >= 2
+        assert int(initial_metrics.get("renderCalls") or 0) > 0
+        assert int(initial_metrics.get("renderTriangles") or 0) > 0
+        initial_focus_target = page.locator("#reference-shell").get_attribute("data-focus-target")
+        target_index = len(route_labels) - 1
+        target_position = f"Stop {target_index + 1} / {len(route_labels)}"
+        target_action = page.locator(".route-action").nth(target_index)
+        target_label = target_action.get_attribute("data-route-label")
+        assert target_label == route_labels[target_index]
+        target_action.click()
+        expect(target_action).to_have_class(re.compile(r".*\bis-active\b.*"))
+        page.wait_for_function(
+            """([expectedLabel, expectedPosition]) => {
+                const frame = document.getElementById('layout-viewer-frame');
+                const doc = frame?.contentDocument;
+                const referenceShell = document.getElementById('reference-shell');
+                const walkthroughStopPosition = document.getElementById('walkthrough-stop-position');
+                if (!doc || !referenceShell || !walkthroughStopPosition) {
+                  return false;
+                }
+                return String(doc.getElementById('viewer-route-label')?.textContent || '').trim() === expectedLabel
+                  && String(doc.getElementById('viewer-route-position')?.textContent || '').trim() === expectedPosition
+                  && String(doc.getElementById('viewer-focus-readout')?.textContent || '').trim() === expectedLabel
+                  && String(walkthroughStopPosition.textContent || '').trim() === expectedPosition
+                  && String(referenceShell.getAttribute('data-focus-target') || '').trim() !== '';
+            }""",
+            arg=[target_label, target_position],
+            timeout=10_000,
+        )
+        synced_viewer_state = _generated_reconstruction_layout_viewer_state(page)
+        assert synced_viewer_state["routeLabel"] == target_label
+        assert synced_viewer_state["routePosition"] == target_position
+        assert synced_viewer_state["focusReadout"] == target_label
+        synced_focus_target = page.locator("#reference-shell").get_attribute("data-focus-target")
+        assert synced_focus_target
+        assert synced_focus_target != initial_focus_target
+        preview_page = context.new_page()
+        preview_page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
+        preview_page.on("pageerror", lambda exc: console_errors.append(str(exc)))
+        preview_response = preview_page.goto(f"{base_url}/tours/{slug}/layout-preview", wait_until="domcontentloaded")
+        assert preview_response is not None
+        assert preview_response.status == 200
+        assert preview_page.locator('[data-launch-mode="layout_preview"]').count() == 1
+        preview_body = preview_page.inner_text("body").lower()
+        assert "generated reconstruction" in preview_body
+        assert "room route" in preview_body
+        assert "reference deck" in preview_body
+        expect(preview_page.get_by_role("link", name="Open layout viewer")).to_be_visible()
+        preview_lead_preview_src = preview_page.locator("#lead-preview-image").get_attribute("src")
+        assert preview_lead_preview_src is not None
+        assert preview_lead_preview_src.endswith(f"/tours/files/{slug}/diorama-preview.png")
+        preview_layout_viewer_src = preview_page.locator("#layout-viewer-frame").get_attribute("src")
+        assert preview_layout_viewer_src is not None
+        parsed_preview_layout_viewer_src = urllib.parse.urlparse(preview_layout_viewer_src)
+        assert parsed_preview_layout_viewer_src.path.endswith(f"/tours/files/{slug}/generated-reconstruction/viewer.html")
+        assert urllib.parse.parse_qs(parsed_preview_layout_viewer_src.query) == {"embed": ["1"]}
+        assert preview_page.locator("#tour-video").count() == 1
+        assert preview_page.locator(".route-action").count() == len(route_labels)
+        assert preview_page.evaluate(
+            """() => {
+                const layoutViewer = document.getElementById('layout-viewer');
+                const walkthrough = document.getElementById('walkthrough');
+                if (!layoutViewer || !walkthrough) return false;
+                return Boolean(layoutViewer.compareDocumentPosition(walkthrough) & Node.DOCUMENT_POSITION_FOLLOWING);
+            }"""
+        )
+        preview_viewer_state = _wait_for_generated_reconstruction_layout_viewer_ready(preview_page)
+        assert preview_viewer_state["shellReady"] is True
+        assert preview_viewer_state["routeLabel"] == route_labels[0]
+        assert preview_viewer_state["routePosition"] == f"Stop 1 / {len(route_labels)}"
+        assert preview_viewer_state["focusReadout"] == route_labels[0]
+        assert preview_viewer_state["renderReadout"] == "Ready"
+        unexpected_console_errors = [
+            message
+            for message in console_errors
+            if "404 (not found)" not in message.lower() and "cross-origin-opener-policy" not in message.lower()
+        ]
+        assert not _unexpected_console_errors(unexpected_console_errors), unexpected_console_errors
+        assert not failed_requests, failed_requests
+    finally:
+        context.close()
+
+
+def test_propertyquarry_generated_reconstruction_public_launch_is_mobile_safe(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    bundle_root = Path(str(propertyquarry_browser_server["bundle_root"]))
+    slug = "generated-reconstruction-public-mobile"
+    route_labels, _ = _write_generated_reconstruction_public_launch_fixture(bundle_root, slug=slug)
+
+    context = _new_context(browser, mobile=True, width=390, height=844)
+    page: Page = context.new_page()
+    console_errors: list[str] = []
+    failed_requests: list[str] = []
+    page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
+    page.on("requestfailed", lambda request: failed_requests.append(f"{request.url} :: {request.failure}"))
+    try:
+        response = page.goto(f"{base_url}/tours/{slug}", wait_until="domcontentloaded")
+        assert response is not None
+        assert response.status == 200
+        body_text = page.inner_text("body").lower()
+        assert "generated reconstruction" in body_text
+        assert "room route" in body_text
+        assert "reference deck" in body_text
+        assert page.locator("#tour-video").count() == 1
+        assert page.locator(".route-action").count() == len(route_labels)
+        mobile_layout = page.evaluate(
+            """() => {
+                const absoluteTop = (selector) => {
+                    const node = document.querySelector(selector);
+                    if (!node) return -1;
+                    const box = node.getBoundingClientRect();
+                    return box.top + window.scrollY;
+                };
+                const body = document.body.getBoundingClientRect();
+                return {
+                    viewportWidth: window.innerWidth,
+                    bodyWidth: body.width,
+                    routeTop: absoluteTop('.sidebar-route'),
+                    referenceTop: absoluteTop('.sidebar-reference'),
+                    deckTop: absoluteTop('.sidebar-deck'),
+                };
+            }"""
+        )
+        assert mobile_layout["bodyWidth"] <= mobile_layout["viewportWidth"] + 1, mobile_layout
+        assert mobile_layout["routeTop"] >= 0, mobile_layout
+        assert mobile_layout["referenceTop"] > mobile_layout["routeTop"], mobile_layout
+        assert mobile_layout["deckTop"] > mobile_layout["referenceTop"], mobile_layout
+        unexpected_console_errors = [
+            message
+            for message in console_errors
+            if "404 (not found)" not in message.lower() and "cross-origin-opener-policy" not in message.lower()
+        ]
+        assert not _unexpected_console_errors(unexpected_console_errors), unexpected_console_errors
+        assert not failed_requests, failed_requests
     finally:
         context.close()
 

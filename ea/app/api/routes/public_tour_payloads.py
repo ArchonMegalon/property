@@ -186,6 +186,11 @@ _PUBLIC_TOUR_GENERATED_RECONSTRUCTION_HTML_ROLES = frozenset(
         "generated_reconstruction_viewer",
     }
 )
+_PUBLIC_TOUR_GENERATED_RECONSTRUCTION_VIEWER_ASSET_ROLES = frozenset(
+    {
+        "generated_reconstruction_viewer_asset",
+    }
+)
 _PUBLIC_TOUR_GENERATED_RECONSTRUCTION_MODEL_ROLES = frozenset(
     {
         "generated_reconstruction_model",
@@ -325,6 +330,9 @@ _PUBLIC_TOUR_TOP_LEVEL_KEYS = frozenset(
         "brand_name",
         "hosted_url",
         "public_url",
+        "diorama_preview_relpath",
+        "preview_relpath",
+        "telegram_preview_relpath",
         "facts",
         "control_mode",
         "scenes",
@@ -434,6 +442,11 @@ def public_tour_asset_path_is_public(
                 and normalized_role in _PUBLIC_TOUR_GENERATED_RECONSTRUCTION_HTML_ROLES
             )
         )
+    if suffix in {".js", ".mjs"}:
+        return (
+            normalized_privacy in _PUBLIC_TOUR_GENERATED_RECONSTRUCTION_PRIVACY_CLASSES
+            and normalized_role in _PUBLIC_TOUR_GENERATED_RECONSTRUCTION_VIEWER_ASSET_ROLES
+        )
     if suffix in {".obj", ".mtl", ".glb"}:
         return False
     if suffix in _PUBLIC_TOUR_DENIED_ASSET_EXTENSIONS:
@@ -469,6 +482,12 @@ def public_tour_collect_asset_refs(payload: dict[str, object]) -> set[str]:
         ):
             refs.add(relpath)
 
+    for key, role in (
+        ("diorama_preview_relpath", "diorama"),
+        ("preview_relpath", "preview"),
+        ("telegram_preview_relpath", "preview"),
+    ):
+        _add(payload.get(key), privacy_class="public", role=role)
     _add(payload.get("video_relpath"))
     for key in ("pano2vr_entry_relpath", "pano2vr_export_entry_relpath"):
         _add(
@@ -563,6 +582,12 @@ def public_tour_asset_metadata(payload: dict[str, object]) -> dict[str, dict[str
         if mime_type:
             row["mime_type"] = str(mime_type).strip()
 
+    for key, role in (
+        ("diorama_preview_relpath", "diorama"),
+        ("preview_relpath", "preview"),
+        ("telegram_preview_relpath", "preview"),
+    ):
+        _record(payload.get(key), privacy_class="public", role=role)
     _record(payload.get("video_relpath"), role="video")
     for key in ("pano2vr_entry_relpath", "pano2vr_export_entry_relpath"):
         _record(
@@ -849,6 +874,15 @@ def redacted_public_tour_payload(
             )
             continue
         if key == "video_relpath":
+            relpath = public_tour_safe_asset_relpath(payload.get(key))
+            if not relpath or relpath not in public_tour_allowed_asset_paths(payload):
+                continue
+            if expose_asset_relpaths:
+                rendered[key] = relpath
+            else:
+                rendered[key.replace("_relpath", "_url")] = public_tour_file_url(slug, relpath)
+            continue
+        if key in {"diorama_preview_relpath", "preview_relpath", "telegram_preview_relpath"}:
             relpath = public_tour_safe_asset_relpath(payload.get(key))
             if not relpath or relpath not in public_tour_allowed_asset_paths(payload):
                 continue

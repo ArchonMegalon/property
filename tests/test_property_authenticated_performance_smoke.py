@@ -5,10 +5,24 @@ import sys
 import os
 import json
 
-from scripts.propertyquarry_authenticated_performance_smoke import build_authenticated_performance_receipt, _route_budget_for
+from scripts.propertyquarry_authenticated_performance_smoke import (
+    PERFORMANCE_SMOKE_MAX_PRICE_EUR,
+    build_authenticated_performance_receipt,
+    _property_preferences_payload,
+    _route_budget_for,
+)
 
 
 SMOKE_SUBPROCESS_TIMEOUT_SECONDS = 120
+
+
+def test_property_authenticated_performance_seeded_preferences_include_budget() -> None:
+    payload = _property_preferences_payload()
+
+    assert payload["max_price_eur"] == PERFORMANCE_SMOKE_MAX_PRICE_EUR
+    primary_agent = payload["search_agents"][0]
+    assert primary_agent["max_price_eur"] == PERFORMANCE_SMOKE_MAX_PRICE_EUR
+    assert primary_agent["preferences_json"]["max_price_eur"] == PERFORMANCE_SMOKE_MAX_PRICE_EUR
 
 
 def test_property_authenticated_performance_smoke_receipt_passes() -> None:

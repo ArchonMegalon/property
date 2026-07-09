@@ -15,6 +15,7 @@ FALLBACK_RECEIPT = Path(__file__).resolve().parents[1] / "_completion" / "scene_
 REQUIRED_PROVIDERS = ("mootion", "magicfit", "magic", "omagic", "onemin_i2v")
 ONEMIN_PROTECTED_ACTION_REASONS = {
     "provider_account_visibility_gap",
+    "magicfit_credit_constrained",
     "magicfit_insufficient_credits",
     "omagic_credentials_missing",
 }
@@ -107,6 +108,9 @@ def validate_receipt(receipt: dict[str, Any]) -> dict[str, Any]:
         blockers.append("magicfit_backend_mismatch")
     if _inventory_gap(magicfit) > 0:
         _require_action(blockers, receipt, "magicfit", "provider_account_visibility_gap")
+    credit_state = str(magicfit.get("credit_state") or dict(magicfit.get("checks") or {}).get("credit_state") or "").strip()
+    if credit_state == "constrained":
+        _require_action(blockers, receipt, "magicfit", "magicfit_credit_constrained")
     if "magicfit_insufficient_credits" in list(magicfit.get("blockers") or []):
         _require_action(blockers, receipt, "magicfit", "magicfit_insufficient_credits")
 

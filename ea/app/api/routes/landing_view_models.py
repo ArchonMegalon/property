@@ -69,6 +69,11 @@ _PROPERTY_MAP_PREVIEW_SECONDARY_FILL = (194, 42, 48, 24)
 _PROPERTY_MAP_PREVIEW_SELECTED_STROKE = (132, 30, 36, 126)
 _PROPERTY_MAP_PREVIEW_BOUNDARY_STROKE = (68, 62, 55, 72)
 _PROPERTY_MAP_PREVIEW_HALO = (255, 250, 242, 112)
+_PROPERTY_MAP_PREVIEW_ROUTE_STROKE = (193, 120, 34, 230)
+_PROPERTY_MAP_PREVIEW_ROUTE_HALO = (255, 248, 241, 214)
+_PROPERTY_MAP_PREVIEW_ROUTE_START_FILL = (255, 248, 241, 255)
+_PROPERTY_MAP_PREVIEW_ROUTE_END_FILL = (72, 145, 92, 255)
+_PROPERTY_MAP_PREVIEW_ROUTE_MARKER_STROKE = (126, 51, 33, 156)
 
 
 PROPERTY_FURNITURE_STYLE_CATALOG: tuple[dict[str, str], ...] = (
@@ -140,7 +145,6 @@ from app.api.routes.landing_property_workspace_helpers import (
     _property_market_filter_capabilities,
     _property_progress_route_preview_rows,
     _property_run_reliability_summary,
-    _property_route_preview_path,
     _property_search_guard_rows,
     _property_search_worker_slots,
     _property_suppression_rows,
@@ -1294,6 +1298,9 @@ def _cached_preview_png_path(
             path = str(row.get("path") or "").strip()
             if not path:
                 continue
+            path_kind = str(row.get("path_kind") or "").strip().lower()
+            if path_kind == "line":
+                continue
             numbers = [float(value) for value in re.findall(r"-?\d+(?:\.\d+)?", path)]
             points = list(zip(numbers[0::2], numbers[1::2]))
             if len(points) < 3:
@@ -1309,6 +1316,30 @@ def _cached_preview_png_path(
                 continue
             numbers = [float(value) for value in re.findall(r"-?\d+(?:\.\d+)?", path)]
             points = list(zip(numbers[0::2], numbers[1::2]))
+            path_kind = str(row.get("path_kind") or "").strip().lower()
+            if path_kind == "line":
+                if len(points) < 2:
+                    continue
+                halo_width = max(_positive_preview_int(row.get("halo_width_px")) or 13, 5)
+                stroke_width = max(_positive_preview_int(row.get("stroke_width_px")) or 7, 3)
+                draw.line(points, fill=_PROPERTY_MAP_PREVIEW_ROUTE_HALO, width=halo_width, joint="curve")
+                draw.line(points, fill=_PROPERTY_MAP_PREVIEW_ROUTE_STROKE, width=stroke_width, joint="curve")
+                if bool(row.get("show_endpoint_markers")):
+                    start_x, start_y = points[0]
+                    end_x, end_y = points[-1]
+                    draw.ellipse(
+                        (start_x - 6, start_y - 6, start_x + 6, start_y + 6),
+                        fill=_PROPERTY_MAP_PREVIEW_ROUTE_START_FILL,
+                        outline=_PROPERTY_MAP_PREVIEW_ROUTE_MARKER_STROKE,
+                        width=2,
+                    )
+                    draw.ellipse(
+                        (end_x - 6, end_y - 6, end_x + 6, end_y + 6),
+                        fill=_PROPERTY_MAP_PREVIEW_ROUTE_END_FILL,
+                        outline=_PROPERTY_MAP_PREVIEW_ROUTE_MARKER_STROKE,
+                        width=2,
+                    )
+                continue
             if len(points) < 3:
                 continue
             selected = bool(row.get("selected"))
@@ -1320,6 +1351,9 @@ def _cached_preview_png_path(
                 continue
             path = str(row.get("path") or "").strip()
             if not path:
+                continue
+            path_kind = str(row.get("path_kind") or "").strip().lower()
+            if path_kind == "line":
                 continue
             numbers = [float(value) for value in re.findall(r"-?\d+(?:\.\d+)?", path)]
             points = list(zip(numbers[0::2], numbers[1::2]))
@@ -1761,6 +1795,30 @@ def _project_lonlat_to_preview_path(
     commands = [f"M{projected[0][0]:.1f} {projected[0][1]:.1f}"]
     commands.extend(f"L{x:.1f} {y:.1f}" for x, y in projected[1:])
     commands.append("Z")
+    centroid_x = sum(point[0] for point in projected) / len(projected)
+    centroid_y = sum(point[1] for point in projected) / len(projected)
+    return " ".join(commands), (centroid_x, centroid_y)
+
+
+def _project_lonlat_to_preview_polyline(
+    points: list[tuple[float, float]],
+    bounds: tuple[float, float, float, float],
+    *,
+    width: float = 296.0,
+    height: float = 160.0,
+) -> tuple[str, tuple[float, float]]:
+    west, south, east, north = bounds
+    lon_span = max(east - west, 0.000001)
+    lat_span = max(north - south, 0.000001)
+    projected: list[tuple[float, float]] = []
+    for lon, lat in points:
+        x = ((lon - west) / lon_span) * width
+        y = height - (((lat - south) / lat_span) * height)
+        projected.append((x, y))
+    if len(projected) < 2:
+        return "", (0.0, 0.0)
+    commands = [f"M{projected[0][0]:.1f} {projected[0][1]:.1f}"]
+    commands.extend(f"L{x:.1f} {y:.1f}" for x, y in projected[1:])
     centroid_x = sum(point[0] for point in projected) / len(projected)
     centroid_y = sum(point[1] for point in projected) / len(projected)
     return " ".join(commands), (centroid_x, centroid_y)

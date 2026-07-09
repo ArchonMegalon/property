@@ -8,6 +8,8 @@ services:
     cgroup_parent: "${PROPERTYQUARRY_RUNTIME_CGROUP_PARENT:-system.slice}"
     restart: unless-stopped
     env_file:
+      - path: ./state/runtime/property_scene_video_shared.env
+        required: false
       - .env
     environment:
       EA_ROLE: api
@@ -88,6 +90,8 @@ services:
     cgroup_parent: "${PROPERTYQUARRY_RUNTIME_CGROUP_PARENT:-system.slice}"
     restart: unless-stopped
     env_file:
+      - path: ./state/runtime/property_scene_video_shared.env
+        required: false
       - .env
     environment:
       EA_ROLE: scheduler
@@ -162,8 +166,6 @@ services:
       retries: 5
 
   propertyquarry-render-tools:
-    profiles:
-      - render-tools
     build:
       context: .
       dockerfile: ea/Dockerfile.property
@@ -172,6 +174,8 @@ services:
     cgroup_parent: "${PROPERTYQUARRY_RUNTIME_CGROUP_PARENT:-system.slice}"
     restart: "no"
     env_file:
+      - path: ./state/runtime/property_scene_video_shared.env
+        required: false
       - .env
     environment:
       EA_ROLE: render-tools
@@ -190,12 +194,12 @@ services:
       PROPERTYQUARRY_TEABLE_AUTO_SYNC: "${PROPERTYQUARRY_TEABLE_AUTO_SYNC:-0}"
       HOME: /home/ea
       TZ: Europe/Vienna
-    command: ["sh", "-lc", "sleep infinity"]
+    command: ["python", "/app/scripts/property_reconstruction_render_bridge.py"]
     healthcheck:
       test:
         [
           "CMD-SHELL",
-          "command -v ffmpeg >/dev/null && command -v blender >/dev/null && command -v colmap >/dev/null && command -v exiftool >/dev/null && command -v convert >/dev/null && python -c 'import numpy'",
+          "command -v ffmpeg >/dev/null && command -v blender >/dev/null && command -v colmap >/dev/null && command -v exiftool >/dev/null && command -v convert >/dev/null && python -c 'import numpy' && curl -fsS --connect-timeout 2 --max-time 10 http://127.0.0.1:8091/health >/dev/null",
         ]
       interval: 30s
       timeout: 15s

@@ -2,7 +2,7 @@
 
 Consolidated inventory of your lifetime services/products, including product tier/plan, ownership status, redemption deadlines, and local workspace integration posture.
 
-Updated: 2026-07-05
+Updated: 2026-07-07
 
 ## Workspace Integration Tier Guide
 
@@ -79,11 +79,12 @@ Updated: 2026-07-05
 | `blipai.app` | `Max tier` | `1 account` | `Owned` |  | `Tier 2` | Local `.env` credentials/token plus operator-capture packet transform and tests | Use for operator voice capture, prompt capture, and audit-note capture. Never publish directly from this lane. |
 | `Teable` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 2` | Local API key plus projection adapter and dry-run sync receipt | Use only as a curated operator projection surface for product signals, dispatches, tick-news delivery, package pressure, adapter readiness, and newsroom production tracking. |
 | `Unmixr AI` | `License Tier 4` | `1 license` | `Activated` |  | `Tier 2` | Local `UNMIXR_*` env contract in EA plus direct Chummer promo-narration wiring | AppSumo Tier 4 ownership is now tracked alongside a direct short-TTS runtime path in `chummer.run-services` for promo narration rebuilds. The dedicated Unmixr login is now seeded locally, and the API-key, voice-id, and voice-tuning slots are documented here and in EA, but live provider API credentials still need to be seeded before this lane is operational. |
+| `vexp.dev` | `Tier 4` | `1 license` | `Activated` |  | `Tier 4` | Local `.env` license key only | Tier 4 ownership is now tracked and the local `VEXP_DEV_LICENSE_KEY` slot is seeded from the user-provided key. Runtime integration, account verification, and first workflow proof are still pending. |
 | `Vizologi` | `Plus exclusive / 4x code-based` | `4 codes` | `Activated` |  | `Tier 3` | None | Redeemed and activated; retained for strategy/research support only. |
 
 ## Summary
 
-- `57` total LTD products tracked
+- `58` total LTD products tracked
 - Multiple-code holdings: `AvoMap`, `katteb.com`, `MarkupGo`, `MetaSurvey`, `PeekShot`, `Vizologi`
 - Multiple-account holding: `1min.AI` (`12 licenses / 12 accounts`)
 
@@ -149,6 +150,7 @@ Use this section to track missing tier/email/account facts discovered through th
 | `blipai.app` | `<account-email-redacted>` | `manual_seeded` | `local_env` | 2026-05-14T00:00:00Z | Shared credentials are now seeded locally; plan/tier and structured verification are still pending. |
 | `Teable` | <account-email-redacted> | `complete` | `browseract_live` | 2026-03-07T00:01:00Z | Plan/Tier: License Tier 4; Status: activated |
 | `Unmixr AI` | `<account-email-redacted>` | `manual_seeded` | `user_report + local_runtime_docs` | 2026-06-03T09:58:09Z | Highest AppSumo tier was reported by the user, and the Chummer promo narration runtime is now wired for direct Unmixr short-TTS use. The dedicated login is seeded in the local env surfaces, but `UNMIXR_API_KEY` and `UNMIXR_VOICE_ID` are still unset, so live provider proof remains pending. |
+| `vexp.dev` | `<account-email-redacted>` | `manual_seeded` | `user_report + local_env` | 2026-07-07T00:00:00Z | Tier 4 license ownership is now seeded locally in `.env` under `VEXP_DEV_LICENSE_KEY`; tracked files intentionally omit the raw key. Structured account verification, runtime integration, and first approved workflow proof are still pending. |
 | `Vizologi` |  | `missing` | `manual_inventory` |  | Activated; account-level verification details are still not documented here. |
 
 ## Attention Items

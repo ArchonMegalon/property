@@ -30,7 +30,8 @@ Defaults:
 The script refreshes the current receipts that propertyquarry_gold_status.py
 consumes for flagship live proof: public/auth/mobile/provider smokes, tour
 controls, export discovery, vendor tooling, walkthrough quality, browser-rendered
-3D, billing/ID Austria, scene-video readiness, runtime reconstruction, and the
+3D, billing/ID Austria, scene-video readiness, runtime reconstruction, service-owned
+generated reconstruction, and the
 static contract receipts that were previously going stale.
 
 Optional notifications:
@@ -50,11 +51,15 @@ if (( $# > 0 )); then
 fi
 
 cd "${EA_ROOT}"
+scene_video_shared_env_file="${PROPERTYQUARRY_SCENE_VIDEO_SHARED_ENV_FILE:-state/runtime/property_scene_video_shared.env}"
+scene_video_shared_env_runtime_file="${PROPERTYQUARRY_SCENE_VIDEO_SHARED_ENV_RUNTIME_FILE:-/home/ea/property_scene_video_shared.env}"
+python3 scripts/property_scene_video_shared_env.py --output "${scene_video_shared_env_file}" >/dev/null
 
 BASE_URL="${PROPERTYQUARRY_LIVE_SMOKE_BASE_URL:-${PROPERTYQUARRY_LIVE_MOBILE_BASE_URL:-http://localhost:8097}}"
 HOST_HEADER="${PROPERTYQUARRY_LIVE_HOST_HEADER:-propertyquarry.com}"
 API_CONTAINER="${PROPERTYQUARRY_API_CONTAINER_NAME:-propertyquarry-api}"
 RENDER_CONTAINER="${PROPERTYQUARRY_RENDER_CONTAINER_NAME:-propertyquarry-render-tools}"
+RENDER_SERVICE="${PROPERTYQUARRY_RENDER_SERVICE:-propertyquarry-render-tools}"
 LIVE_PRINCIPAL_ID="${PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID:-${EA_PRINCIPAL_ID:-cf-email:tibor.girschele@gmail.com}}"
 LIVE_MOBILE_PRINCIPAL_ID="${PROPERTYQUARRY_LIVE_MOBILE_SMOKE_PRINCIPAL_ID:-pq-live-mobile-smoke}"
 LIVE_PRESENTATION_PRINCIPAL_ID="${PROPERTYQUARRY_LIVE_PRESENTATION_E2E_PRINCIPAL_ID:-pq-live-presentation-e2e}"
@@ -69,6 +74,7 @@ MOBILE_TIMEOUT_MS="${PROPERTYQUARRY_DEPLOY_MOBILE_SMOKE_TIMEOUT_MS:-30000}"
 MOBILE_PROCESS_TIMEOUT_SECONDS="${PROPERTYQUARRY_DEPLOY_MOBILE_SMOKE_PROCESS_TIMEOUT_SECONDS:-300}"
 RUNTIME_RECONSTRUCTION_CONTAINER="${PROPERTYQUARRY_RUNTIME_RECONSTRUCTION_CONTAINER:-${RENDER_CONTAINER}}"
 RUNTIME_RECONSTRUCTION_SLUG="${PROPERTYQUARRY_RUNTIME_RECONSTRUCTION_SMOKE_SLUG:-runtime-reconstruction-current-$(date +%Y%m%d%H%M%S)}"
+SERVICE_GENERATED_RECONSTRUCTION_SLUG="${PROPERTYQUARRY_SERVICE_GENERATED_RECONSTRUCTION_SMOKE_SLUG:-service-generated-reconstruction-current-$(date +%Y%m%d%H%M%S)}"
 TOUR_EXPORT_INCOMING_DIR="${PROPERTYQUARRY_TOUR_EXPORT_INCOMING_DIR:-${PROPERTYQUARRY_TOUR_EXPORT_DROP_DIR:-${EA_ROOT}/state/incoming_property_tours}}"
 
 CURRENT_API_TOKEN="${EA_API_TOKEN:-}"
@@ -138,6 +144,32 @@ require_container() {
   fi
 }
 
+copy_scene_video_shared_env_to_container() {
+  local container="$1"
+  if [[ ! -f "${scene_video_shared_env_file}" ]]; then
+    echo "error: missing scene-video shared env file ${scene_video_shared_env_file}" >&2
+    return 1
+  fi
+  docker exec -i "${container}" sh -lc '
+    umask 077
+    cat > "$1"
+    chmod 600 "$1"
+  ' sh "${scene_video_shared_env_runtime_file}" < "${scene_video_shared_env_file}"
+}
+
+docker_exec_scene_video_python() {
+  local container="$1"
+  shift
+  copy_scene_video_shared_env_to_container "${container}" || return 1
+  docker exec "${container}" sh -lc '
+    set -a
+    . "$1"
+    set +a
+    shift
+    exec python "$@"
+  ' sh "${scene_video_shared_env_runtime_file}" "$@"
+}
+
 resolve_api_token() {
   if [[ -n "${CURRENT_API_TOKEN}" ]]; then
     return 0
@@ -180,6 +212,7 @@ scene_video_runtime_status_receipt="_completion/scene_video_readiness/runtime-st
 scene_video_refresh_packet="_completion/scene_video_readiness/provider-refresh-packet.json"
 scene_video_refresh_packet_verifier="_completion/scene_video_readiness/provider-refresh-packet-verifier.json"
 gold_status_receipt="_completion/property_gold_status/latest.json"
+service_generated_reconstruction_receipt="_completion/tours/property-service-generated-reconstruction-current.json"
 
 resolve_public_tour_dir
 resolve_api_token
@@ -243,27 +276,31 @@ run_allow_fail \
     --runtime-container "${API_CONTAINER}" \
     --write "${vendor_tooling_receipt}"
 
-run_allow_fail_shell \
-  "Scene-video readiness receipts" \
-  "docker exec '${API_CONTAINER}' python /app/scripts/property_scene_video_readiness_report.py \
-    --output /data/artifacts/property-scene-video-readiness-current.json >/dev/null && \
-   docker exec '${API_CONTAINER}' python /app/scripts/verify_property_scene_video_readiness.py \
+refresh_scene_video_receipts() {
+  docker_exec_scene_video_python "${API_CONTAINER}" /app/scripts/property_scene_video_readiness_report.py \
+    --output /data/artifacts/property-scene-video-readiness-current.json >/dev/null
+  docker_exec_scene_video_python "${API_CONTAINER}" /app/scripts/verify_property_scene_video_readiness.py \
     --receipt /data/artifacts/property-scene-video-readiness-current.json \
-    --output /data/artifacts/property-scene-video-readiness-verifier-current.json >/dev/null && \
-   docker exec '${API_CONTAINER}' python /app/scripts/property_scene_video_runtime_status.py \
+    --output /data/artifacts/property-scene-video-readiness-verifier-current.json >/dev/null
+  docker_exec_scene_video_python "${API_CONTAINER}" /app/scripts/property_scene_video_runtime_status.py \
     --receipt /data/artifacts/property-scene-video-readiness-current.json \
-    --output /data/artifacts/property-scene-video-runtime-status-current.json >/dev/null && \
-   docker exec '${API_CONTAINER}' python /app/scripts/materialize_scene_video_provider_refresh_packet.py \
+    --output /data/artifacts/property-scene-video-runtime-status-current.json >/dev/null
+  docker_exec_scene_video_python "${API_CONTAINER}" /app/scripts/materialize_scene_video_provider_refresh_packet.py \
     --receipt /data/artifacts/property-scene-video-readiness-current.json \
-    --output /data/artifacts/property-scene-video-provider-refresh-packet-current.json >/dev/null && \
-   docker exec '${API_CONTAINER}' python /app/scripts/verify_scene_video_provider_refresh_packet.py \
+    --output /data/artifacts/property-scene-video-provider-refresh-packet-current.json >/dev/null
+  docker_exec_scene_video_python "${API_CONTAINER}" /app/scripts/verify_scene_video_provider_refresh_packet.py \
     --packet /data/artifacts/property-scene-video-provider-refresh-packet-current.json \
-    --output /data/artifacts/property-scene-video-provider-refresh-packet-verifier-current.json >/dev/null && \
-   docker cp '${API_CONTAINER}:/data/artifacts/property-scene-video-readiness-current.json' '${scene_video_receipt}' >/dev/null && \
-   docker cp '${API_CONTAINER}:/data/artifacts/property-scene-video-readiness-verifier-current.json' '${scene_video_verifier_receipt}' >/dev/null && \
-   docker cp '${API_CONTAINER}:/data/artifacts/property-scene-video-runtime-status-current.json' '${scene_video_runtime_status_receipt}' >/dev/null && \
-   docker cp '${API_CONTAINER}:/data/artifacts/property-scene-video-provider-refresh-packet-current.json' '${scene_video_refresh_packet}' >/dev/null && \
-   docker cp '${API_CONTAINER}:/data/artifacts/property-scene-video-provider-refresh-packet-verifier-current.json' '${scene_video_refresh_packet_verifier}' >/dev/null"
+    --output /data/artifacts/property-scene-video-provider-refresh-packet-verifier-current.json >/dev/null
+  docker cp "${API_CONTAINER}:/data/artifacts/property-scene-video-readiness-current.json" "${scene_video_receipt}" >/dev/null
+  docker cp "${API_CONTAINER}:/data/artifacts/property-scene-video-readiness-verifier-current.json" "${scene_video_verifier_receipt}" >/dev/null
+  docker cp "${API_CONTAINER}:/data/artifacts/property-scene-video-runtime-status-current.json" "${scene_video_runtime_status_receipt}" >/dev/null
+  docker cp "${API_CONTAINER}:/data/artifacts/property-scene-video-provider-refresh-packet-current.json" "${scene_video_refresh_packet}" >/dev/null
+  docker cp "${API_CONTAINER}:/data/artifacts/property-scene-video-provider-refresh-packet-verifier-current.json" "${scene_video_refresh_packet_verifier}" >/dev/null
+}
+
+run_allow_fail \
+  "Scene-video readiness receipts" \
+  refresh_scene_video_receipts
 
 run_allow_fail \
   "Tour-delivery contract receipt" \
@@ -349,6 +386,14 @@ run_allow_fail \
   "Tour-provider ownership receipt" \
   env PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_property_tour_provider_ownership.py \
     --write _completion/property_tour_ownership/release-gate.json
+run_allow_fail \
+  "Render-bridge runtime receipt" \
+  env PYTHONPATH=ea "${PYTHON_BIN}" scripts/ensure_propertyquarry_render_bridge_runtime.py \
+    --container "${RENDER_CONTAINER}" \
+    --service "${RENDER_SERVICE}" \
+    --compose-file "${PROPERTYQUARRY_COMPOSE_FILE:-docker-compose.property.yml}" \
+    --project-name "${PROPERTYQUARRY_COMPOSE_PROJECT_NAME:-${COMPOSE_PROJECT_NAME:-}}" \
+    --write _completion/tours/property-render-bridge-runtime-current.json
 
 if command -v docker >/dev/null 2>&1 && docker inspect "${RUNTIME_RECONSTRUCTION_CONTAINER}" >/dev/null 2>&1; then
   run_allow_fail \
@@ -357,13 +402,26 @@ if command -v docker >/dev/null 2>&1 && docker inspect "${RUNTIME_RECONSTRUCTION
       --container "${RUNTIME_RECONSTRUCTION_CONTAINER}" \
       --slug "${RUNTIME_RECONSTRUCTION_SLUG}" \
       --public-base-url "${BASE_URL}" \
+      --host-header "${HOST_HEADER}" \
       --require-public-contract \
+      --require-browser-shell \
       --require-glb \
       --write _completion/tours/property-runtime-reconstruction-release-gate.json \
       --fail-on-error
 else
   warn_step "Runtime reconstruction container ${RUNTIME_RECONSTRUCTION_CONTAINER} is unavailable; leaving the existing reconstruction receipt in place."
 fi
+run_allow_fail \
+  "Service generated-reconstruction receipt" \
+  env PYTHONPATH=ea "${PYTHON_BIN}" scripts/property_service_generated_reconstruction_smoke.py \
+    --container "${API_CONTAINER}" \
+    --slug "${SERVICE_GENERATED_RECONSTRUCTION_SLUG}" \
+    --public-base-url "${BASE_URL}" \
+    --host-header "${HOST_HEADER}" \
+    --require-public-contract \
+    --require-browser-shell \
+    --write "${service_generated_reconstruction_receipt}" \
+    --fail-on-error
 
 run_allow_fail \
   "Browser-rendered 3D receipt" \
@@ -374,8 +432,10 @@ run_allow_fail \
     --write _completion/smoke/property-live-3d-browser-gate-latest.json
 run_allow_fail_shell \
   "Walkthrough quality receipt" \
-  "docker exec '${API_CONTAINER}' python /app/scripts/propertyquarry_walkthrough_quality_gate.py \
+  "docker cp '${service_generated_reconstruction_receipt}' '${API_CONTAINER}:/data/artifacts/property-service-generated-reconstruction-current.json' >/dev/null && \
+   docker exec '${API_CONTAINER}' python /app/scripts/propertyquarry_walkthrough_quality_gate.py \
     --tour-root /data/public_property_tours \
+    --service-generated-reconstruction-receipt /data/artifacts/property-service-generated-reconstruction-current.json \
     --write /data/artifacts/property-live-walkthrough-quality-current.json >/dev/null && \
    docker cp '${API_CONTAINER}:/data/artifacts/property-live-walkthrough-quality-current.json' _completion/smoke/property-live-walkthrough-quality-latest.json >/dev/null"
 
@@ -402,6 +462,7 @@ gold_args=(
   "--map-preview-flagship-receipt" "_completion/smoke/property-live-map-preview-flagship-latest.json"
   "--browser-3d-gate-receipt" "_completion/smoke/property-live-3d-browser-gate-latest.json"
   "--runtime-reconstruction-receipt" "_completion/tours/property-runtime-reconstruction-release-gate.json"
+  "--service-generated-reconstruction-receipt" "${service_generated_reconstruction_receipt}"
   "--walkthrough-quality-receipt" "_completion/smoke/property-live-walkthrough-quality-latest.json"
   "--scene-video-readiness-receipt" "${scene_video_receipt}"
   "--scene-video-readiness-verifier-receipt" "${scene_video_verifier_receipt}"

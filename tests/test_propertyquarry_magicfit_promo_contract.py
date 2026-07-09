@@ -62,6 +62,8 @@ def test_propertyquarry_magicfit_renderer_fails_fast_on_credit_blocker() -> None
     assert "magicfit_not_enough_credits" in render_script
     assert "Not enough credits" not in render_script
     assert "not enough credits" in render_script
+    assert "\\bbuy credits\\b" not in render_script
+    assert "buy more credits" in render_script
     assert "/docker/chummercomplete" not in render_script
     assert "CHUMMER_EA_MAGICFIT" not in render_script
     assert "PROPERTYQUARRY_MAGICFIT_EMAIL" in render_script
@@ -81,6 +83,17 @@ def test_propertyquarry_magicfit_renderer_receipt_binds_to_property_slug() -> No
     assert '"provider_backend_key": "magicfit"' in render_script
     assert '"render_status": "completed"' in render_script
     assert '"hosted_walkthrough_video_url": video_url' in render_script
+
+
+def test_propertyquarry_magicfit_renderer_has_login_input_fallback() -> None:
+    render_script = (ROOT / "scripts" / "render_magicfit_property_flythrough.py").read_text(encoding="utf-8")
+
+    assert "def set_input_value(locator, value: str)" in render_script
+    assert "def prompt_input_locator(page):" in render_script
+    assert 'descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, \'value\')' in render_script
+    assert 'node.dispatchEvent(new Event("change", { bubbles: true }))' in render_script
+    assert 'raise RuntimeError("magicfit_input_fill_unverified")' in render_script
+    assert 'raise RuntimeError("magicfit_prompt_input_missing")' in render_script
 
 
 def _load_magicfit_env_helper() -> ModuleType:
@@ -177,6 +190,52 @@ def test_propertyquarry_magicfit_env_selects_account_json_file_without_chummer_c
     assert "MAGICFIT_ACCOUNTS_JSON_FILE[3]" in sources["PROPERTYQUARRY_MAGICFIT_EMAIL"]
 
 
+def test_propertyquarry_magicfit_env_selects_nested_accounts_json_file_without_chummer_credentials(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    module = _load_magicfit_env_helper()
+    for key in (
+        "PROPERTYQUARRY_MAGICFIT_EMAIL",
+        "PROPERTYQUARRY_MAGICFIT_PASSWORD",
+        "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON",
+        "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE",
+        "PROPERTYQUARRY_MAGICFIT_ACCOUNT_INDEX",
+        "MAGICFIT_EMAIL",
+        "MAGICFIT_PASSWORD",
+        "MAGICFIT_ACCOUNTS_JSON",
+        "MAGICFIT_ACCOUNTS_JSON_FILE",
+        "MAGICFIT_ACCOUNT_INDEX",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    accounts_file = tmp_path / "magicfit-accounts.json"
+    accounts_file.write_text(
+        json.dumps(
+            {
+                "accounts": [
+                    {"email": "magicfit-one@example.test", "password": "secret-one"},
+                    {"email": "magicfit-two@example.test", "password": "secret-two"},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "MAGICFIT_ACCOUNT_INDEX=2\n"
+        f"MAGICFIT_ACCOUNTS_JSON_FILE={accounts_file}\n",
+        encoding="utf-8",
+    )
+
+    values, sources = module.discover_magicfit_env([env_file])
+
+    assert values["PROPERTYQUARRY_MAGICFIT_EMAIL"] == "magicfit-two@example.test"
+    assert values["PROPERTYQUARRY_MAGICFIT_PASSWORD"] == "secret-two"
+    assert values["MAGICFIT_EMAIL"] == "magicfit-two@example.test"
+    assert values["MAGICFIT_PASSWORD"] == "secret-two"
+    assert "MAGICFIT_ACCOUNTS_JSON_FILE[2]" in sources["PROPERTYQUARRY_MAGICFIT_EMAIL"]
+
+
 def test_propertyquarry_magicfit_env_prefers_account_json_file_over_inline_json(
     tmp_path: Path,
     monkeypatch,
@@ -212,6 +271,58 @@ def test_propertyquarry_magicfit_env_prefers_account_json_file_over_inline_json(
     assert values["PROPERTYQUARRY_MAGICFIT_EMAIL"] == "file@example.test"
     assert values["PROPERTYQUARRY_MAGICFIT_PASSWORD"] == "secret-file"
     assert "MAGICFIT_ACCOUNTS_JSON_FILE[1]" in sources["PROPERTYQUARRY_MAGICFIT_EMAIL"]
+
+
+def test_propertyquarry_magicfit_env_falls_back_to_inline_nested_accounts_json_when_file_is_unreadable(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    module = _load_magicfit_env_helper()
+    for key in (
+        "PROPERTYQUARRY_MAGICFIT_EMAIL",
+        "PROPERTYQUARRY_MAGICFIT_PASSWORD",
+        "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON",
+        "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON_FILE",
+        "PROPERTYQUARRY_MAGICFIT_ACCOUNT_INDEX",
+        "MAGICFIT_EMAIL",
+        "MAGICFIT_PASSWORD",
+        "MAGICFIT_ACCOUNTS_JSON",
+        "MAGICFIT_ACCOUNTS_JSON_FILE",
+        "MAGICFIT_ACCOUNT_INDEX",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    accounts_file = tmp_path / "magicfit-accounts.json"
+    accounts_file.write_text(
+        json.dumps([{"email": "blocked-file@example.test", "password": "blocked-secret"}]),
+        encoding="utf-8",
+    )
+    accounts_file.chmod(0)
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "MAGICFIT_ACCOUNT_INDEX=1\n"
+        "MAGICFIT_ACCOUNTS_JSON="
+        + json.dumps(
+            {
+                "accounts": [
+                    {"email": "inline-one@example.test", "password": "inline-secret-one"},
+                    {"email": "inline-two@example.test", "password": "inline-secret-two"},
+                ]
+            }
+        )
+        + "\n"
+        + f"MAGICFIT_ACCOUNTS_JSON_FILE={accounts_file}\n",
+        encoding="utf-8",
+    )
+    try:
+        values, sources = module.discover_magicfit_env([env_file])
+    finally:
+        accounts_file.chmod(0o600)
+
+    assert values["PROPERTYQUARRY_MAGICFIT_EMAIL"] == "inline-one@example.test"
+    assert values["PROPERTYQUARRY_MAGICFIT_PASSWORD"] == "inline-secret-one"
+    assert values["MAGICFIT_EMAIL"] == "inline-one@example.test"
+    assert values["MAGICFIT_PASSWORD"] == "inline-secret-one"
+    assert "MAGICFIT_ACCOUNTS_JSON[1]" in sources["PROPERTYQUARRY_MAGICFIT_EMAIL"]
 
 
 def test_propertyquarry_magicfit_env_resolves_runtime_mount_accounts_json_file_on_host(

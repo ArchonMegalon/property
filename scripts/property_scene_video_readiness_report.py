@@ -86,6 +86,11 @@ TELEGRAM_ROUTE_ENV_NAMES = (
 )
 EXPECTED_ACCOUNT_COUNT_JSON_ENV = "PROPERTYQUARRY_SCENE_VIDEO_EXPECTED_ACCOUNT_COUNTS_JSON"
 EXPECTED_ACCOUNT_COUNT_FILE_ENV = "PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_INVENTORY_FILE"
+ACCOUNT_INVENTORY_METADATA_KEYS = (
+    "tracked_account_count",
+    "unavailable_account_count",
+    "availability_reason",
+)
 EXPECTED_ACCOUNT_COUNT_ENV_NAMES = {
     "magicfit": (
         "PROPERTYQUARRY_MAGICFIT_EXPECTED_ACCOUNT_COUNT",
@@ -194,6 +199,50 @@ def _extract_account_counts(payload: object, *, source: str) -> dict[str, tuple[
     return result
 
 
+def _extract_account_inventory_metadata(payload: object, *, source: str) -> dict[str, tuple[dict[str, Any], str]]:
+    if not isinstance(payload, dict):
+        return {}
+    result: dict[str, tuple[dict[str, Any], str]] = {}
+
+    def add_metadata(key: object, row: object) -> None:
+        normalized_key = str(key or "").strip().lower()
+        if not normalized_key or not isinstance(row, dict):
+            return
+        metadata: dict[str, Any] = {}
+        tracked_count = _positive_int(row.get("tracked_account_count"))
+        if tracked_count is not None:
+            metadata["tracked_account_count"] = tracked_count
+        unavailable_count = _positive_int(row.get("unavailable_account_count"))
+        if unavailable_count is not None:
+            metadata["unavailable_account_count"] = unavailable_count
+        availability_reason = str(row.get("availability_reason") or "").strip()
+        if availability_reason:
+            metadata["availability_reason"] = availability_reason
+        if metadata:
+            result[normalized_key] = (metadata, source)
+
+    providers = payload.get("providers")
+    if isinstance(providers, dict):
+        for key, row in providers.items():
+            add_metadata(key, row)
+            if isinstance(row, dict):
+                for alias in list(row.get("aliases") or []):
+                    add_metadata(alias, row)
+    elif isinstance(providers, list):
+        for row in providers:
+            if not isinstance(row, dict):
+                continue
+            keys = [
+                row.get("provider_key"),
+                row.get("provider"),
+                row.get("name"),
+                *list(row.get("aliases") or []),
+            ]
+            for key in keys:
+                add_metadata(key, row)
+    return result
+
+
 def _expected_account_counts_from_files() -> dict[str, tuple[int, str]]:
     result: dict[str, tuple[int, str]] = {}
     for path in _expected_account_count_files():
@@ -207,6 +256,19 @@ def _expected_account_counts_from_files() -> dict[str, tuple[int, str]]:
     return result
 
 
+def _account_inventory_metadata_from_files() -> dict[str, tuple[dict[str, Any], str]]:
+    result: dict[str, tuple[dict[str, Any], str]] = {}
+    for path in _expected_account_count_files():
+        if not path.is_file():
+            continue
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        result.update(_extract_account_inventory_metadata(loaded, source=str(path)))
+    return result
+
+
 def _expected_account_counts_json() -> dict[str, tuple[int, str]]:
     raw = str(os.getenv(EXPECTED_ACCOUNT_COUNT_JSON_ENV) or "").strip()
     if not raw:
@@ -215,14 +277,18 @@ def _expected_account_counts_json() -> dict[str, tuple[int, str]]:
         loaded = json.loads(raw)
     except Exception:
         return {}
-    if not isinstance(loaded, dict):
+    return _extract_account_counts(loaded, source=EXPECTED_ACCOUNT_COUNT_JSON_ENV)
+
+
+def _account_inventory_metadata_json() -> dict[str, tuple[dict[str, Any], str]]:
+    raw = str(os.getenv(EXPECTED_ACCOUNT_COUNT_JSON_ENV) or "").strip()
+    if not raw:
         return {}
-    result: dict[str, tuple[int, str]] = {}
-    for key, value in loaded.items():
-        count = _positive_int(value)
-        if count is not None:
-            result[str(key or "").strip().lower()] = (count, EXPECTED_ACCOUNT_COUNT_JSON_ENV)
-    return result
+    try:
+        loaded = json.loads(raw)
+    except Exception:
+        return {}
+    return _extract_account_inventory_metadata(loaded, source=EXPECTED_ACCOUNT_COUNT_JSON_ENV)
 
 
 def expected_account_count_for_provider(*, requested_provider: object, provider_key: object) -> tuple[int | None, str]:
@@ -244,6 +310,20 @@ def expected_account_count_for_provider(*, requested_provider: object, provider_
     return None, ""
 
 
+def account_inventory_metadata_for_provider(*, requested_provider: object, provider_key: object) -> tuple[dict[str, Any], str]:
+    requested = str(requested_provider or "").strip().lower()
+    canonical = str(provider_key or "").strip().lower()
+    env_metadata = _account_inventory_metadata_json()
+    for key in (requested, canonical):
+        if key and key in env_metadata:
+            return env_metadata[key]
+    loaded_metadata = _account_inventory_metadata_from_files()
+    for key in (requested, canonical):
+        if key and key in loaded_metadata:
+            return loaded_metadata[key]
+    return {}, ""
+
+
 def account_inventory_gap(*, requested_provider: object, provider_key: object, runtime_account_count: object) -> dict[str, Any]:
     expected_count, source = expected_account_count_for_provider(
         requested_provider=requested_provider,
@@ -253,7 +333,7 @@ def account_inventory_gap(*, requested_provider: object, provider_key: object, r
         return {}
     runtime_count = _positive_int(runtime_account_count) or 0
     gap = max(0, expected_count - runtime_count)
-    return {
+    inventory = {
         "expected_account_count": expected_count,
         "runtime_account_count": runtime_count,
         "visible_account_gap": gap,
@@ -261,6 +341,22 @@ def account_inventory_gap(*, requested_provider: object, provider_key: object, r
         "source_ref": source,
         "source_kind": "env" if source.startswith("PROPERTYQUARRY_") or source.endswith("_COUNT") else "file",
     }
+    metadata: dict[str, Any] = {}
+    if source == EXPECTED_ACCOUNT_COUNT_JSON_ENV:
+        requested = str(requested_provider or "").strip().lower()
+        canonical = str(provider_key or "").strip().lower()
+        env_metadata = _account_inventory_metadata_json()
+        for key in (requested, canonical):
+            if key and key in env_metadata:
+                metadata = dict(env_metadata[key][0])
+                break
+    elif source and not source.startswith("PROPERTYQUARRY_") and not source.endswith("_COUNT"):
+        metadata, _metadata_source = account_inventory_metadata_for_provider(
+            requested_provider=requested_provider,
+            provider_key=provider_key,
+        )
+    inventory.update(metadata)
+    return inventory
 
 
 def _collect_tokens(value: object) -> set[str]:
@@ -477,12 +573,29 @@ def _provider_next_actions(rows: list[dict[str, Any]], telegram_readiness: dict[
             add_action(
                 provider_label,
                 "provider_account_visibility_gap",
-                "Expose the expected provider accounts to the runtime secret/config layer, then regenerate the scene-video readiness receipt.",
+                "Expose the expected runtime-visible provider accounts to the runtime secret/config layer, then regenerate the scene-video readiness receipt.",
                 severity="high",
                 expected_account_count=account_inventory.get("expected_account_count"),
                 runtime_account_count=account_inventory.get("runtime_account_count"),
                 visible_account_gap=gap,
+                tracked_account_count=account_inventory.get("tracked_account_count"),
+                unavailable_account_count=account_inventory.get("unavailable_account_count"),
+                availability_reason=account_inventory.get("availability_reason"),
                 source_ref=account_inventory.get("source_ref"),
+                do_not_touch=["ONEMIN_*"],
+            )
+        credit_state = str(row.get("credit_state") or checks.get("credit_state") or "").strip()
+        if provider_key == "magicfit" and credit_state == "constrained":
+            add_action(
+                "magicfit",
+                "magicfit_credit_constrained",
+                "Select a funded MagicFit account or refresh credits, then clear the failure marker only after a successful provider render proof.",
+                severity="high",
+                credit_state=credit_state,
+                runtime_account_count=row.get("runtime_account_count"),
+                tracked_account_count=account_inventory.get("tracked_account_count"),
+                unavailable_account_count=account_inventory.get("unavailable_account_count"),
+                availability_reason=account_inventory.get("availability_reason"),
                 do_not_touch=["ONEMIN_*"],
             )
         if "magicfit_insufficient_credits" in blockers:
@@ -563,7 +676,16 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Write a secret-safe PropertyQuarry scene-video readiness receipt.")
     parser.add_argument("--providers", default=",".join(DEFAULT_PROVIDERS))
     parser.add_argument("--output", default=str(_default_output_path()))
+    parser.add_argument(
+        "--load-shared-env",
+        action="store_true",
+        help="Load the generated shared scene-video env bridge before probing runtime readiness.",
+    )
     args = parser.parse_args()
+    if args.load_shared_env:
+        from property_scene_video_shared_env import load_shared_env
+
+        load_shared_env()
     providers = _csv_values(args.providers) or DEFAULT_PROVIDERS
     output_path = write_report(build_report(providers=providers), Path(args.output).expanduser())
     print(json.dumps({"status": "pass", "output": str(output_path), "providers": list(providers)}, sort_keys=True))

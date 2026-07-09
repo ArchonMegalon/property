@@ -40,6 +40,7 @@ memorial_data/
 # Agent-local memory and work queue
 .codex/memories/
 .codex/work_queue/
+.vexp/
 TASKS_WORK_LOG.md
 TASKS_ARCHIVE.md
 

@@ -30,6 +30,7 @@ def test_propertyquarry_phase7_exit_gate_is_green() -> None:
         workflow_name="flythrough_decodes_without_black_frame",
         expected_checks=[
             "flythrough pane opens in a real browser",
+            "mobile flagship flow opens the requested walkthrough and proves decoded video playback",
             "video currentTime advances after play",
             "decoded frame is not visually black",
             "mobile viewport also decodes a visible frame",
@@ -43,6 +44,7 @@ def test_propertyquarry_phase7_exit_gate_is_green() -> None:
             "queued visual state stays honest and does not invent readiness",
             "retryable blocked 3D tour state remains actionable after reload",
             "ready 3D tour opens the hosted tour directly with no fake intermediate viewer step",
+            "missing walkthrough artifacts keep the generated 3D tour fail-closed instead of opening a fake ready viewer",
         ],
     )
     assert_contains_strings(
@@ -69,12 +71,22 @@ def test_propertyquarry_phase7_exit_gate_is_green() -> None:
             "3D tour or walkthrough requests can queue without the required style choice",
             "retryable visual request state disappears after reload",
             "ready hosted tour inserts an extra fake viewer or provider interstitial",
+            "generated walkthrough artifacts are missing but the hosted surface still claims a ready 3D tour",
+            "hosted-tour proof comes from stale image-baked runtime containers whose /version release manifest does not match the candidate commit",
             "dossier remains a thin fact sheet with no neighbourhood or risk context",
         ],
         field_name="fail_closed_conditions",
     )
+    assert_contains_strings(
+        payload["exit_criteria"],
+        [
+            "all hosted-tour and walkthrough proof comes from rebuilt or restarted runtime containers whose /version release manifest matches the candidate commit",
+        ],
+        field_name="exit_criteria",
+    )
     run_pytest_modules(
         [
+            "tests/e2e/test_propertyquarry_flagship_flow.py",
             "tests/test_fliplink_packet_privacy.py",
             "tests/e2e/test_propertyquarry_public_tour_browser.py",
         ]

@@ -167,16 +167,54 @@
         card.appendChild(actions);
       });
     };
+    const selectedPreviewUrlForCandidate = (candidate) => String(
+      candidate?.diorama_preview_url
+      || candidate?.diorama_scene?.image_url
+      || candidate?.diorama_scene?.preview_image_url
+      || candidate?.preview_image_url
+      || candidate?.orientation_preview?.image_url
+      || candidate?.orientation_preview?.thumb_image_url
+      || ''
+    ).trim();
+    const selectedTourUrlForCandidate = (candidate) => String(
+      candidate?.verified_tour_url
+      || candidate?.open_tour_url
+      || candidate?.tour?.url
+      || candidate?.tour_url
+      || ''
+    ).trim();
+    const embeddedTourUrlForCandidate = (candidate) => {
+      for (const value of [
+        candidate?.verified_tour_url,
+        candidate?.open_tour_url,
+        candidate?.tour?.embed_url,
+        candidate?.tour?.url,
+        candidate?.tour_url,
+      ]) {
+        const raw = String(value || '').trim();
+        if (!raw) continue;
+        try {
+          const parsed = new URL(raw, window.location.origin);
+          if (parsed.origin !== window.location.origin) continue;
+          if (!parsed.pathname.startsWith('/tours/')) continue;
+          return parsed.toString();
+        } catch (_error) {
+          if (raw.startsWith('/tours/')) return raw;
+        }
+      }
+      return '';
+    };
     const renderPropertyActions = (node, candidate) => {
       if (!node || !candidate) return;
       clearNode(node);
       const tour = candidate.tour || {};
+      const resolvedTourUrl = selectedTourUrlForCandidate(candidate);
       const candidateRef = String(candidate.candidate_ref || '').trim();
       const runId = String(data.run?.run_id || meta.run_id || '').trim();
-      if (tour.url) {
+      if (resolvedTourUrl) {
         appendActionControl(node, {
-          label: 'Open 3D tour',
-          href: String(tour.url || ''),
+          label: String(tour.control_label || 'Open 3D tour').trim() || 'Open 3D tour',
+          href: resolvedTourUrl,
           link: true,
           primary: true,
           attributes: {
@@ -190,7 +228,7 @@
           label: 'Open property',
           href: String(candidate.packet_url || ''),
           link: true,
-          primary: !tour.url,
+          primary: !resolvedTourUrl,
           attributes: {
             'data-rybbit-event': 'pq.property.opened',
             'data-rybbit-prop-surface': 'research',
@@ -236,7 +274,7 @@
       }
       const visualPropertyUrl = String(candidate.property_url || candidate.source_url || candidate.listing_url || '').trim();
       const visualMediaReady = Boolean(String(candidate.floorplan_url || candidate.source_virtual_tour_url || candidate.vendor_tour_url || tour.provider_url || '').trim());
-      if (!tour.url && visualMediaReady && visualPropertyUrl) {
+      if (!resolvedTourUrl && visualMediaReady && visualPropertyUrl) {
         appendActionControl(actions, {
           label: 'Request 3D tour',
           attributes: {
@@ -278,7 +316,7 @@
       const status = document.createElement('div');
       status.className = 'pqx-decision-status';
       status.setAttribute('data-pw-visual-request-status', '');
-      status.textContent = (!tour.url && visualMediaReady)
+      status.textContent = (!resolvedTourUrl && visualMediaReady)
         ? 'Need a closer look? Request a 3D tour or walkthrough.'
         : '';
       details.appendChild(status);
@@ -872,21 +910,23 @@
       const tourNodes = [...root.querySelectorAll('[data-pw-tour]')];
       const theaterShells = [...root.querySelectorAll('[data-pq-theater]')];
       const tour = candidate.tour || {};
-      const previewUrl = String(candidate?.orientation_preview?.image_url || candidate?.preview_image_url || '').trim();
-      coverNodes.forEach((coverNode) => { coverNode.hidden = Boolean(tour.embed_url) || !previewUrl; });
+      const previewUrl = selectedPreviewUrlForCandidate(candidate);
+      const embeddedTourUrl = embeddedTourUrlForCandidate(candidate);
+      const resolvedTourUrl = selectedTourUrlForCandidate(candidate);
+      coverNodes.forEach((coverNode) => { coverNode.hidden = Boolean(embeddedTourUrl) || !previewUrl; });
       coverImages.forEach((coverImage) => {
         if (!previewUrl) return;
         coverImage.src = previewUrl;
         coverImage.alt = String(candidate.title || 'Property preview');
       });
       tourNodes.forEach((tourNode) => {
-        if (tour.embed_url) {
+        if (embeddedTourUrl) {
           theaterShells.forEach((theaterShell) => theaterShell.classList.remove('no-media'));
           tourNode.hidden = false;
           tourNode.classList.remove('is-unavailable', 'is-compact');
           clearNode(tourNode);
           const iframe = document.createElement('iframe');
-          iframe.src = String(tour.embed_url || '');
+          iframe.src = embeddedTourUrl;
           iframe.title = 'Property 3D tour';
           iframe.loading = 'lazy';
           iframe.allowFullscreen = true;
@@ -902,7 +942,7 @@
       renderOodaRows(ooda, candidate.ooda?.rows);
       const oodaSummaries = [...root.querySelectorAll('[data-pw-ooda-summary]')];
       oodaSummaries.forEach((oodaSummary) => {
-        const hasTour = Boolean(tour.url || tour.embed_url);
+        const hasTour = Boolean(resolvedTourUrl || embeddedTourUrl);
         oodaSummary.textContent = candidate.ooda?.summary || (hasTour
           ? 'Start with the tour, then check the facts below before deciding.'
           : 'No 3D tour is attached yet.');

@@ -333,6 +333,66 @@ def test_scene_video_readiness_report_reads_expected_account_counts_from_invento
     )
 
 
+def test_scene_video_readiness_report_records_tracked_inventory_and_magicfit_credit_constraint(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    module = _load_script()
+    inventory = tmp_path / "scene_video_provider_inventory.json"
+    inventory.write_text(
+        json.dumps(
+            {
+                "providers": {
+                    "magicfit": {
+                        "expected_account_count": 2,
+                        "tracked_account_count": 3,
+                        "unavailable_account_count": 1,
+                        "availability_reason": "one_account_depleted",
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_INVENTORY_FILE", str(inventory))
+    monkeypatch.delenv("PROPERTYQUARRY_SCENE_VIDEO_EXPECTED_ACCOUNT_COUNTS_JSON", raising=False)
+    monkeypatch.setattr(
+        module,
+        "scene_video_provider_runtime_readiness",
+        lambda provider: {
+            "provider_key": "magicfit",
+            "provider_backend_key": "magicfit",
+            "ready": True,
+            "status": "ready",
+            "blockers": [],
+            "runtime_account_count": 2,
+            "credit_state": "constrained",
+            "checks": {
+                "runtime_account_count": 2,
+                "credit_state": "constrained",
+            },
+        },
+    )
+
+    report = module.build_report(providers=("magicfit",))
+    row = report["providers"][0]
+    reasons = {(action["provider"], action["reason"]) for action in report["next_actions"]}
+
+    assert row["account_inventory"] == {
+        "expected_account_count": 2,
+        "runtime_account_count": 2,
+        "tracked_account_count": 3,
+        "unavailable_account_count": 1,
+        "availability_reason": "one_account_depleted",
+        "visible_account_gap": 0,
+        "status": "ready",
+        "source_ref": str(inventory),
+        "source_kind": "file",
+    }
+    assert ("magicfit", "provider_account_visibility_gap") not in reasons
+    assert ("magicfit", "magicfit_credit_constrained") in reasons
+
+
 def test_scene_video_readiness_report_cli_writes_receipt(tmp_path: Path) -> None:
     output = tmp_path / "receipt.json"
     script = ROOT / "scripts" / "property_scene_video_readiness_report.py"

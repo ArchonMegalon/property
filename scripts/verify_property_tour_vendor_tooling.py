@@ -79,6 +79,28 @@ OMAGIC_CREDENTIAL_ENV_NAMES = (
 )
 
 
+def _shared_scene_video_env_path(repo_root: Path) -> Path:
+    configured = str(os.getenv("PROPERTYQUARRY_SCENE_VIDEO_SHARED_ENV_FILE") or "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    return repo_root / "state" / "runtime" / "property_scene_video_shared.env"
+
+
+def _load_shared_scene_video_env(repo_root: Path) -> tuple[Path, dict[str, str]]:
+    shared_env_path = _shared_scene_video_env_path(repo_root)
+    if not shared_env_path.is_file():
+        return shared_env_path, {}
+    try:
+        from scripts.property_scene_video_shared_env import load_shared_env
+    except Exception:
+        return shared_env_path, {}
+    try:
+        applied = load_shared_env(shared_env_path, override=False)
+    except Exception:
+        return shared_env_path, {}
+    return shared_env_path, dict(applied)
+
+
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
@@ -229,13 +251,14 @@ def _credential_pair_present(values: dict[str, str]) -> bool:
     return any(values.get(email_key, "").strip() and values.get(password_key, "").strip() for email_key, password_key in MAGICFIT_CREDENTIAL_ENV_PAIRS)
 
 
-def _magicfit_renderer_receipt(repo_root: Path) -> dict[str, object]:
+def _magicfit_renderer_receipt(repo_root: Path, *, shared_env_path: Path | None = None) -> dict[str, object]:
     script_path = (repo_root / MAGICFIT_RENDER_SCRIPT).resolve()
     env_files = tuple(
         dict.fromkeys(
             str(path)
             for path in (
                 repo_root / ".env",
+                *((shared_env_path,) if shared_env_path is not None and shared_env_path.is_file() else ()),
                 *default_magicfit_env_files(),
             )
         )
@@ -243,8 +266,6 @@ def _magicfit_renderer_receipt(repo_root: Path) -> dict[str, object]:
     env_file_paths = tuple(Path(path).expanduser() for path in env_files)
     discovered_values, discovered_sources = discover_magicfit_env(env_file_paths)
     credential_sources: list[str] = []
-    if _credential_pair_present({key: str(value) for key, value in os.environ.items()}):
-        credential_sources.append("process_env")
     if _credential_pair_present(discovered_values):
         for email_key, password_key in MAGICFIT_CREDENTIAL_ENV_PAIRS:
             email_source = discovered_sources.get(email_key, "")
@@ -252,6 +273,8 @@ def _magicfit_renderer_receipt(repo_root: Path) -> dict[str, object]:
             if email_source and password_source:
                 credential_sources.extend([email_source, password_source])
                 break
+    elif _credential_pair_present({key: str(value) for key, value in os.environ.items()}):
+        credential_sources.append("process_env")
     env_files_checked = [str(path.resolve()) for path in env_file_paths]
     deduped_sources = list(dict.fromkeys(credential_sources))
     python_modules = {
@@ -271,7 +294,7 @@ def _magicfit_renderer_receipt(repo_root: Path) -> dict[str, object]:
         next_action = f"restore {MAGICFIT_RENDER_SCRIPT} before claiming MagicFit walkthrough readiness"
     elif not credentials_configured:
         next_action = (
-            "configure PROPERTYQUARRY_MAGICFIT_EMAIL and PROPERTYQUARRY_MAGICFIT_PASSWORD in /docker/property/.env "
+            "configure the MagicFit login pair in /docker/property/.env "
             "or the current process environment before expecting MagicFit walkthrough renders"
         )
     elif missing_python_modules:
@@ -292,7 +315,7 @@ def _magicfit_renderer_receipt(repo_root: Path) -> dict[str, object]:
         "python_modules": python_modules,
         "ready": ready,
         "next_action": next_action,
-        "note": "Only readiness signals are recorded here; MagicFit credentials and session secrets are intentionally omitted.",
+        "note": "Only readiness signals are recorded here; MagicFit sign-in material and session secrets are intentionally omitted.",
     }
 
 
@@ -608,6 +631,7 @@ def build_vendor_tooling_receipt(
     runtime_only: bool = False,
 ) -> dict[str, Any]:
     repo_root = _repo_root()
+    shared_env_path = _shared_scene_video_env_path(repo_root)
     discovery = build_discovery_receipt(drop_dir=drop_dir, public_tour_dir=tour_root)
     discovery_provider_ready_counts = _provider_ready_counts(discovery)
     live_bundle_provider_ready_counts = _live_bundle_verified_export_counts(tour_root)
@@ -668,7 +692,8 @@ def build_vendor_tooling_receipt(
         if runtime_generated_tour_tools
         else None
     )
-    magicfit_renderer = _magicfit_renderer_receipt(repo_root)
+    magicfit_renderer = _magicfit_renderer_receipt(repo_root, shared_env_path=shared_env_path)
+    _load_shared_scene_video_env(repo_root)
     omagic_adapter = _omagic_adapter_receipt(
         repo_root,
         runtime_container=runtime_container,

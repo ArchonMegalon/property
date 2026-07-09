@@ -20,6 +20,7 @@ import pytest
 import app.product.service as product_service
 import app.product.property_search_storage as property_search_storage
 import app.product.property_investment_external_data as property_investment_external_data
+import app.api.routes.product_api_delivery as product_api_delivery_routes
 from app.api.routes.product_api_contracts import PropertySearchRunStatusOut
 from app.api.routes.product_api_delivery import (
     _property_search_apply_response_display_totals,
@@ -119,6 +120,54 @@ def test_property_search_lightweight_candidate_payload_summarizes_provider_marke
     assert candidate["fit_summary"] == "Unbefristete Mietdauer, mitten in der Stadt, 3 Zimmer."
     assert "Wählen Sie aus" not in candidate["summary"]
     assert "Immobilien suchen und finden" not in candidate["summary"]
+
+
+def test_property_search_lightweight_candidate_payload_derives_diorama_preview_from_ready_generated_layout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    diorama_url = "https://cdn.example.test/lightweight-derived-diorama.png"
+    generated_reconstruction_url = "https://propertyquarry.com/tours/lightweight-derived-layout"
+    listing_photo_url = "https://cdn.example.test/lightweight-derived-photo.jpg"
+
+    monkeypatch.setattr(
+        product_api_delivery_routes,
+        "_property_visual_ready_tour_url",
+        lambda *, tour_url="", open_tour_url="": (
+            generated_reconstruction_url
+            if str(tour_url or open_tour_url).strip() == generated_reconstruction_url
+            else ""
+        ),
+    )
+    monkeypatch.setattr(
+        product_api_delivery_routes,
+        "_hosted_property_tour_telegram_preview_image_url_for_style",
+        lambda tour_url, *, diorama_style_hint="": diorama_url if tour_url == generated_reconstruction_url else "",
+    )
+
+    candidate = _property_search_lightweight_candidate_payload(
+        {
+            "candidate_ref": "cand-lightweight-derived-diorama",
+            "title": "Lightweight generated layout flat",
+            "property_url": "https://example.test/source/lightweight-derived-diorama",
+            "tour_url": generated_reconstruction_url,
+            "preview_image_url": listing_photo_url,
+            "property_facts": {
+                "price_display": "EUR 1,980",
+                "monthly_rent_eur": 1980,
+                "area_m2": 81,
+                "rooms": 3,
+                "postal_name": "1020 Wien",
+                "preview_image_url": listing_photo_url,
+                "image_url": listing_photo_url,
+                "media_urls_json": [listing_photo_url],
+            },
+        },
+        run_id="run-lightweight-derived-diorama",
+        index=1,
+    )
+
+    assert candidate["preview_image_url"] == listing_photo_url
+    assert candidate["diorama_preview_url"] == diorama_url
 
 
 def test_property_distance_evidence_rows_include_named_nearest_amenity_and_source() -> None:
@@ -11462,6 +11511,7 @@ def test_property_provider_greenfield_api_returns_country_scoped_catalog() -> No
     assert any(row["value"] == "findmyhome_at" and "FindMyHome" in row["label"] for row in at_body["providers"])
     assert any(row["value"] == "derstandard_at" and "STANDARD" in row["label"] for row in at_body["providers"])
     assert any(row["value"] == "remax_at" and "RE/MAX Austria" in row["label"] for row in at_body["providers"])
+    assert any(row["value"] == "glorit_at" and row["family"] == "developer_projects" for row in at_body["providers"])
     assert any(row["value"] == "wag_at" and row["family"] == "cooperative" for row in at_body["providers"])
     assert any(row["value"] == "heimat_oesterreich_at" and row["family"] == "cooperative" for row in at_body["providers"])
     assert any(row["value"] == "bwsg_at" and row["family"] == "cooperative" for row in at_body["providers"])
@@ -11687,6 +11737,37 @@ def test_property_provider_catalog_generates_remax_austria_sources() -> None:
     assert row["fetch_timeout_seconds"] == 8
     assert "https://www.remax.at/de/ib/remax-first-wien/immobilien" in row["fallback_listing_urls"]
     assert row["provider_filter_pushdown"]["applied"]["min_area_m2"] == 70
+
+
+def test_property_provider_catalog_generates_glorit_austria_buy_sources() -> None:
+    rows = property_market_catalog.generated_source_specs(
+        preferences={
+            "country_code": "AT",
+            "region_code": "wien",
+            "listing_mode": "buy",
+            "location_query": "1220 Wien Alte Donau",
+            "min_area_m2": 55,
+            "max_price_eur": 650000,
+        },
+        selected_platforms=("glorit",),
+        principal_id="exec-property-glorit-source",
+    )
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["platform"] == "glorit_at"
+    assert row["provider_family"] == "developer_projects"
+    assert row["source_access_level"] == "public"
+    assert row["provider_governance"]["access_mode"] == "browser_public_web"
+    assert row["provider_governance"]["browser_access_allowed"] is True
+    assert row["url"].startswith("https://glorit.at/wohnung-kaufen/")
+    assert "q=1220+Wien+Alte+Donau" in row["url"]
+    assert "maxPrice=650000" in row["url"]
+    assert "minArea=55" in row["url"]
+    assert row["fetch_timeout_seconds"] == 10
+    assert "https://glorit.at/wohnung-kaufen/1220-wien-arminenstrasse-4a-8?t=top201" in row["fallback_listing_urls"]
+    assert row["provider_filter_pushdown"]["applied"]["location_query"] == "1220 Wien Alte Donau"
+    assert property_market_catalog.normalize_property_platform("glorit.at") == "glorit_at"
 
 
 def test_property_search_run_rejects_invalid_platform_and_enforces_run_principal_scope(monkeypatch) -> None:

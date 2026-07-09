@@ -2331,7 +2331,12 @@
         payload?.open_tour_url,
       );
       const rawFlythroughState = String(payload?.flythrough_status || payload?.status || '').trim().toLowerCase();
-      const state = String(resolvedUrl ? 'ready' : rawFlythroughState || 'pending').trim().toLowerCase();
+      const malformedReadyState = rawFlythroughState === 'ready' && !resolvedUrl;
+      const state = String(
+        resolvedUrl
+          ? 'ready'
+          : (malformedReadyState ? 'blocked' : rawFlythroughState || 'pending')
+      ).trim().toLowerCase();
       const retryableTerminal = visualTerminalStates.includes(state) && !resolvedUrl;
       return {
         state,
@@ -2345,10 +2350,10 @@
             retryableTerminal,
           }),
         href: resolvedUrl,
-        detail: String(payload?.status_detail || '').trim(),
-        eta: String(payload?.eta_label || '').trim(),
-        progress: Number(payload?.progress_pct || 0) || 0,
-        pollSeconds: Number(payload?.poll_after_seconds || 0) || 0,
+        detail: malformedReadyState ? 'Walkthrough is not available yet.' : String(payload?.status_detail || '').trim(),
+        eta: malformedReadyState ? '' : String(payload?.eta_label || '').trim(),
+        progress: malformedReadyState ? 0 : (Number(payload?.progress_pct || 0) || 0),
+        pollSeconds: malformedReadyState ? 0 : (Number(payload?.poll_after_seconds || 0) || 0),
       };
     }
     const payloadStatusLabel = String(payload?.status_label || fallbackLabel || '').trim();
@@ -2359,7 +2364,12 @@
       payload?.vendor_tour_url,
     );
     const rawTourState = String(payload?.tour_status || payload?.status || '').trim().toLowerCase();
-    const state = String(resolvedTourUrl ? 'ready' : rawTourState || 'pending').trim().toLowerCase();
+    const malformedReadyState = rawTourState === 'ready' && !resolvedTourUrl;
+    const state = String(
+      resolvedTourUrl
+        ? 'ready'
+        : (malformedReadyState ? 'blocked' : rawTourState || 'pending')
+    ).trim().toLowerCase();
     const retryableTerminal = visualTerminalStates.includes(state) && !resolvedTourUrl;
       return {
         state,
@@ -2373,10 +2383,10 @@
             retryableTerminal,
           }),
       href: resolvedTourUrl,
-      detail: String(payload?.status_detail || '').trim(),
-      eta: String(payload?.eta_label || '').trim(),
-      progress: Number(payload?.progress_pct || 0) || 0,
-      pollSeconds: Number(payload?.poll_after_seconds || 0) || 0,
+      detail: malformedReadyState ? 'A real 3D tour is not available yet.' : String(payload?.status_detail || '').trim(),
+      eta: malformedReadyState ? '' : String(payload?.eta_label || '').trim(),
+      progress: malformedReadyState ? 0 : (Number(payload?.progress_pct || 0) || 0),
+      pollSeconds: malformedReadyState ? 0 : (Number(payload?.poll_after_seconds || 0) || 0),
     };
   };
   const scheduleVisualStatusPoll = (requestKind, options = {}) => {
@@ -2564,7 +2574,8 @@
             sourceRef,
             propertyUrl,
             pollSeconds: nextState.pollSeconds || 10,
-            firstPollDelaySeconds: requestKind === 'tour' ? 0.2 : 0,
+            // Keep the initial queued acknowledgement on screen long enough to be perceived.
+            firstPollDelaySeconds: 1,
           });
         }
       } catch (error) {

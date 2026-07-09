@@ -39,10 +39,12 @@ import requests
 import yaml
 
 try:
-    from PIL import Image, ImageFilter, ImageStat
+    from PIL import Image, ImageDraw, ImageFilter, ImageOps, ImageStat
 except Exception:  # pragma: no cover - optional OCR fallback
     Image = None
+    ImageDraw = None
     ImageFilter = None
+    ImageOps = None
     ImageStat = None
 
 try:
@@ -3861,9 +3863,12 @@ def _property_visual_ready_tour_url(
     normalized_open_tour_url = str(open_tour_url or "").strip()
     if normalized_tour_url:
         if _is_branded_public_tour_url(normalized_tour_url):
-            resolved_open_tour_url = str(_hosted_property_tour_first_party_open_url(normalized_tour_url) or "").strip()
+            resolved_open_tour_url = str(_hosted_property_tour_verified_open_url(normalized_tour_url) or "").strip()
             if resolved_open_tour_url:
                 return resolved_open_tour_url
+            resolved_first_party_open_url = str(_hosted_property_tour_first_party_open_url(normalized_tour_url) or "").strip()
+            if resolved_first_party_open_url:
+                return resolved_first_party_open_url
         elif (
             normalized_tour_url.startswith(("http://", "https://", "/"))
             and not _property_visual_generated_reconstruction_bundle_url(normalized_tour_url)
@@ -3872,12 +3877,12 @@ def _property_visual_ready_tour_url(
     if normalized_open_tour_url.startswith(("http://", "https://", "/")):
         generated_reconstruction_bundle_url = _property_visual_generated_reconstruction_bundle_url(normalized_open_tour_url)
         if generated_reconstruction_bundle_url:
-            resolved_open_tour_url = str(_hosted_property_tour_first_party_open_url(generated_reconstruction_bundle_url) or "").strip()
-            if resolved_open_tour_url:
-                return resolved_open_tour_url
             return ""
         if not _is_branded_public_tour_url(normalized_open_tour_url):
             return normalized_open_tour_url
+        resolved_first_party_open_url = str(_hosted_property_tour_first_party_open_url(normalized_open_tour_url) or "").strip()
+        if resolved_first_party_open_url:
+            return resolved_first_party_open_url
     return ""
 
 
@@ -6356,8 +6361,7 @@ def _property_has_nearby_distance_facts(facts: dict[str, object]) -> bool:
     return any(not _property_fact_value_is_weak(payload.get(key)) for key in _PROPERTY_NEARBY_DISTANCE_FACT_KEYS)
 
 
-@lru_cache(maxsize=256)
-def _property_research_location_hint_snapshot(query: str) -> dict[str, object]:
+def _property_research_location_hint_snapshot_uncached(query: str) -> dict[str, object]:
     normalized = " ".join(str(query or "").split()).strip()
     if not normalized:
         return {}
@@ -6402,6 +6406,29 @@ def _property_research_location_hint_snapshot(query: str) -> dict[str, object]:
         if key.endswith("_m"):
             findings.setdefault(f"{key[:-2]}_source", nearby_source)
     return findings
+
+
+@lru_cache(maxsize=256)
+def _property_research_location_hint_snapshot_cached(query: str) -> dict[str, object]:
+    return _property_research_location_hint_snapshot_uncached(query)
+
+
+def _property_research_location_hint_snapshot(query: str) -> dict[str, object]:
+    normalized = " ".join(str(query or "").split()).strip()
+    if not normalized:
+        return {}
+    cached = dict(_property_research_location_hint_snapshot_cached(normalized) or {})
+    if cached and (
+        _property_has_nearby_distance_facts(cached)
+        or str(cached.get("exact_address") or "").strip()
+        or str(cached.get("street_address") or "").strip()
+    ):
+        return cached
+    return _property_research_location_hint_snapshot_uncached(normalized)
+
+
+_property_research_location_hint_snapshot.cache_clear = _property_research_location_hint_snapshot_cached.cache_clear  # type: ignore[attr-defined]
+_property_research_location_hint_snapshot.cache_info = _property_research_location_hint_snapshot_cached.cache_info  # type: ignore[attr-defined]
 
 
 def _property_apply_location_hint_research(
@@ -16741,6 +16768,141 @@ def _property_reconstruction_script_path() -> Path:
     return (_repo_root() / "scripts" / "generate_property_reconstruction.py").resolve()
 
 
+def _property_reconstruction_render_bridge_url() -> str:
+    configured = str(os.getenv("PROPERTYQUARRY_RECONSTRUCTION_RENDER_BRIDGE_URL") or "").strip()
+    if configured:
+        return configured
+    return "http://propertyquarry-render-tools:8091/generate-reconstruction"
+
+
+def _property_reconstruction_render_bridge_token() -> str:
+    return str(os.getenv("PROPERTYQUARRY_RECONSTRUCTION_RENDER_BRIDGE_TOKEN") or "").strip()
+
+
+def _property_reconstruction_generation_timeout_seconds() -> int:
+    raw_value = str(os.getenv("PROPERTYQUARRY_RECONSTRUCTION_TIMEOUT_SECONDS") or "").strip()
+    try:
+        parsed = int(float(raw_value or "420"))
+    except Exception:
+        parsed = 420
+    return max(parsed, 120)
+
+
+def _property_reconstruction_request_timeout_seconds() -> int:
+    generation_timeout_seconds = _property_reconstruction_generation_timeout_seconds()
+    raw_value = str(os.getenv("PROPERTYQUARRY_RECONSTRUCTION_REQUEST_TIMEOUT_SECONDS") or "").strip()
+    try:
+        parsed = int(float(raw_value or str(generation_timeout_seconds + 60)))
+    except Exception:
+        parsed = generation_timeout_seconds + 60
+    return max(parsed, generation_timeout_seconds + 30)
+
+
+def _property_reconstruction_should_use_render_bridge(*, skip_video: bool) -> bool:
+    if _env_flag("PROPERTYQUARRY_GENERATED_RECONSTRUCTION_FORCE_RENDER_BRIDGE", default=False):
+        return bool(_property_reconstruction_render_bridge_url())
+    if skip_video:
+        return False
+    return not bool(shutil.which("ffmpeg")) and bool(_property_reconstruction_render_bridge_url())
+
+
+def _stage_property_reconstruction_source_image(source_path: Path | None, stage_dir: Path, *, stem: str) -> Path | None:
+    if source_path is None:
+        return None
+    try:
+        resolved_source = Path(source_path).expanduser().resolve()
+    except Exception:
+        return None
+    if not resolved_source.is_file():
+        return None
+    suffix = resolved_source.suffix.lower()
+    if suffix not in {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff"}:
+        suffix = ".jpg"
+    staged_path = (stage_dir / f"{stem}{suffix}").resolve()
+    if stage_dir.resolve() not in staged_path.parents:
+        return None
+    if staged_path != resolved_source:
+        shutil.copy2(resolved_source, staged_path)
+    return staged_path if staged_path.is_file() and staged_path.stat().st_size > 0 else None
+
+
+def _run_property_reconstruction_render_bridge(
+    *,
+    slug: str,
+    floorplan_path: Path | None,
+    photo_paths: list[Path],
+    style_label: str,
+    room_count: int,
+    route_labels: list[str],
+    skip_video: bool,
+) -> dict[str, object]:
+    bridge_url = _property_reconstruction_render_bridge_url()
+    if not bridge_url:
+        raise RuntimeError("property_reconstruction_render_bridge_url_missing")
+    walkthrough_seconds_per_stop_raw = str(
+        os.getenv("PROPERTYQUARRY_RECONSTRUCTION_WALKTHROUGH_SECONDS_PER_STOP") or ""
+    ).strip()
+    try:
+        walkthrough_seconds_per_stop = float(walkthrough_seconds_per_stop_raw or "0")
+    except Exception:
+        walkthrough_seconds_per_stop = 0.0
+    payload = {
+        "slug": str(slug or "").strip(),
+        "skip_video": bool(skip_video),
+        "floorplan_path": str(floorplan_path) if floorplan_path is not None else "",
+        "photo_paths": [str(path) for path in photo_paths if isinstance(path, Path)],
+        "style_label": style_label,
+        "room_count": max(0, int(room_count or 0)),
+        "route_labels": [str(label or "").strip() for label in route_labels if str(label or "").strip()],
+        "timeout_seconds": _property_reconstruction_generation_timeout_seconds(),
+    }
+    if walkthrough_seconds_per_stop > 0.0:
+        payload["walkthrough_seconds_per_stop"] = walkthrough_seconds_per_stop
+    request = urllib.request.Request(
+        bridge_url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": "PropertyQuarry reconstruction service",
+        },
+        method="POST",
+    )
+    token = _property_reconstruction_render_bridge_token()
+    if token:
+        request.add_header("Authorization", f"Bearer {token}")
+    timeout_seconds = _property_reconstruction_request_timeout_seconds()
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+            raw = response.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(
+            "property_reconstruction_render_bridge_http_error:"
+            + compact_text(f"{exc.code}:{detail}".strip(), fallback="bridge request failed", limit=260)
+        ) from exc
+    except Exception as exc:
+        raise RuntimeError(
+            "property_reconstruction_render_bridge_unreachable:"
+            + compact_text(str(exc), fallback=type(exc).__name__, limit=260)
+        ) from exc
+    try:
+        loaded = json.loads(raw or "{}")
+    except Exception as exc:
+        raise RuntimeError(
+            "property_reconstruction_render_bridge_invalid_json:"
+            + compact_text(raw.strip(), fallback="invalid bridge response", limit=260)
+        ) from exc
+    if not isinstance(loaded, dict):
+        raise RuntimeError("property_reconstruction_render_bridge_invalid_response")
+    if str(loaded.get("status") or "").strip() != "generated":
+        detail = _first_non_empty_text(loaded.get("reason"), loaded.get("detail"), raw)
+        raise RuntimeError(
+            "property_reconstruction_render_bridge_failed:"
+            + compact_text(detail, fallback="bridge render failed", limit=260)
+        )
+    return loaded
+
+
 def _write_generated_reconstruction_property_tour_bundle(
     *,
     principal_id: str,
@@ -16858,53 +17020,84 @@ def _write_generated_reconstruction_property_tour_bundle(
     script_path = _property_reconstruction_script_path()
     if not script_path.exists():
         raise RuntimeError("property_reconstruction_script_missing")
-    with tempfile.TemporaryDirectory(prefix="propertyquarry-reconstruction-") as tmp_dir:
+    skip_video = _env_flag("PROPERTYQUARRY_GENERATED_RECONSTRUCTION_SKIP_VIDEO", default=False)
+    with tempfile.TemporaryDirectory(prefix="propertyquarry-reconstruction-source-", dir=str(bundle_dir)) as tmp_dir:
         tmp_path = Path(tmp_dir)
         floorplan_path: Path | None = None
         for index, floorplan_url in enumerate(normalized_floorplans[:3], start=1):
-            floorplan_path = _download_property_reconstruction_image(floorplan_url, tmp_path, stem=f"floorplan-{index:02d}")
+            downloaded_floorplan = _download_property_reconstruction_image(
+                floorplan_url,
+                tmp_path,
+                stem=f"floorplan-{index:02d}",
+            )
+            floorplan_path = _stage_property_reconstruction_source_image(
+                downloaded_floorplan,
+                tmp_path,
+                stem=f"floorplan-{index:02d}",
+            )
             if floorplan_path is not None:
                 break
         photo_paths: list[Path] = []
         for index, media_url in enumerate(normalized_media[:8], start=1):
-            photo_path = _download_property_reconstruction_image(media_url, tmp_path, stem=f"photo-{index:02d}")
+            downloaded_photo = _download_property_reconstruction_image(
+                media_url,
+                tmp_path,
+                stem=f"photo-{index:02d}",
+            )
+            photo_path = _stage_property_reconstruction_source_image(
+                downloaded_photo,
+                tmp_path,
+                stem=f"photo-{index:02d}",
+            )
             if photo_path is not None:
                 photo_paths.append(photo_path)
         if floorplan_path is None and not photo_paths:
             raise RuntimeError("reconstruction_source_assets_unavailable")
-        command = [
-            _runtime_python_executable(),
-            str(script_path),
-            "--slug",
-            slug,
-            "--skip-video",
-        ]
-        if floorplan_path is not None:
-            command.extend(["--floorplan", str(floorplan_path)])
-        else:
-            command.append("--infer-floorplan-from-photos")
-        for photo_path in photo_paths:
-            command.extend(["--photo", str(photo_path)])
         style_label = compact_text(str(diorama_style_hint or "").strip(), fallback="", limit=80)
-        if style_label:
-            command.extend(["--style-label", style_label])
-        if reconstruction_room_count > 0:
-            command.extend(["--room-count", str(int(reconstruction_room_count))])
-        for route_label in normalized_reconstruction_route_labels:
-            command.extend(["--room-label", route_label])
-        completed = subprocess.run(
-            command,
-            cwd=str(script_path.parent.parent if script_path.parent.name == "scripts" else _repo_root()),
-            capture_output=True,
-            text=True,
-            timeout=max(120, int(os.getenv("PROPERTYQUARRY_RECONSTRUCTION_TIMEOUT_SECONDS") or "240")),
-            check=False,
-        )
-    if completed.returncode != 0:
-        raise RuntimeError(
-            "property_reconstruction_generation_failed:"
-            + compact_text((completed.stderr or completed.stdout or "").strip(), fallback="generator failed", limit=260)
-        )
+        if _property_reconstruction_should_use_render_bridge(skip_video=skip_video):
+            _run_property_reconstruction_render_bridge(
+                slug=slug,
+                floorplan_path=floorplan_path,
+                photo_paths=photo_paths,
+                style_label=style_label,
+                room_count=reconstruction_room_count,
+                route_labels=normalized_reconstruction_route_labels,
+                skip_video=skip_video,
+            )
+        else:
+            command = [
+                _runtime_python_executable(),
+                str(script_path),
+                "--slug",
+                slug,
+            ]
+            if skip_video:
+                command.append("--skip-video")
+            if floorplan_path is not None:
+                command.extend(["--floorplan", str(floorplan_path)])
+            else:
+                command.append("--infer-floorplan-from-photos")
+            for photo_path in photo_paths:
+                command.extend(["--photo", str(photo_path)])
+            if style_label:
+                command.extend(["--style-label", style_label])
+            if reconstruction_room_count > 0:
+                command.extend(["--room-count", str(int(reconstruction_room_count))])
+            for route_label in normalized_reconstruction_route_labels:
+                command.extend(["--room-label", route_label])
+            completed = subprocess.run(
+                command,
+                cwd=str(script_path.parent.parent if script_path.parent.name == "scripts" else _repo_root()),
+                capture_output=True,
+                text=True,
+                timeout=_property_reconstruction_generation_timeout_seconds(),
+                check=False,
+            )
+            if completed.returncode != 0:
+                raise RuntimeError(
+                    "property_reconstruction_generation_failed:"
+                    + compact_text((completed.stderr or completed.stdout or "").strip(), fallback="generator failed", limit=260)
+                )
     try:
         generated_payload_raw = json.loads(manifest_path.read_text(encoding="utf-8"))
     except Exception:
@@ -16915,9 +17108,35 @@ def _write_generated_reconstruction_property_tour_bundle(
         if isinstance(generated_payload.get("generated_reconstruction"), dict)
         else {}
     )
+    bundle_root = bundle_dir.resolve()
+    walkthrough_relpath = _hosted_property_tour_safe_asset_relpath(
+        str(generated_reconstruction.get("walkthrough_video_relpath") or "").strip()
+    )
+    walkthrough_path = (bundle_dir / walkthrough_relpath).resolve() if walkthrough_relpath else bundle_dir / "__missing_walkthrough__"
+    if not walkthrough_relpath or bundle_root not in walkthrough_path.parents or not walkthrough_path.is_file():
+        raise RuntimeError("property_reconstruction_walkthrough_missing")
+    walkthrough_sidecar_relpath = _hosted_property_tour_safe_asset_relpath(
+        str(generated_reconstruction.get("walkthrough_sidecar_relpath") or "").strip()
+    )
+    walkthrough_sidecar_path = (
+        (bundle_dir / walkthrough_sidecar_relpath).resolve()
+        if walkthrough_sidecar_relpath
+        else bundle_dir / "__missing_walkthrough_sidecar__"
+    )
+    if not walkthrough_sidecar_relpath or bundle_root not in walkthrough_sidecar_path.parents or not walkthrough_sidecar_path.is_file():
+        raise RuntimeError("property_reconstruction_walkthrough_sidecar_missing")
+    if str(generated_payload.get("video_relpath") or "").strip() != walkthrough_relpath:
+        raise RuntimeError("property_reconstruction_walkthrough_contract_missing")
+    if str(generated_payload.get("video_sidecar_relpath") or "").strip() != walkthrough_sidecar_relpath:
+        raise RuntimeError("property_reconstruction_walkthrough_sidecar_contract_missing")
+    if str(generated_payload.get("video_provider") or "").strip() != "propertyquarry_generated_reconstruction":
+        raise RuntimeError("property_reconstruction_walkthrough_provider_missing")
+    if str(generated_payload.get("video_provider_key") or "").strip() != "propertyquarry_generated_reconstruction":
+        raise RuntimeError("property_reconstruction_walkthrough_provider_key_missing")
+    if str(generated_payload.get("video_coverage_proof") or "").strip() != "boundary_verified_frame_continuation":
+        raise RuntimeError("property_reconstruction_walkthrough_coverage_missing")
     viewer_relpath = str(generated_reconstruction.get("viewer_relpath") or "").strip().replace("\\", "/").lstrip("/")
     viewer_path = (bundle_dir / viewer_relpath).resolve() if viewer_relpath else bundle_dir / "__missing_viewer__"
-    bundle_root = bundle_dir.resolve()
     if not viewer_relpath or bundle_root not in viewer_path.parents or not viewer_path.is_file():
         raise RuntimeError("property_reconstruction_viewer_missing")
     return generated_payload
@@ -16959,14 +17178,35 @@ def _hosted_property_tour_video_delivery(tour_url: str) -> dict[str, object]:
         return {}
     if not isinstance(payload, dict):
         return {}
+    generated_reconstruction = (
+        dict(payload.get("generated_reconstruction") or {})
+        if isinstance(payload.get("generated_reconstruction"), dict)
+        else {}
+    )
+    generated_walkthrough_relpath = _hosted_property_tour_safe_asset_relpath(
+        str(generated_reconstruction.get("walkthrough_video_relpath") or "").strip()
+    )
+    generated_sidecar_relpath = _hosted_property_tour_safe_asset_relpath(
+        str(generated_reconstruction.get("walkthrough_sidecar_relpath") or "").strip()
+    )
+    generated_coverage = (
+        dict(generated_reconstruction.get("walkthrough_coverage_proof") or {})
+        if isinstance(generated_reconstruction.get("walkthrough_coverage_proof"), dict)
+        else {}
+    )
+    generated_walkthrough_ready = bool(
+        generated_walkthrough_relpath and str(generated_coverage.get("status") or "").strip().lower() == "pass"
+    )
     video_relpath = str(payload.get("video_relpath") or "").strip()
+    if not video_relpath and generated_walkthrough_ready:
+        video_relpath = generated_walkthrough_relpath
     if not video_relpath:
         return {}
     video_provider = str(
         payload.get("video_provider")
         or payload.get("video_provider_key")
         or payload.get("video_render_provider")
-        or ""
+        or ("propertyquarry_generated_reconstruction" if generated_walkthrough_ready else "")
     ).strip().lower()
     local_video_path = (bundle_dir / video_relpath).resolve()
     if bundle_dir.resolve() not in local_video_path.parents:
@@ -16974,11 +17214,12 @@ def _hosted_property_tour_video_delivery(tour_url: str) -> dict[str, object]:
     if not local_video_path.exists() or not local_video_path.is_file():
         return {}
     public_video_url = _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=video_relpath)
-    duration_seconds = _video_duration_seconds(str(local_video_path))
     scenes = list(payload.get("scenes") or []) if isinstance(payload.get("scenes"), list) else []
     scene_count = int(payload.get("scene_count") or len(scenes) or 0)
     sidecar_payload: dict[str, object] = {}
     sidecar_relpath = _hosted_property_tour_safe_asset_relpath(str(payload.get("video_sidecar_relpath") or "").strip())
+    if not sidecar_relpath and generated_walkthrough_ready:
+        sidecar_relpath = generated_sidecar_relpath
     if sidecar_relpath:
         sidecar_path = (bundle_dir / sidecar_relpath).resolve()
         if bundle_dir.resolve() in sidecar_path.parents and sidecar_path.exists() and sidecar_path.is_file():
@@ -16988,10 +17229,38 @@ def _hosted_property_tour_video_delivery(tour_url: str) -> dict[str, object]:
                     sidecar_payload = parsed_sidecar
             except Exception:
                 sidecar_payload = {}
+    duration_seconds = _video_duration_seconds(str(local_video_path))
+    if duration_seconds <= 0.0:
+        sidecar_duration_seconds = 0.0
+        try:
+            sidecar_duration_seconds = max(0.0, float(sidecar_payload.get("duration_seconds") or 0.0))
+        except Exception:
+            sidecar_duration_seconds = 0.0
+        if sidecar_duration_seconds <= 0.0:
+            coverage_payload = (
+                dict(sidecar_payload.get("walkthrough_coverage_proof") or {})
+                if isinstance(sidecar_payload.get("walkthrough_coverage_proof"), dict)
+                else {}
+            )
+            coverage_segments = list(coverage_payload.get("coverage_segments") or [])
+            for segment in coverage_segments:
+                if not isinstance(segment, dict):
+                    continue
+                try:
+                    sidecar_duration_seconds = max(sidecar_duration_seconds, float(segment.get("end") or 0.0))
+                except Exception:
+                    continue
+        duration_seconds = sidecar_duration_seconds
     coverage_proof = ""
-    composition = str(sidecar_payload.get("composition") or payload.get("video_coverage_proof") or "").strip()
-    if composition in {"boundary_verified_frame_continuation", "continuous_first_person_walkthrough"}:
-        coverage_proof = composition
+    payload_coverage_proof = str(payload.get("video_coverage_proof") or "").strip()
+    if not payload_coverage_proof and generated_walkthrough_ready:
+        payload_coverage_proof = "boundary_verified_frame_continuation"
+    if payload_coverage_proof in {"boundary_verified_frame_continuation", "continuous_first_person_walkthrough"}:
+        coverage_proof = payload_coverage_proof
+    else:
+        composition = str(sidecar_payload.get("composition") or "").strip()
+        if composition in {"boundary_verified_frame_continuation", "continuous_first_person_walkthrough"}:
+            coverage_proof = composition
     route_labels: list[str] = []
     route_sources = [sidecar_payload] if coverage_proof else []
     for source_payload in route_sources:
@@ -17203,6 +17472,16 @@ def _hosted_property_tour_safe_asset_relpath(value: object) -> str:
     if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
         return ""
     return "/".join(path.parts)
+
+
+def _hosted_property_tour_bundle_asset_path(bundle_dir: Path, relpath: object) -> Path | None:
+    safe_relpath = _hosted_property_tour_safe_asset_relpath(relpath)
+    if not safe_relpath:
+        return None
+    candidate = (bundle_dir / safe_relpath).resolve()
+    if bundle_dir.resolve() not in candidate.parents or not candidate.exists() or not candidate.is_file():
+        return None
+    return candidate
 
 
 def _hosted_property_tour_seed_image_path(tour_url: str) -> Path | None:
@@ -17723,12 +18002,16 @@ def _default_magicfit_property_flythrough_prompt(
         f"Based on the listing '{title_text}'. "
         "SUPER SLOW single first-person indoor drone glide: open the front door, move at walking pace or slower, "
         "glide through the entry, and open doorway-by-doorway. No fast cuts, no jump cuts, no speed-ramping. "
+        "Camera stays at believable adult eye height, about 1.55-1.7 m above the floor, with a natural 24-28 mm full-frame look. "
+        "No bird's-eye, no ceiling camera, no fisheye, and no toy-house or dollhouse miniature effect. "
         "Visit every room once in a logical route. Enter each room fully before scanning it; do not just pass the doorway. "
         f"{visit_directive}"
         f"{room_coverage_directive}"
         "In every room, stop or nearly stop, then rotate slowly at least 180 degrees; rotate 360 degrees where space allows. "
         "Hold each room long enough to read the walls, windows, doors, storage, and furniture layout before continuing. "
         "The route must visibly enter the living room, bedroom, kitchen, bathroom/toilet, hall/entry, storage, and balcony/terrace when present. "
+        "Never remove walls or roofs and never use cutaway, isometric, floorplan-overlay, exploded, x-ray, or ghosted views. "
+        "Move only through real walkable openings; do not clip through walls, closed doors, windows, cabinets, or furniture. "
         "Do not cut away, fade, dissolve, restart the camera, or switch viewpoint. "
         f"{final_turn_text} "
         f"{birthday_directive}"
@@ -17737,6 +18020,8 @@ def _default_magicfit_property_flythrough_prompt(
         f"{daylight_context} "
         f"{location_easter_egg}"
         "This is a photoreal staging render, not a Blender preview, not a game engine, not CGI, and not a synthetic showroom. "
+        "Keep one coherent apartment identity from start to finish: matching materials, daylight direction, furniture family, and occupancy traces across all rooms. "
+        "No duplicated rooms, no sudden style reset, and no impossible lighting shifts. "
         "Realistic inhabited family-home styling, not an empty showroom: jackets and shoes in the entry, "
         "someone naturally cooking in the kitchen where the layout allows it, TV running in the living area, "
         "toys or school items in one room, laundry or towels near bath/storage zones, open books, plants, cups, "
@@ -17748,7 +18033,12 @@ def _default_magicfit_property_flythrough_prompt(
 
 def _magicfit_segment_failure_reason(*, stdout_tail: str = "", stderr_tail: str = "") -> str:
     combined = f"{stdout_tail}\n{stderr_tail}".lower()
-    if "magicfit_not_enough_credits" in combined or "not enough credits" in combined or "buy credits" in combined:
+    if (
+        "magicfit_not_enough_credits" in combined
+        or "not enough credits" in combined
+        or "insufficient credits" in combined
+        or "buy more credits" in combined
+    ):
         return "magicfit_not_enough_credits"
     if "magicfit_credentials_missing" in combined:
         return "magicfit_credentials_missing"
@@ -19960,6 +20250,462 @@ def _style_tinted_telegram_diorama_image(image: Image.Image, style_hint: str) ->
     return preview
 
 
+def _hosted_property_tour_preview_source_candidates(
+    bundle_dir: Path,
+    payload: dict[str, object],
+) -> tuple[list[Path], Path | None]:
+    scenes = [dict(scene) for scene in list(payload.get("scenes") or []) if isinstance(scene, dict)]
+    generated_reconstruction = (
+        dict(payload.get("generated_reconstruction") or {})
+        if isinstance(payload.get("generated_reconstruction"), dict)
+        else {}
+    )
+    role_priority = {
+        "diorama": 0,
+        "generated_overview": 1,
+        "overview": 2,
+        "photo": 3,
+        "live_360": 4,
+        "panorama_360": 5,
+        "floorplan": 6,
+    }
+    hero_candidates: list[Path] = []
+    seen_candidates: set[Path] = set()
+
+    def _preview_candidate_looks_like_qr_card(path: Path | None) -> bool:
+        if path is None or Image is None or ImageOps is None:
+            return False
+        normalized_name = path.name.lower()
+        if any(marker in normalized_name for marker in ("qr", "qrcode", "barcode")):
+            return True
+        try:
+            with Image.open(path) as image:
+                grayscale = ImageOps.fit(
+                    ImageOps.exif_transpose(image).convert("L"),
+                    (96, 96),
+                    Image.Resampling.LANCZOS,
+                )
+            center = grayscale.crop((24, 24, 72, 72))
+            center_pixels = list(center.tobytes())
+            if not center_pixels:
+                return False
+            threshold = sum(center_pixels) / len(center_pixels)
+            bits = [1 if value > threshold else 0 for value in center_pixels]
+            transitions = 0
+            size = 48
+            for row_index in range(size):
+                row = bits[row_index * size : (row_index + 1) * size]
+                transitions += sum(1 for left, right in zip(row, row[1:]) if left != right)
+            for column_index in range(size):
+                column = [bits[row_index * size + column_index] for row_index in range(size)]
+                transitions += sum(1 for top, bottom in zip(column, column[1:]) if top != bottom)
+            dark_pixels = sum(1 for value in center_pixels if value < 70)
+            bright_pixels = sum(1 for value in center_pixels if value > 185)
+            outer_pixels: list[int] = []
+            for y in range(96):
+                for x in range(96):
+                    if 24 <= x < 72 and 24 <= y < 72:
+                        continue
+                    outer_pixels.append(int(grayscale.getpixel((x, y))))
+            outer_stdev = statistics.pstdev(outer_pixels) if outer_pixels else 0.0
+            return transitions >= 430 and dark_pixels >= 400 and bright_pixels >= 900 and outer_stdev <= 40.0
+        except Exception:
+            return False
+
+    def _append_candidate(path: Path | None) -> None:
+        if path is None or path in seen_candidates:
+            return
+        filename = path.name.lower()
+        if filename.startswith(("telegram-preview", "diorama-preview")):
+            return
+        if not filename.endswith((".png", ".jpg", ".jpeg", ".webp")):
+            return
+        if _preview_candidate_looks_like_qr_card(path):
+            return
+        seen_candidates.add(path)
+        hero_candidates.append(path)
+
+    ranked_scenes = sorted(
+        scenes,
+        key=lambda scene: (
+            role_priority.get(str(scene.get("role") or "").strip().lower(), 10),
+            int(scene.get("ordinal") or 9999),
+        ),
+    )
+    for scene in ranked_scenes:
+        for key in ("asset_relpath", "image_relpath"):
+            _append_candidate(_hosted_property_tour_bundle_asset_path(bundle_dir, scene.get(key)))
+
+    for raw_relpath in list(generated_reconstruction.get("photo_relpaths") or []):
+        _append_candidate(_hosted_property_tour_bundle_asset_path(bundle_dir, raw_relpath))
+
+    generated_dir = (bundle_dir / "generated-reconstruction").resolve()
+    if generated_dir.exists() and generated_dir.is_dir() and bundle_dir.resolve() in generated_dir.parents:
+        for pattern in ("photo-*.png", "photo-*.jpg", "photo-*.jpeg", "photo-*.webp"):
+            for path in sorted(generated_dir.glob(pattern)):
+                _append_candidate(path.resolve())
+
+    floorplan_path = _hosted_property_tour_bundle_asset_path(bundle_dir, generated_reconstruction.get("floorplan_relpath"))
+    if floorplan_path is None and generated_dir.exists() and generated_dir.is_dir() and bundle_dir.resolve() in generated_dir.parents:
+        for pattern in (
+            "source-floorplan*.png",
+            "source-floorplan*.jpg",
+            "source-floorplan*.jpeg",
+            "source-floorplan*.webp",
+            "floorplan*.png",
+            "floorplan*.jpg",
+            "floorplan*.jpeg",
+            "floorplan*.webp",
+        ):
+            matches = sorted(generated_dir.glob(pattern))
+            if matches:
+                floorplan_path = matches[0].resolve()
+                break
+    if floorplan_path is None:
+        floorplan_scene = next(
+            (scene for scene in ranked_scenes if str(scene.get("role") or "").strip().lower() == "floorplan"),
+            {},
+        )
+        for key in ("asset_relpath", "image_relpath"):
+            floorplan_path = _hosted_property_tour_bundle_asset_path(bundle_dir, floorplan_scene.get(key))
+            if floorplan_path is not None:
+                break
+
+    return hero_candidates, floorplan_path
+
+
+def _hosted_property_tour_diorama_needs_refresh(output_path: Path, inputs: list[Path]) -> bool:
+    try:
+        if not output_path.exists():
+            return True
+        output_mtime = output_path.stat().st_mtime
+        return any(path.stat().st_mtime > output_mtime for path in inputs if path.exists())
+    except Exception:
+        return True
+
+
+def _hosted_property_tour_register_generated_preview_assets(
+    *,
+    manifest_path: Path,
+    payload: dict[str, object],
+    diorama_relpath: str = "",
+    telegram_relpath: str = "",
+) -> None:
+    normalized_diorama = _hosted_property_tour_safe_asset_relpath(diorama_relpath)
+    normalized_telegram = _hosted_property_tour_safe_asset_relpath(telegram_relpath)
+    public_assets = list(payload.get("public_assets") or []) if isinstance(payload.get("public_assets"), list) else []
+    updated = False
+
+    if normalized_diorama:
+        for key in ("diorama_preview_relpath", "preview_relpath"):
+            if str(payload.get(key) or "").strip() != normalized_diorama:
+                payload[key] = normalized_diorama
+                updated = True
+    if normalized_telegram == "telegram-preview.png" and str(payload.get("telegram_preview_relpath") or "").strip() != normalized_telegram:
+        payload["telegram_preview_relpath"] = normalized_telegram
+        updated = True
+
+    def _ensure_public_asset(relpath: str, role: str) -> None:
+        nonlocal updated
+        mime_type = mimetypes.guess_type(relpath)[0] or ""
+        for row in public_assets:
+            if isinstance(row, str):
+                if str(row).strip() == relpath:
+                    return
+                continue
+            if not isinstance(row, dict):
+                continue
+            if any(str(row.get(key) or "").strip() == relpath for key in ("path", "relpath", "asset_relpath")):
+                row_updated = False
+                if not str(row.get("privacy_class") or row.get("privacy") or "").strip():
+                    row["privacy_class"] = "public"
+                    row_updated = True
+                if role and not str(row.get("role") or row.get("asset_role") or "").strip():
+                    row["role"] = role
+                    row_updated = True
+                if mime_type and not str(row.get("mime_type") or row.get("content_type") or "").strip():
+                    row["mime_type"] = mime_type
+                    row_updated = True
+                updated = updated or row_updated
+                return
+        public_assets.append(
+            {
+                "path": relpath,
+                "privacy_class": "public",
+                "role": role,
+                "mime_type": mime_type,
+            }
+        )
+        updated = True
+
+    if normalized_diorama:
+        _ensure_public_asset(normalized_diorama, "diorama")
+    if normalized_telegram:
+        _ensure_public_asset(normalized_telegram, "preview")
+
+    if not updated:
+        return
+    payload["public_assets"] = public_assets
+    try:
+        manifest_path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    except Exception:
+        return
+
+
+def _hosted_property_tour_mount_preview_card(
+    image: Image.Image,
+    *,
+    max_size: tuple[int, int],
+    frame_px: int,
+    rotate_degrees: float = 0.0,
+    matte_color: tuple[int, int, int] = (250, 247, 242),
+    shadow_alpha: int = 84,
+) -> Image.Image:
+    rendered = image.convert("RGB")
+    rendered.thumbnail(max_size, Image.Resampling.LANCZOS)
+    framed = Image.new("RGBA", (rendered.width + (frame_px * 2), rendered.height + (frame_px * 2)), (0, 0, 0, 0))
+    matte = Image.new("RGBA", framed.size, (*matte_color, 255))
+    framed.alpha_composite(matte)
+    framed.paste(rendered, (frame_px, frame_px))
+    shadow = Image.new("RGBA", (framed.width + 64, framed.height + 64), (0, 0, 0, 0))
+    shadow_block = Image.new("RGBA", framed.size, (24, 22, 20, shadow_alpha))
+    shadow.alpha_composite(shadow_block, (26, 30))
+    if ImageFilter is not None:
+        shadow = shadow.filter(ImageFilter.GaussianBlur(20))
+    composite = Image.new(
+        "RGBA",
+        (max(shadow.width, framed.width), max(shadow.height, framed.height)),
+        (0, 0, 0, 0),
+    )
+    composite.alpha_composite(shadow)
+    composite.alpha_composite(framed)
+    if rotate_degrees:
+        composite = composite.rotate(rotate_degrees, resample=Image.Resampling.BICUBIC, expand=True)
+    return composite
+
+
+def _generated_reconstruction_preview_palette(style_hint: str) -> dict[str, tuple[int, int, int]]:
+    normalized = str(style_hint or "").strip().lower()
+    if normalized and any(
+        marker in normalized
+        for marker in ("moody", "dark", "night", "charcoal", "walnut", "cinematic", "industrial")
+    ):
+        return {
+            "wash": (50, 45, 43),
+            "floorplan_wash": (70, 66, 63),
+            "matte": (247, 242, 234),
+            "accent": (189, 145, 63),
+            "accent_soft": (255, 248, 236),
+        }
+    if normalized and any(
+        marker in normalized
+        for marker in ("scandi", "minimal", "minimalist", "nordic", "airy", "cool", "blue", "modern")
+    ):
+        return {
+            "wash": (226, 233, 240),
+            "floorplan_wash": (238, 241, 244),
+            "matte": (248, 249, 247),
+            "accent": (111, 140, 172),
+            "accent_soft": (242, 247, 252),
+        }
+    if normalized and any(
+        marker in normalized
+        for marker in ("vintage", "mid century", "mid-century", "earth", "terracotta", "retro")
+    ):
+        return {
+            "wash": (232, 219, 202),
+            "floorplan_wash": (241, 232, 221),
+            "matte": (249, 242, 235),
+            "accent": (170, 109, 72),
+            "accent_soft": (255, 246, 238),
+        }
+    return {
+        "wash": (245, 240, 232),
+        "floorplan_wash": (242, 235, 226),
+        "matte": (251, 247, 241),
+        "accent": (186, 139, 51),
+        "accent_soft": (255, 250, 240),
+    }
+
+
+def _generated_reconstruction_preview_context(
+    bundle_dir: Path,
+    payload: dict[str, object],
+) -> tuple[dict[str, object], str]:
+    generated_reconstruction = (
+        dict(payload.get("generated_reconstruction") or {})
+        if isinstance(payload.get("generated_reconstruction"), dict)
+        else {}
+    )
+    receipt = generated_reconstruction
+    manifest_relpath = str(generated_reconstruction.get("manifest_relpath") or "").strip()
+    receipt_path = _hosted_property_tour_bundle_asset_path(bundle_dir, manifest_relpath) if manifest_relpath else None
+    if receipt_path is None:
+        fallback_path = (bundle_dir / "generated-reconstruction" / "reconstruction.json").resolve()
+        if bundle_dir.resolve() in fallback_path.parents and fallback_path.exists() and fallback_path.is_file():
+            receipt_path = fallback_path
+    if receipt_path is not None:
+        with contextlib.suppress(Exception):
+            loaded = json.loads(receipt_path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                receipt = {**dict(generated_reconstruction), **loaded}
+    walkable_scene = dict(receipt.get("walkable_scene") or {}) if isinstance(receipt.get("walkable_scene"), dict) else {}
+    style_hint = _compact_diorama_style_hint(
+        str(receipt.get("style_label") or payload.get("diorama_style_hint") or "").strip()
+    )
+    return walkable_scene, style_hint
+
+
+def _generated_reconstruction_floorplan_stage(
+    floorplan_path: Path,
+    *,
+    walkable_scene: dict[str, object],
+    palette: dict[str, tuple[int, int, int]],
+    size: tuple[int, int] = (1120, 560),
+) -> Image.Image | None:
+    if Image is None or ImageDraw is None or ImageOps is None:
+        return None
+    try:
+        with Image.open(floorplan_path) as floorplan_image:
+            floorplan = ImageOps.fit(ImageOps.exif_transpose(floorplan_image).convert("RGB"), size, Image.Resampling.LANCZOS)
+        floorplan = Image.blend(floorplan, Image.new("RGB", floorplan.size, palette["floorplan_wash"]), 0.12)
+        draw = ImageDraw.Draw(floorplan)
+        route_stops = [dict(stop) for stop in list(walkable_scene.get("route") or []) if isinstance(stop, dict)]
+        bounds = dict(walkable_scene.get("bounds") or {}) if isinstance(walkable_scene, dict) else {}
+        width_m = max(0.001, float(bounds.get("width_m") or 0.0))
+        depth_m = max(0.001, float(bounds.get("depth_m") or 0.0))
+        if not route_stops:
+            return floorplan
+        margin_x = max(46, int(round(size[0] * 0.065)))
+        margin_y = max(38, int(round(size[1] * 0.075)))
+        radius = max(12, int(round(min(size) * 0.02)))
+        previous_point: tuple[int, int] | None = None
+        for index, stop in enumerate(route_stops[:8], start=1):
+            focus = dict(stop.get("focus") or {}) if isinstance(stop.get("focus"), dict) else {}
+            if focus:
+                x_pct = _clamp_float((((float(focus.get("x") or 0.0) / width_m) + 0.5) * 100.0), 8.0, 92.0)
+                y_pct = _clamp_float((((float(focus.get("z") or 0.0) / depth_m) + 0.5) * 100.0), 10.0, 90.0)
+            else:
+                denominator = max(1, len(route_stops) - 1)
+                x_pct = 16.0 + ((68.0 / denominator) * (index - 1) if denominator else 34.0)
+                y_pct = 52.0 + (8.0 if index % 2 else -8.0)
+            marker_x = int(round(margin_x + ((size[0] - (margin_x * 2)) * x_pct / 100.0)))
+            marker_y = int(round(margin_y + ((size[1] - (margin_y * 2)) * y_pct / 100.0)))
+            point = (marker_x, marker_y)
+            if previous_point is not None:
+                draw.line((previous_point[0], previous_point[1], point[0], point[1]), fill=palette["accent"], width=6)
+            draw.ellipse(
+                (marker_x - radius, marker_y - radius, marker_x + radius, marker_y + radius),
+                fill=palette["accent_soft"],
+                outline=palette["accent"],
+                width=5,
+            )
+            draw.text((marker_x - 5, marker_y - 7), str(index), fill=palette["accent"])
+            previous_point = point
+        return floorplan
+    except Exception:
+        return None
+
+
+def _generated_reconstruction_preview_upgrade_required(payload: dict[str, object]) -> bool:
+    generated_reconstruction = payload.get("generated_reconstruction")
+    if not isinstance(generated_reconstruction, dict) or not generated_reconstruction:
+        return False
+    return not str(payload.get("diorama_preview_relpath") or "").strip()
+
+
+def _write_hosted_property_tour_diorama_preview(
+    *,
+    bundle_dir: Path,
+    hero_path: Path,
+    supporting_paths: list[Path],
+    floorplan_path: Path | None,
+    output_path: Path,
+    walkable_scene: dict[str, object] | None = None,
+    style_hint: str = "",
+    force_refresh: bool = False,
+) -> bool:
+    if Image is None or ImageOps is None:
+        return False
+    input_paths = [hero_path, *supporting_paths]
+    if floorplan_path is not None:
+        input_paths.append(floorplan_path)
+    if not force_refresh and not _hosted_property_tour_diorama_needs_refresh(output_path, input_paths):
+        return output_path.exists()
+    try:
+        palette = _generated_reconstruction_preview_palette(style_hint)
+        with Image.open(hero_path) as hero_image:
+            canvas = Image.new("RGBA", (1600, 1100), (*palette["wash"], 255))
+            background = ImageOps.fit(hero_image.convert("RGB"), canvas.size, Image.Resampling.LANCZOS)
+            if ImageFilter is not None:
+                background = background.filter(ImageFilter.GaussianBlur(18))
+            background = Image.blend(background, Image.new("RGB", canvas.size, palette["wash"]), 0.72)
+            canvas.alpha_composite(background.convert("RGBA"))
+
+            if floorplan_path is not None:
+                floorplan = _generated_reconstruction_floorplan_stage(
+                    floorplan_path,
+                    walkable_scene=dict(walkable_scene or {}),
+                    palette=palette,
+                )
+                if floorplan is None:
+                    with Image.open(floorplan_path) as floorplan_image:
+                        floorplan = floorplan_image.convert("RGB")
+                        floorplan = Image.blend(floorplan, Image.new("RGB", floorplan.size, palette["floorplan_wash"]), 0.18)
+                stage = _hosted_property_tour_mount_preview_card(
+                    floorplan,
+                    max_size=(1120, 560),
+                    frame_px=16,
+                    rotate_degrees=-6.0,
+                    matte_color=palette["matte"],
+                    shadow_alpha=64,
+                )
+                canvas.alpha_composite(stage, (150, 470))
+
+            hero_card = _hosted_property_tour_mount_preview_card(
+                hero_image,
+                max_size=(880, 590),
+                frame_px=18,
+                rotate_degrees=4.0,
+                matte_color=palette["matte"],
+                shadow_alpha=96,
+            )
+            hero_x = (canvas.width - hero_card.width) // 2
+            canvas.alpha_composite(hero_card, (hero_x, 106))
+
+            if supporting_paths:
+                with Image.open(supporting_paths[0]) as supporting_image:
+                    supporting_card = _hosted_property_tour_mount_preview_card(
+                        supporting_image,
+                        max_size=(328, 228),
+                        frame_px=14,
+                        rotate_degrees=-8.0,
+                        matte_color=palette["matte"],
+                        shadow_alpha=78,
+                    )
+                canvas.alpha_composite(supporting_card, (1088, 702 if floorplan_path is not None else 760))
+            if len(supporting_paths) > 1:
+                with Image.open(supporting_paths[1]) as detail_image:
+                    detail_card = _hosted_property_tour_mount_preview_card(
+                        detail_image,
+                        max_size=(244, 176),
+                        frame_px=12,
+                        rotate_degrees=8.0,
+                        matte_color=palette["matte"],
+                        shadow_alpha=70,
+                    )
+                canvas.alpha_composite(detail_card, (166, 116))
+
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            canvas.convert("RGB").save(output_path, format="PNG", optimize=True)
+            return True
+    except Exception:
+        return False
+
+
 def _hosted_property_tour_telegram_preview_image_url(tour_url: str, *, diorama_style_hint: str = "") -> str:
     normalized_url = str(tour_url or "").strip()
     if not normalized_url or Image is None:
@@ -19983,7 +20729,10 @@ def _hosted_property_tour_telegram_preview_image_url(tour_url: str, *, diorama_s
     if not isinstance(payload, dict):
         return ""
     scenes = [dict(scene) for scene in list(payload.get("scenes") or []) if isinstance(scene, dict)]
+    walkable_scene, generated_style_hint = _generated_reconstruction_preview_context(bundle_dir, payload)
+    legacy_generated_reconstruction_upgrade = _generated_reconstruction_preview_upgrade_required(payload)
     style_signature = _compact_diorama_style_hint(diorama_style_hint)
+    effective_style_hint = style_signature or generated_style_hint
     if style_signature:
         style_hash = hashlib.sha1(style_signature.encode("utf-8")).hexdigest()[:10]
         derived_relpath = f"telegram-preview-{style_hash}.png"
@@ -19995,71 +20744,30 @@ def _hosted_property_tour_telegram_preview_image_url(tour_url: str, *, diorama_s
     diorama_scene = next((scene for scene in scenes if str(scene.get("role") or "").strip().lower() == "diorama"), {})
     asset_relpath = str(diorama_scene.get("asset_relpath") or "").strip()
     if not asset_relpath:
-        for candidate_name in ("diorama-preview.png", "diorama-preview.jpg", "telegram-preview.png"):
+        for candidate_name in ("diorama-preview.png", "diorama-preview.jpg", "diorama-preview.jpeg", "diorama-preview.webp"):
             candidate_path = (bundle_dir / candidate_name).resolve()
             if bundle_dir.resolve() in candidate_path.parents and candidate_path.exists() and candidate_path.is_file():
                 asset_relpath = candidate_name
                 break
-    if not asset_relpath:
-        generated_previews = sorted(bundle_dir.glob("telegram-preview-*.png"))
-        if generated_previews:
-            candidate_path = generated_previews[0].resolve()
-            if bundle_dir.resolve() in candidate_path.parents and candidate_path.exists() and candidate_path.is_file():
-                asset_relpath = candidate_path.name
-    if not asset_relpath:
-        source_candidates: list[Path] = []
-        for scene in scenes:
-            candidate_relpath = str(scene.get("asset_relpath") or "").strip()
-            if not candidate_relpath or not candidate_relpath.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
-                continue
-            candidate_path = (bundle_dir / candidate_relpath).resolve()
-            if bundle_dir.resolve() not in candidate_path.parents or not candidate_path.exists() or not candidate_path.is_file():
-                continue
-            source_candidates.append(candidate_path)
-            if len(source_candidates) >= 4:
-                break
-        if source_candidates:
-            try:
-                payload_text = " ".join(
-                    str(payload.get(key) or "").strip()
-                    for key in ("title", "display_title", "listing_title", "description", "summary")
-                    if str(payload.get(key) or "").strip()
-                ).lower()
-                multi_floor = any(token in payload_text for token in ("maisonette", "duplex", "mehrgeschoss", "mehrstöck", "split-level", "split level", "2 ebenen", "zwei ebenen", "dachgeschoss"))
-                canvas = Image.new("RGB", (1600, 1100), "#f4efe7")
-                accent = Image.new("RGB", canvas.size, (224, 210, 190) if multi_floor else (214, 224, 235))
-                canvas = Image.blend(canvas, accent, 0.22)
-                opened: list[Image.Image] = []
-                for candidate_path in source_candidates:
-                    with Image.open(candidate_path) as image:
-                        opened.append(_style_tinted_telegram_diorama_image(image.convert("RGB"), style_signature))
-                if opened:
-                    hero = opened[0].copy()
-                    hero.thumbnail((1180, 620), Image.Resampling.LANCZOS)
-                    hero_x = (canvas.width - hero.width) // 2
-                    hero_y = 120
-                    canvas.paste(hero, (hero_x, hero_y))
-                    if multi_floor:
-                        lower_tiles = opened[1:4] or opened[:2]
-                        start_x = 160
-                        y = 760
-                        for idx, tile_src in enumerate(lower_tiles):
-                            tile = tile_src.copy()
-                            tile.thumbnail((360, 220), Image.Resampling.LANCZOS)
-                            x = start_x + idx * 390
-                            canvas.paste(tile, (x, y))
-                    else:
-                        lower_tiles = opened[1:3] or opened[:2]
-                        positions = [(220, 760), (840, 760)]
-                        for tile_src, (x, y) in zip(lower_tiles, positions):
-                            tile = tile_src.copy()
-                            tile.thumbnail((520, 240), Image.Resampling.LANCZOS)
-                            canvas.paste(tile, (x, y))
-                    derived_path.parent.mkdir(parents=True, exist_ok=True)
-                    canvas.save(derived_path, format="PNG", optimize=True)
-                    return _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=derived_relpath)
-            except Exception:
-                pass
+    if not asset_relpath or legacy_generated_reconstruction_upgrade:
+        hero_candidates, floorplan_path = _hosted_property_tour_preview_source_candidates(bundle_dir, payload)
+        if hero_candidates:
+            canonical_diorama_path = (bundle_dir / "diorama-preview.png").resolve()
+            if bundle_dir.resolve() in canonical_diorama_path.parents and _write_hosted_property_tour_diorama_preview(
+                bundle_dir=bundle_dir,
+                hero_path=hero_candidates[0],
+                supporting_paths=hero_candidates[1:3],
+                floorplan_path=floorplan_path,
+                output_path=canonical_diorama_path,
+                walkable_scene=walkable_scene,
+                style_hint=effective_style_hint,
+                force_refresh=legacy_generated_reconstruction_upgrade,
+            ):
+                asset_relpath = canonical_diorama_path.name
+            else:
+                source_candidate = hero_candidates[0]
+                if bundle_dir.resolve() in source_candidate.parents:
+                    asset_relpath = str(source_candidate.relative_to(bundle_dir)).replace("\\", "/")
     if not asset_relpath or not asset_relpath.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
         return ""
     source_path = (bundle_dir / asset_relpath).resolve()
@@ -20072,7 +20780,7 @@ def _hosted_property_tour_telegram_preview_image_url(tour_url: str, *, diorama_s
     if needs_refresh:
         try:
             with Image.open(source_path) as image:
-                base = _style_tinted_telegram_diorama_image(image, style_signature)
+                base = _style_tinted_telegram_diorama_image(image, effective_style_hint)
                 width, height = base.size
                 canvas_width = max(int(round(width * 1.62)), width + 220)
                 canvas_height = max(int(round(height * 1.62)), height + 220)
@@ -20089,6 +20797,12 @@ def _hosted_property_tour_telegram_preview_image_url(tour_url: str, *, diorama_s
                 canvas.save(derived_path, format="PNG", optimize=True)
         except Exception:
             return _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=asset_relpath)
+    _hosted_property_tour_register_generated_preview_assets(
+        manifest_path=manifest_path,
+        payload=payload,
+        diorama_relpath=asset_relpath if asset_relpath.lower().startswith("diorama-preview") else "",
+        telegram_relpath=derived_relpath,
+    )
     return _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=derived_relpath)
 
 
@@ -42917,9 +43631,14 @@ class ProductService:
             top_watch_candidate_for_source: dict[str, object] | None = None
             for ordinal, row in enumerate(preliminary_rows[:enrichment_limit], start=1):
                 property_url = str(row.get("property_url") or "").strip()
+                candidate_label = compact_text(
+                    str(row.get("title") or property_url).strip() or property_url,
+                    fallback=property_url,
+                    limit=72,
+                )
                 _report(
                     step="source_assessing",
-                    message=f"Scoring enriched candidate {ordinal} of {enrichment_limit} for {source_label}.",
+                    message=f"Checking fit for {candidate_label} ({ordinal} of {enrichment_limit}) from {source_label}.",
                     status="in_progress",
                     steps_delta=1,
                 )
@@ -43603,7 +44322,7 @@ class ProductService:
                     _report(
                         step="source_low_fit_ranked",
                         message=(
-                            f"Ranked candidate kept in the full ranking for {source_label}."
+                            f"Kept {candidate_label} in the full ranking after tradeoff checks for {source_label}."
                         ),
                         status="in_progress",
                         steps_delta=0,
@@ -43611,7 +44330,7 @@ class ProductService:
                 if ordinal == 1 or ordinal == enrichment_limit or ordinal % 2 == 0:
                     _report(
                         step="source_ranking",
-                        message=f"Scored {min(ordinal, enrichment_limit)} of {enrichment_limit} enriched candidate(s) for {source_label}.",
+                        message=f"Ranked {candidate_label} ({min(ordinal, enrichment_limit)} of {enrichment_limit}) for {source_label}.",
                         status="in_progress",
                         steps_delta=1,
                     )

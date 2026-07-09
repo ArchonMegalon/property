@@ -1907,7 +1907,7 @@ def test_hosted_property_tour_helpers_use_public_tours_files_route(monkeypatch, 
     bundle_dir.mkdir(parents=True)
     (bundle_dir / "tour.mp4").write_bytes(b"video")
     from PIL import Image
-    Image.new("RGB", (800, 450), "#d8c7b5").save(bundle_dir / "diorama-preview.png", format="PNG")
+    (bundle_dir / "diorama-preview.png").write_bytes(b"png")
     (bundle_dir / "tour.json").write_text(
         json.dumps(
             {
@@ -1943,6 +1943,206 @@ def test_hosted_property_tour_helpers_use_public_tours_files_route(monkeypatch, 
     with Image.open(telegram_preview_path) as image:
         assert image.width > 800
         assert image.height > 450
+
+
+def test_hosted_property_tour_preview_image_url_prefers_bundle_diorama_preview(monkeypatch, tmp_path: Path) -> None:
+    slug = "hosted-tour-diorama-preview"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    from PIL import Image
+
+    Image.new("RGB", (640, 420), "#e8dccd").save(bundle_dir / "diorama-preview.png", format="PNG")
+    Image.new("RGB", (640, 420), "#98a2ad").save(bundle_dir / "photo-01.jpg", format="JPEG")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "scenes": [
+                    {
+                        "role": "photo",
+                        "ordinal": 1,
+                        "asset_relpath": "photo-01.jpg",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    assert property_tour_hosting._hosted_property_tour_preview_image_url(
+        f"https://propertyquarry.com/tours/{slug}"
+    ) == f"https://propertyquarry.com/tours/files/{slug}/diorama-preview.png"
+
+
+def test_hosted_property_tour_telegram_preview_synthesizes_canonical_diorama_for_legacy_generated_reconstruction(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    slug = "legacy-generated-reconstruction-preview"
+    bundle_dir = tmp_path / slug
+    reconstruction_dir = bundle_dir / "generated-reconstruction"
+    reconstruction_dir.mkdir(parents=True)
+    from PIL import Image
+
+    Image.new("RGB", (960, 640), "#cdbb9d").save(bundle_dir / "photo-01.jpg", format="JPEG")
+    Image.new("RGB", (960, 640), "#a5b2bf").save(bundle_dir / "photo-02.jpg", format="JPEG")
+    Image.new("RGB", (960, 640), "#cdbb9d").save(reconstruction_dir / "photo-01.jpg", format="JPEG")
+    Image.new("RGB", (960, 640), "#a5b2bf").save(reconstruction_dir / "photo-02.jpg", format="JPEG")
+    Image.new("RGB", (1400, 940), "#f1eadf").save(reconstruction_dir / "source-floorplan-inferred.jpg", format="JPEG")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "display_title": "Danubeflats legacy bundle",
+                "scenes": [
+                    {"role": "photo", "ordinal": 1, "asset_relpath": "photo-01.jpg"},
+                    {"role": "photo", "ordinal": 2, "asset_relpath": "photo-02.jpg"},
+                ],
+                "generated_reconstruction": {
+                    "provider": "propertyquarry_generated_reconstruction",
+                    "viewer_version": "propertyquarry_3d_tour_viewer_v3",
+                    "viewer_relpath": "generated-reconstruction/viewer.html",
+                    "model_relpath": "generated-reconstruction/model.obj",
+                    "glb_model_relpath": "generated-reconstruction/model.glb",
+                    "manifest_relpath": "generated-reconstruction/reconstruction.json",
+                    "walkthrough_video_relpath": "generated-reconstruction/generated-walkthrough.mp4",
+                    "verified_provider_capture": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    tour_url = f"https://propertyquarry.com/tours/{slug}"
+    telegram_preview_url = product_service._hosted_property_tour_telegram_preview_image_url(tour_url)
+
+    assert telegram_preview_url == f"https://propertyquarry.com/tours/files/{slug}/telegram-preview.png"
+    assert (bundle_dir / "diorama-preview.png").exists()
+    updated_payload = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
+    assert updated_payload["diorama_preview_relpath"] == "diorama-preview.png"
+    assert updated_payload["preview_relpath"] == "diorama-preview.png"
+    assert updated_payload["telegram_preview_relpath"] == "telegram-preview.png"
+    assert {row["path"] for row in updated_payload["public_assets"] if isinstance(row, dict)} >= {
+        "diorama-preview.png",
+        "telegram-preview.png",
+    }
+    assert property_tour_hosting._hosted_property_tour_preview_image_url(tour_url) == (
+        f"https://propertyquarry.com/tours/files/{slug}/diorama-preview.png"
+    )
+
+
+def test_hosted_property_tour_telegram_preview_refreshes_stale_legacy_generated_reconstruction_diorama(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    slug = "legacy-generated-reconstruction-refresh"
+    bundle_dir = tmp_path / slug
+    reconstruction_dir = bundle_dir / "generated-reconstruction"
+    reconstruction_dir.mkdir(parents=True)
+    from PIL import Image
+
+    Image.new("RGB", (640, 420), "#d2c5b0").save(bundle_dir / "diorama-preview.png", format="PNG")
+    Image.new("RGB", (960, 640), "#cdbb9d").save(reconstruction_dir / "photo-01.jpg", format="JPEG")
+    Image.new("RGB", (960, 640), "#a5b2bf").save(reconstruction_dir / "photo-02.jpg", format="JPEG")
+    Image.new("RGB", (1400, 940), "#f1eadf").save(reconstruction_dir / "source-floorplan-inferred.jpg", format="JPEG")
+    (reconstruction_dir / "reconstruction.json").write_text(
+        json.dumps(
+            {
+                "walkable_scene": {
+                    "kind": "generated_reconstruction_layout",
+                    "bounds": {"width_m": 8.0, "depth_m": 5.5},
+                    "route": [
+                        {"label": "entry/hall", "focus": {"x": -1.1, "z": 1.0}},
+                        {"label": "living area", "focus": {"x": 0.5, "z": 0.2}},
+                        {"label": "sleeping area", "focus": {"x": 1.0, "z": -0.8}},
+                    ],
+                },
+                "style_label": "warm scandinavian",
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "display_title": "Legacy generated bundle",
+                "scenes": [
+                    {"role": "photo", "ordinal": 1, "asset_relpath": "generated-reconstruction/photo-01.jpg"},
+                    {"role": "photo", "ordinal": 2, "asset_relpath": "generated-reconstruction/photo-02.jpg"},
+                ],
+                "generated_reconstruction": {
+                    "provider": "propertyquarry_generated_reconstruction",
+                    "viewer_version": "propertyquarry_3d_tour_viewer_v3",
+                    "viewer_relpath": "generated-reconstruction/viewer.html",
+                    "model_relpath": "generated-reconstruction/model.obj",
+                    "manifest_relpath": "generated-reconstruction/reconstruction.json",
+                    "floorplan_relpath": "generated-reconstruction/source-floorplan-inferred.jpg",
+                    "photo_relpaths": [
+                        "generated-reconstruction/photo-01.jpg",
+                        "generated-reconstruction/photo-02.jpg",
+                    ],
+                    "verified_provider_capture": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    tour_url = f"https://propertyquarry.com/tours/{slug}"
+    telegram_preview_url = product_service._hosted_property_tour_telegram_preview_image_url(tour_url)
+
+    assert telegram_preview_url == f"https://propertyquarry.com/tours/files/{slug}/telegram-preview.png"
+    with Image.open(bundle_dir / "diorama-preview.png") as regenerated:
+        assert regenerated.size == (1600, 1100)
+    updated_payload = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
+    assert updated_payload["diorama_preview_relpath"] == "diorama-preview.png"
+    assert updated_payload["preview_relpath"] == "diorama-preview.png"
+    assert updated_payload["telegram_preview_relpath"] == "telegram-preview.png"
+
+
+def test_hosted_property_tour_preview_source_candidates_skip_qr_like_cards(tmp_path: Path) -> None:
+    bundle_dir = tmp_path / "qr-like-preview-filter"
+    reconstruction_dir = bundle_dir / "generated-reconstruction"
+    reconstruction_dir.mkdir(parents=True)
+    from PIL import Image, ImageDraw
+
+    Image.new("RGB", (1200, 800), "#f1eadf").save(reconstruction_dir / "source-floorplan-inferred.jpg", format="JPEG")
+    Image.new("RGB", (960, 640), "#b8926b").save(reconstruction_dir / "photo-01.jpg", format="JPEG")
+    qr_like = Image.new("RGB", (960, 640), "#cfe3da")
+    draw = ImageDraw.Draw(qr_like)
+    draw.rectangle((310, 150, 650, 490), fill="white")
+    block = 28
+    for row in range(8):
+        for col in range(8):
+            if (row + col) % 2 == 0 or (row in {0, 7}) or (col in {0, 7}):
+                left = 338 + (col * block)
+                top = 178 + (row * block)
+                draw.rectangle((left, top, left + block - 4, top + block - 4), fill="black")
+    qr_like.save(reconstruction_dir / "photo-02.jpg", format="JPEG")
+    Image.new("RGB", (960, 640), "#7e98a9").save(reconstruction_dir / "photo-03.jpg", format="JPEG")
+
+    hero_candidates, floorplan_path = product_service._hosted_property_tour_preview_source_candidates(
+        bundle_dir,
+        {
+            "generated_reconstruction": {
+                "floorplan_relpath": "generated-reconstruction/source-floorplan-inferred.jpg",
+                "photo_relpaths": [
+                    "generated-reconstruction/photo-01.jpg",
+                    "generated-reconstruction/photo-02.jpg",
+                    "generated-reconstruction/photo-03.jpg",
+                ],
+            }
+        },
+    )
+
+    assert [path.name for path in hero_candidates] == ["photo-01.jpg", "photo-03.jpg"]
+    assert floorplan_path == (reconstruction_dir / "source-floorplan-inferred.jpg").resolve()
 
 
 def test_render_property_scout_dossier_promotes_media_and_visuals_into_packet(monkeypatch, tmp_path: Path) -> None:
@@ -11585,6 +11785,45 @@ def test_property_source_research_snapshot_geocodes_postal_hint_when_listing_onl
     assert "street_address" not in findings
 
 
+def test_property_research_location_hint_snapshot_retries_after_empty_cached_result(monkeypatch) -> None:
+    product_service._property_research_location_hint_snapshot.cache_clear()
+    product_service._property_research_forward_geocode.cache_clear()
+    product_service._property_research_reverse_geocode.cache_clear()
+    product_service._property_research_nearby_pois.cache_clear()
+    monkeypatch.setattr(
+        product_service,
+        "_property_research_forward_geocode",
+        lambda query: {
+            "lat": "48.2083622",
+            "lon": "16.3693966",
+            "display_name": "1010, Innere Stadt, Wien, Österreich",
+        },
+    )
+    nearby_calls = {"count": 0}
+
+    def _fake_nearby(lat, lon):
+        nearby_calls["count"] += 1
+        if nearby_calls["count"] == 1:
+            return {}
+        return {
+            "nearest_supermarket_m": 189,
+            "nearest_supermarket_name": "Billa",
+        }
+
+    monkeypatch.setattr(product_service, "_property_research_nearby_pois", _fake_nearby)
+
+    first = product_service._property_research_location_hint_snapshot("1010 Wien")
+    second = product_service._property_research_location_hint_snapshot("1010 Wien")
+
+    assert first["location_hint_research_attempted"] is True
+    assert first["nearest_supermarket_m"] == 189
+    assert first["nearest_supermarket_name"] == "Billa"
+    assert second["nearest_supermarket_m"] == 189
+    assert second["nearest_supermarket_name"] == "Billa"
+    assert second["nearest_supermarket_source"] == "OpenStreetMap (postal area estimate)"
+    assert nearby_calls["count"] == 3
+
+
 def test_property_source_research_snapshot_extracts_austria_document_and_eligibility_signals(monkeypatch) -> None:
     listing_url = "https://www.gesiba.at/immobilien/wohnungen/beispiel"
     product_service._property_source_research_snapshot.cache_clear()
@@ -15467,6 +15706,82 @@ def test_request_property_visual_asset_keeps_explicit_workbench_floorplan(monkey
     assert result["diorama_style_hint"] == "playful Trump-style gold maximalist penthouse staging"
 
 
+def test_property_visual_ready_tour_url_accepts_ready_generated_reconstruction_public_page(monkeypatch) -> None:
+    ready_tour_url = "https://propertyquarry.com/tours/generated-reconstruction-ready"
+
+    monkeypatch.setattr(product_service, "_is_branded_public_tour_url", lambda url: str(url or "").startswith("https://propertyquarry.com/tours/"))
+    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url: "")
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_first_party_open_url",
+        lambda tour_url: ready_tour_url if str(tour_url or "").strip() == ready_tour_url else "",
+    )
+
+    assert product_service._property_visual_ready_tour_url(tour_url=ready_tour_url) == ready_tour_url
+    assert product_service._property_visual_ready_tour_url(open_tour_url=ready_tour_url) == ready_tour_url
+    assert product_service._property_visual_ready_tour_url(
+        open_tour_url=f"{ready_tour_url}/files/generated-reconstruction/viewer.html"
+    ) == ""
+
+
+def test_request_property_visual_asset_promotes_ready_generated_reconstruction_public_page(monkeypatch) -> None:
+    principal_id = "property-visual-request-generated-reconstruction-ready"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    ready_tour_url = "https://propertyquarry.com/tours/generated-reconstruction-ready"
+
+    def _fake_create_willhaben_property_tour(self, **kwargs: object) -> dict[str, object]:  # type: ignore[no-untyped-def]
+        return {
+            "generated_at": "2026-06-22T15:00:00+00:00",
+            "status": "created",
+            "property_url": str(kwargs.get("property_url") or ""),
+            "title": "Generated reconstruction public page",
+            "variant_key": "layout_first",
+            "tour_url": ready_tour_url,
+            "generated_reconstruction_url": ready_tour_url,
+            "tour_status": "created",
+            "tour_media_mode": "generated_reconstruction",
+            "creation_mode": "generated_reconstruction",
+            "blocked_reason": "",
+            "source_ref": str(kwargs.get("source_ref") or ""),
+            "external_id": str(kwargs.get("external_id") or ""),
+            "human_task_id": "",
+            "delivery_email": "",
+            "delivery_status": "created",
+            "editor_url": "",
+        }
+
+    monkeypatch.setattr(ProductService, "create_willhaben_property_tour", _fake_create_willhaben_property_tour)
+    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url: "")
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_first_party_open_url",
+        lambda tour_url: ready_tour_url if str(tour_url or "").strip() == ready_tour_url else "",
+    )
+
+    result = service.request_property_visual_asset(
+        principal_id=principal_id,
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/generated-reconstruction-ready",
+        request_kind="tour",
+        source_ref="willhaben:generated-reconstruction-ready",
+        run_id="run-generated-reconstruction-ready",
+        candidate_ref="candidate-generated-reconstruction-ready",
+        auto_deliver=False,
+        queue_async_request=False,
+        allow_floorplan_only=False,
+    )
+
+    assert result["status"] == "ready"
+    assert result["tour_status"] == "ready"
+    assert result["tour_url"] == ready_tour_url
+    assert result["open_tour_url"] == ready_tour_url
+    assert result["generated_reconstruction_url"] == ready_tour_url
+    assert result["status_label"] == "3D tour available"
+    assert result["status_detail"] == "3D tour is ready."
+
+
 def test_request_property_visual_asset_blocks_disabled_floorplan_fallback(monkeypatch) -> None:
     principal_id = "property-visual-request-blocks-floorplan-fallback"
     client = build_product_client(principal_id=principal_id)
@@ -15961,11 +16276,12 @@ def test_property_tour_followup_tasks_return_ready_visual_when_snapshot_already_
     assert updated_task.returned_payload_json["diorama_style_hint"] == ""
 
 
-def test_property_tour_followup_tasks_do_not_return_generated_reconstruction_as_ready(monkeypatch) -> None:
+def test_property_tour_followup_tasks_return_ready_generated_reconstruction_public_page(monkeypatch) -> None:
     principal_id = "property-tour-followup-generated-reconstruction-already-ready"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Tour Office")
     service = product_service.build_product_service(client.app.state.container)
+    ready_tour_url = "https://propertyquarry.com/tours/generated-reconstruction-ready-1"
 
     task = service._open_property_tour_followup(
         principal_id=principal_id,
@@ -15987,7 +16303,7 @@ def test_property_tour_followup_tasks_do_not_return_generated_reconstruction_as_
         ProductService,
         "_current_property_search_visual_state",
         lambda self, **kwargs: {
-            "tour_url": "https://propertyquarry.com/tours/generated-reconstruction-ready-1",
+            "tour_url": ready_tour_url,
             "tour_status": "created",
             "tour_requested_at": "2026-07-03T08:00:00+00:00",
             "tour_status_updated_at": "2026-07-03T08:02:00+00:00",
@@ -15995,16 +16311,14 @@ def test_property_tour_followup_tasks_do_not_return_generated_reconstruction_as_
     )
     monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url: "")
     monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_first_party_open_url",
+        lambda tour_url: ready_tour_url if str(tour_url or "").strip() == ready_tour_url else "",
+    )
+    monkeypatch.setattr(
         ProductService,
         "request_property_visual_asset",
-        lambda self, **kwargs: {
-            "status": "blocked",
-            "tour_status": "blocked",
-            "blocked_reason": "listing_360_media_missing",
-            "tour_url": "",
-            "generated_reconstruction_url": "https://propertyquarry.com/tours/generated-reconstruction-ready-1",
-            "status_label": "3D tour not ready",
-        },
+        lambda self, **kwargs: pytest.fail("ready generated reconstruction must not be requested again"),
     )
 
     result = service.process_property_tour_followup_tasks(
@@ -16015,8 +16329,8 @@ def test_property_tour_followup_tasks_do_not_return_generated_reconstruction_as_
 
     assert result["attempted_total"] == 1
     assert result["resolved_total"] == 1
-    assert result["resolved"][0]["resolution"] == "blocked"
-    assert result["resolved"][0]["tour_url"] == ""
+    assert result["resolved"][0]["resolution"] == "ready"
+    assert result["resolved"][0]["tour_url"] == ready_tour_url
 
     updated_task = client.app.state.container.orchestrator.fetch_human_task(
         task.human_task_id,
@@ -16024,12 +16338,14 @@ def test_property_tour_followup_tasks_do_not_return_generated_reconstruction_as_
     )
     assert updated_task is not None
     assert updated_task.status == "returned"
-    assert updated_task.resolution == "blocked"
+    assert updated_task.resolution == "ready"
     assert updated_task.returned_payload_json["request_kind"] == "tour"
-    assert updated_task.returned_payload_json["blocked_reason"] == "listing_360_media_missing"
+    assert updated_task.returned_payload_json["tour_url"] == ready_tour_url
+    assert updated_task.returned_payload_json["open_tour_url"] == ready_tour_url
+    assert updated_task.returned_payload_json["status_label"] == "Open 3D tour"
     assert updated_task.returned_payload_json["candidate_ref"] == "candidate-generated-reconstruction-ready-1"
     assert updated_task.returned_payload_json["diorama_style_hint"] == ""
-    assert updated_task.returned_payload_json["generated_reconstruction_url"] == "https://propertyquarry.com/tours/generated-reconstruction-ready-1"
+    assert updated_task.returned_payload_json["generated_reconstruction_url"] == ""
 
 
 def test_property_visual_status_prefers_ready_ranked_candidate_over_stale_source_copy(monkeypatch) -> None:
@@ -16666,6 +16982,57 @@ def test_property_visual_status_persists_blocked_generated_reconstruction_state(
     assert persisted["candidate_ref"] == "candidate-42"
     assert dict(persisted["visual_state"])["tour_status"] == "blocked"
     assert dict(persisted["visual_state"])["blocked_reason"]
+
+
+def test_property_visual_status_accepts_generated_reconstruction_launch_page_as_ready_url(monkeypatch) -> None:
+    principal_id = "property-visual-status-generated-launch-page"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    candidate = {
+        "title": "Generated reconstruction launch page",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/generated-launch-page",
+        "source_ref": "willhaben:generated-launch-page",
+        "tour_status": "ready",
+        "tour_url": "https://propertyquarry.com/tours/generated-launch-page",
+        "tour_requested_at": "2026-06-23T17:23:22+00:00",
+        "tour_status_updated_at": "2026-06-23T19:33:14+00:00",
+    }
+
+    monkeypatch.setattr(
+        ProductService,
+        "_snapshot_property_search_run",
+        lambda self, **kwargs: {
+            "run_id": str(kwargs.get("run_id") or ""),
+            "updated_at": "2026-06-23T19:33:14+00:00",
+            "summary": {
+                "ranked_candidates": [dict(candidate)],
+                "sources": [],
+            },
+        },
+    )
+    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url: "")
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_first_party_open_url",
+        lambda _tour_url: "https://propertyquarry.com/tours/generated-launch-page",
+    )
+
+    response = service.get_property_visual_request_status(
+        principal_id=principal_id,
+        run_id="run-42",
+        request_kind="tour",
+        source_ref="willhaben:generated-launch-page",
+        candidate_ref="candidate-42",
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/generated-launch-page",
+    )
+
+    assert response["status"] == "ready"
+    assert response["status_label"] == "Open 3D tour"
+    assert response["tour_url"] == "https://propertyquarry.com/tours/generated-launch-page"
+    assert response["open_tour_url"] == "https://propertyquarry.com/tours/generated-launch-page"
+    assert response["poll_after_seconds"] == 0
 
 
 def test_property_visual_status_hides_internal_skip_reason_for_walkthrough(monkeypatch) -> None:
@@ -18062,7 +18429,6 @@ def test_materialize_property_generated_reconstruction_url_returns_bundle_url_wh
     (reconstruction_dir / "viewer.html").write_text("<!doctype html>viewer", encoding="utf-8")
     (reconstruction_dir / "model.obj").write_text("o propertyquarry_generated_layout\nv 0 0 0\n", encoding="utf-8")
     (reconstruction_dir / "model.mtl").write_text("newmtl walls\nKd 0.8 0.8 0.8\n", encoding="utf-8")
-    (reconstruction_dir / "model.glb").write_bytes(b"glTF" + (b"\x00" * 2048))
     (reconstruction_dir / "source-floorplan.jpg").write_bytes(b"floorplan")
     (reconstruction_dir / "photo-01.jpg").write_bytes(b"photo-1")
     (reconstruction_dir / "reconstruction.json").write_text(
@@ -18081,9 +18447,8 @@ def test_materialize_property_generated_reconstruction_url_returns_bundle_url_wh
                 },
                 "model": {
                     "glb_export": {
-                        "status": "generated",
-                        "glb_relpath": "model.glb",
-                        "glb_size_bytes": 2052,
+                        "status": "failed",
+                        "reason": "blender_glb_export_failed",
                     }
                 },
             }
@@ -27724,6 +28089,28 @@ def test_magicfit_flythrough_prompt_forces_all_real_rooms_and_final_turn() -> No
     assert "rotate 360 degrees where space allows" in prompt
 
 
+def test_magicfit_flythrough_prompt_bans_dollhouse_artifacts_and_wall_clipping() -> None:
+    prompt = product_service._default_magicfit_property_flythrough_prompt(
+        title="Loft with terrace and long hallway",
+        property_facts={
+            "country_code": "AT",
+            "postal_name": "1070 Wien",
+        },
+        room_count=4,
+        room_visit_plan=["entry/hall", "living room", "kitchen", "bedroom", "bathroom", "balcony/terrace"],
+    )
+
+    lowered = prompt.lower()
+    assert "1.55-1.7 m above the floor" in prompt
+    assert "24-28 mm" in prompt
+    assert "dollhouse miniature effect" in lowered
+    assert "cutaway" in lowered
+    assert "isometric" in lowered
+    assert "do not clip through walls" in lowered
+    assert "coherent apartment identity" in lowered
+    assert "no duplicated rooms" in lowered
+
+
 def test_magicfit_flythrough_duration_gate_rejects_short_multi_room_clip() -> None:
     ok, reason, actual_seconds, required_seconds = product_service._magicfit_flythrough_duration_gate(
         {
@@ -28063,6 +28450,15 @@ def test_magicfit_flythrough_render_surfaces_credit_exhaustion(monkeypatch, tmp_
         )
         == "Walkthrough rendering is paused until render credits are available."
     )
+
+
+def test_magicfit_segment_failure_reason_ignores_generic_buy_credits_nav() -> None:
+    reason = product_service._magicfit_segment_failure_reason(
+        stdout_tail="6370 BUY CREDITS\n1 in progress",
+        stderr_tail="",
+    )
+
+    assert reason == "magicfit_segment_render_failed"
 
 
 def test_video_segment_boundary_gate_rejects_visible_chained_cut(tmp_path: Path) -> None:
@@ -28875,6 +29271,120 @@ def test_public_tour_page_blocks_photo_gallery_fallback_bundle(monkeypatch: pyte
     assert response.status_code == 404
     assert "This tour link is no longer available." in response.text
     assert "This old link no longer opens as a 3D tour." in response.text
+
+
+def test_public_tour_page_rejects_generated_reconstruction_public_launch(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = "generated-reconstruction-public-launch"
+    bundle_dir = tmp_path / slug
+    reconstruction_dir = bundle_dir / "generated-reconstruction"
+    reconstruction_dir.mkdir(parents=True)
+    for filename in (
+        "viewer.html",
+        "model.obj",
+        "model.mtl",
+        "reconstruction.json",
+        "generated-walkthrough.mp4",
+        "source-floorplan.jpg",
+        "photo-01.jpg",
+        "photo-02.jpg",
+        "photo-03.jpg",
+        "photo-04.jpg",
+        "photo-05.jpg",
+    ):
+        (reconstruction_dir / filename).write_bytes(b"asset")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "display_title": "Generated reconstruction public launch",
+                "generated_reconstruction": {
+                    "provider": "propertyquarry_generated_reconstruction",
+                    "viewer_version": "propertyquarry_3d_tour_viewer_v3",
+                    "viewer_relpath": "generated-reconstruction/viewer.html",
+                    "manifest_relpath": "generated-reconstruction/reconstruction.json",
+                    "model_relpath": "generated-reconstruction/model.obj",
+                    "material_relpath": "generated-reconstruction/model.mtl",
+                    "floorplan_relpath": "generated-reconstruction/source-floorplan.jpg",
+                    "photo_relpaths": [
+                        "generated-reconstruction/photo-01.jpg",
+                        "generated-reconstruction/photo-02.jpg",
+                        "generated-reconstruction/photo-03.jpg",
+                        "generated-reconstruction/photo-04.jpg",
+                        "generated-reconstruction/photo-05.jpg",
+                    ],
+                    "route_labels": [
+                        "entry/hall",
+                        "living area",
+                        "sleeping area",
+                        "balcony/terrace",
+                        "living area detail 2",
+                        "balcony/terrace return",
+                    ],
+                    "walkthrough_route_labels": [
+                        "entry/hall",
+                        "living area",
+                        "sleeping area",
+                        "balcony/terrace",
+                        "living area detail 2",
+                        "balcony/terrace return",
+                        "balcony detail 2",
+                    ],
+                    "room_stop_count": 6,
+                    "walkthrough_stop_count": 7,
+                    "walkthrough_video_relpath": "generated-reconstruction/generated-walkthrough.mp4",
+                    "walkthrough_coverage_proof": {
+                        "status": "pass",
+                        "segments_expected": [
+                            "entry/hall",
+                            "living area",
+                            "sleeping area",
+                            "balcony/terrace",
+                            "living area detail 2",
+                            "balcony/terrace return",
+                            "balcony detail 2",
+                        ],
+                    },
+                    "walkable_scene": {
+                        "kind": "generated_reconstruction_layout",
+                        "route": [
+                            {"label": "entry/hall"},
+                            {"label": "living area"},
+                            {"label": "sleeping area"},
+                            {"label": "balcony/terrace"},
+                            {"label": "living area detail 2"},
+                            {"label": "balcony/terrace return"},
+                        ],
+                        "rooms": [
+                            {"label": "entry/hall"},
+                            {"label": "living area"},
+                            {"label": "sleeping area"},
+                            {"label": "balcony/terrace"},
+                            {"label": "living area detail 2"},
+                            {"label": "balcony/terrace return"},
+                        ],
+                    },
+                    "verified_provider_capture": False,
+                    "satisfies_verified_tour_gate": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+
+    client = build_product_client(principal_id="public-tour-generated-reconstruction-launch")
+    response = client.get(f"/tours/{slug}")
+
+    assert response.status_code == 200
+    assert "PropertyQuarry layout tour" in response.text
+    assert "Generated reconstruction" in response.text
+    assert "This is built from the floorplan and listing photos" in response.text
+    assert "Room route" in response.text
+    assert "Reference deck" in response.text
 
 
 def test_public_tour_page_keeps_walkthrough_deep_link_on_entry_route(
@@ -29969,6 +30479,10 @@ def test_hosted_property_tour_generated_reconstruction_asset_url_is_separate_fro
                     "glb_model_relpath": "generated-reconstruction/model.glb",
                     "manifest_relpath": "generated-reconstruction/reconstruction.json",
                     "walkthrough_video_relpath": "generated-reconstruction/walkthrough.mp4",
+                    "walkthrough_coverage_proof": {
+                        "status": "pass",
+                        "segments_expected": ["entry/hall", "living area"],
+                    },
                     "verified_provider_capture": False,
                 },
             }
@@ -29979,6 +30493,9 @@ def test_hosted_property_tour_generated_reconstruction_asset_url_is_separate_fro
 
     tour_url = f"https://propertyquarry.com/tours/{slug}"
     assert property_tour_hosting._hosted_property_tour_verified_open_url(tour_url) == ""
+    assert property_tour_hosting._hosted_property_tour_walkthrough_asset_url(tour_url) == (
+        f"https://propertyquarry.com/tours/files/{slug}/generated-reconstruction/walkthrough.mp4"
+    )
     assert property_tour_hosting._hosted_property_tour_generated_reconstruction_asset_url(tour_url) == ""
     assert property_tour_hosting._hosted_property_tour_generated_reconstruction_asset_url(
         tour_url,
@@ -29996,6 +30513,77 @@ def test_hosted_property_tour_generated_reconstruction_asset_url_is_separate_fro
         tour_url,
         asset_key="manifest_relpath",
     ) == ""
+
+
+def test_generated_reconstruction_video_delivery_falls_back_to_nested_walkthrough_contract(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    slug = "generated-reconstruction-video-delivery"
+    bundle_dir = tmp_path / slug
+    generated_dir = bundle_dir / "generated-reconstruction"
+    generated_dir.mkdir(parents=True)
+    (generated_dir / "viewer.html").write_text("<!doctype html>viewer", encoding="utf-8")
+    (generated_dir / "walkthrough.mp4").write_bytes(b"video")
+    (generated_dir / "walkthrough.quality.json").write_text(
+        json.dumps(
+            {
+                "provider_key": "propertyquarry_generated_reconstruction",
+                "composition": "route_focused_stop_cards",
+                "covered_route_labels": [
+                    "entry/hall",
+                    "living area",
+                    "living area detail 2",
+                ],
+                "walkthrough_coverage_proof": {
+                    "status": "pass",
+                    "segments_expected": [
+                        "entry/hall",
+                        "living area",
+                        "living area detail 2",
+                    ],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "generated_reconstruction": {
+                    "provider": "propertyquarry_generated_reconstruction",
+                    "viewer_version": "propertyquarry_3d_tour_viewer_v3",
+                    "viewer_relpath": "generated-reconstruction/viewer.html",
+                    "walkthrough_video_relpath": "generated-reconstruction/walkthrough.mp4",
+                    "walkthrough_sidecar_relpath": "generated-reconstruction/walkthrough.quality.json",
+                    "walkthrough_coverage_proof": {
+                        "status": "pass",
+                        "segments_expected": [
+                            "entry/hall",
+                            "living area",
+                            "living area detail 2",
+                        ],
+                    },
+                    "verified_provider_capture": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    delivery = product_service._hosted_property_tour_video_delivery(f"https://propertyquarry.com/tours/{slug}")
+
+    assert delivery["provider_key"] == "propertyquarry_generated_reconstruction"
+    assert delivery["video_url"] == f"https://propertyquarry.com/tours/files/{slug}/generated-reconstruction/walkthrough.mp4"
+    assert delivery["video_sidecar_relpath"] == "generated-reconstruction/walkthrough.quality.json"
+    assert delivery["coverage_proof"] == "boundary_verified_frame_continuation"
+    assert delivery["covered_route_labels"] == [
+        "entry/hall",
+        "living area",
+        "living area detail 2",
+    ]
 
 
 def test_hosted_property_tour_generated_reconstruction_asset_url_rejects_stale_viewer_versions(
@@ -30032,10 +30620,19 @@ def test_hosted_property_tour_generated_reconstruction_bundle_ready_requires_vie
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    def _write_generated_reconstruction_bundle(bundle_dir: Path, slug: str, *, include_viewer: bool) -> None:
+    def _write_generated_reconstruction_bundle(
+        bundle_dir: Path,
+        slug: str,
+        *,
+        include_viewer: bool,
+        include_glb: bool,
+        include_walkthrough: bool = True,
+        photo_count: int = 2,
+    ) -> None:
         output_dir = bundle_dir / "generated-reconstruction"
         output_dir.mkdir(parents=True)
         route_labels = ["entry/hall", "living room", "bedroom"]
+        walkthrough_route_labels = ["entry/hall", "living room", "bedroom", "living room detail 2"]
         walkable_scene = {
             "kind": "generated_reconstruction_layout",
             "route": [
@@ -30099,9 +30696,29 @@ def test_hosted_property_tour_generated_reconstruction_bundle_ready_requires_vie
         (output_dir / "model.obj").write_text("o propertyquarry_generated_layout\nv 0 0 0\n", encoding="utf-8")
         (output_dir / "model.mtl").write_text("newmtl walls\nKd 0.8 0.8 0.8\n", encoding="utf-8")
         (output_dir / "source-floorplan.jpg").write_bytes(b"floorplan")
-        (output_dir / "photo-01.jpg").write_bytes(b"photo-1")
-        (output_dir / "photo-02.jpg").write_bytes(b"photo-2")
-        (output_dir / "model.glb").write_bytes(b"glTF" + (b"\x00" * 2048))
+        photo_relpaths: list[str] = []
+        for index in range(1, max(0, int(photo_count)) + 1):
+            relpath = f"generated-reconstruction/photo-{index:02d}.jpg"
+            (output_dir / f"photo-{index:02d}.jpg").write_bytes(f"photo-{index}".encode("utf-8"))
+            photo_relpaths.append(relpath)
+        if include_walkthrough:
+            (output_dir / "generated-walkthrough.mp4").write_bytes(b"video")
+            (output_dir / "generated-walkthrough.quality.json").write_text(
+                json.dumps(
+                    {
+                        "route_labels": walkthrough_route_labels,
+                        "covered_route_labels": walkthrough_route_labels,
+                        "walkthrough_coverage_proof": {
+                            "status": "pass",
+                            "segments_expected": walkthrough_route_labels,
+                            "segments_visited": walkthrough_route_labels,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+        if include_glb:
+            (output_dir / "model.glb").write_bytes(b"glTF" + (b"\x00" * 2048))
         (output_dir / "reconstruction.json").write_text(
             json.dumps(
                 {
@@ -30115,13 +30732,38 @@ def test_hosted_property_tour_generated_reconstruction_bundle_ready_requires_vie
                         "relpath": "viewer.html",
                         "version": "propertyquarry_3d_tour_viewer_v3",
                     },
-                    "model": {
-                        "glb_export": {
+                    "walkthrough_route_labels": walkthrough_route_labels if include_walkthrough else [],
+                    "walkthrough": (
+                        {
                             "status": "generated",
-                            "glb_relpath": "model.glb",
-                            "glb_size_bytes": 2052,
+                            "coverage_proof": {
+                                "status": "pass",
+                                "segments_expected": walkthrough_route_labels,
+                                "segments_visited": walkthrough_route_labels,
+                            },
                         }
-                    },
+                        if include_walkthrough
+                        else {
+                            "status": "skipped",
+                            "reason": "skip_video_requested",
+                        }
+                    ),
+                    "model": (
+                        {
+                            "glb_export": {
+                                "status": "generated",
+                                "glb_relpath": "model.glb",
+                                "glb_size_bytes": 2052,
+                            }
+                        }
+                        if include_glb
+                        else {
+                            "glb_export": {
+                                "status": "failed",
+                                "reason": "blender_glb_export_failed",
+                            }
+                        }
+                    ),
                 }
             ),
             encoding="utf-8",
@@ -30137,19 +30779,50 @@ def test_hosted_property_tour_generated_reconstruction_bundle_ready_requires_vie
                         "manifest_relpath": "generated-reconstruction/reconstruction.json",
                         "model_relpath": "generated-reconstruction/model.obj",
                         "material_relpath": "generated-reconstruction/model.mtl",
-                        "glb_model_relpath": "generated-reconstruction/model.glb",
-                        "glb_export_status": "generated",
+                        "glb_model_relpath": "generated-reconstruction/model.glb" if include_glb else "",
+                        "glb_export_status": "generated" if include_glb else "failed",
                         "floorplan_relpath": "generated-reconstruction/source-floorplan.jpg",
                         "route_labels": route_labels,
                         "room_stop_count": len(route_labels),
+                        "walkthrough_route_labels": walkthrough_route_labels if include_walkthrough else [],
+                        "walkthrough_stop_count": len(walkthrough_route_labels) if include_walkthrough else 0,
                         "walkable_scene": walkable_scene,
-                        "photo_relpaths": [
-                            "generated-reconstruction/photo-01.jpg",
-                            "generated-reconstruction/photo-02.jpg",
-                        ],
+                        "photo_relpaths": photo_relpaths,
+                        "walkthrough_video_relpath": (
+                            "generated-reconstruction/generated-walkthrough.mp4"
+                            if include_walkthrough
+                            else ""
+                        ),
+                        "walkthrough_sidecar_relpath": (
+                            "generated-reconstruction/generated-walkthrough.quality.json"
+                            if include_walkthrough
+                            else ""
+                        ),
+                        "walkthrough_coverage_proof": (
+                            {
+                                "status": "pass",
+                                "segments_expected": walkthrough_route_labels,
+                                "segments_visited": walkthrough_route_labels,
+                            }
+                            if include_walkthrough
+                            else {}
+                        ),
                         "verified_provider_capture": False,
                         "satisfies_verified_tour_gate": False,
                     },
+                    "video_relpath": (
+                        "generated-reconstruction/generated-walkthrough.mp4"
+                        if include_walkthrough
+                        else ""
+                    ),
+                    "video_sidecar_relpath": (
+                        "generated-reconstruction/generated-walkthrough.quality.json"
+                        if include_walkthrough
+                        else ""
+                    ),
+                    "video_provider": "propertyquarry_generated_reconstruction" if include_walkthrough else "",
+                    "video_provider_key": "propertyquarry_generated_reconstruction" if include_walkthrough else "",
+                    "video_coverage_proof": "boundary_verified_frame_continuation" if include_walkthrough else "",
                 }
             ),
             encoding="utf-8",
@@ -30158,18 +30831,67 @@ def test_hosted_property_tour_generated_reconstruction_bundle_ready_requires_vie
     ready_slug = "generated-reconstruction-bundle-ready"
     ready_bundle_dir = tmp_path / ready_slug
     ready_bundle_dir.mkdir(parents=True)
-    _write_generated_reconstruction_bundle(ready_bundle_dir, ready_slug, include_viewer=True)
+    _write_generated_reconstruction_bundle(
+        ready_bundle_dir,
+        ready_slug,
+        include_viewer=True,
+        include_glb=True,
+    )
+    ready_without_glb_slug = "generated-reconstruction-bundle-ready-without-glb"
+    ready_without_glb_bundle_dir = tmp_path / ready_without_glb_slug
+    ready_without_glb_bundle_dir.mkdir(parents=True)
+    _write_generated_reconstruction_bundle(
+        ready_without_glb_bundle_dir,
+        ready_without_glb_slug,
+        include_viewer=True,
+        include_glb=False,
+    )
     missing_slug = "generated-reconstruction-bundle-missing-viewer"
     missing_bundle_dir = tmp_path / missing_slug
     missing_bundle_dir.mkdir(parents=True)
-    _write_generated_reconstruction_bundle(missing_bundle_dir, missing_slug, include_viewer=False)
+    _write_generated_reconstruction_bundle(
+        missing_bundle_dir,
+        missing_slug,
+        include_viewer=False,
+        include_glb=True,
+    )
+    missing_walkthrough_slug = "generated-reconstruction-bundle-missing-walkthrough"
+    missing_walkthrough_bundle_dir = tmp_path / missing_walkthrough_slug
+    missing_walkthrough_bundle_dir.mkdir(parents=True)
+    _write_generated_reconstruction_bundle(
+        missing_walkthrough_bundle_dir,
+        missing_walkthrough_slug,
+        include_viewer=True,
+        include_glb=True,
+        include_walkthrough=False,
+    )
+    under_referenced_slug = "generated-reconstruction-bundle-under-referenced"
+    under_referenced_bundle_dir = tmp_path / under_referenced_slug
+    under_referenced_bundle_dir.mkdir(parents=True)
+    _write_generated_reconstruction_bundle(
+        under_referenced_bundle_dir,
+        under_referenced_slug,
+        include_viewer=True,
+        include_glb=True,
+        include_walkthrough=True,
+        photo_count=1,
+    )
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
 
     assert property_tour_hosting._hosted_property_tour_generated_reconstruction_bundle_ready(
         f"https://propertyquarry.com/tours/{ready_slug}"
     ) is True
     assert property_tour_hosting._hosted_property_tour_generated_reconstruction_bundle_ready(
+        f"https://propertyquarry.com/tours/{ready_without_glb_slug}"
+    ) is True
+    assert property_tour_hosting._hosted_property_tour_generated_reconstruction_bundle_ready(
         f"https://propertyquarry.com/tours/{missing_slug}"
+    ) is False
+    assert property_tour_hosting._hosted_property_tour_generated_reconstruction_bundle_ready(
+        f"https://propertyquarry.com/tours/{missing_walkthrough_slug}"
+    ) is False
+    assert property_tour_hosting._hosted_property_tour_generated_reconstruction_bundle_ready(
+        f"https://propertyquarry.com/tours/{under_referenced_slug}"
     ) is False
 
 
@@ -30185,6 +30907,21 @@ def test_generated_reconstruction_bundle_ready_rejects_missing_walkable_scene_ro
     (output_dir / "model.glb").write_bytes(b"glTF" + (b"\x00" * 2048))
     (output_dir / "source-floorplan.jpg").write_bytes(b"floorplan")
     (output_dir / "photo-01.jpg").write_bytes(b"photo-1")
+    (output_dir / "generated-walkthrough.mp4").write_bytes(b"video")
+    (output_dir / "generated-walkthrough.quality.json").write_text(
+        json.dumps(
+            {
+                "route_labels": ["entry/hall", "entry detail 2"],
+                "covered_route_labels": ["entry/hall", "entry detail 2"],
+                "walkthrough_coverage_proof": {
+                    "status": "pass",
+                    "segments_expected": ["entry/hall", "entry detail 2"],
+                    "segments_visited": ["entry/hall", "entry detail 2"],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
     (output_dir / "reconstruction.json").write_text(
         json.dumps(
             {
@@ -30194,10 +30931,19 @@ def test_generated_reconstruction_bundle_ready_rejects_missing_walkable_scene_ro
                 "room_dimensions_m": {"width": 10.0, "depth": 7.2, "height": 2.8},
                 "geometry": {"wall_rect_count": 8},
                 "route_labels": ["entry/hall"],
+                "walkthrough_route_labels": ["entry/hall", "entry detail 2"],
                 "walkable_scene": {"kind": "generated_reconstruction_layout", "route": [], "rooms": []},
                 "viewer": {
                     "relpath": "viewer.html",
                     "version": "propertyquarry_3d_tour_viewer_v3",
+                },
+                "walkthrough": {
+                    "status": "generated",
+                    "coverage_proof": {
+                        "status": "pass",
+                        "segments_expected": ["entry/hall", "entry detail 2"],
+                        "segments_visited": ["entry/hall", "entry detail 2"],
+                    },
                 },
                 "model": {
                     "glb_export": {
@@ -30227,10 +30973,24 @@ def test_generated_reconstruction_bundle_ready_rejects_missing_walkable_scene_ro
                     "photo_relpaths": ["generated-reconstruction/photo-01.jpg"],
                     "route_labels": ["entry/hall"],
                     "room_stop_count": 1,
+                    "walkthrough_route_labels": ["entry/hall", "entry detail 2"],
+                    "walkthrough_stop_count": 2,
+                    "walkthrough_video_relpath": "generated-reconstruction/generated-walkthrough.mp4",
+                    "walkthrough_sidecar_relpath": "generated-reconstruction/generated-walkthrough.quality.json",
+                    "walkthrough_coverage_proof": {
+                        "status": "pass",
+                        "segments_expected": ["entry/hall", "entry detail 2"],
+                        "segments_visited": ["entry/hall", "entry detail 2"],
+                    },
                     "walkable_scene": {"kind": "generated_reconstruction_layout", "route": [], "rooms": []},
                     "verified_provider_capture": False,
                     "satisfies_verified_tour_gate": False,
                 },
+                "video_relpath": "generated-reconstruction/generated-walkthrough.mp4",
+                "video_sidecar_relpath": "generated-reconstruction/generated-walkthrough.quality.json",
+                "video_provider": "propertyquarry_generated_reconstruction",
+                "video_provider_key": "propertyquarry_generated_reconstruction",
+                "video_coverage_proof": "boundary_verified_frame_continuation",
             }
         ),
         encoding="utf-8",
@@ -30242,7 +31002,7 @@ def test_generated_reconstruction_bundle_ready_rejects_missing_walkable_scene_ro
     ) is False
 
 
-def test_hosted_property_tour_first_party_open_url_rejects_generated_reconstruction_viewer(
+def test_hosted_property_tour_first_party_open_url_rejects_incomplete_generated_reconstruction_bundle(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -30275,7 +31035,7 @@ def test_hosted_property_tour_first_party_open_url_rejects_generated_reconstruct
     ) == ""
 
 
-def test_hosted_property_tour_first_party_open_url_rejects_ready_generated_reconstruction_viewer(
+def test_hosted_property_tour_first_party_open_url_accepts_ready_generated_reconstruction_public_shell(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -30342,16 +31102,38 @@ def test_hosted_property_tour_first_party_open_url_rejects_ready_generated_recon
         ],
     }
     route_labels = ["entry/hall", "living room", "bedroom"]
+    walkthrough_route_labels = ["entry/hall", "living room", "bedroom"]
     (reconstruction_dir / "viewer.html").write_text("<!doctype html>viewer", encoding="utf-8")
     (reconstruction_dir / "model.obj").write_text("o propertyquarry_generated_layout\nv 0 0 0\n", encoding="utf-8")
     (reconstruction_dir / "model.mtl").write_text("newmtl walls\nKd 0.8 0.8 0.8\n", encoding="utf-8")
     (reconstruction_dir / "model.glb").write_bytes(b"glTF" + (b"\x00" * 2048))
     (reconstruction_dir / "source-floorplan.jpg").write_bytes(b"floorplan")
     (reconstruction_dir / "photo-01.jpg").write_bytes(b"photo-1")
+    (reconstruction_dir / "photo-02.jpg").write_bytes(b"photo-2")
+    (reconstruction_dir / "generated-walkthrough.mp4").write_bytes(b"video")
+    (reconstruction_dir / "generated-walkthrough.quality.json").write_text(
+        json.dumps(
+            {
+                "route_labels": walkthrough_route_labels,
+                "covered_route_labels": walkthrough_route_labels,
+                "walkthrough_coverage_proof": {
+                    "status": "pass",
+                    "segments_expected": walkthrough_route_labels,
+                    "segments_visited": walkthrough_route_labels,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
     (bundle_dir / "tour.json").write_text(
         json.dumps(
             {
                 "slug": slug,
+                "video_relpath": "generated-reconstruction/generated-walkthrough.mp4",
+                "video_sidecar_relpath": "generated-reconstruction/generated-walkthrough.quality.json",
+                "video_provider": "propertyquarry_generated_reconstruction",
+                "video_provider_key": "propertyquarry_generated_reconstruction",
+                "video_coverage_proof": "boundary_verified_frame_continuation",
                 "generated_reconstruction": {
                     "provider": "propertyquarry_generated_reconstruction",
                     "viewer_version": "propertyquarry_3d_tour_viewer_v3",
@@ -30359,13 +31141,22 @@ def test_hosted_property_tour_first_party_open_url_rejects_ready_generated_recon
                     "manifest_relpath": "generated-reconstruction/reconstruction.json",
                     "model_relpath": "generated-reconstruction/model.obj",
                     "material_relpath": "generated-reconstruction/model.mtl",
-                    "glb_model_relpath": "generated-reconstruction/model.glb",
-                    "glb_export_status": "generated",
+                    "glb_model_relpath": "",
+                    "glb_export_status": "failed",
                     "floorplan_relpath": "generated-reconstruction/source-floorplan.jpg",
-                    "photo_relpaths": ["generated-reconstruction/photo-01.jpg"],
+                    "photo_relpaths": ["generated-reconstruction/photo-01.jpg", "generated-reconstruction/photo-02.jpg"],
                     "route_labels": route_labels,
                     "room_stop_count": len(route_labels),
                     "walkable_scene": walkable_scene,
+                    "walkthrough_video_relpath": "generated-reconstruction/generated-walkthrough.mp4",
+                    "walkthrough_sidecar_relpath": "generated-reconstruction/generated-walkthrough.quality.json",
+                    "walkthrough_route_labels": walkthrough_route_labels,
+                    "walkthrough_stop_count": len(walkthrough_route_labels),
+                    "walkthrough_coverage_proof": {
+                        "status": "pass",
+                        "segments_expected": walkthrough_route_labels,
+                        "segments_visited": walkthrough_route_labels,
+                    },
                     "verified_provider_capture": False,
                     "satisfies_verified_tour_gate": False,
                 },
@@ -30387,6 +31178,15 @@ def test_hosted_property_tour_first_party_open_url_rejects_ready_generated_recon
                     "relpath": "viewer.html",
                     "version": "propertyquarry_3d_tour_viewer_v3",
                 },
+                "walkthrough_route_labels": walkthrough_route_labels,
+                "walkthrough": {
+                    "status": "generated",
+                    "coverage_proof": {
+                        "status": "pass",
+                        "segments_expected": walkthrough_route_labels,
+                        "segments_visited": walkthrough_route_labels,
+                    },
+                },
                 "model": {
                     "glb_export": {
                         "status": "generated",
@@ -30405,10 +31205,495 @@ def test_hosted_property_tour_first_party_open_url_rejects_ready_generated_recon
     ) == ""
     assert property_tour_hosting._hosted_property_tour_first_party_open_url(
         f"https://propertyquarry.com/tours/{slug}"
-    ) == ""
+    ) == f"https://propertyquarry.com/tours/{slug}"
     assert property_tour_hosting._hosted_property_tour_generated_reconstruction_open_url(
         f"https://propertyquarry.com/tours/{slug}"
-    ) == f"https://propertyquarry.com/tours/files/{slug}/generated-reconstruction/viewer.html"
+    ) == f"https://propertyquarry.com/tours/{slug}"
+
+
+def test_public_tour_generated_layout_preview_route_surfaces_diorama_hero_for_ready_bundle(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = "generated-reconstruction-layout-preview-diorama-hero"
+    bundle_dir = tmp_path / slug
+    reconstruction_dir = bundle_dir / "generated-reconstruction"
+    reconstruction_dir.mkdir(parents=True)
+    route_labels = ["entry/hall", "living room", "bedroom"]
+    walkthrough_route_labels = ["entry/hall", "living room", "bedroom", "living room detail 2"]
+    walkable_scene = {
+        "kind": "generated_reconstruction_layout",
+        "route": [
+            {
+                "label": "entry/hall",
+                "room": "entry/hall",
+                "name": "entry/hall",
+                "kind": "entry",
+                "sequence": 1,
+                "focus": {"x": -0.8, "y": 1.4, "z": 0.9},
+                "camera": {"x": -0.2, "y": 1.6, "z": 1.5},
+            },
+            {
+                "label": "living room",
+                "room": "living room",
+                "name": "living room",
+                "kind": "living",
+                "sequence": 2,
+                "focus": {"x": 0.4, "y": 1.4, "z": 0.1},
+                "camera": {"x": -0.1, "y": 1.6, "z": 0.8},
+            },
+            {
+                "label": "bedroom",
+                "room": "bedroom",
+                "name": "bedroom",
+                "kind": "bedroom",
+                "sequence": 3,
+                "focus": {"x": 0.7, "y": 1.4, "z": -0.7},
+                "camera": {"x": -0.05, "y": 1.6, "z": -0.1},
+            },
+        ],
+        "rooms": [
+            {
+                "label": "entry/hall",
+                "name": "entry/hall",
+                "kind": "entry",
+                "sequence": 1,
+                "position": {"x": -0.8, "y": 0.0, "z": 0.9},
+                "focus": {"x": -0.8, "y": 1.4, "z": 0.9},
+            },
+            {
+                "label": "living room",
+                "name": "living room",
+                "kind": "living",
+                "sequence": 2,
+                "position": {"x": 0.4, "y": 0.0, "z": 0.1},
+                "focus": {"x": 0.4, "y": 1.4, "z": 0.1},
+            },
+            {
+                "label": "bedroom",
+                "name": "bedroom",
+                "kind": "bedroom",
+                "sequence": 3,
+                "position": {"x": 0.7, "y": 0.0, "z": -0.7},
+                "focus": {"x": 0.7, "y": 1.4, "z": -0.7},
+            },
+        ],
+    }
+    (reconstruction_dir / "viewer.html").write_text("<!doctype html>viewer", encoding="utf-8")
+    (reconstruction_dir / "model.obj").write_text("o propertyquarry_generated_layout\nv 0 0 0\n", encoding="utf-8")
+    (reconstruction_dir / "model.mtl").write_text("newmtl walls\nKd 0.8 0.8 0.8\n", encoding="utf-8")
+    (reconstruction_dir / "model.glb").write_bytes(b"glTF" + (b"\x00" * 2048))
+    (reconstruction_dir / "source-floorplan.jpg").write_bytes(b"floorplan")
+    (reconstruction_dir / "photo-01.jpg").write_bytes(b"photo-1")
+    (reconstruction_dir / "photo-02.jpg").write_bytes(b"photo-2")
+    (reconstruction_dir / "generated-walkthrough.mp4").write_bytes(b"video")
+    (reconstruction_dir / "generated-walkthrough.quality.json").write_text(
+        json.dumps(
+            {
+                "route_labels": walkthrough_route_labels,
+                "covered_route_labels": walkthrough_route_labels,
+                "walkthrough_coverage_proof": {
+                    "status": "pass",
+                    "segments_expected": walkthrough_route_labels,
+                    "segments_visited": walkthrough_route_labels,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (bundle_dir / "diorama-preview.png").write_bytes(b"png")
+    (reconstruction_dir / "reconstruction.json").write_text(
+        json.dumps(
+            {
+                "provider": "propertyquarry_generated_reconstruction",
+                "verified_provider_capture": False,
+                "satisfies_verified_tour_gate": False,
+                "room_dimensions_m": {"width": 8.0, "depth": 5.5, "height": 2.8},
+                "geometry": {"wall_rect_count": 8},
+                "walkable_scene": walkable_scene,
+                "route_labels": route_labels,
+                "viewer": {
+                    "relpath": "viewer.html",
+                    "version": "propertyquarry_3d_tour_viewer_v3",
+                },
+                "walkthrough_route_labels": walkthrough_route_labels,
+                "walkthrough": {
+                    "status": "generated",
+                    "coverage_proof": {
+                        "status": "pass",
+                        "segments_expected": walkthrough_route_labels,
+                        "segments_visited": walkthrough_route_labels,
+                    },
+                },
+                "model": {
+                    "glb_export": {
+                        "status": "generated",
+                        "glb_relpath": "model.glb",
+                        "glb_size_bytes": 2052,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "display_title": "Generated reconstruction diorama hero",
+                "diorama_preview_relpath": "diorama-preview.png",
+                "preview_relpath": "diorama-preview.png",
+                "generated_reconstruction": {
+                    "provider": "propertyquarry_generated_reconstruction",
+                    "viewer_version": "propertyquarry_3d_tour_viewer_v3",
+                    "viewer_relpath": "generated-reconstruction/viewer.html",
+                    "manifest_relpath": "generated-reconstruction/reconstruction.json",
+                    "model_relpath": "generated-reconstruction/model.obj",
+                    "material_relpath": "generated-reconstruction/model.mtl",
+                    "glb_model_relpath": "generated-reconstruction/model.glb",
+                    "glb_export_status": "generated",
+                    "floorplan_relpath": "generated-reconstruction/source-floorplan.jpg",
+                    "route_labels": route_labels,
+                    "room_stop_count": len(route_labels),
+                    "walkthrough_route_labels": walkthrough_route_labels,
+                    "walkthrough_stop_count": len(walkthrough_route_labels),
+                    "walkable_scene": walkable_scene,
+                    "photo_relpaths": [
+                        "generated-reconstruction/photo-01.jpg",
+                        "generated-reconstruction/photo-02.jpg",
+                    ],
+                    "walkthrough_video_relpath": "generated-reconstruction/generated-walkthrough.mp4",
+                    "walkthrough_sidecar_relpath": "generated-reconstruction/generated-walkthrough.quality.json",
+                    "walkthrough_coverage_proof": {
+                        "status": "pass",
+                        "segments_expected": walkthrough_route_labels,
+                        "segments_visited": walkthrough_route_labels,
+                    },
+                    "verified_provider_capture": False,
+                    "satisfies_verified_tour_gate": False,
+                },
+                "video_relpath": "generated-reconstruction/generated-walkthrough.mp4",
+                "video_sidecar_relpath": "generated-reconstruction/generated-walkthrough.quality.json",
+                "video_provider": "propertyquarry_generated_reconstruction",
+                "video_provider_key": "propertyquarry_generated_reconstruction",
+                "video_coverage_proof": "boundary_verified_frame_continuation",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+
+    client = build_product_client(principal_id="public-tour-generated-layout-preview-diorama-hero")
+    launch = client.get(f"/tours/{slug}")
+    preview = client.get(f"/tours/{slug}/layout-preview")
+    viewer = client.get(f"/tours/files/{slug}/generated-reconstruction/viewer.html", follow_redirects=False)
+
+    assert launch.status_code == 200
+    assert preview.status_code == 200
+    assert viewer.status_code == 200
+    assert viewer.headers["cache-control"] == "no-cache, max-age=0, must-revalidate"
+    assert viewer.headers["cross-origin-resource-policy"] == "same-origin"
+    assert viewer.headers["x-frame-options"] == "SAMEORIGIN"
+    assert viewer.headers["x-propertyquarry-tour-asset-kind"] == "generated-reconstruction-viewer"
+    assert "frame-ancestors 'self'" in viewer.headers["content-security-policy"]
+    assert "Generated diorama" in launch.text
+    assert "Generated diorama" in preview.text
+    assert 'id="lead-preview-image"' in launch.text
+    assert 'id="lead-preview-image"' in preview.text
+    assert 'id="layout-viewer-frame"' in launch.text
+    assert 'id="layout-viewer-frame"' in preview.text
+    assert f"/tours/files/{slug}/diorama-preview.png" in launch.text
+    assert f"/tours/files/{slug}/diorama-preview.png" in preview.text
+    assert f"/tours/files/{slug}/generated-reconstruction/viewer.html?embed=1" in launch.text
+    assert f"/tours/files/{slug}/generated-reconstruction/viewer.html?embed=1" in preview.text
+    assert f'/tours/files/{slug}/generated-reconstruction/viewer.html"' in launch.text
+    assert f'/tours/files/{slug}/generated-reconstruction/viewer.html"' in preview.text
+    assert "selectedDurationMs = Number(routeItem.durationSeconds || 0) * 1000" in launch.text
+    assert "holdManualRoute(Math.min(30000, Math.max(1400, selectedDurationMs + 1000)))" in launch.text
+    assert "layoutViewerRouteSyncAttempts >= 100" in launch.text
+    assert "This link points to a generated layout reconstruction, not a published 3D tour." not in launch.text
+    assert "This link points to a generated layout reconstruction, not a published 3D tour." not in preview.text
+    assert viewer.text == "<!doctype html>viewer"
+
+
+def test_public_tour_generated_layout_preview_route_rejects_generated_reconstruction_bundle(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = "generated-reconstruction-layout-preview-csp"
+    bundle_dir = tmp_path / slug
+    reconstruction_dir = bundle_dir / "generated-reconstruction"
+    reconstruction_dir.mkdir(parents=True)
+    (reconstruction_dir / "viewer.html").write_text(
+        "<!doctype html><html><head><title>Layout preview | PropertyQuarry</title></head><body><h1>Layout preview</h1></body></html>",
+        encoding="utf-8",
+    )
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "display_title": "Generated reconstruction preview CSP",
+                "generated_reconstruction": {
+                    "provider": "propertyquarry_generated_reconstruction",
+                    "viewer_version": "propertyquarry_3d_tour_viewer_v3",
+                    "viewer_relpath": "generated-reconstruction/viewer.html",
+                    "verified_provider_capture": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+
+    client = build_product_client(principal_id="public-tour-generated-layout-preview-csp")
+    launch = client.get(f"/tours/{slug}")
+    response = client.get(f"/tours/{slug}/layout-preview")
+    viewer = client.get(f"/tours/files/{slug}/generated-reconstruction/viewer.html?embed=1", follow_redirects=False)
+
+    assert launch.status_code == 404
+    assert "This link points to a generated layout reconstruction, not a published 3D tour." in launch.text
+    assert response.status_code == 404
+    assert "Generated reconstruction" in response.text
+    assert "PropertyQuarry no longer presents generated layout reconstructions as public 3D tours." in response.text
+    assert viewer.status_code == 302
+    assert viewer.headers["location"] == f"/tours/{slug}"
+
+
+def test_public_tour_generated_layout_preview_route_rejects_under_referenced_generated_reconstruction_bundle(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = "generated-reconstruction-layout-preview-under-referenced"
+    bundle_dir = tmp_path / slug
+    reconstruction_dir = bundle_dir / "generated-reconstruction"
+    reconstruction_dir.mkdir(parents=True)
+    walkable_scene = {
+        "kind": "generated_reconstruction_layout",
+        "route": [
+            {
+                "label": "entry/hall",
+                "room": "entry/hall",
+                "name": "entry/hall",
+                "kind": "entry",
+                "sequence": 1,
+                "focus": {"x": -0.8, "y": 1.4, "z": 0.9},
+                "camera": {"x": -0.2, "y": 1.6, "z": 1.5},
+            },
+            {
+                "label": "living room",
+                "room": "living room",
+                "name": "living room",
+                "kind": "living",
+                "sequence": 2,
+                "focus": {"x": 0.4, "y": 1.4, "z": 0.1},
+                "camera": {"x": -0.1, "y": 1.6, "z": 0.8},
+            },
+            {
+                "label": "bedroom",
+                "room": "bedroom",
+                "name": "bedroom",
+                "kind": "bedroom",
+                "sequence": 3,
+                "focus": {"x": 0.7, "y": 1.4, "z": -0.7},
+                "camera": {"x": -0.05, "y": 1.6, "z": -0.1},
+            },
+        ],
+        "rooms": [
+            {
+                "label": "entry/hall",
+                "name": "entry/hall",
+                "kind": "entry",
+                "sequence": 1,
+                "position": {"x": -0.8, "y": 0.0, "z": 0.9},
+                "focus": {"x": -0.8, "y": 1.4, "z": 0.9},
+            },
+            {
+                "label": "living room",
+                "name": "living room",
+                "kind": "living",
+                "sequence": 2,
+                "position": {"x": 0.4, "y": 0.0, "z": 0.1},
+                "focus": {"x": 0.4, "y": 1.4, "z": 0.1},
+            },
+            {
+                "label": "bedroom",
+                "name": "bedroom",
+                "kind": "bedroom",
+                "sequence": 3,
+                "position": {"x": 0.7, "y": 0.0, "z": -0.7},
+                "focus": {"x": 0.7, "y": 1.4, "z": -0.7},
+            },
+        ],
+    }
+    walkthrough_route_labels = ["entry/hall", "living room", "bedroom", "living room detail 2"]
+    (reconstruction_dir / "viewer.html").write_text("<!doctype html>viewer", encoding="utf-8")
+    (reconstruction_dir / "model.obj").write_text("o propertyquarry_generated_layout\nv 0 0 0\n", encoding="utf-8")
+    (reconstruction_dir / "model.mtl").write_text("newmtl walls\nKd 0.8 0.8 0.8\n", encoding="utf-8")
+    (reconstruction_dir / "model.glb").write_bytes(b"glTF" + (b"\x00" * 2048))
+    (reconstruction_dir / "source-floorplan.jpg").write_bytes(b"floorplan")
+    (reconstruction_dir / "photo-01.jpg").write_bytes(b"photo-1")
+    (reconstruction_dir / "generated-walkthrough.mp4").write_bytes(b"video")
+    (reconstruction_dir / "generated-walkthrough.quality.json").write_text(
+        json.dumps(
+            {
+                "route_labels": walkthrough_route_labels,
+                "covered_route_labels": walkthrough_route_labels,
+                "walkthrough_coverage_proof": {
+                    "status": "pass",
+                    "segments_expected": walkthrough_route_labels,
+                    "segments_visited": walkthrough_route_labels,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (reconstruction_dir / "reconstruction.json").write_text(
+        json.dumps(
+            {
+                "provider": "propertyquarry_generated_reconstruction",
+                "verified_provider_capture": False,
+                "satisfies_verified_tour_gate": False,
+                "room_dimensions_m": {"width": 8.0, "depth": 5.5, "height": 2.8},
+                "geometry": {"wall_rect_count": 8},
+                "walkable_scene": walkable_scene,
+                "route_labels": ["entry/hall", "living room", "bedroom"],
+                "viewer": {
+                    "relpath": "viewer.html",
+                    "version": "propertyquarry_3d_tour_viewer_v3",
+                },
+                "walkthrough_route_labels": walkthrough_route_labels,
+                "walkthrough": {
+                    "status": "generated",
+                    "coverage_proof": {
+                        "status": "pass",
+                        "segments_expected": walkthrough_route_labels,
+                        "segments_visited": walkthrough_route_labels,
+                    },
+                },
+                "model": {
+                    "glb_export": {
+                        "status": "generated",
+                        "glb_relpath": "model.glb",
+                        "glb_size_bytes": 2052,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "display_title": "Generated reconstruction preview under referenced",
+                "generated_reconstruction": {
+                    "provider": "propertyquarry_generated_reconstruction",
+                    "viewer_version": "propertyquarry_3d_tour_viewer_v3",
+                    "viewer_relpath": "generated-reconstruction/viewer.html",
+                    "manifest_relpath": "generated-reconstruction/reconstruction.json",
+                    "model_relpath": "generated-reconstruction/model.obj",
+                    "material_relpath": "generated-reconstruction/model.mtl",
+                    "glb_model_relpath": "generated-reconstruction/model.glb",
+                    "glb_export_status": "generated",
+                    "floorplan_relpath": "generated-reconstruction/source-floorplan.jpg",
+                    "photo_relpaths": ["generated-reconstruction/photo-01.jpg"],
+                    "route_labels": ["entry/hall", "living room", "bedroom"],
+                    "room_stop_count": 3,
+                    "walkthrough_route_labels": walkthrough_route_labels,
+                    "walkthrough_stop_count": 4,
+                    "walkable_scene": walkable_scene,
+                    "walkthrough_video_relpath": "generated-reconstruction/generated-walkthrough.mp4",
+                    "walkthrough_sidecar_relpath": "generated-reconstruction/generated-walkthrough.quality.json",
+                    "walkthrough_coverage_proof": {
+                        "status": "pass",
+                        "segments_expected": walkthrough_route_labels,
+                        "segments_visited": walkthrough_route_labels,
+                    },
+                    "verified_provider_capture": False,
+                    "satisfies_verified_tour_gate": False,
+                },
+                "video_relpath": "generated-reconstruction/generated-walkthrough.mp4",
+                "video_sidecar_relpath": "generated-reconstruction/generated-walkthrough.quality.json",
+                "video_provider": "propertyquarry_generated_reconstruction",
+                "video_provider_key": "propertyquarry_generated_reconstruction",
+                "video_coverage_proof": "boundary_verified_frame_continuation",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+
+    assert property_tour_hosting._hosted_property_tour_generated_reconstruction_bundle_ready(
+        f"https://propertyquarry.com/tours/{slug}"
+    ) is False
+
+    client = build_product_client(principal_id="public-tour-generated-layout-preview-under-referenced")
+    launch = client.get(f"/tours/{slug}")
+    response = client.get(f"/tours/{slug}/layout-preview")
+
+    assert launch.status_code == 404
+    assert "This link points to a generated layout reconstruction, not a published 3D tour." in launch.text
+    assert response.status_code == 404
+    assert "PropertyQuarry no longer presents generated layout reconstructions as public 3D tours." in response.text
+
+
+def test_public_tour_generated_layout_preview_route_stays_blocked_when_live_matterport_exists(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = "generated-reconstruction-layout-preview-mixed"
+    bundle_dir = tmp_path / slug
+    reconstruction_dir = bundle_dir / "generated-reconstruction"
+    reconstruction_dir.mkdir(parents=True)
+    (reconstruction_dir / "viewer.html").write_text(
+        "<!doctype html><html><head><title>Layout preview | PropertyQuarry</title></head><body><h1>Layout preview</h1></body></html>",
+        encoding="utf-8",
+    )
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "display_title": "Generated reconstruction preview with live Matterport",
+                "generated_reconstruction": {
+                    "provider": "propertyquarry_generated_reconstruction",
+                    "viewer_version": "propertyquarry_3d_tour_viewer_v3",
+                    "viewer_relpath": "generated-reconstruction/viewer.html",
+                    "verified_provider_capture": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (bundle_dir / "tour.private.json").write_text(
+        json.dumps({"source_virtual_tour_url": "https://my.matterport.com/show/?m=MIXEDPREVIEW1"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+
+    client = build_product_client(principal_id="public-tour-generated-layout-preview-mixed")
+    launch = client.get(f"/tours/{slug}", follow_redirects=False)
+    response = client.get(f"/tours/{slug}/layout-preview", follow_redirects=False)
+    control = client.get(f"/tours/{slug}/control/matterport")
+    viewer = client.get(f"/tours/files/{slug}/generated-reconstruction/viewer.html", follow_redirects=False)
+    embedded_viewer = client.get(
+        f"/tours/files/{slug}/generated-reconstruction/viewer.html?embed=1",
+        follow_redirects=False,
+    )
+
+    assert launch.status_code == 302
+    assert launch.headers["location"] == f"/tours/{slug}/control/matterport"
+    assert response.status_code == 302
+    assert response.headers["location"] == f"/tours/{slug}/control/matterport"
+    assert viewer.status_code == 302
+    assert viewer.headers["location"] == f"/tours/{slug}/control/matterport"
+    assert embedded_viewer.status_code == 302
+    assert embedded_viewer.headers["location"] == f"/tours/{slug}/control/matterport"
+    assert control.status_code == 200
+    assert "Matterport Control" in control.text
 
 
 def test_hosted_property_tour_seed_image_path_accepts_generated_reconstruction_photos(

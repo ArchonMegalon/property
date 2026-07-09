@@ -6,6 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 GATE_PATH = ROOT / "docs/PROPERTYQUARRY_PREMIUM_UI_EXIT_GATE.md"
 DESIGN_SYSTEM_GATE_PATH = ROOT / "docs/PROPERTYQUARRY_DESIGN_SYSTEM_GATE.md"
+RELEASE_GATE_PATH = ROOT / "scripts/property_release_gates.sh"
 
 
 def test_propertyquarry_premium_ui_exit_gate_is_linked_from_design_gate() -> None:
@@ -130,3 +131,11 @@ def test_propertyquarry_premium_ui_exit_gate_declares_automated_commands_and_tri
         "Only then tune typography, spacing, color, and motion.",
     ):
         assert triage_rule in gate
+
+
+def test_propertyquarry_premium_ui_exit_gate_mobile_flagship_proof_is_in_release_bundle() -> None:
+    gate = GATE_PATH.read_text(encoding="utf-8")
+    release_gate = RELEASE_GATE_PATH.read_text(encoding="utf-8")
+
+    assert "recorded mobile browser run: sign in -> search -> district selection -> results -> research -> map -> tour/walkthrough request" in gate
+    assert "tests/e2e/test_propertyquarry_flagship_flow.py" in release_gate

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -195,3 +196,88 @@ def test_scene_video_runtime_status_cli_reads_receipt_and_prints_operator_view(t
     assert "Scene-video runtime status @ 2026-07-07T01:30:00Z" in result.stdout
     assert f"Source: receipt_file {receipt}" in result.stdout
     assert "omagic | blocked | lane=omagic | accounts=0/8 | gap=8 | blocker=omagic_credentials_missing | next=omagic_credentials_missing" in result.stdout
+
+
+def test_scene_video_runtime_status_renders_tracked_inventory_for_credit_constrained_magicfit() -> None:
+    module = _load_script()
+    report = {
+        "contract_name": "propertyquarry.scene_video_readiness.v1",
+        "generated_at": "2026-07-07T09:26:08Z",
+        "providers": [
+            {
+                "requested_provider": "magicfit",
+                "provider_key": "magicfit",
+                "provider_backend_key": "magicfit",
+                "ready": True,
+                "status": "ready",
+                "runtime_account_count": 2,
+                "credit_state": "constrained",
+                "blockers": [],
+                "account_inventory": {
+                    "expected_account_count": 2,
+                    "tracked_account_count": 3,
+                    "unavailable_account_count": 1,
+                    "availability_reason": "one_account_depleted",
+                    "runtime_account_count": 2,
+                    "visible_account_gap": 0,
+                    "status": "ready",
+                },
+            }
+        ],
+        "telegram_delivery_readiness": {"configured": True, "status": "ready", "blockers": []},
+        "next_actions": [
+            {
+                "provider": "magicfit",
+                "reason": "magicfit_credit_constrained",
+                "severity": "high",
+                "action": "Select a funded MagicFit account or refresh credits, then clear the failure marker only after a successful provider render proof.",
+            }
+        ],
+    }
+
+    status = module.build_runtime_status(report, source_kind="receipt_file", source_ref="/tmp/scene-video.json")
+    rendered = module.render_operator_status(status)
+
+    assert status["providers"][0]["tracked_account_count"] == 3
+    assert status["providers"][0]["unavailable_account_count"] == 1
+    assert "magicfit | ready | lane=magicfit | accounts=2/2 | tracked=3 | unavailable=1 | credit=constrained | next=magicfit_credit_constrained" in rendered
+
+
+def test_scene_video_runtime_status_cli_auto_loads_shared_env_for_live_runtime(tmp_path: Path) -> None:
+    shared_env = tmp_path / "property_scene_video_shared.env"
+    shared_env.write_text(
+        "\n".join(
+            [
+                "PROPERTYQUARRY_MAGICFIT_ACCOUNTS_JSON='[{\"email\":\"magicfit@example.test\",\"password\":\"magicfit-pass\"}]'",
+                "EA_TELEGRAM_BOT_TOKEN='tg-bot-token'",
+                "EA_TELEGRAM_DEFAULT_PRINCIPAL_ID='cf-email:test@example.test'",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    inventory = tmp_path / "scene_video_provider_inventory.json"
+    inventory.write_text(
+        json.dumps({"providers": {"magicfit": {"expected_account_count": 1}}}),
+        encoding="utf-8",
+    )
+    script = ROOT / "scripts" / "property_scene_video_runtime_status.py"
+
+    env = dict(os.environ)
+    env["PROPERTYQUARRY_SCENE_VIDEO_SHARED_ENV_FILE"] = str(shared_env)
+    env["PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_INVENTORY_FILE"] = str(inventory)
+
+    result = subprocess.run(
+        [sys.executable, str(script), "--providers", "magicfit", "--format", "operator"],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Source: live_runtime property_scene_video_readiness_report.build_report" in result.stdout
+    assert "Summary: ready 1/1 | blocked 0 | action_required 0" in result.stdout
+    assert "telegram | ready" in result.stdout
+    assert "magicfit | ready | lane=magicfit | accounts=1/1 | credit=unprobed" in result.stdout

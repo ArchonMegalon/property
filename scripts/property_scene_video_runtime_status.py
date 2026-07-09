@@ -33,6 +33,14 @@ def _load_receipt(path: Path) -> dict[str, Any]:
     return dict(loaded) if isinstance(loaded, dict) else {}
 
 
+def _build_live_report(*, providers: tuple[str, ...], load_shared_env: bool) -> dict[str, Any]:
+    if load_shared_env:
+        from property_scene_video_shared_env import load_shared_env as load_scene_video_shared_env
+
+        load_scene_video_shared_env()
+    return build_report(providers=providers)
+
+
 def _severity_rank(value: object) -> int:
     normalized = str(value or "").strip().lower()
     if normalized == "high":
@@ -98,6 +106,9 @@ def build_runtime_status(
         }
         if account_inventory:
             normalized["expected_account_count"] = account_inventory.get("expected_account_count")
+            normalized["tracked_account_count"] = account_inventory.get("tracked_account_count")
+            normalized["unavailable_account_count"] = account_inventory.get("unavailable_account_count")
+            normalized["availability_reason"] = account_inventory.get("availability_reason")
             normalized["visible_account_gap"] = account_inventory.get("visible_account_gap")
             normalized["account_inventory_status"] = account_inventory.get("status")
         if action:
@@ -181,10 +192,16 @@ def render_operator_status(status: dict[str, Any]) -> str:
         runtime_account_count = row.get("runtime_account_count")
         expected_account_count = row.get("expected_account_count")
         visible_account_gap = row.get("visible_account_gap")
+        tracked_account_count = row.get("tracked_account_count")
+        unavailable_account_count = row.get("unavailable_account_count")
         if expected_account_count not in (None, ""):
             parts.append(f"accounts={runtime_account_count}/{expected_account_count}")
         elif runtime_account_count not in (None, ""):
             parts.append(f"accounts={runtime_account_count}")
+        if tracked_account_count not in (None, "", 0) and tracked_account_count != expected_account_count:
+            parts.append(f"tracked={tracked_account_count}")
+        if unavailable_account_count not in (None, "", 0):
+            parts.append(f"unavailable={unavailable_account_count}")
         if visible_account_gap not in (None, "", 0):
             parts.append(f"gap={visible_account_gap}")
         credit_state = str(row.get("credit_state") or "").strip()
@@ -211,6 +228,19 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Render a compact, operator-safe PropertyQuarry scene-video runtime status view.")
     parser.add_argument("--providers", default=",".join(DEFAULT_PROVIDERS))
     parser.add_argument("--receipt", default="")
+    parser.add_argument(
+        "--load-shared-env",
+        dest="load_shared_env",
+        action="store_true",
+        default=None,
+        help="Load the generated shared scene-video env bridge before probing live runtime readiness.",
+    )
+    parser.add_argument(
+        "--no-load-shared-env",
+        dest="load_shared_env",
+        action="store_false",
+        help="Skip loading the generated shared scene-video env bridge before probing live runtime readiness.",
+    )
     parser.add_argument("--format", choices=("json", "operator"), default="json")
     parser.add_argument("--output", default="")
     args = parser.parse_args()
@@ -221,7 +251,8 @@ def main() -> int:
         source_ref = str(receipt_path)
     else:
         providers = _csv_values(args.providers) or DEFAULT_PROVIDERS
-        report = build_report(providers=providers)
+        load_shared_env = True if args.load_shared_env is None else bool(args.load_shared_env)
+        report = _build_live_report(providers=providers, load_shared_env=load_shared_env)
         source_kind = "live_runtime"
         source_ref = "property_scene_video_readiness_report.build_report"
     status = build_runtime_status(

@@ -226,6 +226,66 @@ def test_scene_video_provider_refresh_notification_prefers_container_runtime_whe
     assert state_payload["message_ids"] == ["5093"]
 
 
+def test_scene_video_provider_refresh_notification_keeps_magicfit_credit_constraint_actionable(tmp_path: Path, monkeypatch) -> None:
+    packet = {
+        "contract_name": "propertyquarry.scene_video_provider_refresh_packet.v1",
+        "generated_at": "2026-07-07T09:30:00Z",
+        "providers": [
+            {
+                "provider": "magicfit",
+                "expected_account_count": 2,
+                "tracked_account_count": 3,
+                "unavailable_account_count": 1,
+                "availability_reason": "one_account_depleted",
+                "runtime_account_count": 2,
+                "visible_account_gap": 0,
+                "credit_state": "constrained",
+                "credit_refresh_required": True,
+                "runtime_blockers": [],
+                "post_refresh_checks": [
+                    "merge provider-only MagicFit account JSON with merge_scene_video_provider_accounts_env.py --magicfit-accounts-json-file <magicfit-accounts.json> --expected-magicfit-count 2 --write-file-env --write"
+                ],
+            }
+        ],
+    }
+    verifier = _verifier()
+    runtime_status = _runtime_status()
+    packet_path = _write_json(tmp_path / "packet.json", packet)
+    verifier_path = _write_json(tmp_path / "verifier.json", verifier)
+    runtime_status_path = _write_json(tmp_path / "runtime.json", runtime_status)
+    state_path = tmp_path / "state.json"
+    sent: dict[str, object] = {}
+
+    class _Receipt:
+        message_ids = ("5094",)
+
+    monkeypatch.setattr(notify_refresh.gold_notify, "build_tool_runtime", lambda: object())
+    monkeypatch.setattr(
+        notify_refresh.gold_notify,
+        "send_telegram_message_for_principal",
+        lambda runtime, **kwargs: sent.update(kwargs) or _Receipt(),
+    )
+
+    report = notify_refresh.build_notification_report(
+        packet=packet,
+        packet_path=packet_path,
+        verifier=verifier,
+        verifier_path=verifier_path,
+        runtime_status=runtime_status,
+        runtime_status_path=runtime_status_path,
+        state_path=state_path,
+        principal_id="cf-email:tibor.girschele@gmail.com",
+        base_url="https://propertyquarry.com",
+        force=False,
+    )
+
+    assert report["sent"] is True
+    assert report["actionable_provider_count"] == 1
+    text = str(sent["text"])
+    assert "Tracked inventory: 3 (1 unavailable)." in text
+    assert "Credit state: constrained." in text
+
+
 def test_scene_video_provider_refresh_notification_dedupes_semantically_identical_receipts(
     tmp_path: Path,
     monkeypatch,

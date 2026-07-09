@@ -13,6 +13,7 @@ required_test_modules:
     - tests/test_fliplink_packet_privacy.py
     - tests/test_fliplink_webhook_contracts.py
   browser:
+    - tests/e2e/test_propertyquarry_flagship_flow.py
     - tests/e2e/test_propertyquarry_public_tour_browser.py
   gate:
     - tests/test_propertyquarry_phase7_exit_gate.py
@@ -31,6 +32,7 @@ required_browser_workflows:
   - name: flythrough_decodes_without_black_frame
     checks:
       - flythrough pane opens in a real browser
+      - mobile flagship flow opens the requested walkthrough and proves decoded video playback
       - video currentTime advances after play
       - decoded frame is not visually black
       - mobile viewport also decodes a visible frame
@@ -40,6 +42,7 @@ required_browser_workflows:
       - queued visual state stays honest and does not invent readiness
       - retryable blocked 3D tour state remains actionable after reload
       - ready 3D tour opens the hosted tour directly with no fake intermediate viewer step
+      - missing walkthrough artifacts keep the generated 3D tour fail-closed instead of opening a fake ready viewer
   - name: dossier_carries_context_beyond_object_facts
     checks:
       - dossier includes family and school route context
@@ -65,6 +68,8 @@ fail_closed_conditions:
   - 3D tour or walkthrough requests can queue without the required style choice
   - retryable visual request state disappears after reload
   - ready hosted tour inserts an extra fake viewer or provider interstitial
+  - generated walkthrough artifacts are missing but the hosted surface still claims a ready 3D tour
+  - hosted-tour proof comes from stale image-baked runtime containers whose /version release manifest does not match the candidate commit
   - dossier remains a thin fact sheet with no neighbourhood or risk context
 exit_criteria:
   - all required test modules pass
@@ -72,7 +77,9 @@ exit_criteria:
   - all persistence assertions pass
   - all required UI affordances are present
   - no fail_closed_conditions are true
+  - all hosted-tour and walkthrough proof comes from rebuilt or restarted runtime containers whose /version release manifest matches the candidate commit
 evidence_artifacts:
+  - browser output proving the mobile flagship search -> shortlist -> research -> map -> walkthrough request path passed and decoded a nonblack walkthrough frame
   - browser output proving hosted tour and walkthrough playback passed
   - browser output proving style-gated 3D request, retry, and direct-open flows passed
   - PDF output proving family, risk, and future-area context is present

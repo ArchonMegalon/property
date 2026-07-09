@@ -135,6 +135,7 @@ from app.product.service import (
     _property_visual_unavailable_detail,
     _property_visual_eta_label,
     _property_visual_progress_pct,
+    _property_visual_ready_tour_url,
     build_product_service,
 )
 from app.services.cloudflare_access import CloudflareAccessIdentity
@@ -208,6 +209,7 @@ _PROPERTY_BILLING_DIRECT_VERIFICATION_CACHE: dict[str, object] = {
     "expires_at": 0.0,
     "future": None,
 }
+_PROPERTYQUARRY_EXAMPLE_SHORTLIST_DIORAMA_VERSION = "20260707d1"
 
 
 def _property_first_paint_timeout_seconds() -> float:
@@ -792,19 +794,40 @@ def _propertyquarry_normalize_public_tour_candidate(candidate: object) -> dict[s
     if not isinstance(candidate, dict):
         return candidate
     candidate_row = dict(candidate)
-    tour_url = _propertyquarry_absolute_public_url(candidate_row.get("tour_url"))
-    verified_tour_url = property_tour_hosting._hosted_property_tour_first_party_open_url(tour_url) if tour_url else ""
     tour_payload = dict(candidate_row.get("tour") or {}) if isinstance(candidate_row.get("tour"), dict) else {}
-    if verified_tour_url:
-        candidate_row["tour_url"] = verified_tour_url
-        tour_payload["url"] = verified_tour_url
+    tour_url = _propertyquarry_absolute_public_url(
+        candidate_row.get("tour_url")
+        or candidate_row.get("verified_tour_url")
+        or tour_payload.get("tour_url")
+        or tour_payload.get("url")
+    )
+    open_tour_url = _propertyquarry_absolute_public_url(
+        candidate_row.get("open_tour_url")
+        or candidate_row.get("verified_tour_url")
+        or tour_payload.get("open_tour_url")
+        or tour_payload.get("embed_url")
+        or tour_payload.get("url")
+    )
+    ready_tour_url = _property_visual_ready_tour_url(
+        tour_url=tour_url,
+        open_tour_url=open_tour_url,
+    )
+    if ready_tour_url:
+        candidate_row["tour_url"] = ready_tour_url
+        candidate_row["verified_tour_url"] = ready_tour_url
+        candidate_row["open_tour_url"] = ready_tour_url
+        tour_payload["url"] = ready_tour_url
         if str(tour_payload.get("embed_url") or "").strip():
-            tour_payload["embed_url"] = verified_tour_url
+            tour_payload["embed_url"] = ready_tour_url
         elif "embed_url" not in tour_payload:
-            tour_payload["embed_url"] = verified_tour_url
+            tour_payload["embed_url"] = ready_tour_url
         candidate_row["tour"] = tour_payload
     elif property_tour_hosting._is_branded_public_tour_url(tour_url):
+        if tour_url and not str(candidate_row.get("generated_reconstruction_url") or "").strip():
+            candidate_row["generated_reconstruction_url"] = tour_url
         candidate_row["tour_url"] = ""
+        candidate_row["verified_tour_url"] = ""
+        candidate_row["open_tour_url"] = ""
         if tour_payload:
             tour_payload["url"] = ""
             if "embed_url" in tour_payload:
@@ -1078,6 +1101,10 @@ def _propertyquarry_prepare_run_payload(
                 if packet_href:
                     normalized_candidate["packet_url"] = packet_href
                     normalized_candidate.setdefault("detail_href", packet_href)
+            if isinstance(normalized_candidate, dict) and not str(normalized_candidate.get("diorama_preview_url") or "").strip():
+                derived_diorama_preview_url = _property_candidate_diorama_preview_image(normalized_candidate)
+                if derived_diorama_preview_url:
+                    normalized_candidate["diorama_preview_url"] = derived_diorama_preview_url
             rows.append(normalized_candidate)
         return rows
 
@@ -1401,7 +1428,11 @@ def _propertyquarry_example_scope_preview(
     fallback_image_path: str,
     image_url: object = "",
 ) -> dict[str, str]:
-    resolved_image = _propertyquarry_public_href(fallback_image_path) or _propertyquarry_public_href(image_url)
+    fallback_href = _propertyquarry_public_href(fallback_image_path)
+    if fallback_href:
+        separator = "&" if "?" in fallback_href else "?"
+        fallback_href = f"{fallback_href}{separator}v={_PROPERTYQUARRY_EXAMPLE_SHORTLIST_DIORAMA_VERSION}"
+    resolved_image = fallback_href or _propertyquarry_public_href(image_url)
     if not resolved_image:
         return {}
     return {
@@ -1673,6 +1704,43 @@ def _propertyquarry_home_property_href(candidate: dict[str, object], *, run_id: 
     if packet_href:
         return packet_href
     return str(candidate.get("property_url") or "").strip() or _propertyquarry_fast_ranked_run_href(run_id)
+
+
+def _property_candidate_diorama_preview_image(candidate: dict[str, object]) -> str:
+    direct_preview = (
+        str(candidate.get("diorama_preview_url") or "").strip()
+        or str(
+            (
+                dict(candidate.get("diorama_scene") or {})
+                if isinstance(candidate.get("diorama_scene"), dict)
+                else {}
+            ).get("image_url")
+            or ""
+        ).strip()
+    )
+    if direct_preview:
+        return direct_preview
+    style_hint = str(candidate.get("diorama_style_hint") or "").strip()
+    for raw_tour_url in (
+        candidate.get("generated_reconstruction_url"),
+        candidate.get("tour_url"),
+        candidate.get("verified_tour_url"),
+        candidate.get("open_tour_url"),
+    ):
+        normalized_tour_url = str(raw_tour_url or "").strip()
+        if not normalized_tour_url or _property_hosted_tour_disabled_fallback(normalized_tour_url):
+            continue
+        for preview_url in (
+            _hosted_property_tour_telegram_preview_image_url_for_style(
+                normalized_tour_url,
+                diorama_style_hint=style_hint,
+            ),
+            property_tour_hosting._hosted_property_tour_preview_image_url(normalized_tour_url),
+        ):
+            resolved = str(preview_url or "").strip()
+            if resolved:
+                return resolved
+    return ""
 
 
 def _propertyquarry_home_result_row(candidate: dict[str, object], *, run_id: str) -> dict[str, object]:
@@ -6415,6 +6483,7 @@ def property_research_packet(
     facts = _property_enriched_candidate_facts(
         candidate=candidate,
         preferences=preferences,
+        force_source_research_for_selected_distances=bool(recent_run_distance_overlay),
     )
     commercial = dict(property_context.get("commercial") or {})
     match_reasons = [
@@ -6464,15 +6533,17 @@ def property_research_packet(
         facts=facts,
         preferences=preferences,
     )
+    selected_distance_copy_scope = "current"
+    if recent_run_distance_overlay:
+        selected_distance_copy_scope = "recent"
+    elif workspace_distance_overlay or search_agent_distance_overlay:
+        selected_distance_copy_scope = "workspace"
     selected_distance_rows, selected_distance_copy = _property_distance_panel_rows(
         facts=facts,
         preferences=preferences,
         single_selected_distance_filter=True,
+        copy_scope=selected_distance_copy_scope,
     )
-    if recent_run_distance_overlay and selected_distance_rows:
-        selected_distance_copy = "Distances for the nearby filters from your latest matching search."
-    elif (workspace_distance_overlay or search_agent_distance_overlay) and selected_distance_rows:
-        selected_distance_copy = "Distances for the nearby filters saved on this workspace."
     risk_fit_rows = _property_packet_risk_fit_rows(
         facts=facts,
         preferences=preferences,
@@ -6684,6 +6755,19 @@ def property_research_packet(
     research_media = _property_tour_media_payload(candidate)
     orientation_preview = _property_candidate_orientation_preview(candidate)
     preview_image = _property_candidate_preview_image(candidate)
+    diorama_preview_image = _property_candidate_diorama_preview_image(candidate)
+    if not diorama_preview_image:
+        generated_reconstruction_href = str(research_media.get("generated_reconstruction_href") or "").strip()
+        if generated_reconstruction_href and not _property_hosted_tour_disabled_fallback(generated_reconstruction_href):
+            diorama_style_hint = str(candidate.get("diorama_style_hint") or "").strip()
+            diorama_preview_image = (
+                _hosted_property_tour_telegram_preview_image_url_for_style(
+                    generated_reconstruction_href,
+                    diorama_style_hint=diorama_style_hint,
+                )
+                or property_tour_hosting._hosted_property_tour_preview_image_url(generated_reconstruction_href)
+            )
+    hero_preview_image = diorama_preview_image or preview_image
     gallery_items = _property_research_gallery_items(
         candidate=candidate,
         facts=facts,
@@ -6716,6 +6800,8 @@ def property_research_packet(
         gallery_items = filtered_gallery_items
     flythrough_url = str(research_media.get("walkthrough_href") or "").strip()
     hosted_tour_ready = bool(research_media.get("hosted_ready"))
+    generated_reconstruction_ready = bool(research_media.get("generated_reconstruction_ready"))
+    generated_reconstruction_action_href = str(research_media.get("generated_reconstruction_href") or "").strip()
     tour_action_href = str(research_media.get("primary_href") or "").strip() if hosted_tour_ready else ""
     tour_status = str(candidate.get("tour_status") or "").strip().lower()
     flythrough_status = str(candidate.get("flythrough_status") or "").strip().lower()
@@ -6795,6 +6881,19 @@ def property_research_packet(
         hero_actions.append({"href": property_url, "label": "Open listing", "external": True})
     if hosted_tour_ready and tour_action_href:
         hero_actions.append({"href": tour_action_href, "label": str(research_media.get("primary_label") or "Open 3D tour").strip(), "external": False})
+    elif generated_reconstruction_ready and generated_reconstruction_action_href:
+        hero_actions.append(
+            {
+                "href": generated_reconstruction_action_href,
+                "label": str(research_media.get("generated_reconstruction_label") or "Open layout tour").strip(),
+                "external": False,
+                "kind": "generated_reconstruction",
+                "status_detail": str(
+                    research_media.get("generated_reconstruction_status_detail")
+                    or "Generated from the floor plan and listing photos."
+                ).strip(),
+            }
+        )
     elif tour_url and not hosted_tour_ready and property_url:
         hero_actions.append({"kind": "tour", "label": "Request 3D tour", "property_url": property_url, "state": "idle", "progress_pct": 0, "eta_label": "", "status_detail": "A real 3D tour is not available yet."})
     elif tour_status in {"queued", "pending"} and property_url:
@@ -6843,6 +6942,12 @@ def property_research_packet(
     visual_status_line = ""
     if hosted_tour_ready and tour_url:
         visual_status_line = str(research_media.get("status_detail") or "3D tour available.").strip()
+    elif generated_reconstruction_ready:
+        visual_status_line = str(
+            research_media.get("generated_reconstruction_status_detail")
+            or research_media.get("status_detail")
+            or "Layout tour is ready."
+        ).strip()
     elif flythrough_url:
         visual_status_line = str(research_media.get("walkthrough_status_detail") or "Walkthrough is ready.").strip()
     elif flythrough_status in {"queued", "pending"}:
@@ -6993,7 +7098,7 @@ def property_research_packet(
         rooms=rooms_summary,
         location=location_summary or display_source_label,
         media=research_media,
-        preview_image=preview_image,
+        preview_image=hero_preview_image,
         gallery_items=gallery_items,
         location_preview=location_preview,
         actions=hero_actions,
@@ -7048,6 +7153,8 @@ def property_research_packet(
                 stats=[{"label": row["label"], "value": row["value"]} for row in overview_rows[:4]],
             ),
             **research_snapshot,
+            "research_hero_preview_image": hero_preview_image,
+            "research_hero_preview_kind": "diorama" if diorama_preview_image else ("photo" if preview_image else ""),
             "research_selected_distance_rows": selected_distance_rows,
             "research_selected_distance_copy": selected_distance_copy,
             "research_route_recovery": research_route_recovery,

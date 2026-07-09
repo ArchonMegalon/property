@@ -7428,7 +7428,7 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
 
     page = client.get(f"/tours/{slug}", headers={"host": "myexternalbrain.com"})
     assert page.status_code == 200
-    assert "Property Tour" in page.text
+    assert "Kahlenberg Tour" in page.text
     assert f"/tours/files/{slug}/scene-01.jpg" in page.text
     assert "ea.example" not in page.text
     assert "https://js.clickrank.ai/seo/33ff8f39-6213-4903-99d7-81048b5b3e1f/script?" not in page.text
@@ -7497,6 +7497,66 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
     assert client.get(f"/tours/files/{slug}/magicfit-still-private.jpg").status_code == 404
 
 
+def test_public_tour_routes_serve_registered_preview_assets(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    slug = "preview-asset-tour"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "scene-01.jpg").write_bytes(b"scene-jpeg-data")
+    (bundle_dir / "diorama-preview.png").write_bytes(b"diorama-preview-data")
+    (bundle_dir / "telegram-preview.png").write_bytes(b"telegram-preview-data")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "title": "Preview Asset Tour",
+                "display_title": "Preview Asset Tour",
+                "scene_count": 1,
+                "variant_key": "layout_first",
+                "variant_label": "layout first",
+                "tour_privacy_mode": "anonymous_public",
+                "diorama_preview_relpath": "diorama-preview.png",
+                "preview_relpath": "diorama-preview.png",
+                "telegram_preview_relpath": "telegram-preview.png",
+                "scenes": [
+                    {
+                        "name": "Living room",
+                        "role": "photo",
+                        "asset_relpath": "scene-01.jpg",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    client = _client(principal_id="exec-public-tour")
+    payload = client.get(f"/tours/{slug}.json")
+    assert payload.status_code == 200
+    body = payload.json()
+    assert body["diorama_preview_url"] == f"/tours/files/{slug}/diorama-preview.png"
+    assert body["preview_url"] == f"/tours/files/{slug}/diorama-preview.png"
+    assert body["telegram_preview_url"] == f"/tours/files/{slug}/telegram-preview.png"
+    public_assets = body["public_assets"]
+    assert {row["path"] for row in public_assets} >= {
+        "scene-01.jpg",
+        "diorama-preview.png",
+        "telegram-preview.png",
+    }
+
+    diorama_asset = client.get(f"/tours/files/{slug}/diorama-preview.png")
+    assert diorama_asset.status_code == 200
+    assert diorama_asset.content == b"diorama-preview-data"
+
+    telegram_asset = client.get(f"/tours/files/{slug}/telegram-preview.png")
+    assert telegram_asset.status_code == 200
+    assert telegram_asset.content == b"telegram-preview-data"
+
+
 def test_generated_reconstruction_bundle_does_not_publish_fake_tour_viewer(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -7521,26 +7581,139 @@ def test_generated_reconstruction_bundle_does_not_publish_fake_tour_viewer(
     )
     (reconstruction_dir / "model.obj").write_text("o room\n", encoding="utf-8")
     (reconstruction_dir / "model.mtl").write_text("newmtl warm_plaster\n", encoding="utf-8")
+    (reconstruction_dir / "generated-walkthrough.mp4").write_bytes(b"fake-mp4-data")
     (reconstruction_dir / "source-floorplan.jpg").write_bytes(b"floorplan-jpeg")
     (reconstruction_dir / "photo-01.jpg").write_bytes(b"photo-one-jpeg")
     (reconstruction_dir / "photo-02.jpg").write_bytes(b"photo-two-jpeg")
+    route_labels = ["living room", "bedroom"]
+    walkable_scene = {
+        "kind": "generated_reconstruction_layout",
+        "rooms": [
+            {
+                "label": "living room",
+                "name": "living room",
+                "position": {"x": 0.0, "y": 0.0, "z": 0.0},
+                "focus": {"x": 0.5, "y": 1.4, "z": 0.5},
+            },
+            {
+                "label": "bedroom",
+                "name": "bedroom",
+                "position": {"x": 1.0, "y": 0.0, "z": 0.0},
+                "focus": {"x": 1.5, "y": 1.4, "z": 0.5},
+            },
+        ],
+        "route": [
+            {
+                "label": "living room",
+                "room": "living room",
+                "focus": {"x": 0.5, "y": 1.4, "z": 0.5},
+                "camera": {"x": -0.5, "y": 1.6, "z": 1.2},
+            },
+            {
+                "label": "bedroom",
+                "room": "bedroom",
+                "focus": {"x": 1.5, "y": 1.4, "z": 0.5},
+                "camera": {"x": 0.5, "y": 1.6, "z": 1.2},
+            },
+        ],
+    }
+    coverage_proof = {
+        "status": "pass",
+        "segments_expected": route_labels,
+        "segments_visited": route_labels,
+        "coverage_segments": [
+            {"index": 1, "segment": "living room", "start": 0.0, "end": 5.0},
+            {"index": 2, "segment": "bedroom", "start": 5.0, "end": 10.0},
+        ],
+    }
+    (reconstruction_dir / "generated-walkthrough.quality.json").write_text(
+        json.dumps(
+            {
+                "route_labels": route_labels,
+                "walkthrough_coverage_proof": coverage_proof,
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (reconstruction_dir / "reconstruction.json").write_text(
+        json.dumps(
+            {
+                "provider": "propertyquarry_generated_reconstruction",
+                "geometry": {"wall_rect_count": 4},
+                "room_dimensions_m": {"width": 5.0, "depth": 4.0, "height": 2.7},
+                "walkable_scene": walkable_scene,
+                "route_labels": route_labels,
+                "walkthrough_route_labels": route_labels,
+                "walkthrough": {"status": "generated", "coverage_proof": coverage_proof},
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
     (bundle_dir / "tour.json").write_text(
         json.dumps(
             {
                 "slug": slug,
                 "display_title": "Generated reconstruction assets",
+                "principal_id": "exec-generated-reconstruction-private",
+                "listing_url": "https://private.example.test/listing/generated",
+                "property_url": "https://private.example.test/property/generated",
+                "source_ref": "willhaben:private-generated-reconstruction",
+                "external_id": "private-generated-external-id",
+                "recipient_email": "owner-private@example.test",
+                "facts": {
+                    "rooms": 3,
+                    "postal_name": "1190 Wien",
+                    "exact_address": "Private Generated Street 9, 1190 Wien",
+                    "address_lines": ["Private Generated Street 9", "1190 Wien"],
+                    "map_lat": 48.2491,
+                    "map_lng": 16.3567,
+                },
                 "generated_reconstruction": {
                     "provider": "propertyquarry_generated_reconstruction",
+                    "viewer_version": "propertyquarry_3d_tour_viewer_v3",
                     "viewer_relpath": "generated-reconstruction/viewer.html",
                     "model_relpath": "generated-reconstruction/model.obj",
                     "material_relpath": "generated-reconstruction/model.mtl",
+                    "manifest_relpath": "generated-reconstruction/reconstruction.json",
+                    "walkthrough_video_relpath": "generated-reconstruction/generated-walkthrough.mp4",
+                    "walkthrough_sidecar_relpath": "generated-reconstruction/generated-walkthrough.quality.json",
                     "floorplan_relpath": "generated-reconstruction/source-floorplan.jpg",
                     "photo_relpaths": [
                         "generated-reconstruction/photo-01.jpg",
                         "generated-reconstruction/photo-02.jpg",
                     ],
+                    "route_labels": route_labels,
+                    "room_stop_count": len(route_labels),
+                    "walkthrough_route_labels": route_labels,
+                    "walkthrough_stop_count": len(route_labels),
+                    "walkable_scene": walkable_scene,
+                    "walkthrough_coverage_proof": coverage_proof,
                     "verified_provider_capture": False,
                 },
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (bundle_dir / "tour.private.json").write_text(
+        json.dumps(
+            {
+                "principal_id": "exec-generated-reconstruction-private",
+                "recipient_email": "owner-private@example.test",
+                "source_ref": "willhaben:private-generated-reconstruction",
+                "external_id": "private-generated-external-id",
+                "listing_url": "https://private.example.test/listing/generated",
+                "property_url": "https://private.example.test/property/generated",
+                "facts": {"exact_address": "Private Receipt Generated Street 11, 1190 Wien"},
+                "public_assets": [
+                    {
+                        "path": "generated-reconstruction/private-source.jpg",
+                        "role": "photo",
+                        "privacy_class": "generated_reconstruction_public",
+                    }
+                ],
             },
             ensure_ascii=False,
         ),
@@ -7551,20 +7724,67 @@ def test_generated_reconstruction_bundle_does_not_publish_fake_tour_viewer(
 
     payload = client.get(f"/tours/{slug}.json")
     assert payload.status_code == 200
-    public_assets = payload.json()["public_assets"]
+    payload_body = payload.json()
+    public_assets = payload_body["public_assets"]
     assert {row["path"] for row in public_assets} == {
+        "generated-reconstruction/viewer.html",
+        "generated-reconstruction/generated-walkthrough.mp4",
         "generated-reconstruction/source-floorplan.jpg",
         "generated-reconstruction/photo-01.jpg",
         "generated-reconstruction/photo-02.jpg",
     }
+    serialized_payload = json.dumps(payload_body, sort_keys=True)
+    assert payload_body["facts"]["rooms"] == 3
+    assert payload_body["facts"]["postal_name"] == "1190 Wien"
+    for private_marker in (
+        "principal_id",
+        "exec-generated-reconstruction-private",
+        "owner-private@example.test",
+        "willhaben:private-generated-reconstruction",
+        "private-generated-external-id",
+        "private.example.test",
+        "listing_url",
+        "property_url",
+        "exact_address",
+        "address_lines",
+        "map_lat",
+        "map_lng",
+        "Private Generated Street",
+        "Private Receipt Generated Street",
+        "private-source",
+    ):
+        assert private_marker not in serialized_payload
 
     viewer = client.get(f"/tours/files/{slug}/generated-reconstruction/viewer.html", follow_redirects=False)
-    assert viewer.status_code == 302
-    assert viewer.headers["location"] == f"/tours/{slug}"
-    viewer_shell = client.get(f"/tours/files/{slug}/generated-reconstruction/viewer.html")
-    assert viewer_shell.status_code == 404
-    assert "This old link no longer opens as a 3D tour." in viewer_shell.text
-    assert "generated-reconstruction/viewer.html" not in viewer_shell.text
+    assert viewer.status_code == 200
+    assert viewer.headers["x-propertyquarry-tour-asset-kind"] == "generated-reconstruction-viewer"
+    assert viewer.headers["x-propertyquarry-asset-privacy"] == "generated_reconstruction_public"
+    assert "source-floorplan.jpg" in viewer.text
+    assert "photo-01.jpg" in viewer.text
+    for private_marker in (
+        "owner-private@example.test",
+        "willhaben:private-generated-reconstruction",
+        "private-generated-external-id",
+        "private.example.test",
+        "Private Generated Street",
+        "Private Receipt Generated Street",
+    ):
+        assert private_marker not in viewer.text
+
+    viewer_shell = client.get(f"/tours/{slug}")
+    assert viewer_shell.status_code == 200
+    assert "PropertyQuarry layout tour" in viewer_shell.text
+    assert "Generated reconstruction" in viewer_shell.text
+    assert "Room route" in viewer_shell.text
+    for private_marker in (
+        "owner-private@example.test",
+        "willhaben:private-generated-reconstruction",
+        "private-generated-external-id",
+        "private.example.test",
+        "Private Generated Street",
+        "Private Receipt Generated Street",
+    ):
+        assert private_marker not in viewer_shell.text
 
     assert client.get(f"/tours/files/{slug}/generated-reconstruction/model.obj").status_code == 410
     assert client.get(f"/tours/files/{slug}/generated-reconstruction/model.mtl").status_code == 410
@@ -7583,6 +7803,9 @@ def test_generated_reconstruction_bundle_does_not_publish_fake_tour_viewer(
     assert photo_two.status_code == 200
     assert photo_two.content == b"photo-two-jpeg"
     assert photo_two.headers["x-propertyquarry-asset-privacy"] == "generated_reconstruction_public"
+    assert client.get(f"/tours/files/{slug}/tour.json").status_code == 404
+    assert client.get(f"/tours/files/{slug}/tour.private.json").status_code == 404
+    assert client.get(f"/tours/files/{slug}/generated-reconstruction/private-source.jpg").status_code == 404
 
 
 def test_generated_reconstruction_viewer_redirects_directly_to_real_tour_control(
@@ -7621,7 +7844,94 @@ def test_generated_reconstruction_viewer_redirects_directly_to_real_tour_control
     assert viewer.headers["location"] == f"/tours/{slug}/control/matterport"
 
 
-def test_public_tour_page_rejects_generated_reconstruction_only_bundle(
+def _write_shell_ready_generated_reconstruction_fixture(bundle_dir: Path) -> dict[str, object]:
+    reconstruction_dir = bundle_dir / "generated-reconstruction"
+    reconstruction_dir.mkdir(parents=True)
+    (reconstruction_dir / "viewer.html").write_text("<!doctype html><html><body>viewer</body></html>", encoding="utf-8")
+    (reconstruction_dir / "generated-walkthrough.mp4").write_bytes(b"fake-mp4")
+    (reconstruction_dir / "generated-walkthrough.quality.json").write_text(
+        json.dumps(
+            {
+                "walkthrough_coverage_proof": {
+                    "status": "pass",
+                    "segments_expected": ["entry/hall", "living room", "bedroom"],
+                    "segments_visited": ["entry/hall", "living room", "bedroom"],
+                }
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    (reconstruction_dir / "source-floorplan.jpg").write_bytes(b"floorplan")
+    (reconstruction_dir / "photo-01.jpg").write_bytes(b"photo-1")
+    (reconstruction_dir / "photo-02.jpg").write_bytes(b"photo-2")
+    route_labels = ["entry/hall", "living room", "bedroom"]
+    walkable_scene = {
+        "kind": "generated_reconstruction_layout",
+        "rooms": [
+            {
+                "label": label,
+                "name": label,
+                "position": {"x": float(index), "y": 0.0, "z": 0.0},
+                "focus": {"x": float(index) + 0.4, "y": 1.4, "z": 0.5},
+            }
+            for index, label in enumerate(route_labels)
+        ],
+        "route": [
+            {
+                "label": label,
+                "room": label,
+                "focus": {"x": float(index) + 0.4, "y": 1.4, "z": 0.5},
+                "camera": {"x": float(index) - 0.4, "y": 1.6, "z": 1.1},
+            }
+            for index, label in enumerate(route_labels)
+        ],
+    }
+    coverage_proof = {
+        "status": "pass",
+        "segments_expected": route_labels,
+        "segments_visited": route_labels,
+        "coverage_segments": [
+            {"index": index + 1, "segment": label, "start": float(index * 5), "end": float((index + 1) * 5)}
+            for index, label in enumerate(route_labels)
+        ],
+    }
+    (reconstruction_dir / "reconstruction.json").write_text(
+        json.dumps(
+            {
+                "provider": "propertyquarry_generated_reconstruction",
+                "geometry": {"wall_rect_count": 4},
+                "room_dimensions_m": {"width": 6.0, "depth": 5.0, "height": 2.7},
+                "walkable_scene": walkable_scene,
+                "walkthrough": {"status": "generated", "coverage_proof": coverage_proof},
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    return {
+        "provider": "propertyquarry_generated_reconstruction",
+        "viewer_version": "propertyquarry_3d_tour_viewer_v3",
+        "viewer_relpath": "generated-reconstruction/viewer.html",
+        "manifest_relpath": "generated-reconstruction/reconstruction.json",
+        "walkthrough_video_relpath": "generated-reconstruction/generated-walkthrough.mp4",
+        "walkthrough_sidecar_relpath": "generated-reconstruction/generated-walkthrough.quality.json",
+        "floorplan_relpath": "generated-reconstruction/source-floorplan.jpg",
+        "photo_relpaths": [
+            "generated-reconstruction/photo-01.jpg",
+            "generated-reconstruction/photo-02.jpg",
+        ],
+        "route_labels": route_labels,
+        "room_stop_count": len(route_labels),
+        "walkthrough_route_labels": route_labels,
+        "walkthrough_stop_count": len(route_labels),
+        "walkable_scene": walkable_scene,
+        "walkthrough_coverage_proof": coverage_proof,
+        "verified_provider_capture": False,
+    }
+
+
+def test_public_tour_page_rejects_generated_reconstruction_launch_shell(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -7629,20 +7939,13 @@ def test_public_tour_page_rejects_generated_reconstruction_only_bundle(
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     slug = "generated-reconstruction-launch"
     bundle_dir = tmp_path / slug
-    reconstruction_dir = bundle_dir / "generated-reconstruction"
-    reconstruction_dir.mkdir(parents=True)
-    (reconstruction_dir / "viewer.html").write_text("<!doctype html><html><body>viewer</body></html>", encoding="utf-8")
+    generated_reconstruction = _write_shell_ready_generated_reconstruction_fixture(bundle_dir)
     (bundle_dir / "tour.json").write_text(
         json.dumps(
             {
                 "slug": slug,
                 "display_title": "Generated reconstruction launch",
-                "generated_reconstruction": {
-                    "provider": "propertyquarry_generated_reconstruction",
-                    "viewer_version": "propertyquarry_3d_tour_viewer_v3",
-                    "viewer_relpath": "generated-reconstruction/viewer.html",
-                    "verified_provider_capture": False,
-                },
+                "generated_reconstruction": generated_reconstruction,
             },
             ensure_ascii=False,
         ),
@@ -7653,9 +7956,51 @@ def test_public_tour_page_rejects_generated_reconstruction_only_bundle(
 
     response = client.get(f"/tours/{slug}", follow_redirects=False)
 
-    assert response.status_code == 404
-    assert "This old link no longer opens as a 3D tour." in response.text
-    assert "generated-reconstruction/viewer.html" not in response.text
+    assert response.status_code == 200
+    assert "PropertyQuarry layout tour" in response.text
+    assert "Generated reconstruction" in response.text
+    assert f"/tours/files/{slug}/generated-reconstruction/viewer.html" in response.text
+    layout_preview = client.get(f"/tours/{slug}/layout-preview", follow_redirects=False)
+    assert layout_preview.status_code == 200
+    assert "PropertyQuarry layout preview" in layout_preview.text
+
+
+def test_public_tour_page_rejects_generated_reconstruction_walkthrough_on_autoplay(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    slug = "generated-reconstruction-walkthrough-launch"
+    bundle_dir = tmp_path / slug
+    generated_reconstruction = _write_shell_ready_generated_reconstruction_fixture(bundle_dir)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "display_title": "Generated reconstruction walkthrough launch",
+                "generated_reconstruction": generated_reconstruction,
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    client = _client(principal_id="exec-generated-reconstruction-walkthrough-launch")
+
+    response = client.get(f"/tours/{slug}?autoplay=1", follow_redirects=False)
+
+    assert response.status_code == 200
+    assert "<video id=\"tour-video\"" in response.text
+    assert "PropertyQuarry layout tour" in response.text
+    assert 'id="walkthrough-progress-track"' in response.text
+    assert 'id="walkthrough-progress-fill"' in response.text
+    assert 'id="route-prev"' in response.text
+    assert 'id="route-next"' in response.text
+    assert 'id="reference-focus-kind"' in response.text
+    walkthrough = client.get(f"/tours/{slug}/walkthrough", follow_redirects=False)
+    assert walkthrough.status_code == 200
+    assert walkthrough.headers["content-type"].startswith("video/mp4")
 
 
 def test_public_tour_json_never_exposes_listing_or_source_urls(

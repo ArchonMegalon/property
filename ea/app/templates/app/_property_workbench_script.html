@@ -1447,7 +1447,12 @@
           payload?.open_tour_url,
         );
         const rawFlythroughState = String(payload?.flythrough_status || payload?.status || '').trim().toLowerCase();
-        const state = String(resolvedUrl ? 'ready' : rawFlythroughState || 'pending').trim().toLowerCase();
+        const malformedReadyState = rawFlythroughState === 'ready' && !resolvedUrl;
+        const state = String(
+          resolvedUrl
+            ? 'ready'
+            : (malformedReadyState ? 'blocked' : rawFlythroughState || 'pending')
+        ).trim().toLowerCase();
         const retryableTerminal = visualTerminalStates.includes(state) && !resolvedUrl;
         return {
           state,
@@ -1461,10 +1466,10 @@
                 )
           ).trim(),
           url: resolvedUrl,
-          detail: String(payload?.status_detail || '').trim(),
-          eta: String(payload?.eta_label || '').trim(),
-          progress: Number(payload?.progress_pct || 0) || 0,
-          pollSeconds: Number(payload?.poll_after_seconds || 0) || 0,
+          detail: malformedReadyState ? 'Walkthrough is not available yet.' : String(payload?.status_detail || '').trim(),
+          eta: malformedReadyState ? '' : String(payload?.eta_label || '').trim(),
+          progress: malformedReadyState ? 0 : (Number(payload?.progress_pct || 0) || 0),
+          pollSeconds: malformedReadyState ? 0 : (Number(payload?.poll_after_seconds || 0) || 0),
         };
       }
       const resolvedTourUrl = directHostedTourUrl(
@@ -1474,7 +1479,12 @@
         payload?.vendor_tour_url,
       );
       const rawTourState = String(payload?.tour_status || payload?.status || '').trim().toLowerCase();
-      const state = String(resolvedTourUrl ? 'ready' : rawTourState || 'pending').trim().toLowerCase();
+      const malformedReadyState = rawTourState === 'ready' && !resolvedTourUrl;
+      const state = String(
+        resolvedTourUrl
+          ? 'ready'
+          : (malformedReadyState ? 'blocked' : rawTourState || 'pending')
+      ).trim().toLowerCase();
       const retryableTerminal = visualTerminalStates.includes(state) && !resolvedTourUrl;
       return {
         state,
@@ -1488,10 +1498,10 @@
               )
         ).trim(),
         url: resolvedTourUrl,
-        detail: String(payload?.status_detail || '').trim(),
-        eta: String(payload?.eta_label || '').trim(),
-        progress: Number(payload?.progress_pct || 0) || 0,
-        pollSeconds: Number(payload?.poll_after_seconds || 0) || 0,
+        detail: malformedReadyState ? 'A real 3D tour is not available yet.' : String(payload?.status_detail || '').trim(),
+        eta: malformedReadyState ? '' : String(payload?.eta_label || '').trim(),
+        progress: malformedReadyState ? 0 : (Number(payload?.progress_pct || 0) || 0),
+        pollSeconds: malformedReadyState ? 0 : (Number(payload?.poll_after_seconds || 0) || 0),
       };
     };
     const syncVisualButtonState = (button, state) => {
@@ -1774,7 +1784,7 @@
             keepButtonDisabled = true;
             button.classList.add('is-processing');
             button.setAttribute('aria-disabled', 'true');
-            updateVisualButtonFromStatus(button, { firstPollDelaySeconds: requestKind === 'tour' ? 0.2 : 0 });
+            updateVisualButtonFromStatus(button, { firstPollDelaySeconds: 1 });
           }
         }
         if (selectedFeedbackCandidateRef === String(candidate.candidate_ref || '').trim()) {
@@ -1906,7 +1916,7 @@
       const candidateMatch = text.match(/^(Reviewing(?: candidate)?|Scoring enriched candidate|Ranked|Scored)\s+(\d+)\s+(?:of)\s+(\d+)/i);
       if (candidateMatch) {
         const verb = String(candidateMatch[1] || '').trim().toLowerCase();
-        const phaseLabel = verb.startsWith('review') ? 'Checking homes' : (verb.startsWith('scor') ? 'Scoring homes' : 'Updating shortlist');
+        const phaseLabel = verb.startsWith('review') ? 'Property fit' : (verb.startsWith('scor') ? 'Ranking' : 'Shortlist');
         return {
           raw: text,
           fraction: `${candidateMatch[2]} / ${candidateMatch[3]}`,
@@ -2428,7 +2438,7 @@
       const providerTotal = Math.max(0, Number(providerDisplayTotal || summary.provider_display_total || summary.provider_total || 0));
       if (sourceVariantTotal > 0 && providerTotal > 0 && sourceVariantTotal > providerTotal) return 'checks';
       if (Number(total || 0) > 0 && providerTotal > 0 && Number(total || 0) > providerTotal) return 'checks';
-      return 'providers';
+      return 'sources';
     };
     const runSourceWorkLabel = (counts, providerDisplayTotal = 0, summary = {}) => {
       const countTotal = Math.max(0, Number(counts?.total || 0));
@@ -2437,7 +2447,7 @@
         const done = Math.min(total, Math.max(0, Number(counts?.done || 0)));
         return `${done} / ${total} ${runSourceUnitLabel(summary, total, providerDisplayTotal)}`;
       }
-      if (total > 0) return `${total} providers selected`;
+      if (total > 0) return `${total} sources selected`;
       return 'Preparing search';
     };
     const runSourceWorkLeftLabel = (counts, providerDisplayTotal = 0, summary = {}) => {
@@ -2547,7 +2557,7 @@
 	      const checkedLabel = runListingQueueMessage(found, toReview);
       const scanLabel = found > 0
         ? (sourceWork.open > 0 ? runFoundQueueMessage(found, toReview, sourceWork, providerDisplayTotal, summary) : checkedLabel)
-        : (providerDisplayTotal ? `${providerDisplayTotal} providers selected` : checkedLabel);
+        : (providerDisplayTotal ? `${providerDisplayTotal} sources selected` : checkedLabel);
       const noPlan = Number(summary.filtered_floorplan_total || 0);
       const currentStep = String(runPayload?.current_step || '').trim().toLowerCase();
       const packetPrepared = Number(summary.review_created_total || 0) + Number(summary.review_existing_total || 0);
@@ -2560,30 +2570,38 @@
       }
       return `${scanLabel}${noPlan > 0 ? ` · ${noPlan} floorplans pending` : ''}`;
     };
-    const renderRunEvents = (events) => {
-      const rawRows = Array.isArray(events) ? [...events] : [];
-      const labelRunEvent = (event) => {
-        const step = String(event?.step || '').trim().toLowerCase();
-        if (['queued', 'starting', 'sources_resolved', 'source_catalog_loading', 'source_started'].includes(step)) {
+	    const renderRunEvents = (events) => {
+	      const rawRows = Array.isArray(events) ? [...events] : [];
+	      const labelRunEvent = (event) => {
+	        const step = String(event?.step || '').trim().toLowerCase();
+	        if (['queued', 'starting', 'sources_resolved', 'source_catalog_loading', 'source_started'].includes(step)) {
           return 'Preparing';
         }
         if (['source_search', 'provider_search', 'search'].includes(step)) {
-          return 'Providers';
+          return 'Sources';
         }
-        if (['source_detail_check', 'listing_detail_check', 'source_fetch', 'source_fetch_page'].includes(step)) {
-          return 'Details';
-        }
-        if (['source_fetching', 'source_extracting', 'source_preview_prepare', 'source_previewing', 'source_rank_prep'].includes(step)) {
-          return 'Checks';
-        }
-        if (['source_shortlist', 'source_ranking', 'source_assessing', 'source_low_fit_ranked', 'source_discovery_penalty'].includes(step)) return 'Reviewing';
-        if (step === 'shortlist_ready') return 'Shortlist';
-        if (['source_review_packet', 'source_review_packet_failed'].includes(step)) return 'Property page';
-        if (['source_area_filter', 'source_location_filter', 'source_floorplan_filter', 'source_type_filter', 'source_listing_mode_filter', 'source_availability_filter', 'source_generic_page_filter'].includes(step)) return 'Search rules';
-        if (['source_completed', 'completed'].includes(step)) return 'Done';
-        if (step === 'source_notify') return 'Sending';
-        if (step.startsWith('repair') || ['source_repair_reuse', 'source_failed'].includes(step)) return 'Checking again';
-        return 'Update';
+	        if (['source_detail_check', 'listing_detail_check', 'source_fetch', 'source_fetch_page'].includes(step)) {
+	          return 'Details';
+	        }
+	        if (['source_fetching', 'source_extracting', 'source_preview_prepare', 'source_previewing', 'source_rank_prep'].includes(step)) {
+	          return 'Checks';
+	        }
+	        if (step === 'source_shortlist') return 'Shortlist';
+	        if (step === 'source_assessing') return 'Property fit';
+	        if (step === 'source_ranking') return 'Ranking';
+	        if (['source_low_fit_ranked', 'source_discovery_penalty'].includes(step)) return 'Tradeoffs';
+	        if (step === 'shortlist_ready') return 'Shortlist';
+	        if (['source_review_packet', 'source_review_packet_failed'].includes(step)) return 'Property page';
+	        if (['source_area_filter', 'source_location_filter'].includes(step)) return 'Location filter';
+	        if (step === 'source_floorplan_filter') return 'Layout filter';
+	        if (step === 'source_type_filter') return 'Property type';
+	        if (step === 'source_listing_mode_filter') return 'Listing mode';
+	        if (step === 'source_availability_filter') return 'Move-in window';
+	        if (step === 'source_generic_page_filter') return 'Page quality';
+	        if (['source_completed', 'completed'].includes(step)) return 'Done';
+	        if (step === 'source_notify') return 'Sending';
+	        if (step.startsWith('repair') || ['source_repair_reuse', 'source_failed'].includes(step)) return 'Checking again';
+	        return 'Update';
       };
       const isUsefulRunEvent = (event) => {
         const step = String(event?.step || '').trim().toLowerCase();
@@ -2596,16 +2614,14 @@
           && !message.includes('starting property search run')
         );
       };
-      const hasRealEvents = rawRows.some(isUsefulRunEvent);
-      const rows = rawRows.filter(isUsefulRunEvent).reverse().slice(0, 10);
-	      return rows.map((event) => {
-	        const label = labelRunEvent(event);
-	        const message = ['Reviewing', 'Search rules'].includes(label)
-	          ? `${label}.`
-	          : compactRunMessage(event?.message || 'Search is still running.');
-	        return `<div class="pqx-event-card"><strong>${escapeHtml(label)}</strong><span class="pqx-note">${escapeHtml(message)}</span></div>`;
-	      }).join('') || '<div class="pqx-empty">Waiting for the next useful update.</div>';
-    };
+	      const hasRealEvents = rawRows.some(isUsefulRunEvent);
+	      const rows = rawRows.filter(isUsefulRunEvent).reverse().slice(0, 10);
+		      return rows.map((event) => {
+		        const label = labelRunEvent(event);
+		        const message = compactRunMessage(event?.message || 'Search is still running.');
+		        return `<div class="pqx-event-card"><strong>${escapeHtml(label)}</strong><span class="pqx-note">${escapeHtml(message)}</span></div>`;
+		      }).join('') || '<div class="pqx-empty">Waiting for the next useful update.</div>';
+	    };
     const displayRunMessage = (runPayload) => {
       const raw = compactRunMessage(runPayload?.message || '');
       const lowered = raw.toLowerCase();
@@ -2835,107 +2851,11 @@
       }
       return `about ${rounded} min`;
     };
-    const routePreviewPath = (originLat, originLng, targetLat, targetLng) => {
-      const parse = (value) => {
-        const number = Number(value);
-        return Number.isFinite(number) ? number : null;
-      };
-      const oLat = parse(originLat);
-      const oLng = parse(originLng);
-      const tLat = parse(targetLat);
-      const tLng = parse(targetLng);
-      let endY = 18;
-      let control1X = 42;
-      let control1Y = 48;
-      let control2X = 96;
-      let control2Y = 24;
-      if (oLat !== null && oLng !== null && tLat !== null && tLng !== null) {
-        const latDelta = Math.max(-1, Math.min(1, tLat - oLat));
-        const lngDelta = Math.max(-1, Math.min(1, tLng - oLng));
-        endY = Math.max(12, Math.min(60, 38 - latDelta * 18));
-        control1X = Math.max(30, Math.min(58, 42 + lngDelta * 12));
-        control1Y = Math.max(10, Math.min(60, 52 - latDelta * 10));
-        control2X = Math.max(82, Math.min(110, 96 + lngDelta * 12));
-        control2Y = Math.max(10, Math.min(60, 24 - latDelta * 8));
-      }
-      return `M 12 56 C ${control1X.toFixed(1)} ${control1Y.toFixed(1)}, ${control2X.toFixed(1)} ${control2Y.toFixed(1)}, 132 ${endY.toFixed(1)}`;
-    };
     const propertyRoutePreviews = (runPayload) => {
       const direct = Array.isArray(runPayload?.route_previews)
         ? runPayload.route_previews
         : (Array.isArray(runPayload?.summary?.route_previews) ? runPayload.summary.route_previews : []);
-      if (direct.length) return direct;
-      const ranked = rankedCandidatesFromRunPayload(runPayload);
-      const candidate = ranked[0];
-      if (!candidate || typeof candidate !== 'object') return [];
-      const facts = {
-        ...(candidate.property_facts && typeof candidate.property_facts === 'object' ? candidate.property_facts : {}),
-        ...(candidate.property_facts_json && typeof candidate.property_facts_json === 'object' ? candidate.property_facts_json : {}),
-      };
-      if (facts.listing_research_snapshot && typeof facts.listing_research_snapshot === 'object') {
-        Object.assign(facts, facts.listing_research_snapshot);
-      }
-      const originLat = facts.map_lat ?? facts.lat ?? facts.latitude;
-      const originLng = facts.map_lng ?? facts.lng ?? facts.lon ?? facts.longitude;
-      const originQuery = [facts.exact_address, facts.street_address || facts.address, facts.postal_name].filter(Boolean).join(', ');
-      const previews = [];
-      if (briefPreferences.enable_commute_research && String(briefPreferences.commute_destination || '').trim()) {
-        const commuteDestination = String(briefPreferences.commute_destination || '').trim();
-        const commuteModes = [
-          ['transit', 'Transit', Number(briefPreferences.max_commute_minutes_transit || 0)],
-          ['driving', 'Car', Number(briefPreferences.max_commute_minutes_drive || 0)],
-          ['bicycling', 'Bike', Number(briefPreferences.max_commute_minutes_bike || 0)],
-          ['walking', 'Foot', Number(briefPreferences.max_commute_minutes_walk || 0)],
-        ];
-        const selectedMode = commuteModes.find((entry) => entry[2] > 0) || commuteModes[0];
-        const [modeKey, modeLabel, minutes] = selectedMode;
-        const origin = (originLat !== undefined && originLng !== undefined && originLat !== null && originLng !== null)
-          ? `${originLat},${originLng}`
-          : originQuery;
-        previews.push({
-          label: 'Your route',
-          title: commuteDestination,
-          detail: minutes > 0 ? `${modeLabel} <= ${minutes} min` : `${modeLabel} route from the property`,
-          mode_label: modeLabel,
-          map_url: origin
-            ? `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(origin)}&destination=${encodeURIComponent(commuteDestination)}&travelmode=${encodeURIComponent(modeKey)}`
-            : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(commuteDestination)}&travelmode=${encodeURIComponent(modeKey)}`,
-          preview_path: routePreviewPath(originLat, originLng),
-        });
-      }
-      const familyEvidenceEnabled = Boolean(
-        briefPreferences.enable_family_mode
-        || (Array.isArray(briefPreferences.school_stage_preferences) && briefPreferences.school_stage_preferences.length)
-        || briefPreferences.require_school_evidence
-        || briefPreferences.max_distance_to_playground_m
-        || briefPreferences.max_distance_to_library_m
-        || briefPreferences.max_distance_to_public_pool_m
-        || briefPreferences.max_distance_to_medical_care_m
-      );
-      const specs = [
-        ['School', 'nearest_school_m', 'nearest_school_name', 'nearest_school_lat', 'nearest_school_lng', 'Transit', familyEvidenceEnabled],
-        ['Supermarket', 'nearest_supermarket_m', 'nearest_supermarket_name', 'nearest_supermarket_lat', 'nearest_supermarket_lng', 'Walk', true],
-        ['Playground', 'nearest_playground_m', 'nearest_playground_name', 'nearest_playground_lat', 'nearest_playground_lng', 'Walk', familyEvidenceEnabled],
-        ['Pharmacy', 'nearest_pharmacy_m', 'nearest_pharmacy_name', 'nearest_pharmacy_lat', 'nearest_pharmacy_lng', 'Walk', true],
-        ['Underground', 'nearest_subway_m', 'nearest_subway_name', 'nearest_subway_lat', 'nearest_subway_lng', 'Transit', true],
-      ];
-      specs.forEach(([label, distanceKey, nameKey, latKey, lngKey, modeLabel, enabled]) => {
-        if (previews.length >= 3) return;
-        if (!enabled) return;
-        const distance = Number(facts[distanceKey] || 0);
-        if (!Number.isFinite(distance) || distance <= 0) return;
-        const rawName = String(facts[nameKey] || '').trim();
-        const placeName = rawName || `Nearest ${String(label || 'place').toLowerCase()}`;
-        previews.push({
-          label,
-          title: placeName,
-          detail: `${Math.round(distance)} m from the property`,
-          mode_label: modeLabel,
-          map_url: String(((Array.isArray(candidate.route_evidence) ? candidate.route_evidence : []).find((row) => String(row?.label || '') === label)?.map_url) || candidate.map_url || '').trim(),
-          preview_path: routePreviewPath(originLat, originLng, facts[latKey], facts[lngKey]),
-        });
-      });
-      return previews.slice(0, 3);
+      return direct.slice(0, 3);
     };
     const routePreviewText = (value, fallback = '') => {
       const raw = String(value || '').trim();
@@ -2955,21 +2875,124 @@
         return '';
       }
     };
+    const routePreviewImageUrl = (route) => String(route?.preview_image_url || '').trim();
+    const routePreviewImageAlt = (route) => String(route?.preview_alt || route?.title || 'Route preview').trim();
+    const currentPropertyCardPayload = (runPayload) => {
+      const direct = runPayload?.current_property && typeof runPayload.current_property === 'object'
+        ? runPayload.current_property
+        : (runPayload?.summary?.current_property && typeof runPayload.summary.current_property === 'object'
+          ? runPayload.summary.current_property
+          : null);
+      if (direct && (direct.title || direct.status_detail || direct.orientation_preview || direct.preview_image_url)) {
+        return direct;
+      }
+      const ranked = rankedCandidatesFromRunPayload(runPayload);
+      const candidate = ranked[0];
+      if (!candidate || typeof candidate !== 'object') return null;
+      const facts = {
+        ...(candidate.property_facts && typeof candidate.property_facts === 'object' ? candidate.property_facts : {}),
+        ...(candidate.property_facts_json && typeof candidate.property_facts_json === 'object' ? candidate.property_facts_json : {}),
+      };
+      if (facts.listing_research_snapshot && typeof facts.listing_research_snapshot === 'object') {
+        Object.assign(facts, facts.listing_research_snapshot);
+      }
+      const locationLabel = [
+        facts.postal_name,
+        facts.district,
+        facts.city,
+        facts.exact_address,
+        facts.street_address || facts.address,
+      ].map((value) => String(value || '').trim()).find(Boolean) || '';
+      const areaValue = facts.area_m2 ?? facts.area_sqm;
+      const roomsValue = facts.rooms;
+      const layoutDisplay = String(
+        candidate.layout_display
+        || [
+          String(roomsValue || '').trim() ? `${roomsValue} rooms` : '',
+          String(areaValue || '').trim() ? `${areaValue} m2` : '',
+        ].filter(Boolean).join(' | ')
+      ).trim();
+      const priceDisplay = String(candidate.price_display || facts.price_display || facts.rent_display || '').trim();
+      const orientationPreview = candidate.orientation_preview && typeof candidate.orientation_preview === 'object'
+        ? candidate.orientation_preview
+        : {};
+      const mapQuery = [facts.exact_address, facts.street_address || facts.address, facts.postal_name, candidate.title].filter(Boolean).join(', ');
+      const mapUrl = String(candidate.map_url || orientationPreview.map_url || '').trim()
+        || (mapQuery ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapQuery)}` : '');
+      return {
+        status_label: Array.isArray(runPayload?.summary?.ranked_candidates) && runPayload.summary.ranked_candidates.length
+          ? 'Best so far'
+          : 'Current property',
+        status_detail: String(candidate.compare_reason || candidate.fit_summary || candidate.summary || locationLabel || layoutDisplay || priceDisplay).trim(),
+        title: String(candidate.title || candidate.property_url || 'Property').trim() || 'Property',
+        source_label: compactProviderLabel(candidate.source_label || candidate.source_platform || ''),
+        location_label: locationLabel,
+        price_display: priceDisplay,
+        layout_display: layoutDisplay,
+        map_url: mapUrl,
+        preview_image_url: String(candidate.preview_image_url || '').trim(),
+        orientation_preview: orientationPreview,
+      };
+    };
+    const currentPropertyImageUrl = (property) => String(
+      property?.orientation_preview?.thumb_image_url
+      || property?.orientation_preview?.image_url
+      || property?.preview_image_url
+      || ''
+    ).trim();
+    const currentPropertyImageAlt = (property) => String(
+      property?.orientation_preview?.alt
+      || property?.title
+      || 'Current property map preview'
+    ).trim();
+    const currentPropertyMeta = (property) => [
+      property?.source_label,
+      property?.location_label,
+      property?.price_display,
+      property?.layout_display,
+    ].map((value) => String(value || '').trim()).filter((value, index, rows) => value && rows.indexOf(value) === index).join(' · ');
+    const renderCurrentPropertyCard = (runPayload) => {
+      const property = currentPropertyCardPayload(runPayload);
+      if (!property || typeof property !== 'object') return '';
+      const href = routePreviewHref(property?.map_url);
+      const imageUrl = currentPropertyImageUrl(property);
+      const meta = currentPropertyMeta(property);
+      const inner = `
+        ${imageUrl ? `<img class="pqx-current-property-thumb" src="${escapeHtml(imageUrl)}" alt="${escapeHtml(currentPropertyImageAlt(property))}">` : ''}
+        <div class="pqx-current-property-copy">
+          <span class="pqx-small">${escapeHtml(String(property?.status_label || 'Current property').trim() || 'Current property')}</span>
+          <strong>${escapeHtml(String(property?.title || 'Property under review').trim() || 'Property under review')}</strong>
+          ${meta ? `<div class="pqx-current-property-meta"><span>${escapeHtml(meta)}</span></div>` : ''}
+          ${property?.status_detail ? `<p class="pqx-note">${escapeHtml(String(property.status_detail).trim())}</p>` : ''}
+        </div>
+      `;
+      return `<article class="pqx-current-property-card">${href ? `<a class="pqx-current-property-link" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">${inner}</a>` : `<div class="pqx-current-property-link">${inner}</div>`}</article>`;
+    };
     const renderRoutePreviewStrip = (runPayload) => {
+      const currentProperty = renderCurrentPropertyCard(runPayload);
       const previews = propertyRoutePreviews(runPayload);
-      if (!Array.isArray(previews) || !previews.length) return '';
+      if (!currentProperty && (!Array.isArray(previews) || !previews.length)) return '';
       const cards = previews.slice(0, 3).map((route) => {
         const href = routePreviewHref(route?.map_url);
+        const previewImageUrl = routePreviewImageUrl(route);
+        const previewPath = String(route?.preview_path || '').trim();
+        const previewVisual = previewImageUrl
+          ? `<img class="pqx-route-preview-thumb" src="${escapeHtml(previewImageUrl)}" alt="${escapeHtml(routePreviewImageAlt(route))}">`
+          : (previewPath
+            ? `
+          <svg class="pqx-route-preview-svg" viewBox="0 0 144 68" aria-hidden="true">
+            <circle cx="12" cy="56" r="5"></circle>
+            <path d="${escapeHtml(previewPath)}"></path>
+            <circle cx="132" cy="18" r="5"></circle>
+          </svg>
+          `
+            : '');
         const inner = `
           <div class="pqx-route-preview-head">
             <span class="pqx-small">${escapeHtml(routePreviewText(route?.label, 'Route'))}</span>
             <strong>${escapeHtml(routePreviewText(route?.title, 'Route preview'))}</strong>
           </div>
-          <svg class="pqx-route-preview-svg" viewBox="0 0 144 68" aria-hidden="true">
-            <circle cx="12" cy="56" r="5"></circle>
-            <path d="${escapeHtml(route?.preview_path || 'M 12 56 C 42 48, 96 24, 132 18')}"></path>
-            <circle cx="132" cy="18" r="5"></circle>
-          </svg>
+          ${previewVisual}
           <div class="pqx-route-preview-meta">
             <span>${escapeHtml(routePreviewText(route?.detail, ''))}</span>
             <b>${escapeHtml(routePreviewText(route?.mode_label, 'Route'))}</b>
@@ -2977,7 +3000,7 @@
         `;
         return `<article class="pqx-route-preview-card">${href ? `<a class="pqx-route-preview-link" href="${escapeHtml(href)}" target="_blank" rel="noreferrer">${inner}</a>` : `<div class="pqx-route-preview-link">${inner}</div>`}</article>`;
       }).join('');
-      return `<div class="pqx-route-preview-strip" data-pqx-route-preview-strip>${cards}</div>`;
+      return `<div class="pqx-route-preview-strip" data-pqx-route-preview-strip>${currentProperty}${cards}</div>`;
     };
     let etaProjectionState = {
       runId: '',
@@ -3073,7 +3096,7 @@
         sourceWork,
         found,
         toReview,
-        providerDisplayTotal > 0 ? `${providerDisplayTotal} providers selected` : 'Looking for homes',
+        providerDisplayTotal > 0 ? `${providerDisplayTotal} sources selected` : 'Looking for homes',
         providerDisplayTotal,
         summary,
       );
@@ -3114,7 +3137,7 @@
 		              <em><u style="--progress: ${escapeHtml(detailQueuePct)}"></u></em>
 		            </span>
 		            <span>
-				              <b>Providers</b>
+				              <b>Checked</b>
 			              <i>${escapeHtml(providerCheckValue)}</i>
 			              <em><u style="--progress: ${escapeHtml(providerCheckPct)}"></u></em>
 		            </span>
@@ -3260,7 +3283,7 @@
 	        const thumb = shortlistSurface
 	          ? `<button class="pqx-result-diorama pqx-result-diorama-button${shortlistPreviewUrl ? '' : ' is-placeholder'}" type="button" data-pqx-shortlist-diorama data-pqx-atlas-open data-candidate-ref="${escapeHtml(candidateRef)}" aria-label="Open area map for ${escapeHtml(title)}">${shortlistPreviewUrl ? `<img src="${escapeHtml(shortlistPreviewUrl)}" alt="" loading="lazy" decoding="async" fetchpriority="low">` : '<span class="pqx-result-diorama-room room-main"></span><span class="pqx-result-diorama-room room-side"></span><span class="pqx-result-diorama-room room-terrace"></span>'}</button>`
 	          : (previewUrl
-	            ? `<span class="pqx-thumb"><button class="pqx-thumb-link pqx-thumb-atlas-button" type="button" data-pqx-atlas-open data-candidate-ref="${escapeHtml(candidateRef)}" aria-label="Open area map for ${escapeHtml(title)}"><img src="${escapeHtml(previewUrl)}" alt="" loading="lazy" decoding="async"><span class="pqx-thumb-atlas-label">Map</span></button></span>`
+	            ? `<span class="pqx-thumb"><button class="pqx-thumb-link pqx-thumb-atlas-button" type="button" data-pqx-atlas-open data-candidate-ref="${escapeHtml(candidateRef)}" aria-label="Open area map for ${escapeHtml(title)}"><img src="${escapeHtml(previewUrl)}" alt="" loading="lazy" decoding="async"></button></span>`
 	            : '');
         const tour = (candidate?.tour && typeof candidate.tour === 'object') ? candidate.tour : {};
         const tourUrl = directHostedTourUrl(tour.url, candidate?.tour_url, tour.embed_url, tour.provider_url, candidate?.vendor_tour_url, candidate?.source_virtual_tour_url);

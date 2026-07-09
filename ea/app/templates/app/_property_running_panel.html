@@ -18,7 +18,7 @@
 		          {% set run_source_check_done_head = run_source_check_total_head %}
 		        {% endif %}
 		        {% set run_source_check_done_head = run_source_check_done_head if run_source_check_total_head <= 0 or run_source_check_done_head < run_source_check_total_head else run_source_check_total_head %}
-			        {% set run_source_unit_head = 'checks' if run_source_total_head > run_provider_display_head and run_provider_display_head > 0 else 'providers' %}
+			        {% set run_source_unit_head = 'checks' if run_source_total_head > run_provider_display_head and run_provider_display_head > 0 else 'sources' %}
 		        {% set run_source_check_label_head = run_source_check_done_head|string ~ ' / ' ~ run_source_check_total_head|string ~ ' ' ~ run_source_unit_head if run_source_check_total_head > 0 and run_source_total_head > 0 else '' %}
 		        {% set run_source_left_head = run_source_check_total_head - run_source_check_done_head if run_source_check_total_head > run_source_check_done_head else 0 %}
 		        {% set run_queue_label_head = run_to_review_head|string ~ ' to review' if run_to_review_head > 0 else (run_source_left_head|string ~ ' ' ~ run_source_unit_head ~ ' left' if run_source_total_head > 0 and run_source_left_head > 0 else 'all found homes are checked') %}
@@ -70,7 +70,7 @@
     {% set run_source_check_total = run_source_total if run_source_total > run_provider_display_total else run_provider_display_total %}
     {% set run_source_check_done = run_source_done_total if run_source_done_total > 0 else 0 %}
     {% set run_source_check_done = run_source_check_done if run_source_check_total <= 0 or run_source_check_done < run_source_check_total else run_source_check_total %}
-    {% set run_source_unit = 'checks' if run_source_total > run_provider_display_total and run_provider_display_total > 0 else 'providers' %}
+    {% set run_source_unit = 'checks' if run_source_total > run_provider_display_total and run_provider_display_total > 0 else 'sources' %}
     {% set run_source_check_label = run_source_check_done|string ~ ' / ' ~ run_source_check_total|string ~ ' ' ~ run_source_unit if run_source_check_total > 0 and run_source_total > 0 else '' %}
     {% set run_source_left_total = run_source_check_total - run_source_check_done if run_source_check_total > run_source_check_done else 0 %}
     {% set run_source_left_label = run_source_left_total|string ~ ' ' ~ run_source_unit ~ ' left' if run_source_left_total > 0 else '' %}
@@ -125,19 +125,35 @@
         {% if event_step in ['queued', 'starting', 'sources_resolved', 'source_catalog_loading', 'source_started'] %}
         {% set event_label = 'Preparing' %}
         {% elif event_step in ['source_search', 'provider_search', 'search'] %}
-        {% set event_label = 'Providers' %}
+        {% set event_label = 'Sources' %}
         {% elif event_step in ['source_detail_check', 'listing_detail_check'] %}
         {% set event_label = 'Details' %}
         {% elif event_step in ['source_fetch', 'source_fetch_page', 'source_fetching', 'source_extracting', 'source_preview_prepare', 'source_previewing', 'source_rank_prep'] %}
         {% set event_label = 'Checks' %}
-        {% elif event_step in ['source_shortlist', 'source_ranking', 'source_assessing', 'source_low_fit_ranked', 'source_discovery_penalty'] %}
-        {% set event_label = 'Reviewing' %}
+        {% elif event_step == 'source_shortlist' %}
+        {% set event_label = 'Shortlist' %}
+        {% elif event_step == 'source_assessing' %}
+        {% set event_label = 'Property fit' %}
+        {% elif event_step == 'source_ranking' %}
+        {% set event_label = 'Ranking' %}
+        {% elif event_step in ['source_low_fit_ranked', 'source_discovery_penalty'] %}
+        {% set event_label = 'Tradeoffs' %}
         {% elif event_step == 'shortlist_ready' %}
         {% set event_label = 'Shortlist' %}
         {% elif event_step in ['source_review_packet', 'source_review_packet_failed'] %}
         {% set event_label = 'Property page' %}
-        {% elif event_step in ['source_area_filter', 'source_location_filter', 'source_floorplan_filter', 'source_type_filter', 'source_listing_mode_filter', 'source_availability_filter', 'source_generic_page_filter'] %}
-        {% set event_label = 'Search rules' %}
+        {% elif event_step in ['source_area_filter', 'source_location_filter'] %}
+        {% set event_label = 'Location filter' %}
+        {% elif event_step == 'source_floorplan_filter' %}
+        {% set event_label = 'Layout filter' %}
+        {% elif event_step == 'source_type_filter' %}
+        {% set event_label = 'Property type' %}
+        {% elif event_step == 'source_listing_mode_filter' %}
+        {% set event_label = 'Listing mode' %}
+        {% elif event_step == 'source_availability_filter' %}
+        {% set event_label = 'Move-in window' %}
+        {% elif event_step == 'source_generic_page_filter' %}
+        {% set event_label = 'Page quality' %}
         {% elif event_step in ['source_completed', 'completed'] %}
         {% set event_label = 'Done' %}
         {% elif event_step in ['source_notify'] %}
