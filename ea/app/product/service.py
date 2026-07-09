@@ -16788,6 +16788,21 @@ def _property_reconstruction_generation_timeout_seconds() -> int:
     return max(parsed, 120)
 
 
+def _property_reconstruction_bundle_generation_timeout_seconds(
+    *,
+    skip_video: bool,
+    route_stop_count: int = 0,
+    photo_count: int = 0,
+    room_count: int = 0,
+) -> int:
+    base_timeout = _property_reconstruction_generation_timeout_seconds()
+    if skip_video:
+        return base_timeout
+    complexity = max(int(route_stop_count or 0), int(photo_count or 0), int(room_count or 0), 1)
+    derived_timeout = 240 + (complexity * 60)
+    return max(base_timeout, min(1800, derived_timeout))
+
+
 def _property_reconstruction_request_timeout_seconds() -> int:
     generation_timeout_seconds = _property_reconstruction_generation_timeout_seconds()
     raw_value = str(os.getenv("PROPERTYQUARRY_RECONSTRUCTION_REQUEST_TIMEOUT_SECONDS") or "").strip()
@@ -17090,7 +17105,12 @@ def _write_generated_reconstruction_property_tour_bundle(
                 cwd=str(script_path.parent.parent if script_path.parent.name == "scripts" else _repo_root()),
                 capture_output=True,
                 text=True,
-                timeout=_property_reconstruction_generation_timeout_seconds(),
+                timeout=_property_reconstruction_bundle_generation_timeout_seconds(
+                    skip_video=skip_video,
+                    route_stop_count=len(normalized_reconstruction_route_labels),
+                    photo_count=len(photo_paths),
+                    room_count=reconstruction_room_count,
+                ),
                 check=False,
             )
             if completed.returncode != 0:

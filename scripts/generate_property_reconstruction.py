@@ -3792,7 +3792,7 @@ def _write_viewer_walkthrough(
         "transition_style": "dolly_then_hold",
         "transition_duration_seconds": round(seconds_per_stop * move_phase_ratio, 3),
         "room_stop_count": len(expected_segments),
-        "walkthrough_card_count": 0,
+        "walkthrough_card_count": len(expected_segments),
         "route_map_embedded": floorplan_thumb is not None and bool(route_markers),
         "route_context_mode": (
             "viewer_capture_floorplan_inset_active_stop"

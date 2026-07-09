@@ -812,10 +812,7 @@ def test_generated_reconstruction_walkthrough_uses_explicit_room_labels_for_dura
     assert sidecar["motion_style"] == expected_motion_style
     assert sidecar["seconds_per_stop"] == 5.0
     assert sidecar["room_stop_count"] == 3
-    if sidecar["composition"] == "viewer_route_storyboard":
-        assert sidecar["walkthrough_card_count"] == 0
-    else:
-        assert sidecar["walkthrough_card_count"] == 3
+    assert sidecar["walkthrough_card_count"] == 3
     assert sidecar["route_map_embedded"] is True
     assert sidecar["route_context_mode"] == expected_route_context_mode
     assert sidecar["route_labels"] == ["entry/hall", "living room", "bedroom"]
@@ -1494,6 +1491,29 @@ def test_run_property_reconstruction_render_bridge_uses_request_timeout_buffer(m
     assert observed["url"] == "http://bridge.example/generate-reconstruction"
     assert observed["timeout"] == 540
     assert result["status"] == "generated"
+
+
+def test_property_reconstruction_bundle_generation_timeout_scales_for_video_complexity(monkeypatch) -> None:
+    monkeypatch.delenv("PROPERTYQUARRY_RECONSTRUCTION_TIMEOUT_SECONDS", raising=False)
+
+    assert (
+        product_service._property_reconstruction_bundle_generation_timeout_seconds(
+            skip_video=False,
+            route_stop_count=6,
+            photo_count=2,
+            room_count=6,
+        )
+        == 600
+    )
+    assert (
+        product_service._property_reconstruction_bundle_generation_timeout_seconds(
+            skip_video=True,
+            route_stop_count=6,
+            photo_count=2,
+            room_count=6,
+        )
+        == 420
+    )
 
 
 def test_run_property_reconstruction_render_bridge_forwards_walkthrough_seconds_per_stop(monkeypatch) -> None:
