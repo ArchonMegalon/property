@@ -168,6 +168,20 @@ def _write_h264_flythrough(path: Path) -> None:
     subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+def _reconstruction_generation_timeout_seconds(*, skip_video: bool) -> int:
+    raw_timeout = str(
+        os.getenv("PROPERTYQUARRY_E2E_RECONSTRUCTION_TIMEOUT_SECONDS")
+        or os.getenv("PROPERTYQUARRY_RECONSTRUCTION_TIMEOUT_SECONDS")
+        or ""
+    ).strip()
+    try:
+        requested_timeout = int(float(raw_timeout)) if raw_timeout else 0
+    except Exception:
+        requested_timeout = 0
+    minimum_timeout = 180 if skip_video else 600
+    return max(minimum_timeout, requested_timeout)
+
+
 def _generate_reconstruction_bundle(
     *,
     bundle_root: Path,
@@ -223,7 +237,7 @@ def _generate_reconstruction_bundle(
         check=True,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
-        timeout=240 if not skip_video else 120,
+        timeout=_reconstruction_generation_timeout_seconds(skip_video=skip_video),
     )
 
 
