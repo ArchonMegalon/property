@@ -1235,8 +1235,15 @@ def generated_reconstruction_viewer_server(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+    vendor_assets = reconstruction_script._copy_viewer_vendor_assets(reconstruction_dir)
     (reconstruction_dir / "viewer.html").write_text(
-        reconstruction_script._viewer_html(manifest=manifest),
+        reconstruction_script._viewer_html(
+            manifest=manifest,
+            three_relpath=str(vendor_assets.get("three_relpath") or "vendor/three.module.js"),
+            orbit_controls_relpath=str(
+                vendor_assets.get("orbit_controls_relpath") or "vendor/examples/jsm/controls/OrbitControls.js"
+            ),
+        ),
         encoding="utf-8",
     )
     raw_port = _free_port()
