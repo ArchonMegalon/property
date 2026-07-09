@@ -719,6 +719,7 @@ def test_payfunnels_bootstrap_script_help_and_wiring() -> None:
 def test_property_repair_fleet_canary_script_emits_receipt() -> None:
     env = os.environ.copy()
     env["EA_RUNTIME_MODE"] = "prod"
+    env["EA_API_TOKEN"] = "inherited-release-gate-token"
     env.pop("DATABASE_URL", None)
     result = subprocess.run(
         ["python3", "scripts/propertyquarry_repair_fleet_canary.py"],
