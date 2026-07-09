@@ -8,6 +8,7 @@ import json
 from scripts.propertyquarry_authenticated_performance_smoke import (
     PERFORMANCE_SMOKE_MAX_PRICE_EUR,
     build_authenticated_performance_receipt,
+    _synthetic_candidate,
     _property_preferences_payload,
     _route_budget_for,
 )
@@ -23,6 +24,19 @@ def test_property_authenticated_performance_seeded_preferences_include_budget() 
     primary_agent = payload["search_agents"][0]
     assert primary_agent["max_price_eur"] == PERFORMANCE_SMOKE_MAX_PRICE_EUR
     assert primary_agent["preferences_json"]["max_price_eur"] == PERFORMANCE_SMOKE_MAX_PRICE_EUR
+
+
+def test_property_authenticated_performance_synthetic_candidate_preseeds_location_research() -> None:
+    candidate = _synthetic_candidate()
+    facts = candidate["property_facts"]
+
+    assert facts["map_location_precision"] == "address"
+    assert facts["map_lat"] == 48.22317
+    assert facts["map_lng"] == 16.39594
+    assert facts["nearest_playground_m"] == 310
+    assert facts["nearest_supermarket_name"] == "BILLA Praterstern"
+    assert facts["nearest_subway_name"] == "Praterstern"
+    assert facts["nearest_flowing_water_name"] == "Donaukanal"
 
 
 def test_property_authenticated_performance_smoke_receipt_passes() -> None:

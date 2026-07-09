@@ -3,6 +3,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import deque
 from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 import hashlib
 import math
 import json
@@ -1191,6 +1192,7 @@ def _onemin_secret_value(account_name: str) -> str:
     return ""
 
 
+@lru_cache(maxsize=512)
 def _onemin_secret_env_name_for_key(api_key: str) -> str:
     key = str(api_key or "").strip()
     if not key:
@@ -1201,6 +1203,7 @@ def _onemin_secret_env_name_for_key(api_key: str) -> str:
     return ""
 
 
+@lru_cache(maxsize=1)
 def _onemin_secret_env_names() -> tuple[str, ...]:
     fallback_numbers: set[int] = set()
     for env_name in os.environ:
@@ -1388,6 +1391,7 @@ def _provider_account_name(provider_key: str, key_names: tuple[str, ...], key: s
     return f"{provider_key}_unknown"
 
 
+@lru_cache(maxsize=8)
 def _provider_account_names(provider_key: str) -> tuple[str, ...]:
     normalized = str(provider_key or "").strip().lower()
     if normalized == "onemin":
@@ -7476,6 +7480,9 @@ def _test_reset_onemin_states() -> None:
     with _ONEMIN_MANIFEST_ENTRIES_CACHE_LOCK:
         _ONEMIN_MANIFEST_ENTRIES_CACHE_KEY = ()
         _ONEMIN_MANIFEST_ENTRIES_CACHE = ()
+    _onemin_secret_env_name_for_key.cache_clear()
+    _onemin_secret_env_names.cache_clear()
+    _provider_account_names.cache_clear()
     with _ONEMIN_BACKGROUND_REFRESH_LOCK:
         _ONEMIN_BACKGROUND_REFRESH_STATE.update(in_flight=False, started_at=0.0, finished_at=0.0, api_key="")
     with _ONEMIN_USAGE_LOCK:
