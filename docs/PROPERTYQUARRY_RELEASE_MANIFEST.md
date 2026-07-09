@@ -35,10 +35,10 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `37c90fce350ad00df1e8aded699a04fe38bb3f96` |
+| Runtime commit SHA | `4ae86b4736c2e115752163a767a1c652a7ef32eb` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | `pending-next-verified-deploy`; integrated branch candidate syncs service-generated reconstruction bundles to the local public tour root, isolates the repair canary runtime/auth profile, gives video-backed generated-tour E2E proof a release-grade timeout budget, and keeps generated-reconstruction browser fixtures aligned with copied viewer vendor assets |
+| Deployment ID | `pending-next-verified-deploy`; integrated branch candidate syncs service-generated reconstruction bundles to the local public tour root, isolates the repair canary runtime/auth profile, gives video-backed generated-tour E2E proof a release-grade timeout budget, keeps generated-reconstruction browser fixtures aligned with copied viewer vendor assets, and stabilizes walkthrough sidecar counts plus multi-floor service-generation timeout scaling |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
