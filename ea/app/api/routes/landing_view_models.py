@@ -62,7 +62,7 @@ from app.api.routes.landing_property_surface_contracts import (
 
 _PROPERTY_MAP_PREVIEW_RENDER_LOCK = threading.Lock()
 _PROPERTY_MAP_PREVIEW_RENDER_IN_FLIGHT: set[str] = set()
-_PROPERTY_MAP_PREVIEW_STYLE_VERSION = "flagship_map_v11_focus_card_contrast"
+_PROPERTY_MAP_PREVIEW_STYLE_VERSION = "flagship_map_v12_focus_card_contrast"
 _PROPERTY_MAP_PREVIEW_SELECTED_FILL = (194, 42, 48, 46)
 _PROPERTY_MAP_PREVIEW_COVERAGE_FILL = (194, 42, 48, 24)
 _PROPERTY_MAP_PREVIEW_SECONDARY_FILL = (194, 42, 48, 24)
@@ -1446,6 +1446,14 @@ def _cached_preview_png_path(
             )
     if pin:
         marker_x, marker_y = pin
+        if not draw_overlay:
+            _draw_flagship_preview_focus_card(
+                draw,
+                pin=pin,
+                label=cache_key.get("query") or cache_key.get("label") or cache_key.get("kind"),
+                width=width,
+                height=height,
+            )
         draw.ellipse((marker_x - 18, marker_y - 18, marker_x + 18, marker_y + 18), fill=(207, 53, 53, 58))
         draw.polygon(
             [
