@@ -4915,6 +4915,42 @@ def test_responses_upstream_provider_order_prefers_onemin_by_default(monkeypatch
     assert responses_upstream._provider_order() == ("onemin", "gemini_vortex", "magixai")
 
 
+def test_responses_upstream_caches_onemin_manifest_entries_until_manifest_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services import responses_upstream
+
+    loads = 0
+
+    def fake_load_manifest_payload() -> object:
+        nonlocal loads
+        loads += 1
+        return json.loads(os.environ["ONEMIN_DIRECT_API_KEYS_JSON"])
+
+    monkeypatch.setattr(responses_upstream, "_load_onemin_manifest_payload", fake_load_manifest_payload)
+    monkeypatch.setenv(
+        "ONEMIN_DIRECT_API_KEYS_JSON",
+        json.dumps({"keys": [{"key": "first-key", "account_name": "ONEMIN_AI_API_KEY"}]}),
+    )
+
+    first = responses_upstream._onemin_manifest_entries()
+    second = responses_upstream._onemin_manifest_entries()
+
+    assert loads == 1
+    assert first == second
+    assert first[0]["key"] == "first-key"
+
+    monkeypatch.setenv(
+        "ONEMIN_DIRECT_API_KEYS_JSON",
+        json.dumps({"keys": [{"key": "second-key", "account_name": "ONEMIN_AI_API_KEY"}]}),
+    )
+
+    changed = responses_upstream._onemin_manifest_entries()
+
+    assert loads == 2
+    assert changed[0]["key"] == "second-key"
+
+
 def test_codex_survival_endpoint_returns_in_progress_then_completed(monkeypatch: pytest.MonkeyPatch) -> None:
     client = _client(principal_id="codex-survival")
     from app.api.routes import responses

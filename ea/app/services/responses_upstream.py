@@ -989,6 +989,9 @@ def _non_empty_values(*values: str) -> tuple[str, ...]:
 
 _ONEMIN_FALLBACK_ENV_RE = re.compile(r"^ONEMIN_AI_API_KEY_FALLBACK_(\d+)$")
 _ONEMIN_FALLBACK_SLOT_RE = re.compile(r"^fallback_?(\d+)$")
+_ONEMIN_MANIFEST_ENTRIES_CACHE_LOCK = threading.Lock()
+_ONEMIN_MANIFEST_ENTRIES_CACHE_KEY: tuple[object, ...] = ()
+_ONEMIN_MANIFEST_ENTRIES_CACHE: tuple[dict[str, str], ...] = ()
 
 
 def _onemin_fallback_slot_number(raw: object) -> int | None:
@@ -1059,7 +1062,34 @@ def _load_onemin_manifest_payload() -> object:
         return None
 
 
+def _onemin_manifest_entries_cache_key() -> tuple[object, ...]:
+    inline = _env("ONEMIN_DIRECT_API_KEYS_JSON")
+    fallback_env_names = tuple(
+        sorted(
+            str(env_name or "").strip()
+            for env_name in os.environ
+            if _ONEMIN_FALLBACK_ENV_RE.match(str(env_name or "").strip())
+        )
+    )
+    if inline:
+        return ("inline", hashlib.sha256(inline.encode("utf-8")).hexdigest(), fallback_env_names)
+    path = _onemin_manifest_path()
+    if path is None:
+        return ("empty", fallback_env_names)
+    try:
+        stat = path.stat()
+    except OSError:
+        return ("path_missing", str(path), fallback_env_names)
+    return ("path", str(path), int(stat.st_mtime_ns), int(stat.st_size), fallback_env_names)
+
+
 def _onemin_manifest_entries() -> tuple[dict[str, str], ...]:
+    global _ONEMIN_MANIFEST_ENTRIES_CACHE
+    global _ONEMIN_MANIFEST_ENTRIES_CACHE_KEY
+    cache_key = _onemin_manifest_entries_cache_key()
+    with _ONEMIN_MANIFEST_ENTRIES_CACHE_LOCK:
+        if cache_key == _ONEMIN_MANIFEST_ENTRIES_CACHE_KEY:
+            return _ONEMIN_MANIFEST_ENTRIES_CACHE
     payload = _load_onemin_manifest_payload()
     if isinstance(payload, dict):
         if isinstance(payload.get("slots"), list):
@@ -1141,7 +1171,11 @@ def _onemin_manifest_entries() -> tuple[dict[str, str], ...]:
         if owner_name:
             entry["owner_name"] = owner_name
         entries.append(entry)
-    return tuple(entries)
+    normalized_entries = tuple(entries)
+    with _ONEMIN_MANIFEST_ENTRIES_CACHE_LOCK:
+        _ONEMIN_MANIFEST_ENTRIES_CACHE_KEY = cache_key
+        _ONEMIN_MANIFEST_ENTRIES_CACHE = normalized_entries
+    return normalized_entries
 
 
 def _onemin_secret_value(account_name: str) -> str:
@@ -7435,9 +7469,13 @@ def _run_text_request(
 
 def _test_reset_onemin_states() -> None:
     global _ONEMIN_KEY_CURSOR, _PROVIDER_LEDGER_LOADED
+    global _ONEMIN_MANIFEST_ENTRIES_CACHE, _ONEMIN_MANIFEST_ENTRIES_CACHE_KEY
     with _ONEMIN_KEY_CURSOR_LOCK:
         _ONEMIN_KEY_STATES.clear()
         _ONEMIN_KEY_CURSOR = 0
+    with _ONEMIN_MANIFEST_ENTRIES_CACHE_LOCK:
+        _ONEMIN_MANIFEST_ENTRIES_CACHE_KEY = ()
+        _ONEMIN_MANIFEST_ENTRIES_CACHE = ()
     with _ONEMIN_BACKGROUND_REFRESH_LOCK:
         _ONEMIN_BACKGROUND_REFRESH_STATE.update(in_flight=False, started_at=0.0, finished_at=0.0, api_key="")
     with _ONEMIN_USAGE_LOCK:
