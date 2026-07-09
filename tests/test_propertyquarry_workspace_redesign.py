@@ -10269,7 +10269,7 @@ def test_property_map_preview_backdrop_softens_tile_noise_without_erasing_map_de
     assert softened_edge_mean < raw_edge_mean * 0.82
     assert softened_edge_mean <= 34.0
     assert softened_stddev >= 14.0
-    assert landing_view_models._PROPERTY_MAP_PREVIEW_STYLE_VERSION.startswith("flagship_map_v8")
+    assert landing_view_models._PROPERTY_MAP_PREVIEW_STYLE_VERSION.startswith("flagship_map_v")
 
 
 def test_property_map_preview_selected_overlay_keeps_real_map_detail_visible(monkeypatch, tmp_path: Path) -> None:
@@ -10346,6 +10346,69 @@ def test_property_map_preview_selected_overlay_keeps_real_map_detail_visible(mon
     # But the underlying street and water detail still needs to stay readable.
     assert overlay_edges >= base_edges * 0.75
     assert sum(overlay_stats.stddev) / 3 >= 14.5
+
+
+def test_property_map_preview_point_focus_card_meets_flagship_gate(monkeypatch, tmp_path: Path) -> None:
+    from scripts import propertyquarry_map_preview_flagship_gate as gate
+
+    monkeypatch.setenv("EA_ARTIFACTS_DIR", str(tmp_path))
+
+    tile = Image.new("RGB", (256, 256), (235, 231, 222))
+    draw = ImageDraw.Draw(tile, "RGBA")
+    for x in range(-40, 300, 24):
+        draw.line([(x, 0), (x + 120, 256)], fill=(72, 66, 60, 126), width=2)
+    for y in range(0, 280, 18):
+        draw.line([(0, y), (256, y - 54)], fill=(96, 90, 82, 118), width=2)
+    draw.polygon([(0, 190), (74, 168), (132, 180), (256, 146), (256, 256), (0, 256)], fill=(166, 194, 209, 168))
+    draw.line([(54, 36), (210, 224)], fill=(188, 164, 126, 168), width=10)
+    draw.line([(28, 210), (228, 72)], fill=(214, 201, 176, 122), width=8)
+    tile_bytes = io.BytesIO()
+    tile.save(tile_bytes, format="PNG")
+
+    class _TileResponse:
+        def __init__(self, payload: bytes) -> None:
+            self._payload = payload
+
+        def __enter__(self) -> "_TileResponse":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return self._payload
+
+    monkeypatch.setattr(
+        landing_view_models.urllib.request,
+        "urlopen",
+        lambda request, timeout=6.0: _TileResponse(tile_bytes.getvalue()),
+    )
+
+    preview_url = landing_view_models._cached_preview_image_url(
+        cache_key={"kind": "map-point-flagship", "query": "Trieben, AT"},
+        center_lat=47.4896,
+        center_lon=14.4875,
+        zoom=10,
+        pin=(320.0, 184.0),
+        draw_overlay=False,
+    )
+    preview_path = tmp_path / "map_previews" / preview_url.rsplit("/", 1)[-1]
+
+    receipt = gate.build_map_preview_flagship_receipt(
+        base_url="http://localhost",
+        host_header="",
+        api_token="",
+        principal_id="",
+        image_urls=[preview_path.as_uri()],
+        discover_routes=[],
+        timeout_seconds=1.0,
+        settle_seconds=0.0,
+        min_preview_count=1,
+        canonical_fallback=False,
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["preview_results"][0]["metrics"]["stddev_mean"] >= 18.0
 
 
 def test_property_scope_preview_map_only_uses_slightly_wider_padding_for_full_district_shapes(monkeypatch) -> None:

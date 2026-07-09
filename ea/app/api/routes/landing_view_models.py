@@ -62,7 +62,7 @@ from app.api.routes.landing_property_surface_contracts import (
 
 _PROPERTY_MAP_PREVIEW_RENDER_LOCK = threading.Lock()
 _PROPERTY_MAP_PREVIEW_RENDER_IN_FLIGHT: set[str] = set()
-_PROPERTY_MAP_PREVIEW_STYLE_VERSION = "flagship_map_v8_calm_osm_backdrop"
+_PROPERTY_MAP_PREVIEW_STYLE_VERSION = "flagship_map_v11_focus_card_contrast"
 _PROPERTY_MAP_PREVIEW_SELECTED_FILL = (194, 42, 48, 46)
 _PROPERTY_MAP_PREVIEW_COVERAGE_FILL = (194, 42, 48, 24)
 _PROPERTY_MAP_PREVIEW_SECONDARY_FILL = (194, 42, 48, 24)
@@ -1006,6 +1006,69 @@ def _draw_flagship_preview_label_marker(
     draw.text((left + 10, top + ((box_height - text_height) / 2) - 1), text, fill=(68, 45, 39, 235), font=font)
 
 
+def _draw_flagship_preview_focus_card(
+    draw: ImageDraw.ImageDraw,
+    *,
+    pin: tuple[float, float],
+    label: object,
+    width: int,
+    height: int,
+) -> None:
+    marker_x, marker_y = pin
+    ring_radius = max(48, min(width, height) // 7)
+    halo_radius = ring_radius + 18
+    draw.ellipse(
+        (marker_x - halo_radius, marker_y - halo_radius, marker_x + halo_radius, marker_y + halo_radius),
+        fill=(193, 53, 53, 18),
+        outline=(132, 30, 36, 60),
+        width=2,
+    )
+    draw.ellipse(
+        (marker_x - ring_radius, marker_y - ring_radius, marker_x + ring_radius, marker_y + ring_radius),
+        outline=(132, 30, 36, 108),
+        width=3,
+    )
+    tick = max(8, ring_radius // 5)
+    for dx, dy in ((0, -ring_radius), (ring_radius, 0), (0, ring_radius), (-ring_radius, 0)):
+        draw.line(
+            (marker_x + dx, marker_y + dy, marker_x + dx * 1.12, marker_y + dy * 1.12),
+            fill=(132, 30, 36, 118),
+            width=2,
+        )
+        draw.line(
+            (
+                marker_x + dx - (tick if dy else 0),
+                marker_y + dy - (tick if dx else 0),
+                marker_x + dx + (tick if dy else 0),
+                marker_y + dy + (tick if dx else 0),
+            ),
+            fill=(255, 248, 241, 110),
+            width=1,
+        )
+
+    font = ImageFont.load_default()
+    header = "Search focus"
+    text = _short_map_preview_label(label, limit=24) or "Selected area"
+    header_box = draw.textbbox((0, 0), header, font=font)
+    text_box = draw.textbbox((0, 0), text, font=font)
+    content_width = max(header_box[2] - header_box[0], text_box[2] - text_box[0])
+    box_width = min(max(int(content_width) + 26, 142), 226)
+    box_height = 40
+    left = 18
+    top = max(16, min(height - box_height - 16, int(marker_y + ring_radius + 18)))
+    if top + box_height > height - 16:
+        top = 16
+    draw.rounded_rectangle(
+        (left, top, left + box_width, top + box_height),
+        radius=12,
+        fill=(255, 249, 239, 222),
+        outline=(132, 30, 36, 118),
+        width=1,
+    )
+    draw.text((left + 12, top + 7), header, fill=(132, 30, 36, 210), font=font)
+    draw.text((left + 12, top + 21), text, fill=(68, 45, 39, 238), font=font)
+
+
 def _positive_preview_int(value: object, *, default: int = 0) -> int:
     try:
         parsed = int(float(str(value or "").strip()))
@@ -1129,6 +1192,14 @@ def _cached_local_map_overview_png_path(
         _draw_flagship_preview_polygon(draw, points, fill=fill)
     if pin:
         marker_x, marker_y = pin
+        if not draw_overlay:
+            _draw_flagship_preview_focus_card(
+                draw,
+                pin=pin,
+                label=cache_key.get("query") or cache_key.get("label") or cache_key.get("kind"),
+                width=width,
+                height=height,
+            )
         draw.ellipse((marker_x - 18, marker_y - 18, marker_x + 18, marker_y + 18), fill=(207, 53, 53, 58))
         draw.polygon(
             [
@@ -1284,6 +1355,9 @@ def _cached_preview_png_path(
     left = max(0, min(canvas.width - width, center_x - (width // 2)))
     top = max(0, min(canvas.height - height, center_y - (height // 2)))
     cropped = _flagship_map_backdrop(canvas.crop((left, top, left + width, top + height)))
+    if not draw_overlay and pin:
+        cropped = ImageEnhance.Contrast(cropped).enhance(1.12)
+        cropped = ImageEnhance.Color(cropped).enhance(0.58)
     draw = ImageDraw.Draw(cropped, "RGBA")
 
     for path in boundary_paths or []:
