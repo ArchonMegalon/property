@@ -13,7 +13,9 @@ if str(ROOT / "ea") not in sys.path:
 
 
 def _configure_runtime() -> None:
-    os.environ.setdefault("EA_STORAGE_BACKEND", "memory")
+    os.environ["EA_RUNTIME_MODE"] = "dev"
+    os.environ["EA_STORAGE_BACKEND"] = "memory"
+    os.environ.pop("DATABASE_URL", None)
     os.environ.pop("EA_LEDGER_BACKEND", None)
     os.environ.setdefault("EA_API_TOKEN", "")
     os.environ.setdefault("PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES", "1")
