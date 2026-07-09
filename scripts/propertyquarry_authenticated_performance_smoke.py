@@ -149,6 +149,23 @@ FORBIDDEN_RYBBIT_PAYLOAD_TOKENS = (
     "signed",
     "telegram",
 )
+PROVIDER_FREE_ENV_PREFIXES = (
+    "BROWSERACT_",
+    "EA_ENV_TEABLE_",
+    "EA_GEMINI_VORTEX_SLOT_",
+    "GOOGLE_API_KEY_FALLBACK_",
+    "ONEMIN_AI_API_KEY",
+    "PROPERTYQUARRY_TEABLE_",
+    "TEABLE_",
+)
+PROVIDER_FREE_ENV_NAMES = {
+    "AI_MAGICX_API_KEY",
+    "DATABASE_URL",
+    "EA_GEMINI_VORTEX_COMMAND",
+    "EA_RESPONSES_MAGICX_API_KEY",
+    "ONEMIN_DIRECT_API_KEYS_JSON",
+    "ONEMIN_DIRECT_API_KEYS_JSON_FILE",
+}
 
 FORBIDDEN_BILLING_SURFACE_TOKENS = (
     "accounting lane",
@@ -416,6 +433,12 @@ def _response_content_length(response: object) -> int:
         except ValueError:
             pass
     return len(getattr(response, "content", b"") or b"")
+
+
+def _reset_authenticated_performance_smoke_env() -> None:
+    for key in list(os.environ.keys()):
+        if key in PROVIDER_FREE_ENV_NAMES or key.startswith(PROVIDER_FREE_ENV_PREFIXES):
+            os.environ.pop(key, None)
 
 
 def _seed_workspace(client: TestClient) -> None:
@@ -1051,9 +1074,12 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
 
 
 def build_authenticated_performance_receipt(*, route_budget_ms: int = 1200) -> dict[str, object]:
+    _reset_authenticated_performance_smoke_env()
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ.pop("EA_LEDGER_BACKEND", None)
+    os.environ.pop("DATABASE_URL", None)
     # Keep prod-mode startup valid even when this smoke runs outside the live container.
+    os.environ["EA_RUNTIME_MODE"] = "dev"
     os.environ["EA_API_TOKEN"] = "performance-smoke-local-token"
     os.environ["PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES"] = "1"
     os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
@@ -1064,8 +1090,6 @@ def build_authenticated_performance_receipt(*, route_budget_ms: int = 1200) -> d
     os.environ["PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS"] = "billing.propertyquarry.test"
     os.environ["PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL"] = "https://billing.propertyquarry.test/account"
     os.environ["PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY"] = "performance-smoke-local-key"
-    if str(os.environ.get("EA_RUNTIME_MODE") or "").strip().lower() == "prod" and not str(os.environ.get("DATABASE_URL") or "").strip():
-        os.environ["EA_RUNTIME_MODE"] = "dev"
     api_token = str(os.environ.get("EA_API_TOKEN") or "").strip()
     principal_id = "pq-auth-performance-smoke"
     app = create_app()

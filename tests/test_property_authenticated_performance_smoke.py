@@ -39,6 +39,27 @@ def test_property_authenticated_performance_synthetic_candidate_preseeds_locatio
     assert facts["nearest_flowing_water_name"] == "Donaukanal"
 
 
+def test_property_authenticated_performance_smoke_ignores_release_provider_env(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("EA_RUNTIME_MODE", "prod")
+    monkeypatch.setenv("TEABLE_BASE_URL", "https://app.teable.ai")
+    monkeypatch.setenv("TEABLE_API_KEY", "teable-test-key")
+    monkeypatch.setenv("PROPERTYQUARRY_TEABLE_API_KEY", "propertyquarry-teable-test-key")
+    monkeypatch.setenv("EA_ENV_TEABLE_BASE_ID", "base-test")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-live-key")
+    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "onemin-live-fallback")
+    monkeypatch.setenv("GOOGLE_API_KEY_FALLBACK_1", "vertex-live-fallback")
+    monkeypatch.setenv("BROWSERACT_API_KEY", "browseract-live-key")
+    monkeypatch.setenv("EA_RESPONSES_MAGICX_API_KEY", "magicx-live-key")
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "sh")
+
+    receipt = build_authenticated_performance_receipt(route_budget_ms=1200)
+
+    assert receipt["status"] == "pass"
+    assert receipt["failed_count"] == 0
+
+
 def test_property_authenticated_performance_smoke_receipt_passes() -> None:
     receipt = build_authenticated_performance_receipt(route_budget_ms=1200)
 
