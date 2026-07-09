@@ -81,7 +81,7 @@ def test_render_bridge_runtime_receipt_recreates_runtime_when_container_is_missi
     assert receipt["compose_up"]["build_requested"] is True
 
 
-def test_render_bridge_runtime_receipt_rebuilds_when_running_container_code_is_stale(
+def test_render_bridge_runtime_receipt_syncs_when_running_container_code_is_stale(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -111,6 +111,65 @@ def test_render_bridge_runtime_receipt_rebuilds_when_running_container_code_is_s
         ]
     )
     monkeypatch.setattr(runtime, "_runtime_code_parity", lambda container: next(parity_rows))
+    monkeypatch.setattr(
+        runtime,
+        "_copy_path_to_container",
+        lambda container, local_path, container_path: {
+            "status": "pass",
+            "local_path": str(local_path),
+            "container_path": container_path,
+        },
+    )
+
+    receipt = runtime.build_render_bridge_runtime_receipt(
+        container="propertyquarry-render-tools",
+        service="propertyquarry-render-tools",
+        compose_file=str(compose),
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["action"] == "synced_runtime_files"
+    assert receipt["initial_code_parity"]["status"] == "failed"
+    assert receipt["post_code_parity"]["status"] == "pass"
+    assert receipt["runtime_file_sync"]["status"] == "pass"
+    assert receipt["runtime_file_sync"]["copied"][0]["container_path"] == "/app/scripts/generate_property_reconstruction.py"
+
+
+def test_render_bridge_runtime_receipt_rebuilds_when_runtime_file_sync_fails(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    compose = tmp_path / "docker-compose.property.yml"
+    compose.write_text("services:\n", encoding="utf-8")
+    monkeypatch.setattr(runtime, "_docker_available", lambda: True)
+    monkeypatch.setattr(runtime, "_compose_command", lambda **_: ["docker", "compose", "-f", str(compose)])
+
+    states = iter(
+        [
+            {"exists": True, "status": "running", "health": "healthy", "detail": ""},
+            {"exists": True, "status": "running", "health": "healthy", "detail": ""},
+            {"exists": True, "status": "running", "health": "healthy", "detail": ""},
+        ]
+    )
+    monkeypatch.setattr(runtime, "_container_state", lambda container: next(states))
+    monkeypatch.setattr(
+        runtime,
+        "_container_health_probe",
+        lambda container, *, health_url: {"status": "pass", "url": health_url},
+    )
+
+    parity_rows = iter(
+        [
+            {"status": "failed", "mismatched_paths": ["/app/scripts/generate_property_reconstruction.py"]},
+            {"status": "pass", "checks": []},
+        ]
+    )
+    monkeypatch.setattr(runtime, "_runtime_code_parity", lambda container: next(parity_rows))
+    monkeypatch.setattr(
+        runtime,
+        "_copy_path_to_container",
+        lambda container, local_path, container_path: {"status": "failed", "reason": "copy_failed"},
+    )
 
     observed: dict[str, object] = {}
 
@@ -129,8 +188,7 @@ def test_render_bridge_runtime_receipt_rebuilds_when_running_container_code_is_s
 
     assert receipt["status"] == "pass"
     assert receipt["action"] == "recreated_runtime"
-    assert receipt["initial_code_parity"]["status"] == "failed"
-    assert receipt["post_code_parity"]["status"] == "pass"
+    assert receipt["runtime_file_sync"]["status"] == "failed"
     assert observed["command"][-6:] == ["up", "-d", "--build", "--no-deps", "--force-recreate", "propertyquarry-render-tools"]
     assert receipt["compose_up"]["build_requested"] is True
 

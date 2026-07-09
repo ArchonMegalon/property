@@ -165,6 +165,55 @@ def _container_path_sha256(container: str, container_path: str) -> dict[str, obj
     return {"status": "pass", "sha256": digest}
 
 
+def _copy_path_to_container(container: str, local_path: Path, container_path: str) -> dict[str, object]:
+    normalized_container = str(container or "").strip()
+    normalized_path = str(container_path or "").strip()
+    if not normalized_container:
+        return {"status": "blocked", "reason": "container_missing"}
+    if not local_path.is_file():
+        return {"status": "blocked", "reason": "local_path_missing", "local_path": str(local_path)}
+    if not normalized_path:
+        return {"status": "blocked", "reason": "container_path_missing"}
+    parent = str(Path(normalized_path).parent)
+    mkdir = _run(["docker", "exec", normalized_container, "mkdir", "-p", parent], timeout=20)
+    if mkdir.returncode != 0:
+        return {
+            "status": "failed",
+            "reason": "container_parent_create_failed",
+            "stdout_tail": str(mkdir.stdout or "")[-400:],
+            "stderr_tail": str(mkdir.stderr or "")[-400:],
+        }
+    copied = _run(["docker", "cp", str(local_path), f"{normalized_container}:{normalized_path}"], timeout=60)
+    if copied.returncode != 0:
+        return {
+            "status": "failed",
+            "reason": "container_copy_failed",
+            "stdout_tail": str(copied.stdout or "")[-400:],
+            "stderr_tail": str(copied.stderr or "")[-400:],
+        }
+    return {"status": "pass", "local_path": str(local_path), "container_path": normalized_path}
+
+
+def _sync_runtime_files_to_container(container: str, parity: dict[str, object]) -> dict[str, object]:
+    mismatched_paths = {str(path or "").strip() for path in list(parity.get("mismatched_paths") or [])}
+    copied: list[dict[str, object]] = []
+    failures: list[dict[str, object]] = []
+    for local_path, container_path in CRITICAL_RUNTIME_SCRIPT_PATHS:
+        if container_path not in mismatched_paths:
+            continue
+        result = _copy_path_to_container(container, local_path, container_path)
+        row = {"local_path": str(local_path), "container_path": container_path, **result}
+        if result.get("status") == "pass":
+            copied.append(row)
+        else:
+            failures.append(row)
+    return {
+        "status": "pass" if copied and not failures else ("skipped" if not copied and not failures else "failed"),
+        "copied": copied,
+        "failures": failures,
+    }
+
+
 def _runtime_code_parity(container: str) -> dict[str, object]:
     checks: list[dict[str, object]] = []
     mismatches: list[str] = []
@@ -258,6 +307,19 @@ def build_render_bridge_runtime_receipt(
                     "action": "already_ready",
                     "post_state": initial_state,
                 }
+            sync = _sync_runtime_files_to_container(normalized_container, initial_code_parity)
+            receipt["runtime_file_sync"] = sync
+            if sync.get("status") == "pass":
+                synced_code_parity = _runtime_code_parity(normalized_container)
+                receipt["synced_code_parity"] = synced_code_parity
+                if synced_code_parity.get("status") == "pass":
+                    return {
+                        **receipt,
+                        "status": "pass",
+                        "action": "synced_runtime_files",
+                        "post_state": initial_state,
+                        "post_code_parity": synced_code_parity,
+                    }
         else:
             initial_code_parity = {"status": "skipped", "reason": "health_probe_failed"}
     receipt["initial_code_parity"] = initial_code_parity
