@@ -556,6 +556,34 @@ def test_runtime_reconstruction_smoke_rewrites_loopback_public_base_url_before_p
     assert receipt["public_route_contract_ok"] is False
 
 
+def test_runtime_reconstruction_smoke_syncs_container_tour_to_local_public_root(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    slug = "runtime-smoke-layout-first"
+    host_root = tmp_path / "public-tours"
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(host_root))
+
+    def _fake_run(command: list[str], *, timeout: int = 120) -> subprocess.CompletedProcess[str]:
+        assert command[:2] == ["docker", "cp"]
+        copied = Path(command[-1]) / slug
+        copied.mkdir(parents=True)
+        (copied / "tour.json").write_text('{"slug":"runtime-smoke-layout-first"}\n', encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(smoke, "_run", _fake_run)
+
+    receipt = smoke._sync_container_tour_to_host_root(
+        "propertyquarry-render-tools",
+        slug=slug,
+        public_base_url="http://127.0.0.1:8099",
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["destination"] == str(host_root / slug)
+    assert (host_root / slug / "tour.json").is_file()
+
+
 def test_runtime_reconstruction_smoke_fails_when_required_browser_shell_base_url_missing(monkeypatch) -> None:
     monkeypatch.setattr(smoke.shutil, "which", lambda command: "/usr/bin/docker" if command == "docker" else None)
 

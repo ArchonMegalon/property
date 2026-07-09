@@ -144,6 +144,62 @@ def _generated_reconstruction_payload_url(*, public_base_url: str, slug: str) ->
     return f"{normalized_base}/tours/{urllib.parse.quote(normalized_slug, safe='')}.json"
 
 
+def _host_public_tour_root() -> Path:
+    return Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/property/state/public_property_tours")).expanduser()
+
+
+def _public_base_url_is_local(public_base_url: str) -> bool:
+    parsed = urllib.parse.urlparse(str(public_base_url or "").strip())
+    return str(parsed.hostname or "").strip().lower() in {"127.0.0.1", "localhost", "::1", "propertyquarry.com"}
+
+
+def _sync_container_tour_to_host_root(container: str, *, slug: str, public_base_url: str) -> dict[str, object]:
+    normalized_container = str(container or "").strip()
+    normalized_slug = str(slug or "").strip().strip("/")
+    if not normalized_container:
+        return {"status": "blocked", "reason": "container_missing"}
+    if not normalized_slug:
+        return {"status": "blocked", "reason": "slug_missing"}
+    if not _public_base_url_is_local(public_base_url):
+        return {"status": "skipped", "reason": "public_base_url_not_local"}
+    host_root = _host_public_tour_root()
+    host_root.mkdir(parents=True, exist_ok=True)
+    destination = host_root / normalized_slug
+    with tempfile.TemporaryDirectory(prefix="propertyquarry-runtime-tour-sync-") as temp_dir:
+        temp_path = Path(temp_dir)
+        copied = _run(
+            [
+                "docker",
+                "cp",
+                f"{normalized_container}:/data/public_property_tours/{normalized_slug}",
+                str(temp_path),
+            ],
+            timeout=120,
+        )
+        if copied.returncode != 0:
+            return {
+                "status": "failed",
+                "reason": "docker_cp_failed",
+                "host_root": str(host_root),
+                "stdout_tail": str(copied.stdout or "")[-1000:],
+                "stderr_tail": str(copied.stderr or "")[-1000:],
+            }
+        copied_bundle = temp_path / normalized_slug
+        if not copied_bundle.is_dir():
+            return {
+                "status": "failed",
+                "reason": "copied_bundle_missing",
+                "host_root": str(host_root),
+            }
+        shutil.rmtree(destination, ignore_errors=True)
+        shutil.copytree(copied_bundle, destination)
+    return {
+        "status": "pass",
+        "host_root": str(host_root),
+        "destination": str(destination),
+    }
+
+
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
         return None
@@ -1755,6 +1811,13 @@ PY
         public_base_url,
         public_container=str(os.getenv("PROPERTYQUARRY_API_CONTAINER_NAME") or "propertyquarry-api").strip(),
     )
+    host_public_tour_sync: dict[str, object] = {"status": "skipped", "reason": "public_base_url_missing"}
+    if resolved_public_base_url and (require_browser or require_public_contract or require_browser_shell):
+        host_public_tour_sync = _sync_container_tour_to_host_root(
+            container,
+            slug=generated_slug,
+            public_base_url=resolved_public_base_url,
+        )
     viewer_url = _generated_reconstruction_viewer_url(public_base_url=resolved_public_base_url, slug=generated_slug)
     public_contract_receipt: dict[str, object] = {}
     public_contract_ok = True
@@ -1807,6 +1870,7 @@ PY
         "requested_slug": str(slug or "").strip(),
         "slug": generated_slug,
         "render_bridge_runtime": render_bridge_runtime,
+        "host_public_tour_sync": host_public_tour_sync,
         "resolved_public_base_url": resolved_public_base_url,
         "viewer_url": viewer_url,
         "duration_seconds": round(time.time() - datetime.fromisoformat(started_at).timestamp(), 3),
