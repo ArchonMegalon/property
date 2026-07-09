@@ -35,10 +35,10 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `3d40a7ff77ba191a3723994f8e0da1f46531af9e` |
+| Runtime commit SHA | `c7afea888ee9b16a995cf742b223ea9caeb37dae` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | `pending-next-verified-deploy`; integrated branch candidate adds deploy-side release-hygiene refresh plus render-tools runtime refresh before gold verification |
+| Deployment ID | `pending-next-verified-deploy`; integrated branch candidate syncs service-generated reconstruction bundles to the local public tour root before public route/browser proof |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
