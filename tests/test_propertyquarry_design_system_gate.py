@@ -293,8 +293,8 @@ def test_propertyquarry_mobile_navigation_stays_branded_and_compact() -> None:
     assert ".pqx-brand {\n        display: none !important;" in workbench
     assert '.pqx-shell[data-pqx-surface="agents"] .pqx-topbar,\n      .pqx-shell[data-pqx-surface="alerts"] .pqx-topbar {\n        grid-template-columns: minmax(0, 1fr);\n        grid-template-areas: "nav";' in workbench
     assert '.pqx-shell[data-pqx-surface="agents"] .pqx-top-actions,\n      .pqx-shell[data-pqx-surface="alerts"] .pqx-top-actions {\n        display: none;' in workbench
-    assert '<details class="pqx-mobile-nav-menu" data-pqx-mobile-nav-menu>' in workbench
-    assert '.pqx-mobile-nav-menu > summary {\n        min-height: 38px;' in workbench
+    assert '<details class="pqx-mobile-nav-menu" data-pqx-mobile-nav-menu' in workbench
+    assert '.pqx-mobile-nav-menu > summary {\n        min-height: 40px;' in workbench
     assert '.pqx-mobile-nav-menu[open] .pqx-primary-nav {' in workbench
     assert '<details class="mobile-nav-sheet">' in public_base
     assert '<summary>Menu</summary>' in public_base

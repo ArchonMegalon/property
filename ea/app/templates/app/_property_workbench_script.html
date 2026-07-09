@@ -2447,7 +2447,7 @@
         const done = Math.min(total, Math.max(0, Number(counts?.done || 0)));
         return `${done} / ${total} ${runSourceUnitLabel(summary, total, providerDisplayTotal)}`;
       }
-      if (total > 0) return `${total} sources selected`;
+      if (total > 0) return `${total} sites chosen`;
       return 'Preparing search';
     };
     const runSourceWorkLeftLabel = (counts, providerDisplayTotal = 0, summary = {}) => {
@@ -2557,7 +2557,7 @@
 	      const checkedLabel = runListingQueueMessage(found, toReview);
       const scanLabel = found > 0
         ? (sourceWork.open > 0 ? runFoundQueueMessage(found, toReview, sourceWork, providerDisplayTotal, summary) : checkedLabel)
-        : (providerDisplayTotal ? `${providerDisplayTotal} sources selected` : checkedLabel);
+        : (providerDisplayTotal ? `${providerDisplayTotal} sites chosen` : checkedLabel);
       const noPlan = Number(summary.filtered_floorplan_total || 0);
       const currentStep = String(runPayload?.current_step || '').trim().toLowerCase();
       const packetPrepared = Number(summary.review_created_total || 0) + Number(summary.review_existing_total || 0);
@@ -3096,7 +3096,7 @@
         sourceWork,
         found,
         toReview,
-        providerDisplayTotal > 0 ? `${providerDisplayTotal} sources selected` : 'Looking for homes',
+        providerDisplayTotal > 0 ? `${providerDisplayTotal} sites chosen` : 'Looking for homes',
         providerDisplayTotal,
         summary,
       );

@@ -120,13 +120,13 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     assert "matching homes" in landing.text
     assert "ranked homes" not in landing.text.lower()
     assert "Open search" in landing.text
-    assert (
-        '<a class="btn primary" href="/sign-in?signing_in=1" data-analytics-event="home_open_search"'
-        in landing.text
+    assert re.search(
+        r'<a class="btn(?: primary)?" href="/sign-in\?signing_in=1"[^>]*data-analytics-event="home_open_search"',
+        landing.text,
     )
-    assert (
-        '<a class="btn" href="/register" data-analytics-event="home_email_setup"'
-        in landing.text
+    assert re.search(
+        r'<a class="btn(?: ghost)?" href="/register"[^>]*data-analytics-event="home_email_setup"',
+        landing.text,
     )
     assert landing.text.index(">Open search</a>") < landing.text.index(">Email sign-in</a>")
     assert "Must-haves stay clear" in landing.text
@@ -156,8 +156,9 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     assert "Upgrade when the current lane is the bottleneck." not in pricing.text
     assert "Typical office path" not in pricing.text
     assert "Checkout pending" not in pricing.text
-    assert "Billing account" in pricing.text
-    assert "Manage billing from your account." in pricing.text
+    assert "Billing account" not in pricing.text
+    assert "Manage billing from your account." not in pricing.text
+    assert "Your account is already active." in pricing.text
     assert re.search(r'<span class="active" aria-current="page">Pricing</span>', pricing.text)
     assert re.search(r'<a href="/pricing"[^>]*>Pricing</a>', pricing.text) is None
 
@@ -232,8 +233,14 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     )
 
     product = anonymous_client.get("/product", headers={"host": "propertyquarry.com", "accept": "text/html"})
-    assert '<a class="btn primary" href="/sign-in?signing_in=1">Open search</a>' in product.text
-    assert f'<a class="btn ghost" href="/register">{"Email sign-in"}</a>' in product.text
+    assert re.search(
+        r'<a class="btn(?: primary)?" href="/sign-in\?signing_in=1"[^>]*data-analytics-event="home_open_search"[^>]*>Open search</a>',
+        product.text,
+    )
+    assert re.search(
+        r'<a class="btn(?: ghost)?" href="/register"[^>]*data-analytics-event="home_email_setup"[^>]*>Email sign-in</a>',
+        product.text,
+    )
     assert product.text.index(">Open search</a>") < product.text.index(">Email sign-in</a>")
 
 

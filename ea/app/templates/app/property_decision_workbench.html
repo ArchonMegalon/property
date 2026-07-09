@@ -348,14 +348,14 @@
 {% set source_progress_label = '' %}
 {% if source_variant_total > 0 %}
 {% if source_unit == 'checks' and provider_display_total > 0 %}
-{% set scan_count_label = provider_display_total|string ~ ' providers · ' ~ source_check_label %}
+{% set scan_count_label = provider_display_total|string ~ ' sites · ' ~ source_check_label %}
 {% else %}
 {% set scan_count_label = source_check_label %}
 {% endif %}
 {% elif provider_display_total > 0 %}
-{% set scan_count_label = provider_display_total|string ~ ' sources selected' %}
+{% set scan_count_label = provider_display_total|string ~ ' sites chosen' %}
 {% elif source_completed > 0 or source_total > 0 %}
-{% set scan_count_label = 'Sources' %}
+{% set scan_count_label = 'Sites' %}
 {% else %}
 {% set scan_count_label = 'Preparing search' %}
 {% endif %}
@@ -443,7 +443,7 @@
 		  <div class="pqx-source-progress" data-pqx-source-progress>
 		    <div class="pqx-source-progress-head">
 				      <strong data-pqx-radar-count>{{ scan_count_label }}</strong>
-							      <span class="pqx-small">{% if source_progress_label %}{{ source_progress_label }}{% elif found_total and to_review_total %}{{ to_review_total }} to review{% elif found_total and source_open_total > 0 %}{{ source_open_total }} {{ source_unit }} left{% elif found_total %}all found homes are checked{% elif provider_display_total %}{{ provider_display_total }} sources selected{% else %}Looking for homes{% endif %}</span>
+							      <span class="pqx-small">{% if source_progress_label %}{{ source_progress_label }}{% elif found_total and to_review_total %}{{ to_review_total }} to review{% elif found_total and source_open_total > 0 %}{{ source_open_total }} {{ source_unit }} left{% elif found_total %}all found homes are checked{% elif provider_display_total %}{{ provider_display_total }} sites chosen{% else %}Looking for homes{% endif %}</span>
 						      {% if found_total and to_review_total %}<span hidden>{{ to_review_total }} homes to review</span>{% endif %}
 					    </div>
 				    <span class="pqx-note">{{ progress_message_display or 'Looking for the first homes.' }}</span>
@@ -459,7 +459,7 @@
 			        <em><u style="--progress: {{ detail_queue_pct }}"></u></em>
 			      </span>
 		      <span>
-					        <b>{{ 'Checked' if source_unit == 'checks' else 'Sources' }}</b>
+					        <b>{{ 'Checked' if source_unit == 'checks' else 'Sites' }}</b>
 		        <i>{% if source_variant_total > 0 %}{{ source_check_done }} / {{ source_check_total }}{% else %}{{ provider_display_total or 0 }}{% endif %}</i>
 		        <em><u style="--progress: {{ ((source_check_done * 100) // source_check_total) if source_check_total > 0 and source_check_done > 0 else 0 }}"></u></em>
 		      </span>
@@ -11090,7 +11090,7 @@
             <div class="pqx-current-run-facts" aria-label="Current search totals">
               <div class="pqx-current-run-fact">
                 <span>Sources</span>
-                <strong>{% if live_source_total %}{{ live_source_check_done }} / {{ live_source_check_total }} {{ live_source_unit }}{% elif live_provider_total %}{{ live_provider_total }} sources selected{% else %}Preparing{% endif %}</strong>
+                <strong>{% if live_source_total %}{{ live_source_check_done }} / {{ live_source_check_total }} {{ live_source_unit }}{% elif live_provider_total %}{{ live_provider_total }} sites chosen{% else %}Preparing{% endif %}</strong>
               </div>
               <div class="pqx-current-run-fact">
                 <span>Homes</span>
@@ -11233,7 +11233,7 @@
               {% if previous_total %}
               Open an earlier search.
               {% else %}
-              Saved searches appear here after the first run.
+              Saved searches appear here once a search is ready.
               {% endif %}
             </span>
           </div>
@@ -11326,7 +11326,7 @@
             <div class="pqx-dashboard-row">
               <span class="pqx-small">No saved searches yet</span>
               <strong>Start with one search or evaluate a single listing.</strong>
-              <span class="pqx-note">Saved searches appear here after the first run.</span>
+              <span class="pqx-note">Saved searches appear here once a search is ready.</span>
             </div>
             {% endfor %}
           </div>
@@ -11860,12 +11860,12 @@
 	                {% elif field.type == 'checkbox_group' %}
 	                <fieldset class="pqx-choice-groupbox">
 	                  <legend class="pqx-choice-groupbox-legend">{{ field.label }}</legend>
-	                  {% if field.name == 'selected_platforms' %}<span hidden>Select providers</span>{% endif %}
+	                  {% if field.name == 'selected_platforms' %}<span hidden>Choose sites</span>{% endif %}
 	                  {% if field.name in ['selected_platforms', 'location_query'] %}
                   <div class="pqx-choice-groupbox-head">
                     <div class="pqx-choice-groupbox-actions pqx-field-tools">
                       {% if field.name == 'selected_platforms' %}
-	                      <button class="pqx-field-action" type="button" data-checkbox-group-select-all="{{ field.name }}" aria-label="Select all providers">All providers</button>
+	                      <button class="pqx-field-action" type="button" data-checkbox-group-select-all="{{ field.name }}" aria-label="Select all sites">All sites</button>
                       {% else %}
                       <div class="pqx-location-mode-toggle" role="group" aria-label="Area selection mode">
                         <button class="pqx-field-action" type="button" data-location-mode-button="map" aria-pressed="true">Map</button>

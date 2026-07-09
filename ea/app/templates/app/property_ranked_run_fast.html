@@ -1018,11 +1018,11 @@
 	  };
 	  const loadOnce = async () => {
 	    if (statusCard) statusCard.setAttribute('aria-busy', 'true');
-	    if (statusTitle && !list.querySelector('.pq-fast-row:not(.pq-fast-skeleton)')) statusTitle.textContent = 'Providers';
-	    if (statusDetail && !list.querySelector('.pq-fast-row:not(.pq-fast-skeleton)')) statusDetail.textContent = 'Checking the selected providers.';
+	    if (statusTitle && !list.querySelector('.pq-fast-row:not(.pq-fast-skeleton)')) statusTitle.textContent = 'Sites';
+	    if (statusDetail && !list.querySelector('.pq-fast-row:not(.pq-fast-skeleton)')) statusDetail.textContent = 'Checking the selected sites.';
 	    const controller = new AbortController();
 	    const slowTimer = window.setTimeout(() => {
-	      if (!settled && statusDetail) statusDetail.textContent = 'Still checking the selected providers.';
+	      if (!settled && statusDetail) statusDetail.textContent = 'Still checking the selected sites.';
 	    }, 3500);
     const abortTimer = window.setTimeout(() => controller.abort(), 18000);
     try {

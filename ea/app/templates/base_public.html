@@ -895,9 +895,9 @@
           <button class="btn ghost" type="submit">Log out</button>
         </form>
         {% else %}
-        <a class="btn primary" href="/sign-in?signing_in=1">Open search</a>
+        <a class="btn primary" href="/sign-in?signing_in=1" data-analytics-event="home_open_search" data-rybbit-event="home_open_search" data-rybbit-prop-surface="shell">Open search</a>
         <a class="btn primary pq-mobile-auth" href="/sign-in?signing_in=1">Sign in</a>
-        <a class="btn ghost" href="/register">{{ brand.create_label }}</a>
+        <a class="btn ghost" href="/register" data-analytics-event="home_email_setup" data-rybbit-event="home_email_setup" data-rybbit-prop-surface="shell">{{ brand.create_label }}</a>
         {% endif %}
         {% endif %}
         <details class="mobile-nav-sheet">

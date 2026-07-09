@@ -978,7 +978,7 @@ def _property_run_provider_check_label(summary: dict[str, object], *, status: st
         unit = _property_run_source_unit_label(summary, total=total)
         return f"{done} / {total} {unit}"
     if total > 0:
-        return f"{total} providers selected"
+        return f"{total} sites chosen"
     return ""
 
 
@@ -2165,7 +2165,7 @@ def _property_run_summary_message(payload: dict[str, object], summary: dict[str,
     to_review_total = listing_work["to_review"]
     checked_label = _property_run_listing_queue_label(found_total, to_review_total)
     scan_label = checked_label if found_total > 0 else (
-        f"{provider_display_total} providers selected" if provider_display_total > 0 else checked_label
+        f"{provider_display_total} sites chosen" if provider_display_total > 0 else checked_label
     )
     if found_total > 0 and source_work["open"] > 0:
         source_label = _property_run_provider_check_label(summary, status=status)
@@ -2246,7 +2246,7 @@ def build_property_run_live_board_snapshot(
     if waiting_on_floorplans > 0:
         aggregate_label += f" · {waiting_on_floorplans} floorplans pending"
     phase_label = str(current_info.get("phase_label") or "").strip() or "Looking for the first homes."
-    if phase_label in {"Waiting for the first provider update.", "Waiting for the first provider.", "Waiting for the first provider check."}:
+    if phase_label in {"Waiting for the first update.", "Waiting for the first site.", "Waiting for the first check."}:
         phase_label = "Looking for the first homes."
     active_source_summary = _property_run_source_summary_for_label(source_rows, active_source_label)
     source_near_miss_label = _property_run_source_near_miss_phase_label(active_source_summary)
@@ -2256,13 +2256,13 @@ def build_property_run_live_board_snapshot(
     elif current_info.get("fraction_label") and candidate_reason_label:
         phase_label = candidate_reason_label
     current_step = str(payload.get("current_step") or "").strip().lower()
-    if phase_label in {"Waiting for the first provider update.", "Waiting for the first list.", "Waiting for the first provider check.", "Waiting for the first provider.", "Waiting for the first source.", "Looking for the first homes."} and packet_prepared > 0 and current_step == "source_review_packet":
+    if phase_label in {"Waiting for the first update.", "Waiting for the first list.", "Waiting for the first check.", "Waiting for the first site.", "Looking for the first homes."} and packet_prepared > 0 and current_step == "source_review_packet":
         phase_label = f"{packet_prepared} property pages prepared"
     elif (
         current_step == "source_shortlist"
         and shortlist_ready > 0
         and (
-            phase_label in {"Waiting for the first provider update.", "Waiting for the first list.", "Waiting for the first provider check.", "Waiting for the first provider.", "Waiting for the first source.", "Looking for the first homes.", "Shortlist ready"}
+            phase_label in {"Waiting for the first update.", "Waiting for the first list.", "Waiting for the first check.", "Waiting for the first site.", "Looking for the first homes.", "Shortlist ready"}
             or phase_label.lower().startswith("shortlist ready")
         )
     ):
@@ -2936,10 +2936,10 @@ def build_property_empty_outcome_summary(
                 stopped_context = (
                     f"Selected sites searched {listing_label}."
                     if listing_total > 0
-                    else "The brief and selected providers were saved, but no provider produced results for the brief."
+                    else "The brief and chosen sites were saved, but none returned a match for the brief."
                 )
             else:
-                stopped_context = "The brief and selected providers were saved, but no provider produced results for the brief."
+                stopped_context = "The brief and chosen sites were saved, but none returned a match for the brief."
         elif source_total or listing_total:
             listing_label = f"{listing_total} listing{'s' if listing_total != 1 else ''}"
             if database_pressure:
@@ -2956,7 +2956,7 @@ def build_property_empty_outcome_summary(
                     "the saved brief before retry took over."
                 )
             else:
-                stopped_context = f"Selected providers searched {listing_label}."
+                stopped_context = f"Selected sites checked {listing_label}."
         else:
             if repair_task_open or repair_step_label or repair_status_label:
                 happened = safe_failed_message or calm_repair_copy or "PropertyQuarry is checking the saved search again."
@@ -2988,7 +2988,7 @@ def build_property_empty_outcome_summary(
         )
     elif filtered_total > 0 and listing_total == 0 and (location_mismatch_total > 0 or area_filtered_total >= max(1, filtered_total // 2)):
         still_worked = (
-            f"{raw_listing_total or filtered_total} home{'s' if (raw_listing_total or filtered_total) != 1 else ''} returned by the selected providers."
+            f"{raw_listing_total or filtered_total} home{'s' if (raw_listing_total or filtered_total) != 1 else ''} came back from the selected sites."
         )
     elif legacy_ranking_gate_empty:
         still_worked = (
@@ -2996,9 +2996,9 @@ def build_property_empty_outcome_summary(
         )
     else:
         still_worked = (
-            f"Selected providers searched {listing_total} listing{'s' if listing_total != 1 else ''}."
+            f"Selected sites checked {listing_total} listing{'s' if listing_total != 1 else ''}."
             if listing_total
-            else "The brief and selected providers were still saved."
+            else "The brief and chosen sites were still saved."
         )
     if status_value == "failed" and replacement_run_id:
         next_move = (

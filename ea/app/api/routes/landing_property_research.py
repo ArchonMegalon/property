@@ -1060,7 +1060,7 @@ def _property_packet_provenance_rows(facts: dict[str, object]) -> list[dict[str,
             value = str(raw_value).strip()
         if not value:
             continue
-        provenance = "Checked" if key in research_snapshot else "From listing"
+        provenance = "Checked" if key in research_snapshot else "Provided"
         if key in {"street_address", "exact_address", "address"} and ("map_lat" in research_snapshot or "map_lng" in research_snapshot):
             provenance = "Estimated"
         detail = value

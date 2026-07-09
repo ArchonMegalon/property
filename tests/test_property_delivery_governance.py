@@ -19,12 +19,12 @@ def test_property_delivery_channel_policies_cover_email_telegram_whatsapp() -> N
     assert policies["email"].suppression_required is True
 
 
-def test_property_delivery_governance_rows_mark_enabled_channels() -> None:
+def test_property_delivery_governance_rows_mark_on_channels() -> None:
     rows = property_delivery_governance_rows(["telegram", "whatsapp"])
     by_key = {str(row["channel_key"]): row for row in rows}
 
     assert by_key["email"]["tag"] == "Off"
-    assert by_key["telegram"]["tag"] == "Enabled"
-    assert by_key["whatsapp"]["tag"] == "Enabled"
-    assert "STOP/START" in str(by_key["whatsapp"]["detail"])
+    assert by_key["telegram"]["tag"] == "On"
+    assert by_key["whatsapp"]["tag"] == "On"
+    assert "pause or resume" in str(by_key["whatsapp"]["detail"])
     assert property_delivery_channel_policy("unknown") is None

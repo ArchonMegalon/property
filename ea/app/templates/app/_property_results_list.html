@@ -239,7 +239,7 @@
               <a class="pqx-result-fact pqx-result-tour-link" href="{{ tour.get('url') }}" title="{{ tour.get('detail') or 'Open the 3D tour.' }}" aria-label="3D tour" data-rybbit-event="pq.tour.opened" data-rybbit-prop-surface="{{ surface_mode or 'results' }}">3D tour</a>
               {% endif %}
               {% if walkthrough.get('url') %}
-              <a class="pqx-result-fact pqx-result-tour-link" href="{{ walkthrough.get('url') }}" title="{{ walkthrough.get('detail') or 'Open the walkthrough.' }}" aria-label="Walkthrough">Walkthrough</a>
+              <a class="pqx-result-fact pqx-result-tour-link" href="{{ walkthrough.get('url') }}" title="{{ walkthrough.get('detail') or 'Open the walkthrough.' }}" aria-label="Walkthrough" data-rybbit-event="pq.flythrough.opened" data-rybbit-prop-surface="{{ surface_mode or 'results' }}">Walkthrough</a>
               {% endif %}
             </span>
           </span>

@@ -341,7 +341,8 @@
         <a class="btn primary" href="/app/search" data-analytics-event="home_open_search" data-rybbit-event="home_open_search" data-rybbit-prop-surface="hero">Open search</a>
         <a class="btn" href="/app/properties" data-analytics-event="home_open_results" data-rybbit-event="home_open_results" data-rybbit-prop-surface="hero">Open latest results</a>
         {% else %}
-        <a class="btn primary" href="/sign-in?signing_in=1" data-analytics-event="home_sign_in" data-rybbit-event="home_sign_in" data-rybbit-prop-surface="hero">Sign in</a>
+        <a class="btn primary" href="/sign-in?signing_in=1" data-analytics-event="home_open_search" data-rybbit-event="home_open_search" data-rybbit-prop-surface="hero">Open search</a>
+        <a class="btn" href="/register" data-analytics-event="home_email_setup" data-rybbit-event="home_email_setup" data-rybbit-prop-surface="hero">{{ brand.create_label or 'Email sign-in' }}</a>
         {% endif %}
       </div>
     </div>
