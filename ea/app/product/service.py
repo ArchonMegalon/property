@@ -2773,12 +2773,12 @@ def _property_enrich_missing_fact_research(
                     "status": "filled",
                     "value": enriched["rooms"],
                     "display_value": enriched["rooms_label"],
-                    "evidence": evidence or "Extracted from listing text or floorplan reference.",
+                    "evidence": evidence or "Estimated from the plan notes and visible room cues.",
                     "ooda": {
                         "observe": "Room count was absent from the structured listing facts.",
                         "orient": "The listing exposes floorplan or auction-document evidence, so the missing value is researchable.",
                         "decide": "Use the extracted room cue as a medium-confidence fact and keep the evidence visible.",
-                        "act": "Filled rooms from source/floorplan text; verify manually during detailed review.",
+                        "act": "Filled rooms from plan notes and room cues; verify during detailed review.",
                     },
                 }
             else:
