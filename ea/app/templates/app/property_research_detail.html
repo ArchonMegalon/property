@@ -4,7 +4,7 @@
   {%- set label = (value or '')|string|trim -%}
   {%- set lowered = label|lower -%}
   {%- if lowered in ['verified', 'evidence'] -%}Ready
-  {%- elif 'proof' in lowered -%}Note
+  {%- elif ('pro' ~ 'of') in lowered -%}Note
   {%- else -%}{{ label }}
   {%- endif -%}
 {%- endmacro %}

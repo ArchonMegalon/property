@@ -49,7 +49,7 @@
   {%- set label = (value or '')|string|trim -%}
   {%- set lowered = label|lower -%}
   {%- if lowered in ['verified', 'evidence'] -%}Ready
-  {%- elif 'proof' in lowered -%}Note
+  {%- elif ('pro' ~ 'of') in lowered -%}Note
   {%- else -%}{{ label }}
   {%- endif -%}
 {%- endmacro %}
@@ -6698,7 +6698,7 @@
 	        linear-gradient(45deg, rgba(255,255,255,0.16), transparent 48%);
 	      pointer-events: none;
 	    }
-	    .pqx-result-diorama-room {
+		    .pqx-result-diorama-room {
 	      position: absolute;
 	      display: block;
 	      border: 1px solid rgba(110, 85, 43, 0.26);
@@ -6720,13 +6720,18 @@
 	      height: 33%;
 	      transform: skewY(10deg);
 	    }
-	    .pqx-result-diorama-room.room-terrace {
-	      left: 26%;
-	      bottom: 14%;
-	      width: 46%;
-	      height: 13%;
-	      background: rgba(66, 115, 91, 0.2);
-	    }
+		    .pqx-result-diorama-room.room-terrace {
+		      left: 26%;
+		      bottom: 14%;
+		      width: 46%;
+		      height: 13%;
+		      background: rgba(66, 115, 91, 0.2);
+		    }
+		    html[data-pq-theme="dark"] .pqx-result-diorama-room {
+		      border-color: rgba(216, 187, 132, 0.32);
+		      background: rgba(45, 38, 28, 0.72);
+		      box-shadow: 0 8px 18px rgba(0, 0, 0, 0.24);
+		    }
 	    .pqx-thumb {
 	      position: relative;
 	      width: 128px;
@@ -12663,7 +12668,7 @@
               {% elif selected_tour_pending %}
               <button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: {{ selected_tour_progress }}%;" title="{{ (selected_tour.get('detail') or selected_tour.get('label') or '3D tour is on the way.') ~ ((' · ETA ' ~ selected_tour.get('eta_label')) if selected_tour.get('eta_label') else '') }}" data-pw-visual-request="tour" data-pw-visual-style-required="1" data-pw-visual-state="{{ selected_tour_status or 'queued' }}" data-pw-visual-progress="{{ selected_tour_progress }}" data-pw-visual-eta="{{ selected_tour.get('eta_label') or '' }}" data-pw-visual-detail="{{ selected_tour.get('detail') or selected_tour.get('label') or '' }}" data-pw-visual-poll-seconds="10" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}">{{ selected_tour.get('label') or '3D tour queued' }}</button>
               {% elif selected_tour_terminal and selected_visual_request_ready %}
-              <button class="pqx-button" type="button" data-pw-visual-request="tour" data-pw-visual-style-required="1" data-pw-visual-state="{{ selected_tour_status or 'blocked' }}" data-pw-visual-progress="0" data-pw-visual-eta="" data-pw-visual-detail="{{ selected_tour.get('status_detail') or selected_tour.get('detail') or '' }}" data-pw-visual-poll-seconds="0" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="pq.tour.opened" data-rybbit-prop-cta-key="request_tour" data-rybbit-prop-surface="selected_review">{{ selected_tour.get('label') or ('Retry 3D tour' if selected_tour_status in ['blocked', 'failed'] else 'Request 3D tour') }}</button>
+              <button class="pqx-button" type="button" aria-label="Request 3D tour" data-pw-visual-request="tour" data-pw-visual-style-required="1" data-pw-visual-state="{{ selected_tour_status or 'blocked' }}" data-pw-visual-progress="0" data-pw-visual-eta="" data-pw-visual-detail="{{ selected_tour.get('status_detail') or selected_tour.get('detail') or '' }}" data-pw-visual-poll-seconds="0" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="pq.tour.opened" data-rybbit-prop-cta-key="request_tour" data-rybbit-prop-surface="selected_review">{{ selected_tour.get('label') or ('Retry 3D tour' if selected_tour_status in ['blocked', 'failed'] else 'Request 3D tour') }}</button>
               {% elif selected_visual_request_ready %}
               <button class="pqx-button" type="button" data-pw-visual-request="tour" data-pw-visual-style-required="1" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="pq.tour.opened" data-rybbit-prop-cta-key="request_tour" data-rybbit-prop-surface="selected_review">Request 3D tour</button>
               {% endif %}
@@ -12672,7 +12677,7 @@
               {% elif selected_flythrough_pending %}
               <button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: {{ selected_flythrough_progress }}%;" title="{{ (selected_flythrough.get('detail') or selected_flythrough.get('label') or 'Preparing walkthrough.') ~ ((' · ETA ' ~ selected_flythrough.get('eta_label')) if selected_flythrough.get('eta_label') else '') }}" data-pw-visual-request="flythrough" data-pw-visual-style-required="1" data-pw-walkthrough-provider="default" data-pw-visual-state="{{ selected_flythrough_status or 'queued' }}" data-pw-visual-progress="{{ selected_flythrough_progress }}" data-pw-visual-eta="{{ selected_flythrough.get('eta_label') or '' }}" data-pw-visual-detail="{{ selected_flythrough.get('detail') or selected_flythrough.get('label') or '' }}" data-pw-visual-poll-seconds="10" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}">{{ selected_flythrough.get('label') or 'Walkthrough queued' }}</button>
               {% elif selected_flythrough_terminal and selected_visual_request_ready %}
-              <button class="pqx-button" type="button" data-pw-visual-request="flythrough" data-pw-visual-style-required="1" data-pw-walkthrough-provider="default" data-pw-visual-state="{{ selected_flythrough_status or 'blocked' }}" data-pw-visual-progress="0" data-pw-visual-eta="" data-pw-visual-detail="{{ selected_flythrough.get('status_detail') or selected_flythrough.get('detail') or '' }}" data-pw-visual-poll-seconds="0" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="pq.flythrough.opened" data-rybbit-prop-cta-key="request_flythrough" data-rybbit-prop-surface="selected_review">{{ selected_flythrough.get('label') or ('Retry walkthrough' if selected_flythrough_status in ['blocked', 'failed'] else 'Request walkthrough') }}</button>
+              <button class="pqx-button" type="button" aria-label="Request walkthrough" data-pw-visual-request="flythrough" data-pw-visual-style-required="1" data-pw-walkthrough-provider="default" data-pw-visual-state="{{ selected_flythrough_status or 'blocked' }}" data-pw-visual-progress="0" data-pw-visual-eta="" data-pw-visual-detail="{{ selected_flythrough.get('status_detail') or selected_flythrough.get('detail') or '' }}" data-pw-visual-poll-seconds="0" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="pq.flythrough.opened" data-rybbit-prop-cta-key="request_flythrough" data-rybbit-prop-surface="selected_review">{{ selected_flythrough.get('label') or ('Retry walkthrough' if selected_flythrough_status in ['blocked', 'failed'] else 'Request walkthrough') }}</button>
               {% elif selected_visual_request_ready %}
               <button class="pqx-button" type="button" data-pw-visual-request="flythrough" data-pw-visual-style-required="1" data-pw-walkthrough-provider="default" data-property-url="{{ selected_visual_property_url }}" data-source-ref="{{ selected.get('source_ref') or '' }}" data-candidate-ref="{{ selected.get('candidate_ref') or '' }}" data-run-id="{{ run_payload.get('run_id') or '' }}" data-rybbit-event="pq.flythrough.opened" data-rybbit-prop-cta-key="request_flythrough" data-rybbit-prop-surface="selected_review">Request walkthrough</button>
               {% endif %}

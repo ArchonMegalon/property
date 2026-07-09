@@ -281,7 +281,7 @@
                 <span>{{ google_account.get('primary_email') or 'Not connected yet.' }}</span>
                 <span>{{ google_account.get('detail') or 'Google opens the same account and creates it if needed.' }}</span>
               </div>
-              <button class="pqx-link-button primary" type="submit">{{ google_account.get('action_label') or 'Connect Google' }}</button>
+              <button class="pqx-link-button primary" type="submit" aria-label="Connect Google">{{ google_account.get('action_label') or 'Connect Google' }}</button>
             </form>
             {% endif %}
             {% if settings_view == 'access' or access_status_note %}
