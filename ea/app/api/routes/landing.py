@@ -1334,21 +1334,8 @@ def _propertyquarry_example_media_targets() -> dict[str, str]:
             continue
         bundle_tour_url = _propertyquarry_absolute_public_url(bundle_tour_href)
         slug = str(payload.get("slug") or bundle_dir.name).strip()
-        resolved_tour_href = ""
-        tour_label = ""
-        try:
-            if property_tour_hosting._hosted_property_tour_has_3dvista_export(bundle_tour_url):
-                resolved_tour_href = f"/tours/{urllib.parse.quote(slug, safe='')}/control/3dvista"
-                tour_label = "3D tour available"
-            elif property_tour_hosting._hosted_property_tour_has_matterport_export(bundle_tour_url):
-                resolved_tour_href = f"/tours/{urllib.parse.quote(slug, safe='')}/control/matterport"
-                tour_label = "3D tour available"
-        except Exception:
-            resolved_tour_href = ""
-        if not resolved_tour_href:
-            resolved_tour_href = property_tour_hosting._hosted_property_tour_first_party_open_url(bundle_tour_url)
-            if resolved_tour_href:
-                tour_label = "3D tour available"
+        resolved_tour_href = property_tour_hosting._hosted_property_tour_verified_open_url(bundle_tour_url)
+        tour_label = "3D tour available" if resolved_tour_href else ""
         if not resolved_tour_href:
             continue
         targets = {

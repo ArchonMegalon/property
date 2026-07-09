@@ -728,11 +728,14 @@ def _hosted_property_tour_verified_provider(tour_url: object) -> str:
     payload = _hosted_property_tour_payload_for_url(normalized_url)
     if not payload:
         return ""
-    if not _property_tour_payload_is_disabled_fallback(payload):
-        if _hosted_property_tour_has_matterport_export(normalized_url):
-            return "matterport"
-        if _hosted_property_tour_has_3dvista_export(normalized_url):
-            return "3dvista"
+    # A hosted bundle can be floorplan/layout-first while still carrying a
+    # verified provider control. Provider evidence must win over fallback shape.
+    if _hosted_property_tour_has_3dvista_export(normalized_url):
+        return "3dvista"
+    if _hosted_property_tour_has_matterport_export(normalized_url):
+        return "matterport"
+    if _property_tour_payload_is_disabled_fallback(payload):
+        return ""
     return ""
 
 

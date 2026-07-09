@@ -7524,19 +7524,27 @@ def public_tour_control_viewer(slug: str, viewer_mode: str, request: Request) ->
     if normalized_viewer_mode in {"matterport", "metaport", "3dvista", "3d_vista", "three_d_vista"}:
         # Provider controls need the verified private receipt URL server-side, but
         # the public JSON manifest must continue to omit source/provider URLs.
+        rendered_payload = payload
         if _public_tour_request_embeds_walkthrough(request):
-            payload = {**payload, "_tour_control_embed_walkthrough": True}
-        return HTMLResponse(_tour_control_html(payload, viewer_mode=viewer_mode, fullscreen=fullscreen), headers=_public_tour_security_headers())
+            rendered_payload = {**rendered_payload, "_tour_control_embed_walkthrough": True}
+        if fullscreen:
+            return HTMLResponse(
+                _tour_control_html(rendered_payload, viewer_mode=viewer_mode, fullscreen=fullscreen),
+                headers=_public_tour_security_headers(),
+            )
+        return HTMLResponse(_tour_control_html(rendered_payload, viewer_mode=viewer_mode), headers=_public_tour_security_headers())
     rendered_payload = _redacted_public_tour_payload(
         payload,
         expose_asset_relpaths=normalized_viewer_mode in {"pano2vr", "pano_2_vr"},
     )
     if _public_tour_request_embeds_walkthrough(request):
         rendered_payload["_tour_control_embed_walkthrough"] = True
-    return HTMLResponse(
-        _tour_control_html(rendered_payload, viewer_mode=viewer_mode, fullscreen=fullscreen),
-        headers=_public_tour_security_headers(),
-    )
+    if fullscreen:
+        return HTMLResponse(
+            _tour_control_html(rendered_payload, viewer_mode=viewer_mode, fullscreen=fullscreen),
+            headers=_public_tour_security_headers(),
+        )
+    return HTMLResponse(_tour_control_html(rendered_payload, viewer_mode=viewer_mode), headers=_public_tour_security_headers())
 
 
 @router.post("/tours/{slug}/request-details", response_class=JSONResponse)
