@@ -22,6 +22,7 @@ from scripts.property_runtime_reconstruction_smoke import (
     _labels_contain_keyword,
     _looks_like_generic_route_label,
     _resolved_local_public_base_url,
+    _sync_container_tour_to_host_root,
 )
 
 
@@ -382,6 +383,13 @@ PY
         public_base_url,
         public_container=str(os.getenv("PROPERTYQUARRY_API_CONTAINER_NAME") or DEFAULT_API_CONTAINER).strip(),
     )
+    host_public_tour_sync: dict[str, object] = {"status": "skipped", "reason": "public_base_url_missing"}
+    if resolved_public_base_url and (require_public_contract or require_browser_shell):
+        host_public_tour_sync = _sync_container_tour_to_host_root(
+            container,
+            slug=generated_slug,
+            public_base_url=resolved_public_base_url,
+        )
     public_contract_receipt: dict[str, object] = {}
     public_contract_ok = True
     if resolved_public_base_url:
@@ -437,6 +445,7 @@ PY
             slug=generated_slug,
         ),
         "resolved_public_base_url": resolved_public_base_url,
+        "host_public_tour_sync": host_public_tour_sync,
         "required_paths_ok": required_paths_ok,
         "top_level_video_contract_ok": top_level_video_contract_ok,
         "route_label_quality_ok": route_label_quality_ok,

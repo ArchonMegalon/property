@@ -311,6 +311,7 @@ def test_service_generated_reconstruction_smoke_forwards_host_header_to_public_c
         "_resolved_local_public_base_url",
         lambda public_base_url, *, public_container: "http://127.0.0.1:8097",
     )
+    monkeypatch.setattr(smoke, "_sync_container_tour_to_host_root", lambda *_, **__: {"status": "pass"})
     monkeypatch.setattr(smoke, "_check_generated_reconstruction_public_contract", _fake_public_contract)
 
     receipt = smoke.build_service_generated_reconstruction_receipt(
@@ -328,8 +329,47 @@ def test_service_generated_reconstruction_smoke_forwards_host_header_to_public_c
     }
     assert receipt["status"] == "failed"
     assert receipt["resolved_public_base_url"] == "http://127.0.0.1:8097"
+    assert receipt["host_public_tour_sync"]["status"] == "pass"
     assert receipt["public_route_contract_ok"] is False
     assert receipt["public_route_contract"]["failures"] == ["canonical_not_shell_or_control"]
+
+
+def test_service_generated_reconstruction_smoke_syncs_container_tour_before_local_public_probes(monkeypatch) -> None:
+    monkeypatch.setattr(smoke.shutil, "which", lambda command: "/usr/bin/docker" if command == "docker" else None)
+
+    def _fake_run(command: list[str], *, timeout: int = 120) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(command, 0, stdout=json.dumps(_inspection_payload()) + "\n", stderr="")
+
+    observed: dict[str, str] = {}
+
+    def _fake_sync(container: str, *, slug: str, public_base_url: str) -> dict[str, object]:
+        observed["container"] = container
+        observed["slug"] = slug
+        observed["public_base_url"] = public_base_url
+        return {"status": "pass", "destination": f"/tmp/public-tours/{slug}"}
+
+    monkeypatch.setattr(smoke, "_run", _fake_run)
+    monkeypatch.setattr(smoke, "_sync_container_tour_to_host_root", _fake_sync)
+    monkeypatch.setattr(smoke, "_check_generated_reconstruction_public_contract", lambda **_: {"status": "pass"})
+    monkeypatch.setattr(smoke, "_check_generated_reconstruction_browser_shell", lambda **_: {"status": "pass"})
+
+    receipt = smoke.build_service_generated_reconstruction_receipt(
+        container="propertyquarry-api",
+        slug="runtime-service-generated-reconstruction-smoke",
+        public_base_url="http://127.0.0.1:8099",
+        host_header="propertyquarry.com",
+        require_public_contract=True,
+        require_browser_shell=True,
+    )
+
+    assert receipt["status"] == "pass"
+    assert observed == {
+        "container": "propertyquarry-api",
+        "slug": "runtime-service-generated-reconstruction-smoke",
+        "public_base_url": "http://127.0.0.1:8099",
+    }
+    assert receipt["host_public_tour_sync"]["status"] == "pass"
+    assert receipt["host_public_tour_sync"]["destination"].endswith("/runtime-service-generated-reconstruction-smoke")
 
 
 def test_service_generated_reconstruction_smoke_requires_browser_shell_when_requested(monkeypatch) -> None:
