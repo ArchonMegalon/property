@@ -5201,6 +5201,19 @@ def test_propertyquarry_fast_ranked_run_shell_uses_lightweight_status_endpoint()
     assert "data-property-decision-workbench" not in response.text
 
 
+def test_propertyquarry_fast_ranked_run_has_server_rendered_authenticated_empty_state() -> None:
+    client = build_property_client(principal_id="pq-fast-ranked-run-empty-state")
+    start_workspace(client, mode="personal", workspace_name="Fast Shell Empty State")
+
+    response = client.get("/app/shortlist/run/run-empty-state", headers={"host": "propertyquarry.com"})
+
+    assert response.status_code == 200
+    assert 'data-pq-fast-empty-fallback' in response.text
+    assert "No matching homes yet" in response.text
+    assert "Open search" in response.text
+    assert "Sample homes" not in response.text
+
+
 def test_propertyquarry_fast_ranked_run_renders_sample_homes_for_anonymous_visitors() -> None:
     client = build_property_client(principal_id="pq-fast-ranked-run-public")
     client.headers.pop("X-EA-Principal-ID", None)

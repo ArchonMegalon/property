@@ -252,9 +252,11 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_live_public_smoke.py \
   --base-url "${live_mobile_base_url}" \
   --write _completion/smoke/property-live-public-release-gate.json \
   > /dev/null
+live_authenticated_plan_label="${PROPERTYQUARRY_LIVE_SMOKE_PLAN_LABEL:-Free}"
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_live_authenticated_smoke.py \
   --base-url "${live_mobile_base_url}" \
   --api-token "${EA_API_TOKEN}" \
+  --expected-plan-label "${live_authenticated_plan_label}" \
   --write _completion/smoke/property-live-authenticated-release-gate.json \
   > /dev/null
 runtime_reconstruction_container="${PROPERTYQUARRY_RUNTIME_RECONSTRUCTION_CONTAINER:-${property_render_container}}"

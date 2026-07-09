@@ -396,6 +396,13 @@
       <div class="pq-fast-skeleton-line short" style="width:48px;"></div>
     </article>
     {% endfor %}
+    <section class="pq-fast-card pq-fast-empty" data-pq-fast-empty-fallback>
+      <h2>No matching homes yet</h2>
+      <p>The search can still update. Open search to widen the brief or keep this page open.</p>
+      <div class="pq-fast-actions">
+        <a class="btn primary" href="{{ search_href }}">Open search</a>
+      </div>
+    </section>
 	    {% endif %}
 	  </section>
 	  <script type="application/json" data-pq-fast-initial-payload>{{ (initial_run_payload or {})|tojson }}</script>

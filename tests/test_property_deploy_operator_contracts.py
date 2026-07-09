@@ -502,6 +502,8 @@ def test_property_release_gate_wires_scene_video_refresh_packet_verifier_into_go
     assert "--live-mobile-receipt _completion/smoke/property-live-mobile-release-gate.json" in release_gate
     assert "scripts/propertyquarry_live_public_smoke.py" in release_gate
     assert "scripts/propertyquarry_live_authenticated_smoke.py" in release_gate
+    assert 'live_authenticated_plan_label="${PROPERTYQUARRY_LIVE_SMOKE_PLAN_LABEL:-Free}"' in release_gate
+    assert '--expected-plan-label "${live_authenticated_plan_label}"' in release_gate
     assert "_completion/smoke/property-live-public-release-gate.json" in release_gate
     assert "_completion/smoke/property-live-authenticated-release-gate.json" in release_gate
     assert "--public-smoke-receipt _completion/smoke/property-live-public-release-gate.json" in release_gate
