@@ -4630,7 +4630,7 @@ def property_workspace_payload(
                             }
                             for run in (selected_agent_runs[:3] if selected_agent_runs else previous_search_runs[:3])
                         ]
-                        or [row_item("No finished search yet", "The first completed search will show matches, updates, and hidden homes here.", "Waiting")]
+                        or [row_item("No finished search yet", "The first completed search will show matches, updates, and homes just outside the search here.", "Waiting")]
                     ),
                 },
                 run_card,

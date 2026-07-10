@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PropertyQuarry Shared Homes</title>
+  <title>PropertyQuarry Shared Pages</title>
   <script>
     (function () {
       try {
@@ -456,7 +456,7 @@
             </div>
             <div class="pq-pack-account-links">
               <a class="pq-pack-button" href="{{ account_nav.profile_href }}">Saved defaults</a>
-              <a class="pq-pack-button" href="{{ account_nav.billing_href }}">Billing</a>
+              <a class="pq-pack-button" href="{{ account_nav.billing_href }}">{{ account_nav.billing_label or 'Billing account' }}</a>
               <a class="pq-pack-button" href="{{ account_nav.settings_href }}">Access</a>
               <form method="post" action="{{ account_nav.sign_out_action }}">
                 <input type="hidden" name="return_to" value="{{ account_nav.sign_out_return_to }}">
@@ -473,7 +473,7 @@
 
     <section class="pq-pack-hero">
       <div class="pq-pack-panel">
-        <div class="pq-pack-kicker">Shared homes</div>
+        <div class="pq-pack-kicker">Shared pages</div>
         <h1>Share property pages and keep the replies together.</h1>
         <p class="pq-pack-copy">Send only pages that are ready to be seen. Replies stay here before they change the search.</p>
       </div>
@@ -491,9 +491,9 @@
     <section class="pq-pack-summary-grid" aria-label="Property sharing summary">
       <article class="pq-pack-summary-card">
         <div class="pq-pack-kicker">Ready to share</div>
-        <strong>Homes that are ready to share</strong>
+        <strong>Pages that are ready to share</strong>
         <ul>
-          <li>{{ dashboard_summary.published_total }} home page(s) ready and {{ dashboard_summary.share_total }} already shared.</li>
+          <li>{{ dashboard_summary.published_total }} shared page(s) ready and {{ dashboard_summary.share_total }} already shared.</li>
           <li>{{ fliplink_capacity.remaining }} sharing slot(s) remain on the current plan.</li>
           <li>Use this page instead of forwarding loose PDFs or scattered links.</li>
         </ul>
@@ -520,7 +520,7 @@
 
     <section class="pq-pack-panel">
       <div class="pq-pack-kicker">Homes</div>
-      <h2>Shared homes</h2>
+      <h2>Shared pages</h2>
       {% if publications %}
       <div class="pq-pack-card-list">
         {% for row in publications %}

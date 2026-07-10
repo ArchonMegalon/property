@@ -839,6 +839,20 @@ def _missing_evidence_blocks_public_tour(row: dict[str, str]) -> bool:
     return provider in PUBLIC_REQUIRED_PROVIDER_MODES
 
 
+def _surface_optional_missing_evidence(row: dict[str, str], payload: dict[str, object]) -> bool:
+    provider = str(row.get("provider") or "").strip().lower()
+    if provider == "krpano":
+        walkable_scene = payload.get("walkable_scene")
+        if not isinstance(walkable_scene, dict) or not walkable_scene:
+            return False
+        scene_strategy = str(payload.get("scene_strategy") or "").strip().lower()
+        creation_mode = str(payload.get("creation_mode") or "").strip().lower()
+        return scene_strategy == "walkable_panorama" or creation_mode == "hosted_walkable_360"
+    if provider == "pano2vr":
+        return bool(_pano2vr_entry_relpath(payload))
+    return False
+
+
 def _control_candidates(*, slug: str, bundle_dir: Path, payload: dict[str, object]) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     if _tour_payload_is_disabled_fallback(payload):
@@ -1236,7 +1250,17 @@ def build_property_tour_control_receipt(
                 for row in missing_evidence
                 if _missing_evidence_blocks_public_tour(row)
             ]
-            missing_public_evidence = required_missing_evidence if require_all_provider_modes else ([] if ready_controls else required_missing_evidence)
+            optional_missing_evidence = [
+                row
+                for row in missing_evidence
+                if not _missing_evidence_blocks_public_tour(row) and _surface_optional_missing_evidence(row, payload)
+            ]
+            if require_all_provider_modes:
+                missing_public_evidence = missing_evidence
+            elif ready_controls:
+                missing_public_evidence = optional_missing_evidence
+            else:
+                missing_public_evidence = required_missing_evidence + optional_missing_evidence
             tour_missing_provider_modes = sorted(
                 {
                     str(row.get("provider") or "").strip().lower()

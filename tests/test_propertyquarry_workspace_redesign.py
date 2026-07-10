@@ -17184,15 +17184,15 @@ def test_property_packets_dashboard_uses_customer_facing_language() -> None:
     body = template_path.read_text(encoding="utf-8")
 
     assert "Share property pages and keep the replies together." in body
-    assert "<title>PropertyQuarry Shared Homes</title>" in body
+    assert "<title>PropertyQuarry Shared Pages</title>" in body
     assert "Packet sharing" not in body
     assert "PropertyQuarry Packets" not in body
-    assert "Shared homes" in body
+    assert "Shared pages" in body
     assert "Ready to share" in body
     assert "Ready to share · PDF ready · sharing active" not in body
     assert "Paste shared link" in body
     assert "Copy reply link" in body
-    assert "Homes that are ready to share" in body
+    assert "Pages that are ready to share" in body
     assert "Read replies here before they change the search" in body
     assert "Review replies before they change the search" not in body
     assert 'href="/app/account{{ packet_query_suffix or \'\' }}" data-pqx-nav-account>Account</a>' in body
@@ -17576,7 +17576,7 @@ def test_property_workspace_templates_expose_account_navigation() -> None:
     for body in (console_shell, workbench):
         assert "Account navigation" in body
         assert ">Saved defaults<" in body
-        assert ">Billing<" in body or "account_nav.billing_label or 'Billing'" in body
+        assert "Billing account" in body
         assert ">Access<" in body
         assert ">Settings<" not in body
         assert ">Log out<" in body

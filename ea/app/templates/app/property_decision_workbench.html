@@ -107,9 +107,9 @@
           <div class="pqx-suppression-panel" data-pqx-filtered-breakdown data-pqx-suppression-summary>
   <button class="pqx-suppression-trigger" type="button" data-pqx-filtered-open aria-label="Open relaxed search options">
     <span class="pqx-suppression-trigger-copy">
-      <strong>{% if ns.total %}{{ ns.total }} outside this search{% else %}Adjust search{% endif %}</strong>
+      <strong>Review outside-brief homes</strong>
       <span class="pqx-note">
-        Choose one small change, then search again.
+        {% if ns.total %}{{ ns.total }} sit just outside this search. {% endif %}Choose one small change, then search again.
       </span>
     </span>
   </button>
@@ -10838,7 +10838,7 @@
               <a class="pqx-link-button" href="{{ account_nav.profile_href }}">Saved defaults</a>
               {% endif %}
             {% if not billing_surface and surface_mode != 'search' %}
-            <a class="pqx-link-button" href="{{ account_nav.billing_href }}">{{ account_nav.billing_label or 'Billing' }}</a>
+            <a class="pqx-link-button" href="{{ account_nav.billing_href }}">{{ account_nav.billing_label or 'Billing account' }}</a>
             {% endif %}
               {% if not account_surface %}
               <a class="pqx-link-button subtle" href="{{ account_nav.settings_href }}">Access</a>
@@ -10856,6 +10856,7 @@
       </div>
     </header>
     <script type="application/json" data-property-workbench-json>{{ workbench_client|tojson|safe }}</script>
+    <script type="application/json" data-property-workbench-template-labels>{"rank_title":"Best matches"}</script>
     <div hidden data-property-workspace-meta='{{ property_meta|tojson|safe }}'></div>
 
     <script>
