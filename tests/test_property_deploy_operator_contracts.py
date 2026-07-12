@@ -63,9 +63,13 @@ def test_smoke_runtime_bootstraps_clean_runner_dependencies_and_release_parent()
     assert "pytest==9.0.2" in api_job
     assert "httpx==0.28.1" in api_job
     assert "opencv-python-headless==4.13.0.92" in api_job
+    assert "sudo apt-get install --yes ffmpeg" in api_job
+    assert "python -m playwright install --with-deps chromium" in api_job
     assert "pytest==9.0.2" in browser_job
     assert "httpx==0.28.1" in browser_job
+    assert "sudo apt-get install --yes ffmpeg" in browser_job
     assert "POSTGRES_PASSWORD: propertyquarry-ci-${{ github.run_id }}" in postgres_smoke_job
+    assert "docker volume create property_propertyquarry_public_tours" in postgres_smoke_job
     assert "POSTGRES_PASSWORD: propertyquarry-ci-${{ github.run_id }}" in postgres_contract_job
     assert "pytest==9.0.2" in postgres_contract_job
     assert "httpx==0.28.1" in postgres_contract_job

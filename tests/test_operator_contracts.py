@@ -182,7 +182,7 @@ def _documented_api_prefixes_from_architecture_map() -> list[str]:
     return [
         match.group(1).removesuffix("/*")
         for match in re.finditer(r"^- [^:]+: `([^`]+)`", architecture_map, flags=re.MULTILINE)
-        if match.group(1).startswith(("/v1/", "/app/"))
+        if match.group(1).startswith(("/v1/", "/app/", "/internal/"))
     ]
 
 
@@ -198,7 +198,7 @@ def test_architecture_map_api_surface_route_prefix_matches_router(documented_pre
     ), f"ARCHITECTURE_MAP.md documents {documented_prefix} but no APIRouter prefix matches it"
 
 
-def test_architecture_map_documents_every_v1_router_prefix() -> None:
+def test_architecture_map_documents_every_mounted_api_router_prefix() -> None:
     documented_prefixes = _documented_api_prefixes_from_architecture_map()
     actual_prefixes = _route_prefixes_from_router_modules()
     assert documented_prefixes
@@ -214,7 +214,7 @@ def test_architecture_map_documents_every_v1_router_prefix() -> None:
     )
 
     assert not undocumented_prefixes, (
-        "ARCHITECTURE_MAP.md is missing mounted /v1 router prefixes: " + ", ".join(undocumented_prefixes)
+        "ARCHITECTURE_MAP.md is missing mounted API router prefixes: " + ", ".join(undocumented_prefixes)
     )
 
 

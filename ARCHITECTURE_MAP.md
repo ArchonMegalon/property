@@ -26,7 +26,9 @@
 - Connectors: `/v1/connectors/*`
 - Delivery: `/v1/delivery/*`
 - Evidence: `/v1/evidence/*`
+- Dadan webhook integration: `/v1/integrations/dadan/*`
 - FlipLink integrations: `/v1/integrations/fliplink/*`
+- Heyy WhatsApp webhook integration: `/v1/integrations/heyy/*`
 - Human tasks: `/v1/human/*`
 - Memory: `/v1/memory/*`
 - Observations: `/v1/observations/*`
@@ -34,6 +36,7 @@
 - Plans: `/v1/plans/*`
 - Policy: `/v1/policy/*`
 - Providers: `/v1/providers/*`
+- Subscribr signed webhook ingress: `/internal/providers/subscribr/*`
 - Rewrite: `/v1/rewrite/*`
 - Runtime: `/v1/runtime/*`
 - Skills: `/v1/skills/*`

@@ -1907,7 +1907,7 @@ def test_plan_compile_can_infer_ltd_runtime_image_and_media_lanes(monkeypatch: p
         "step_media_transform",
         "step_artifact_save",
     ]
-    assert media_body["plan"]["steps"][0]["input_keys"] == ["feature_type"]
+    assert media_body["plan"]["steps"][0]["input_keys"] == ["image_url"]
     assert media_body["plan"]["steps"][1]["input_keys"] == ["feature_type"]
 
     upscale_compiled = client.post(
