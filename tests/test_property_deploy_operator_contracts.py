@@ -51,6 +51,22 @@ def test_smoke_runtime_runs_unprivileged_local_propertyquarry_browser_contracts(
     assert "\n    if:" not in browser_job
 
 
+def test_smoke_runtime_bootstraps_clean_runner_dependencies_and_release_parent() -> None:
+    workflow = _read(".github/workflows/smoke-runtime.yml")
+    security_job = _workflow_job(workflow, "security-static")
+    api_job = _workflow_job(workflow, "smoke-runtime-api")
+    browser_job = _workflow_job(workflow, "propertyquarry-browser-contracts")
+    postgres_smoke_job = _workflow_job(workflow, "smoke-runtime-postgres")
+    postgres_contract_job = _workflow_job(workflow, "postgres-runtime-contracts")
+
+    assert "fetch-depth: 2" in security_job
+    assert "pytest==9.0.2" in api_job
+    assert "pytest==9.0.2" in browser_job
+    assert "POSTGRES_PASSWORD: propertyquarry-ci-${{ github.run_id }}" in postgres_smoke_job
+    assert "POSTGRES_PASSWORD: propertyquarry-ci-${{ github.run_id }}" in postgres_contract_job
+    assert "pytest==9.0.2" in postgres_contract_job
+
+
 def test_smoke_runtime_protects_live_propertyquarry_release_gates() -> None:
     workflow = _read(".github/workflows/smoke-runtime.yml")
     live_job = _workflow_job(workflow, "propertyquarry-live-release-gates")

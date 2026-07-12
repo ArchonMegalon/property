@@ -97,11 +97,11 @@ def build_security_posture_receipt() -> dict[str, object]:
         failures.append("docker-compose.property.yml must default the scheduler to property_only")
     if "dockerfile: ea/Dockerfile.property-web" not in compose:
         failures.append("docker-compose.property.yml must run API/scheduler from the lightweight web runtime")
-    if "image: propertyquarry-web-runtime:latest" not in compose:
+    if 'image: "${PROPERTYQUARRY_WEB_IMAGE:-propertyquarry-web-runtime:latest}"' not in compose:
         failures.append("docker-compose.property.yml must name the lightweight web runtime image")
     if "propertyquarry-render-tools:" not in compose or "render-tools" not in compose:
         failures.append("docker-compose.property.yml must expose an explicit render-tools profile")
-    if "image: propertyquarry-render-runtime:latest" not in compose:
+    if 'image: "${PROPERTYQUARRY_RENDER_IMAGE:-propertyquarry-render-runtime:latest}"' not in compose:
         failures.append("docker-compose.property.yml must name the render tooling image separately")
     if re.search(r"^\s+user:\s*[\"']?0(?::0)?[\"']?\s*$", compose, flags=re.MULTILINE):
         failures.append("docker-compose.property.yml must not run property web services as root")
