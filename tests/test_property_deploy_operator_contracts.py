@@ -61,10 +61,20 @@ def test_smoke_runtime_bootstraps_clean_runner_dependencies_and_release_parent()
 
     assert "fetch-depth: 2" in security_job
     assert "pytest==9.0.2" in api_job
+    assert "httpx==0.28.1" in api_job
+    assert "opencv-python-headless==4.13.0.92" in api_job
     assert "pytest==9.0.2" in browser_job
+    assert "httpx==0.28.1" in browser_job
     assert "POSTGRES_PASSWORD: propertyquarry-ci-${{ github.run_id }}" in postgres_smoke_job
     assert "POSTGRES_PASSWORD: propertyquarry-ci-${{ github.run_id }}" in postgres_contract_job
     assert "pytest==9.0.2" in postgres_contract_job
+    assert "httpx==0.28.1" in postgres_contract_job
+
+
+def test_legacy_compose_forwards_postgres_password_into_database_container() -> None:
+    compose = _read("docker-compose.yml")
+
+    assert 'POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-}"' in compose
 
 
 def test_smoke_runtime_protects_live_propertyquarry_release_gates() -> None:

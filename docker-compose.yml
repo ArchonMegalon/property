@@ -247,6 +247,8 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-}"
     volumes:
       - ea_pgdata:/var/lib/postgresql/data
     healthcheck:

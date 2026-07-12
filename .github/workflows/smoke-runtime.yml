@@ -40,7 +40,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install runtime dependencies
-        run: python -m pip install -r ea/requirements.txt -c ea/requirements.lock pytest==9.0.2
+        run: python -m pip install -r ea/requirements.txt -c ea/requirements.lock httpx==0.28.1 opencv-python-headless==4.13.0.92 pytest==9.0.2
       - name: Run core CI gates
         run: make ci-gates
 
@@ -57,7 +57,7 @@ jobs:
           python-version: "3.12"
       - name: Install browser dependencies
         run: |
-          python -m pip install -r ea/requirements.txt -c ea/requirements.lock pytest==9.0.2
+          python -m pip install -r ea/requirements.txt -c ea/requirements.lock httpx==0.28.1 pytest==9.0.2
           python -m playwright install --with-deps chromium
       - name: Run local PropertyQuarry browser contracts
         run: |
@@ -120,6 +120,6 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install Postgres contract dependencies
-        run: python -m pip install -r ea/requirements.txt -c ea/requirements.lock pytest==9.0.2
+        run: python -m pip install -r ea/requirements.txt -c ea/requirements.lock httpx==0.28.1 pytest==9.0.2
       - name: Run Postgres repository contracts
         run: bash scripts/test_postgres_contracts.sh
