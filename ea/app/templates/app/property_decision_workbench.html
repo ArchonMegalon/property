@@ -12655,6 +12655,22 @@
               {% endfor %}
             </div>
           </details>
+          {% set selected_objection_rows = selected.get('objection_rows') or [] %}
+          {% if selected_objection_rows %}
+          <details class="pqx-card pqx-mobile-review-more pqx-mobile-fold">
+            <summary>
+              <span class="pqx-mobile-review-copy">
+                <strong>Things to watch</strong>
+                <span class="pqx-mobile-review-preview">{{ selected_objection_rows[0].get('detail') or selected_objection_rows[0].get('title') or 'Review the main caution.' }}</span>
+              </span>
+            </summary>
+            <div class="pqx-event-list" data-pw-objections>
+              {% for row in selected_objection_rows[:3] %}
+              <div class="pqx-event-card"><strong>{{ row.get('title') or 'Main caution' }}</strong><span class="pqx-note">{{ row.get('detail') or 'Review this point before deciding.' }}</span></div>
+              {% endfor %}
+            </div>
+          </details>
+          {% endif %}
           {% if selected_tour.get('url') or selected_tour_pending or selected_tour_terminal or selected_flythrough.get('url') or selected_flythrough_pending or selected_flythrough_terminal or (selected_visual_property_url and not mobile_is_shortlist_surface) %}
           <details class="pqx-card pqx-mobile-review-more pqx-mobile-fold">
             <summary>

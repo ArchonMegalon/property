@@ -472,6 +472,20 @@ def _property_candidate_display_facts(candidate: dict[str, object]) -> dict[str,
                 merged[key] = listing_postal_name
         direct_fact_sources["location"] = "listing_text"
 
+    if not any(
+        merged.get(key) not in (None, "", 0, 0.0)
+        for key in ("area_sqm", "area_m2", "living_area_m2", "living_area_sqm")
+    ) and listing_text:
+        try:
+            from app.product.service import _property_extract_area_value
+
+            listing_area_sqm = _property_extract_area_value(listing_text)
+        except Exception:
+            listing_area_sqm = None
+        if isinstance(listing_area_sqm, float) and listing_area_sqm > 0.0:
+            merged["area_m2"] = listing_area_sqm
+            merged["area_source"] = "title_fallback"
+
     if not str(merged.get("price_display") or "").strip():
         fallback_price = ""
         price_source = ""
@@ -527,7 +541,7 @@ def _property_candidate_display_facts(candidate: dict[str, object]) -> dict[str,
         if _field_confirmation_allowed("price", source="provider_numeric_fact"):
             direct_fact_sources["price"] = "provider_numeric_fact"
 
-    if _field_confirmation_allowed("area", source="provider_structured_fact") and any(merged.get(key) not in (None, "", 0, 0.0) for key in ("area_sqm", "area_m2", "living_area_m2", "living_area_sqm")):
+    if not direct_fact_sources.get("area") and _field_confirmation_allowed("area", source="provider_structured_fact") and any(merged.get(key) not in (None, "", 0, 0.0) for key in ("area_sqm", "area_m2", "living_area_m2", "living_area_sqm")):
         direct_fact_sources["area"] = "provider_structured_fact"
     if _field_confirmation_allowed("rooms", source="provider_structured_fact") and any(merged.get(key) not in (None, "", 0, 0.0) for key in ("rooms", "room_count")):
         direct_fact_sources["rooms"] = "provider_structured_fact"

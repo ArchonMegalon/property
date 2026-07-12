@@ -125,8 +125,54 @@ def _wait_for_playwright_condition(page, predicate: str, *, timeout_ms: int = 15
     raise AssertionError("playwright_condition_timeout")
 
 
+def _viewer_accessibility_receipt(page) -> dict[str, object]:
+    return page.evaluate(
+        """() => {
+            const visibleButtons = Array.from(document.querySelectorAll('button')).filter((button) => {
+              const style = getComputedStyle(button);
+              const rect = button.getBoundingClientRect();
+              return !button.hidden && style.display !== 'none' && style.visibility !== 'hidden'
+                && rect.width > 0 && rect.height > 0;
+            });
+            const targets = visibleButtons.map((button) => {
+              const rect = button.getBoundingClientRect();
+              return {
+                className: String(button.className || ''),
+                label: String(button.getAttribute('aria-label') || button.textContent || '').trim(),
+                width: Number(rect.width.toFixed(1)),
+                height: Number(rect.height.toFixed(1)),
+              };
+            });
+            const mapTargets = Array.from(document.querySelectorAll('.floorplan-stop')).map((button) => {
+              const rect = button.getBoundingClientRect();
+              return { index: String(button.dataset.routeIndex || ''), rect };
+            });
+            const overlaps = [];
+            for (let index = 0; index < mapTargets.length; index += 1) {
+              for (let otherIndex = index + 1; otherIndex < mapTargets.length; otherIndex += 1) {
+                const first = mapTargets[index];
+                const second = mapTargets[otherIndex];
+                const overlapWidth = Math.min(first.rect.right, second.rect.right)
+                  - Math.max(first.rect.left, second.rect.left);
+                const overlapHeight = Math.min(first.rect.bottom, second.rect.bottom)
+                  - Math.max(first.rect.top, second.rect.top);
+                if (overlapWidth > 0.5 && overlapHeight > 0.5) {
+                  overlaps.push(`${first.index}:${second.index}`);
+                }
+              }
+            }
+            return {
+              targetCount: targets.length,
+              undersizedTargets: targets.filter((target) => target.width < 44 || target.height < 44),
+              floorplanTargetOverlaps: overlaps,
+              horizontalOverflowPx: Math.max(0, document.documentElement.scrollWidth - window.innerWidth),
+            };
+        }"""
+    )
+
+
 def _expected_default_walkthrough_contract() -> tuple[str, str, str]:
-    if reconstruction_script.sync_playwright is not None:
+    if reconstruction_script._playwright_chromium_capture_available():
         return (
             "viewer_route_storyboard",
             "threejs_layout_flythrough",
@@ -302,6 +348,53 @@ def test_generated_reconstruction_diorama_preview_reads_as_staged_layout_composi
     assert dark_structure_pixels > 340
 
 
+def test_generated_reconstruction_walkable_scene_snaps_route_stops_to_open_floorplan_cells() -> None:
+    wall_mask = [
+        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        [1, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+        [1, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+        [1, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+        [1, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+        [1, 0, 0, 0, 1, 0, 0, 0, 0, 1],
+        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    ]
+
+    walkable_scene = reconstruction_script._reconstruction_walkable_scene(
+        route_labels=["entry/hall", "living room", "bedroom"],
+        width_m=10.0,
+        depth_m=7.0,
+        height_m=2.8,
+        geometry={"wall_mask": wall_mask},
+    )
+
+    route = list(walkable_scene["route"])
+    assert len(route) == 3
+    seen_cells: set[tuple[int, int]] = set()
+    rows = len(wall_mask)
+    cols = len(wall_mask[0])
+    inner_width = max(1.2, 10.0 * 0.34)
+    inner_depth = max(1.2, 7.0 * 0.34)
+    for stop in route:
+        focus = dict(stop["focus"])
+        col = min(cols - 1, max(0, int((((float(focus["x"]) / inner_width) + 0.5) * cols))))
+        row = min(rows - 1, max(0, int((((float(focus["z"]) / inner_depth) + 0.5) * rows))))
+        assert wall_mask[row][col] == 0
+        seen_cells.add((row, col))
+    assert len(seen_cells) == len(route)
+
+
+def test_generated_reconstruction_declutters_flagship_floorplan_route_targets() -> None:
+    positions = [(50.0, 50.0)] * 13
+
+    displayed = reconstruction_script._declutter_floorplan_stop_positions(positions)
+
+    assert len(displayed) == len(positions)
+    assert all(8.0 <= left <= 92.0 and 10.0 <= top <= 90.0 for left, top in displayed)
+    for index, (left, top) in enumerate(displayed):
+        for other_left, other_top in displayed[index + 1 :]:
+            assert abs(left - other_left) >= 15.5 or abs(top - other_top) >= 20.0
+
+
 def test_generated_reconstruction_materializes_model_viewer_receipt_and_walkthrough(
     tmp_path: Path,
     monkeypatch,
@@ -354,6 +447,7 @@ def test_generated_reconstruction_materializes_model_viewer_receipt_and_walkthro
         assert (output_dir / filename).is_file(), filename
     viewer_html = (output_dir / "viewer.html").read_text(encoding="utf-8")
     assert "<title>Layout preview | PropertyQuarry</title>" in viewer_html
+    assert '<link rel="icon" href="data:,">' in viewer_html
     assert "<h1>Layout preview</h1>" in viewer_html
     assert "Layout preview" in viewer_html
     assert "Built from the floorplan and listing photos" in viewer_html
@@ -380,6 +474,10 @@ def test_generated_reconstruction_materializes_model_viewer_receipt_and_walkthro
     assert "floorplan-map" in viewer_html
     assert "floorplan-stop" in viewer_html
     assert "route-hotspot" in viewer_html
+    assert "floorplan-route-overlay" in viewer_html
+    assert "min-height:34px" not in viewer_html
+    assert "min-height:38px" not in viewer_html
+    assert "letter-spacing:-" not in viewer_html
     assert "view-dollhouse" in viewer_html
     assert "setDollhouseView" in viewer_html
     assert "easeInOutCubic" in viewer_html
@@ -393,6 +491,11 @@ def test_generated_reconstruction_materializes_model_viewer_receipt_and_walkthro
     assert "isTransitioning" in viewer_html
     assert "transitionProgressPct" in viewer_html
     assert "wallHeightScale" in viewer_html
+    assert "applyCutawayWallVisibility" in viewer_html
+    assert "hiddenCutawayWallCount" in viewer_html
+    assert "addGeneratedStagingForStop" in viewer_html
+    assert "generated-sofa-seat" in viewer_html
+    assert "stagingObjectCount" in viewer_html
     assert "Tap a numbered stop on the plan to move through the route." in viewer_html
     assert "photoPanelSpecs" in viewer_html
     assert "photoPanelCount" in viewer_html
@@ -920,7 +1023,7 @@ def test_generated_reconstruction_walkthrough_expands_human_route_to_cover_full_
 
 
 def test_generated_reconstruction_viewer_guided_route_runs_in_real_browser(tmp_path: Path) -> None:
-    if reconstruction_script.sync_playwright is None:
+    if not reconstruction_script._playwright_chromium_capture_available():
         pytest.skip("playwright_missing")
 
     slug = "generated-reconstruction-guided-viewer"
@@ -959,7 +1062,8 @@ def test_generated_reconstruction_viewer_guided_route_runs_in_real_browser(tmp_p
 
     with _serve_directory(public_root) as base_url:
         with reconstruction_script.sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=True)
+            launch_kwargs = reconstruction_script._playwright_chromium_launch_kwargs(playwright)
+            browser = playwright.chromium.launch(**launch_kwargs)
             page = browser.new_page(viewport={"width": 1280, "height": 720}, device_scale_factor=1)
             try:
                 page.goto(f"{base_url}/{viewer_relpath}?guided=1", wait_until="domcontentloaded")
@@ -978,6 +1082,11 @@ def test_generated_reconstruction_viewer_guided_route_runs_in_real_browser(tmp_p
                 assert initial_metrics["ready"] is True
                 assert initial_metrics["frameCount"] >= 2
                 assert initial_metrics["renderTriangles"] > 0
+                desktop_accessibility = _viewer_accessibility_receipt(page)
+                assert desktop_accessibility["targetCount"] >= 10
+                assert desktop_accessibility["undersizedTargets"] == []
+                assert desktop_accessibility["floorplanTargetOverlaps"] == []
+                assert desktop_accessibility["horizontalOverflowPx"] == 0
                 _wait_for_playwright_condition(
                     page,
                     """() => {
@@ -1004,35 +1113,26 @@ def test_generated_reconstruction_viewer_guided_route_runs_in_real_browser(tmp_p
                 assert metrics["activeRouteIndex"] >= 1
                 assert metrics["guidedRouteCurrentIndex"] >= 1
 
-                button_state = page.evaluate(
-                    """() => ({
-                        metrics: window.__pqReconstructionDebug?.getRenderMetrics?.() || null,
-                        label: String(document.getElementById('view-guided-route')?.textContent || ''),
-                    })"""
+                stopped_metrics = page.evaluate(
+                    """() => {
+                        const debug = window.__pqReconstructionDebug;
+                        const button = document.getElementById('view-guided-route');
+                        const before = debug?.getRenderMetrics?.() || null;
+                        const wasActive = Boolean(before?.guidedRouteActive);
+                        if (wasActive && button) {
+                            button.click();
+                        }
+                        return {
+                            wasActive,
+                            metrics: debug?.getRenderMetrics?.() || null,
+                            label: String(button?.textContent || ''),
+                        };
+                    }"""
                 )
-                assert isinstance(button_state, dict)
-                assert isinstance(button_state["metrics"], dict)
-                if bool(button_state["metrics"]["guidedRouteActive"]):
-                    page.evaluate(
-                        """() => {
-                            const button = document.getElementById('view-guided-route');
-                            if (button) {
-                                button.click();
-                            }
-                        }"""
-                    )
-                    stopped_metrics = page.evaluate(
-                        """() => ({
-                            metrics: window.__pqReconstructionDebug?.getRenderMetrics?.() || null,
-                            label: String(document.getElementById('view-guided-route')?.textContent || ''),
-                        })"""
-                    )
-                    assert isinstance(stopped_metrics, dict)
-                    assert isinstance(stopped_metrics["metrics"], dict)
-                    assert stopped_metrics["metrics"]["guidedRouteActive"] is False
-                    assert "Guide me" in str(stopped_metrics["label"])
-                else:
-                    assert "Guide me" in str(button_state["label"])
+                assert isinstance(stopped_metrics, dict)
+                assert isinstance(stopped_metrics["metrics"], dict)
+                assert stopped_metrics["metrics"]["guidedRouteActive"] is False
+                assert "Guide me" in str(stopped_metrics["label"])
 
                 page.evaluate(
                     """() => {
@@ -1052,6 +1152,14 @@ def test_generated_reconstruction_viewer_guided_route_runs_in_real_browser(tmp_p
                 assert isinstance(restarted_metrics["metrics"], dict)
                 assert restarted_metrics["metrics"]["guidedRouteActive"] is True
                 assert "Stop" in str(restarted_metrics["label"])
+
+                page.set_viewport_size({"width": 390, "height": 844})
+                page.wait_for_timeout(400)
+                mobile_accessibility = _viewer_accessibility_receipt(page)
+                assert mobile_accessibility["targetCount"] >= 10
+                assert mobile_accessibility["undersizedTargets"] == []
+                assert mobile_accessibility["floorplanTargetOverlaps"] == []
+                assert mobile_accessibility["horizontalOverflowPx"] == 0
             finally:
                 browser.close()
 

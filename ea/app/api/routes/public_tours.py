@@ -71,8 +71,6 @@ _PUBLIC_TOUR_FEEDBACK_RATE_LIMIT_MAX_KEYS = 2048
 _PUBLIC_TOUR_DEFAULT_EXTERNAL_MEDIA_HOSTS = (
     "propertyquarry.com",
     "*.propertyquarry.com",
-    "my.matterport.com",
-    "*.matterport.com",
     "3dvista.com",
     "*.3dvista.com",
     "360.kalandra.at",
@@ -133,8 +131,6 @@ _3DVISTA_EXPORT_ALLOWED_EXTENSIONS = frozenset(
         ".xml",
     }
 )
-
-
 def _truthy(value: object) -> bool:
     if isinstance(value, bool):
         return value
@@ -449,6 +445,14 @@ def _redacted_public_tour_payload(
                 rendered[key] = safe_url
         if (rendered.get("source_virtual_tour_url") or rendered.get("source_virtual_tour_origin")) and payload.get("panorama_source"):
             rendered["panorama_source"] = str(payload.get("panorama_source") or "").strip()[:120]
+        if _3dvista_browser_render_proof_ready(payload):
+            # Carry only the public readiness result into the HTML projection;
+            # private browser evidence remains outside the public manifest.
+            rendered["three_d_vista_browser_render_proof"] = {
+                "provider": "3dvista",
+                "status": "pass",
+                "rendered_viewer": True,
+            }
     if slug and _3dvista_private_viewer_proof_ready(payload):
         for key in ("three_d_vista_entry_relpath", "threedvista_entry_relpath", "3dvista_entry_relpath"):
             relpath = _public_tour_safe_asset_relpath(str(payload.get(key) or "").strip())
@@ -594,10 +598,12 @@ def _safe_live_360_url(value: object) -> str:
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         return ""
     host = str(parsed.hostname or "").strip().lower().rstrip(".")
+    if host == "matterport.com" or host.endswith(".matterport.com"):
+        return ""
     raw_allowed = str(
         os.getenv(
             "PROPERTYQUARRY_PUBLIC_360_ALLOWED_HOSTS",
-            "propertyquarry.com,*.propertyquarry.com,my.matterport.com,*.matterport.com,3dvista.com,*.3dvista.com,360.kalandra.at",
+            "propertyquarry.com,*.propertyquarry.com,3dvista.com,*.3dvista.com,360.kalandra.at",
         )
         or ""
     ).strip()
@@ -613,10 +619,18 @@ def _embedded_live_360_url(payload: dict[str, object]) -> str:
     normalized = dict(payload or {})
     if str(normalized.get("scene_strategy") or "").strip() == "pure_360_cube":
         return ""
-    return _safe_live_360_url(
+    live_url = _safe_live_360_url(
         normalized.get("source_virtual_tour_url")
         or normalized.get("source_virtual_tour_origin")
     )
+    # Matterport is no longer an active PropertyQuarry delivery lane. Keep a
+    # static preview scene when one is present, but never embed its retired
+    # viewer as the public tour experience.
+    if _safe_matterport_external_url(live_url):
+        return ""
+    if _safe_3dvista_external_url(live_url) and not _3dvista_browser_render_proof_ready(normalized):
+        return ""
+    return live_url
 
 
 def _merged_facts_with_listing_research(payload: dict[str, object], facts: dict[str, object]) -> tuple[dict[str, object], dict[str, object]]:
@@ -1827,10 +1841,6 @@ def _public_tour_primary_control_path(payload: dict[str, object]) -> str:
             or ""
         ).strip()
     )
-    for key in ("matterport_url", "source_virtual_tour_url", "crezlo_public_url"):
-        if _safe_matterport_external_url(payload.get(key)):
-            return f"/tours/{quoted_slug}/control/matterport"
-
     three_d_vista_browser_ready = _3dvista_browser_render_proof_ready(payload)
     if three_d_vista_browser_ready:
         for key in ("three_d_vista_url", "threedvista_url", "3dvista_url", "source_virtual_tour_url", "crezlo_public_url"):
@@ -1838,17 +1848,6 @@ def _public_tour_primary_control_path(payload: dict[str, object]) -> str:
                 return f"/tours/{quoted_slug}/control/3dvista"
         if local_3dvista_entry and _3dvista_entry_ready(slug, payload, local_3dvista_entry):
             return f"/tours/{quoted_slug}/control/3dvista"
-    local_3dvista_shell = str(payload.get("viewer_provider") or payload.get("tour_provider") or "").strip().lower() in {
-        "3dvista_showcase_shell",
-        "propertyquarry_3dvista_showcase_shell",
-    }
-    control_mode = str(payload.get("control_mode") or "").strip().lower()
-    if (
-        local_3dvista_entry
-        and _3dvista_entry_export_ready(slug, payload, local_3dvista_entry)
-        and (local_3dvista_shell or control_mode in {"3dvista", "3d_vista", "three_d_vista"})
-    ):
-        return f"/tours/{quoted_slug}/control/3dvista"
 
     return ""
 
@@ -2081,11 +2080,9 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
                 rendered_payload[runtime_key] = payload[runtime_key]
         payload = rendered_payload
     slug = str(payload.get("slug") or "").strip()
+    # Retired Matterport receipts may remain in historical bundles, but they
+    # are not a public control or CTA authority.
     matterport_url = ""
-    for key in ("matterport_url", "source_virtual_tour_url", "crezlo_public_url"):
-        if _safe_matterport_external_url(payload.get(key)):
-            matterport_url = f"/tours/{html.escape(slug)}/control/matterport" if slug else ""
-            break
     three_d_vista_url = ""
     if slug:
         three_d_vista_browser_ready = _3dvista_browser_render_proof_ready(payload)
@@ -2192,6 +2189,11 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     hosted_brand_name = _public_tour_host_brand_label(hostname, fallback=brand_name)
     hosted_brand_html = html.escape(hosted_brand_name)
     video_url, video_mime_type = _public_tour_walkthrough_media_context(payload)
+    video_source_markup = _public_tour_walkthrough_source_markup(
+        payload,
+        video_url=video_url,
+        video_mime_type=video_mime_type,
+    )
 
     def _trim_text(value: object) -> str:
         return str(value or "").strip()
@@ -2611,8 +2613,15 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         if provider_actions_html
         else ""
     )
-    primary_cta = "Open 3D tour"
-    primary_cta_href = "#live-360" if source_virtual_tour_url else "#viewer"
+    if three_d_vista_url:
+        primary_cta = "Open 3D tour"
+        primary_cta_href = three_d_vista_url
+    elif source_virtual_tour_url:
+        primary_cta = "Open 3D tour"
+        primary_cta_href = "#live-360"
+    else:
+        primary_cta = "Review photos"
+        primary_cta_href = "#viewer"
     assessment = dict(facts.get("personal_fit_assessment") or {}) if isinstance(facts.get("personal_fit_assessment"), dict) else {}
     if not assessment and isinstance(facts.get("decision_summary"), dict):
         assessment = dict(facts.get("decision_summary") or {})
@@ -3401,7 +3410,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
           </div>
           <p class="sub">{html.escape(recommendation_note)}</p>
           <div class="actions">
-            <a class="cta" href="#tour">Open 3D tour</a>
+            <a class="cta" href="{html.escape(primary_cta_href)}">{html.escape(primary_cta)}</a>
             {listing_link}
             {hosted_link}
           </div>
@@ -4158,7 +4167,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
                 <iframe id="floorplan-frame" title="Floorplan document" hidden referrerpolicy="no-referrer"></iframe>
               </div>
             </section>
-            {"<section id=\"flythrough-pane\" class=\"pane\"><div class=\"video-stage\"><video id=\"flythrough-video\" controls playsinline webkit-playsinline=\"true\" preload=\"auto\"><source src=\"" + html.escape(video_url) + "\" type=\"" + html.escape(video_mime_type) + "\"></video></div></section>" if video_url else ""}
+            {"<section id=\"flythrough-pane\" class=\"pane\"><div class=\"video-stage\"><video id=\"flythrough-video\" controls playsinline webkit-playsinline=\"true\" preload=\"auto\">" + video_source_markup + "</video></div></section>" if video_url else ""}
           </div>
           <aside class="card sidebar">
             <h2 class="section-title">Scene navigation</h2>
@@ -4653,7 +4662,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     )
     clickrank_html = clickrank_head_snippet(hostname, path)
     return f"""<!doctype html>
-<html lang="de">
+<html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -5012,7 +5021,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         {(
             f'''<div class="hero-video">
               <video id="tour-video" controls playsinline preload="metadata" poster="{html.escape(scene_data[0]["image_url"])}">
-                <source src="{html.escape(video_url)}" type="{html.escape(video_mime_type)}">
+                {video_source_markup}
               </video>
             </div>'''
         ) if video_url else ''}
@@ -5221,7 +5230,7 @@ def _public_tour_security_headers(*, cache_control: str = "no-store", allow_base
             "frame-ancestors 'self'; "
             "img-src 'self' data: blob: https:; "
             "media-src 'self' data: blob: https:; "
-            "frame-src 'self' https:; "
+            "frame-src 'self' https://3dvista.com https://*.3dvista.com; "
             "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https://js.clickrank.ai https://app.rybbit.io https://cdn.jsdelivr.net; "
             "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
             "connect-src 'self' data: blob: https://app.rybbit.io https://cdn.jsdelivr.net; "
@@ -5239,6 +5248,7 @@ def public_tour_payload(slug: str) -> JSONResponse:
     _require_public_tour_viewable(payload)
     if _tour_payload_is_disabled_fallback(payload):
         raise HTTPException(status_code=404, detail="tour_disabled_fallback")
+    payload = _without_disqualified_walkthrough(payload)
     return JSONResponse(
         _redacted_public_tour_payload(
             payload,
@@ -5255,6 +5265,16 @@ def public_tour_file(slug: str, asset_path: str, request: Request):
     payload = _load_tour_with_private_receipt(slug)
     _require_public_tour_viewable(payload)
     safe_relpath = _public_tour_safe_asset_relpath(asset_path)
+    walkthrough_acceptance = _public_tour_walkthrough_acceptance(payload)
+    if walkthrough_acceptance.get("allowed") is False and safe_relpath in set(
+        walkthrough_acceptance.get("asset_relpaths") or []
+    ):
+        return Response(
+            "This walkthrough is no longer available.\n",
+            status_code=410,
+            media_type="text/plain; charset=utf-8",
+            headers=_public_tour_security_headers(cache_control="no-store"),
+        )
     safe_name = PurePosixPath(safe_relpath).name
     generated_asset_kind = _generated_reconstruction_non_tour_asset(payload, safe_relpath)
     if generated_asset_kind == "viewer":
@@ -5341,6 +5361,8 @@ def public_tour_walkthrough(slug: str):
     _require_public_tour_viewable(payload)
     if _tour_payload_is_disabled_fallback(payload):
         raise HTTPException(status_code=404, detail="tour_disabled_fallback")
+    if _public_tour_walkthrough_acceptance(payload).get("allowed") is False:
+        raise HTTPException(status_code=404, detail="tour_walkthrough_unavailable")
     video_relpath = _public_tour_safe_asset_relpath(str(payload.get("video_relpath") or "").strip())
     if not video_relpath:
         video_relpath = _public_tour_safe_asset_relpath(
@@ -5392,7 +5414,7 @@ def _tour_control_html(payload: dict[str, object], *, viewer_mode: str = "", ful
     if forced_mode == "marzipano":
         raise HTTPException(status_code=410, detail="tour_control_legacy_viewer_removed")
     if forced_mode in {"matterport", "metaport"}:
-        return _tour_control_matterport_html(payload)
+        raise HTTPException(status_code=404, detail="tour_control_provider_retired")
     if forced_mode in {"3dvista", "3d_vista", "three_d_vista"}:
         return _tour_control_3dvista_html(payload)
     if forced_mode in {"pano2vr", "pano_2_vr", "krpano"}:
@@ -5458,7 +5480,121 @@ def _safe_matterport_external_url(value: object) -> str:
     return normalized
 
 
+def _public_tour_walkthrough_acceptance(payload: dict[str, object]) -> dict[str, object]:
+    slug = str(payload.get("slug") or "").strip()
+    generated_reconstruction = (
+        dict(payload.get("generated_reconstruction") or {})
+        if isinstance(payload.get("generated_reconstruction"), dict)
+        else {}
+    )
+    top_level_asset_relpaths = {
+        _public_tour_safe_asset_relpath(str(payload.get(key) or "").strip())
+        for key in ("video_relpath", "video_mobile_relpath", "flythrough_video_relpath")
+    }
+    top_level_asset_relpaths.discard("")
+    if top_level_asset_relpaths:
+        raw_sidecar_relpath = str(
+            payload.get("video_sidecar_relpath")
+            or payload.get("walkthrough_sidecar_relpath")
+            or ""
+        ).strip()
+        scope = "top_level"
+        asset_relpaths = top_level_asset_relpaths
+    else:
+        raw_sidecar_relpath = str(
+            generated_reconstruction.get("walkthrough_sidecar_relpath") or ""
+        ).strip()
+        scope = "generated_reconstruction"
+        generated_video_relpath = _public_tour_safe_asset_relpath(
+            str(generated_reconstruction.get("walkthrough_video_relpath") or "").strip()
+        )
+        asset_relpaths = {generated_video_relpath} if generated_video_relpath else set()
+    if not raw_sidecar_relpath:
+        return {
+            "allowed": True,
+            "declared": False,
+            "scope": scope,
+            "asset_relpaths": sorted(asset_relpaths),
+            "status": "legacy_unreviewed",
+        }
+    sidecar_relpath = _public_tour_safe_asset_relpath(raw_sidecar_relpath)
+    if not slug or not sidecar_relpath or PurePosixPath(sidecar_relpath).suffix.lower() != ".json":
+        return {
+            "allowed": False,
+            "declared": True,
+            "scope": scope,
+            "asset_relpaths": sorted(asset_relpaths),
+            "status": "sidecar_invalid",
+        }
+    try:
+        bundle_dir = _resolved_tour_bundle(slug)
+        sidecar_path = (bundle_dir / sidecar_relpath).resolve()
+        if bundle_dir != sidecar_path and bundle_dir not in sidecar_path.parents:
+            raise ValueError("sidecar_outside_bundle")
+        sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {
+            "allowed": False,
+            "declared": True,
+            "scope": scope,
+            "asset_relpaths": sorted(asset_relpaths),
+            "status": "sidecar_unavailable",
+        }
+    if not isinstance(sidecar, dict):
+        return {
+            "allowed": False,
+            "declared": True,
+            "scope": scope,
+            "asset_relpaths": sorted(asset_relpaths),
+            "status": "sidecar_invalid",
+        }
+    acceptance_status = str(sidecar.get("acceptance_status") or "unreviewed").strip().lower()
+    disqualified = (
+        acceptance_status in {"disqualified", "rejected", "failed"}
+        or sidecar.get("launch_eligible") is False
+    )
+    return {
+        "allowed": not disqualified,
+        "declared": True,
+        "scope": scope,
+        "asset_relpaths": sorted(asset_relpaths),
+        "status": "disqualified" if disqualified else acceptance_status,
+    }
+
+
+def _without_disqualified_walkthrough(payload: dict[str, object]) -> dict[str, object]:
+    acceptance = _public_tour_walkthrough_acceptance(payload)
+    if acceptance.get("allowed") is not False:
+        return payload
+    sanitized = dict(payload)
+    if acceptance.get("scope") == "top_level":
+        for key in (
+            "video_relpath",
+            "video_mobile_relpath",
+            "flythrough_video_relpath",
+            "video_url",
+            "flythrough_url",
+            "video_sidecar_relpath",
+            "walkthrough_sidecar_relpath",
+            "video_provider",
+            "video_provider_key",
+            "video_render_provider",
+            "video_coverage_proof",
+        ):
+            sanitized.pop(key, None)
+    else:
+        generated_reconstruction = dict(sanitized.get("generated_reconstruction") or {})
+        generated_reconstruction.pop("walkthrough_video_relpath", None)
+        generated_reconstruction.pop("walkthrough_sidecar_relpath", None)
+        sanitized["generated_reconstruction"] = generated_reconstruction
+    sanitized["_walkthrough_media_suppressed"] = True
+    return sanitized
+
+
 def _public_tour_walkthrough_media_context(payload: dict[str, object]) -> tuple[str, str]:
+    payload = _without_disqualified_walkthrough(payload)
+    if payload.get("_walkthrough_media_suppressed") is True:
+        return "", "video/mp4"
     slug = str(payload.get("slug") or "").strip()
     video_relpath = _public_tour_safe_asset_relpath(str(payload.get("video_relpath") or "").strip())
     if not video_relpath:
@@ -5478,6 +5614,32 @@ def _public_tour_walkthrough_media_context(payload: dict[str, object]) -> tuple[
         mime_source_path = urllib.parse.urlparse(raw_video_url).path
     video_mime_type = mimetypes.guess_type(mime_source_path)[0] or "video/mp4"
     return video_url, video_mime_type
+
+
+def _public_tour_walkthrough_source_markup(
+    payload: dict[str, object],
+    *,
+    video_url: str,
+    video_mime_type: str,
+) -> str:
+    payload = _without_disqualified_walkthrough(payload)
+    if payload.get("_walkthrough_media_suppressed") is True:
+        return ""
+    sources: list[str] = []
+    slug = str(payload.get("slug") or "").strip()
+    mobile_relpath = _public_tour_safe_asset_relpath(str(payload.get("video_mobile_relpath") or "").strip())
+    if slug and mobile_relpath and mobile_relpath in _public_tour_allowed_asset_paths(payload):
+        mobile_url = _public_tour_file_url(slug, mobile_relpath)
+        mobile_mime_type = mimetypes.guess_type(mobile_relpath)[0] or "video/mp4"
+        sources.append(
+            f'<source src="{html.escape(mobile_url)}" type="{html.escape(mobile_mime_type)}" '
+            'media="(max-width: 760px)">'
+        )
+    if video_url:
+        sources.append(
+            f'<source src="{html.escape(video_url)}" type="{html.escape(video_mime_type)}">'
+        )
+    return "".join(sources)
 
 
 def _generated_reconstruction_walkthrough_scenes(payload: dict[str, object]) -> list[dict[str, str]]:
@@ -5812,6 +5974,11 @@ def _generated_reconstruction_public_launch_html(payload: dict[str, object]) -> 
     layout_focus = bool(payload.get("_generated_reconstruction_layout_focus"))
     launch_mode = "layout_preview" if layout_focus else "tour_public_launch"
     video_url, video_mime_type = _public_tour_walkthrough_media_context(payload)
+    video_source_markup = _public_tour_walkthrough_source_markup(
+        payload,
+        video_url=video_url,
+        video_mime_type=video_mime_type,
+    )
     route_labels = _generated_reconstruction_route_labels(payload)
     scenes, _, _ = _tour_control_media_context(payload)
     route_stop_count = len(route_labels)
@@ -6136,7 +6303,7 @@ def _generated_reconstruction_public_launch_html(payload: dict[str, object]) -> 
               </div>
               <strong class="walkthrough-stop-label" id="walkthrough-stop-name">{initial_route_label}</strong>
             </div>
-            <video id="tour-video" controls playsinline webkit-playsinline="true" preload="metadata" poster="{first_scene_url}"><source src="{html.escape(video_url)}" type="{html.escape(video_mime_type)}"></video>
+            <video id="tour-video" controls playsinline webkit-playsinline="true" preload="metadata" poster="{first_scene_url}">{video_source_markup}</video>
           </div>''' if video_url else f'''<div class="video-stage">
             <div class="walkthrough-hud" id="walkthrough-hud" aria-live="polite" aria-atomic="true">
               <div class="walkthrough-chip-row">
@@ -6411,12 +6578,15 @@ def _generated_reconstruction_public_launch_html(payload: dict[str, object]) -> 
           const viewerWindow = layoutViewerFrame.contentWindow;
           const debug = viewerWindow && viewerWindow.__pqReconstructionDebug;
           if (!debug) return false;
+          const renderMetrics = typeof debug.getRenderMetrics === 'function'
+            ? debug.getRenderMetrics()
+            : null;
           const liveState = typeof debug.getLiveState === 'function'
             ? debug.getLiveState()
             : null;
-	          const metrics = liveState && typeof liveState === 'object'
-	            ? liveState
-	            : (typeof debug.getRenderMetrics === 'function' ? debug.getRenderMetrics() : null);
+	          const metrics = renderMetrics && typeof renderMetrics === 'object'
+	            ? {{ ...(liveState && typeof liveState === 'object' ? liveState : {{}}), ...renderMetrics }}
+	            : (liveState && typeof liveState === 'object' ? liveState : null);
 	          if (metrics && metrics.ready) {{
 	            layoutViewerLastState = metrics;
 	            const doc = layoutViewerFrame.contentDocument;
@@ -6704,6 +6874,8 @@ def _tour_control_provider_layers(
             "disclosure": "Current view.",
         }
     ]
+    if _safe_matterport_external_url(default_src):
+        return []
     seen = {layers[0]["src"]}
     raw_layers = payload.get("tour_layers") or payload.get("provider_layers") or payload.get("interactive_layers")
     if not isinstance(raw_layers, list):
@@ -6716,13 +6888,7 @@ def _tour_control_provider_layers(
         label = str(row.get("label") or row.get("title") or layer_id.replace("-", " ").title()).strip()
         disclosure = str(row.get("disclosure") or "").strip()
         src = ""
-        if provider == "matterport":
-            for key in ("matterport_url", "url", "iframe_src"):
-                src = _safe_matterport_external_url(row.get(key))
-                if src:
-                    break
-            disclosure = _public_tour_layer_disclosure(disclosure)
-        elif provider in {"3dvista", "3d_vista", "three_d_vista"}:
+        if provider in {"3dvista", "3d_vista", "three_d_vista"}:
             provider_browser_ready = _3dvista_browser_render_proof_ready(row) or _3dvista_browser_render_proof_ready(payload)
             if not provider_browser_ready:
                 continue
@@ -6760,6 +6926,8 @@ def _tour_control_provider_layers(
                 if entry_relpath and _3dvista_entry_ready(slug, payload, entry_relpath):
                     src = f"/tours/3dvista/{safe_slug}/{urllib.parse.quote(entry_relpath, safe='/')}"
             disclosure = _public_tour_layer_disclosure(disclosure)
+        else:
+            continue
         if not src or src in seen:
             continue
         seen.add(src)
@@ -6775,6 +6943,83 @@ def _tour_control_provider_layers(
     return layers
 
 
+def _tour_control_provider_recovery_html(*, direct_href: str) -> str:
+    return f"""<div class="provider-load-state" data-provider-status role="status" aria-live="polite" aria-atomic="true">
+              <div class="provider-loading" data-provider-loading>Loading 3D tour...</div>
+              <div class="provider-recovery" data-provider-recovery hidden>
+                <strong>3D tour unavailable</strong>
+                <span>Try again or open the provider directly.</span>
+                <div class="provider-recovery-actions">
+                  <button type="button" data-provider-retry>Retry</button>
+                  <a href="{html.escape(str(direct_href or '#').strip())}" data-provider-direct target="_blank" rel="noopener noreferrer">Open directly</a>
+                </div>
+              </div>
+            </div>"""
+
+
+def _tour_control_provider_recovery_script() -> str:
+    return """
+      const providerFrameWrap = document.querySelector(".provider-frame-wrap");
+      const providerStatus = document.querySelector("[data-provider-status]");
+      const providerLoading = document.querySelector("[data-provider-loading]");
+      const providerRecovery = document.querySelector("[data-provider-recovery]");
+      const providerRetry = document.querySelector("[data-provider-retry]");
+      const providerDirect = document.querySelector("[data-provider-direct]");
+      let providerLoadTimer = 0;
+      function setProviderFrameStatus(state) {
+        if (providerFrameWrap) {
+          providerFrameWrap.dataset.providerState = state;
+          providerFrameWrap.setAttribute("aria-busy", String(state === "loading"));
+        }
+        if (providerStatus) providerStatus.hidden = state === "ready";
+        if (providerLoading) providerLoading.hidden = state !== "loading";
+        if (providerRecovery) providerRecovery.hidden = state !== "error";
+      }
+      function armProviderLoadWatchdog() {
+        window.clearTimeout(providerLoadTimer);
+        setProviderFrameStatus("loading");
+        providerLoadTimer = window.setTimeout(() => setProviderFrameStatus("error"), 12000);
+      }
+      function setProviderFrameSource(targetSrc, forceReload = false) {
+        if (!providerFrame) return;
+        const nextSrc = String(targetSrc || "about:blank");
+        providerFrame.dataset.src = nextSrc;
+        if (providerDirect) providerDirect.setAttribute("href", nextSrc);
+        const loadTarget = () => {
+          armProviderLoadWatchdog();
+          providerFrame.setAttribute("src", nextSrc);
+        };
+        if (forceReload || providerFrame.getAttribute("src") === nextSrc) {
+          providerFrame.setAttribute("src", "about:blank");
+          window.requestAnimationFrame(loadTarget);
+          return;
+        }
+        loadTarget();
+      }
+      if (providerFrame) {
+        providerFrame.addEventListener("load", () => {
+          if ((providerFrame.getAttribute("src") || "") === "about:blank") return;
+          window.clearTimeout(providerLoadTimer);
+          setProviderFrameStatus("ready");
+        });
+        providerFrame.addEventListener("error", () => {
+          window.clearTimeout(providerLoadTimer);
+          setProviderFrameStatus("error");
+        });
+        setProviderFrameSource(providerFrame.dataset.src || "about:blank", true);
+      }
+      if (providerRetry) {
+        providerRetry.addEventListener("click", () => {
+          setProviderFrameSource(providerFrame?.dataset.src || providerLayers[0]?.src || "about:blank", true);
+        });
+      }
+      window.addEventListener("offline", () => {
+        window.clearTimeout(providerLoadTimer);
+        setProviderFrameStatus("error");
+      });
+    """
+
+
 def _tour_control_external_iframe_html(
     *,
     title: str,
@@ -6786,6 +7031,11 @@ def _tour_control_external_iframe_html(
 ) -> str:
     payload = payload or {}
     scene_data, video_url, video_mime_type = _tour_control_media_context(payload)
+    video_source_markup = _public_tour_walkthrough_source_markup(
+        payload,
+        video_url=video_url,
+        video_mime_type=video_mime_type,
+    )
     embed_walkthrough = bool(payload.get("_tour_control_embed_walkthrough"))
     provider_layers = _tour_control_provider_layers(payload=payload, default_src=iframe_src, default_label=badge)
     provider_layers_json = html.escape(json.dumps(provider_layers, ensure_ascii=False).replace("</", "<\\/"), quote=False)
@@ -6801,10 +7051,19 @@ def _tour_control_external_iframe_html(
         else ""
     )
     clean_fullscreen_href = html.escape(str(fullscreen_href or iframe_src or "#").strip())
+    payload_slug = str(payload.get("slug") or "").strip()
+    clean_return_href = html.escape(
+        f"/tours/{urllib.parse.quote(payload_slug, safe='')}"
+        if payload_slug
+        else str(fullscreen_href or iframe_src or "#").strip().split("?", 1)[0]
+    )
+    provider_recovery_script = _tour_control_provider_recovery_script()
     if (scene_data or video_url) and not fullscreen:
         data_json = html.escape(json.dumps(scene_data, ensure_ascii=False).replace("</", "<\\/"), quote=False)
         first_scene = scene_data[0] if scene_data else {"name": title, "image_url": "", "role": "photo", "mime_type": ""}
-        initial_provider_src = html.escape(str(provider_layers[0].get("src") or iframe_src or "about:blank").strip())
+        initial_provider_src_raw = str(provider_layers[0].get("src") or iframe_src or "about:blank").strip()
+        initial_provider_src = html.escape(initial_provider_src_raw)
+        provider_recovery_html = _tour_control_provider_recovery_html(direct_href=initial_provider_src_raw)
         _ = video_mime_type
         walkthrough_html = (
             (
@@ -6813,7 +7072,7 @@ def _tour_control_external_iframe_html(
             </div>
             <div class="video-stage">
               <video id="tour-video" controls playsinline webkit-playsinline="true" preload="metadata" poster="{html.escape(first_scene.get("image_url", ""))}">
-                <source src="{html.escape(video_url)}" type="{html.escape(video_mime_type)}">
+                {video_source_markup}
               </video>
             </div>"""
                 if embed_walkthrough
@@ -6845,63 +7104,74 @@ def _tour_control_external_iframe_html(
             else """<p class="empty">Photos and floorplans are not attached yet.</p>"""
         )
         return f"""<!doctype html>
-<html lang="de">
+<html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{title} - {provider_badge}</title>
     <style>
-      :root {{ color-scheme: dark; --bg: #0c0d0b; --panel: rgba(255,250,240,.08); --line: rgba(255,250,240,.18); --text: #fff9ed; --muted: rgba(255,249,237,.70); --gold: #d7b56d; }}
-      html, body {{ margin: 0; min-height: 100%; background: radial-gradient(circle at 16% 0%, rgba(215,181,109,.16), transparent 34%), var(--bg); color: var(--text); font-family: Inter, system-ui, sans-serif; }}
+      :root {{ color-scheme: dark; --bg: #111412; --panel: #1a1e1b; --line: #46514b; --text: #f6f8f4; --muted: #b7c2bc; --accent: #7bd8c3; --warm: #f2b66d; --focus: #9de7d5; }}
+      html, body {{ margin: 0; min-height: 100%; background: var(--bg); color: var(--text); font-family: Inter, system-ui, sans-serif; }}
       body {{ overflow-x: hidden; }}
+      .skip-link {{ position: fixed; left: 12px; top: 8px; z-index: 20; min-height: 44px; display: inline-flex; align-items: center; padding: 0 12px; border-radius: 6px; background: var(--text); color: #111; font-weight: 800; text-decoration: none; transform: translateY(-160%); }}
+      .skip-link:focus {{ transform: translateY(0); }}
+      :focus-visible {{ outline: 3px solid var(--focus); outline-offset: 3px; }}
       .shell {{ width: min(1520px, 100%); margin: 0 auto; padding: 14px; box-sizing: border-box; display: grid; gap: 14px; }}
-      .topbar {{ display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 18px; background: rgba(12,13,11,.66); backdrop-filter: blur(14px); }}
-      .badge {{ width: fit-content; padding: 7px 10px; border-radius: 999px; background: rgba(215,181,109,.16); border: 1px solid rgba(215,181,109,.36); color: #f8df9b; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }}
+      .topbar {{ display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: #171b18; }}
+      .badge {{ width: fit-content; padding: 7px 10px; border-radius: 999px; background: rgba(123,216,195,.12); border: 1px solid rgba(123,216,195,.42); color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: 0; text-transform: uppercase; }}
       .summary {{ min-width: 0; }}
-      .summary p {{ margin: 0 0 3px; font-size: 11px; font-weight: 800; letter-spacing: .10em; text-transform: uppercase; color: var(--muted); }}
-      .summary h1 {{ margin: 0; max-width: 72ch; overflow-wrap: anywhere; font-size: clamp(1.1rem, 2vw, 1.7rem); line-height: 1.08; }}
+      .summary p {{ margin: 0 0 3px; font-size: 11px; font-weight: 800; letter-spacing: 0; text-transform: uppercase; color: var(--muted); }}
+      .summary h1 {{ margin: 0; max-width: 72ch; overflow-wrap: anywhere; font-size: 1.35rem; line-height: 1.12; letter-spacing: 0; }}
       .grid {{ display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, 460px); gap: 14px; align-items: start; }}
-      .panel {{ border: 1px solid var(--line); border-radius: 24px; background: var(--panel); box-shadow: 0 26px 80px rgba(0,0,0,.26); overflow: hidden; }}
-      .provider-panel {{ min-height: min(74vh, 820px); display: grid; grid-template-rows: auto 1fr; background: linear-gradient(145deg, rgba(255,250,240,.10), rgba(255,250,240,.03)); }}
+      .panel {{ border: 1px solid var(--line); border-radius: 8px; background: var(--panel); overflow: hidden; }}
+      .provider-panel {{ min-height: min(74vh, 820px); display: grid; grid-template-rows: auto 1fr; }}
       .provider-launch {{ display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px; border-bottom: 1px solid var(--line); }}
       .provider-launch strong {{ display: block; margin-bottom: 3px; }}
       .provider-actions {{ display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }}
       .provider-actions a, .provider-actions button {{ min-height: 44px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; padding: 0 13px; border: 1px solid var(--line); background: transparent; color: var(--text); font: inherit; font-weight: 800; text-decoration: none; cursor: pointer; }}
       .provider-actions button {{ appearance: none; }}
       .provider-layer-switch {{ display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }}
-      .provider-layer-switch button {{ min-height: 42px; border: 1px solid var(--line); border-radius: 999px; padding: 0 13px; background: rgba(255,250,240,.08); color: var(--text); font: inherit; font-weight: 800; cursor: pointer; }}
+      .provider-layer-switch button {{ min-height: 44px; border: 1px solid var(--line); border-radius: 999px; padding: 0 13px; background: #232925; color: var(--text); font: inherit; font-weight: 800; cursor: pointer; }}
       .provider-layer-switch button[aria-pressed="true"] {{ background: var(--text); color: #111; }}
       .provider-layer-note {{ margin-top: 8px; color: var(--muted); font-size: .86rem; line-height: 1.35; }}
       .provider-frame-wrap {{ position: relative; min-height: 520px; background: #111; }}
       .provider-frame {{ display: block; width: 100%; height: 100%; min-height: 520px; border: 0; background: #111; }}
+      .provider-load-state {{ position: absolute; inset: 0; z-index: 3; display: grid; place-items: center; padding: 20px; box-sizing: border-box; background: rgba(17,20,18,.92); text-align: center; }}
+      .provider-load-state[hidden], .provider-loading[hidden], .provider-recovery[hidden] {{ display: none; }}
+      .provider-loading {{ color: var(--muted); font-weight: 800; }}
+      .provider-recovery {{ max-width: 420px; display: grid; gap: 8px; }}
+      .provider-recovery strong {{ font-size: 1.05rem; }}
+      .provider-recovery span {{ color: var(--muted); line-height: 1.45; }}
+      .provider-recovery-actions {{ display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }}
+      .provider-recovery-actions button, .provider-recovery-actions a {{ min-width: 120px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 6px; padding: 0 12px; background: #242b27; color: var(--text); font: inherit; font-weight: 800; text-decoration: none; cursor: pointer; }}
       .evidence {{ padding: 14px; display: grid; gap: 12px; }}
-      .evidence h2 {{ margin: 0; font-size: 1rem; letter-spacing: -.02em; }}
+      .evidence h2 {{ margin: 0; font-size: 1rem; letter-spacing: 0; }}
       .hint, .empty {{ margin: 0; color: var(--muted); line-height: 1.45; font-size: .92rem; }}
-      .card-label {{ margin-bottom: 8px; color: #f8df9b; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }}
+      .card-label {{ margin-bottom: 8px; color: var(--warm); font-size: 11px; font-weight: 800; letter-spacing: 0; text-transform: uppercase; }}
       .media-actions {{ display: flex; gap: 8px; flex-wrap: wrap; }}
-      .media-actions a {{ min-height: 42px; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; padding: 0 14px; border: 1px solid var(--line); background: rgba(255,250,240,.08); color: var(--text); font-weight: 800; text-decoration: none; }}
-      .video-stage {{ overflow: hidden; border-radius: 20px; border: 1px solid var(--line); background: rgba(0,0,0,.42); }}
+      .media-actions a {{ min-height: 44px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; padding: 0 14px; border: 1px solid var(--line); background: #232925; color: var(--text); font-weight: 800; text-decoration: none; }}
+      .video-stage {{ overflow: hidden; border-radius: 8px; border: 1px solid var(--line); background: rgba(0,0,0,.42); }}
       .video-stage video {{ display: block; width: 100%; min-height: 240px; max-height: 42vh; background: #080808; }}
       .tour-toolbar {{ display: flex; gap: 8px; flex-wrap: wrap; }}
-      .toggle {{ display: inline-flex; gap: 6px; padding: 4px; border-radius: 999px; background: rgba(255,250,240,.08); border: 1px solid var(--line); }}
-      .toggle button {{ min-height: 40px; border: 0; border-radius: 999px; padding: 0 13px; background: transparent; color: var(--muted); font: inherit; font-weight: 750; cursor: pointer; }}
+      .toggle {{ display: inline-flex; gap: 6px; padding: 4px; border-radius: 8px; background: #232925; border: 1px solid var(--line); }}
+      .toggle button {{ min-height: 44px; border: 0; border-radius: 6px; padding: 0 13px; background: transparent; color: var(--muted); font: inherit; font-weight: 750; cursor: pointer; }}
       .toggle button.active {{ background: var(--text); color: #111; }}
-      .viewer {{ position: relative; overflow: hidden; border-radius: 20px; border: 1px solid var(--line); background: rgba(0,0,0,.26); }}
+      .viewer {{ position: relative; overflow: hidden; border-radius: 8px; border: 1px solid var(--line); background: rgba(0,0,0,.26); }}
       #stage-image, #stage-frame {{ display: block; width: 100%; min-height: 310px; max-height: 45vh; object-fit: contain; border: 0; background: #0b0b0b; }}
       #stage-frame {{ height: 45vh; }}
       #stage-image[hidden], #stage-frame[hidden] {{ display: none; }}
       .caption {{ display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; border-top: 1px solid var(--line); }}
       .caption small {{ color: #f8df9b; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }}
       .thumbs {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }}
-      .thumb {{ position: relative; min-height: 84px; border: 1px solid var(--line); border-radius: 16px; overflow: hidden; padding: 0; background: rgba(255,255,255,.06); cursor: pointer; }}
-      .thumb.active {{ outline: 2px solid var(--gold); outline-offset: 2px; }}
+      .thumb {{ position: relative; min-height: 84px; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; padding: 0; background: rgba(255,255,255,.06); cursor: pointer; }}
+      .thumb.active {{ outline: 2px solid var(--accent); outline-offset: 2px; }}
       .thumb.hidden {{ display: none; }}
       .thumb img {{ display: block; width: 100%; height: 100%; min-height: 84px; object-fit: cover; }}
       .thumb-doc {{ min-height: 84px; display: grid; place-items: center; color: var(--muted); font-weight: 800; }}
       .thumb .mini-badge {{ position: absolute; left: 7px; top: 7px; padding: 3px 7px; border-radius: 999px; background: rgba(0,0,0,.62); color: #fff; font-size: 10px; font-weight: 800; text-transform: uppercase; }}
       @media (max-width: 940px) {{
         .shell {{ padding: 10px; }}
-        .topbar {{ align-items: flex-start; flex-direction: column; border-radius: 16px; }}
+        .topbar {{ align-items: flex-start; flex-direction: column; border-radius: 8px; }}
         .grid {{ grid-template-columns: 1fr; }}
         .provider-panel {{ min-height: 58vh; }}
         .provider-launch {{ align-items: stretch; flex-direction: column; }}
@@ -6910,14 +7180,18 @@ def _tour_control_external_iframe_html(
         .provider-frame {{ height: 58vh; min-height: 380px; }}
         .evidence {{ padding: 12px; }}
         .video-stage video {{ min-height: 220px; max-height: 36vh; }}
-        .toggle {{ width: 100%; display: grid; grid-template-columns: repeat(3, 1fr); border-radius: 18px; }}
-        .toggle button {{ min-height: 48px; padding: 0 8px; border-radius: 14px; }}
+        .toggle {{ width: 100%; display: grid; grid-template-columns: repeat(3, 1fr); border-radius: 8px; }}
+        .toggle button {{ min-height: 48px; padding: 0 8px; border-radius: 6px; }}
         #stage-image, #stage-frame {{ min-height: 280px; max-height: 52vh; }}
         .thumbs {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+      }}
+      @media (prefers-reduced-motion: reduce) {{
+        *, *::before, *::after {{ animation-duration: .001ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .001ms !important; }}
       }}
     </style>
   </head>
   <body>
+    <a class="skip-link" href="#provider-frame">Skip to 3D tour</a>
     <div class="shell">
       <header class="topbar">
         <div class="summary" aria-label="Property tour summary">
@@ -6926,7 +7200,7 @@ def _tour_control_external_iframe_html(
         </div>
         <div class="badge">{provider_badge}</div>
       </header>
-      <main class="grid">
+      <main class="grid" id="tour-content">
         <section class="panel provider-panel" aria-label="{provider_badge}">
           <div class="provider-launch">
             <div>
@@ -6935,9 +7209,13 @@ def _tour_control_external_iframe_html(
               {provider_layer_switch_html}
               <p class="provider-layer-note" id="provider-layer-note">{html.escape(provider_layers[0]["disclosure"])}</p>
             </div>
+            <div class="provider-actions">
+              <a href="{clean_fullscreen_href}">Full screen</a>
+            </div>
           </div>
-          <div class="provider-frame-wrap">
-            <iframe src="{initial_provider_src}" data-src="{initial_provider_src}" class="provider-frame" title="{title}" allowfullscreen referrerpolicy="no-referrer"></iframe>
+          <div class="provider-frame-wrap" aria-busy="true" data-provider-state="loading">
+            <iframe src="about:blank" data-src="{initial_provider_src}" class="provider-frame" id="provider-frame" title="{title}" aria-label="{provider_badge}: {title}" aria-describedby="provider-layer-note" allowfullscreen loading="eager" referrerpolicy="no-referrer"></iframe>
+            {provider_recovery_html}
           </div>
         </section>
         <aside class="panel evidence" aria-label="Inside the space">
@@ -6966,14 +7244,7 @@ def _tour_control_external_iframe_html(
       let selectedProviderLayer = providerLayers[0] || {{}};
       let activeIndex = 0;
       let activeRoleFilter = "all";
-      function syncProviderFrame(targetSrc) {{
-        if (!providerFrame) return;
-        const nextSrc = String(targetSrc || "about:blank");
-        providerFrame.dataset.src = nextSrc;
-        if (providerFrame.getAttribute("src") !== nextSrc) {{
-          providerFrame.setAttribute("src", nextSrc);
-        }}
-      }}
+      {provider_recovery_script}
       document.querySelectorAll("[data-provider-layer]").forEach((button) => {{
         button.addEventListener("click", () => {{
           const layer = providerLayers.find((candidate) => candidate.id === button.dataset.providerLayer);
@@ -6981,7 +7252,7 @@ def _tour_control_external_iframe_html(
           selectedProviderLayer = layer;
           document.querySelectorAll("[data-provider-layer]").forEach((candidate) => candidate.setAttribute("aria-pressed", String(candidate === button)));
           if (providerLayerNote) providerLayerNote.textContent = layer.disclosure || "";
-          syncProviderFrame(layer.src || "about:blank");
+          setProviderFrameSource(layer.src || "about:blank", true);
         }});
       }});
       function visibleSceneIndexes() {{
@@ -7079,33 +7350,53 @@ def _tour_control_external_iframe_html(
     </script>
   </body>
 </html>"""
+    fullscreen_recovery_html = _tour_control_provider_recovery_html(direct_href=iframe_src)
     return f"""<!doctype html>
-<html lang="de">
+<html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{title} - {provider_badge}</title>
     <style>
-      html, body {{ margin: 0; width: 100%; height: 100%; overflow: hidden; background: #0f1112; color: #f8f4eb; font-family: Inter, system-ui, sans-serif; }}
-      iframe {{ position: fixed; inset: 0; width: 100vw; height: 100vh; border: 0; background: #0f1112; }}
-      .shell {{ position: fixed; left: 14px; top: 14px; z-index: 2; display: grid; gap: 8px; max-width: min(420px, calc(100vw - 28px)); }}
-      .badge {{ width: fit-content; padding: 8px 10px; border-radius: 8px; background: rgba(15,17,18,.62); border: 1px solid rgba(255,255,255,.18); font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; backdrop-filter: blur(10px); }}
-      .summary {{ padding: 12px 14px; border-radius: 10px; background: rgba(15,17,18,.72); border: 1px solid rgba(255,255,255,.18); backdrop-filter: blur(12px); box-shadow: 0 12px 28px rgba(0,0,0,.24); }}
-      .summary p {{ margin: 0 0 4px; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: rgba(248,244,235,.72); }}
-      .summary h1 {{ margin: 0; font-size: clamp(1.1rem, 2vw, 1.45rem); line-height: 1.12; }}
+      :root {{ color-scheme: dark; --bg: #111412; --panel: #1a1e1b; --line: #46514b; --text: #f6f8f4; --muted: #b7c2bc; --accent: #7bd8c3; --focus: #9de7d5; }}
+      html, body {{ margin: 0; width: 100%; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: Inter, system-ui, sans-serif; }}
+      :focus-visible {{ outline: 3px solid var(--focus); outline-offset: 3px; }}
+      .provider-frame-wrap, iframe {{ position: fixed; inset: 0; width: 100vw; height: 100vh; border: 0; background: var(--bg); }}
+      .shell {{ position: fixed; left: max(10px, env(safe-area-inset-left)); top: max(10px, env(safe-area-inset-top)); z-index: 2; display: flex; align-items: center; gap: 8px; max-width: min(680px, calc(100vw - 20px)); pointer-events: none; }}
+      .badge {{ width: fit-content; min-height: 42px; box-sizing: border-box; display: inline-flex; align-items: center; padding: 0 11px; border-radius: 6px; background: rgba(26,30,27,.94); border: 1px solid var(--line); color: var(--accent); font-size: 11px; font-weight: 800; letter-spacing: 0; text-transform: uppercase; pointer-events: auto; }}
+      .summary {{ min-width: 0; max-width: min(460px, calc(100vw - 190px)); padding: 10px 12px; border-radius: 6px; background: rgba(26,30,27,.94); border: 1px solid var(--line); pointer-events: auto; }}
+      .summary p {{ display: none; }}
+      .summary h1 {{ margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .9rem; line-height: 1.25; letter-spacing: 0; }}
       .layer-switch {{ display: flex; gap: 8px; flex-wrap: wrap; }}
-      .layer-switch button {{ min-height: 42px; border: 1px solid rgba(255,255,255,.18); border-radius: 999px; padding: 0 13px; background: rgba(15,17,18,.72); color: #f8f4eb; font: inherit; font-weight: 800; cursor: pointer; backdrop-filter: blur(10px); }}
-      .layer-switch button[aria-pressed="true"] {{ background: #f8f4eb; color: #111; }}
-      .layer-note {{ margin: 0; color: rgba(248,244,235,.78); font-size: 12px; line-height: 1.35; }}
+      .layer-switch button {{ min-height: 44px; border: 1px solid var(--line); border-radius: 999px; padding: 0 13px; background: rgba(26,30,27,.94); color: var(--text); font: inherit; font-weight: 800; cursor: pointer; }}
+      .layer-switch button[aria-pressed="true"] {{ background: var(--text); color: #111; }}
+      .layer-note {{ margin: 0; color: var(--muted); font-size: 12px; line-height: 1.35; }}
+      .viewer-actions {{ display: flex; pointer-events: auto; }}
+      .viewer-actions a {{ width: 44px; height: 44px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 6px; background: rgba(26,30,27,.94); color: var(--text); font-size: 24px; font-weight: 800; line-height: 1; text-decoration: none; }}
+      .provider-load-state {{ position: fixed; inset: 0; z-index: 1; display: grid; place-items: center; padding: 20px; box-sizing: border-box; background: rgba(17,20,18,.92); text-align: center; }}
+      .provider-load-state[hidden], .provider-loading[hidden], .provider-recovery[hidden] {{ display: none; }}
+      .provider-loading {{ color: var(--muted); font-weight: 800; }}
+      .provider-recovery {{ max-width: 420px; display: grid; gap: 8px; }}
+      .provider-recovery span {{ color: var(--muted); line-height: 1.45; }}
+      .provider-recovery-actions {{ display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; margin-top: 6px; }}
+      .provider-recovery-actions button, .provider-recovery-actions a {{ min-width: 120px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--line); border-radius: 6px; padding: 0 12px; background: #242b27; color: var(--text); font: inherit; font-weight: 800; text-decoration: none; cursor: pointer; }}
       @media (max-width: 720px) {{
-        .shell {{ max-width: calc(100vw - 20px); left: 10px; top: 10px; }}
-        .summary {{ padding: 10px 12px; }}
+        .shell {{ max-width: calc(100vw - 20px); }}
+        .badge {{ display: none; }}
+        .summary {{ display: none; }}
+      }}
+      @media (prefers-reduced-motion: reduce) {{
+        *, *::before, *::after {{ animation-duration: .001ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .001ms !important; }}
       }}
     </style>
   </head>
   <body>
-    <iframe id="provider-frame" src="{html.escape(iframe_src)}" title="{title}" allowfullscreen referrerpolicy="no-referrer"></iframe>
+    <div class="provider-frame-wrap" aria-busy="true" data-provider-state="loading">
+      <iframe id="provider-frame" src="about:blank" data-src="{html.escape(iframe_src)}" title="{title}" aria-label="{provider_badge}: {title}" allowfullscreen loading="eager" referrerpolicy="no-referrer"></iframe>
+      {fullscreen_recovery_html}
+    </div>
     <div class="shell">
+      <div class="viewer-actions"><a href="{clean_return_href}" aria-label="Back to tour" title="Back to tour"><span aria-hidden="true">&#8592;</span></a></div>
       <div class="badge">{provider_badge}</div>
       {f'<div class="layer-switch" aria-label="3D tour layer">{provider_layer_buttons}</div><p class="layer-note" id="provider-layer-note">{html.escape(provider_layers[0]["disclosure"])}</p>' if has_provider_layers else ""}
       <section class="summary" aria-label="Tour summary">
@@ -7118,11 +7409,12 @@ def _tour_control_external_iframe_html(
       const providerLayers = JSON.parse(document.getElementById("provider-layers").textContent || "[]");
       const providerFrame = document.getElementById("provider-frame");
       const providerLayerNote = document.getElementById("provider-layer-note");
+      {provider_recovery_script}
       document.querySelectorAll("[data-provider-layer]").forEach((button) => {{
         button.addEventListener("click", () => {{
           const layer = providerLayers.find((candidate) => candidate.id === button.dataset.providerLayer);
           if (!layer || !providerFrame) return;
-          providerFrame.setAttribute("src", layer.src || "about:blank");
+          setProviderFrameSource(layer.src || "about:blank", true);
           document.querySelectorAll("[data-provider-layer]").forEach((candidate) => candidate.setAttribute("aria-pressed", String(candidate === button)));
           if (providerLayerNote) providerLayerNote.textContent = layer.disclosure || "";
         }});
@@ -7130,26 +7422,6 @@ def _tour_control_external_iframe_html(
     </script>
   </body>
 </html>"""
-
-
-def _tour_control_matterport_html(payload: dict[str, object]) -> str:
-    title = html.escape(str(payload.get("display_title") or payload.get("title") or "Matterport tour control").strip())
-    slug = str(payload.get("slug") or "").strip()
-    external_url = ""
-    for key in ("matterport_url", "source_virtual_tour_url", "crezlo_public_url"):
-        external_url = _safe_matterport_external_url(payload.get(key))
-        if external_url:
-            break
-    if external_url:
-        return _tour_control_external_iframe_html(
-            title=title,
-            iframe_src=external_url,
-            badge="Matterport Control",
-            payload=payload,
-            fullscreen_href=f"/tours/{urllib.parse.quote(slug, safe='')}/control/matterport?fullscreen=1" if slug else external_url,
-            fullscreen=bool(payload.get("_tour_control_fullscreen")),
-        )
-    raise HTTPException(status_code=404, detail="tour_control_matterport_export_missing")
 
 
 def _tour_control_3dvista_html(payload: dict[str, object]) -> str:
@@ -7521,7 +7793,9 @@ def public_tour_control_viewer(slug: str, viewer_mode: str, request: Request) ->
         raise HTTPException(status_code=404, detail="tour_disabled_fallback")
     normalized_viewer_mode = str(viewer_mode or "").strip().lower()
     fullscreen = str(request.query_params.get("fullscreen") or "").strip().lower() in {"1", "true", "yes", "on"}
-    if normalized_viewer_mode in {"matterport", "metaport", "3dvista", "3d_vista", "three_d_vista"}:
+    if normalized_viewer_mode in {"matterport", "metaport"}:
+        raise HTTPException(status_code=404, detail="tour_control_provider_retired")
+    if normalized_viewer_mode in {"3dvista", "3d_vista", "three_d_vista"}:
         # Provider controls need the verified private receipt URL server-side, but
         # the public JSON manifest must continue to omit source/provider URLs.
         rendered_payload = payload
@@ -7567,6 +7841,21 @@ async def public_tour_request_details(
     if not isinstance(body, dict):
         body = {}
     raise _public_tour_authenticated_action_required("request-details")
+
+
+@router.post("/tours/{slug}/filters", response_class=JSONResponse)
+async def public_tour_filters(
+    slug: str,
+    request: Request,
+) -> JSONResponse:
+    payload = _load_tour_with_private_receipt(slug)
+    _require_public_tour_viewable(payload)
+    if _tour_payload_is_disabled_fallback(payload):
+        raise HTTPException(status_code=404, detail="tour_disabled_fallback")
+    # Public tour pages intentionally expose no account mutation capability.
+    # Filter changes must cross the authenticated application boundary; old
+    # browser action tokens are not accepted as a substitute.
+    raise _public_tour_authenticated_action_required("filters")
 
 
 @router.post("/tours/{slug}/feedback", response_class=JSONResponse)

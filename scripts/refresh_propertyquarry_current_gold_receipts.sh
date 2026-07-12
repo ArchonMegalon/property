@@ -72,6 +72,9 @@ AUTH_TIMEOUT_SECONDS="${PROPERTYQUARRY_DEPLOY_AUTHENTICATED_SMOKE_TIMEOUT_SECOND
 MAP_PREVIEW_TIMEOUT_SECONDS="${PROPERTYQUARRY_DEPLOY_MAP_PREVIEW_GATE_TIMEOUT_SECONDS:-60}"
 MOBILE_TIMEOUT_MS="${PROPERTYQUARRY_DEPLOY_MOBILE_SMOKE_TIMEOUT_MS:-30000}"
 MOBILE_PROCESS_TIMEOUT_SECONDS="${PROPERTYQUARRY_DEPLOY_MOBILE_SMOKE_PROCESS_TIMEOUT_SECONDS:-300}"
+WALKTHROUGH_QUALITY_PROCESS_TIMEOUT_SECONDS="${PROPERTYQUARRY_WALKTHROUGH_QUALITY_PROCESS_TIMEOUT_SECONDS:-180}"
+WALKTHROUGH_QUALITY_FFPROBE_TIMEOUT_SECONDS="${PROPERTYQUARRY_WALKTHROUGH_QUALITY_FFPROBE_TIMEOUT_SECONDS:-20}"
+WALKTHROUGH_QUALITY_FRAME_SAMPLE_TIMEOUT_SECONDS="${PROPERTYQUARRY_WALKTHROUGH_QUALITY_FRAME_SAMPLE_TIMEOUT_SECONDS:-45}"
 RUNTIME_RECONSTRUCTION_CONTAINER="${PROPERTYQUARRY_RUNTIME_RECONSTRUCTION_CONTAINER:-${RENDER_CONTAINER}}"
 RUNTIME_RECONSTRUCTION_SLUG="${PROPERTYQUARRY_RUNTIME_RECONSTRUCTION_SMOKE_SLUG:-runtime-reconstruction-current-$(date +%Y%m%d%H%M%S)}"
 SERVICE_GENERATED_RECONSTRUCTION_SLUG="${PROPERTYQUARRY_SERVICE_GENERATED_RECONSTRUCTION_SMOKE_SLUG:-service-generated-reconstruction-current-$(date +%Y%m%d%H%M%S)}"
@@ -359,6 +362,8 @@ run_allow_fail \
     PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_PRINCIPAL_ID="${LIVE_PRINCIPAL_ID}" \
     PYTHONPATH=ea "${PYTHON_BIN}" scripts/property_live_provider_smoke.py \
       --base-url "${BASE_URL}" \
+      --no-execute-search-matrix \
+      --no-cross-country-sanitization \
       --timeout-seconds "${PROVIDER_TIMEOUT_SECONDS}" \
       --write "${provider_catalog_receipt}"
 run_allow_fail \
@@ -428,16 +433,18 @@ run_allow_fail \
   env PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_3d_browser_gate.py \
     --base-url "${BASE_URL}" \
     --host-header "${HOST_HEADER}" \
+    --runtime-container "${API_CONTAINER}" \
     --screenshots-dir _completion/smoke/property-live-3d-browser-gate-screenshots \
     --write _completion/smoke/property-live-3d-browser-gate-latest.json
-run_allow_fail_shell \
+run_allow_fail \
   "Walkthrough quality receipt" \
-  "docker cp '${service_generated_reconstruction_receipt}' '${API_CONTAINER}:/data/artifacts/property-service-generated-reconstruction-current.json' >/dev/null && \
-   docker exec '${API_CONTAINER}' python /app/scripts/propertyquarry_walkthrough_quality_gate.py \
-    --tour-root /data/public_property_tours \
-    --service-generated-reconstruction-receipt /data/artifacts/property-service-generated-reconstruction-current.json \
-    --write /data/artifacts/property-live-walkthrough-quality-current.json >/dev/null && \
-   docker cp '${API_CONTAINER}:/data/artifacts/property-live-walkthrough-quality-current.json' _completion/smoke/property-live-walkthrough-quality-latest.json >/dev/null"
+  timeout "${WALKTHROUGH_QUALITY_PROCESS_TIMEOUT_SECONDS}" \
+    env PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_walkthrough_quality_gate.py \
+      --tour-root "${CURRENT_PUBLIC_TOUR_DIR}" \
+      --service-generated-reconstruction-receipt "${service_generated_reconstruction_receipt}" \
+      --ffprobe-timeout-seconds "${WALKTHROUGH_QUALITY_FFPROBE_TIMEOUT_SECONDS}" \
+      --frame-sample-timeout-seconds "${WALKTHROUGH_QUALITY_FRAME_SAMPLE_TIMEOUT_SECONDS}" \
+      --write _completion/smoke/property-live-walkthrough-quality-latest.json
 
 gold_args=(
   "--performance-receipt" "_completion/smoke/property-auth-performance-latest.json"

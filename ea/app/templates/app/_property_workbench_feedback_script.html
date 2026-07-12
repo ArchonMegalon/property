@@ -183,6 +183,43 @@
       || candidate?.tour_url
       || ''
     ).trim();
+    const selectedWalkthroughUrlForCandidate = (candidate) => String(
+      candidate?.flythrough?.url
+      || candidate?.flythrough_url
+      || ''
+    ).trim();
+    const candidateVisualPendingStates = new Set(['queued', 'pending', 'processing', 'running', 'in_progress', 'started', 'rendering', 'repairing']);
+    const candidateVisualTerminalStates = new Set(['blocked', 'failed', 'skipped', 'not_applicable', 'unavailable']);
+    const selectedVisualStatusForCandidate = (candidate) => {
+      const tour = candidate?.tour && typeof candidate.tour === 'object' ? candidate.tour : {};
+      const flythrough = candidate?.flythrough && typeof candidate.flythrough === 'object' ? candidate.flythrough : {};
+      const resolvedTourUrl = selectedTourUrlForCandidate(candidate);
+      const resolvedFlythroughUrl = selectedWalkthroughUrlForCandidate(candidate);
+      const tourStatus = String(candidate?.tour_status || tour.status || '').trim().toLowerCase();
+      const flythroughStatus = String(candidate?.flythrough_status || flythrough.status || '').trim().toLowerCase();
+      if (candidateVisualPendingStates.has(tourStatus)) {
+        return [String(tour.detail || tour.label || 'Preparing 3D tour.').trim(), String(tour.eta_label || '').trim() ? `ETA ${String(tour.eta_label || '').trim()}` : '']
+          .filter(Boolean)
+          .join(' · ');
+      }
+      if (candidateVisualPendingStates.has(flythroughStatus)) {
+        return [String(flythrough.detail || flythrough.label || 'Preparing walkthrough.').trim(), String(flythrough.eta_label || '').trim() ? `ETA ${String(flythrough.eta_label || '').trim()}` : '']
+          .filter(Boolean)
+          .join(' · ');
+      }
+      if (candidateVisualTerminalStates.has(tourStatus)) {
+        return String(tour.detail || tour.eta_label || '3D tour not available yet.').trim();
+      }
+      if (candidateVisualTerminalStates.has(flythroughStatus)) {
+        return String(flythrough.detail || 'Walkthrough not available yet.').trim();
+      }
+      const visualPropertyUrl = String(candidate?.property_url || candidate?.source_url || candidate?.listing_url || '').trim();
+      const visualMediaReady = Boolean(String(candidate?.floorplan_url || candidate?.source_virtual_tour_url || candidate?.vendor_tour_url || tour.provider_url || '').trim());
+      if (!resolvedTourUrl && !resolvedFlythroughUrl && visualMediaReady && visualPropertyUrl) {
+        return 'Request a visual from the available source material when this home matters enough to inspect further.';
+      }
+      return '';
+    };
     const embeddedTourUrlForCandidate = (candidate) => {
       for (const value of [
         candidate?.verified_tour_url,
@@ -208,12 +245,69 @@
       if (!node || !candidate) return;
       clearNode(node);
       const tour = candidate.tour || {};
+      const flythrough = candidate.flythrough || {};
       const resolvedTourUrl = selectedTourUrlForCandidate(candidate);
+      const resolvedFlythroughUrl = selectedWalkthroughUrlForCandidate(candidate);
+      const tourStatus = String(candidate.tour_status || tour.status || '').trim().toLowerCase();
+      const flythroughStatus = String(candidate.flythrough_status || flythrough.status || '').trim().toLowerCase();
+      const tourPending = candidateVisualPendingStates.has(tourStatus);
+      const flythroughPending = candidateVisualPendingStates.has(flythroughStatus);
+      const tourTerminal = candidateVisualTerminalStates.has(tourStatus);
+      const flythroughTerminal = candidateVisualTerminalStates.has(flythroughStatus);
+      const tourProgress = Number.isFinite(Number(tour.progress_pct))
+        ? Math.max(0, Math.min(100, Number(tour.progress_pct)))
+        : (resolvedTourUrl ? 100 : 0);
+      const flythroughProgress = Number.isFinite(Number(flythrough.progress_pct))
+        ? Math.max(0, Math.min(100, Number(flythrough.progress_pct)))
+        : (resolvedFlythroughUrl ? 100 : 0);
       const candidateRef = String(candidate.candidate_ref || '').trim();
       const runId = String(data.run?.run_id || meta.run_id || '').trim();
+      const appendVisualStateButton = ({
+        label,
+        requestKind,
+        state,
+        progress = 0,
+        detail = '',
+        eta = '',
+        pollSeconds = 0,
+        walkthroughProvider = '',
+        disabled = false,
+      }) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = disabled ? 'pqx-progress-button is-processing' : 'pqx-button';
+        button.textContent = String(label || '').trim();
+        button.setAttribute('data-pw-visual-request', String(requestKind || 'tour'));
+        button.setAttribute('data-pw-visual-style-required', '1');
+        button.setAttribute('data-property-url', visualPropertyUrl);
+        button.setAttribute('data-source-ref', String(candidate.source_ref || ''));
+        button.setAttribute('data-candidate-ref', candidateRef);
+        button.setAttribute('data-run-id', runId);
+        button.setAttribute('data-pw-visual-state', String(state || ''));
+        button.setAttribute('data-pw-visual-progress', String(progress));
+        button.setAttribute('data-pw-visual-eta', String(eta || ''));
+        button.setAttribute('data-pw-visual-detail', String(detail || ''));
+        button.setAttribute('data-pw-visual-poll-seconds', String(pollSeconds || 10));
+        button.setAttribute('data-rybbit-event', requestKind === 'flythrough' ? 'pq.flythrough.opened' : 'pq.tour.opened');
+        button.setAttribute('data-rybbit-prop-cta-key', requestKind === 'flythrough' ? 'request_flythrough' : 'request_tour');
+        button.setAttribute('data-rybbit-prop-surface', 'research');
+        if (walkthroughProvider) button.setAttribute('data-pw-walkthrough-provider', walkthroughProvider);
+        if (detail || eta) {
+          button.setAttribute('title', [String(detail || '').trim(), eta ? `ETA ${eta}` : ''].filter(Boolean).join(' · '));
+        }
+        if (disabled) {
+          button.disabled = true;
+          button.setAttribute('aria-disabled', 'true');
+          button.style.setProperty('--pqx-fill', `${progress}%`);
+        }
+        node.appendChild(button);
+        return button;
+      };
+      const visualPropertyUrl = String(candidate.property_url || candidate.source_url || candidate.listing_url || '').trim();
+      const visualMediaReady = Boolean(String(candidate.floorplan_url || candidate.source_virtual_tour_url || candidate.vendor_tour_url || tour.provider_url || '').trim());
       if (resolvedTourUrl) {
         appendActionControl(node, {
-          label: String(tour.control_label || 'Open 3D tour').trim() || 'Open 3D tour',
+          label: String(tour.control_label || tour.label || 'Open 3D tour').trim() || 'Open 3D tour',
           href: resolvedTourUrl,
           link: true,
           primary: true,
@@ -221,6 +315,26 @@
             'data-rybbit-event': 'pq.tour.opened',
             'data-rybbit-prop-surface': 'research',
           },
+        });
+      } else if (tourPending && visualMediaReady && visualPropertyUrl) {
+        appendVisualStateButton({
+          label: String(tour.label || '3D tour queued').trim() || '3D tour queued',
+          requestKind: 'tour',
+          state: tourStatus || 'queued',
+          progress: tourProgress,
+          detail: String(tour.detail || tour.label || 'Preparing 3D tour.').trim(),
+          eta: String(tour.eta_label || '').trim(),
+          pollSeconds: Math.max(0, Number(tour.poll_after_seconds || 0) || 0),
+          disabled: true,
+        });
+      } else if (tourTerminal && visualMediaReady && visualPropertyUrl) {
+        appendVisualStateButton({
+          label: String(tour.label || (['blocked', 'failed'].includes(tourStatus) ? 'Retry 3D tour' : 'Request 3D tour')).trim(),
+          requestKind: 'tour',
+          state: tourStatus || 'blocked',
+          detail: String(tour.detail || '').trim(),
+          eta: '',
+          pollSeconds: 0,
         });
       }
       if (candidate.packet_url) {
@@ -272,9 +386,7 @@
           },
         });
       }
-      const visualPropertyUrl = String(candidate.property_url || candidate.source_url || candidate.listing_url || '').trim();
-      const visualMediaReady = Boolean(String(candidate.floorplan_url || candidate.source_virtual_tour_url || candidate.vendor_tour_url || tour.provider_url || '').trim());
-      if (!resolvedTourUrl && visualMediaReady && visualPropertyUrl) {
+      if (!resolvedTourUrl && !tourPending && visualMediaReady && visualPropertyUrl) {
         appendActionControl(actions, {
           label: 'Request 3D tour',
           attributes: {
@@ -289,11 +401,45 @@
             'data-rybbit-prop-surface': 'research',
           },
         });
-        const walkthroughButton = appendActionControl(actions, {
+      }
+      if (resolvedFlythroughUrl) {
+        appendActionControl(actions, {
+          label: String(flythrough.label || 'Open walkthrough').trim() || 'Open walkthrough',
+          href: resolvedFlythroughUrl,
+          link: true,
+          attributes: {
+            'data-rybbit-prop-surface': 'research',
+          },
+        });
+      } else if (flythroughPending && visualMediaReady && visualPropertyUrl) {
+        appendVisualStateButton({
+          label: String(flythrough.label || 'Walkthrough queued').trim() || 'Walkthrough queued',
+          requestKind: 'flythrough',
+          state: flythroughStatus || 'queued',
+          progress: flythroughProgress,
+          detail: String(flythrough.detail || flythrough.label || 'Preparing walkthrough.').trim(),
+          eta: String(flythrough.eta_label || '').trim(),
+          pollSeconds: Math.max(0, Number(flythrough.poll_after_seconds || 0) || 0),
+          walkthroughProvider: 'default',
+          disabled: true,
+        });
+      } else if (flythroughTerminal && visualMediaReady && visualPropertyUrl) {
+        appendVisualStateButton({
+          label: String(flythrough.label || (['blocked', 'failed'].includes(flythroughStatus) ? 'Retry walkthrough' : 'Request walkthrough')).trim(),
+          requestKind: 'flythrough',
+          state: flythroughStatus || 'blocked',
+          detail: String(flythrough.detail || '').trim(),
+          eta: '',
+          pollSeconds: 0,
+          walkthroughProvider: 'default',
+        });
+      } else if (visualMediaReady && visualPropertyUrl) {
+        appendActionControl(actions, {
           label: 'Request walkthrough',
           attributes: {
             'data-pw-visual-request': 'flythrough',
             'data-pw-visual-style-required': '1',
+            'data-pw-walkthrough-provider': 'default',
             'data-property-url': visualPropertyUrl,
             'data-source-ref': String(candidate.source_ref || ''),
             'data-candidate-ref': candidateRef,
@@ -316,9 +462,8 @@
       const status = document.createElement('div');
       status.className = 'pqx-decision-status';
       status.setAttribute('data-pw-visual-request-status', '');
-      status.textContent = (!resolvedTourUrl && visualMediaReady)
-        ? 'Need a closer look? Request a 3D tour or walkthrough.'
-        : '';
+      status.textContent = selectedVisualStatusForCandidate(candidate);
+      status.hidden = !status.textContent;
       details.appendChild(status);
       node.appendChild(details);
     };
@@ -1045,11 +1190,16 @@
       root.querySelectorAll('[data-pw-actions]').forEach((node) => {
         if (node.matches('[data-pw-actions]')) renderPropertyActions(node, candidate);
       });
-      if (visualRequestStatusNode) {
-        visualRequestStatusNode.textContent = candidate?.tour?.url
-          ? ''
-          : 'Request a visual from the available source material when this home matters enough to inspect further.';
+      if (typeof applyPendingVisualButtonState === 'function') {
+        root.querySelectorAll('[data-pw-actions] [data-pw-visual-request]').forEach((button) => {
+          applyPendingVisualButtonState(button);
+        });
       }
+      const nextVisualStatus = selectedVisualStatusForCandidate(candidate);
+      root.querySelectorAll('[data-pw-visual-request-status]').forEach((statusNode) => {
+        statusNode.textContent = nextVisualStatus;
+        statusNode.hidden = !nextVisualStatus;
+      });
       if (topPropertyActionsNode && candidates.length) renderTopPropertyActions(topPropertyActionsNode, candidate);
       loadCandidateFeedbackSuggestions(candidate);
       loadPersistedDecisionState(candidate);
@@ -1064,6 +1214,7 @@
         }, 0);
       }
     };
+    window.__pqSelectCandidate = selectCandidate;
     function bindWorkbenchRows(scope = root) {
       scope.querySelectorAll('[data-workbench-row]').forEach((row) => {
         if (row.dataset.pqxRowBound === '1') return;

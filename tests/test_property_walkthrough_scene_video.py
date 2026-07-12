@@ -358,6 +358,13 @@ print(json.dumps(state))
     assert video_path.read_bytes() == b"fake-omagic-video"
     sidecar = json.loads((bundle_dir / "tour.omagic.json").read_text(encoding="utf-8"))
     assert sidecar["model_input_consumption_proof"] == "fake-product-command-adapter"
+    assert sidecar["provider_backend_key"] == "omagic"
+    manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
+    assert manifest["video_provider_key"] == "omagic"
+    assert manifest["video_provider"] == "omagic"
+    assert manifest["video_relpath"] == result["video_relpath"]
+    assert manifest["video_sidecar_relpath"] == "tour.omagic.json"
+    assert manifest["video_coverage_proof"] == "omagic_model_upload"
 
 
 def test_render_property_flythrough_blank_provider_uses_runtime_selected_magicfit(monkeypatch) -> None:

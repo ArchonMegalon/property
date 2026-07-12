@@ -1682,9 +1682,9 @@ def _compact_run_message(value: object) -> str:
         found = _positive_int(stale_zero_match.group("found"))
         done = _positive_int(stale_zero_match.group("done"))
         total = _positive_int(stale_zero_match.group("total"))
-        unit = " ".join(str(stale_zero_match.group("unit") or "checks").lower().split())
         left = max(0, total - done)
         if left > 0:
+            unit = "check" if left == 1 else "checks"
             return f"{found} homes found · {left} {unit} left"
         return f"{found} homes found · all found homes are checked"
     text = re.sub(

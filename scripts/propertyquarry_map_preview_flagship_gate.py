@@ -29,8 +29,17 @@ ARTIFACT_PATTERNS = (
 )
 ROOT = Path(__file__).resolve().parents[1]
 APP_ROOT = ROOT / "ea"
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 if APP_ROOT.exists() and str(APP_ROOT) not in sys.path:
     sys.path.insert(0, str(APP_ROOT))
+
+from scripts.propertyquarry_live_http_security import (
+    headers_for_authorized_origin,
+    normalized_origin,
+    url_matches_origin,
+    validated_live_base_origin,
+)
 
 CANONICAL_RENDERER_PREVIEWS: tuple[dict[str, object], ...] = (
     {
@@ -78,38 +87,72 @@ def _fetch(
     api_token: str = "",
     principal_id: str = "",
     accept: str = "*/*",
+    authorized_origin: str = "",
 ) -> dict[str, Any]:
-    request = urllib.request.Request(
-        url,
-        headers=_headers(host_header=host_header, api_token=api_token, principal_id=principal_id, accept=accept),
+    scoped_origin = normalized_origin(authorized_origin) if authorized_origin else ""
+    current_url = str(url or "").strip()
+    full_headers = _headers(
+        host_header=host_header,
+        api_token=api_token,
+        principal_id=principal_id,
+        accept=accept,
     )
-    try:
-        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-            body = response.read(2_500_000)
-            return {
-                "status_code": int(response.status),
-                "final_url": str(response.geturl()),
-                "headers": dict(response.headers.items()),
-                "body": body,
+
+    class _NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+            return None
+
+    opener = urllib.request.build_opener(_NoRedirect)
+    for _redirect_count in range(6):
+        request = urllib.request.Request(
+            current_url,
+            headers=headers_for_authorized_origin(
+                url=current_url,
+                authorized_origin=scoped_origin,
+                headers=full_headers,
+            ),
+        )
+        try:
+            with opener.open(request, timeout=timeout_seconds) as response:
+                body = response.read(2_500_000)
+                return {
+                    "status_code": int(response.status),
+                    "final_url": str(response.geturl()),
+                    "headers": dict(response.headers.items()),
+                    "body": body,
+                }
+        except urllib.error.HTTPError as exc:
+            result = {
+                "status_code": int(exc.code),
+                "final_url": str(exc.geturl()),
+                "headers": dict(exc.headers.items()),
+                "body": exc.read(200_000),
+                "error": str(exc),
             }
-    except urllib.error.HTTPError as exc:
-        return {
-            "status_code": int(exc.code),
-            "final_url": str(exc.geturl()),
-            "headers": dict(exc.headers.items()),
-            "body": exc.read(200_000),
-            "error": str(exc),
-        }
-    except Exception as exc:
-        return {
-            "status_code": 0,
-            "final_url": url,
-            "headers": {},
-            "body": b"",
-            "error": f"{type(exc).__name__}: {exc}",
-        }
-
-
+            location = _header(dict(exc.headers.items()), "location")
+            if int(exc.code or 0) not in {301, 302, 303, 307, 308} or not location:
+                return result
+            next_url = urllib.parse.urljoin(current_url, location)
+            if not url_matches_origin(next_url, scoped_origin):
+                result["redirect_blocked"] = "cross_origin"
+                result["redirect_location"] = next_url
+                return result
+            current_url = next_url
+        except Exception as exc:
+            return {
+                "status_code": 0,
+                "final_url": current_url,
+                "headers": {},
+                "body": b"",
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+    return {
+        "status_code": 0,
+        "final_url": current_url,
+        "headers": {},
+        "body": b"",
+        "error": "same_origin_redirect_limit_exceeded",
+    }
 def _header(headers: dict[str, object], name: str) -> str:
     normalized = name.lower()
     for key, value in headers.items():
@@ -139,6 +182,7 @@ def _discover_preview_urls(
     principal_id: str,
     discovery_results: list[dict[str, object]] | None = None,
 ) -> list[str]:
+    authorized_origin = validated_live_base_origin(base_url)
     urls: list[str] = []
     seen: set[str] = set()
     for route in routes:
@@ -151,13 +195,14 @@ def _discover_preview_urls(
             api_token=api_token,
             principal_id=principal_id,
             accept="text/html,*/*",
+            authorized_origin=authorized_origin,
         )
         elapsed_ms = int(round((time.monotonic() - started) * 1000))
         body = bytes(response.get("body") or b"").decode("utf-8", errors="replace")
         before_count = len(urls)
         for match in PREVIEW_RE.finditer(body):
             url = _absolute_url(base_url, match.group("url"))
-            if url and url not in seen:
+            if url and url_matches_origin(url, authorized_origin) and url not in seen:
                 seen.add(url)
                 urls.append(url)
         if discovery_results is not None:
@@ -376,6 +421,20 @@ def build_map_preview_flagship_receipt(
     canonical_fallback: bool = True,
 ) -> dict[str, Any]:
     base = str(base_url or "http://localhost:8097").strip().rstrip("/")
+    try:
+        validated_live_base_origin(base)
+    except ValueError as exc:
+        return {
+            "contract_name": "propertyquarry.map_preview_flagship_gate.v1",
+            "generated_at": _utc_now(),
+            "status": "blocked",
+            "base_url": base,
+            "host_header": host_header,
+            "preview_count": 0,
+            "failed_count": 1,
+            "checks": [_check("live_base_origin_safe", False, reason=str(exc))],
+            "preview_results": [],
+        }
     url_sources: list[dict[str, object]] = []
     seen: set[str] = set()
     discovery_results: list[dict[str, object]] = []

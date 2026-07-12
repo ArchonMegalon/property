@@ -22,6 +22,8 @@ from typing import Any
 DEFAULT_RENDER_CONTAINER = "propertyquarry-render-tools"
 _BROWSER_SHELL_VIEWER_BOOTSTRAP_WAIT_MS = 5_000
 _BROWSER_SHELL_PROBE_TIMEOUT_SECONDS = 240
+_LAYOUT_VIEWER_MIN_STAGING_OBJECTS_PER_ROUTE_STOP = 2
+_LAYOUT_VIEWER_MIN_PROJECTED_STAGING_COVERAGE_PCT = 0.03
 ROOT = Path(__file__).resolve().parents[1]
 EA_ROOT = ROOT / "ea"
 for candidate in (ROOT, EA_ROOT):
@@ -437,12 +439,24 @@ def _reconstruction_render_metrics(page: Any) -> dict[str, object]:
     return {
         "ready": bool(metrics.get("ready")),
         "frame_count": float(metrics.get("frameCount") or 0),
+        "wall_rect_count": float(metrics.get("wallRectCount") or 0),
+        "wall_mesh_count": float(metrics.get("wallMeshCount") or 0),
+        "cutaway_wall_count": float(metrics.get("cutawayWallCount") or 0),
+        "hidden_cutaway_wall_count": float(metrics.get("hiddenCutawayWallCount") or 0),
+        "visible_wall_count": float(metrics.get("visibleWallCount") or 0),
         "route_stop_count": float(metrics.get("routeStopCount") or 0),
         "active_route_index": float(metrics.get("activeRouteIndex") or 0),
         "view_mode": str(metrics.get("viewMode") or ""),
+        "wall_opacity": float(metrics.get("wallOpacity") or 0),
+        "wall_height_scale": float(metrics.get("wallHeightScale") or 0),
+        "staging_object_count": float(metrics.get("stagingObjectCount") or 0),
+        "visible_staging_object_count": float(metrics.get("visibleStagingObjectCount") or 0),
         "photo_panel_count": float(metrics.get("photoPanelCount") or 0),
         "loaded_photo_texture_count": float(metrics.get("loadedPhotoTextureCount") or 0),
         "visible_photo_panel_count": float(metrics.get("visiblePhotoPanelCount") or 0),
+        "projected_coverage_pct": float(metrics.get("projectedCoveragePct") or 0),
+        "projected_photo_coverage_pct": float(metrics.get("projectedPhotoCoveragePct") or 0),
+        "projected_staging_coverage_pct": float(metrics.get("projectedStagingCoveragePct") or 0),
         "render_calls": float(metrics.get("renderCalls") or 0),
         "render_triangles": float(metrics.get("renderTriangles") or 0),
     }
@@ -550,27 +564,33 @@ def _generated_reconstruction_layout_viewer_snapshot(page: Any) -> dict[str, obj
                         layout_viewer_photo_panel_count: Number(state.photoPanelCount || 0),
                         layout_viewer_loaded_photo_texture_count: Number(state.loadedPhotoTextureCount || 0),
                         layout_viewer_visible_photo_panel_count: Number(state.visiblePhotoPanelCount || 0),
+                        layout_viewer_cutaway_wall_count: Number(state.cutawayWallCount || 0),
+                        layout_viewer_hidden_cutaway_wall_count: Number(state.hiddenCutawayWallCount || 0),
+                        layout_viewer_wall_opacity: Number(state.wallOpacity || 0),
+                        layout_viewer_wall_height_scale: Number(state.wallHeightScale || 0),
+                        layout_viewer_staging_object_count: Number(state.stagingObjectCount || 0),
+                        layout_viewer_visible_staging_object_count: Number(state.visibleStagingObjectCount || 0),
+                        layout_viewer_projected_staging_coverage_pct: Number(state.projectedStagingCoveragePct || 0),
                         layout_viewer_render_calls: Number(state.renderCalls || 0),
                         layout_viewer_render_triangles: Number(state.renderTriangles || 0),
                     };
                 }
                 const doc = frame?.contentDocument;
                 const debug = frame?.contentWindow?.__pqReconstructionDebug;
+                const renderMetrics = debug && typeof debug.getRenderMetrics === 'function'
+                    ? debug.getRenderMetrics()
+                    : null;
                 const liveState = debug && typeof debug.getLiveState === 'function'
                     ? debug.getLiveState()
                     : null;
-                const metrics = liveState && typeof liveState === 'object'
-                    ? liveState
-                    : (
-                        debug && typeof debug.getRenderMetrics === 'function'
-                            ? debug.getRenderMetrics()
-                            : null
-                    );
+                const metrics = renderMetrics && typeof renderMetrics === 'object'
+                    ? { ...(liveState && typeof liveState === 'object' ? liveState : {}), ...renderMetrics }
+                    : (liveState && typeof liveState === 'object' ? liveState : null);
                 return {
                     lead_preview_src: String(document.getElementById('lead-preview-image')?.getAttribute('src') || '').trim(),
                     layout_viewer_present: Boolean(frame),
                     layout_viewer_ready: Boolean(shell && shell.classList.contains('is-ready')),
-                    layout_viewer_metrics_source: liveState && typeof liveState === 'object' ? 'live_state' : (metrics ? 'render_metrics' : 'missing'),
+                    layout_viewer_metrics_source: renderMetrics && typeof renderMetrics === 'object' ? 'render_metrics' : (metrics ? 'live_state' : 'missing'),
                     layout_viewer_route_button_count: Number(doc?.querySelectorAll('.route-button').length || 0),
                     layout_viewer_floorplan_stop_count: Number(doc?.querySelectorAll('.floorplan-stop').length || 0),
                     layout_viewer_metrics_ready: Boolean(metrics && metrics.ready),
@@ -580,6 +600,13 @@ def _generated_reconstruction_layout_viewer_snapshot(page: Any) -> dict[str, obj
                     layout_viewer_photo_panel_count: Number(metrics?.photoPanelCount || 0),
                     layout_viewer_loaded_photo_texture_count: Number(metrics?.loadedPhotoTextureCount || 0),
                     layout_viewer_visible_photo_panel_count: Number(metrics?.visiblePhotoPanelCount || 0),
+                    layout_viewer_cutaway_wall_count: Number(metrics?.cutawayWallCount || 0),
+                    layout_viewer_hidden_cutaway_wall_count: Number(metrics?.hiddenCutawayWallCount || 0),
+                    layout_viewer_wall_opacity: Number(metrics?.wallOpacity || 0),
+                    layout_viewer_wall_height_scale: Number(metrics?.wallHeightScale || 0),
+                    layout_viewer_staging_object_count: Number(metrics?.stagingObjectCount || 0),
+                    layout_viewer_visible_staging_object_count: Number(metrics?.visibleStagingObjectCount || 0),
+                    layout_viewer_projected_staging_coverage_pct: Number(metrics?.projectedStagingCoveragePct || 0),
                     layout_viewer_render_calls: Number(metrics?.renderCalls || 0),
                     layout_viewer_render_triangles: Number(metrics?.renderTriangles || 0),
                 };
@@ -587,6 +614,68 @@ def _generated_reconstruction_layout_viewer_snapshot(page: Any) -> dict[str, obj
         )
         or {}
     )
+
+
+def _viewer_snapshot_int(snapshot: dict[str, object], key: str, *, default: int = 0) -> int:
+    try:
+        value = snapshot.get(key)
+        if value is None or value == "":
+            return default
+        return int(float(value))
+    except Exception:
+        return default
+
+
+def _viewer_snapshot_float(snapshot: dict[str, object], key: str, *, default: float = 0.0) -> float:
+    try:
+        value = snapshot.get(key)
+        if value is None or value == "":
+            return default
+        return float(value)
+    except Exception:
+        return default
+
+
+def _generated_reconstruction_layout_viewer_quality_failures(
+    *,
+    prefix: str,
+    snapshot: dict[str, object],
+    expected_route_stop_count: int,
+    require_cutaway_view: bool = False,
+) -> list[str]:
+    failures: list[str] = []
+    route_stop_count = max(
+        _viewer_snapshot_int(snapshot, "layout_viewer_route_stop_count"),
+        int(expected_route_stop_count or 0),
+    )
+    if route_stop_count <= 0:
+        return failures
+    required_staging_objects = route_stop_count * _LAYOUT_VIEWER_MIN_STAGING_OBJECTS_PER_ROUTE_STOP
+    staging_object_count = _viewer_snapshot_int(snapshot, "layout_viewer_staging_object_count")
+    visible_staging_object_count = _viewer_snapshot_int(snapshot, "layout_viewer_visible_staging_object_count")
+    projected_staging_coverage_pct = _viewer_snapshot_float(
+        snapshot,
+        "layout_viewer_projected_staging_coverage_pct",
+    )
+    if staging_object_count < required_staging_objects:
+        failures.append(f"{prefix}_layout_viewer_staging_object_count_low")
+    if visible_staging_object_count < min(route_stop_count, max(staging_object_count, 0)):
+        failures.append(f"{prefix}_layout_viewer_visible_staging_missing")
+    if projected_staging_coverage_pct < _LAYOUT_VIEWER_MIN_PROJECTED_STAGING_COVERAGE_PCT:
+        failures.append(f"{prefix}_layout_viewer_projected_staging_coverage_low")
+
+    cutaway_wall_count = _viewer_snapshot_int(snapshot, "layout_viewer_cutaway_wall_count")
+    hidden_cutaway_wall_count = _viewer_snapshot_int(snapshot, "layout_viewer_hidden_cutaway_wall_count")
+    wall_height_scale = _viewer_snapshot_float(snapshot, "layout_viewer_wall_height_scale")
+    view_mode = str(snapshot.get("layout_viewer_view_mode") or "").strip().lower()
+    if cutaway_wall_count < 1:
+        failures.append(f"{prefix}_layout_viewer_cutaway_wall_count_missing")
+    if require_cutaway_view or view_mode in {"overview", "dollhouse"}:
+        if hidden_cutaway_wall_count < 1:
+            failures.append(f"{prefix}_layout_viewer_hidden_cutaway_wall_count_missing")
+        if not (0.0 < wall_height_scale < 0.95):
+            failures.append(f"{prefix}_layout_viewer_wall_height_scale_not_cutaway")
+    return failures
 
 
 def _generated_reconstruction_layout_viewer_state_matches(
@@ -619,6 +708,12 @@ def _generated_reconstruction_layout_viewer_state_matches(
         loaded_photo_texture_count = int(snapshot.get("layout_viewer_loaded_photo_texture_count") or 0)
         if loaded_photo_texture_count > 0 and loaded_photo_texture_count < min(int(expected_photo_count or 0), photo_panel_count):
             return False
+    if _generated_reconstruction_layout_viewer_quality_failures(
+        prefix="state",
+        snapshot=snapshot,
+        expected_route_stop_count=expected_route_stop_count,
+    ):
+        return False
     if expected_active_route_index is not None and int(-1 if active_route_index is None else active_route_index) != int(expected_active_route_index):
         return False
     return True
@@ -720,6 +815,13 @@ _LAYOUT_VIEWER_PROOF_KEYS = (
     "layout_viewer_photo_panel_count",
     "layout_viewer_loaded_photo_texture_count",
     "layout_viewer_visible_photo_panel_count",
+    "layout_viewer_cutaway_wall_count",
+    "layout_viewer_hidden_cutaway_wall_count",
+    "layout_viewer_wall_opacity",
+    "layout_viewer_wall_height_scale",
+    "layout_viewer_staging_object_count",
+    "layout_viewer_visible_staging_object_count",
+    "layout_viewer_projected_staging_coverage_pct",
     "layout_viewer_render_calls",
     "layout_viewer_render_triangles",
 )
@@ -835,6 +937,15 @@ def _generated_reconstruction_browser_shell_layout_failures(
         failures.append("launch_shell_layout_viewer_photo_textures_incomplete")
     if expected_route_stop_count > 0 and _int_value(launch_shell.get("layout_viewer_active_route_index")) != 0:
         failures.append("launch_shell_layout_viewer_initial_route_wrong")
+    failures.extend(
+        _generated_reconstruction_layout_viewer_quality_failures(
+            prefix="launch_shell",
+            snapshot=launch_shell,
+            expected_route_stop_count=expected_route_stop_count,
+            require_cutaway_view=str(launch_shell.get("layout_viewer_view_mode") or "").strip().lower()
+            in {"overview", "dollhouse"},
+        )
+    )
     if (
         expected_route_stop_count > 1
         and "layout_viewer_active_route_index_after_route_click" in launch_shell
@@ -870,6 +981,15 @@ def _generated_reconstruction_browser_shell_layout_failures(
         failures.append("layout_preview_layout_viewer_photo_textures_incomplete")
     if expected_route_stop_count > 0 and _int_value(layout_preview.get("layout_viewer_active_route_index")) != 0:
         failures.append("layout_preview_layout_viewer_initial_route_wrong")
+    failures.extend(
+        _generated_reconstruction_layout_viewer_quality_failures(
+            prefix="layout_preview",
+            snapshot=layout_preview,
+            expected_route_stop_count=expected_route_stop_count,
+            require_cutaway_view=str(layout_preview.get("layout_viewer_view_mode") or "").strip().lower()
+            in {"overview", "dollhouse"},
+        )
+    )
     return failures
 
 

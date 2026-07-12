@@ -105,3 +105,54 @@ def test_omagic_model_upload_adapter_fails_closed_without_target(tmp_path: Path,
 
     assert result.returncode == 1
     assert json.loads(state_path.read_text(encoding="utf-8"))["reason"] == "omagic_model_upload_endpoint_missing"
+
+
+def test_omagic_model_upload_adapter_requires_explicit_model_consumption_proof(tmp_path: Path, monkeypatch) -> None:
+    model_path = tmp_path / "model.glb"
+    model_path.write_bytes(b"glTF")
+    state_path = tmp_path / "state.json"
+    fake_adapter = tmp_path / "fake_omagic_adapter.py"
+    fake_adapter.write_text(
+        """
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--request-json", required=True)
+parser.add_argument("--out", required=True)
+parser.add_argument("--state-json", required=True)
+args = parser.parse_args()
+Path(args.out).write_bytes(b"unproven-video")
+state = {"render_status": "completed", "video_path": args.out}
+Path(args.state_json).write_text(json.dumps(state), encoding="utf-8")
+print(json.dumps(state))
+""".lstrip(),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PROPERTYQUARRY_OMAGIC_MODEL_UPLOAD_ENABLED", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_OMAGIC_RENDER_COMMAND", f"{sys.executable} {fake_adapter}")
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "render_omagic_property_model_walkthrough.py"),
+            "--prompt",
+            "Render a model-backed apartment walkthrough.",
+            "--model-path",
+            str(model_path),
+            "--out",
+            str(tmp_path / "walkthrough.mp4"),
+            "--state-json",
+            str(state_path),
+        ],
+        cwd=ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert json.loads(state_path.read_text(encoding="utf-8"))["reason"] == "omagic_model_input_not_consumed"

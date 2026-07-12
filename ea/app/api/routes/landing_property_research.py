@@ -377,7 +377,12 @@ def _property_enriched_candidate_facts(
             facts["description"] = fallback_description
     text = " | ".join(part for part in (title, summary) if part)
     if text:
-        if "price_eur" not in facts:
+        parsed_price_eur = _property_investment_price_eur(facts)
+        supported_currencies = set(supported_currency_codes())
+        current_currency_code = str(facts.get("currency_code") or facts.get("price_currency") or "").strip().upper()
+        needs_price_value = not isinstance(parsed_price_eur, float)
+        needs_currency_code = current_currency_code not in supported_currencies
+        if needs_price_value or needs_currency_code:
             currency_pattern = "|".join(re.escape(code) for code in supported_currency_codes())
             price_match = re.search(
                 rf"(?:(?P<symbol>€|£|CHF|USD|CAD|AUD)|(?P<code>{currency_pattern}))\s*([\d\.\s]+(?:,\d+)?)",
@@ -388,19 +393,21 @@ def _property_enriched_candidate_facts(
                 raw_amount = str(price_match.group(3) or "").strip().replace(" ", "")
                 normalized_amount = raw_amount.replace(".", "").replace(",", ".")
                 try:
-                    facts["price_eur"] = float(normalized_amount)
+                    title_price_value = float(normalized_amount)
+                    if needs_price_value or not isinstance(facts.get("price_eur"), (int, float)):
+                        facts["price_eur"] = title_price_value
                     raw_currency = str(price_match.group("code") or price_match.group("symbol") or "").strip().upper()
                     symbol_currency = {"€": "EUR", "£": "GBP"}.get(raw_currency, raw_currency)
-                    if symbol_currency in set(supported_currency_codes()):
-                        facts.setdefault("currency_code", symbol_currency)
+                    if needs_currency_code and symbol_currency in supported_currencies:
+                        facts["currency_code"] = symbol_currency
                     currency_code = _property_currency_code_from_facts(facts)
                     facts.setdefault(
                         "price_display",
-                        compact_text(price_match.group(0), fallback=_property_money_amount_label(float(facts["price_eur"]), currency_code=currency_code), limit=120),
+                        compact_text(price_match.group(0), fallback=_property_money_amount_label(title_price_value, currency_code=currency_code), limit=120),
                     )
                 except Exception:
                     pass
-        if "area_m2" not in facts and "living_area_m2" not in facts:
+        if not isinstance(_property_investment_area_sqm(facts), float):
             area_match = re.search(r"(\d+(?:[.,]\d+)?)\s*m[²2]", text, flags=re.IGNORECASE)
             if area_match:
                 try:

@@ -35,6 +35,9 @@ from app.api.routes.landing_property_saved_searches import (
     build_property_search_agents,
     select_property_search_agent,
 )
+from app.api.routes.landing_property_workspace_helpers import (
+    _property_candidate_display_facts,
+)
 from app.api.routes.landing_property_search_posture import (
     build_property_market_summary_items,
 )
@@ -459,7 +462,7 @@ def _property_customer_candidate_summary(
     preferences: dict[str, object] | None = None,
 ) -> dict[str, object]:
     row = dict(candidate or {})
-    facts = dict(row.get("property_facts") or {}) if isinstance(row.get("property_facts"), dict) else {}
+    facts = _property_candidate_display_facts(row)
     cleaned_title = _property_result_title_display(row.get("title") or row.get("property_url") or "Property")
     if cleaned_title:
         row["title"] = cleaned_title
@@ -491,6 +494,28 @@ def _property_customer_candidate_summary(
         row["summary"] = cleaned_summary
     else:
         row.pop("summary", None)
+    for fact_key in (
+        "description",
+        "description_text",
+        "object_description",
+        "listing_description",
+        "summary",
+        "location_description",
+        "location_text",
+        "micro_location_summary",
+        "neighborhood_description",
+    ):
+        if fact_key not in facts:
+            continue
+        safe_fact_copy = _clean_property_candidate_detail_copy(facts.get(fact_key))
+        if safe_fact_copy:
+            facts[fact_key] = safe_fact_copy
+        else:
+            facts.pop(fact_key, None)
+    if facts:
+        row["property_facts"] = facts
+    else:
+        row.pop("property_facts", None)
     normalized_mismatch_reasons = _property_visible_mismatch_reasons(
         {"mismatch_reasons_json": list(row.get("mismatch_reasons") or [])},
         facts=facts,

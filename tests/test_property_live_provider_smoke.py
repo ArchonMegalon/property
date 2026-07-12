@@ -209,6 +209,9 @@ def test_live_provider_smoke_live_mode_probes_runtime_catalog(monkeypatch) -> No
     rows = {row["country_code"]: row for row in receipt["checks"]}
     assert rows["AT"]["status"] == "pass"
     assert rows["AT"]["runtime_provider_count_ok"] is True
+    assert rows["AT"]["runtime_provider_set_ok"] is True
+    assert rows["AT"]["runtime_missing_providers"] == []
+    assert rows["AT"]["runtime_unexpected_providers"] == []
     assert rows["AT"]["runtime_defaults_present_ok"] is True
     assert rows["AT"]["runtime_provider_country_scope_ok"] is True
     assert rows["AT"]["runtime_country_code"] == "AT"
@@ -243,7 +246,73 @@ def test_live_provider_smoke_live_mode_reports_runtime_mismatch(monkeypatch) -> 
     row = receipt["checks"][0]
     assert row["status"] == "fail"
     assert row["runtime_provider_count_ok"] is False
+    assert row["runtime_provider_set_ok"] is False
+    assert "willhaben" not in row["runtime_missing_providers"]
+    assert row["runtime_unexpected_providers"] == []
     assert row["runtime_defaults_present_ok"] is False
+
+
+def test_live_provider_smoke_can_probe_catalog_without_dispatching_searches(monkeypatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN", "0")
+    catalog_payload = {
+        "country_code": "AT",
+        "listing_mode": "rent",
+        "property_type": "any",
+        "default_platforms": list(default_platforms_for_country_listing_mode("AT", "rent")),
+        "providers": [
+            {"value": row.get("value"), "country_code": row.get("country_code")}
+            for row in provider_options(country_code="AT")
+        ],
+    }
+
+    def _unexpected_dispatch(_payload: dict[str, object], _timeout: float) -> dict[str, object]:
+        raise AssertionError("read-only catalog probe dispatched a search run")
+
+    receipt = build_live_provider_smoke_receipt(
+        countries=("AT",),
+        fetcher=lambda _country, _timeout: catalog_payload,
+        execute_search_matrix=False,
+        execute_cross_country_sanitization=False,
+        search_executor=_unexpected_dispatch,
+    )
+
+    assert receipt["status"] == "blocked_targeted_search_matrix_not_executed"
+    assert receipt["checks"][0]["status"] == "pass"
+    assert receipt["targeted_search_matrix_executed"] is False
+    assert receipt["cross_country_sanitization_executed"] is False
+    assert receipt["cross_country_sanitization_summary"]["status_counts"] == {"skipped": 1}
+
+
+def test_live_provider_smoke_rejects_same_count_provider_substitution(monkeypatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_LIVE_PROVIDER_SMOKE_DRY_RUN", "0")
+    options = [dict(row) for row in provider_options(country_code="AT")]
+    replaced_provider = str(options[0]["value"])
+    runtime_providers = [
+        {"value": row.get("value"), "country_code": row.get("country_code")}
+        for row in options[1:]
+    ]
+    runtime_providers.append({"value": "unexpected_at", "country_code": "AT"})
+
+    receipt = build_live_provider_smoke_receipt(
+        countries=("AT",),
+        fetcher=lambda _country, _timeout: {
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "property_type": "any",
+            "default_platforms": list(default_platforms_for_country_listing_mode("AT", "rent")),
+            "providers": runtime_providers,
+        },
+        execute_cross_country_sanitization=False,
+    )
+
+    row = receipt["checks"][0]
+    assert receipt["status"] == "fail"
+    assert row["runtime_provider_count_ok"] is True
+    assert row["runtime_provider_set_ok"] is False
+    assert row["runtime_missing_providers"] == [replaced_provider]
+    assert row["runtime_unexpected_providers"] == ["unexpected_at"]
 
 
 def test_live_provider_smoke_default_api_token_reads_dotenv(monkeypatch, tmp_path: Path) -> None:

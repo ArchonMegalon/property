@@ -95,6 +95,24 @@ def _uses_hosted_bundle_writer(script: object) -> bool:
     return "_write_generated_reconstruction_property_tour_bundle(" in str(script or "")
 
 
+def _layout_viewer_quality_snapshot(
+    *,
+    route_stop_count: int = 4,
+    view_mode: str = "overview",
+    hidden_cutaway_wall_count: int = 1,
+) -> dict[str, object]:
+    return {
+        "layout_viewer_view_mode": view_mode,
+        "layout_viewer_cutaway_wall_count": 2,
+        "layout_viewer_hidden_cutaway_wall_count": hidden_cutaway_wall_count,
+        "layout_viewer_wall_opacity": 0.82,
+        "layout_viewer_wall_height_scale": 0.82 if view_mode in {"overview", "dollhouse"} else 1.0,
+        "layout_viewer_staging_object_count": route_stop_count * 2,
+        "layout_viewer_visible_staging_object_count": route_stop_count,
+        "layout_viewer_projected_staging_coverage_pct": 0.05,
+    }
+
+
 def test_runtime_reconstruction_smoke_script_imports_with_ea_pythonpath() -> None:
     env = dict(os.environ)
     env["PYTHONPATH"] = "ea"
@@ -134,6 +152,7 @@ def test_layout_viewer_wait_polls_snapshots_without_route_index_requirement(monk
             "layout_viewer_photo_panel_count": 5,
             "layout_viewer_loaded_photo_texture_count": 5,
             "layout_viewer_active_route_index": 2,
+            **_layout_viewer_quality_snapshot(),
         },
     )
 
@@ -190,6 +209,7 @@ def test_layout_viewer_wait_polls_snapshots_for_active_route_changes(monkeypatch
                 "layout_viewer_photo_panel_count": 5,
                 "layout_viewer_loaded_photo_texture_count": 5,
                 "layout_viewer_active_route_index": 0,
+                **_layout_viewer_quality_snapshot(view_mode="room", hidden_cutaway_wall_count=0),
             },
             {
                 "layout_viewer_ready": True,
@@ -202,6 +222,7 @@ def test_layout_viewer_wait_polls_snapshots_for_active_route_changes(monkeypatch
                 "layout_viewer_photo_panel_count": 5,
                 "layout_viewer_loaded_photo_texture_count": 5,
                 "layout_viewer_active_route_index": 1,
+                **_layout_viewer_quality_snapshot(view_mode="room", hidden_cutaway_wall_count=0),
             },
         ]
     )
@@ -236,6 +257,31 @@ def test_layout_viewer_state_matches_accepts_route_index_zero() -> None:
             "layout_viewer_photo_panel_count": 5,
             "layout_viewer_loaded_photo_texture_count": 5,
             "layout_viewer_active_route_index": 0,
+            **_layout_viewer_quality_snapshot(),
+        },
+        expected_route_stop_count=4,
+        expected_photo_count=5,
+        expected_active_route_index=0,
+    )
+
+
+def test_layout_viewer_state_matches_rejects_missing_staging_quality() -> None:
+    assert not smoke._generated_reconstruction_layout_viewer_state_matches(
+        {
+            "layout_viewer_ready": True,
+            "layout_viewer_metrics_ready": True,
+            "layout_viewer_route_stop_count": 4,
+            "layout_viewer_route_button_count": 4,
+            "layout_viewer_floorplan_stop_count": 4,
+            "layout_viewer_render_calls": 1,
+            "layout_viewer_render_triangles": 1,
+            "layout_viewer_photo_panel_count": 5,
+            "layout_viewer_loaded_photo_texture_count": 5,
+            "layout_viewer_active_route_index": 0,
+            "layout_viewer_cutaway_wall_count": 2,
+            "layout_viewer_staging_object_count": 2,
+            "layout_viewer_visible_staging_object_count": 1,
+            "layout_viewer_projected_staging_coverage_pct": 0.0,
         },
         expected_route_stop_count=4,
         expected_photo_count=5,
@@ -746,6 +792,7 @@ def test_generated_reconstruction_browser_shell_layout_failures_pass_with_dioram
         "layout_viewer_active_route_index_after_route_click": 1,
         "layout_viewer_active_route_index_after_last_route_click": 3,
         "layout_viewer_active_route_index_after_timeupdate_sync": 3,
+        **_layout_viewer_quality_snapshot(),
     }
     layout_preview = {
         "lead_preview_src": "/tours/files/runtime-smoke/diorama-preview.png",
@@ -756,6 +803,7 @@ def test_generated_reconstruction_browser_shell_layout_failures_pass_with_dioram
         "layout_viewer_photo_panel_count": 5,
         "layout_viewer_loaded_photo_texture_count": 5,
         "layout_viewer_active_route_index": 0,
+        **_layout_viewer_quality_snapshot(),
     }
 
     failures = smoke._generated_reconstruction_browser_shell_layout_failures(
@@ -784,6 +832,13 @@ def test_generated_reconstruction_browser_shell_layout_failures_report_diorama_a
             "layout_viewer_active_route_index_after_route_click": 0,
             "layout_viewer_active_route_index_after_last_route_click": 1,
             "layout_viewer_active_route_index_after_timeupdate_sync": 1,
+            "layout_viewer_view_mode": "overview",
+            "layout_viewer_cutaway_wall_count": 0,
+            "layout_viewer_hidden_cutaway_wall_count": 0,
+            "layout_viewer_wall_height_scale": 1.0,
+            "layout_viewer_staging_object_count": 1,
+            "layout_viewer_visible_staging_object_count": 0,
+            "layout_viewer_projected_staging_coverage_pct": 0.0,
         },
         layout_preview={
             "lead_preview_src": "/tours/files/runtime-smoke/listing-photo.png",
@@ -794,6 +849,13 @@ def test_generated_reconstruction_browser_shell_layout_failures_report_diorama_a
             "layout_viewer_photo_panel_count": 4,
             "layout_viewer_loaded_photo_texture_count": 2,
             "layout_viewer_active_route_index": -1,
+            "layout_viewer_view_mode": "overview",
+            "layout_viewer_cutaway_wall_count": 0,
+            "layout_viewer_hidden_cutaway_wall_count": 0,
+            "layout_viewer_wall_height_scale": 1.0,
+            "layout_viewer_staging_object_count": 1,
+            "layout_viewer_visible_staging_object_count": 0,
+            "layout_viewer_projected_staging_coverage_pct": 0.0,
         },
         expected_route_stop_count=4,
         expected_photo_count=5,
@@ -810,6 +872,12 @@ def test_generated_reconstruction_browser_shell_layout_failures_report_diorama_a
     assert "launch_shell_layout_viewer_route_click_sync_wrong" in failures
     assert "launch_shell_layout_viewer_last_route_sync_wrong" in failures
     assert "launch_shell_layout_viewer_timeupdate_sync_wrong" in failures
+    assert "launch_shell_layout_viewer_staging_object_count_low" in failures
+    assert "launch_shell_layout_viewer_visible_staging_missing" in failures
+    assert "launch_shell_layout_viewer_projected_staging_coverage_low" in failures
+    assert "launch_shell_layout_viewer_cutaway_wall_count_missing" in failures
+    assert "launch_shell_layout_viewer_hidden_cutaway_wall_count_missing" in failures
+    assert "launch_shell_layout_viewer_wall_height_scale_not_cutaway" in failures
     assert "layout_preview_lead_preview_not_diorama" in failures
     assert "layout_preview_layout_viewer_not_ready" in failures
     assert "layout_preview_layout_viewer_route_button_count_wrong" in failures
@@ -817,6 +885,12 @@ def test_generated_reconstruction_browser_shell_layout_failures_report_diorama_a
     assert "layout_preview_layout_viewer_photo_panel_count_wrong" in failures
     assert "layout_preview_layout_viewer_photo_textures_incomplete" in failures
     assert "layout_preview_layout_viewer_initial_route_wrong" in failures
+    assert "layout_preview_layout_viewer_staging_object_count_low" in failures
+    assert "layout_preview_layout_viewer_visible_staging_missing" in failures
+    assert "layout_preview_layout_viewer_projected_staging_coverage_low" in failures
+    assert "layout_preview_layout_viewer_cutaway_wall_count_missing" in failures
+    assert "layout_preview_layout_viewer_hidden_cutaway_wall_count_missing" in failures
+    assert "layout_preview_layout_viewer_wall_height_scale_not_cutaway" in failures
 
 
 def test_generated_reconstruction_shell_variant_failures_accept_launch_and_layout_preview_contracts() -> None:

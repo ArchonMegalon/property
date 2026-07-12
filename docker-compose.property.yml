@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: ea/Dockerfile.property-web
-    image: propertyquarry-web-runtime:latest
+    image: "${PROPERTYQUARRY_WEB_IMAGE:-propertyquarry-web-runtime:latest}"
     container_name: "${PROPERTYQUARRY_API_CONTAINER_NAME:-propertyquarry-api}"
     cgroup_parent: "${PROPERTYQUARRY_RUNTIME_CGROUP_PARENT:-system.slice}"
     restart: unless-stopped
@@ -85,7 +85,7 @@ services:
         condition: service_healthy
 
   propertyquarry-scheduler:
-    image: propertyquarry-web-runtime:latest
+    image: "${PROPERTYQUARRY_WEB_IMAGE:-propertyquarry-web-runtime:latest}"
     container_name: "${PROPERTYQUARRY_SCHEDULER_CONTAINER_NAME:-propertyquarry-scheduler}"
     cgroup_parent: "${PROPERTYQUARRY_RUNTIME_CGROUP_PARENT:-system.slice}"
     restart: unless-stopped
@@ -169,7 +169,7 @@ services:
     build:
       context: .
       dockerfile: ea/Dockerfile.property
-    image: propertyquarry-render-runtime:latest
+    image: "${PROPERTYQUARRY_RENDER_IMAGE:-propertyquarry-render-runtime:latest}"
     container_name: "${PROPERTYQUARRY_RENDER_CONTAINER_NAME:-propertyquarry-render-tools}"
     cgroup_parent: "${PROPERTYQUARRY_RUNTIME_CGROUP_PARENT:-system.slice}"
     restart: "no"

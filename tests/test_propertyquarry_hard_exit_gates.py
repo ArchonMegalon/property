@@ -10,6 +10,30 @@ from PIL import Image, ImageDraw
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_3d_browser_gate_honors_configured_chromium_executable(monkeypatch, tmp_path: Path) -> None:
+    from scripts import propertyquarry_3d_browser_gate as gate
+
+    chromium_path = tmp_path / "chromium"
+    chromium_path.write_bytes(b"browser")
+    monkeypatch.setenv("PROPERTYQUARRY_PLAYWRIGHT_CHROMIUM_EXECUTABLE", str(chromium_path))
+    playwright = type(
+        "PlaywrightStub",
+        (),
+        {"chromium": type("ChromiumStub", (), {"executable_path": "/missing/chromium"})()},
+    )()
+
+    launch_kwargs = gate.playwright_chromium_launch_kwargs(
+        playwright,
+        args=["--no-sandbox", "--disable-gpu"],
+    )
+
+    assert launch_kwargs == {
+        "headless": True,
+        "executable_path": str(chromium_path),
+        "args": ["--no-sandbox", "--disable-gpu"],
+    }
+
+
 def test_3d_browser_gate_treats_csp_and_frame_blockers_as_failures() -> None:
     from scripts import propertyquarry_3d_browser_gate as gate
 
@@ -38,6 +62,7 @@ def test_3d_browser_gate_requires_real_canvas_and_no_loading_state() -> None:
         {
             "provider_frame_url": "https://propertyquarry.com/tours/demo/3dvista/index.htm",
             "visible_canvas_count": 2,
+            "loading_indicator_count": 0,
             "frame_text": "",
         },
     )
@@ -46,7 +71,8 @@ def test_3d_browser_gate_requires_real_canvas_and_no_loading_state() -> None:
         {
             "provider_frame_url": "https://propertyquarry.com/tours/demo/3dvista/index.htm",
             "visible_canvas_count": 2,
-            "frame_text": "Loading virtual tour. Please wait...",
+            "loading_indicator_count": 1,
+            "frame_text": "",
         },
     )
     assert not gate._provider_rendered_ok(
@@ -54,6 +80,7 @@ def test_3d_browser_gate_requires_real_canvas_and_no_loading_state() -> None:
         {
             "provider_frame_url": "https://propertyquarry.com/tours/demo/pano2vr/index.html",
             "visible_canvas_count": 0,
+            "loading_indicator_count": 0,
             "frame_text": "",
         },
     )
@@ -146,12 +173,14 @@ def test_3d_browser_gate_persists_3dvista_browser_render_proof_in_private_receip
         ),
         encoding="utf-8",
     )
-    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
-    monkeypatch.setattr(gate, "_candidate_public_tour_roots", lambda: [tmp_path])
     monkeypatch.setattr(
         gate,
         "_persist_3dvista_browser_render_proof_in_runtime_container",
-        lambda slug, proof: {"status": "runtime_container_unavailable", "slug": slug, "provider": proof.get("provider")},
+        lambda slug, proof, runtime_container="": {
+            "status": "runtime_container_not_configured",
+            "slug": slug,
+            "provider": proof.get("provider"),
+        },
     )
 
     receipt = {
@@ -174,7 +203,10 @@ def test_3d_browser_gate_persists_3dvista_browser_render_proof_in_private_receip
         ],
     }
 
-    persistence = gate.persist_3dvista_browser_render_proof_from_receipt(receipt)
+    persistence = gate.persist_3dvista_browser_render_proof_from_receipt(
+        receipt,
+        public_roots=(tmp_path,),
+    )
 
     assert persistence["status"] == "updated"
     public_manifest = json.loads((bundle / "tour.json").read_text(encoding="utf-8"))
@@ -183,6 +215,43 @@ def test_3d_browser_gate_persists_3dvista_browser_render_proof_in_private_receip
     assert private_manifest["three_d_vista_browser_render_proof"]["status"] == "pass"
     control_receipt = build_property_tour_control_receipt(tour_root=tmp_path)
     assert "3dvista" in control_receipt["ready_provider_modes"]
+
+
+def test_3d_browser_gate_requires_explicit_persistence_target() -> None:
+    from scripts import propertyquarry_3d_browser_gate as gate
+
+    receipt = {
+        "contract_name": "propertyquarry.3d_browser_gate.v1",
+        "generated_at": "2026-07-10T08:57:09Z",
+        "base_url": "http://localhost:18097",
+        "browser_base_url": "http://propertyquarry.com:18097",
+        "demo_slug": "candidate-demo",
+        "providers": ["3dvista"],
+        "checks": [{"name": "3dvista_rendered_viewer", "ok": True}],
+        "provider_results": [{"provider": "3dvista", "status": "pass", "state": {}}],
+    }
+
+    persistence = gate.persist_3dvista_browser_render_proof_from_receipt(receipt)
+
+    assert persistence["status"] == "persistence_target_not_configured"
+    assert persistence["container_result"]["status"] == "runtime_container_not_configured"
+    assert persistence["host_result"]["status"] == "public_tour_root_not_configured"
+
+
+def test_3d_browser_gate_explicit_candidate_container_excludes_live_roots(monkeypatch, tmp_path: Path) -> None:
+    from scripts import propertyquarry_3d_browser_gate as gate
+
+    candidate_volume = tmp_path / "candidate-volume"
+    candidate_volume.mkdir()
+    monkeypatch.setattr(
+        gate,
+        "running_container_public_tour_dir",
+        lambda container: candidate_volume if container == "propertyquarry-api-candidate" else None,
+    )
+
+    roots = gate._candidate_public_tour_roots(runtime_container="propertyquarry-api-candidate")
+
+    assert roots == [candidate_volume.resolve()]
 
 
 def test_walkthrough_quality_gate_fails_without_room_coverage_receipt(
@@ -311,6 +380,91 @@ def test_walkthrough_quality_gate_reads_magicfit_sidecar_route_coverage(
     )
 
     assert receipt["status"] == "pass"
+
+
+def test_walkthrough_quality_gate_passes_declared_transition_timing_to_sampler(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from scripts import propertyquarry_walkthrough_quality_gate as gate
+
+    slug = "demo"
+    bundle = tmp_path / slug
+    bundle.mkdir()
+    (bundle / "walkthrough.mp4").write_bytes(b"not-a-real-video")
+    (bundle / "tour.magicfit.json").write_text(
+        json.dumps(
+            {
+                "provider": "MagicFit",
+                "route_labels": ["entry", "living"],
+                "covered_route_labels": ["entry", "living"],
+                "transition_offsets_seconds": [14.093, 28.186],
+                "transition_seconds": 1.0,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (bundle / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "video_relpath": "walkthrough.mp4",
+                "video_sidecar_relpath": "tour.magicfit.json",
+            }
+        ),
+        encoding="utf-8",
+    )
+    observed: dict[str, object] = {}
+
+    def _fake_delta_stats(_path, **kwargs):
+        observed.update(kwargs)
+        return {"ok": True, "sampled_frame_count": 20, "delta_count": 19, "max_delta": 12.0}
+
+    monkeypatch.setattr(gate, "_video_metadata", lambda _path, *, timeout_seconds=None: {"format": {"duration": "45"}})
+    monkeypatch.setattr(gate, "_frame_delta_stats", _fake_delta_stats)
+
+    receipt = gate.build_walkthrough_quality_receipt(
+        tour_root=str(tmp_path),
+        demo_slug=slug,
+        max_jump_delta=42.0,
+        min_duration_seconds=30.0,
+    )
+
+    assert receipt["status"] == "pass"
+    assert observed["transition_offsets_seconds"] == [14.093, 28.186]
+    assert observed["transition_seconds"] == 1.0
+    assert receipt["continuity_sampling_context"]["source"] == "video_sidecar"
+
+
+def test_walkthrough_frame_sampler_compares_local_cadence_not_distant_rooms(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from scripts import propertyquarry_walkthrough_quality_gate as gate
+
+    video_path = tmp_path / "walkthrough.mp4"
+    video_path.write_bytes(b"not-a-real-video")
+    monkeypatch.setattr(gate, "_video_metadata", lambda _path, *, timeout_seconds=None: {"format": {"duration": "45"}})
+
+    def _fake_run(command, *args, **kwargs):
+        assert command[-1] == "pipe:1"
+        frames = []
+        for index in range(226):
+            level = min(255, index * 4)
+            frames.append(Image.new("RGB", (160, 90), (level, level, level)).tobytes())
+        return subprocess.CompletedProcess(command, 0, b"".join(frames), b"")
+
+    monkeypatch.setattr(gate.subprocess, "run", _fake_run)
+
+    stats = gate._frame_delta_stats(video_path, timeout_seconds=7.0)
+
+    assert stats["ok"] is True
+    assert stats["sampling_mode"] == "local_cadence_and_declared_transition_boundaries"
+    assert stats["sampling_fps"] == 5.0
+    assert stats["sample_interval_seconds"] == 0.2
+    assert stats["sampled_frame_count"] == 226
+    assert stats["local_delta_count"] == 225
+    assert stats["max_delta"] == 4.0
 
 
 def test_walkthrough_quality_gate_can_select_generated_reconstruction_candidate(
@@ -537,6 +691,7 @@ def test_walkthrough_quality_gate_resolves_runtime_root_when_configured_root_mis
         ),
         encoding="utf-8",
     )
+    monkeypatch.setenv("PROPERTYQUARRY_RUNTIME_CONTAINER", "propertyquarry-api-candidate")
     monkeypatch.setattr(gate, "preferred_public_tour_root", lambda **_kwargs: runtime_root)
     monkeypatch.setattr(gate, "_video_metadata", lambda _path, *, timeout_seconds=None: {"format": {"duration": "45"}})
     monkeypatch.setattr(
@@ -557,6 +712,26 @@ def test_walkthrough_quality_gate_resolves_runtime_root_when_configured_root_mis
     assert receipt["tour_root"] == str(runtime_root.resolve())
     assert receipt["demo_slug"] == slug
     assert receipt["walkthrough_candidate"] == "generated_reconstruction"
+
+
+def test_walkthrough_quality_gate_keeps_explicit_root_authoritative(monkeypatch, tmp_path: Path) -> None:
+    from scripts import propertyquarry_walkthrough_quality_gate as gate
+
+    slug = "explicit-candidate-root"
+    configured_root = tmp_path / "candidate"
+    bundle = configured_root / slug
+    bundle.mkdir(parents=True)
+    (bundle / "tour.json").write_text(json.dumps({"slug": slug}), encoding="utf-8")
+    monkeypatch.setenv("PROPERTYQUARRY_RUNTIME_CONTAINER", "propertyquarry-api")
+    monkeypatch.setattr(
+        gate,
+        "preferred_public_tour_root",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("explicit root was replaced")),
+    )
+
+    resolved = gate._resolve_walkthrough_tour_root(str(configured_root), slug=slug)
+
+    assert resolved == configured_root.resolve()
 
 
 def test_walkthrough_quality_gate_passes_with_complete_coverage_and_continuity(
@@ -838,6 +1013,8 @@ def test_deploy_and_release_scripts_wire_3d_walkthrough_and_map_preview_as_exit_
 
     assert 'if ! PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_3d_browser_gate.py' in deploy
     assert 'if ! PYTHONPATH=ea timeout "${walkthrough_quality_process_timeout_seconds}" "${deploy_python_bin}" scripts/propertyquarry_walkthrough_quality_gate.py' in deploy
+    assert 'scripts/propertyquarry_walkthrough_provider_proof_gate.py' in deploy
+    assert '--walkthrough-provider-proof-receipt _completion/smoke/property-live-walkthrough-provider-proof-latest.json' in deploy
     assert '--service-generated-reconstruction-receipt "${service_generated_reconstruction_receipt}"' in deploy
     assert '--ffprobe-timeout-seconds "${walkthrough_quality_ffprobe_timeout_seconds}"' in deploy
     assert '--frame-sample-timeout-seconds "${walkthrough_quality_frame_sample_timeout_seconds}"' in deploy
@@ -847,8 +1024,10 @@ def test_deploy_and_release_scripts_wire_3d_walkthrough_and_map_preview_as_exit_
     assert "--walkthrough-quality-receipt _completion/smoke/property-live-walkthrough-quality-latest.json" in deploy
     assert "scripts/propertyquarry_3d_browser_gate.py" in release
     assert "scripts/propertyquarry_walkthrough_quality_gate.py" in release
+    assert "scripts/propertyquarry_walkthrough_provider_proof_gate.py" in release
     assert 'if ! PYTHONPATH=ea timeout "${walkthrough_quality_process_timeout_seconds}" "${PYTHON_BIN}" scripts/propertyquarry_walkthrough_quality_gate.py' in release
     assert "--service-generated-reconstruction-receipt _completion/tours/property-service-generated-reconstruction-release-gate.json" in release
+    assert "--walkthrough-provider-proof-receipt _completion/smoke/property-live-walkthrough-provider-proof-release-gate.json" in release
     assert "scripts/propertyquarry_map_preview_flagship_gate.py" in release
     assert "scripts/property_runtime_reconstruction_smoke.py" in release
     assert "--require-glb" in release

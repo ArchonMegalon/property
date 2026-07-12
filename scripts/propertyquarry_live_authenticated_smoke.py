@@ -26,6 +26,11 @@ from scripts.propertyquarry_billing_handoff_probe import (
     https_redirect_host_resolves as _https_redirect_host_resolves,
     no_proxy_opener as _no_proxy_opener,
 )
+from scripts.propertyquarry_live_http_security import (
+    redact_secret_values,
+    url_matches_origin,
+    validated_live_base_origin,
+)
 
 
 DEFAULT_ROUTES = (
@@ -103,15 +108,18 @@ def _decode_body(body: bytes) -> str:
     return body.decode("utf-8", errors="replace")
 
 
-def _json_safe(value: object) -> object:
+def _json_safe(value: object, *, secrets: tuple[str, ...] = ()) -> object:
     if isinstance(value, bytes):
-        return _redact_sensitive_receipt_text(_decode_body(value))
+        return redact_secret_values(
+            _redact_sensitive_receipt_text(_decode_body(value)),
+            secrets=secrets,
+        )
     if isinstance(value, dict):
-        return {str(key): _json_safe(item) for key, item in value.items()}
+        return {str(key): _json_safe(item, secrets=secrets) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
-        return [_json_safe(item) for item in value]
+        return [_json_safe(item, secrets=secrets) for item in value]
     if isinstance(value, str):
-        return _redact_sensitive_receipt_text(value)
+        return redact_secret_values(_redact_sensitive_receipt_text(value), secrets=secrets)
     return value
 
 
@@ -196,8 +204,12 @@ def _resolve_billing_external_handoff(
             "bridge_launch_status_code": 0,
             "bridge_launch_error": "",
         }
-    parsed = urllib.parse.urlparse(normalized_location)
-    if parsed.scheme == "https":
+    bridge_launch_url = urllib.parse.urljoin(base_url.rstrip("/") + "/", normalized_location)
+    parsed_bridge_launch = urllib.parse.urlparse(bridge_launch_url)
+    if (
+        (parsed_bridge_launch.path or "") != "/app/api/property/billing/bridge-launch"
+        or not url_matches_origin(bridge_launch_url, validated_live_base_origin(base_url))
+    ):
         return {
             "external_location": normalized_location,
             "bridge_launch_used": False,
@@ -205,16 +217,6 @@ def _resolve_billing_external_handoff(
             "bridge_launch_status_code": 0,
             "bridge_launch_error": "",
         }
-    normalized_path = parsed.path or ""
-    if not normalized_path.startswith("/app/api/property/billing/bridge-launch"):
-        return {
-            "external_location": normalized_location,
-            "bridge_launch_used": False,
-            "bridge_launch_url": "",
-            "bridge_launch_status_code": 0,
-            "bridge_launch_error": "",
-        }
-    bridge_launch_url = urllib.parse.urljoin(base_url.rstrip("/") + "/", normalized_location.lstrip("/"))
     bridge_result = fetcher(bridge_launch_url, timeout_seconds)
     bridge_headers = dict(bridge_result.get("headers") or {})
     bridge_location = _header_value(bridge_headers, "Location")
@@ -431,6 +433,21 @@ def build_live_authenticated_smoke_receipt(
     billing_handoff_checker: Callable[[str, float], dict[str, object]] | None = None,
     billing_bridge_assist_checker: Callable[[str, float], dict[str, object]] | None = None,
 ) -> dict[str, object]:
+    try:
+        validated_live_base_origin(base_url)
+    except ValueError as exc:
+        return {
+            "base_url": base_url,
+            "principal_id": principal_id,
+            "expected_plan_label": expected_plan_label,
+            "country_code": country_code,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "route_count": 0,
+            "failed_count": 1,
+            "status": "blocked",
+            "checks": [{"name": "live_base_origin_safe", "ok": False, "reason": str(exc)}],
+            "notes": ["Authenticated live probes require an exact HTTPS origin; HTTP is allowed only on loopback."],
+        }
     checks: list[dict[str, object]] = []
     failures = 0
 
@@ -617,7 +634,8 @@ def build_live_authenticated_smoke_receipt(
             "This smoke is authenticated and read-only.",
             "It verifies paid customer surfaces: account, billing, sign-in state, and the shared shortlist URL does not leak sample homes to signed-in users.",
         ],
-        }
+        },
+        secrets=(api_token,),
     )
 
 

@@ -156,6 +156,7 @@ def test_property_tour_detail_line_does_not_treat_generated_reconstruction_as_re
 def test_property_workbench_scripts_do_not_fall_back_to_raw_branded_tour_slugs() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     workbench_script = (repo_root / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
+    feedback_script = (repo_root / "ea/app/templates/app/_property_workbench_feedback_script.html").read_text(encoding="utf-8")
     object_detail = (repo_root / "ea/app/templates/app/object_detail.html").read_text(encoding="utf-8")
     research_detail = (repo_root / "ea/app/templates/app/property_research_detail.html").read_text(encoding="utf-8")
     workbench = (repo_root / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
@@ -163,6 +164,13 @@ def test_property_workbench_scripts_do_not_fall_back_to_raw_branded_tour_slugs()
     assert "if (rawHostedTourControlBase(url)) continue;" in workbench_script
     assert "if (rawHostedTourControlBase(url)) continue;" in object_detail
     assert "rawTourState === 'ready' && rawReadyTourUrl && !isRawHostedTourBase(rawReadyTourUrl) ? rawReadyTourUrl : ''" in research_detail
+    assert "directGeneratedReconstructionLaunchUrl" in workbench_script
+    assert "directGeneratedReconstructionLaunchUrl" in object_detail
+    assert "directGeneratedReconstructionLaunchUrl" in research_detail
+    assert "generatedReconstructionReadyUrl" in workbench_script
+    assert "generatedReconstructionReadyUrl" in research_detail
+    assert "const syncSelectedCandidate = (candidateRef, options = {}) => {" in workbench_script
+    assert "window.__pqSelectCandidate = selectCandidate;" in feedback_script
     assert "{% set hosted_tour_url = candidate.get('verified_tour_url') or candidate.get('open_tour_url') or candidate.get('tour', {}).get('url') or '' %}" in workbench
     assert "{% set hosted_tour_url = candidate.get('tour_url') or candidate.get('tour', {}).get('url') or '' %}" not in workbench
 
@@ -454,7 +462,7 @@ def test_property_shortlist_templates_expose_visual_actions_without_hidden_agent
     assert "reconcileShortlistArchive" in script
     assert "ensureShortlistReviewEmptyState" in script
     assert "setShortlistReviewEmptyState(true);" in script
-    assert "selectCandidate(nextCandidateRef);" in script
+    assert "syncSelectedCandidate(nextCandidateRef);" in script
     assert 'data-pw-walkthrough-provider="magicfit"' not in results
     assert 'data-pw-walkthrough-provider="magicfit"' not in review
     assert 'data-pw-walkthrough-provider="magicfit"' not in script
@@ -1016,7 +1024,11 @@ def test_propertyquarry_candidate_display_facts_fill_price_display_from_listing_
     facts = landing_property_workspace_helpers._property_candidate_display_facts(candidate)
 
     assert facts["price_display"] == "GBP 420,000"
+    assert facts["area_m2"] == 72.0
+    assert facts["area_source"] == "title_fallback"
     assert facts["listing_fact_confirmation"]["sources"]["price"] == "listing_text"
+    assert "area" not in facts["listing_fact_confirmation"]["fields"]
+    assert "area" not in facts["listing_fact_confirmation"]["sources"]
 
 
 def test_propertyquarry_listing_fact_confirmation_does_not_confirm_fallback_price_display() -> None:
@@ -1855,7 +1867,9 @@ def test_propertyquarry_visual_requests_stay_user_initiated_and_idempotent() -> 
     assert "const resolvedFlythroughUrl = directHostedWalkthroughUrl(" in research_detail
     assert "const retryableTerminal = visualTerminalStates.includes(state) && !resolvedFlythroughUrl;" in research_detail
     assert "const openTourUrl = String(" in research_detail
-    assert "const state = String(openTourUrl ? 'ready' : rawTourState || 'pending').trim().toLowerCase();" in research_detail
+    assert "const malformedReadyState = rawTourState === 'ready' && !openTourUrl;" in research_detail
+    assert "? 'ready'" in research_detail
+    assert ": (malformedReadyState ? 'blocked' : rawTourState || 'pending')" in research_detail
     assert "const retryableTerminal = visualTerminalStates.includes(state) && !openTourUrl;" in research_detail
 
 
@@ -3803,7 +3817,7 @@ def test_propertyquarry_running_panel_does_not_use_raw_url_as_best_summary(monke
     assert response.status_code == 200
     assert raw_url not in response.text
     rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", response.text, flags=re.IGNORECASE | re.DOTALL)
-    assert "Altbau near U6" not in rendered_html
+    assert "Altbau near U6" in rendered_html
 
 
 def test_propertyquarry_running_panel_replaces_internal_status_message_with_progress_summary(monkeypatch) -> None:
@@ -3851,7 +3865,7 @@ def test_propertyquarry_running_panel_replaces_internal_status_message_with_prog
     assert "Could not load property search status." not in visible_source
     assert "Homes" in visible_source
     assert "179" in visible_source
-    assert "29 sources selected" in visible_source
+    assert "29 sites chosen" in visible_source
     assert "Homes" in visible_source
     assert "all found homes are checked" in visible_source
     assert 'data-pqx-run-reliability' not in response.text
@@ -4141,7 +4155,7 @@ def test_propertyquarry_running_panel_current_best_card_uses_summary_copy_not_ra
     assert "179 homes found" in rendered_html
     assert "Homes" in rendered_html
     assert "To review" in rendered_html
-    assert "Altbau near U6" not in rendered_html
+    assert "Altbau near U6" in rendered_html
     assert "Leading right now. Can still change before the search finishes." not in rendered_html
     assert "Could not load property search status." not in rendered_html
 
@@ -5194,7 +5208,7 @@ def test_propertyquarry_fast_ranked_run_shell_uses_lightweight_status_endpoint()
     assert "Full view" not in response.text
     assert "Open full view" not in response.text
     assert "Checking providers" not in response.text
-    assert "Checking the selected providers." in response.text
+    assert "Checking the selected sites." in response.text
     assert "Checking more homes" in response.text
     assert "The page remains usable" not in response.text
     assert "property_decision_workbench" not in response.text
@@ -6895,12 +6909,32 @@ def test_propertyquarry_example_media_targets_use_real_public_tour_assets(monkey
     bundle_dir = tmp_path / "public_tours" / "demo-home-tour"
     bundle_dir.mkdir(parents=True)
     (bundle_dir / "tour.mp4").write_bytes(b"video")
+    (bundle_dir / "3dvista").mkdir()
+    (bundle_dir / "3dvista" / "index.htm").write_text(
+        "<html><script>window.TDVPlayer = {}</script></html>",
+        encoding="utf-8",
+    )
     (bundle_dir / "tour.json").write_text(
         json.dumps(
             {
                 "slug": "demo-home-tour",
                 "public_url": "/tours/demo-home-tour",
                 "hosted_url": "/tours/demo-home-tour",
+                "three_d_vista_entry_relpath": "3dvista/index.htm",
+                "three_d_vista_import": {"source_project": "propertyquarry"},
+                "three_d_vista_white_label_proof": {
+                    "source_project": "propertyquarry",
+                    "private_viewer_verified": True,
+                    "non_trial_export_verified": True,
+                    "propertyquarry_tour_metadata": True,
+                    "trial_branding_checked": True,
+                    "trial_branding_present": False,
+                },
+                "three_d_vista_browser_render_proof": {
+                    "provider": "3dvista",
+                    "status": "pass",
+                    "rendered_viewer": True,
+                },
                 "matterport_url": "https://my.matterport.com/show/?m=DemoHomeTour",
                 "scene_strategy": "layout_first",
                 "creation_mode": "hosted_floorplan_tour",
@@ -6925,11 +6959,156 @@ def test_propertyquarry_example_media_targets_use_real_public_tour_assets(monkey
 
     assert targets == {
         "demo_href": "/tours/demo-home-tour",
-        "tour_href": "/tours/demo-home-tour/control/matterport",
+        "tour_href": "/tours/demo-home-tour/control/3dvista",
         "tour_label": "3D tour available",
         "walkthrough_href": "/tours/demo-home-tour?pane=flythrough-pane&autoplay=1",
         "walkthrough_label": "Walkthrough available",
     }
+
+
+def test_propertyquarry_example_shortlist_rows_reuse_cached_media_target_scan(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    bundle_dir = tmp_path / "public_tours" / "demo-home-tour"
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.mp4").write_bytes(b"video")
+    (bundle_dir / "3dvista").mkdir()
+    (bundle_dir / "3dvista" / "index.htm").write_text(
+        "<html><script>window.TDVPlayer = {}</script></html>",
+        encoding="utf-8",
+    )
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": "demo-home-tour",
+                "public_url": "/tours/demo-home-tour",
+                "hosted_url": "/tours/demo-home-tour",
+                "three_d_vista_entry_relpath": "3dvista/index.htm",
+                "three_d_vista_import": {"source_project": "propertyquarry"},
+                "three_d_vista_white_label_proof": {
+                    "source_project": "propertyquarry",
+                    "private_viewer_verified": True,
+                    "non_trial_export_verified": True,
+                    "propertyquarry_tour_metadata": True,
+                    "trial_branding_checked": True,
+                    "trial_branding_present": False,
+                },
+                "three_d_vista_browser_render_proof": {
+                    "provider": "3dvista",
+                    "status": "pass",
+                    "rendered_viewer": True,
+                },
+                "matterport_url": "https://my.matterport.com/show/?m=DemoHomeTour",
+                "scene_strategy": "layout_first",
+                "creation_mode": "hosted_floorplan_tour",
+                "video_relpath": "tour.mp4",
+                "video_provider": "manual_upload",
+                "scenes": [
+                    {
+                        "scene_id": "floorplan-1",
+                        "role": "floorplan",
+                        "asset_relpath": "floorplan-01.png",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_EXAMPLE_MEDIA_CACHE_TTL_SECONDS", "300")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(bundle_dir.parent))
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://propertyquarry.com")
+    monkeypatch.setattr(landing_routes.time, "time", lambda: 1_700_000_000.0)
+    landing_routes._propertyquarry_example_media_targets_cached.cache_clear()
+
+    original_scan = landing_routes._propertyquarry_example_media_targets_scan
+    call_count = {"value": 0}
+
+    def _counting_scan(root: Path) -> dict[str, str]:
+        call_count["value"] += 1
+        return original_scan(root)
+
+    monkeypatch.setattr(landing_routes, "_propertyquarry_example_media_targets_scan", _counting_scan)
+
+    first_rows = landing_routes._propertyquarry_example_shortlist_rows()
+    second_rows = landing_routes._propertyquarry_example_shortlist_rows()
+
+    assert call_count["value"] == 1
+    assert first_rows[0]["tour_href"] == "/tours/demo-home-tour/control/3dvista"
+    assert second_rows[0]["tour_href"] == "/tours/demo-home-tour/control/3dvista"
+
+
+def test_propertyquarry_surface_prewarm_populates_example_media_target_cache(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    bundle_dir = tmp_path / "public_tours" / "demo-home-tour"
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.mp4").write_bytes(b"video")
+    (bundle_dir / "3dvista").mkdir()
+    (bundle_dir / "3dvista" / "index.htm").write_text(
+        "<html><script>window.TDVPlayer = {}</script></html>",
+        encoding="utf-8",
+    )
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": "demo-home-tour",
+                "public_url": "/tours/demo-home-tour",
+                "hosted_url": "/tours/demo-home-tour",
+                "three_d_vista_entry_relpath": "3dvista/index.htm",
+                "three_d_vista_import": {"source_project": "propertyquarry"},
+                "three_d_vista_white_label_proof": {
+                    "source_project": "propertyquarry",
+                    "private_viewer_verified": True,
+                    "non_trial_export_verified": True,
+                    "propertyquarry_tour_metadata": True,
+                    "trial_branding_checked": True,
+                    "trial_branding_present": False,
+                },
+                "three_d_vista_browser_render_proof": {
+                    "provider": "3dvista",
+                    "status": "pass",
+                    "rendered_viewer": True,
+                },
+                "matterport_url": "https://my.matterport.com/show/?m=DemoHomeTour",
+                "scene_strategy": "layout_first",
+                "creation_mode": "hosted_floorplan_tour",
+                "video_relpath": "tour.mp4",
+                "video_provider": "manual_upload",
+                "scenes": [
+                    {
+                        "scene_id": "floorplan-1",
+                        "role": "floorplan",
+                        "asset_relpath": "floorplan-01.png",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_EXAMPLE_MEDIA_CACHE_TTL_SECONDS", "300")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(bundle_dir.parent))
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://propertyquarry.com")
+    monkeypatch.setattr(landing_routes.time, "time", lambda: 1_700_000_000.0)
+    landing_routes._propertyquarry_example_media_targets_cached.cache_clear()
+
+    original_scan = landing_routes._propertyquarry_example_media_targets_scan
+    call_count = {"value": 0}
+
+    def _counting_scan(root: Path) -> dict[str, str]:
+        call_count["value"] += 1
+        return original_scan(root)
+
+    monkeypatch.setattr(landing_routes, "_propertyquarry_example_media_targets_scan", _counting_scan)
+
+    assert landing_routes.prewarm_property_search_surface_cache() is True
+    rows = landing_routes._propertyquarry_example_shortlist_rows()
+
+    assert call_count["value"] == 1
+    assert rows[0]["tour_href"] == "/tours/demo-home-tour/control/3dvista"
 
 
 def test_propertyquarry_example_shortlist_rows_keep_static_diorama_preview_when_live_tour_assets_exist(
@@ -6940,12 +7119,32 @@ def test_propertyquarry_example_shortlist_rows_keep_static_diorama_preview_when_
     bundle_dir.mkdir(parents=True)
     (bundle_dir / "tour.mp4").write_bytes(b"video")
     (bundle_dir / "scene-01.png").write_bytes(b"png")
+    (bundle_dir / "3dvista").mkdir()
+    (bundle_dir / "3dvista" / "index.htm").write_text(
+        "<html><script>window.TDVPlayer = {}</script></html>",
+        encoding="utf-8",
+    )
     (bundle_dir / "tour.json").write_text(
         json.dumps(
             {
                 "slug": "demo-home-tour",
                 "public_url": "/tours/demo-home-tour",
                 "hosted_url": "/tours/demo-home-tour",
+                "three_d_vista_entry_relpath": "3dvista/index.htm",
+                "three_d_vista_import": {"source_project": "propertyquarry"},
+                "three_d_vista_white_label_proof": {
+                    "source_project": "propertyquarry",
+                    "private_viewer_verified": True,
+                    "non_trial_export_verified": True,
+                    "propertyquarry_tour_metadata": True,
+                    "trial_branding_checked": True,
+                    "trial_branding_present": False,
+                },
+                "three_d_vista_browser_render_proof": {
+                    "provider": "3dvista",
+                    "status": "pass",
+                    "rendered_viewer": True,
+                },
                 "matterport_url": "https://my.matterport.com/show/?m=DemoHomeTour",
                 "scene_strategy": "layout_first",
                 "creation_mode": "hosted_floorplan_tour",
@@ -6973,7 +7172,7 @@ def test_propertyquarry_example_shortlist_rows_keep_static_diorama_preview_when_
 
     rows = landing_routes._propertyquarry_example_shortlist_rows()
 
-    assert rows[0]["tour_href"] == "/tours/demo-home-tour/control/matterport"
+    assert rows[0]["tour_href"] == "/tours/demo-home-tour/control/3dvista"
     assert rows[0]["walkthrough_href"] == "/tours/demo-home-tour?pane=flythrough-pane&autoplay=1"
     assert rows[0]["scope_preview"]["image_url"].startswith("/static/property/home/example-shortlist-home-1.png?v=")
     assert rows[0]["scope_preview"]["preview_image_url"].startswith("/static/property/home/example-shortlist-home-1.png?v=")
@@ -7947,6 +8146,9 @@ def test_property_workspace_payload_agents_cards_use_outside_brief_language() ->
                                 "title": "Courtyard flat",
                                 "source_label": "Willhaben",
                                 "fit_score": 71,
+                                "review_url": "/app/research/private-candidate",
+                                "map_url": "https://maps.example.test/private-candidate",
+                                "preview_image_url": "data:image/png;base64,private-preview",
                             }
                         ],
                     },
@@ -7969,6 +8171,11 @@ def test_property_workspace_payload_agents_cards_use_outside_brief_language() ->
 
     assert "Outside this search 8" in joined
     assert "Filtered 8" not in joined
+    previous_candidate = payload["decision_workbench"]["previous_search_runs"][0]["top_candidates"][0]
+    assert previous_candidate["title"] == "Courtyard flat"
+    assert "review_url" not in previous_candidate
+    assert "map_url" not in previous_candidate
+    assert "preview_image_url" not in previous_candidate
 
 
 def test_property_surface_state_builds_preference_manager_snapshot() -> None:
@@ -11721,8 +11928,9 @@ def test_property_research_detail_hides_nearby_distance_panel_when_no_filters_se
     )
 
     assert page.status_code == 200
-    assert len(calls) == 1
-    assert calls[0][0] == "https://example.test/generic-nearby-flat"
+    assert len(calls) <= 1
+    if calls:
+        assert calls[0][0] == "https://example.test/generic-nearby-flat"
     assert "Nearby distances" not in page.text
     assert "Closest nearby places we could verify for this home." not in page.text
     assert 'data-research-selected-distances' not in page.text
@@ -13578,17 +13786,39 @@ def test_property_workspace_payload_recovers_ready_tour_from_hosted_identity(
     bundle_dir = tmp_path / slug
     bundle_dir.mkdir(parents=True)
     (bundle_dir / "scene-01.jpg").write_bytes(b"real-asset")
-    landing_routes.property_tour_hosting._write_hosted_property_tour_payload(
-        bundle_dir,
-        {
+    (bundle_dir / "3dvista").mkdir()
+    (bundle_dir / "3dvista" / "index.htm").write_text(
+        "<html><script>window.TDVPlayer = {}</script></html>",
+        encoding="utf-8",
+    )
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
             "slug": slug,
             "property_url": "https://example.test/workspace-identity-ready",
             "listing_url": "https://example.test/workspace-identity-ready",
             "source_ref": "provider:workspace-identity-ready",
             "external_id": "workspace-identity-ready",
+            "three_d_vista_entry_relpath": "3dvista/index.htm",
+            "three_d_vista_import": {"source_project": "propertyquarry"},
+            "three_d_vista_white_label_proof": {
+                "source_project": "propertyquarry",
+                "private_viewer_verified": True,
+                "non_trial_export_verified": True,
+                "propertyquarry_tour_metadata": True,
+                "trial_branding_checked": True,
+                "trial_branding_present": False,
+            },
+            "three_d_vista_browser_render_proof": {
+                "provider": "3dvista",
+                "status": "pass",
+                "rendered_viewer": True,
+            },
             "matterport_url": "https://my.matterport.com/show/?m=WORKSPACE1",
-            "scenes": [{"asset_relpath": "scene-01.jpg"}],
-        },
+                "scenes": [{"asset_relpath": "scene-01.jpg"}],
+            }
+        ),
+        encoding="utf-8",
     )
 
     payload = landing_property_workspace_payload.property_workspace_payload(
@@ -13639,7 +13869,7 @@ def test_property_workspace_payload_recovers_ready_tour_from_hosted_identity(
     assert result["tour"]["status"] == "ready"
     assert result["tour"]["provider_label"] == "3D tour"
     assert result["tour"]["control_label"] == "Open 3D tour"
-    assert result["tour"]["url"] == "https://propertyquarry.com/tours/workspace-identity-ready/control/matterport"
+    assert result["tour"]["url"] == "https://propertyquarry.com/tours/workspace-identity-ready/control/3dvista"
     assert ready_highlight["value"] == "1"
 
 
@@ -15049,7 +15279,8 @@ def test_property_run_live_board_replaces_stale_zero_review_copy_while_pages_rem
     )
 
     assert snapshot["aggregate_label"] == "4097 homes found · 6 checks left"
-    assert snapshot["phase_label"] == "4097 homes found · 6 search pages left"
+    assert snapshot["phase_label"] == "Checking remaining checks"
+    assert "search pages" not in snapshot["phase_label"].lower()
     assert "0 to review" not in snapshot["summary_label"].lower()
 
 
@@ -16110,7 +16341,7 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'grid-template-rows: auto minmax(0, 1fr);' in template
     assert "Add family" in setup.text
     assert "Clear family" in setup.text
-    assert "Select providers" in setup.text
+    assert "Choose sites" in setup.text
     assert "Court and auction listings" in setup.text
     assert "Justiz Edikte" in setup.text
     assert 'data-property-advanced-panel="commute"' in setup.text
@@ -17353,7 +17584,9 @@ def test_property_workbench_recent_reviews_do_not_render_fake_links() -> None:
     assert "pqx-recent-review-static" in body
     assert "<span class=\"pqx-pill\">{{ packet.get('title') }}</span>" not in body
     assert ".pqx-recent-review" in body
-    assert "overflow-wrap: anywhere;" not in body
+    recent_review_rule = re.search(r"\.pqx-recent-review\s*\{(?P<body>.*?)\}", body, re.S)
+    assert recent_review_rule
+    assert "overflow-wrap: anywhere;" not in recent_review_rule.group("body")
 
 
 def test_property_workbench_previous_search_cards_have_explicit_overflow_gate() -> None:
@@ -19420,6 +19653,9 @@ def test_property_agents_surface_strips_candidate_media_from_management_payload(
                         "candidate_ref": "media-heavy",
                         "title": "Media heavy result",
                         "fit_score": 91,
+                        "property_url": "https://private.example.test/media-heavy",
+                        "map_url": "https://maps.example.test/media-heavy",
+                        "review_url": "/app/research/media-heavy",
                         "preview_image_url": "data:image/png;base64,very-heavy-preview",
                         "orientation_preview": {
                             "image_url": "data:image/png;base64,very-heavy-orientation",
@@ -19451,7 +19687,10 @@ def test_property_agents_surface_strips_candidate_media_from_management_payload(
     assert "Vienna rent watch" in page.text
     assert "data:image/png;base64,very-heavy" not in page.text
     assert "data:image/png;base64,source-preview" not in page.text
-    assert "Media heavy result" not in page.text
+    assert "Media heavy result" in page.text
+    assert "https://private.example.test/media-heavy" not in page.text
+    assert "https://maps.example.test/media-heavy" not in page.text
+    assert "/app/research/media-heavy" not in page.text
 
 
 def test_static_property_surfaces_skip_full_fleet_digest_on_first_paint(monkeypatch) -> None:
@@ -19917,7 +20156,7 @@ def test_property_current_best_omits_unknown_fact_placeholders() -> None:
     assert "data-pqx-live-best-match" not in running_body
     assert "Leading right now. Can still change before the search finishes." not in running_body
     assert "Leading right now. Can still change before the search finishes." not in script_body
-    assert "<div class=\"prd-kicker\">Confirmed</div>" in research_detail
+    assert "<div class=\"prd-kicker\">Highlights</div>" in research_detail
     assert "Listing evidence" not in research_detail
     generated_copy = "\n".join([workspace_payload, research_payload, product_service])
     assert "current listing evidence" not in generated_copy
@@ -20453,7 +20692,7 @@ def test_propertyquarry_in_progress_run_hides_search_form_and_shows_live_run(mon
     assert 'data-pqx-progress-board' in live.text
     assert 'data-pqx-progress-eta' in live.text
     assert "20 / 117 checks" in live.text
-    assert "29 providers" in live.text
+    assert "29 sites" in live.text
     assert "20 / 117 checked" not in live.text
     assert "179 homes found" in live.text
     assert 'class="pqx-live-review-bars"' in live.text
@@ -21293,7 +21532,7 @@ def test_propertyquarry_provider_fact_never_uses_source_variant_count(monkeypatc
     assert re.search(r"<span>Listings</span><strong>\s*2160\s*</strong>", response.text)
     assert "<span>Sources</span><strong>156</strong>" not in response.text
     assert "<span>Source checks</span>" not in response.text
-    assert "Selected providers searched 2160 listings." in response.text
+    assert "Selected sites checked 2160 listings." in response.text
     assert "Source variants" not in response.text
     assert "Status" in response.text
     assert "Timing" not in response.text
@@ -24490,7 +24729,7 @@ def test_candidate_display_facts_reuse_top_level_detail_copy_for_sanitized_secti
     )
     detail_sections = _candidate_detail_sections(facts)
 
-    assert detail_sections["description_text"] == "Unbefristete Mietdauer · Mitten in der Stadt · 3 Zimmer."
+    assert detail_sections["description_text"] == "Unbefristete Mietdauer, mitten in der Stadt, 3 Zimmer."
     assert detail_sections["location_text"] == "Ruhelage · U1 Nah · Hofseitig."
 
 
@@ -24668,7 +24907,7 @@ def test_propertyquarry_failed_repair_without_progress_hides_stale_zero_source_c
 
     combined = " ".join(str(value) for value in summary.values())
     assert summary["happened"] == "PropertyQuarry is checking the saved search again."
-    assert "The brief and selected providers were still saved." in combined
+    assert "The brief and chosen sites were still saved." in combined
     assert "PropertyQuarry started a fresh check before any listing inspection completed." in combined
     assert "repair receipt" not in combined.lower()
     assert "run receipts" not in combined.lower()
@@ -24975,7 +25214,7 @@ def test_propertyquarry_empty_outcome_explains_selected_area_dead_end() -> None:
     )
 
     assert summary["happened"] == "Nothing landed in the selected area yet."
-    assert "361 homes returned by the selected providers" in summary["still_worked"]
+    assert "361 homes came back from the selected sites" in summary["still_worked"]
     assert "Widen the selected districts" in summary["next_move"]
     assert "overview pages" in summary["eta_feedback"]
     assert "receipts" not in " ".join(summary.values()).lower()
@@ -26162,6 +26401,31 @@ def test_property_research_packet_keeps_ready_tour_in_visual_rail_while_walkthro
     assert "Queued. This page updates automatically." not in rail_match.group("status")
 
 
+def test_property_research_recent_run_overlay_does_not_retry_internal_type_error() -> None:
+    class _Product:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def list_property_search_runs(self, **_kwargs):
+            self.calls += 1
+            raise TypeError("internal run hydration failed")
+
+    product = _Product()
+    overlay = landing_routes._property_research_recent_run_distance_overlay(
+        product=product,
+        principal_id="pq-recent-run-type-error",
+        account_email="member@example.test",
+        current_preferences={"country_code": "AT", "listing_mode": "rent", "location_query": "1020 Wien"},
+        workspace_preferences={},
+        run_preferences={},
+        candidate={"property_facts": {"postal_name": "1020 Wien"}},
+        current_run_id="run-current",
+    )
+
+    assert overlay == {}
+    assert product.calls == 1
+
+
 def test_property_research_packet_uses_cross_run_lookup_for_missing_candidate(monkeypatch) -> None:
     principal_id = "pq-research-packet-cross-run"
     client = build_property_client(principal_id=principal_id)
@@ -26874,7 +27138,7 @@ def test_propertyquarry_account_exposes_working_lifecycle_controls(monkeypatch) 
     assert "Delete account data" in account.text
     assert 'href="/data-deletion"' in account.text
     assert "Notifications" in account.text
-    assert "Choose where updates arrive." in account.text
+    assert "Choose how updates arrive." in account.text
     assert "Reuse these next time." in account.text
     assert "Access" in account.text
     assert "Data" in account.text

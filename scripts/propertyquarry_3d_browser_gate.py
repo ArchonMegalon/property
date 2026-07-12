@@ -9,10 +9,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 ROOT = Path(__file__).resolve().parents[1]
 EA_ROOT = ROOT / "ea"
@@ -25,13 +26,16 @@ try:
 except ModuleNotFoundError:
     from property_tour_runtime_paths import running_container_public_tour_dir  # type: ignore[no-redef]
 
+try:
+    from scripts.propertyquarry_playwright_runtime import playwright_chromium_launch_kwargs
+except ModuleNotFoundError:
+    from propertyquarry_playwright_runtime import playwright_chromium_launch_kwargs  # type: ignore[no-redef]
+
 from app.product.property_tour_hosting import persist_hosted_property_tour_browser_render_proof
 
 
 DEFAULT_DEMO_SLUG = "luxury-residence-with-breathtaking-skyline-views-danubeflats-vienna-layout-first-742df65557"
-DEFAULT_PROVIDERS = ("matterport", "3dvista")
-DEFAULT_LIVE_TOUR_ROOT = ROOT / "state" / "public_property_tours"
-DEFAULT_RUNTIME_CONTAINER = "propertyquarry-api"
+DEFAULT_PROVIDERS = ("3dvista",)
 FAILURE_PATTERNS = (
     "violates the following content security policy",
     "refused to display",
@@ -56,7 +60,6 @@ def _browser_url_and_args(base_url: str, host_header: str) -> tuple[str, list[st
         "--no-sandbox",
         "--disable-setuid-sandbox",
         "--disable-dev-shm-usage",
-        "--disable-gpu",
         "--autoplay-policy=no-user-gesture-required",
     ]
     if host_header and host in {"127.0.0.1", "localhost", "::1"}:
@@ -137,6 +140,7 @@ def _frame_render_state(page: Any, *, provider: str) -> dict[str, object]:
         "provider_frame_url": provider_frame_url,
         "canvas_count": 0,
         "visible_canvas_count": 0,
+        "loading_indicator_count": None,
         "frame_text": "",
         "same_origin_frame_inspected": False,
     }
@@ -149,12 +153,190 @@ def _frame_render_state(page: Any, *, provider: str) -> dict[str, object]:
             state["same_origin_frame_inspected"] = True
             state["canvas_count"] = frame.locator("canvas").count()
             state["visible_canvas_count"] = frame.locator("canvas:visible").count()
-            state["frame_text"] = frame.locator("body").inner_text(timeout=2_000)[:800]
+            state["loading_indicator_count"] = frame.get_by_text(
+                "Loading virtual tour",
+                exact=False,
+            ).evaluate_all(
+                """(nodes) => nodes.filter((node) => {
+                  const style = getComputedStyle(node);
+                  const box = node.getBoundingClientRect();
+                  return style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && Number(style.opacity || 1) > 0
+                    && box.width > 0
+                    && box.height > 0;
+                }).length"""
+            )
         except Exception as exc:
             state["frame_inspection_error"] = f"{type(exc).__name__}: {str(exc)[:200]}"
     if provider == "matterport" and "my.matterport.com/show/" in provider_frame_url:
         state["external_embedded_target_ok"] = True
     return state
+
+
+def _tour_shell_ux_state(page: Any) -> dict[str, object]:
+    return dict(
+        page.evaluate(
+            """() => {
+              const frame = document.querySelector('.provider-frame');
+              const status = document.querySelector('[data-provider-status]');
+              const visibleControls = Array.from(document.querySelectorAll('button, a[href]'))
+                .filter((node) => {
+                  const style = getComputedStyle(node);
+                  const box = node.getBoundingClientRect();
+                  return !node.hidden
+                    && style.display !== 'none'
+                    && style.visibility !== 'hidden'
+                    && box.width > 0
+                    && box.height > 0;
+                });
+              const undersized = visibleControls
+                .map((node) => {
+                  const box = node.getBoundingClientRect();
+                  return {
+                    label: (node.getAttribute('aria-label') || node.textContent || '').trim(),
+                    width: Math.round(box.width * 10) / 10,
+                    height: Math.round(box.height * 10) / 10,
+                  };
+                })
+                .filter((row) => row.width < 44 || row.height < 44);
+              return {
+                html_lang: document.documentElement.lang,
+                main_count: document.querySelectorAll('main').length,
+                frame_title: frame?.getAttribute('title') || '',
+                frame_aria_label: frame?.getAttribute('aria-label') || '',
+                status_role: status?.getAttribute('role') || '',
+                body_scroll_width: document.body?.scrollWidth || 0,
+                viewport_width: window.innerWidth,
+                undersized_controls: undersized,
+                reduced_motion: matchMedia('(prefers-reduced-motion: reduce)').matches,
+                active_animation_count: document.getAnimations().filter((item) => item.playState === 'running').length,
+              };
+            }"""
+        )
+        or {}
+    )
+
+
+def _walkthrough_video_state(page: Any, *, timeout_ms: int) -> dict[str, object]:
+    video = page.locator("#tour-video")
+    if video.count() != 1:
+        return {"error": "walkthrough_video_missing", "video_count": video.count()}
+
+    video.evaluate("(node) => { node.muted = true; node.preload = 'metadata'; node.load(); }")
+    metadata_error = ""
+    try:
+        page.wait_for_function(
+            """() => {
+              const video = document.querySelector('#tour-video');
+              return Boolean(video?.currentSrc) && video.readyState >= HTMLMediaElement.HAVE_METADATA;
+            }""",
+            timeout=min(max(timeout_ms, 5_000), 20_000),
+        )
+        video.evaluate(
+            """(node) => {
+              const seekTarget = Math.min(7, Math.max(0, (Number(node.duration) || 0) / 2));
+              if (seekTarget > 0) node.currentTime = seekTarget;
+            }"""
+        )
+        page.wait_for_function(
+            """() => {
+              const video = document.querySelector('#tour-video');
+              return Boolean(video) && !video.seeking && video.currentTime > 0;
+            }""",
+            timeout=min(max(timeout_ms, 5_000), 12_000),
+        )
+        page.wait_for_timeout(250)
+    except Exception as exc:
+        metadata_error = f"{type(exc).__name__}: {str(exc)[:240]}"
+
+    return dict(
+        page.evaluate(
+            """() => {
+              const video = document.querySelector('#tour-video');
+              const box = video?.getBoundingClientRect();
+              return {
+                video_count: document.querySelectorAll('#tour-video').length,
+                sources: Array.from(video?.querySelectorAll('source') || []).map((source) => ({
+                  src: source.getAttribute('src') || '',
+                  media: source.getAttribute('media') || '',
+                  type: source.getAttribute('type') || '',
+                })),
+                current_src: video?.currentSrc || '',
+                ready_state: video?.readyState || 0,
+                duration_seconds: Number(video?.duration) || 0,
+                current_time_seconds: Number(video?.currentTime) || 0,
+                video_width: video?.videoWidth || 0,
+                video_height: video?.videoHeight || 0,
+                rendered_width: box?.width || 0,
+                rendered_height: box?.height || 0,
+                body_scroll_width: document.body?.scrollWidth || 0,
+                viewport_width: window.innerWidth,
+                mobile_media_matches: matchMedia('(max-width: 760px)').matches,
+              };
+            }"""
+        )
+        or {}
+    ) | {"metadata_error": metadata_error}
+
+
+def _exercise_provider_recovery(page: Any, *, provider: str, timeout_ms: int) -> dict[str, object]:
+    recovery = page.locator("[data-provider-recovery]")
+    retry = page.locator("[data-provider-retry]")
+    direct = page.locator("[data-provider-direct]")
+    if not recovery.count() or not retry.count() or not direct.count():
+        return {
+            "recovery_visible": False,
+            "recovery_controls_ok": False,
+            "direct_href": "",
+            "retry_ready": False,
+            "rendered_after_retry": False,
+            "error": "provider_recovery_controls_missing",
+        }
+    page.evaluate("() => window.dispatchEvent(new Event('offline'))")
+    page.wait_for_timeout(100)
+    recovery_visible = recovery.is_visible()
+    dimensions = retry.evaluate(
+        """(button) => {
+          const direct = document.querySelector('[data-provider-direct]');
+          const buttonBox = button.getBoundingClientRect();
+          const directBox = direct?.getBoundingClientRect();
+          return {
+            button_width: buttonBox.width,
+            button_height: buttonBox.height,
+            direct_width: directBox?.width || 0,
+            direct_height: directBox?.height || 0,
+          };
+        }"""
+    )
+    recovery_controls_ok = all(
+        float(dimensions.get(key) or 0) >= 44
+        for key in ("button_width", "button_height", "direct_width", "direct_height")
+    )
+    direct_href = str(direct.get_attribute("href") or "")
+    retry_ready = False
+    rendered_after_retry = False
+    error = ""
+    try:
+        retry.evaluate("(button) => button.click()")
+        page.wait_for_function(
+            "() => document.querySelector('.provider-frame-wrap')?.dataset.providerState === 'ready'",
+            timeout=min(timeout_ms, 20_000),
+        )
+        retry_ready = True
+        retry_state = _wait_for_provider_rendered(page, provider=provider, timeout_ms=timeout_ms)
+        rendered_after_retry = _provider_rendered_ok(provider, retry_state)
+    except Exception as exc:
+        error = f"{type(exc).__name__}: {str(exc)[:240]}"
+    return {
+        "recovery_visible": recovery_visible,
+        "recovery_controls_ok": recovery_controls_ok,
+        "direct_href": direct_href,
+        "retry_ready": retry_ready,
+        "rendered_after_retry": rendered_after_retry,
+        "dimensions": dimensions,
+        "error": error,
+    }
 
 
 def _provider_rendered_ok(provider: str, state: dict[str, object]) -> bool:
@@ -164,10 +346,30 @@ def _provider_rendered_ok(provider: str, state: dict[str, object]) -> bool:
         return False
     text = str(state.get("frame_text") or "").lower()
     if provider_key in {"3dvista", "pano2vr"}:
-        return int(state.get("visible_canvas_count") or 0) > 0 and "loading virtual tour" not in text
+        return (
+            int(state.get("visible_canvas_count") or 0) > 0
+            and state.get("loading_indicator_count") == 0
+            and "loading virtual tour" not in text
+        )
     if provider_key == "matterport":
         return "my.matterport.com/show/" in frame_url and bool(state.get("external_embedded_target_ok"))
     return True
+
+
+def _wait_for_provider_rendered(page: Any, *, provider: str, timeout_ms: int) -> dict[str, object]:
+    poll_ms = 500
+    if str(provider or "").strip().lower() == "matterport":
+        page.wait_for_timeout(min(max(int(timeout_ms or 0), 1_000), 8_000))
+    deadline = time.monotonic() + (max(1_000, min(int(timeout_ms or 0), 30_000)) / 1_000)
+    state: dict[str, object] = {}
+    while True:
+        state = _frame_render_state(page, provider=provider)
+        if _provider_rendered_ok(provider, state):
+            return state
+        remaining_ms = int((deadline - time.monotonic()) * 1_000)
+        if remaining_ms <= 0:
+            return state
+        page.wait_for_timeout(min(poll_ms, remaining_ms))
 
 
 def _provider_checks(receipt: dict[str, object], provider: str) -> list[dict[str, object]]:
@@ -179,16 +381,19 @@ def _provider_checks(receipt: dict[str, object], provider: str) -> list[dict[str
     ]
 
 
-def _candidate_public_tour_roots() -> list[Path]:
-    candidates: list[Path] = []
-    configured_root = str(os.getenv("EA_PUBLIC_TOUR_DIR") or "").strip()
-    if configured_root:
-        candidates.append(Path(configured_root).expanduser())
-    runtime_root = running_container_public_tour_dir(str(os.getenv("PROPERTYQUARRY_RUNTIME_CONTAINER") or "").strip())
+def _candidate_public_tour_roots(
+    *,
+    runtime_container: str = "",
+    public_roots: Iterable[str | Path] = (),
+) -> list[Path]:
+    candidates = [
+        Path(root).expanduser()
+        for root in public_roots
+        if str(root or "").strip()
+    ]
+    runtime_root = running_container_public_tour_dir(str(runtime_container or "").strip()) if runtime_container else None
     if runtime_root is not None:
         candidates.append(runtime_root)
-    candidates.append(DEFAULT_LIVE_TOUR_ROOT.expanduser())
-    candidates.append(Path("/docker/property/state/public_property_tours").expanduser())
     seen: set[str] = set()
     roots: list[Path] = []
     for candidate in candidates:
@@ -204,8 +409,8 @@ def _candidate_public_tour_roots() -> list[Path]:
     return roots
 
 
-def _runtime_container_name() -> str:
-    return str(os.getenv("PROPERTYQUARRY_RUNTIME_CONTAINER") or DEFAULT_RUNTIME_CONTAINER).strip()
+def _runtime_container_name(configured_container: str = "") -> str:
+    return str(configured_container or os.getenv("PROPERTYQUARRY_RUNTIME_CONTAINER") or "").strip()
 
 
 def _copy_from_container(docker_bin: str, container: str, source: str, target: Path) -> bool:
@@ -231,11 +436,18 @@ def _copy_to_container(docker_bin: str, source: Path, container: str, target: st
     return completed.returncode == 0
 
 
-def _persist_3dvista_browser_render_proof_in_runtime_container(slug: str, proof: dict[str, object]) -> dict[str, object]:
+def _persist_3dvista_browser_render_proof_in_runtime_container(
+    slug: str,
+    proof: dict[str, object],
+    *,
+    runtime_container: str = "",
+) -> dict[str, object]:
+    container = _runtime_container_name(runtime_container)
+    if not container:
+        return {"status": "runtime_container_not_configured", "slug": slug, "provider": "3dvista"}
     docker_bin = shutil.which("docker")
     if not docker_bin:
         return {"status": "docker_unavailable", "slug": slug, "provider": "3dvista"}
-    container = _runtime_container_name()
     inspect_result = subprocess.run(
         [docker_bin, "inspect", container],
         check=False,
@@ -303,7 +515,12 @@ def _persistable_3dvista_browser_proof(receipt: dict[str, object]) -> dict[str, 
     return proof
 
 
-def persist_3dvista_browser_render_proof_from_receipt(receipt: dict[str, object]) -> dict[str, object]:
+def persist_3dvista_browser_render_proof_from_receipt(
+    receipt: dict[str, object],
+    *,
+    runtime_container: str = "",
+    public_roots: Iterable[str | Path] = (),
+) -> dict[str, object]:
     requested_providers = {
         str(value or "").strip().lower()
         for value in list(receipt.get("providers") or [])
@@ -317,15 +534,32 @@ def persist_3dvista_browser_render_proof_from_receipt(receipt: dict[str, object]
     proof = _persistable_3dvista_browser_proof(receipt)
     if not proof:
         return {"status": "provider_result_missing", "provider": "3dvista", "slug": slug}
-    host_result = persist_hosted_property_tour_browser_render_proof(
-        slug=slug,
-        provider="3dvista",
-        proof=proof,
-        public_roots=_candidate_public_tour_roots(),
+    persistence_roots = _candidate_public_tour_roots(
+        runtime_container=runtime_container,
+        public_roots=public_roots,
     )
-    container_result = _persist_3dvista_browser_render_proof_in_runtime_container(slug, proof)
+    host_result = (
+        persist_hosted_property_tour_browser_render_proof(
+            slug=slug,
+            provider="3dvista",
+            proof=proof,
+            public_roots=persistence_roots,
+        )
+        if persistence_roots
+        else {"status": "public_tour_root_not_configured", "provider": "3dvista", "slug": slug}
+    )
+    container_result = _persist_3dvista_browser_render_proof_in_runtime_container(
+        slug,
+        proof,
+        runtime_container=runtime_container,
+    )
     container_status = str(container_result.get("status") or "").strip().lower()
-    if container_status not in {"updated", "runtime_container_unavailable", "docker_unavailable"}:
+    if container_status not in {
+        "updated",
+        "runtime_container_not_configured",
+        "runtime_container_unavailable",
+        "docker_unavailable",
+    }:
         return {
             "status": "runtime_container_persistence_failed",
             "provider": "3dvista",
@@ -333,7 +567,16 @@ def persist_3dvista_browser_render_proof_from_receipt(receipt: dict[str, object]
             "host_result": host_result,
             "container_result": container_result,
         }
-    if str(host_result.get("status") or "").strip().lower() != "updated" and container_status != "updated":
+    host_status = str(host_result.get("status") or "").strip().lower()
+    if not persistence_roots and not _runtime_container_name(runtime_container):
+        return {
+            "status": "persistence_target_not_configured",
+            "provider": "3dvista",
+            "slug": slug,
+            "host_result": host_result,
+            "container_result": container_result,
+        }
+    if host_status != "updated" and container_status != "updated":
         return {
             "status": "tour_bundle_not_found",
             "provider": "3dvista",
@@ -357,6 +600,8 @@ def build_browser_gate_receipt(
     demo_slug: str,
     providers: list[str],
     timeout_ms: int,
+    viewport_width: int = 1440,
+    viewport_height: int = 1000,
     write_screenshots_dir: str = "",
 ) -> dict[str, object]:
     try:
@@ -372,16 +617,46 @@ def build_browser_gate_receipt(
 
     browser_base_url, browser_args = _browser_url_and_args(base_url, host_header)
     slug = str(demo_slug or DEFAULT_DEMO_SLUG).strip()
+    viewport = {
+        "width": max(320, int(viewport_width or 1440)),
+        "height": max(480, int(viewport_height or 1000)),
+    }
     screenshot_dir = Path(write_screenshots_dir) if write_screenshots_dir else None
     if screenshot_dir:
         screenshot_dir.mkdir(parents=True, exist_ok=True)
     checks: list[dict[str, object]] = []
     provider_results: list[dict[str, object]] = []
+    walkthrough_result: dict[str, object] = {}
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=True, args=browser_args)
+        try:
+            browser = playwright.chromium.launch(
+                **playwright_chromium_launch_kwargs(playwright, args=browser_args)
+            )
+        except Exception as exc:
+            checks.append(
+                _check(
+                    "chromium_launchable",
+                    False,
+                    error=f"{type(exc).__name__}: {exc}",
+                )
+            )
+            return {
+                "contract_name": "propertyquarry.3d_browser_gate.v1",
+                "generated_at": _utc_now(),
+                "status": "fail",
+                "browser_base_url": browser_base_url,
+                "host_header": host_header,
+                "demo_slug": slug,
+                "providers": providers,
+                "check_count": len(checks),
+                "failed_count": len(checks),
+                "checks": checks,
+                "provider_results": provider_results,
+            }
         context = browser.new_context(
-            viewport={"width": 1440, "height": 1000},
+            viewport=viewport,
             ignore_https_errors=True,
+            reduced_motion="reduce",
         )
         try:
             for provider in providers:
@@ -430,10 +705,26 @@ def build_browser_gate_receipt(
                 if load_button.count():
                     clicked = True
                     load_button.click(timeout=timeout_ms)
-                page.wait_for_timeout(8_000)
-                state = _frame_render_state(page, provider=provider_key)
+                state = _wait_for_provider_rendered(page, provider=provider_key, timeout_ms=timeout_ms)
+                ux_state = _tour_shell_ux_state(page)
+                screenshot_error = ""
+                screenshot_path = screenshot_dir / f"{provider_key}.png" if screenshot_dir else None
                 if screenshot_dir:
-                    page.screenshot(path=str(screenshot_dir / f"{provider_key}.png"), full_page=True)
+                    try:
+                        screenshot_path.unlink(missing_ok=True)
+                        page.screenshot(
+                            path=str(screenshot_path),
+                            full_page=provider_key == "3dvista",
+                            caret="hide",
+                            timeout=min(timeout_ms, 30_000),
+                        )
+                    except Exception as exc:
+                        screenshot_error = f"{type(exc).__name__}: {str(exc)[:240]}"
+                recovery_state = (
+                    _exercise_provider_recovery(page, provider=provider_key, timeout_ms=timeout_ms)
+                    if provider_key == "3dvista"
+                    else {}
+                )
                 bad_console = _bad_console_messages(console_messages)
                 bad_http = _bad_responses(responses, browser_base_url=browser_base_url)
                 bad_request_failures = _bad_request_failures(request_failures, browser_base_url=browser_base_url)
@@ -453,7 +744,55 @@ def build_browser_gate_receipt(
                     _check(f"{provider_key}_no_request_failures", not bad_request_failures, request_failures=bad_request_failures[:8]),
                     _check(f"{provider_key}_no_bad_http_assets", not bad_http, bad_http=bad_http[:8]),
                     _check(f"{provider_key}_rendered_viewer", rendered_ok, state=state),
+                    _check(
+                        f"{provider_key}_accessible_shell",
+                        ux_state.get("html_lang") == "en"
+                        and int(ux_state.get("main_count") or 0) == 1
+                        and bool(ux_state.get("frame_title"))
+                        and bool(ux_state.get("frame_aria_label"))
+                        and ux_state.get("status_role") == "status",
+                        state=ux_state,
+                    ),
+                    _check(
+                        f"{provider_key}_responsive_touch_shell",
+                        int(ux_state.get("body_scroll_width") or 0) <= int(ux_state.get("viewport_width") or 0) + 1
+                        and not list(ux_state.get("undersized_controls") or []),
+                        state=ux_state,
+                    ),
+                    _check(
+                        f"{provider_key}_reduced_motion_shell",
+                        ux_state.get("reduced_motion") is True
+                        and int(ux_state.get("active_animation_count") or 0) == 0,
+                        state=ux_state,
+                    ),
                 ]
+                if screenshot_dir:
+                    provider_checks.append(
+                        _check(
+                            f"{provider_key}_screenshot_captured",
+                            not screenshot_error,
+                            path=str(screenshot_path),
+                            error=screenshot_error,
+                        )
+                    )
+                if provider_key == "3dvista":
+                    provider_checks.extend(
+                        [
+                            _check(
+                                "3dvista_offline_recovery_visible",
+                                recovery_state.get("recovery_visible") is True
+                                and recovery_state.get("recovery_controls_ok") is True
+                                and bool(recovery_state.get("direct_href")),
+                                state=recovery_state,
+                            ),
+                            _check(
+                                "3dvista_retry_restores_viewer",
+                                recovery_state.get("retry_ready") is True
+                                and recovery_state.get("rendered_after_retry") is True,
+                                state=recovery_state,
+                            ),
+                        ]
+                    )
                 checks.extend(provider_checks)
                 provider_results.append(
                     {
@@ -461,6 +800,8 @@ def build_browser_gate_receipt(
                         "url": url,
                         "clicked": clicked,
                         "state": state,
+                        "ux_state": ux_state,
+                        "recovery_state": recovery_state,
                         "bad_console_count": len(bad_console),
                         "bad_request_failure_count": len(bad_request_failures),
                         "bad_http_count": len(bad_http),
@@ -468,6 +809,93 @@ def build_browser_gate_receipt(
                     }
                 )
                 page.close()
+
+            walkthrough_page = context.new_page()
+            walkthrough_url = (
+                f"{browser_base_url}/tours/{urllib.parse.quote(slug, safe='')}/control/3dvista"
+                "?pane=flythrough-pane"
+            )
+            walkthrough_response = walkthrough_page.goto(
+                walkthrough_url,
+                wait_until="domcontentloaded",
+                timeout=timeout_ms,
+            )
+            walkthrough_state = _walkthrough_video_state(walkthrough_page, timeout_ms=timeout_ms)
+            source_rows = [
+                dict(row)
+                for row in list(walkthrough_state.get("sources") or [])
+                if isinstance(row, dict)
+            ]
+            mobile_expected = int(viewport["width"]) <= 760
+            current_src_path = urllib.parse.urlparse(str(walkthrough_state.get("current_src") or "")).path
+            expected_mobile_suffix = "/magicfit-walkthrough-mobile-720p60.mp4"
+            expected_desktop_suffix = f"/tours/{urllib.parse.quote(slug, safe='')}/walkthrough"
+            screenshot_error = ""
+            walkthrough_screenshot_path = screenshot_dir / "walkthrough.png" if screenshot_dir else None
+            if walkthrough_screenshot_path:
+                try:
+                    walkthrough_screenshot_path.unlink(missing_ok=True)
+                    walkthrough_page.locator("#tour-video").screenshot(
+                        path=str(walkthrough_screenshot_path),
+                        caret="hide",
+                        timeout=min(timeout_ms, 30_000),
+                    )
+                except Exception as exc:
+                    screenshot_error = f"{type(exc).__name__}: {str(exc)[:240]}"
+            walkthrough_checks = [
+                _check(
+                    "walkthrough_control_page_ok",
+                    bool(walkthrough_response and walkthrough_response.ok),
+                    status=walkthrough_response.status if walkthrough_response else 0,
+                ),
+                _check(
+                    "walkthrough_responsive_sources_present",
+                    len(source_rows) == 2
+                    and str(source_rows[0].get("media") or "") == "(max-width: 760px)"
+                    and str(source_rows[0].get("src") or "").endswith(expected_mobile_suffix)
+                    and str(source_rows[1].get("src") or "").endswith(expected_desktop_suffix),
+                    sources=source_rows,
+                ),
+                _check(
+                    "walkthrough_current_source_matches_viewport",
+                    current_src_path.endswith(expected_mobile_suffix if mobile_expected else expected_desktop_suffix),
+                    current_src=str(walkthrough_state.get("current_src") or ""),
+                    mobile_expected=mobile_expected,
+                ),
+                _check(
+                    "walkthrough_metadata_decoded",
+                    not str(walkthrough_state.get("metadata_error") or "")
+                    and int(walkthrough_state.get("ready_state") or 0) >= 1
+                    and float(walkthrough_state.get("duration_seconds") or 0) >= 65
+                    and int(walkthrough_state.get("video_width") or 0) == (1280 if mobile_expected else 1920)
+                    and int(walkthrough_state.get("video_height") or 0) == (720 if mobile_expected else 1080),
+                    state=walkthrough_state,
+                ),
+                _check(
+                    "walkthrough_responsive_layout",
+                    int(walkthrough_state.get("body_scroll_width") or 0)
+                    <= int(walkthrough_state.get("viewport_width") or 0) + 1
+                    and float(walkthrough_state.get("rendered_width") or 0)
+                    <= int(walkthrough_state.get("viewport_width") or 0) + 1,
+                    state=walkthrough_state,
+                ),
+            ]
+            if walkthrough_screenshot_path:
+                walkthrough_checks.append(
+                    _check(
+                        "walkthrough_screenshot_captured",
+                        not screenshot_error,
+                        path=str(walkthrough_screenshot_path),
+                        error=screenshot_error,
+                    )
+                )
+            checks.extend(walkthrough_checks)
+            walkthrough_result = {
+                "url": walkthrough_url,
+                "state": walkthrough_state,
+                "status": "pass" if all(row["ok"] for row in walkthrough_checks) else "fail",
+            }
+            walkthrough_page.close()
         finally:
             context.close()
             browser.close()
@@ -481,10 +909,12 @@ def build_browser_gate_receipt(
         "host_header": host_header,
         "demo_slug": slug,
         "providers": providers,
+        "viewport": viewport,
         "check_count": len(checks),
         "failed_count": len(failed),
         "checks": checks,
         "provider_results": provider_results,
+        "walkthrough_result": walkthrough_result,
     }
 
 
@@ -495,7 +925,20 @@ def main() -> int:
     parser.add_argument("--demo-slug", default=DEFAULT_DEMO_SLUG)
     parser.add_argument("--providers", default=",".join(DEFAULT_PROVIDERS))
     parser.add_argument("--timeout-ms", type=int, default=45_000)
+    parser.add_argument("--viewport-width", type=int, default=1440)
+    parser.add_argument("--viewport-height", type=int, default=1000)
     parser.add_argument("--screenshots-dir", default="")
+    parser.add_argument(
+        "--runtime-container",
+        default=os.getenv("PROPERTYQUARRY_RUNTIME_CONTAINER", ""),
+        help="Explicit runtime container whose tested 3DVista private proof may be updated.",
+    )
+    parser.add_argument(
+        "--public-tour-root",
+        action="append",
+        default=[],
+        help="Explicit public-tour root whose private proof may be updated. Repeatable.",
+    )
     parser.add_argument("--write", default="_completion/smoke/property-live-3d-browser-gate-latest.json")
     args = parser.parse_args()
     providers = [item.strip().lower() for item in str(args.providers or "").split(",") if item.strip()]
@@ -505,9 +948,15 @@ def main() -> int:
         demo_slug=args.demo_slug,
         providers=providers or list(DEFAULT_PROVIDERS),
         timeout_ms=max(5_000, int(args.timeout_ms or 45_000)),
+        viewport_width=max(320, int(args.viewport_width or 1440)),
+        viewport_height=max(480, int(args.viewport_height or 1000)),
         write_screenshots_dir=args.screenshots_dir,
     )
-    persistence = persist_3dvista_browser_render_proof_from_receipt(receipt)
+    persistence = persist_3dvista_browser_render_proof_from_receipt(
+        receipt,
+        runtime_container=str(args.runtime_container or "").strip(),
+        public_roots=tuple(args.public_tour_root or ()),
+    )
     if "3dvista" in {item.strip().lower() for item in providers or list(DEFAULT_PROVIDERS)}:
         persist_ok = str(persistence.get("status") or "").strip().lower() == "updated"
         receipt.setdefault("checks", []).append(
@@ -515,6 +964,7 @@ def main() -> int:
         )
         receipt["proof_persistence"] = {"3dvista": persistence}
         failed = [row for row in list(receipt.get("checks") or []) if isinstance(row, dict) and not row.get("ok")]
+        receipt["check_count"] = len(list(receipt.get("checks") or []))
         receipt["failed_count"] = len(failed)
         receipt["status"] = "pass" if not failed else "fail"
     output = json.dumps(receipt, ensure_ascii=True, indent=2, sort_keys=True)

@@ -13875,39 +13875,66 @@ def test_willhaben_property_tour_route_publishes_pure_360_bundle_when_crezlo_is_
     assert body["source_virtual_tour_url"] == "https://my.matterport.com/show/?m=BmVWxvZQZLq"
 
 
-def test_matterport_hosted_pure_360_bundle_uses_http_thumb_preview(monkeypatch, tmp_path: Path) -> None:
+def test_matterport_hosted_pure_360_bundle_is_rejected_without_writing_public_artifacts(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL", "https://propertyquarry.com/tours")
-    payload = product_service._write_hosted_feelestate_pure_360_property_tour_bundle(
-        principal_id="cf-email:owner@example.test",
-        title="Matterport Preview Test",
-        listing_id="matterport-preview-test",
-        property_url="https://www.immobilienscout24.at/expose/matterport-preview-test",
-        variant_key="layout_first",
-        source_virtual_tour_url="https://my.matterport.com/show/?m=BmVWxvZQZLq",
-        floorplan_urls=(),
-        property_facts_json={"has_360": True},
-        source_host="www.immobilienscout24.at",
-    )
-    scene = dict((payload.get("scenes") or [{}])[0] or {})
-    assert payload["source_virtual_tour_url"] == "https://my.matterport.com/show/?m=BmVWxvZQZLq"
-    assert payload["source_virtual_tour_origin"] == "https://my.matterport.com/show/?m=BmVWxvZQZLq"
-    assert scene["image_url"] == "https://my.matterport.com/api/v2/player/models/BmVWxvZQZLq/thumb/"
-    assert scene["mime_type"] == "image/jpeg"
-    public_manifest = json.loads((tmp_path / str(payload["slug"]) / "tour.json").read_text(encoding="utf-8"))
-    private_manifest = json.loads((tmp_path / str(payload["slug"]) / "tour.private.json").read_text(encoding="utf-8"))
-    assert public_manifest["control_mode"] == "matterport"
-    serialized_public = json.dumps(public_manifest, sort_keys=True)
-    assert "source_virtual_tour_url" not in public_manifest
-    assert "source_virtual_tour_origin" not in public_manifest
-    assert "matterport_url" not in public_manifest
-    assert "my.matterport.com" not in serialized_public
-    assert "crezlo_public_url" not in public_manifest
-    assert "https://www.immobilienscout24.at/expose/matterport-preview-test" not in json.dumps(public_manifest)
-    assert private_manifest["source_virtual_tour_url"] == "https://my.matterport.com/show/?m=BmVWxvZQZLq"
-    assert private_manifest["matterport_url"] == "https://my.matterport.com/show/?m=BmVWxvZQZLq"
-    loaded = product_service._existing_hosted_property_tour_payload(str(payload["slug"]))
-    assert loaded["source_virtual_tour_url"] == "https://my.matterport.com/show/?m=BmVWxvZQZLq"
+    with pytest.raises(RuntimeError, match="pure_360_source_unsupported"):
+        product_service._write_hosted_feelestate_pure_360_property_tour_bundle(
+            principal_id="cf-email:owner@example.test",
+            title="Matterport Preview Test",
+            listing_id="matterport-preview-test",
+            property_url="https://www.immobilienscout24.at/expose/matterport-preview-test",
+            variant_key="layout_first",
+            source_virtual_tour_url="https://my.matterport.com/show/?m=BmVWxvZQZLq",
+            floorplan_urls=(),
+            property_facts_json={"has_360": True},
+            source_host="www.immobilienscout24.at",
+        )
+    assert not list(tmp_path.iterdir())
+
+
+def test_legacy_matterport_receipt_cannot_reach_public_payload_or_direct_360(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    legacy_url = "https://my.matterport.com/show/?m=BmVWxvZQZLq"
+    legacy_payload = {
+        "slug": "legacy-hosted-tour",
+        "control_mode": "matterport",
+        "source_virtual_tour_url": legacy_url,
+        "source_virtual_tour_origin": legacy_url,
+        "matterport_url": legacy_url,
+        "scenes": [
+            {
+                "ordinal": 1,
+                "name": "3D tour",
+                "role": "live_360",
+                "image_url": "https://my.matterport.com/api/v2/player/models/BmVWxvZQZLq/thumb/",
+                "source_url": legacy_url,
+                "mime_type": "image/jpeg",
+            }
+        ],
+    }
+
+    public_payload = property_tour_hosting._public_tour_public_payload(legacy_payload)
+    serialized_public = json.dumps(public_payload, sort_keys=True).lower()
+    assert public_payload.get("control_mode") != "matterport"
+    assert "matterport" not in serialized_public
+    assert "bmvwxvzqzlq" not in serialized_public
+    assert property_tour_hosting._resolve_property_tour_urls(
+        {
+            **legacy_payload,
+            "hosted_url": "https://propertyquarry.com/tours/legacy-hosted-tour",
+            "public_url": "https://propertyquarry.com/tours/legacy-hosted-tour",
+        },
+        allow_unverified_branded=True,
+    ) == ("", "")
+
+    bundle_dir = tmp_path / "legacy-hosted-tour"
+    bundle_dir.mkdir()
+    (bundle_dir / "tour.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(property_tour_hosting, "_load_hosted_property_tour_payload", lambda _bundle_dir: legacy_payload)
+    assert property_tour_hosting._hosted_property_tour_direct_360_url(
+        "https://propertyquarry.com/tours/legacy-hosted-tour"
+    ) == ""
 
 
 def test_3dvista_hosted_pure_360_bundle_preserves_provider_url(monkeypatch, tmp_path: Path) -> None:
@@ -13943,6 +13970,9 @@ def test_3dvista_hosted_pure_360_bundle_preserves_provider_url(monkeypatch, tmp_
     assert private_manifest["three_d_vista_url"] == "https://example.3dvista.com/tours/top22/index.html"
     loaded = product_service._existing_hosted_property_tour_payload(str(payload["slug"]))
     assert loaded["three_d_vista_url"] == "https://example.3dvista.com/tours/top22/index.html"
+    assert property_tour_hosting._hosted_property_tour_direct_360_url(str(payload["hosted_url"])) == (
+        "https://example.3dvista.com/tours/top22/index.html"
+    )
 
 
 def test_kalandra_cube_360_bundle_generation_is_disabled(monkeypatch, tmp_path: Path) -> None:
@@ -14591,20 +14621,20 @@ def test_property_tour_url_resolver_prefers_branded_link_even_when_legacy_fields
     monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://myexternalbrain.com")
     monkeypatch.setattr(
         property_tour_hosting,
-        "_hosted_property_tour_verified_open_url",
-        lambda tour_url: "https://myexternalbrain.com/tours/brigittenau-apartment-a/control/matterport"
+        "_hosted_property_tour_verified_provider",
+        lambda tour_url: "3dvista"
         if str(tour_url or "").strip() == "https://myexternalbrain.com/tours/brigittenau-apartment-a"
         else "",
     )
     branded_url, vendor_url = product_service._resolve_property_tour_urls(
         {
             "crezlo_public_url": "https://myexternalbrain.com/tours/brigittenau-apartment-a",
-            "public_url": "https://vendor.example.com/tours/brigittenau-apartment-a",
-            "share_url": "https://vendor.example.com/share/brigittenau-apartment-a",
+            "public_url": "https://example.3dvista.com/tours/brigittenau-apartment-a",
+            "share_url": "https://example.3dvista.com/share/brigittenau-apartment-a",
         }
     )
     assert branded_url == "https://myexternalbrain.com/tours/brigittenau-apartment-a"
-    assert vendor_url == "https://vendor.example.com/tours/brigittenau-apartment-a"
+    assert vendor_url == "https://example.3dvista.com/tours/brigittenau-apartment-a"
 
 
 def test_property_tour_binding_selector_prefers_crezlo_browseract_lane_over_other_browseract_bindings(monkeypatch) -> None:
@@ -14822,7 +14852,7 @@ def test_property_tour_url_resolver_does_not_fallback_to_vendor_as_primary(monke
         }
     )
     assert branded_url == ""
-    assert vendor_url == "https://vendor.example.com/tours/brigittenau-apartment-a"
+    assert vendor_url == ""
 
 
 def test_property_tour_url_resolver_does_not_promote_gallery_shell_as_real_3d(monkeypatch) -> None:
@@ -14844,14 +14874,14 @@ def test_property_tour_url_resolver_keeps_vendor_truth_when_branded_shell_has_on
     branded_url, vendor_url = product_service._resolve_property_tour_urls(
         {
             "hosted_url": "https://propertyquarry.com/tours/unverified-shell",
-            "public_url": "https://vendor.example.com/tours/unverified-shell",
-            "share_url": "https://vendor.example.com/share/unverified-shell",
+            "public_url": "https://example.3dvista.com/tours/unverified-shell",
+            "share_url": "https://example.3dvista.com/share/unverified-shell",
             "scene_strategy": "hosted_3d_tour",
             "creation_mode": "hosted_listing_tour",
         }
     )
     assert branded_url == ""
-    assert vendor_url == "https://vendor.example.com/tours/unverified-shell"
+    assert vendor_url == "https://example.3dvista.com/tours/unverified-shell"
 
 
 def test_property_tour_url_resolver_keeps_external_live_360_as_vendor_truth(monkeypatch) -> None:
@@ -14860,14 +14890,14 @@ def test_property_tour_url_resolver_keeps_external_live_360_as_vendor_truth(monk
         {
             "hosted_url": "https://propertyquarry.com/tours/live-360-shell",
             "public_url": "https://propertyquarry.com/tours/live-360-shell",
-            "source_virtual_tour_url": "https://viewer.example.test/360/room-1",
+            "source_virtual_tour_url": "https://example.3dvista.com/360/room-1",
             "scene_strategy": "live_360_embed",
-            "control_mode": "external_live_360",
+            "control_mode": "3dvista",
             "creation_mode": "embedded_live_360",
         }
     )
     assert branded_url == ""
-    assert vendor_url == "https://viewer.example.test/360/room-1"
+    assert vendor_url == "https://example.3dvista.com/360/room-1"
 
 
 def test_property_scout_tour_auto_create_skips_existing_vendor_url(monkeypatch) -> None:
@@ -28704,7 +28734,7 @@ def test_public_tour_control_matterport_requires_real_export() -> None:
         )
 
     assert exc_info.value.status_code == 404
-    assert exc_info.value.detail == "tour_control_matterport_export_missing"
+    assert exc_info.value.detail == "tour_control_provider_retired"
 
 
 def test_public_tour_control_3dvista_requires_real_export() -> None:
@@ -28769,18 +28799,18 @@ def test_public_tour_control_rejects_3dvista_lookalike_domain() -> None:
 def test_public_tour_control_embeds_external_matterport_url() -> None:
     from app.api.routes import public_tours
 
-    html = public_tours._tour_control_html(
-        {
-            "slug": "matterport-external",
-            "display_title": "Matterport External",
-            "source_virtual_tour_url": "https://my.matterport.com/show/?m=TEST123&mls=2",
-        },
-        viewer_mode="matterport",
-    )
+    with pytest.raises(public_tours.HTTPException) as exc_info:
+        public_tours._tour_control_html(
+            {
+                "slug": "matterport-external",
+                "display_title": "Matterport External",
+                "source_virtual_tour_url": "https://my.matterport.com/show/?m=TEST123&mls=2",
+            },
+            viewer_mode="matterport",
+        )
 
-    assert "Matterport Control" in html
-    assert "3D Tour" in html
-    assert 'src="https://my.matterport.com/show/?m=TEST123&amp;mls=2"' in html
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "tour_control_provider_retired"
 
 
 def test_public_tour_control_links_walkthrough_without_embedding_provider_video() -> None:
@@ -28867,30 +28897,27 @@ def test_public_tour_walkthrough_route_serves_video_without_public_provider_file
 def test_public_tour_control_switches_between_provider_backed_matterport_layers() -> None:
     from app.api.routes import public_tours
 
-    html = public_tours._tour_control_html(
-        {
-            "slug": "matterport-layered",
-            "display_title": "Layered Matterport",
-            "source_virtual_tour_url": "https://my.matterport.com/show/?m=SOURCE123",
-            "tour_layers": [
-                {
-                    "id": "lived_in",
-                    "label": "Lived-in",
-                    "provider": "matterport",
-                    "matterport_url": "https://my.matterport.com/show/?m=STAGED123",
-                    "disclosure": "Separate staged Matterport model.",
-                }
-            ],
-        },
-        viewer_mode="matterport",
-    )
+    with pytest.raises(public_tours.HTTPException) as exc_info:
+        public_tours._tour_control_html(
+            {
+                "slug": "matterport-layered",
+                "display_title": "Layered Matterport",
+                "source_virtual_tour_url": "https://my.matterport.com/show/?m=SOURCE123",
+                "tour_layers": [
+                    {
+                        "id": "lived_in",
+                        "label": "Lived-in",
+                        "provider": "matterport",
+                        "matterport_url": "https://my.matterport.com/show/?m=STAGED123",
+                        "disclosure": "Separate staged Matterport model.",
+                    }
+                ],
+            },
+            viewer_mode="matterport",
+        )
 
-    assert 'data-provider-layer="as_listed"' in html
-    assert 'data-provider-layer="lived_in"' in html
-    assert "https://my.matterport.com/show/?m=SOURCE123" in html
-    assert "https://my.matterport.com/show/?m=STAGED123" in html
-    assert "Separate staged Matterport model." not in html
-    assert "Styled view." in html
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "tour_control_provider_retired"
 
 
 def test_public_tour_control_ignores_unverified_provider_layer_url() -> None:
@@ -28962,7 +28989,7 @@ def test_public_tour_control_rejects_matterport_lookalike_domain() -> None:
         )
 
     assert exc_info.value.status_code == 404
-    assert exc_info.value.detail == "tour_control_matterport_export_missing"
+    assert exc_info.value.detail == "tour_control_provider_retired"
 
 
 def test_public_tour_control_rejects_removed_legacy_viewer() -> None:
@@ -30079,11 +30106,13 @@ def test_public_tour_matterport_control_uses_private_receipt_without_public_json
     control_response = client.get(f"/tours/{slug}/control/matterport")
 
     assert payload_response.status_code == 200
-    assert "matterport_url" not in payload_response.json()
-    assert "source_virtual_tour_url" not in payload_response.json()
-    assert control_response.status_code == 200
-    assert "Matterport Control" in control_response.text
-    assert 'src="https://my.matterport.com/show/?m=PRIVATE123&amp;mls=2"' in control_response.text
+    serialized_payload = json.dumps(payload_response.json(), sort_keys=True).lower()
+    assert "matterport_url" not in serialized_payload
+    assert "source_virtual_tour_url" not in serialized_payload
+    assert "private123" not in serialized_payload
+    assert control_response.status_code == 404
+    assert control_response.json()["error"]["code"] == "tour_control_provider_retired"
+    assert "private123" not in control_response.text.lower()
 
 
 def test_public_tour_3dvista_control_uses_private_receipt_without_public_json_leak(
@@ -31684,16 +31713,15 @@ def test_public_tour_generated_layout_preview_route_stays_blocked_when_live_matt
         follow_redirects=False,
     )
 
-    assert launch.status_code == 302
-    assert launch.headers["location"] == f"/tours/{slug}/control/matterport"
-    assert response.status_code == 302
-    assert response.headers["location"] == f"/tours/{slug}/control/matterport"
-    assert viewer.status_code == 302
-    assert viewer.headers["location"] == f"/tours/{slug}/control/matterport"
-    assert embedded_viewer.status_code == 302
-    assert embedded_viewer.headers["location"] == f"/tours/{slug}/control/matterport"
-    assert control.status_code == 200
-    assert "Matterport Control" in control.text
+    for gated_response in (launch, response, viewer, embedded_viewer):
+        assert gated_response.status_code in {302, 404}
+        assert "/control/matterport" not in gated_response.headers.get("location", "").lower()
+        assert "my.matterport.com" not in gated_response.text.lower()
+    assert client.get(f"/tours/{slug}").status_code == 404
+    assert client.get(f"/tours/{slug}/layout-preview").status_code == 404
+    assert control.status_code == 404
+    assert control.json()["error"]["code"] == "tour_control_provider_retired"
+    assert "my.matterport.com" not in control.text.lower()
 
 
 def test_hosted_property_tour_seed_image_path_accepts_generated_reconstruction_photos(

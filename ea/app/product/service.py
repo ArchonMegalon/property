@@ -17453,10 +17453,10 @@ def _update_hosted_property_tour_video_manifest(
         for label in list(route_labels or [])
         if compact_text(str(label or "").strip(), fallback="", limit=80)
     ]
+    payload["video_coverage_proof"] = normalized_coverage_proof
     if normalized_route_labels:
         payload["covered_route_labels"] = normalized_route_labels
         payload["room_visit_plan"] = normalized_route_labels
-        payload["video_coverage_proof"] = normalized_coverage_proof
     payload["flythrough_url"] = _hosted_public_tour_asset_url(tour_url, slug=slug, asset_relpath=normalized_video_relpath)
     manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     return payload
@@ -18596,6 +18596,10 @@ def _render_magicfit_property_flythrough_into_hosted_tour(
                 {
                     "provider": "MagicFit",
                     "provider_key": "magicfit",
+                    "provider_backend_key": "magicfit",
+                    "status": "rendered",
+                    "render_status": "completed",
+                    "video_relpath": video_relpath,
                     "composition": "boundary_verified_frame_continuation",
                     "segment_count": len(segment_paths),
                     "duration_seconds": combined_duration_seconds,
@@ -19783,6 +19787,9 @@ def _render_omagic_property_flythrough_into_hosted_tour(
                 if isinstance(loaded_state, dict):
                     adapter_state = dict(loaded_state)
         failure_reason = str(adapter_state.get("reason") or "").strip()
+        if returncode == 0 and tmp_video.exists() and adapter_state.get("model_input_consumed") is not True:
+            returncode = 1
+            failure_reason = "omagic_model_input_not_consumed"
         if returncode != 0 or not tmp_video.exists():
             if not failure_reason:
                 combined = f"{stdout_tail}\n{stderr_tail}".lower()
@@ -19824,21 +19831,53 @@ def _render_omagic_property_flythrough_into_hosted_tour(
             "status": "rendered",
             "reason": "",
             "provider_key": "omagic",
+            "provider_backend_key": "omagic",
             "video_relpath": video_relpath,
             "video_file_path": str(bundle_video_path),
-            "model_input_consumed": bool(adapter_state.get("model_input_consumed") is not False),
+            "model_input_consumed": True,
         }
         bundle_sidecar_path.write_text(json.dumps(sidecar_payload, sort_keys=True), encoding="utf-8")
+        try:
+            _update_hosted_property_tour_video_manifest(
+                tour_url=tour_url,
+                video_relpath=video_relpath,
+                sidecar_relpath=sidecar_relpath,
+                provider_key="omagic",
+                route_labels=room_visit_plan,
+                coverage_proof="omagic_model_upload",
+            )
+        except Exception as exc:
+            render_log.update(
+                {
+                    "status": "failed",
+                    "reason": "omagic_manifest_update_failed",
+                    "error": compact_text(str(exc or ""), fallback="", limit=180),
+                }
+            )
+            _write_hosted_property_visual_progress(
+                tour_url=tour_url,
+                request_kind="flythrough",
+                status="failed",
+                progress_pct=0,
+                detail=_property_visual_unavailable_detail(
+                    request_kind="flythrough",
+                    reason="omagic_manifest_update_failed",
+                ),
+                reason="omagic_manifest_update_failed",
+                provider_key="omagic",
+            )
+            return render_log
     render_log.update(
         {
             "status": "rendered",
             "reason": "",
             "provider_key": "omagic",
+            "provider_backend_key": "omagic",
             "video_relpath": video_relpath,
             "video_file_path": str(bundle_video_path),
             "sidecar_relpath": sidecar_relpath,
             "sidecar_path": str(bundle_sidecar_path),
-            "model_input_consumed": bool(sidecar_payload.get("model_input_consumed") is not False),
+            "model_input_consumed": True,
         }
     )
     _write_hosted_property_visual_progress(

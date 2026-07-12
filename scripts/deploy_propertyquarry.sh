@@ -32,6 +32,12 @@ Environment:
   PROPERTYQUARRY_COMPOSE_PROJECT_NAME
                                    Optional Compose project name override.
   PROPERTYQUARRY_*_CONTAINER_NAME Optional container names for isolated deploys.
+  PROPERTYQUARRY_WEB_IMAGE        Web/API/scheduler image tag. Override for isolated candidate builds.
+  PROPERTYQUARRY_RENDER_IMAGE     Render-tools image tag. Override for isolated candidate builds.
+  PROPERTYQUARRY_ALLOW_DIRTY_WORKTREE_DEPLOY
+                                  1 permits a dirty worktree only when EA_RUNTIME_MODE is not prod.
+                                  The reported release commit is suffixed with -dirty. Defaults to 0,
+                                  and production deploys reject the override.
   EA_HOST_PORT                    Host port for the API, default 8090.
   PROPERTYQUARRY_DEPLOY_BASE_URL  Probe URL, default http://localhost:${EA_HOST_PORT}.
   PROPERTYQUARRY_DEPLOY_CORE_PROBE_TIMEOUT_SECONDS
@@ -410,9 +416,56 @@ require_nonempty() {
   fi
 }
 
+release_worktree_dirty=0
+release_worktree_head_commit=""
+
+assert_release_worktree_provenance() {
+  local allow_dirty=""
+  local allow_dirty_enabled=0
+  local head_commit=""
+  local worktree_status=""
+
+  allow_dirty="$(effective_env_value PROPERTYQUARRY_ALLOW_DIRTY_WORKTREE_DEPLOY)"
+  if env_truthy "${allow_dirty}"; then
+    if [[ "${runtime_mode}" == "prod" ]]; then
+      echo "PROPERTYQUARRY_ALLOW_DIRTY_WORKTREE_DEPLOY is forbidden when EA_RUNTIME_MODE=prod." >&2
+      echo "Production images must be built from a clean worktree whose bytes match the reported Git commit." >&2
+      exit 2
+    fi
+    allow_dirty_enabled=1
+  fi
+
+  if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    echo "PropertyQuarry deploy requires a Git worktree so image provenance can be verified." >&2
+    exit 2
+  fi
+  if ! head_commit="$(git rev-parse --verify 'HEAD^{commit}' 2>/dev/null)" || [[ -z "${head_commit}" ]]; then
+    echo "PropertyQuarry deploy requires a resolvable Git HEAD commit." >&2
+    exit 2
+  fi
+  release_worktree_head_commit="${head_commit}"
+  if ! worktree_status="$(git status --porcelain=v1 --untracked-files=all --ignore-submodules=none 2>/dev/null)"; then
+    echo "Could not inspect the PropertyQuarry worktree for release provenance." >&2
+    exit 2
+  fi
+  if [[ -n "${worktree_status}" ]]; then
+    if [[ "${allow_dirty_enabled}" == "1" ]]; then
+      release_worktree_dirty=1
+      echo "Warning: allowing a dirty worktree for a non-production deploy; release provenance will be marked -dirty." >&2
+      return 0
+    fi
+    echo "Refusing to deploy from a dirty PropertyQuarry worktree." >&2
+    echo "Commit, stash, or remove every tracked and untracked change so built bytes match HEAD ${head_commit}." >&2
+    printf '%s\n' "${worktree_status}" >&2
+    echo "For an intentional non-production experiment only, set EA_RUNTIME_MODE to a non-prod value and PROPERTYQUARRY_ALLOW_DIRTY_WORKTREE_DEPLOY=1." >&2
+    exit 2
+  fi
+}
+
 runtime_mode="$(effective_env_value EA_RUNTIME_MODE)"
 runtime_mode="${runtime_mode:-prod}"
 runtime_mode="$(printf '%s' "${runtime_mode}" | tr '[:upper:]' '[:lower:]')"
+assert_release_worktree_provenance
 host_port="$(effective_env_value EA_HOST_PORT)"
 host_port="${host_port:-8090}"
 api_token="$(effective_env_value EA_API_TOKEN)"
@@ -435,6 +488,22 @@ release_branch="$(effective_env_value PROPERTYQUARRY_RELEASE_BRANCH)"
 release_branch="${release_branch:-$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)}"
 release_commit_sha="$(effective_env_value PROPERTYQUARRY_RELEASE_COMMIT_SHA)"
 release_commit_sha="${release_commit_sha:-$(git rev-parse HEAD 2>/dev/null || true)}"
+if [[ "${runtime_mode}" == "prod" ]]; then
+  if ! [[ "${release_commit_sha}" =~ ^[0-9a-fA-F]{40}$ ]]; then
+    echo "Production release metadata requires a full 40-character Git commit SHA." >&2
+    exit 2
+  fi
+  release_commit_sha="$(printf '%s' "${release_commit_sha}" | tr '[:upper:]' '[:lower:]')"
+  if [[ "${release_commit_sha}" != "${release_worktree_head_commit}" ]]; then
+    echo "PROPERTYQUARRY_RELEASE_COMMIT_SHA must equal the clean worktree HEAD in production." >&2
+    echo "Configured release commit: ${release_commit_sha}" >&2
+    echo "Worktree HEAD: ${release_worktree_head_commit}" >&2
+    exit 2
+  fi
+fi
+if [[ "${release_worktree_dirty}" == "1" ]]; then
+  release_commit_sha="${release_commit_sha}-dirty"
+fi
 release_commit_short="${release_commit_sha:0:12}"
 release_generated_at="$(effective_env_value PROPERTYQUARRY_RELEASE_GENERATED_AT)"
 release_generated_at="${release_generated_at:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
@@ -532,6 +601,7 @@ presentation_media_change_pathspecs=(
   "scripts/propertyquarry_live_presentation_e2e.py"
   "scripts/propertyquarry_3d_browser_gate.py"
   "scripts/propertyquarry_walkthrough_quality_gate.py"
+  "scripts/propertyquarry_walkthrough_provider_proof_gate.py"
   "scripts/import_3dvista_export.py"
   "scripts/attach_provider_tour_layer.py"
   "scripts/import_property_tour_exports.py"
@@ -543,6 +613,7 @@ presentation_media_change_pathspecs=(
   "tests/test_property_tour_control_verifier.py"
   "tests/test_property_tour_export_importers.py"
   "tests/test_property_generated_reconstruction.py"
+  "tests/test_propertyquarry_walkthrough_provider_proof_gate.py"
   "tests/test_property_media_factory.py"
   "tests/e2e/test_propertyquarry_public_tour_browser.py"
 )
@@ -555,6 +626,23 @@ live_release_commit_for_provider_guard() {
     return 0
   fi
   printf '%s' "${body}" | "${deploy_python_bin}" -c 'import json,sys; print(str((json.load(sys.stdin).get("release_commit_sha") or "")).strip())' 2>/dev/null || true
+}
+
+canonical_full_git_commit_sha() {
+  local candidate="$1"
+  local normalized=""
+  local resolved=""
+  if ! [[ "${candidate}" =~ ^[0-9a-fA-F]{40}$ ]]; then
+    return 1
+  fi
+  normalized="$(printf '%s' "${candidate}" | tr '[:upper:]' '[:lower:]')"
+  if ! resolved="$(git rev-parse --verify "${normalized}^{commit}" 2>/dev/null)"; then
+    return 1
+  fi
+  if [[ "${resolved}" != "${normalized}" ]]; then
+    return 1
+  fi
+  printf '%s' "${resolved}"
 }
 
 provider_search_changed_files_between() {
@@ -607,14 +695,23 @@ provider_country_scope_covers_current_markets() {
 
 assert_provider_search_changes_have_targeted_e2e() {
   local probe_url="$1"
-  local live_commit changed_files provider_e2e country_scope
+  local live_commit live_commit_resolved changed_files provider_e2e country_scope
   live_commit="$(live_release_commit_for_provider_guard "${probe_url}")"
-  changed_files="$(provider_search_changed_files_between "${live_commit}" "${release_commit_sha}")"
+  provider_e2e="$(effective_env_value PROPERTYQUARRY_DEPLOY_PROVIDER_E2E)"
+  country_scope="$(effective_env_value PROPERTYQUARRY_DEPLOY_PROVIDER_COUNTRIES)"
+  if ! live_commit_resolved="$(canonical_full_git_commit_sha "${live_commit}")"; then
+    if env_truthy "${provider_e2e}" && provider_country_scope_covers_current_markets "${country_scope}"; then
+      return 0
+    fi
+    echo "Live release provenance is missing or not a resolvable commit; deploy requires targeted provider E2E for AT,DE,CR." >&2
+    echo "Set PROPERTYQUARRY_DEPLOY_PROVIDER_E2E=1 and PROPERTYQUARRY_DEPLOY_PROVIDER_COUNTRIES=AT,DE,CR before deploying." >&2
+    echo "Live commit: ${live_commit:-unknown}" >&2
+    exit 2
+  fi
+  changed_files="$(provider_search_changed_files_between "${live_commit_resolved}" "${release_commit_sha}")"
   if [[ -z "${changed_files}" ]]; then
     return 0
   fi
-  provider_e2e="$(effective_env_value PROPERTYQUARRY_DEPLOY_PROVIDER_E2E)"
-  country_scope="$(effective_env_value PROPERTYQUARRY_DEPLOY_PROVIDER_COUNTRIES)"
   if env_truthy "${provider_e2e}" && provider_country_scope_covers_current_markets "${country_scope}"; then
     return 0
   fi
@@ -644,9 +741,18 @@ presentation_e2e_will_run_for_deploy() {
 
 assert_presentation_media_changes_have_e2e() {
   local probe_url="$1"
-  local live_commit changed_files
+  local live_commit live_commit_resolved changed_files
   live_commit="$(live_release_commit_for_provider_guard "${probe_url}")"
-  changed_files="$(presentation_media_changed_files_between "${live_commit}" "${release_commit_sha}")"
+  if ! live_commit_resolved="$(canonical_full_git_commit_sha "${live_commit}")"; then
+    if presentation_e2e_will_run_for_deploy; then
+      return 0
+    fi
+    echo "Live release provenance is missing or not a resolvable commit; deploy requires presentation E2E." >&2
+    echo "Set PROPERTYQUARRY_DEPLOY_PRESENTATION_E2E=1 before deploying, or run provider E2E which includes the presentation gates." >&2
+    echo "Live commit: ${live_commit:-unknown}" >&2
+    exit 2
+  fi
+  changed_files="$(presentation_media_changed_files_between "${live_commit_resolved}" "${release_commit_sha}")"
   if [[ -z "${changed_files}" ]]; then
     return 0
   fi
@@ -1036,6 +1142,11 @@ settle_runtime_priorities() {
 max_runtime_nice="$(effective_env_value PROPERTYQUARRY_DEPLOY_MAX_RUNTIME_NICE)"
 max_runtime_nice="${max_runtime_nice:-10}"
 
+assert_release_worktree_provenance
+if [[ "${runtime_mode}" == "prod" && "${release_commit_sha}" != "${release_worktree_head_commit}" ]]; then
+  echo "PropertyQuarry worktree HEAD changed after release metadata was captured; refusing to build." >&2
+  exit 2
+fi
 "${DC[@]}" build "${api_service}" "${render_service}"
 "${DC[@]}" up -d --remove-orphans "${db_service}"
 wait_for_service_ready "${db_service}" "${db_container_name}"
@@ -1319,21 +1430,17 @@ mobile_smoke_receipt="${deploy_tmp_dir}/propertyquarry_deploy_mobile_smoke.json"
 mobile_smoke_timeout_ms="${PROPERTYQUARRY_DEPLOY_MOBILE_SMOKE_TIMEOUT_MS:-30000}"
 mobile_smoke_process_timeout_seconds="${PROPERTYQUARRY_DEPLOY_MOBILE_SMOKE_PROCESS_TIMEOUT_SECONDS:-300}"
 configured_mobile_research_detail_route="$(effective_env_value PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE)"
-mobile_research_detail_route="${configured_mobile_research_detail_route:-/app/research/perf-candidate-1020?run_id=run-gold-mobile}"
-mobile_seed_research_detail_fixture="$(effective_env_value PROPERTYQUARRY_DEPLOY_MOBILE_SEED_RESEARCH_DETAIL_FIXTURE)"
-if [[ -z "${configured_mobile_research_detail_route}" && -z "${mobile_seed_research_detail_fixture}" ]]; then
-  mobile_seed_research_detail_fixture=1
+if [[ -z "${configured_mobile_research_detail_route}" ]]; then
+  echo "PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE is required for the mobile smoke; live fixture seeding is disabled." >&2
+  exit 2
 fi
+mobile_research_detail_route="${configured_mobile_research_detail_route}"
 mobile_smoke_research_args=(--routes "/app/properties,/app/search,/app/shortlist,/app/agents,/app/alerts,/app/account,/app/billing,/app/settings/google,/app/settings/access,/app/settings/usage,/app/settings/support,/app/settings/trust,/app/settings/invitations,/app/research,/app/properties/packets,${mobile_research_detail_route}" --require-research-detail)
-if env_truthy "${mobile_seed_research_detail_fixture}"; then
-  mobile_smoke_research_args=(--seed-research-detail-fixture)
-fi
 rm -f "${mobile_smoke_receipt}"
 settle_runtime_priorities 3
 if ! timeout "${mobile_smoke_process_timeout_seconds}" env EA_API_TOKEN="${api_token}" PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_live_mobile_surface_smoke.py \
   --base-url "${base_url}" \
   --host-header "propertyquarry.com" \
-  --api-token "${api_token}" \
   --principal-id "${live_mobile_smoke_principal_id}" \
   "${mobile_smoke_research_args[@]}" \
   --timeout-ms "${mobile_smoke_timeout_ms}" \
@@ -1444,6 +1551,8 @@ else
     PYTHONPATH=ea "${deploy_python_bin}" scripts/property_live_provider_smoke.py \
     --base-url "${base_url}" \
     "${provider_country_args[@]}" \
+    --no-execute-search-matrix \
+    --no-cross-country-sanitization \
     --timeout-seconds "${provider_smoke_timeout_seconds}" \
     --write "${provider_smoke_receipt}" >/dev/null; then
     echo "PropertyQuarry provider catalog smoke failed." >&2
@@ -1481,16 +1590,23 @@ service_generated_reconstruction_verified_for_walkthrough=0
 
 if (( run_presentation_e2e == 1 )); then
   presentation_e2e_receipt="${deploy_tmp_dir}/propertyquarry_deploy_presentation_e2e.json"
+  live_presentation_research_detail_route="$(effective_env_value PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE)"
+  if [[ -z "${live_presentation_research_detail_route}" ]]; then
+    echo "PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE is required for presentation E2E; live fixture seeding is disabled." >&2
+    exit 2
+  fi
   presentation_provider_matrix_args=()
   if [[ "${provider_smoke_mode}" == "e2e" ]]; then
     presentation_provider_matrix_args+=(--require-provider-matrix)
   fi
   settle_runtime_priorities 2
   if ! EA_API_TOKEN="${api_token}" \
+    PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE="${live_presentation_research_detail_route}" \
     PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_live_presentation_e2e.py \
     --base-url "${base_url}" \
     --host-header "propertyquarry.com" \
     --principal-id "${live_presentation_e2e_principal_id}" \
+    --no-seed-research-detail \
     --provider-receipt _completion/smoke/property-live-provider-latest.json \
     "${presentation_provider_matrix_args[@]}" \
     --write "${presentation_e2e_receipt}" >/dev/null; then
@@ -1505,6 +1621,7 @@ if (( run_presentation_e2e == 1 )); then
   if ! PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_3d_browser_gate.py \
     --base-url "${base_url}" \
     --host-header "propertyquarry.com" \
+    --runtime-container "${api_container_name}" \
     --screenshots-dir _completion/smoke/property-live-3d-browser-gate-screenshots \
     --write "${browser_3d_gate_receipt}" >/dev/null; then
     echo "PropertyQuarry browser-rendered 3D gate failed." >&2
@@ -1548,6 +1665,20 @@ if (( run_presentation_e2e == 1 )); then
   fi
   cp "${walkthrough_quality_receipt}" _completion/smoke/property-live-walkthrough-quality-latest.json
 fi
+
+walkthrough_provider_proof_receipt="${deploy_tmp_dir}/propertyquarry_deploy_walkthrough_provider_proof.json"
+walkthrough_provider_proof_tour_root="${PROPERTYQUARRY_WALKTHROUGH_PROVIDER_PROOF_TOUR_ROOT:-state/public_property_tours}"
+walkthrough_provider_proof_timeout_seconds="${PROPERTYQUARRY_WALKTHROUGH_PROVIDER_PROOF_TIMEOUT_SECONDS:-180}"
+settle_runtime_priorities 2
+if ! PYTHONPATH=ea timeout "${walkthrough_provider_proof_timeout_seconds}" "${deploy_python_bin}" scripts/propertyquarry_walkthrough_provider_proof_gate.py \
+  --tour-root "${walkthrough_provider_proof_tour_root}" \
+  --write "${walkthrough_provider_proof_receipt}" >/dev/null; then
+  echo "PropertyQuarry MagicFit/OMagic walkthrough provider proof gate failed." >&2
+  cat "${walkthrough_provider_proof_receipt}" >&2 2>/dev/null || true
+  cp "${walkthrough_provider_proof_receipt}" _completion/smoke/property-live-walkthrough-provider-proof-latest.json 2>/dev/null || true
+  exit 1
+fi
+cp "${walkthrough_provider_proof_receipt}" _completion/smoke/property-live-walkthrough-provider-proof-latest.json
 
 tour_control_receipt="_completion/tours/property-tour-controls-live-container-current.json"
 export_discovery_receipt="_completion/tours/property-tour-export-discovery-full-current.json"
@@ -1735,6 +1866,7 @@ if ! PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_gold_status.py 
   --browser-3d-gate-receipt _completion/smoke/property-live-3d-browser-gate-latest.json \
   --service-generated-reconstruction-receipt "${service_generated_reconstruction_receipt}" \
   --walkthrough-quality-receipt _completion/smoke/property-live-walkthrough-quality-latest.json \
+  --walkthrough-provider-proof-receipt _completion/smoke/property-live-walkthrough-provider-proof-latest.json \
   --scene-video-readiness-receipt "${scene_video_receipt}" \
   --scene-video-readiness-verifier-receipt "${scene_video_verifier_receipt}" \
   --scene-video-runtime-status-receipt "${scene_video_runtime_status_receipt}" \

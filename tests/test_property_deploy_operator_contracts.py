@@ -11,12 +11,206 @@ def _read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
 
+def _workflow_job(workflow: str, job_name: str) -> str:
+    marker = f"  {job_name}:\n"
+    start = workflow.index(marker)
+    body_start = start + len(marker)
+    next_job = re.search(r"^  [a-zA-Z0-9_-]+:\n", workflow[body_start:], flags=re.MULTILINE)
+    end = body_start + next_job.start() if next_job else len(workflow)
+    return workflow[start:end]
+
+
 def test_make_deploy_uses_hardened_propertyquarry_wrapper() -> None:
     makefile = _read("Makefile")
 
     assert "PROPERTYQUARRY_COMPOSE_FILE=docker-compose.property.yml bash scripts/deploy_propertyquarry.sh" in makefile
     assert "PROPERTYQUARRY_USE_LEGACY_STACK=1 bash scripts/deploy.sh" in makefile
     assert "docker compose -f docker-compose.property.yml up -d --build --remove-orphans" not in makefile
+
+
+def test_smoke_runtime_runs_unprivileged_local_propertyquarry_browser_contracts() -> None:
+    workflow = _read(".github/workflows/smoke-runtime.yml")
+    browser_job = _workflow_job(workflow, "propertyquarry-browser-contracts")
+
+    assert "product-browser-e2e:" not in workflow
+    assert "\n  push:\n" in workflow
+    assert "\n  pull_request:\n" in workflow
+    assert "\n  workflow_dispatch:\n" in workflow
+    assert "permissions:\n      contents: read" in browser_job
+    assert "persist-credentials: false" in browser_job
+    assert "python -m playwright install --with-deps chromium" in browser_job
+    assert re.findall(r"tests/e2e/test_propertyquarry_[a-z0-9_]+\.py", browser_job) == [
+        "tests/e2e/test_propertyquarry_greenfield_browser.py",
+        "tests/e2e/test_propertyquarry_public_tour_browser.py",
+    ]
+    assert "python -m pytest -q" in browser_job
+    assert "make property-release-gates" not in browser_job
+    assert "secrets." not in browser_job
+    assert "vars." not in browser_job
+    assert "\n    environment:" not in browser_job
+    assert "\n    if:" not in browser_job
+
+
+def test_smoke_runtime_protects_live_propertyquarry_release_gates() -> None:
+    workflow = _read(".github/workflows/smoke-runtime.yml")
+    live_job = _workflow_job(workflow, "propertyquarry-live-release-gates")
+
+    assert (
+        "if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}"
+        in live_job
+    )
+    assert live_job.count("if:") == 1
+    assert "environment:\n      name: propertyquarry-production" in live_job
+    assert "permissions:\n      contents: read" in live_job
+    assert "persist-credentials: false" in live_job
+    assert (
+        "PROPERTYQUARRY_LIVE_MOBILE_BASE_URL: ${{ vars.PROPERTYQUARRY_LIVE_MOBILE_BASE_URL }}"
+        in live_job
+    )
+    assert (
+        "PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE: ${{ secrets.PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE }}"
+        in live_job
+    )
+    assert "PROPERTYQUARRY_LIVE_PRINCIPAL_ID: ${{ secrets.PROPERTYQUARRY_LIVE_PRINCIPAL_ID }}" in live_job
+    assert "EA_API_TOKEN: ${{ secrets.PROPERTYQUARRY_LIVE_API_TOKEN }}" in live_job
+    assert "PROPERTYQUARRY_EXPECTED_RELEASE_COMMIT_SHA: ${{ github.sha }}" in live_job
+    assert "set -euo pipefail" in live_job
+    preflight_markers = (
+        ': "${PROPERTYQUARRY_LIVE_MOBILE_BASE_URL:?Missing GitHub environment variable '
+        'PROPERTYQUARRY_LIVE_MOBILE_BASE_URL}"',
+    )
+    release_gate = live_job.index("bash scripts/propertyquarry_live_release_gates.sh")
+    assert all(marker in live_job for marker in preflight_markers)
+    assert all(live_job.index(marker) < release_gate for marker in preflight_markers)
+    assert live_job.index("env:\n          EA_API_TOKEN: ${{ secrets.PROPERTYQUARRY_LIVE_API_TOKEN }}") < release_gate
+    assert "make property-release-gates" not in live_job
+    assert "docker compose" not in live_job
+    assert "POSTGRES_PASSWORD" not in live_job
+    assert "PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_SEED_FIXTURE" not in live_job
+    assert "continue-on-error:" not in live_job
+    assert "|| true" not in live_job
+
+
+def test_protected_live_release_gate_is_remote_only_and_fail_closed() -> None:
+    script = _read("scripts/propertyquarry_live_release_gates.sh")
+
+    assert "PROPERTYQUARRY_LIVE_MOBILE_BASE_URL" in script
+    assert "PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE" in script
+    assert "PROPERTYQUARRY_LIVE_PRINCIPAL_ID" in script
+    assert "EA_API_TOKEN" in script
+    assert "--require-research-detail" in script
+    assert "propertyquarry_live_mobile_surface_smoke.py" in script
+    assert "propertyquarry_map_preview_flagship_gate.py" in script
+    assert "propertyquarry_live_public_smoke.py" in script
+    assert "propertyquarry_live_authenticated_smoke.py" in script
+    assert "propertyquarry_live_release_provenance.py" in script
+    assert script.index("propertyquarry_live_release_provenance.py") < script.index(
+        "propertyquarry_live_mobile_surface_smoke.py"
+    )
+    assert "PROPERTYQUARRY_EXPECTED_RELEASE_COMMIT_SHA" in script
+    assert "--no-canonical-fallback" in script
+    assert "--seed-research-detail-fixture" not in script
+    assert "--api-token" not in script
+    assert "docker" not in script
+    assert "compose" not in script
+    assert "POSTGRES_PASSWORD" not in script
+    assert "ensure_propertyquarry_render_bridge_runtime.py" not in script
+
+    release_bundle = _read("scripts/property_release_gates.sh")
+    assert 'PYTHON_BIN="${PYTHON_BIN}" bash scripts/propertyquarry_live_release_gates.sh' in release_bundle
+
+
+def test_propertyquarry_deploy_missing_live_provenance_forces_targeted_e2e() -> None:
+    script = _read("scripts/deploy_propertyquarry.sh")
+    canonical_start = script.index("canonical_full_git_commit_sha()")
+    canonical_end = script.index("\nprovider_search_changed_files_between()", canonical_start)
+    canonical = script[canonical_start:canonical_end]
+    provider_guard_start = script.index("assert_provider_search_changes_have_targeted_e2e()")
+    provider_guard_end = script.index("\npresentation_e2e_will_run_for_deploy()", provider_guard_start)
+    provider_guard = script[provider_guard_start:provider_guard_end]
+    presentation_guard_start = script.index("assert_presentation_media_changes_have_e2e()")
+    presentation_guard_end = script.index("\npredeploy_base_url=", presentation_guard_start)
+    presentation_guard = script[presentation_guard_start:presentation_guard_end]
+
+    assert '[[ "${candidate}" =~ ^[0-9a-fA-F]{40}$ ]]' in canonical
+    assert 'git rev-parse --verify "${normalized}^{commit}"' in canonical
+    assert '[[ "${resolved}" != "${normalized}" ]]' in canonical
+    assert 'live_commit_resolved="$(canonical_full_git_commit_sha "${live_commit}")"' in provider_guard
+    assert "Live release provenance is missing or not a resolvable commit" in provider_guard
+    assert "provider_country_scope_covers_current_markets" in provider_guard
+    assert provider_guard.index("Live release provenance is missing") < provider_guard.index(
+        'changed_files="$(provider_search_changed_files_between'
+    )
+    assert 'live_commit_resolved="$(canonical_full_git_commit_sha "${live_commit}")"' in presentation_guard
+    assert "Live release provenance is missing or not a resolvable commit" in presentation_guard
+    assert "presentation_e2e_will_run_for_deploy" in presentation_guard
+    assert presentation_guard.index("Live release provenance is missing") < presentation_guard.index(
+        'changed_files="$(presentation_media_changed_files_between'
+    )
+
+
+def test_propertyquarry_deploy_fails_closed_on_dirty_release_provenance() -> None:
+    script = _read("scripts/deploy_propertyquarry.sh")
+    guard_start = script.index("assert_release_worktree_provenance()")
+    guard_end = script.index('\nruntime_mode="$(effective_env_value EA_RUNTIME_MODE)"', guard_start)
+    guard = script[guard_start:guard_end]
+
+    assert "git rev-parse --is-inside-work-tree" in guard
+    assert "git rev-parse --verify 'HEAD^{commit}'" in guard
+    assert "git status --porcelain=v1 --untracked-files=all --ignore-submodules=none" in guard
+    assert "Refusing to deploy from a dirty PropertyQuarry worktree." in guard
+    assert "PROPERTYQUARRY_ALLOW_DIRTY_WORKTREE_DEPLOY" in guard
+    assert 'if [[ "${runtime_mode}" == "prod" ]]' in guard
+    assert "PROPERTYQUARRY_ALLOW_DIRTY_WORKTREE_DEPLOY is forbidden when EA_RUNTIME_MODE=prod." in guard
+    assert "release_worktree_dirty=1" in guard
+    assert guard.index("git rev-parse --is-inside-work-tree") < guard.index("release_worktree_dirty=1")
+    assert guard.index("git rev-parse --verify 'HEAD^{commit}'") < guard.index("release_worktree_dirty=1")
+    assert guard.index("git status --porcelain=v1 --untracked-files=all --ignore-submodules=none") < guard.index(
+        "release_worktree_dirty=1"
+    )
+
+    guard_call = script.index("\nassert_release_worktree_provenance\n", guard_end)
+    release_sha = script.index('release_commit_sha="$(effective_env_value PROPERTYQUARRY_RELEASE_COMMIT_SHA)"')
+    production_sha_guard = script.index('if [[ "${runtime_mode}" == "prod" ]]', release_sha)
+    dirty_marker = script.index('release_commit_sha="${release_commit_sha}-dirty"', release_sha)
+    image_build = script.index('"${DC[@]}" build "${api_service}" "${render_service}"')
+    assert guard_call < release_sha < production_sha_guard < dirty_marker < image_build
+    assert '[[ "${release_commit_sha}" =~ ^[0-9a-fA-F]{40}$ ]]' in script[production_sha_guard:dirty_marker]
+    assert '[[ "${release_commit_sha}" != "${release_worktree_head_commit}" ]]' in script[
+        production_sha_guard:dirty_marker
+    ]
+    assert "PROPERTYQUARRY_RELEASE_COMMIT_SHA must equal the clean worktree HEAD in production." in script
+    prebuild_guard_call = script.rindex("\nassert_release_worktree_provenance\n", guard_end, image_build)
+    assert guard_call < prebuild_guard_call < image_build
+    assert "PropertyQuarry worktree HEAD changed after release metadata was captured" in script[
+        prebuild_guard_call:image_build
+    ]
+
+
+def test_propertyquarry_docker_context_excludes_ignored_secret_and_runtime_files() -> None:
+    dockerignore = set(_read(".dockerignore").splitlines())
+
+    assert {
+        ".env",
+        ".env.*",
+        "**/.env",
+        "**/.env.*",
+        "*.pem",
+        "**/*.pem",
+        "*.key",
+        "**/*.key",
+        "*.ovpn",
+        "**/*.ovpn",
+        "attachments/",
+        "daemon-gogcli-config/",
+        "data-*/",
+        "memorial_data/",
+        "config/*.local.yml",
+        "config/onemin_api_keys.local.json",
+        "config/onemin_slot_owners.local.json",
+        "*.py[cod]",
+        "**/*.py[cod]",
+    } <= dockerignore
 
 
 def test_propertyquarry_deploy_wrapper_preflights_prod_and_probes_runtime() -> None:
@@ -183,6 +377,17 @@ def test_propertyquarry_deploy_wrapper_supports_focused_provider_country_matrix(
     assert "provider verification: ${provider_smoke_scope_label}" in script
 
 
+def test_propertyquarry_deploy_catalog_probe_is_read_only() -> None:
+    script = _read("scripts/deploy_propertyquarry.sh")
+    matrix_branch = script.index('if env_truthy "$(effective_env_value PROPERTYQUARRY_DEPLOY_PROVIDER_E2E)"')
+    catalog_branch = script.index("else", matrix_branch)
+    branch_end = script.index('if [[ "${provider_smoke_mode}" == "e2e" ]]', catalog_branch)
+
+    assert catalog_branch < script.index("--no-execute-search-matrix", catalog_branch) < branch_end
+    assert catalog_branch < script.index("--no-cross-country-sanitization", catalog_branch) < branch_end
+    assert matrix_branch < script.index("--execute-search-matrix", matrix_branch) < catalog_branch
+
+
 def test_propertyquarry_deploy_wrapper_requires_presentation_e2e_for_tour_media_changes() -> None:
     script = _read("scripts/deploy_propertyquarry.sh")
 
@@ -198,6 +403,7 @@ def test_propertyquarry_deploy_wrapper_requires_presentation_e2e_for_tour_media_
     assert "scripts/propertyquarry_live_presentation_e2e.py" in script
     assert "scripts/propertyquarry_3d_browser_gate.py" in script
     assert "scripts/propertyquarry_walkthrough_quality_gate.py" in script
+    assert '--runtime-container "${api_container_name}"' in script
 
 
 def test_propertyquarry_deploy_wrapper_resolves_live_smoke_identity_from_env_file() -> None:
@@ -414,14 +620,18 @@ def test_property_gold_refresh_checks_omagic_adapter_in_api_runtime() -> None:
     assert "Vendor-tooling receipt from render container" not in refresh_script
 
 
-def test_property_deploy_seeds_default_mobile_research_detail_fixture() -> None:
+def test_property_deploy_requires_existing_mobile_research_detail_without_seeding() -> None:
     deploy_script = _read("scripts/deploy_propertyquarry.sh")
 
     assert "configured_mobile_research_detail_route=\"$(effective_env_value PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE)\"" in deploy_script
-    assert "PROPERTYQUARRY_DEPLOY_MOBILE_SEED_RESEARCH_DETAIL_FIXTURE" in deploy_script
-    assert 'if [[ -z "${configured_mobile_research_detail_route}" && -z "${mobile_seed_research_detail_fixture}" ]]; then' in deploy_script
-    assert "mobile_seed_research_detail_fixture=1" in deploy_script
-    assert "mobile_smoke_research_args=(--seed-research-detail-fixture)" in deploy_script
+    assert 'if [[ -z "${configured_mobile_research_detail_route}" ]]; then' in deploy_script
+    assert "live fixture seeding is disabled" in deploy_script
+    assert 'mobile_research_detail_route="${configured_mobile_research_detail_route}"' in deploy_script
+    assert "PROPERTYQUARRY_DEPLOY_MOBILE_SEED_RESEARCH_DETAIL_FIXTURE" not in deploy_script
+    assert "mobile_smoke_research_args=(--seed-research-detail-fixture)" not in deploy_script
+    mobile_call = deploy_script.index("scripts/propertyquarry_live_mobile_surface_smoke.py")
+    mobile_call_end = deploy_script.index("--write", mobile_call)
+    assert '--api-token "${api_token}"' not in deploy_script[mobile_call:mobile_call_end]
 
 
 def test_property_deploy_refreshes_scene_video_receipts_before_gold_status() -> None:
@@ -458,6 +668,7 @@ def test_property_deploy_refreshes_scene_video_receipts_before_gold_status() -> 
 
 def test_property_release_gate_wires_scene_video_refresh_packet_verifier_into_gold_status() -> None:
     release_gate = _read("scripts/property_release_gates.sh")
+    live_release_gate = _read("scripts/propertyquarry_live_release_gates.sh")
 
     for required in (
         'scene_video_shared_env_file="${PROPERTYQUARRY_SCENE_VIDEO_SHARED_ENV_FILE:-state/runtime/property_scene_video_shared.env}"',
@@ -492,18 +703,17 @@ def test_property_release_gate_wires_scene_video_refresh_packet_verifier_into_go
 
     assert release_gate.index('scene_video_refresh_notification_report="_completion/scene_video_readiness/provider-refresh-telegram-report.json"') < release_gate.index('PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_gold_status.py')
     assert "> /data/artifacts/property-scene-video-readiness-release-gate-verifier-live-container.json" not in release_gate
-    assert "PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE" in release_gate
-    assert "PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_SEED_FIXTURE" in release_gate
-    assert "EA_API_TOKEN" in release_gate
-    assert "--require-research-detail" in release_gate
-    assert "--seed-research-detail-fixture" in release_gate
+    assert "PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE" in live_release_gate
+    assert "EA_API_TOKEN" in live_release_gate
+    assert "--require-research-detail" in live_release_gate
+    assert "PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_SEED_FIXTURE" not in live_release_gate
+    assert "--seed-research-detail-fixture" not in live_release_gate
     assert "PROPERTYQUARRY_LIVE_MOBILE_TIMEOUT_MS" in _read("scripts/propertyquarry_live_mobile_surface_smoke.py")
     assert "_completion/smoke/property-live-mobile-release-gate.json" in release_gate
     assert "--live-mobile-receipt _completion/smoke/property-live-mobile-release-gate.json" in release_gate
-    assert "scripts/propertyquarry_live_public_smoke.py" in release_gate
-    assert "scripts/propertyquarry_live_authenticated_smoke.py" in release_gate
-    assert 'live_authenticated_plan_label="${PROPERTYQUARRY_LIVE_SMOKE_PLAN_LABEL:-Free}"' in release_gate
-    assert '--expected-plan-label "${live_authenticated_plan_label}"' in release_gate
+    assert "scripts/propertyquarry_live_public_smoke.py" in live_release_gate
+    assert "scripts/propertyquarry_live_authenticated_smoke.py" in live_release_gate
+    assert '--expected-plan-label "${PROPERTYQUARRY_LIVE_SMOKE_PLAN_LABEL:-Free}"' in live_release_gate
     assert "_completion/smoke/property-live-public-release-gate.json" in release_gate
     assert "_completion/smoke/property-live-authenticated-release-gate.json" in release_gate
     assert "--public-smoke-receipt _completion/smoke/property-live-public-release-gate.json" in release_gate
@@ -514,6 +724,10 @@ def test_property_release_gate_wires_scene_video_refresh_packet_verifier_into_go
     assert "PROPERTYQUARRY_GOLD_NOTIFICATION_ENABLED" in release_gate
     assert "PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_ENABLED" in release_gate
     assert "tests/test_property_live_mobile_surface_smoke.py" in release_gate
+    assert "tests/test_property_live_http_security.py" in release_gate
+    assert "tests/test_property_live_presentation_security.py" in release_gate
+    assert "tests/test_property_live_release_provenance.py" in release_gate
+    assert "tests/test_property_public_tour_provider_retirement.py" in release_gate
 
 
 def test_property_gold_refresh_wires_scene_video_runtime_status_into_gold_status() -> None:
@@ -554,6 +768,16 @@ def test_property_gold_refresh_can_send_scene_video_provider_refresh_notificatio
         assert required in refresh_script
 
     assert refresh_script.index('scene_video_refresh_notification_report="_completion/scene_video_readiness/provider-refresh-telegram-report.json"') < refresh_script.index('log_step "Gold-status receipt"')
+
+
+def test_property_gold_refresh_catalog_probe_is_read_only() -> None:
+    refresh_script = _read("scripts/refresh_propertyquarry_current_gold_receipts.sh")
+    catalog_step = refresh_script.index('"Provider catalog smoke receipt"')
+    matrix_step = refresh_script.index('"Provider E2E matrix receipt"')
+
+    assert catalog_step < refresh_script.index("--no-execute-search-matrix", catalog_step) < matrix_step
+    assert catalog_step < refresh_script.index("--no-cross-country-sanitization", catalog_step) < matrix_step
+    assert matrix_step < refresh_script.index("--execute-search-matrix", matrix_step)
 
 
 def test_property_release_gate_runs_generated_reconstruction_glb_smoke() -> None:
@@ -602,6 +826,18 @@ def test_property_gold_refresh_runs_generated_reconstruction_browser_shell_smoke
     assert "PROPERTYQUARRY_SERVICE_GENERATED_RECONSTRUCTION_SMOKE_SLUG" in refresh_script
     assert "_completion/tours/property-service-generated-reconstruction-current.json" in refresh_script
     assert "--service-generated-reconstruction-receipt" in refresh_script
+    assert '--runtime-container "${API_CONTAINER}"' in refresh_script
+
+
+def test_property_gold_refresh_runs_walkthrough_quality_on_host_toolchain() -> None:
+    refresh_script = _read("scripts/refresh_propertyquarry_current_gold_receipts.sh")
+
+    assert "PROPERTYQUARRY_WALKTHROUGH_QUALITY_PROCESS_TIMEOUT_SECONDS" in refresh_script
+    assert "PROPERTYQUARRY_WALKTHROUGH_QUALITY_FFPROBE_TIMEOUT_SECONDS" in refresh_script
+    assert "PROPERTYQUARRY_WALKTHROUGH_QUALITY_FRAME_SAMPLE_TIMEOUT_SECONDS" in refresh_script
+    assert '--tour-root "${CURRENT_PUBLIC_TOUR_DIR}"' in refresh_script
+    assert '--service-generated-reconstruction-receipt "${service_generated_reconstruction_receipt}"' in refresh_script
+    assert "python /app/scripts/propertyquarry_walkthrough_quality_gate.py" not in refresh_script
 
 
 def test_property_deploy_refreshes_service_generated_reconstruction_before_gold_status() -> None:
@@ -781,10 +1017,10 @@ def test_property_compose_container_names_are_recoverable() -> None:
     compose = _read("docker-compose.property.yml")
 
     assert "dockerfile: ea/Dockerfile.property-web" in compose
-    assert "image: propertyquarry-web-runtime:latest" in compose
+    assert 'image: "${PROPERTYQUARRY_WEB_IMAGE:-propertyquarry-web-runtime:latest}"' in compose
     assert "propertyquarry-render-tools:" in compose
     assert "dockerfile: ea/Dockerfile.property" in compose
-    assert "image: propertyquarry-render-runtime:latest" in compose
+    assert 'image: "${PROPERTYQUARRY_RENDER_IMAGE:-propertyquarry-render-runtime:latest}"' in compose
     assert 'container_name: "${PROPERTYQUARRY_API_CONTAINER_NAME:-propertyquarry-api}"' in compose
     assert 'container_name: "${PROPERTYQUARRY_SCHEDULER_CONTAINER_NAME:-propertyquarry-scheduler}"' in compose
     assert 'container_name: "${PROPERTYQUARRY_DB_CONTAINER_NAME:-propertyquarry-db-live}"' in compose

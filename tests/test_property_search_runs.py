@@ -8903,23 +8903,23 @@ def test_hosted_live_provider_tour_manifest_keeps_safe_embed_without_private_lis
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     monkeypatch.setenv("EA_PUBLIC_TOUR_BASE_URL", "https://propertyquarry.com/tours")
 
-    live_url = "https://my.matterport.com/show/?m=BmVWxvZQZLq"
+    live_url = "https://example.3dvista.com/tours/top22/index.html"
     payload = product_service._write_hosted_feelestate_pure_360_property_tour_bundle(
         principal_id="exec-live-provider-private",
-        title="Matterport writer coverage",
-        listing_id="matterport-writer-1",
-        property_url="https://www.willhaben.at/iad/object?adId=matterport-writer-1",
+        title="3DVista writer coverage",
+        listing_id="3dvista-writer-1",
+        property_url="https://www.willhaben.at/iad/object?adId=3dvista-writer-1",
         variant_key="layout_first",
         source_virtual_tour_url=live_url,
         property_facts_json={
             "has_360": True,
-            "exact_address": "Private Matterport Street 1, 1200 Wien",
+            "exact_address": "Private 3DVista Street 1, 1200 Wien",
             "map_lat": 48.2,
             "map_lng": 16.3,
         },
         source_host="willhaben.at",
-        source_ref="property-scout:matterport-writer-1",
-        external_id="ext-matterport-writer-1",
+        source_ref="property-scout:3dvista-writer-1",
+        external_id="ext-3dvista-writer-1",
         recipient_email="owner@example.com",
     )
 
@@ -8929,17 +8929,17 @@ def test_hosted_live_provider_tour_manifest_keeps_safe_embed_without_private_lis
 
     assert "source_virtual_tour_url" not in public_manifest
     assert "source_virtual_tour_origin" not in public_manifest
-    assert "matterport_url" not in public_manifest
-    assert public_manifest["control_mode"] == "matterport"
+    assert "three_d_vista_url" not in public_manifest
+    assert public_manifest["control_mode"] == "3dvista"
     assert public_manifest["scenes"][0]["role"] == "live_360"
     serialized_public_manifest = json.dumps(public_manifest, sort_keys=True)
     for private_marker in (
         "willhaben.at/iad/object",
         "exec-live-provider-private",
-        "property-scout:matterport-writer-1",
-        "ext-matterport-writer-1",
+        "property-scout:3dvista-writer-1",
+        "ext-3dvista-writer-1",
         "owner@example.com",
-        "Private Matterport Street",
+        "Private 3DVista Street",
         "map_lat",
         "map_lng",
         "listing_url",
@@ -8949,17 +8949,17 @@ def test_hosted_live_provider_tour_manifest_keeps_safe_embed_without_private_lis
         "recipient_email",
     ):
         assert private_marker not in serialized_public_manifest
-    assert private_manifest["property_url"].endswith("adId=matterport-writer-1")
+    assert private_manifest["property_url"].endswith("adId=3dvista-writer-1")
     assert private_manifest["source_virtual_tour_url"] == live_url
     assert private_manifest["source_virtual_tour_origin"] == live_url
-    assert private_manifest["matterport_url"] == live_url
+    assert private_manifest["three_d_vista_url"] == live_url
 
     client = build_property_client(principal_id="exec-live-provider-page")
     page = client.get(f"/tours/{payload['slug']}", headers={"host": "propertyquarry.com"})
     assert page.status_code == 200, page.text
-    assert live_url in page.text
+    assert live_url not in page.text
     assert "Open Listing" not in page.text
-    assert "Private Matterport Street" not in page.text
+    assert "Private 3DVista Street" not in page.text
 
 
 def test_hosted_property_tour_bundle_rejects_post_download_invalid_asset_suffix(monkeypatch, tmp_path) -> None:

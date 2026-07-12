@@ -19,7 +19,6 @@ from property_tour_runtime_paths import preferred_public_tour_root, running_cont
 
 
 DEFAULT_DEMO_SLUG = "luxury-residence-with-breathtaking-skyline-views-danubeflats-vienna-layout-first-742df65557"
-DEFAULT_RUNTIME_CONTAINER = "propertyquarry-api"
 
 
 def _utc_now() -> str:
@@ -93,14 +92,21 @@ def _video_metadata(path: Path, *, timeout_seconds: float | None = None) -> dict
 def _frame_delta_stats(
     path: Path,
     *,
-    fps: float = 2.0,
-    max_sampled_frames: int = 8,
+    fps: float = 5.0,
+    max_sampled_frames: int = 900,
+    transition_offsets_seconds: list[float] | None = None,
+    transition_seconds: float = 0.0,
     timeout_seconds: float | None = None,
 ) -> dict[str, object]:
     try:
         from PIL import Image, ImageChops, ImageStat
     except Exception as exc:
         return {"ok": False, "error": f"PIL unavailable: {exc}"}
+    try:
+        import cv2
+        import numpy as np
+    except Exception as exc:
+        return {"ok": False, "error": f"OpenCV unavailable: {exc}"}
     duration_seconds = 0.0
     metadata = _video_metadata(path, timeout_seconds=timeout_seconds)
     try:
@@ -110,107 +116,225 @@ def _frame_delta_stats(
         duration_seconds = float(format_payload.get("duration") or stream.get("duration") or 0.0)
     except Exception:
         duration_seconds = 0.0
-    effective_fps = float(fps)
+    source_width = int(stream.get("width") or 160)
+    source_height = int(stream.get("height") or 90)
+    target_width = 160
+    target_height = max(2, int(round(source_height * target_width / max(source_width, 1))))
+    if target_height % 2:
+        target_height += 1
+    effective_fps = max(0.5, float(fps))
     if duration_seconds > 0.0 and max_sampled_frames > 0:
-        effective_fps = min(effective_fps, max(0.2, float(max_sampled_frames) / duration_seconds))
+        effective_fps = min(effective_fps, max(0.5, float(max_sampled_frames) / duration_seconds))
     resolved_timeout = _timeout_seconds(timeout_seconds)
-    with tempfile.TemporaryDirectory(prefix="pq-walkthrough-frames-") as tmp:
-        frames: list[Path] = []
-        try:
-            if duration_seconds > 0.0:
-                sample_count = max(6, min(max_sampled_frames, int(round(duration_seconds / 8.0)) + 1))
-                timestamps = [
-                    round((duration_seconds * index) / max(sample_count - 1, 1), 3)
-                    for index in range(sample_count)
-                ]
-                for index, timestamp in enumerate(timestamps):
-                    frame_path = Path(tmp) / f"frame-{index:04d}.jpg"
-                    completed = subprocess.run(
-                        [
-                            "ffmpeg",
-                            "-hide_banner",
-                            "-loglevel",
-                            "error",
-                            "-ss",
-                            f"{timestamp:.3f}",
-                            "-i",
-                            str(path),
-                            "-frames:v",
-                            "1",
-                            "-vf",
-                            "scale=160:-1",
-                            str(frame_path),
-                        ],
-                        check=False,
-                        capture_output=True,
-                        text=True,
-                        timeout=None,
-                    )
-                    if completed.returncode != 0:
-                        return {
-                            "ok": False,
-                            "error": "ffmpeg_frame_sampling_failed",
-                            "returncode": completed.returncode,
-                            "stderr": (completed.stderr or "").strip()[:400],
-                        }
-                    if frame_path.is_file():
-                        frames.append(frame_path)
-            else:
-                frame_pattern = str(Path(tmp) / "frame-%04d.jpg")
-                completed = subprocess.run(
-                    [
-                        "ffmpeg",
-                        "-hide_banner",
-                        "-loglevel",
-                        "error",
-                        "-i",
-                        str(path),
-                        "-vf",
-                        f"fps={effective_fps:.4f},scale=160:-1",
-                        frame_pattern,
-                    ],
-                    check=False,
-                    capture_output=True,
-                    text=True,
-                    timeout=resolved_timeout,
-                )
-                if completed.returncode != 0:
-                    return {
-                        "ok": False,
-                        "error": "ffmpeg_frame_sampling_failed",
-                        "returncode": completed.returncode,
-                        "stderr": (completed.stderr or "").strip()[:400],
-                    }
-                frames = sorted(Path(tmp).glob("frame-*.jpg"))
-        except subprocess.TimeoutExpired:
-            timeout_label = int(resolved_timeout) if resolved_timeout and float(resolved_timeout).is_integer() else resolved_timeout
-            return {
-                "ok": False,
-                "error": f"ffmpeg_frame_sampling_timeout:{timeout_label}s",
-                "timeout_seconds": resolved_timeout,
-            }
-        deltas: list[float] = []
-        previous = None
-        for frame in frames:
-            try:
-                image = Image.open(frame).convert("RGB")
-            except Exception:
-                continue
-            if previous is not None:
-                diff = ImageChops.difference(previous, image)
-                stat = ImageStat.Stat(diff)
-                deltas.append(round(sum(stat.mean) / len(stat.mean), 3))
-            previous = image
+    try:
+        completed = subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-threads",
+                "1",
+                "-i",
+                str(path),
+                "-vf",
+                f"fps={effective_fps:.4f},scale={target_width}:{target_height}:flags=fast_bilinear,format=rgb24",
+                "-an",
+                "-sn",
+                "-frames:v",
+                str(max_sampled_frames),
+                "-f",
+                "rawvideo",
+                "-pix_fmt",
+                "rgb24",
+                "pipe:1",
+            ],
+            check=False,
+            capture_output=True,
+            timeout=resolved_timeout,
+        )
+    except subprocess.TimeoutExpired:
+        timeout_label = int(resolved_timeout) if resolved_timeout and float(resolved_timeout).is_integer() else resolved_timeout
         return {
-            "ok": bool(frames),
-            "sampling_fps": round(effective_fps, 4),
-            "source_duration_seconds": round(duration_seconds, 3),
-            "sampled_frame_count": len(frames),
-            "delta_count": len(deltas),
-            "max_delta": max(deltas) if deltas else 0.0,
-            "mean_delta": round(sum(deltas) / len(deltas), 3) if deltas else 0.0,
-            "top_deltas": sorted(deltas, reverse=True)[:8],
+            "ok": False,
+            "error": f"ffmpeg_frame_sampling_timeout:{timeout_label}s",
+            "timeout_seconds": resolved_timeout,
         }
+    if completed.returncode != 0:
+        stderr = completed.stderr.decode("utf-8", errors="replace") if isinstance(completed.stderr, bytes) else str(completed.stderr or "")
+        return {
+            "ok": False,
+            "error": "ffmpeg_frame_sampling_failed",
+            "returncode": completed.returncode,
+            "stderr": stderr.strip()[:400],
+        }
+
+    frame_size = target_width * target_height * 3
+    frame_bytes = bytes(completed.stdout or b"")
+    frame_count = len(frame_bytes) // frame_size if frame_size > 0 else 0
+    boundaries: list[tuple[str, float]] = []
+    transition_span = max(0.0, float(transition_seconds or 0.0))
+    for index, raw_offset in enumerate(transition_offsets_seconds or []):
+        try:
+            offset = float(raw_offset)
+        except (TypeError, ValueError):
+            continue
+        if offset <= 0.0 or (duration_seconds > 0.0 and offset >= duration_seconds):
+            continue
+        boundaries.append((f"transition_{index + 1}_start", offset))
+        end = offset + transition_span
+        if transition_span > 0.0 and (duration_seconds <= 0.0 or end < duration_seconds):
+            boundaries.append((f"transition_{index + 1}_end", end))
+
+    delta_rows: list[dict[str, object]] = []
+    previous = None
+    dis_refiner = cv2.DISOpticalFlow_create(cv2.DISOPTICAL_FLOW_PRESET_MEDIUM)
+    for index in range(frame_count):
+        start = index * frame_size
+        image = Image.frombytes(
+            "RGB",
+            (target_width, target_height),
+            frame_bytes[start : start + frame_size],
+        )
+        if previous is not None:
+            from_seconds = (index - 1) / effective_fps
+            to_seconds = index / effective_fps
+            labels = [label for label, timestamp in boundaries if from_seconds <= timestamp <= to_seconds]
+            raw_diff = ImageChops.difference(previous, image)
+            raw_stat = ImageStat.Stat(raw_diff)
+            before_rgb = np.asarray(previous, dtype=np.uint8)
+            after_rgb = np.asarray(image, dtype=np.uint8)
+            before_gray = cv2.cvtColor(before_rgb, cv2.COLOR_RGB2GRAY)
+            after_gray = cv2.cvtColor(after_rgb, cv2.COLOR_RGB2GRAY)
+            flow = cv2.calcOpticalFlowFarneback(
+                before_gray,
+                after_gray,
+                None,
+                0.5,
+                3,
+                21,
+                3,
+                5,
+                1.2,
+                0,
+            )
+            grid_x, grid_y = np.meshgrid(
+                np.arange(target_width, dtype=np.float32),
+                np.arange(target_height, dtype=np.float32),
+            )
+            map_x = grid_x + flow[..., 0]
+            map_y = grid_y + flow[..., 1]
+            aligned_after = cv2.remap(
+                after_rgb,
+                map_x,
+                map_y,
+                cv2.INTER_LINEAR,
+                borderMode=cv2.BORDER_REFLECT,
+            )
+            compensated_diff = cv2.absdiff(before_rgb, aligned_after)
+            valid = (
+                (map_x >= 0.0)
+                & (map_x <= float(target_width - 1))
+                & (map_y >= 0.0)
+                & (map_y <= float(target_height - 1))
+            )
+            compensated_delta = float(compensated_diff[valid].mean()) if bool(valid.any()) else float(compensated_diff.mean())
+            flow_method = "farneback"
+            if compensated_delta > 32.0:
+                refined_flow = dis_refiner.calc(before_gray, after_gray, None)
+                refined_map_x = grid_x + refined_flow[..., 0]
+                refined_map_y = grid_y + refined_flow[..., 1]
+                refined_aligned_after = cv2.remap(
+                    after_rgb,
+                    refined_map_x,
+                    refined_map_y,
+                    cv2.INTER_LINEAR,
+                    borderMode=cv2.BORDER_REFLECT,
+                )
+                refined_diff = cv2.absdiff(before_rgb, refined_aligned_after)
+                refined_valid = (
+                    (refined_map_x >= 0.0)
+                    & (refined_map_x <= float(target_width - 1))
+                    & (refined_map_y >= 0.0)
+                    & (refined_map_y <= float(target_height - 1))
+                )
+                refined_delta = (
+                    float(refined_diff[refined_valid].mean())
+                    if bool(refined_valid.any())
+                    else float(refined_diff.mean())
+                )
+                if refined_delta < compensated_delta:
+                    flow = refined_flow
+                    compensated_delta = refined_delta
+                    flow_method = "dis_medium"
+            delta_rows.append(
+                {
+                    "kind": "declared_transition_boundary" if labels else "local_cadence",
+                    "label": ",".join(labels) if labels else f"cadence_{index:04d}",
+                    "from_seconds": round(from_seconds, 3),
+                    "to_seconds": round(to_seconds, 3),
+                    "delta": round(compensated_delta, 3),
+                    "raw_delta": round(sum(raw_stat.mean) / len(raw_stat.mean), 3),
+                    "mean_flow_pixels": round(float(np.linalg.norm(flow, axis=2).mean()), 3),
+                    "flow_method": flow_method,
+                }
+            )
+        previous = image
+
+    deltas = [float(row["delta"]) for row in delta_rows]
+    top_rows = sorted(delta_rows, key=lambda row: float(row["delta"]), reverse=True)[:8]
+    transition_rows = [
+        row for row in delta_rows if row.get("kind") == "declared_transition_boundary"
+    ]
+    return {
+        "ok": frame_count > 1,
+        "sampling_mode": "local_cadence_and_declared_transition_boundaries",
+        "delta_metric": "hybrid_motion_compensated_mean_absolute_rgb",
+        "sampling_fps": round(effective_fps, 4),
+        "sample_interval_seconds": round(1.0 / effective_fps, 4),
+        "source_duration_seconds": round(duration_seconds, 3),
+        "sampled_frame_count": frame_count,
+        "delta_count": len(deltas),
+        "local_delta_count": len([row for row in delta_rows if row.get("kind") == "local_cadence"]),
+        "transition_boundary_delta_count": len(
+            [row for row in delta_rows if row.get("kind") == "declared_transition_boundary"]
+        ),
+        "max_delta": max(deltas) if deltas else 0.0,
+        "mean_delta": round(sum(deltas) / len(deltas), 3) if deltas else 0.0,
+        "top_deltas": sorted(deltas, reverse=True)[:8],
+        "top_delta_samples": top_rows,
+        "transition_boundary_samples": transition_rows,
+    }
+
+
+def _video_sidecar_payload(payload: dict[str, Any], *, bundle: Path | None) -> dict[str, Any]:
+    sidecar_relpath = str(payload.get("video_sidecar_relpath") or "").strip().lstrip("/")
+    if bundle is None or not sidecar_relpath:
+        return {}
+    sidecar_path = bundle / sidecar_relpath
+    return _load_json(sidecar_path) if sidecar_path.is_file() else {}
+
+
+def _continuity_sampling_context(payload: dict[str, Any], *, bundle: Path) -> dict[str, object]:
+    sidecar = _video_sidecar_payload(payload, bundle=bundle)
+    source = sidecar or payload
+    offsets: list[float] = []
+    for raw_offset in list(source.get("transition_offsets_seconds") or []):
+        try:
+            offset = float(raw_offset)
+        except (TypeError, ValueError):
+            continue
+        if offset > 0.0:
+            offsets.append(offset)
+    try:
+        transition_span = max(0.0, float(source.get("transition_seconds") or 0.0))
+    except (TypeError, ValueError):
+        transition_span = 0.0
+    return {
+        "source": "video_sidecar" if sidecar else "tour_manifest",
+        "transition_offsets_seconds": offsets,
+        "transition_seconds": transition_span,
+    }
 
 
 def _coverage_from_payload(payload: dict[str, Any], *, bundle: Path | None = None) -> dict[str, Any]:
@@ -228,10 +352,8 @@ def _coverage_from_payload(payload: dict[str, Any], *, bundle: Path | None = Non
             value = magicfit.get(key)
             if isinstance(value, dict):
                 return dict(value)
-    sidecar_relpath = str(payload.get("video_sidecar_relpath") or "").strip().lstrip("/")
-    if bundle is not None and sidecar_relpath:
-        sidecar_path = bundle / sidecar_relpath
-        sidecar = _load_json(sidecar_path) if sidecar_path.is_file() else {}
+    sidecar = _video_sidecar_payload(payload, bundle=bundle)
+    if sidecar:
         for key in (
             "walkthrough_coverage_proof",
             "magicfit_walkthrough_coverage",
@@ -397,13 +519,22 @@ def _resolve_walkthrough_tour_root(
     force_generated_reconstruction: bool = False,
 ) -> Path:
     configured_path = Path(configured_root or "state/public_property_tours").expanduser()
+    try:
+        resolved_configured_path = configured_path.resolve()
+    except OSError:
+        resolved_configured_path = configured_path
+    if (resolved_configured_path / slug / "tour.json").is_file():
+        return resolved_configured_path
     repo_root = Path(__file__).resolve().parents[1]
+    runtime_container = str(os.getenv("PROPERTYQUARRY_RUNTIME_CONTAINER") or "").strip()
+    if not runtime_container:
+        return resolved_configured_path
     preferred_root = preferred_public_tour_root(
         configured_root=configured_path,
         repo_root=repo_root,
-        runtime_container=str(os.getenv("PROPERTYQUARRY_RUNTIME_CONTAINER") or "").strip(),
+        runtime_container=runtime_container,
     )
-    runtime_volume_root = running_container_public_tour_dir(str(os.getenv("PROPERTYQUARRY_RUNTIME_CONTAINER") or "").strip())
+    runtime_volume_root = running_container_public_tour_dir(runtime_container)
     candidates: list[Path] = []
     for candidate in (configured_path, runtime_volume_root, preferred_root):
         if candidate is None:
@@ -441,7 +572,7 @@ def _copy_runtime_bundle_to_temp_root(slug: str, *, container_name: str = "") ->
     if not docker_bin or not slug:
         return None
     normalized_container = str(
-        container_name or os.getenv("PROPERTYQUARRY_RUNTIME_CONTAINER") or DEFAULT_RUNTIME_CONTAINER
+        container_name or os.getenv("PROPERTYQUARRY_RUNTIME_CONTAINER") or ""
     ).strip()
     if not normalized_container:
         return None
@@ -574,11 +705,18 @@ def build_walkthrough_quality_receipt(
     checks.append(_check("walkthrough_room_coverage_receipt_present", bool(coverage), coverage=coverage_summary))
     checks.append(_check("walkthrough_room_coverage_complete", coverage_ok, coverage=coverage_summary))
 
-    delta_stats = (
-        _frame_delta_stats(
-            video_path,
-            timeout_seconds=frame_sample_timeout_seconds,
+    continuity_context = _continuity_sampling_context(payload, bundle=bundle)
+    frame_delta_kwargs: dict[str, object] = {"timeout_seconds": frame_sample_timeout_seconds}
+    transition_offsets = list(continuity_context.get("transition_offsets_seconds") or [])
+    if transition_offsets:
+        frame_delta_kwargs.update(
+            {
+                "transition_offsets_seconds": transition_offsets,
+                "transition_seconds": float(continuity_context.get("transition_seconds") or 0.0),
+            }
         )
+    delta_stats = (
+        _frame_delta_stats(video_path, **frame_delta_kwargs)
         if video_path and video_path.is_file()
         else {"ok": False}
     )
@@ -606,6 +744,7 @@ def build_walkthrough_quality_receipt(
             "service_generated_reconstruction_receipt_path": str(service_receipt_path) if service_receipt_path is not None else "",
             "video_relpath": video_relpath,
             "walkthrough_candidate": str(payload.get("_walkthrough_candidate") or "").strip(),
+            "continuity_sampling_context": continuity_context,
             "check_count": len(checks),
             "failed_count": len(failed),
             "checks": checks,

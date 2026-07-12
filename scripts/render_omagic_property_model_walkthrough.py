@@ -282,8 +282,7 @@ def main() -> int:
         video_ref = _materialize_video_from_result(result, out_path)
         if not video_ref and not out_path.is_file():
             return _fail("omagic_video_output_missing", state_json=state_json, adapter_result_keys=sorted(result.keys()))
-        model_input_consumed = result.get("model_input_consumed")
-        if model_input_consumed is False:
+        if result.get("model_input_consumed") is not True:
             return _fail("omagic_model_input_not_consumed", state_json=state_json)
         state = {
             **result,

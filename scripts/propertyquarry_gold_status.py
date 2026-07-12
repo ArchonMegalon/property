@@ -13,6 +13,7 @@ from typing import Any
 
 REQUIRED_TOUR_PROVIDER_MODES = ("matterport", "3dvista", "magicfit")
 OPTIONAL_TOUR_PROVIDER_MODES = ("pano2vr", "krpano")
+REQUIRED_SCENE_VIDEO_PARITY_PROVIDERS = ("magicfit", "magic", "omagic")
 ACTIVE_PROVIDER_MATRIX_COUNTRY_CODES = ("AT", "DE", "CR")
 REQUIRED_RESEARCH_PERFORMANCE_CHECKS = (
     "research_candidate",
@@ -170,6 +171,7 @@ DEFAULT_RECEIPT_PATTERNS = {
     "runtime_reconstruction": ("_completion/tours/property-runtime-reconstruction*.json",),
     "service_generated_reconstruction": ("_completion/tours/property-service-generated-reconstruction*.json",),
     "walkthrough_quality": ("_completion/smoke/property-live-walkthrough-quality*.json",),
+    "walkthrough_provider_proof": ("_completion/smoke/property-live-walkthrough-provider-proof*.json",),
     "scene_video_readiness": (
         "_completion/scene_video_readiness/release-gate.json",
         "_completion/scene_video_readiness/PROPERTY_SCENE_VIDEO_READINESS.generated.json",
@@ -218,6 +220,7 @@ DEFAULT_RECEIPT_FALLBACKS = {
     "runtime_reconstruction": "_completion/tours/property-runtime-reconstruction-release-gate.json",
     "service_generated_reconstruction": "_completion/tours/property-service-generated-reconstruction-current.json",
     "walkthrough_quality": "_completion/smoke/property-live-walkthrough-quality-latest.json",
+    "walkthrough_provider_proof": "_completion/smoke/property-live-walkthrough-provider-proof-latest.json",
     "scene_video_readiness": "_completion/scene_video_readiness/release-gate.json",
     "scene_video_readiness_verifier": "_completion/scene_video_readiness/release-gate-verifier.json",
     "scene_video_runtime_status": "_completion/scene_video_readiness/runtime-status.json",
@@ -397,6 +400,89 @@ def _provider_matrix_scope_rank(payload: dict[str, Any]) -> int:
     return 1
 
 
+def _provider_scope_pairs(payload: dict[str, Any]) -> set[tuple[str, str]]:
+    return {
+        (
+            str(row.get("country_code") or "").strip().upper(),
+            str(row.get("provider") or "").strip(),
+        )
+        for row in list(payload.get("targeted_search_matrix") or [])
+        if isinstance(row, dict)
+        and str(row.get("country_code") or "").strip()
+        and str(row.get("provider") or "").strip()
+    }
+
+
+def _provider_matrix_catalog_scope_details(
+    provider_matrix: dict[str, Any],
+    provider_catalog: dict[str, Any],
+) -> dict[str, Any]:
+    expected_pairs = _provider_scope_pairs(provider_catalog)
+    matrix_pairs = _provider_scope_pairs(provider_matrix)
+    if expected_pairs:
+        expected_countries = {country for country, _provider in expected_pairs}
+        relevant_matrix_pairs = {
+            pair for pair in matrix_pairs if pair[0] in expected_countries
+        }
+        missing_pairs = sorted(expected_pairs - relevant_matrix_pairs)
+        unexpected_pairs = sorted(relevant_matrix_pairs - expected_pairs)
+        return {
+            "checked": True,
+            "ok": not missing_pairs and not unexpected_pairs,
+            "comparison": "provider_keys",
+            "missing_providers": [
+                {"country_code": country, "provider": provider}
+                for country, provider in missing_pairs
+            ],
+            "unexpected_providers": [
+                {"country_code": country, "provider": provider}
+                for country, provider in unexpected_pairs
+            ],
+        }
+
+    catalog_summary = dict(provider_catalog.get("targeted_search_matrix_summary") or {})
+    matrix_summary = dict(provider_matrix.get("targeted_search_matrix_summary") or {})
+    expected_counts = {
+        str(country or "").strip().upper(): int(count or 0)
+        for country, count in dict(
+            catalog_summary.get("full_search_ready_provider_count_by_country") or {}
+        ).items()
+        if str(country or "").strip()
+    }
+    if not expected_counts:
+        return {
+            "checked": False,
+            "ok": True,
+            "comparison": "unavailable",
+            "missing_providers": [],
+            "unexpected_providers": [],
+        }
+    matrix_counts = {
+        str(country or "").strip().upper(): int(count or 0)
+        for country, count in dict(
+            matrix_summary.get("full_search_ready_provider_count_by_country") or {}
+        ).items()
+        if str(country or "").strip().upper() in expected_counts
+    }
+    mismatches = [
+        {
+            "country_code": country,
+            "expected_count": expected_counts[country],
+            "matrix_count": matrix_counts.get(country, 0),
+        }
+        for country in sorted(expected_counts)
+        if matrix_counts.get(country, 0) != expected_counts[country]
+    ]
+    return {
+        "checked": True,
+        "ok": not mismatches,
+        "comparison": "provider_counts",
+        "count_mismatches": mismatches,
+        "missing_providers": [],
+        "unexpected_providers": [],
+    }
+
+
 def _provider_catalog_smoke_summary(payload: dict[str, Any], receipt_path: Path | None) -> dict[str, Any]:
     if receipt_path is None:
         return {
@@ -416,12 +502,16 @@ def _provider_catalog_smoke_summary(payload: dict[str, Any], receipt_path: Path 
             "country_code": row.get("country_code"),
             "status": row.get("status") or "unknown",
             "runtime_provider_count_ok": row.get("runtime_provider_count_ok"),
+            "runtime_provider_set_ok": row.get("runtime_provider_set_ok"),
+            "runtime_missing_providers": list(row.get("runtime_missing_providers") or []),
+            "runtime_unexpected_providers": list(row.get("runtime_unexpected_providers") or []),
             "runtime_defaults_present_ok": row.get("runtime_defaults_present_ok"),
             "runtime_provider_country_scope_ok": row.get("runtime_provider_country_scope_ok"),
         }
         for row in checks
         if row.get("status") != "pass"
         or row.get("runtime_provider_count_ok") is False
+        or row.get("runtime_provider_set_ok") is False
         or row.get("runtime_defaults_present_ok") is False
         or row.get("runtime_provider_country_scope_ok") is False
     ]
@@ -967,6 +1057,45 @@ def _hard_gate_receipt_ok(receipt: dict[str, Any]) -> bool:
     )
 
 
+def _walkthrough_provider_proof_receipt_ok(receipt: dict[str, Any]) -> bool:
+    required_providers = set(REQUIRED_SCENE_VIDEO_PARITY_PROVIDERS) - {"magic"}
+    verified_providers = {
+        str(provider or "").strip().lower()
+        for provider in list(receipt.get("verified_providers") or [])
+        if str(provider or "").strip()
+    }
+    verified_orchestrators = {
+        str(orchestrator or "").strip().lower()
+        for orchestrator in list(receipt.get("verified_orchestrators") or [])
+        if str(orchestrator or "").strip()
+    }
+    indexed_participants = {
+        str(participant or "").strip().lower()
+        for participant in list(receipt.get("indexed_participants") or [])
+        if str(participant or "").strip()
+    }
+    ea_rows = [
+        dict(row)
+        for row in list(receipt.get("provenance_index") or [])
+        if isinstance(row, dict)
+        and str(row.get("key") or "").strip().lower() == "ea"
+    ]
+    ea_row_ok = len(ea_rows) == 1 and (
+        str(ea_rows[0].get("kind") or "").strip().lower() == "orchestrator"
+        and str(ea_rows[0].get("role") or "").strip().lower()
+        == "governance_and_verification"
+        and str(ea_rows[0].get("status") or "").strip().lower() == "pass"
+        and ea_rows[0].get("media_authorship") is False
+    )
+    return (
+        _hard_gate_receipt_ok(receipt)
+        and required_providers <= verified_providers
+        and {"ea"} <= verified_orchestrators
+        and required_providers | {"ea"} <= indexed_participants
+        and ea_row_ok
+    )
+
+
 def _route_covers_required_detail(route: str, required_prefix: str) -> bool:
     normalized_route = str(route or "").split("?", 1)[0].strip().rstrip("/")
     normalized_prefix = str(required_prefix or "").strip().rstrip("/")
@@ -1264,6 +1393,7 @@ def build_gold_status_receipt(
     runtime_reconstruction_receipt_path: Path | None = None,
     service_generated_reconstruction_receipt_path: Path | None = None,
     walkthrough_quality_receipt_path: Path | None = None,
+    walkthrough_provider_proof_receipt_path: Path | None = None,
     scene_video_readiness_receipt_path: Path | None = None,
     scene_video_readiness_verifier_receipt_path: Path | None = None,
     scene_video_runtime_status_receipt_path: Path | None = None,
@@ -1307,6 +1437,11 @@ def build_gold_status_receipt(
         else {}
     )
     walkthrough_quality = _load_json(walkthrough_quality_receipt_path) if walkthrough_quality_receipt_path is not None else {}
+    walkthrough_provider_proof = (
+        _load_json(walkthrough_provider_proof_receipt_path)
+        if walkthrough_provider_proof_receipt_path is not None
+        else {}
+    )
     scene_video_readiness = _load_json(scene_video_readiness_receipt_path) if scene_video_readiness_receipt_path is not None else {}
     scene_video_readiness_verifier = _load_json(scene_video_readiness_verifier_receipt_path) if scene_video_readiness_verifier_receipt_path is not None else {}
     scene_video_runtime_status = _load_json(scene_video_runtime_status_receipt_path) if scene_video_runtime_status_receipt_path is not None else {}
@@ -1350,6 +1485,11 @@ def build_gold_status_receipt(
                 else {}
             ),
             **({"walkthrough_quality": walkthrough_quality} if walkthrough_quality_receipt_path is not None else {}),
+            **(
+                {"walkthrough_provider_proof": walkthrough_provider_proof}
+                if walkthrough_provider_proof_receipt_path is not None
+                else {}
+            ),
             **({"scene_video_readiness": scene_video_readiness} if scene_video_readiness_receipt_path is not None else {}),
             **({"scene_video_readiness_verifier": scene_video_readiness_verifier} if scene_video_readiness_verifier_receipt_path is not None else {}),
             **({"scene_video_runtime_status": scene_video_runtime_status} if scene_video_runtime_status_receipt_path is not None else {}),
@@ -1402,6 +1542,10 @@ def build_gold_status_receipt(
     )
     provider_catalog_smoke = _provider_catalog_smoke_summary(provider_catalog, provider_catalog_receipt_path)
     provider_catalog_smoke_ok = provider_catalog_receipt_path is None or provider_catalog_smoke.get("status") == "pass"
+    provider_matrix_catalog_scope = _provider_matrix_catalog_scope_details(provider_matrix, provider_catalog)
+    provider_matrix_catalog_scope_ok = (
+        provider_catalog_receipt_path is None or provider_matrix_catalog_scope.get("ok") is True
+    )
     research_performance_ok, missing_research_performance_checks, research_performance_path = _performance_research_detail_checks(performance)
     search_performance_ok, missing_search_performance_checks, search_performance_path = _performance_search_checks(performance)
     analytics_ok, missing_analytics_checks, failed_analytics_checks, analytics_route_count = _performance_analytics_checks(performance)
@@ -1504,6 +1648,14 @@ def build_gold_status_receipt(
         )
     )
     walkthrough_quality_ok = walkthrough_quality_receipt_path is None or _hard_gate_receipt_ok(walkthrough_quality)
+    walkthrough_provider_proof_required = scene_video_readiness_receipt_path is not None
+    walkthrough_provider_proof_ok = (
+        not walkthrough_provider_proof_required
+        or (
+            walkthrough_provider_proof_receipt_path is not None
+            and _walkthrough_provider_proof_receipt_ok(walkthrough_provider_proof)
+        )
+    )
     scene_video_readiness_verifier_ok = (
         scene_video_readiness_verifier_receipt_path is None
         or (
@@ -1520,6 +1672,47 @@ def build_gold_status_receipt(
     )
     scene_video_runtime_status_summary = _scene_video_runtime_status_summary(scene_video_runtime_status)
     scene_video_runtime_status_provider_rows = _scene_video_runtime_status_provider_rows(scene_video_runtime_status)
+    scene_video_runtime_provider_names = {
+        str(row.get("provider") or row.get("provider_key") or "").strip().lower()
+        for row in scene_video_runtime_status_provider_rows
+        if str(row.get("provider") or row.get("provider_key") or "").strip()
+    }
+    scene_video_runtime_ready_provider_names = {
+        str(row.get("provider") or row.get("provider_key") or "").strip().lower()
+        for row in scene_video_runtime_status_provider_rows
+        if str(row.get("provider") or row.get("provider_key") or "").strip() and row.get("ready") is True
+    }
+    scene_video_verifier_checked_provider_names = {
+        str(provider or "").strip().lower()
+        for provider in list(scene_video_readiness_verifier.get("checked_providers") or [])
+        if str(provider or "").strip()
+    }
+    scene_video_required_provider_set = set(REQUIRED_SCENE_VIDEO_PARITY_PROVIDERS)
+    scene_video_runtime_missing_required_providers = (
+        sorted(scene_video_required_provider_set - scene_video_runtime_provider_names)
+        if scene_video_runtime_status_receipt_path is not None
+        else []
+    )
+    scene_video_runtime_not_ready_required_providers = (
+        sorted(scene_video_required_provider_set & (scene_video_runtime_provider_names - scene_video_runtime_ready_provider_names))
+        if scene_video_runtime_status_receipt_path is not None
+        else []
+    )
+    scene_video_verifier_missing_required_providers = (
+        sorted(scene_video_required_provider_set - scene_video_verifier_checked_provider_names)
+        if scene_video_readiness_verifier_receipt_path is not None
+        else []
+    )
+    scene_video_required_provider_gap_set = (
+        set(scene_video_runtime_missing_required_providers)
+        | set(scene_video_runtime_not_ready_required_providers)
+        | set(scene_video_verifier_missing_required_providers)
+    )
+    scene_video_required_provider_gaps = [
+        provider
+        for provider in REQUIRED_SCENE_VIDEO_PARITY_PROVIDERS
+        if provider in scene_video_required_provider_gap_set
+    ]
     scene_video_runtime_status_blocked_rows = [
         dict(row)
         for row in scene_video_runtime_status_provider_rows
@@ -1559,16 +1752,21 @@ def build_gold_status_receipt(
                 if str(row.get("provider") or row.get("provider_key") or "").strip()
             }
         )
+    if scene_video_required_provider_gaps:
+        for provider in scene_video_required_provider_gaps:
+            if provider not in scene_video_blocked_providers:
+                scene_video_blocked_providers.append(provider)
     if scene_video_blocked_provider_count == 0 and scene_video_blocked_providers:
         scene_video_blocked_provider_count = len(scene_video_blocked_providers)
     scene_video_provider_runtime_ready = (
         scene_video_readiness_receipt_path is not None
         and scene_video_blocked_provider_count == 0
         and not scene_video_next_actions
+        and not scene_video_required_provider_gaps
     )
     scene_video_provider_action_required = (
         scene_video_readiness_receipt_path is not None
-        and (scene_video_blocked_provider_count > 0 or bool(scene_video_next_actions))
+        and (scene_video_blocked_provider_count > 0 or bool(scene_video_next_actions) or bool(scene_video_required_provider_gaps))
     )
     billing_readiness = _billing_handoff_readiness_details(
         billing_receipt,
@@ -1631,6 +1829,7 @@ def build_gold_status_receipt(
         and provider_matrix_summary.get("payload_contracts_ok") is True
         and provider_matrix_country_scope_ok
         and provider_matrix_target_context_ok
+        and provider_matrix_catalog_scope_ok
         and cross_country_sanitization_ok
         and provider_matrix_summary.get("agent_unlimited_results_ok") is True
         and provider_matrix_summary.get("strict_without_soft_filters_ok") is True
@@ -1873,6 +2072,23 @@ def build_gold_status_receipt(
                 "action": "rerun propertyquarry_walkthrough_quality_gate.py --service-generated-reconstruction-receipt _completion/tours/property-service-generated-reconstruction-current.json after generating a walkthrough with explicit room coverage, sufficient duration, and frame-continuity proof",
             }
         )
+    if not walkthrough_provider_proof_ok:
+        blockers.append(
+            {
+                "area": "walkthrough_provider_proof",
+                "status": walkthrough_provider_proof.get("status")
+                or ("not_configured" if walkthrough_provider_proof_receipt_path is None else "missing"),
+                "required_providers": ["magicfit", "omagic"],
+                "required_orchestrators": ["ea"],
+                "verified_providers": list(walkthrough_provider_proof.get("verified_providers") or []),
+                "verified_orchestrators": list(walkthrough_provider_proof.get("verified_orchestrators") or []),
+                "indexed_participants": list(walkthrough_provider_proof.get("indexed_participants") or []),
+                "missing_providers": list(walkthrough_provider_proof.get("missing_providers") or []),
+                "failed_count": walkthrough_provider_proof.get("failed_count"),
+                "provider_results": list(walkthrough_provider_proof.get("provider_results") or [])[:4],
+                "action": "run propertyquarry_walkthrough_provider_proof_gate.py after successful, non-disqualified MagicFit and OMagic hosted-tour renders; the receipt must index EA as governance_and_verification with media_authorship=false, readiness or adapter configuration alone is not provider proof, and audit runs must not consume quota",
+            }
+        )
     if not scene_video_readiness_verifier_ok:
         blockers.append(
             {
@@ -1916,6 +2132,11 @@ def build_gold_status_receipt(
                 "blocked_providers": scene_video_blocked_providers,
                 "provider_summary": scene_video_provider_summary,
                 "next_actions": scene_video_next_actions[:12],
+                "required_providers": list(REQUIRED_SCENE_VIDEO_PARITY_PROVIDERS),
+                "missing_required_providers": scene_video_required_provider_gaps,
+                "runtime_missing_required_providers": scene_video_runtime_missing_required_providers,
+                "runtime_not_ready_required_providers": scene_video_runtime_not_ready_required_providers,
+                "verifier_missing_required_providers": scene_video_verifier_missing_required_providers,
                 "runtime_status_receipt_path": str(scene_video_runtime_status_receipt_path) if scene_video_runtime_status_receipt_path is not None else "",
                 "runtime_status_providers": scene_video_runtime_status_blocked_rows[:12],
                 "action": "clear the current scene-video provider runtime gaps, rerun property_scene_video_readiness_report.py, then refresh the gold receipt before claiming Crezlo-level video/provider parity",
@@ -1997,8 +2218,10 @@ def build_gold_status_receipt(
                 "status": provider_matrix.get("status") or "unknown",
                 "targeted_search_matrix_status": provider_matrix.get("targeted_search_matrix_status") or "unknown",
                 "executed": bool(provider_matrix.get("targeted_search_matrix_executed")),
+                "catalog_scope_ok": provider_matrix_catalog_scope_ok,
+                "catalog_scope": provider_matrix_catalog_scope,
                 "cross_country_sanitization_ok": cross_country_sanitization_ok,
-                "action": "run property_live_provider_smoke.py for all search-ready countries with --execute-search-matrix so every provider has strict/soft-filter evidence and wrong-country provider selections are sanitized before dispatch",
+                "action": "deploy the current provider catalog, then run property_live_provider_smoke.py for all search-ready countries with --execute-search-matrix so every current provider has strict/soft-filter evidence and wrong-country provider selections are sanitized before dispatch",
             }
         )
     if not provider_catalog_smoke_ok:
@@ -2153,6 +2376,7 @@ def build_gold_status_receipt(
                     "area": "scene_video_provider_runtime",
                     "provider": "_".join(scene_video_blocked_providers) if scene_video_blocked_providers else "scene_video",
                     "reason": "provider_runtime_not_ready",
+                    "missing_required_providers": scene_video_required_provider_gaps,
                     "action": "clear the blocked scene-video providers and rerun property_scene_video_readiness_report.py",
                 }
             )
@@ -2327,6 +2551,17 @@ def build_gold_status_receipt(
         if walkthrough_quality_receipt_path is not None and walkthrough_quality_ok
         else None,
         {
+            "area": "walkthrough_provider_proof",
+            "status": "pass",
+            "verified_providers": list(walkthrough_provider_proof.get("verified_providers") or []),
+            "verified_orchestrators": list(walkthrough_provider_proof.get("verified_orchestrators") or []),
+            "indexed_participants": list(walkthrough_provider_proof.get("indexed_participants") or []),
+            "receipt_path": str(walkthrough_provider_proof_receipt_path),
+            "note": "Hard provider proof: MagicFit and OMagic each produced a non-disqualified, manifest-linked, decodable hosted walkthrough with provider-specific provenance; EA is verified only as governance and verification, never as media author.",
+        }
+        if walkthrough_provider_proof_receipt_path is not None and walkthrough_provider_proof_ok
+        else None,
+        {
             "area": "scene_video_readiness",
             "status": "pass",
             "checked_providers": scene_video_readiness_verifier.get("checked_providers") or [],
@@ -2384,6 +2619,7 @@ def build_gold_status_receipt(
             and runtime_reconstruction_ok
             and service_generated_reconstruction_ok
             and walkthrough_quality_ok
+            and walkthrough_provider_proof_ok
             and scene_video_readiness_verifier_ok
             and scene_video_provider_refresh_packet_verifier_ok
             and receipt_freshness_ok
@@ -2602,10 +2838,33 @@ def build_gold_status_receipt(
             "receipt_path": str(walkthrough_quality_receipt_path) if walkthrough_quality_receipt_path is not None else "",
             "note": "Hard walkthrough gate: video existence does not prove room coverage or continuity.",
         },
+        "walkthrough_provider_proof": {
+            "status": walkthrough_provider_proof.get("status")
+            or ("not_configured" if walkthrough_provider_proof_receipt_path is None else "missing"),
+            "ready": walkthrough_provider_proof_ok if walkthrough_provider_proof_required else None,
+            "required": walkthrough_provider_proof_required,
+            "required_providers": ["magicfit", "omagic"],
+            "required_orchestrators": ["ea"],
+            "verified_providers": list(walkthrough_provider_proof.get("verified_providers") or []),
+            "verified_orchestrators": list(walkthrough_provider_proof.get("verified_orchestrators") or []),
+            "indexed_participants": list(walkthrough_provider_proof.get("indexed_participants") or []),
+            "provenance_index": list(walkthrough_provider_proof.get("provenance_index") or []),
+            "missing_providers": list(walkthrough_provider_proof.get("missing_providers") or []),
+            "failed_count": walkthrough_provider_proof.get("failed_count")
+            if walkthrough_provider_proof_receipt_path is not None
+            else None,
+            "provider_results": list(walkthrough_provider_proof.get("provider_results") or [])[:4],
+            "receipt_path": str(walkthrough_provider_proof_receipt_path)
+            if walkthrough_provider_proof_receipt_path is not None
+            else "",
+            "note": "Hard provider proof: readiness and configured adapters do not prove that MagicFit or OMagic rendered an accepted hosted walkthrough, and EA orchestration is not media authorship.",
+        },
         "scene_video_readiness": {
             "status": scene_video_readiness_verifier.get("status") or ("not_configured" if scene_video_readiness_verifier_receipt_path is None else "missing"),
             "ready": (
-                scene_video_readiness_verifier_ok and scene_video_provider_refresh_packet_verifier_ok
+                scene_video_readiness_verifier_ok
+                and scene_video_provider_refresh_packet_verifier_ok
+                and scene_video_provider_runtime_ready
                 if scene_video_readiness_verifier_receipt_path is not None
                 else None
             ),
@@ -2615,11 +2874,18 @@ def build_gold_status_receipt(
                 else None
             ),
             "provider_runtime_ready": scene_video_provider_runtime_ready if scene_video_readiness_receipt_path is not None else None,
-            "provider_action_required": bool(scene_video_blocked_provider_count or scene_video_next_actions)
+            "provider_action_required": bool(
+                scene_video_blocked_provider_count or scene_video_next_actions or scene_video_required_provider_gaps
+            )
             if scene_video_readiness_receipt_path is not None
             else None,
             "provider_blocked_count": scene_video_blocked_provider_count if scene_video_readiness_receipt_path is not None else None,
             "blocked_providers": scene_video_blocked_providers,
+            "required_providers": list(REQUIRED_SCENE_VIDEO_PARITY_PROVIDERS),
+            "missing_required_providers": scene_video_required_provider_gaps,
+            "runtime_missing_required_providers": scene_video_runtime_missing_required_providers,
+            "runtime_not_ready_required_providers": scene_video_runtime_not_ready_required_providers,
+            "verifier_missing_required_providers": scene_video_verifier_missing_required_providers,
             "provider_summary": scene_video_provider_summary,
             "telegram_delivery_readiness": scene_video_readiness.get("telegram_delivery_readiness") or {},
             "next_actions": scene_video_next_actions,
@@ -2789,6 +3055,8 @@ def build_gold_status_receipt(
             "all_search_ready_provider_modes_passed": provider_matrix_modes_ok,
             "provider_country_scope_ok": provider_matrix_country_scope_ok,
             "target_context_country_scope_ok": provider_matrix_target_context_ok,
+            "catalog_scope_ok": provider_matrix_catalog_scope_ok,
+            "catalog_scope": provider_matrix_catalog_scope,
             "cross_country_sanitization_ok": cross_country_sanitization_ok,
             "cross_country_sanitization_case_count": cross_country_sanitization_summary.get("case_count"),
             "receipt_path": str(provider_matrix_receipt_path),
@@ -2894,6 +3162,7 @@ def main() -> int:
     parser.add_argument("--runtime-reconstruction-receipt", default="")
     parser.add_argument("--service-generated-reconstruction-receipt", default="")
     parser.add_argument("--walkthrough-quality-receipt", default="")
+    parser.add_argument("--walkthrough-provider-proof-receipt", default="")
     parser.add_argument("--scene-video-readiness-receipt", default="")
     parser.add_argument("--scene-video-readiness-verifier-receipt", default="")
     parser.add_argument("--scene-video-runtime-status-receipt", default="")
@@ -2938,6 +3207,11 @@ def main() -> int:
             else _default_receipt_path("service_generated_reconstruction")
         ),
         walkthrough_quality_receipt_path=Path(args.walkthrough_quality_receipt) if args.walkthrough_quality_receipt else _default_receipt_path("walkthrough_quality"),
+        walkthrough_provider_proof_receipt_path=(
+            Path(args.walkthrough_provider_proof_receipt)
+            if args.walkthrough_provider_proof_receipt
+            else _default_receipt_path("walkthrough_provider_proof")
+        ),
         scene_video_readiness_receipt_path=(
             Path(args.scene_video_readiness_receipt)
             if args.scene_video_readiness_receipt

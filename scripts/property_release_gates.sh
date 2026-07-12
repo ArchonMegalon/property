@@ -218,47 +218,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_id_austria_provider.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_authenticated_performance_smoke.py \
   --write _completion/smoke/property-auth-performance-release-gate.json >/dev/null
 live_mobile_base_url="${PROPERTYQUARRY_LIVE_MOBILE_BASE_URL:-${PROPERTYQUARRY_LIVE_SMOKE_BASE_URL:-}}"
-if [[ -z "${live_mobile_base_url}" ]]; then
-  echo "error: set PROPERTYQUARRY_LIVE_MOBILE_BASE_URL or PROPERTYQUARRY_LIVE_SMOKE_BASE_URL before running the gold release gate" >&2
-  exit 2
-fi
-if [[ -z "${EA_API_TOKEN:-}" ]]; then
-  echo "error: set EA_API_TOKEN before running the live mobile gold release gate" >&2
-  exit 2
-fi
-live_mobile_seed_args=()
-if [[ -z "${PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE:-}" ]]; then
-  if [[ "${PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_SEED_FIXTURE:-0}" == "1" ]]; then
-    live_mobile_seed_args+=(--seed-research-detail-fixture)
-  else
-    echo "error: set PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE to a current /app/research/{id}?run_id=... or set PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_SEED_FIXTURE=1 before running the gold release gate" >&2
-    exit 2
-  fi
-fi
-PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_live_mobile_surface_smoke.py \
-  --base-url "${live_mobile_base_url}" \
-  --api-token "${EA_API_TOKEN}" \
-  --require-research-detail \
-  "${live_mobile_seed_args[@]}" \
-  --write _completion/smoke/property-live-mobile-release-gate.json \
-  > /dev/null
-PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_map_preview_flagship_gate.py \
-  --base-url "${live_mobile_base_url}" \
-  --host-header "${PROPERTYQUARRY_LIVE_HOST_HEADER:-propertyquarry.com}" \
-  --api-token "${EA_API_TOKEN}" \
-  --write _completion/smoke/property-live-map-preview-flagship-release-gate.json \
-  > /dev/null
-PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_live_public_smoke.py \
-  --base-url "${live_mobile_base_url}" \
-  --write _completion/smoke/property-live-public-release-gate.json \
-  > /dev/null
-live_authenticated_plan_label="${PROPERTYQUARRY_LIVE_SMOKE_PLAN_LABEL:-Free}"
-PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_live_authenticated_smoke.py \
-  --base-url "${live_mobile_base_url}" \
-  --api-token "${EA_API_TOKEN}" \
-  --expected-plan-label "${live_authenticated_plan_label}" \
-  --write _completion/smoke/property-live-authenticated-release-gate.json \
-  > /dev/null
+PYTHON_BIN="${PYTHON_BIN}" bash scripts/propertyquarry_live_release_gates.sh
 runtime_reconstruction_container="${PROPERTYQUARRY_RUNTIME_RECONSTRUCTION_CONTAINER:-${property_render_container}}"
 runtime_reconstruction_slug="${PROPERTYQUARRY_RUNTIME_RECONSTRUCTION_SMOKE_SLUG:-runtime-reconstruction-release-gate-$(date +%Y%m%d%H%M%S)}"
 service_generated_reconstruction_slug="${PROPERTYQUARRY_SERVICE_GENERATED_RECONSTRUCTION_SMOKE_SLUG:-service-generated-reconstruction-release-gate-$(date +%Y%m%d%H%M%S)}"
@@ -296,6 +256,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/property_service_generated_reconstruction_
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_3d_browser_gate.py \
   --base-url "${PROPERTYQUARRY_3D_BROWSER_GATE_BASE_URL:-${live_mobile_base_url}}" \
   --host-header "${PROPERTYQUARRY_LIVE_HOST_HEADER:-propertyquarry.com}" \
+  --runtime-container "${property_api_container}" \
   --screenshots-dir _completion/smoke/property-live-3d-browser-gate-release-gate-screenshots \
   --write _completion/smoke/property-live-3d-browser-gate-release-gate.json \
   > /dev/null
@@ -308,6 +269,15 @@ if ! PYTHONPATH=ea timeout "${walkthrough_quality_process_timeout_seconds}" "${P
   > /dev/null; then
   echo "error: PropertyQuarry walkthrough quality gate failed or timed out." >&2
   cat _completion/smoke/property-live-walkthrough-quality-release-gate.json >&2 2>/dev/null || true
+  exit 1
+fi
+walkthrough_provider_proof_timeout_seconds="${PROPERTYQUARRY_WALKTHROUGH_PROVIDER_PROOF_TIMEOUT_SECONDS:-180}"
+if ! PYTHONPATH=ea timeout "${walkthrough_provider_proof_timeout_seconds}" "${PYTHON_BIN}" scripts/propertyquarry_walkthrough_provider_proof_gate.py \
+  --tour-root "${PROPERTYQUARRY_WALKTHROUGH_PROVIDER_PROOF_TOUR_ROOT:-${EA_PUBLIC_TOUR_DIR:-${EA_ROOT}/state/public_property_tours}}" \
+  --write _completion/smoke/property-live-walkthrough-provider-proof-release-gate.json \
+  > /dev/null; then
+  echo "error: PropertyQuarry MagicFit/OMagic walkthrough provider proof gate failed or timed out." >&2
+  cat _completion/smoke/property-live-walkthrough-provider-proof-release-gate.json >&2 2>/dev/null || true
   exit 1
 fi
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_property_tour_provider_ownership.py \
@@ -377,6 +347,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_gold_status.py \
   --runtime-reconstruction-receipt _completion/tours/property-runtime-reconstruction-release-gate.json \
   --service-generated-reconstruction-receipt _completion/tours/property-service-generated-reconstruction-release-gate.json \
   --walkthrough-quality-receipt _completion/smoke/property-live-walkthrough-quality-release-gate.json \
+  --walkthrough-provider-proof-receipt _completion/smoke/property-live-walkthrough-provider-proof-release-gate.json \
   --scene-video-readiness-receipt _completion/scene_video_readiness/release-gate.json \
   --scene-video-readiness-verifier-receipt _completion/scene_video_readiness/release-gate-verifier.json \
   --scene-video-runtime-status-receipt _completion/scene_video_readiness/runtime-status.json \
@@ -409,6 +380,10 @@ case "${gold_notification_enabled,,}" in
 esac
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_property_deploy_operator_contracts.py \
+  tests/test_property_live_http_security.py \
+  tests/test_property_live_presentation_security.py \
+  tests/test_property_live_release_provenance.py \
+  tests/test_property_public_tour_provider_retirement.py \
   tests/test_property_live_mobile_surface_smoke.py \
   tests/test_property_worker_queues.py \
   tests/test_property_evidence_overlays.py \

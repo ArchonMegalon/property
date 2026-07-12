@@ -1301,10 +1301,21 @@ def _propertyquarry_refresh_run_candidate_preview_if_needed(
     )
 
 
-def _propertyquarry_example_media_targets() -> dict[str, str]:
-    if not _public_tours_enabled_for_examples():
-        return {}
-    root = Path(str(os.environ.get("EA_PUBLIC_TOUR_DIR") or "/docker/property/state/public_property_tours")).expanduser()
+def _propertyquarry_example_media_cache_ttl_seconds() -> int:
+    raw_value = str(os.environ.get("PROPERTYQUARRY_EXAMPLE_MEDIA_CACHE_TTL_SECONDS") or "300").strip()
+    try:
+        ttl_seconds = int(raw_value)
+    except Exception:
+        ttl_seconds = 300
+    return max(ttl_seconds, 1)
+
+
+def _propertyquarry_example_media_cache_bucket(*, now: float | None = None) -> int:
+    timestamp = time.time() if now is None else float(now)
+    return int(timestamp // _propertyquarry_example_media_cache_ttl_seconds())
+
+
+def _propertyquarry_example_media_targets_scan(root: Path) -> dict[str, str]:
     if not root.exists() or not root.is_dir():
         return {}
 
@@ -1406,6 +1417,37 @@ def _propertyquarry_example_media_targets() -> dict[str, str]:
         candidates.sort(key=lambda row: (-row[0], row[1]))
         return candidates[0][2]
     return {}
+
+
+@lru_cache(maxsize=32)
+def _propertyquarry_example_media_targets_cached(root_path: str, cache_bucket: int) -> tuple[tuple[str, str], ...]:
+    del cache_bucket
+    targets = _propertyquarry_example_media_targets_scan(Path(root_path))
+    return tuple(
+        sorted(
+            (str(key or "").strip(), str(value or "").strip())
+            for key, value in targets.items()
+            if str(key or "").strip() and str(value or "").strip()
+        )
+    )
+
+
+def _propertyquarry_example_media_targets() -> dict[str, str]:
+    if not _public_tours_enabled_for_examples():
+        return {}
+    if not callable(getattr(property_tour_hosting, "_hosted_property_tour_verified_open_url", None)):
+        return {}
+    root = Path(str(os.environ.get("EA_PUBLIC_TOUR_DIR") or "/docker/property/state/public_property_tours")).expanduser()
+    try:
+        resolved_root = str(root.resolve())
+    except OSError:
+        resolved_root = str(root)
+    return dict(
+        _propertyquarry_example_media_targets_cached(
+            resolved_root,
+            _propertyquarry_example_media_cache_bucket(),
+        )
+    )
 
 
 def _propertyquarry_example_scope_preview(
@@ -2210,6 +2252,7 @@ def prewarm_property_search_surface_cache() -> bool:
         "base_public.html",
         "base_console.html",
         "propertyquarry_home.html",
+        "propertyquarry_example_shortlist.html",
         "sign_in.html",
         "pricing_page.html",
         "security_page.html",
@@ -2231,6 +2274,7 @@ def prewarm_property_search_surface_cache() -> bool:
         _property_workbench_css_asset(static_surface=False)
         _property_workbench_css_asset(static_surface=True)
         _property_search_loader_script_asset()
+        _propertyquarry_example_shortlist_rows()
 
     _property_country_catalog_snapshot_json()
     country_rows = [dict(row) for row in property_country_options()]
@@ -2965,20 +3009,26 @@ def _property_research_recent_run_distance_overlay(
         or workspace_preferences.get("active_search_agent_id")
         or ""
     ).strip()
-    try:
-        recent_runs = product.list_property_search_runs(
-            principal_id=principal_id,
-            limit=24,
-            hydrate=False,
-            account_email=account_email,
-        )
-    except TypeError:
-        recent_runs = product.list_property_search_runs(
-            principal_id=principal_id,
-            limit=24,
-            hydrate=False,
-        )
-    except Exception:
+    recent_run_kwargs: dict[str, object] = {
+        "principal_id": principal_id,
+        "limit": 24,
+        "hydrate": False,
+        "account_email": account_email,
+    }
+    recent_runs: object = []
+    for _attempt in range(3):
+        try:
+            recent_runs = product.list_property_search_runs(**recent_run_kwargs)
+            break
+        except TypeError as exc:
+            match = re.search(r"unexpected keyword argument ['\"](?P<keyword>[^'\"]+)['\"]", str(exc))
+            unexpected_keyword = str(match.group("keyword") or "").strip() if match else ""
+            if unexpected_keyword not in {"account_email", "hydrate"} or unexpected_keyword not in recent_run_kwargs:
+                return {}
+            recent_run_kwargs.pop(unexpected_keyword, None)
+        except Exception:
+            return {}
+    else:
         return {}
     normalized_current_run_id = str(current_run_id or "").strip()
     best_rank: tuple[float, ...] = ()

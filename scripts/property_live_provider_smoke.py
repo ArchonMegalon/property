@@ -992,6 +992,7 @@ def build_live_provider_smoke_receipt(
     max_providers: int = 0,
     fetcher: Callable[[str, float], dict[str, object]] | None = None,
     execute_search_matrix: bool | None = None,
+    execute_cross_country_sanitization: bool = True,
     all_search_ready_countries: bool | None = None,
     search_executor: Callable[[dict[str, object], float], dict[str, object]] | None = None,
     status_fetcher: Callable[[str, str, float], dict[str, object]] | None = None,
@@ -1028,6 +1029,11 @@ def build_live_provider_smoke_receipt(
     )
     for country in normalized_countries:
         options = provider_options(country_code=country)
+        expected_provider_values = {
+            str(option.get("value") or "").strip()
+            for option in options
+            if str(option.get("value") or "").strip()
+        }
         defaults = set(default_platforms_for_country_listing_mode(country, "rent"))
         row = {
             "country_code": country,
@@ -1067,6 +1073,9 @@ def build_live_provider_smoke_receipt(
                     if str(item or "").strip()
                 }
                 runtime_provider_count_ok = len(runtime_provider_values) == len(options)
+                runtime_provider_set_ok = runtime_provider_values == expected_provider_values
+                runtime_missing_providers = sorted(expected_provider_values - runtime_provider_values)
+                runtime_unexpected_providers = sorted(runtime_provider_values - expected_provider_values)
                 runtime_defaults_present_ok = runtime_defaults == defaults
                 runtime_country_code = str(payload.get("country_code") or "").strip().upper()
                 runtime_listing_mode = str(payload.get("listing_mode") or "").strip().lower()
@@ -1074,6 +1083,7 @@ def build_live_provider_smoke_receipt(
                 expected_runtime_defaults = set(default_platforms_for_country_listing_mode(country, runtime_listing_mode or "rent"))
                 runtime_contract_ok = (
                     runtime_provider_count_ok
+                    and runtime_provider_set_ok
                     and runtime_defaults == expected_runtime_defaults
                     and not runtime_provider_country_mismatches
                     and runtime_country_code == country
@@ -1085,6 +1095,9 @@ def build_live_provider_smoke_receipt(
                     {
                         "status": "pass" if runtime_contract_ok else "fail",
                         "runtime_provider_count": len(runtime_provider_values),
+                        "runtime_provider_set_ok": runtime_provider_set_ok,
+                        "runtime_missing_providers": runtime_missing_providers,
+                        "runtime_unexpected_providers": runtime_unexpected_providers,
                         "runtime_default_provider_count": len(runtime_defaults),
                         "runtime_default_providers_present": sorted(value for value in runtime_defaults if value in runtime_provider_values),
                         "runtime_country_code": runtime_country_code,
@@ -1197,7 +1210,7 @@ def build_live_provider_smoke_receipt(
     cross_country_sanitization_checks = _build_cross_country_sanitization_checks(
         countries=normalized_countries,
         base_url=base_url,
-        enabled=enabled,
+        enabled=enabled and execute_cross_country_sanitization,
         dry_run=dry_run,
         timeout_seconds=effective_search_run_timeout_seconds,
         search_executor=search_executor
@@ -1251,6 +1264,9 @@ def build_live_provider_smoke_receipt(
         "targeted_search_matrix": search_matrix,
         "targeted_search_matrix_summary": search_matrix_summary,
         "targeted_search_matrix_count": len(search_matrix),
+        "cross_country_sanitization_executed": bool(
+            execute_cross_country_sanitization and enabled and not dry_run
+        ),
         "cross_country_sanitization_checks": cross_country_sanitization_checks,
         "cross_country_sanitization_summary": {
             "case_count": len(cross_country_sanitization_checks),
@@ -1282,6 +1298,7 @@ def build_live_provider_smoke_receipt(
             "Use --provider and --max-providers to stage smaller real E2E slices while the receipt still reports whether the full search-ready catalog was covered.",
             "When the targeted matrix is executed, each accepted dispatch must also return a readable search-run status receipt.",
             "The cross-country sanitization probe deliberately submits a foreign provider with a local provider and expects the runtime to remove the foreign provider before dispatch.",
+            "Use --no-cross-country-sanitization for a read-only runtime catalog probe that submits no search runs.",
             "Use --resume-from with a checkpoint/final receipt to reuse passed targeted search rows and rerun only missing or failed cases.",
             "Set PROPERTYQUARRY_LIVE_PROVIDER_ALL_SEARCH_READY_COUNTRIES=1 or pass --all-search-ready-countries to expand the matrix to every customer-search country with search-ready providers.",
             "Set PROPERTYQUARRY_LIVE_PROVIDER_SEARCH_E2E=1 with live mode to execute the targeted search matrix against /app/api/property/search-runs.",
@@ -1330,6 +1347,11 @@ def main() -> int:
         action="store_true",
         help="Do not execute targeted provider search cases, regardless of environment.",
     )
+    parser.add_argument(
+        "--no-cross-country-sanitization",
+        action="store_true",
+        help="Probe runtime provider catalogs without submitting cross-country search-run sanitization cases.",
+    )
     args = parser.parse_args()
     execute_search_matrix = None
     if args.execute_search_matrix:
@@ -1349,6 +1371,7 @@ def main() -> int:
             provider_keys=tuple(args.provider or []),
             max_providers=int(args.max_providers or 0),
             execute_search_matrix=execute_search_matrix,
+            execute_cross_country_sanitization=not args.no_cross_country_sanitization,
             all_search_ready_countries=bool(args.all_search_ready_countries and not args.country),
             checkpoint_path=args.write,
             resume_checkpoint_path=args.resume_from,

@@ -428,6 +428,189 @@ def _property_workbench_client_candidate_payload(
     return compact
 
 
+_PROPERTY_MANAGEMENT_CANDIDATE_KEYS = (
+    "candidate_ref",
+    "source_ref",
+    "title",
+    "summary",
+    "detail",
+    "fit_summary",
+    "compare_reason",
+    "recommendation",
+    "source_label",
+    "source_short_label",
+    "source_platform",
+    "location_label",
+    "price_display",
+    "rent_display",
+    "layout_display",
+    "fit_score",
+    "personal_fit_score",
+    "fit_label",
+    "score",
+    "ranking_score",
+    "confidence",
+    "status",
+    "status_label",
+    "status_detail",
+    "tag",
+    "match_reasons",
+    "mismatch_reasons",
+)
+
+_PROPERTY_MANAGEMENT_FACT_KEYS = (
+    "price_display",
+    "rent_display",
+    "price_per_sqm_display",
+    "currency_code",
+    "price",
+    "rent",
+    "price_eur",
+    "rent_eur",
+    "total_rent_eur",
+    "monthly_rent_eur",
+    "purchase_price_eur",
+    "area_sqm",
+    "area_m2",
+    "living_area_m2",
+    "rooms",
+    "floor",
+    "postal_name",
+    "district",
+    "city",
+)
+
+
+def _property_management_safe_scalar(value: object) -> object | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value
+    text_value = str(value or "").strip()
+    if not text_value:
+        return None
+    lowered = text_value.casefold()
+    if (
+        "://" in lowered
+        or lowered.startswith(("data:", "blob:", "file:", "javascript:", "/app/", "/v1/"))
+    ):
+        return None
+    return text_value
+
+
+def _property_management_candidate_payload(candidate: dict[str, object]) -> dict[str, object]:
+    raw_candidate = dict(candidate or {})
+    client_candidate = _property_workbench_client_candidate_payload(candidate)
+    compact: dict[str, object] = {}
+    for key in _PROPERTY_MANAGEMENT_CANDIDATE_KEYS:
+        value = raw_candidate.get(key)
+        if key in {"match_reasons", "mismatch_reasons"}:
+            rows = [
+                safe_value
+                for item in list(value or [])
+                if (safe_value := _property_management_safe_scalar(item)) is not None
+            ]
+            if rows:
+                compact[key] = rows[:3]
+            continue
+        safe_value = _property_management_safe_scalar(value)
+        if safe_value is not None:
+            compact[key] = safe_value
+    raw_facts = (
+        dict(client_candidate.get("property_facts") or {})
+        if isinstance(client_candidate.get("property_facts"), dict)
+        else {}
+    )
+    safe_facts = {
+        key: safe_value
+        for key in _PROPERTY_MANAGEMENT_FACT_KEYS
+        if (safe_value := _property_management_safe_scalar(raw_facts.get(key))) is not None
+    }
+    if safe_facts:
+        compact["property_facts"] = safe_facts
+    return compact
+
+
+def _property_management_route_payload(route: dict[str, object]) -> dict[str, object]:
+    compact: dict[str, object] = {}
+    for key in ("title", "label", "detail", "mode_label", "route_distance_m", "route_duration_min"):
+        safe_value = _property_management_safe_scalar(route.get(key))
+        if safe_value is not None:
+            compact[key] = safe_value
+    return compact
+
+
+def _property_management_recent_packet_payload(packet: dict[str, object]) -> dict[str, object]:
+    compact: dict[str, object] = {}
+    for key in ("title", "detail", "tag"):
+        safe_value = _property_management_safe_scalar(packet.get(key))
+        if safe_value is not None:
+            compact[key] = safe_value
+    return compact
+
+
+def _property_management_run_summary_payload(summary: dict[str, object]) -> dict[str, object]:
+    raw_summary = dict(summary or {})
+    compact: dict[str, object] = {}
+    for key in (
+        "status",
+        "listing_total",
+        "raw_listing_total",
+        "found_listing_total",
+        "reviewed_listing_total",
+        "scanned_listing_total",
+        "to_review_listing_total",
+        "ranked_total",
+        "ranked_candidate_total",
+        "filtered_total",
+        "held_back_total",
+        "score_demoted_total",
+        "filtered_low_fit_total",
+        "provider_total",
+        "provider_display_total",
+        "source_variant_total",
+        "source_variant_display_total",
+        "sources_total",
+        "sources_completed",
+        "completed_sources",
+        "notified_total",
+        "current_plan_key",
+        "current_step",
+        "repair_status",
+        "repair_status_label",
+    ):
+        safe_value = _property_management_safe_scalar(raw_summary.get(key))
+        if safe_value is not None:
+            compact[key] = safe_value
+    safe_sources: list[dict[str, object]] = []
+    for source in list(raw_summary.get("sources") or []):
+        if not isinstance(source, dict):
+            continue
+        safe_source: dict[str, object] = {}
+        for key in (
+            "source_label",
+            "platform",
+            "provider_family",
+            "status",
+            "source_status",
+            "status_label",
+            "listing_total",
+            "scanned_listing_total",
+            "ranked_total",
+            "ranked_candidate_total",
+            "high_fit_total",
+            "filtered_low_fit_total",
+        ):
+            safe_value = _property_management_safe_scalar(source.get(key))
+            if safe_value is not None:
+                safe_source[key] = safe_value
+        if safe_source:
+            safe_sources.append(safe_source)
+    if safe_sources:
+        compact["sources"] = safe_sources
+    return compact
+
+
 def _property_workbench_client_run_payload(run_payload: dict[str, object]) -> dict[str, object]:
     raw_run = dict(run_payload or {})
     raw_summary = dict(raw_run.get("summary") or {}) if isinstance(raw_run.get("summary"), dict) else {}
@@ -1252,7 +1435,7 @@ def property_workspace_payload(
             return "Source follow-up"
         return "Update"
 
-    def _management_safe_run_summary(summary: dict[str, object]) -> dict[str, object]:
+    def _compact_property_surface_run_summary(summary: dict[str, object]) -> dict[str, object]:
         safe_summary = dict(summary)
         safe_summary.pop("ranked_candidates", None)
         safe_summary.pop("candidates", None)
@@ -1270,7 +1453,11 @@ def property_workspace_payload(
 
     management_surface = normalized_section in {"agents", "account", "settings", "billing"}
     compact_summary_surface = management_surface or normalized_section == "properties"
-    run_summary_for_surface = _management_safe_run_summary(run_summary) if compact_summary_surface else run_summary
+    run_summary_for_surface = (
+        _property_management_run_summary_payload(run_summary)
+        if management_surface
+        else (_compact_property_surface_run_summary(run_summary) if normalized_section == "properties" else run_summary)
+    )
     run_payload_for_surface = {**run_payload, "summary": run_summary_for_surface} if compact_summary_surface else run_payload
     run_sources = [dict(row) for row in list(run_summary.get("sources") or []) if isinstance(row, dict)]
     raw_run_sources = [dict(row) for row in list(raw_run_summary.get("sources") or []) if isinstance(row, dict)]
@@ -1312,7 +1499,11 @@ def property_workspace_payload(
             "status_note": stale_scope_message or str(run_health.get("status_note") or "").strip(),
             "status_label": "Older search" if old_brief_snapshot_notice else str(run_health.get("status_label") or "").strip(),
         }
-        run_summary_for_surface = _management_safe_run_summary(run_summary) if compact_summary_surface else run_summary
+        run_summary_for_surface = (
+            _property_management_run_summary_payload(run_summary)
+            if management_surface
+            else (_compact_property_surface_run_summary(run_summary) if normalized_section == "properties" else run_summary)
+        )
         run_payload_for_surface = {**run_payload_for_surface, "summary": run_summary_for_surface}
         if stale_scope_message:
             run_payload_for_surface["message"] = stale_scope_message
@@ -1661,7 +1852,7 @@ def property_workspace_payload(
         return (
             f"Ranked {_local_int(row.get('ranked_total'))}"
             f" | Sent {_local_int(row.get('sent_total'))}"
-            f" | Outside brief {_local_int(row.get('held_back_total'))}"
+            f" | Outside this search {_local_int(row.get('held_back_total'))}"
         )
 
     fleet_digest_stats = dict(fleet_digest.get("stats") or {}) if isinstance(fleet_digest.get("stats"), dict) else {}
@@ -1733,11 +1924,18 @@ def property_workspace_payload(
     ] if (wants_recent_runs or wants_agent_views) else []
     for previous_run in previous_search_runs:
         _compact_scope_preview_payload(previous_run)
+        if normalized_section in {"agents", "account", "settings", "billing"}:
+            previous_run["top_candidates"] = [
+                safe_candidate
+                for candidate in list(previous_run.get("top_candidates") or [])
+                if isinstance(candidate, dict)
+                and (safe_candidate := _property_management_candidate_payload(candidate))
+            ]
     if wants_search_runs or wants_agent_views:
         selected_agent_context = select_property_search_agent(
             property_search_agents,
             requested_agent_id=requested_property_agent_id,
-            previous_runs=[] if normalized_section == "agents" else previous_search_runs,
+            previous_runs=previous_search_runs,
             run_id=run_id,
         )
     else:
@@ -4892,30 +5090,56 @@ def property_workspace_payload(
         or workbench_filtered_total
         or 0
     )
-    client_results = []
-    for candidate in workbench_results:
-        if not isinstance(candidate, dict):
-            continue
-        candidate_ref = str(candidate.get("candidate_ref") or "").strip()
-        client_results.append(
-            _property_workbench_client_candidate_payload(
-                candidate,
-                preserve_preview_media_facts=bool(selected_candidate_ref) and candidate_ref == selected_candidate_ref,
-            )
+    if management_surface:
+        surface_workbench_results = [
+            safe_candidate
+            for candidate in workbench_results
+            if isinstance(candidate, dict)
+            and (safe_candidate := _property_management_candidate_payload(candidate))
+        ]
+        surface_selected_result = _property_management_candidate_payload(selected_result) if selected_result else {}
+        surface_progress_current_property = (
+            _property_management_candidate_payload(progress_current_property)
+            if progress_current_property
+            else {}
         )
-    client_selected = (
-        _property_workbench_client_candidate_payload(selected_result, preserve_preview_media_facts=True)
-        if selected_result
-        else (client_results[0] if client_results else {})
-    )
+        surface_progress_route_previews = [
+            safe_route
+            for route in progress_route_previews
+            if isinstance(route, dict)
+            and (safe_route := _property_management_route_payload(route))
+        ]
+        client_results = [dict(candidate) for candidate in surface_workbench_results]
+        client_selected = dict(surface_selected_result or (client_results[0] if client_results else {}))
+    else:
+        surface_workbench_results = workbench_results
+        surface_selected_result = selected_result
+        surface_progress_current_property = progress_current_property
+        surface_progress_route_previews = progress_route_previews
+        client_results = []
+        for candidate in surface_workbench_results:
+            if not isinstance(candidate, dict):
+                continue
+            candidate_ref = str(candidate.get("candidate_ref") or "").strip()
+            client_results.append(
+                _property_workbench_client_candidate_payload(
+                    candidate,
+                    preserve_preview_media_facts=bool(selected_candidate_ref) and candidate_ref == selected_candidate_ref,
+                )
+            )
+        client_selected = (
+            _property_workbench_client_candidate_payload(surface_selected_result, preserve_preview_media_facts=True)
+            if surface_selected_result
+            else (client_results[0] if client_results else {})
+        )
     client_run = _property_workbench_client_run_payload(
         {
             **run_payload_for_surface,
             "summary": run_summary_for_surface,
             "message": run_status_note or run_message,
             "events": run_events[-10:],
-            "route_previews": progress_route_previews,
-            "current_property": progress_current_property,
+            "route_previews": surface_progress_route_previews,
+            "current_property": surface_progress_current_property,
             "provider_display_total": run_provider_display_total,
             "source_variant_display_total": run_source_variant_total,
             "selected_platform_count": len(selected_platforms),
@@ -4924,6 +5148,30 @@ def property_workspace_payload(
             "score_demoted_total": workbench_score_demoted_total,
         }
     )
+    surface_recent_packets = [
+        {
+            "title": str(item.get("title") or item.get("label") or "Property page").strip(),
+            "detail": (
+                property_run_customer_safe_status_detail(
+                    str(item.get("tag") or item.get("title") or "").strip().lower().replace(" ", "_"),
+                    str(item.get("detail") or "").strip(),
+                    summary=raw_run_summary,
+                    prefer_repair_step=True,
+                )
+                or str(item.get("detail") or "").strip()
+            ),
+            "tag": str(item.get("tag") or "Page").strip(),
+            "url": str(item.get("action_href") or "").strip(),
+        }
+        for item in list(recent_matches_card.get("items") or [])[:5]
+        if isinstance(item, dict)
+    ]
+    if management_surface:
+        surface_recent_packets = [
+            safe_packet
+            for packet in surface_recent_packets
+            if (safe_packet := _property_management_recent_packet_payload(packet))
+        ]
     decision_workbench = PropertyDecisionWorkbenchContract(
         run=PropertyDecisionWorkbenchRunContract(
             run_id=run_id,
@@ -4955,8 +5203,8 @@ def property_workspace_payload(
             provider_display_total=run_provider_display_total,
             source_variant_display_total=run_source_variant_total,
             selected_platform_count=len(selected_platforms),
-            route_previews=progress_route_previews,
-            current_property=progress_current_property,
+            route_previews=surface_progress_route_previews,
+            current_property=surface_progress_current_property,
         ),
         brief=PropertyDecisionWorkbenchBriefContract(
             country=str(property_state.get("country_label") or "Market"),
@@ -4980,24 +5228,7 @@ def property_workspace_payload(
             "delete_run_template": "/app/api/property/search-runs/__RUN_ID__",
         },
         counterfactual_rows=counterfactual_rows,
-        recent_packets=[
-            {
-                "title": str(item.get("title") or item.get("label") or "Property page").strip(),
-                "detail": (
-                    property_run_customer_safe_status_detail(
-                        str(item.get("tag") or item.get("title") or "").strip().lower().replace(" ", "_"),
-                        str(item.get("detail") or "").strip(),
-                        summary=raw_run_summary,
-                        prefer_repair_step=True,
-                    )
-                    or str(item.get("detail") or "").strip()
-                ),
-                "tag": str(item.get("tag") or "Page").strip(),
-                "url": str(item.get("action_href") or "").strip(),
-            }
-            for item in list(recent_matches_card.get("items") or [])[:5]
-            if isinstance(item, dict)
-        ],
+        recent_packets=surface_recent_packets,
         previous_search_runs=previous_search_runs,
         current_scope_preview=current_scope_preview,
         search_agents=(
@@ -5010,7 +5241,7 @@ def property_workspace_payload(
             if include_search_agent_payload
             else {}
         ),
-        results=workbench_results,
+        results=surface_workbench_results,
         client_results=client_results,
         client_selected=client_selected,
         client_run=client_run,
@@ -5026,8 +5257,12 @@ def property_workspace_payload(
             "filled": filled_research_task_total,
             "dismissed": dismissed_research_task_total,
         },
-        selected_candidate_ref=str(shortlist_snapshot.get("selected_candidate_ref") or selected_result.get("candidate_ref") or "").strip(),
-        selected=selected_result,
+        selected_candidate_ref=str(
+            surface_selected_result.get("candidate_ref")
+            or (shortlist_snapshot.get("selected_candidate_ref") if not management_surface else "")
+            or ""
+        ).strip(),
+        selected=surface_selected_result,
         empty_outcome=(
             {}
             if bool(shortlist_snapshot.get("has_results"))

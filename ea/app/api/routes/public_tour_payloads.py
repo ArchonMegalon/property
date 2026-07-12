@@ -337,10 +337,7 @@ _PUBLIC_TOUR_TOP_LEVEL_KEYS = frozenset(
         "control_mode",
         "scenes",
         "video_relpath",
-        "video_provider",
-        "video_provider_key",
-        "video_render_provider",
-        "video_coverage_proof",
+        "video_mobile_relpath",
         "walkable_scene",
         "pano2vr_entry_relpath",
         "pano2vr_export_entry_relpath",
@@ -489,6 +486,7 @@ def public_tour_collect_asset_refs(payload: dict[str, object]) -> set[str]:
     ):
         _add(payload.get(key), privacy_class="public", role=role)
     _add(payload.get("video_relpath"))
+    _add(payload.get("video_mobile_relpath"), role="video_mobile")
     for key in ("pano2vr_entry_relpath", "pano2vr_export_entry_relpath"):
         _add(
             payload.get(key),
@@ -589,6 +587,7 @@ def public_tour_asset_metadata(payload: dict[str, object]) -> dict[str, dict[str
     ):
         _record(payload.get(key), privacy_class="public", role=role)
     _record(payload.get("video_relpath"), role="video")
+    _record(payload.get("video_mobile_relpath"), role="video_mobile")
     for key in ("pano2vr_entry_relpath", "pano2vr_export_entry_relpath"):
         _record(
             payload.get(key),
@@ -873,7 +872,7 @@ def redacted_public_tour_payload(
                 url_allowed=url_allowed,
             )
             continue
-        if key == "video_relpath":
+        if key in {"video_relpath", "video_mobile_relpath"}:
             relpath = public_tour_safe_asset_relpath(payload.get(key))
             if not relpath or relpath not in public_tour_allowed_asset_paths(payload):
                 continue

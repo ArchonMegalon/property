@@ -29,6 +29,15 @@ from scripts.propertyquarry_billing_handoff_probe import (
     https_handoff_url_usable,
     https_redirect_host_resolves,
 )
+from scripts.propertyquarry_playwright_runtime import playwright_chromium_launch_kwargs
+from scripts.propertyquarry_live_http_security import (
+    SENSITIVE_REQUEST_HEADERS,
+    headers_for_authorized_origin,
+    normalized_origin,
+    redact_secret_values,
+    url_matches_origin,
+    validated_live_base_origin,
+)
 
 
 DEFAULT_ROUTES = (
@@ -85,7 +94,6 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
         return None
 
 
-_HTTP_SMOKE_OPENER = urllib.request.build_opener()
 _HTTP_SMOKE_NO_REDIRECT_OPENER = urllib.request.build_opener(_NoRedirectHandler)
 
 
@@ -95,26 +103,62 @@ def _http_get_for_smoke(
     headers: dict[str, str],
     timeout_seconds: float,
     follow_redirects: bool = True,
+    authorized_origin: str = "",
 ) -> dict[str, Any]:
-    request = urllib.request.Request(url, headers=headers, method="GET")
-    opener = _HTTP_SMOKE_OPENER if follow_redirects else _HTTP_SMOKE_NO_REDIRECT_OPENER
-    try:
-        with opener.open(request, timeout=max(1.0, float(timeout_seconds))) as response:
-            body = response.read(2_000_000)
-            return {
-                "status_code": int(getattr(response, "status", 0) or 0),
-                "headers": dict(response.headers.items()),
-                "url": str(getattr(response, "url", url) or url),
+    sensitive_headers_present = any(
+        str(key or "").strip().lower() in SENSITIVE_REQUEST_HEADERS
+        for key in headers
+    )
+    if sensitive_headers_present and not authorized_origin:
+        raise RuntimeError("authorized_origin_required_for_sensitive_headers")
+    scoped_origin = normalized_origin(authorized_origin or url)
+    current_url = str(url or "").strip()
+    for redirect_count in range(6):
+        request = urllib.request.Request(
+            current_url,
+            headers=headers_for_authorized_origin(
+                url=current_url,
+                authorized_origin=scoped_origin,
+                headers=headers,
+            ),
+            method="GET",
+        )
+        try:
+            with _HTTP_SMOKE_NO_REDIRECT_OPENER.open(
+                request,
+                timeout=max(1.0, float(timeout_seconds)),
+            ) as response:
+                body = response.read(2_000_000)
+                return {
+                    "status_code": int(getattr(response, "status", 0) or 0),
+                    "headers": dict(response.headers.items()),
+                    "url": str(getattr(response, "url", current_url) or current_url),
+                    "text": body.decode("utf-8", errors="replace"),
+                }
+        except HTTPError as exc:
+            body = exc.read(2_000_000)
+            response = {
+                "status_code": int(exc.code or 0),
+                "headers": dict(exc.headers.items()),
+                "url": str(exc.url or current_url),
                 "text": body.decode("utf-8", errors="replace"),
             }
-    except HTTPError as exc:
-        body = exc.read(2_000_000)
-        return {
-            "status_code": int(exc.code or 0),
-            "headers": dict(exc.headers.items()),
-            "url": str(exc.url or url),
-            "text": body.decode("utf-8", errors="replace"),
-        }
+            location = _header_value(dict(exc.headers.items()), "location")
+            if not follow_redirects or int(exc.code or 0) not in {301, 302, 303, 307, 308} or not location:
+                return response
+            next_url = urllib.parse.urljoin(current_url, location)
+            if not url_matches_origin(next_url, scoped_origin):
+                response["redirect_blocked"] = "cross_origin"
+                response["redirect_location"] = next_url
+                return response
+            current_url = next_url
+    return {
+        "status_code": 0,
+        "headers": {},
+        "url": current_url,
+        "text": "",
+        "error": "same_origin_redirect_limit_exceeded",
+    }
 
 
 def _header_value(headers: dict[str, Any], name: str) -> str:
@@ -127,9 +171,14 @@ def _header_value(headers: dict[str, Any], name: str) -> str:
 
 def _redact_sensitive_receipt_text(value: object) -> str:
     redacted = re.sub(
-        r"(?i)(/login/token/)[^/?#\s\"'>]+",
+        r"(?i)(/app/research/)[^/?#\s\"'<>]+(?:[?#][^\s\"'<>]*)?",
         r"\1[redacted]",
         str(value or ""),
+    )
+    redacted = re.sub(
+        r"(?i)(/login/token/)[^/?#\s\"'>]+",
+        r"\1[redacted]",
+        redacted,
     )
     query_key_pattern = "|".join(re.escape(key) for key in SENSITIVE_URL_QUERY_KEYS)
     return re.sub(
@@ -151,8 +200,27 @@ def _redact_sensitive_receipt_value(value: Any) -> Any:
     return value
 
 
+def _redact_concrete_secret_values(value: Any, *, secrets: tuple[str, ...]) -> Any:
+    if isinstance(value, bytes):
+        return redact_secret_values(value.decode("utf-8", errors="replace"), secrets=secrets)
+    if isinstance(value, dict):
+        return {str(key): _redact_concrete_secret_values(item, secrets=secrets) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_redact_concrete_secret_values(item, secrets=secrets) for item in value]
+    if isinstance(value, str):
+        return redact_secret_values(value, secrets=secrets)
+    return value
+
+
 def _log_smoke_progress(message: str) -> None:
     print(f"[propertyquarry-mobile-smoke] {message}", file=sys.stderr, flush=True)
+
+
+def _route_log_label(route: str) -> str:
+    normalized = str(route or "").strip()
+    if re.match(r"^/app/research/[^/?#]+", normalized, flags=re.IGNORECASE):
+        return "/app/research/[redacted]"
+    return normalized
 
 
 def _visible_text(text: str) -> str:
@@ -198,6 +266,7 @@ def _resolve_mobile_billing_external_handoff(
         headers=request_headers,
         timeout_seconds=max(1.0, timeout_ms / 1000.0),
         follow_redirects=False,
+        authorized_origin=validated_live_base_origin(base_url),
     )
     return {
         "external_location": _header_value(dict(bridge_response.get("headers") or {}), "location"),
@@ -258,6 +327,7 @@ def _playwright_route_metrics_worker(
     *,
     url: str,
     headers: dict[str, str],
+    authorized_origin: str,
     browser_args: list[str],
     viewport_width: int,
     viewport_height: int,
@@ -267,16 +337,25 @@ def _playwright_route_metrics_worker(
         from playwright.sync_api import sync_playwright
 
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=True, args=browser_args)
+            browser = playwright.chromium.launch(
+                **playwright_chromium_launch_kwargs(playwright, args=browser_args)
+            )
             try:
                 context = browser.new_context(
                     viewport={"width": viewport_width, "height": viewport_height},
                     is_mobile=True,
                     has_touch=True,
                     service_workers="block",
-                    extra_http_headers=headers,
                 )
                 try:
+                    context.route(
+                        "**/*",
+                        lambda route: _continue_playwright_route_with_origin_scoped_headers(
+                            route,
+                            authorized_origin=authorized_origin,
+                            headers=headers,
+                        ),
+                    )
                     page = context.new_page()
                     page.set_default_timeout(route_timeout_ms)
                     page.set_default_navigation_timeout(route_timeout_ms)
@@ -304,6 +383,33 @@ def _playwright_route_metrics_worker(
             queue.put({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
         except Exception:
             pass
+
+
+def _continue_playwright_route_with_origin_scoped_headers(
+    route: Any,
+    *,
+    authorized_origin: str,
+    headers: dict[str, str],
+) -> None:
+    request_url = str(route.request.url or "")
+    if url_matches_origin(request_url, authorized_origin):
+        scoped_headers = dict(route.request.headers)
+        scoped_headers.update(
+            headers_for_authorized_origin(
+                url=request_url,
+                authorized_origin=authorized_origin,
+                headers=headers,
+            )
+        )
+        route.continue_(headers=scoped_headers)
+        return
+    route.continue_(
+        headers=headers_for_authorized_origin(
+            url=request_url,
+            authorized_origin=authorized_origin,
+            headers=dict(route.request.headers),
+        )
+    )
 
 
 def _env(name: str, default: str = "") -> str:
@@ -372,6 +478,7 @@ def collect_browser_route_metrics_with_retries(
     collect_once: Any,
     attempts: int | None = None,
 ) -> tuple[int, dict[str, Any], list[dict[str, Any]]]:
+    route_log_label = _route_log_label(route)
     browser_probe_attempts = max(
         2,
         min(5, int(attempts if attempts is not None else (_env("PROPERTYQUARRY_LIVE_MOBILE_BROWSER_ATTEMPTS", "3") or "3"))),
@@ -395,9 +502,9 @@ def collect_browser_route_metrics_with_retries(
             return current_status_code, current_metrics, current_checks
         if attempt < browser_probe_attempts - 1:
             if browser_probe_failure_is_transient(current_metrics):
-                _log_smoke_progress(f"retrying {route} after browser probe timeout")
+                _log_smoke_progress(f"retrying {route_log_label} after browser probe timeout")
             else:
-                _log_smoke_progress(f"retrying {route} after transient metric miss")
+                _log_smoke_progress(f"retrying {route_log_label} after transient metric miss")
             time.sleep(1)
     if not best_checks:
         best_checks = evaluate_mobile_metrics(route, best_metrics)
@@ -482,6 +589,7 @@ def _seed_research_detail_headers(*, base_url: str, api_token: str, principal_id
 
 
 def seed_research_detail_fixture(*, base_url: str, api_token: str, principal_id: str, host_header: str = "") -> str:
+    validated_live_base_origin(base_url)
     headers = _seed_research_detail_headers(
         base_url=base_url,
         api_token=api_token,
@@ -494,7 +602,7 @@ def seed_research_detail_fixture(*, base_url: str, api_token: str, principal_id:
         headers=headers,
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=SEED_FIXTURE_TIMEOUT_SECONDS) as response:
+    with _HTTP_SMOKE_NO_REDIRECT_OPENER.open(request, timeout=SEED_FIXTURE_TIMEOUT_SECONDS) as response:
         status_code = int(getattr(response, "status", 0) or 0)
         if status_code != 200:
             raise RuntimeError(f"seed_research_detail_fixture_failed:{status_code}")
@@ -1014,6 +1122,23 @@ def build_live_mobile_surface_receipt(
     viewport_height: int = 844,
     timeout_ms: int = 60_000,
 ) -> dict[str, Any]:
+    try:
+        validated_base_origin = validated_live_base_origin(base_url)
+    except ValueError as exc:
+        return {
+            "status": "blocked",
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "base_url": base_url,
+            "host_header": host_header,
+            "navigation_base_url": base_url,
+            "principal_id": principal_id,
+            "viewport": {"width": viewport_width, "height": viewport_height},
+            "route_count": 0,
+            "failed_count": 1,
+            "coverage_checks": [{"name": "live_base_origin_safe", "ok": False, "reason": str(exc)}],
+            "routes": [],
+            "notes": ["Authenticated live probes require an exact HTTPS origin; HTTP is allowed only on loopback."],
+        }
     if routes_require_api_auth(routes) and not str(api_token or "").strip():
         return {
             "status": "blocked",
@@ -1061,6 +1186,7 @@ def build_live_mobile_surface_receipt(
             navigation_base_url = urllib.parse.urlunparse(parsed_base._replace(netloc=branded_netloc))
             if original_host and original_host != branded_host:
                 browser_args.append(f"--host-resolver-rules=MAP {branded_host} {original_host}")
+    browser_authorized_origin = normalized_origin(navigation_base_url)
     rows: list[dict[str, Any]] = []
     route_deadline_seconds = max(10, min(75, int((timeout_ms / 1000.0) + 15)))
     route_timeout_ms = max(1000, min(timeout_ms, route_deadline_seconds * 1000))
@@ -1093,6 +1219,7 @@ def build_live_mobile_surface_receipt(
                 "queue": queue,
                 "url": url,
                 "headers": headers,
+                "authorized_origin": browser_authorized_origin,
                 "browser_args": browser_args,
                 "viewport_width": viewport_width,
                 "viewport_height": viewport_height,
@@ -1100,6 +1227,7 @@ def build_live_mobile_surface_receipt(
             },
         )
         process.start()
+        route_log_label = _route_log_label(route)
         process.join(route_deadline_seconds + 3)
         if process.is_alive():
             process.terminate()
@@ -1113,7 +1241,7 @@ def build_live_mobile_surface_receipt(
                 "body_width": 0,
                 "topbar_height": 0,
                 "min_action_height": 0,
-                "error": f"route_timeout:{route}",
+                "error": f"route_timeout:{route_log_label}",
             }
         if queue.empty():
             return 0, {
@@ -1122,7 +1250,7 @@ def build_live_mobile_surface_receipt(
                 "body_width": 0,
                 "topbar_height": 0,
                 "min_action_height": 0,
-                "error": f"route_worker_no_receipt:{route}:exitcode={process.exitcode}",
+                "error": f"route_worker_no_receipt:{route_log_label}:exitcode={process.exitcode}",
             }
         payload = dict(queue.get() or {})
         if not bool(payload.get("ok")):
@@ -1132,7 +1260,7 @@ def build_live_mobile_surface_receipt(
                 "body_width": 0,
                 "topbar_height": 0,
                 "min_action_height": 0,
-                "error": str(payload.get("error") or f"route_worker_failed:{route}"),
+                "error": str(payload.get("error") or f"route_worker_failed:{route_log_label}"),
             }
         metrics = dict(payload.get("metrics") or {})
         status_code = int(payload.get("status_code") or 0)
@@ -1141,7 +1269,8 @@ def build_live_mobile_surface_receipt(
 
     for route in routes:
         url = navigation_base_url.rstrip("/") + "/" + route.lstrip("/")
-        _log_smoke_progress(f"checking {route}")
+        route_log_label = _route_log_label(route)
+        _log_smoke_progress(f"checking {route_log_label}")
         if str(route or "").split("?", 1)[0].strip() == "/app/billing":
             request_url = base_url.rstrip("/") + "/" + route.lstrip("/")
             request_headers = dict(headers)
@@ -1154,9 +1283,10 @@ def build_live_mobile_surface_receipt(
                         headers=request_headers,
                         timeout_seconds=route_deadline_seconds,
                         follow_redirects=False,
+                        authorized_origin=validated_base_origin,
                     ),
                     seconds=route_deadline_seconds,
-                    label=f"billing_route_timeout:{route}",
+                    label=f"billing_route_timeout:{route_log_label}",
                 )
                 status_code = int(response.get("status_code") or 0)
                 billing_text = str(response.get("text") or "") if status_code == 503 else ""
@@ -1223,7 +1353,7 @@ def build_live_mobile_surface_receipt(
                         "metrics": metrics,
                     }
                 )
-                _log_smoke_progress(f"checked {route}: {status_code}")
+                _log_smoke_progress(f"checked {route_log_label}: {status_code}")
             except Exception as exc:
                 metrics = {
                     "status_code": 0,
@@ -1244,7 +1374,7 @@ def build_live_mobile_surface_receipt(
                         "metrics": metrics,
                     }
                 )
-                _log_smoke_progress(f"failed {route}: {type(exc).__name__}: {exc}")
+                _log_smoke_progress(f"failed {route_log_label}: {type(exc).__name__}: {exc}")
             continue
         if not route_requires_browser_mobile_probe(route):
             request_url = base_url.rstrip("/") + "/" + route.lstrip("/")
@@ -1262,15 +1392,16 @@ def build_live_mobile_surface_receipt(
                                 headers=request_headers,
                                 timeout_seconds=route_deadline_seconds,
                                 follow_redirects=True,
+                                authorized_origin=validated_base_origin,
                             ),
                             seconds=route_deadline_seconds,
-                            label=f"static_route_timeout:{route}",
+                            label=f"static_route_timeout:{route_log_label}",
                         )
                         break
                     except TimeoutError as exc:
                         last_error = exc
                         if attempt == 0:
-                            _log_smoke_progress(f"retrying {route} after static timeout")
+                            _log_smoke_progress(f"retrying {route_log_label} after static timeout")
                             time.sleep(1)
                             continue
                         raise
@@ -1294,7 +1425,7 @@ def build_live_mobile_surface_receipt(
                         "metrics": metrics,
                     }
                 )
-                _log_smoke_progress(f"checked {route}: {status_code}")
+                _log_smoke_progress(f"checked {route_log_label}: {status_code}")
             except Exception as exc:
                 metrics = {
                     "status_code": 0,
@@ -1316,7 +1447,7 @@ def build_live_mobile_surface_receipt(
                         "metrics": metrics,
                     }
                 )
-                _log_smoke_progress(f"failed {route}: {type(exc).__name__}: {exc}")
+                _log_smoke_progress(f"failed {route_log_label}: {type(exc).__name__}: {exc}")
             continue
         try:
             status_code, metrics, checks = collect_browser_route_metrics_with_retries(
@@ -1336,7 +1467,7 @@ def build_live_mobile_surface_receipt(
                     "metrics": metrics,
                 }
             )
-            _log_smoke_progress(f"checked {route}: {status_code}")
+            _log_smoke_progress(f"checked {route_log_label}: {status_code}")
         except Exception as exc:
             metrics = {
                 "status_code": 0,
@@ -1357,11 +1488,11 @@ def build_live_mobile_surface_receipt(
                     "metrics": metrics,
                 }
             )
-            _log_smoke_progress(f"failed {route}: {type(exc).__name__}: {exc}")
+            _log_smoke_progress(f"failed {route_log_label}: {type(exc).__name__}: {exc}")
     failed = [row for row in rows if not row.get("ok")]
     coverage_checks = build_mobile_coverage_checks(routes, require_research_detail=require_research_detail)
     failed_coverage = [row for row in coverage_checks if not row.get("ok")]
-    return _redact_sensitive_receipt_value({
+    receipt = _redact_sensitive_receipt_value({
         "status": "pass" if not failed and not failed_coverage else "fail",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "base_url": base_url,
@@ -1378,6 +1509,9 @@ def build_live_mobile_surface_receipt(
             "API token values are never written to this receipt.",
         ],
     })
+    return _redact_sensitive_receipt_value(
+        _redact_concrete_secret_values(receipt, secrets=(api_token,))
+    )
 
 
 def build_seed_fixture_blocked_receipt(
@@ -1388,8 +1522,9 @@ def build_seed_fixture_blocked_receipt(
     viewport_width: int,
     viewport_height: int,
     error: str,
+    api_token: str = "",
 ) -> dict[str, Any]:
-    return _redact_sensitive_receipt_value({
+    receipt = _redact_sensitive_receipt_value({
         "status": "blocked",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "base_url": base_url,
@@ -1415,6 +1550,9 @@ def build_seed_fixture_blocked_receipt(
             "When fixture seeding fails, rerun with a known current /app/research/{id}?run_id=... route via --routes or set PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE.",
         ],
     })
+    return _redact_sensitive_receipt_value(
+        _redact_concrete_secret_values(receipt, secrets=(api_token,))
+    )
 
 
 def main() -> int:
@@ -1457,7 +1595,7 @@ def main() -> int:
                 principal_id=str(args.principal_id or "").strip() or "pq-live-mobile-smoke",
                 host_header=str(args.host_header or "").strip(),
             )
-            _log_smoke_progress(f"seeded research detail fixture: {seeded_route}")
+            _log_smoke_progress(f"seeded research detail fixture: {_route_log_label(seeded_route)}")
         except Exception as exc:
             _log_smoke_progress(f"failed seeding research detail fixture: {type(exc).__name__}: {exc}")
             receipt = build_seed_fixture_blocked_receipt(
@@ -1467,6 +1605,7 @@ def main() -> int:
                 viewport_width=width,
                 viewport_height=height,
                 error=f"seed_research_detail_fixture_failed:{type(exc).__name__}: {exc}",
+                api_token=str(args.api_token or "").strip(),
             )
             output = json.dumps(receipt, indent=2, sort_keys=True)
             if args.write:

@@ -202,6 +202,18 @@
         return match ? match[1] : '';
       }
     };
+    const directGeneratedReconstructionLaunchUrl = (value) => {
+      const url = String(value || '').trim();
+      if (!url) return '';
+      const hostedBase = rawHostedTourControlBase(url);
+      if (!hostedBase) return '';
+      try {
+        const parsed = new URL(url, window.location.origin);
+        return /^[a-z][a-z0-9+.-]*:/i.test(url) ? parsed.href : `${parsed.pathname}${parsed.search}${parsed.hash}`;
+      } catch (_error) {
+        return hostedBase;
+      }
+    };
     const directHostedTourUrl = (...values) => {
       let hostedBase = '';
       for (const value of values) {
@@ -508,6 +520,14 @@
       candidates = Array.isArray(nextCandidates) ? nextCandidates.filter((row) => row && typeof row === 'object') : [];
       candidateByRef = new Map(candidates.map((candidate) => [String(candidate.candidate_ref || ''), candidate]));
     };
+    const syncSelectedCandidate = (candidateRef, options = {}) => {
+      const selector = typeof window !== 'undefined' && typeof window.__pqSelectCandidate === 'function'
+        ? window.__pqSelectCandidate
+        : null;
+      if (!selector) return false;
+      selector(candidateRef, options);
+      return true;
+    };
     const selectedCandidatePayload = data.selected && typeof data.selected === 'object' ? { ...data.selected } : null;
     const resolveCandidate = (candidateRef = '') => {
       const normalizedRef = String(candidateRef || '').trim();
@@ -616,10 +636,10 @@
         const selectedRowRef = String(root.querySelector('[data-workbench-row][aria-selected="true"]')?.getAttribute('data-candidate-ref') || '').trim();
         if (
           mergedCandidate
-          && typeof selectCandidate === 'function'
+          && typeof syncSelectedCandidate === 'function'
           && (selectedRowRef === normalizedRef || selectedFeedbackCandidateRef === normalizedRef)
         ) {
-          selectCandidate(normalizedRef, { updateUrl: false });
+          syncSelectedCandidate(normalizedRef, { updateUrl: false });
         }
         return mergedCandidate;
       } catch (_error) {
@@ -1346,7 +1366,7 @@
       if (!activeSelectionStillExists || selectedWasRemoved) {
         const nextCandidateRef = String(root.querySelector('[data-workbench-row]')?.getAttribute('data-candidate-ref') || candidates[0]?.candidate_ref || '').trim();
         if (nextCandidateRef) {
-          selectCandidate(nextCandidateRef);
+          syncSelectedCandidate(nextCandidateRef);
         } else {
           replaceCandidateQueryParam('');
         }
@@ -1472,13 +1492,20 @@
           pollSeconds: malformedReadyState ? 0 : (Number(payload?.poll_after_seconds || 0) || 0),
         };
       }
-      const resolvedTourUrl = directHostedTourUrl(
+      const rawTourState = String(payload?.tour_status || payload?.status || '').trim().toLowerCase();
+      const generatedReconstructionReadyUrl = rawTourState === 'ready'
+        ? directGeneratedReconstructionLaunchUrl(payload?.generated_reconstruction_url)
+        : '';
+      const directReadyTourUrl = directHostedTourUrl(
         payload?.verified_tour_url,
         payload?.open_tour_url,
         payload?.tour_url,
+      );
+      const vendorReadyTourUrl = directHostedTourUrl(
         payload?.vendor_tour_url,
       );
-      const rawTourState = String(payload?.tour_status || payload?.status || '').trim().toLowerCase();
+      const resolvedTourUrl = directReadyTourUrl || generatedReconstructionReadyUrl || vendorReadyTourUrl;
+      const usesGeneratedReconstruction = Boolean(generatedReconstructionReadyUrl && resolvedTourUrl === generatedReconstructionReadyUrl);
       const malformedReadyState = rawTourState === 'ready' && !resolvedTourUrl;
       const state = String(
         resolvedTourUrl
@@ -1486,11 +1513,14 @@
           : (malformedReadyState ? 'blocked' : rawTourState || 'pending')
       ).trim().toLowerCase();
       const retryableTerminal = visualTerminalStates.includes(state) && !resolvedTourUrl;
+      const normalizedReadyDetail = usesGeneratedReconstruction && resolvedTourUrl
+        ? 'Generated from the floor plan and listing photos.'
+        : (malformedReadyState ? 'A real 3D tour is not available yet.' : String(payload?.status_detail || '').trim());
       return {
         state,
         label: String(
           resolvedTourUrl
-            ? 'Open 3D tour'
+            ? (usesGeneratedReconstruction ? 'Open layout tour' : 'Open 3D tour')
             : (
                 retryableTerminal
                   ? (['blocked', 'failed'].includes(state) ? 'Retry 3D tour' : 'Request 3D tour')
@@ -1498,7 +1528,7 @@
               )
         ).trim(),
         url: resolvedTourUrl,
-        detail: malformedReadyState ? 'A real 3D tour is not available yet.' : String(payload?.status_detail || '').trim(),
+        detail: normalizedReadyDetail,
         eta: malformedReadyState ? '' : String(payload?.eta_label || '').trim(),
         progress: malformedReadyState ? 0 : (Number(payload?.progress_pct || 0) || 0),
         pollSeconds: malformedReadyState ? 0 : (Number(payload?.poll_after_seconds || 0) || 0),
@@ -1665,16 +1695,26 @@
         });
         const payload = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(readableErrorDetail(payload.detail || payload.error || payload, 'Could not request the visual.'));
-        const nextTourUrl = directHostedTourUrl(
+        const nextGeneratedReconstructionUrl = directGeneratedReconstructionLaunchUrl(payload.generated_reconstruction_url);
+        const nextDirectTourUrl = directHostedTourUrl(
           payload.tour_url,
           candidate.tour?.url,
           candidate.tour?.embed_url,
           candidate.tour_url,
+        );
+        const nextVendorTourUrl = directHostedTourUrl(
           payload.vendor_tour_url,
           candidate.tour?.provider_url,
           candidate.vendor_tour_url,
           candidate.source_virtual_tour_url
         );
+        const nextTourUrl = nextDirectTourUrl || nextGeneratedReconstructionUrl || nextVendorTourUrl;
+        const nextTourLabel = nextGeneratedReconstructionUrl && nextTourUrl === nextGeneratedReconstructionUrl
+          ? 'Open layout tour'
+          : 'Open 3D tour';
+        const nextTourDetail = nextTourLabel === 'Open layout tour'
+          ? 'Generated from the floor plan and listing photos.'
+          : String(payload.status_detail || '').trim();
         const nextFlythroughUrl = directHostedWalkthroughUrl(
           payload.flythrough_url,
           payload.tour_url,
@@ -1690,7 +1730,9 @@
         if (!candidate.tour || typeof candidate.tour !== 'object') candidate.tour = {};
         candidate.tour.url = nextTourUrl;
         candidate.tour.status = nextTourStatus;
-        candidate.tour.label = nextTourUrl ? '3D tour available' : (payload.status_label || candidate.tour.label || '');
+        candidate.tour.label = nextTourUrl
+          ? (nextTourLabel === 'Open layout tour' ? 'Layout tour available' : '3D tour available')
+          : (payload.status_label || candidate.tour.label || '');
         candidate.tour.eta_label = '';
         candidate.tour.embed_url = nextTourUrl;
         candidate.tour.deep_link = nextTourUrl;
@@ -1724,7 +1766,7 @@
           : Number(candidate.tour?.progress_pct || 0) || 0;
         const tourEtaLabel = requestKind === 'tour' ? String(payload.eta_label || '').trim() : String(candidate.tour?.eta_label || '').trim();
         const tourDetail = requestKind === 'tour'
-          ? String(payload.status_detail || '').trim()
+          ? nextTourDetail
           : String(candidate.tour?.detail || '').trim();
         candidate.flythrough = {
           ...(candidate.flythrough && typeof candidate.flythrough === 'object' ? candidate.flythrough : {}),
@@ -1740,13 +1782,16 @@
           detail: flythroughDetail,
           eta_label: flythroughEtaLabel,
           progress_pct: flythroughProgress,
+          poll_after_seconds: requestKind === 'flythrough'
+            ? Math.max(0, Number(payload.poll_after_seconds || 0) || 0)
+            : Math.max(0, Number(candidate.flythrough?.poll_after_seconds || 0) || 0),
         };
         candidate.tour = {
           ...(candidate.tour && typeof candidate.tour === 'object' ? candidate.tour : {}),
           url: nextTourUrl,
           status: nextTourStatus,
           label: nextTourUrl
-            ? 'Open 3D tour'
+            ? nextTourLabel
             : ((requestKind === 'tour' && String(payload.status_label || '').trim())
               || candidate.tour?.label
               || '3D tour queued'),
@@ -1754,6 +1799,9 @@
           eta_label: tourEtaLabel,
           embed_url: nextTourUrl,
           progress_pct: tourProgress,
+          poll_after_seconds: requestKind === 'tour'
+            ? Math.max(0, Number(payload.poll_after_seconds || 0) || 0)
+            : Math.max(0, Number(candidate.tour?.poll_after_seconds || 0) || 0),
         };
         setVisualRequestStatus(String(payload.status_detail || 'Visual request recorded.').trim());
         requestSucceeded = true;
@@ -1761,7 +1809,7 @@
           if (requestKind === 'flythrough') {
             button.textContent = candidate.flythrough?.label || (nextFlythroughUrl ? 'Open walkthrough' : 'Walkthrough queued');
           } else {
-            button.textContent = candidate.tour?.label || (nextTourUrl ? 'Open 3D tour' : '3D tour queued');
+            button.textContent = candidate.tour?.label || (nextTourUrl ? nextTourLabel : '3D tour queued');
           }
           const requestedReadyUrl = requestKind === 'flythrough' ? nextFlythroughUrl : nextTourUrl;
           const requestedStatus = requestKind === 'flythrough' ? nextFlythroughStatus : nextTourStatus;
@@ -1789,7 +1837,7 @@
         }
         if (selectedFeedbackCandidateRef === String(candidate.candidate_ref || '').trim()) {
           const selectedNode = root.querySelector(`[data-candidate-ref="${CSS.escape(String(candidate.candidate_ref || '').trim())}"]`);
-          if (selectedNode) selectCandidate(String(candidate.candidate_ref || '').trim());
+          if (selectedNode) syncSelectedCandidate(String(candidate.candidate_ref || '').trim(), { updateUrl: false });
         }
       } catch (error) {
         setVisualRequestStatus(error instanceof Error ? error.message : 'Could not request the visual.');

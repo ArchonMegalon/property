@@ -42,10 +42,14 @@ jobs:
       - name: Run core CI gates
         run: make ci-gates
 
-  product-browser-e2e:
+  propertyquarry-browser-contracts:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -53,8 +57,45 @@ jobs:
         run: |
           python -m pip install -r ea/requirements.txt -c ea/requirements.lock
           python -m playwright install --with-deps chromium
-      - name: Run PropertyQuarry gold release gates
-        run: make property-release-gates
+      - name: Run local PropertyQuarry browser contracts
+        run: |
+          PYTHONPATH=ea EA_STORAGE_BACKEND=memory python -m pytest -q \
+            tests/e2e/test_propertyquarry_greenfield_browser.py \
+            tests/e2e/test_propertyquarry_public_tour_browser.py
+
+  propertyquarry-live-release-gates:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+    environment:
+      name: propertyquarry-production
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    env:
+      PROPERTYQUARRY_LIVE_MOBILE_BASE_URL: ${{ vars.PROPERTYQUARRY_LIVE_MOBILE_BASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install release gate dependencies
+        run: |
+          python -m pip install -r ea/requirements.txt -c ea/requirements.lock
+          python -m playwright install --with-deps chromium
+      - name: Require protected live release inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${PROPERTYQUARRY_LIVE_MOBILE_BASE_URL:?Missing GitHub environment variable PROPERTYQUARRY_LIVE_MOBILE_BASE_URL}"
+      - name: Run protected PropertyQuarry live release gates
+        env:
+          EA_API_TOKEN: ${{ secrets.PROPERTYQUARRY_LIVE_API_TOKEN }}
+          PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE: ${{ secrets.PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE }}
+          PROPERTYQUARRY_LIVE_PRINCIPAL_ID: ${{ secrets.PROPERTYQUARRY_LIVE_PRINCIPAL_ID }}
+          PROPERTYQUARRY_EXPECTED_RELEASE_COMMIT_SHA: ${{ github.sha }}
+          PROPERTYQUARRY_EXPECTED_RELEASE_BRANCH: main
+        run: bash scripts/propertyquarry_live_release_gates.sh
 
   smoke-runtime-postgres:
     runs-on: ubuntu-latest

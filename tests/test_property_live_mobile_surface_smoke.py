@@ -165,6 +165,104 @@ def test_live_mobile_smoke_browser_probe_keeps_best_attempt_after_transient_time
     assert [check["name"] for check in checks if not check["ok"]] == []
 
 
+def test_live_mobile_smoke_browser_worker_uses_shared_chromium_runtime(monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from playwright import sync_api
+    from scripts import propertyquarry_live_mobile_surface_smoke as smoke
+
+    observed: dict[str, object] = {}
+
+    class Page:
+        def set_default_timeout(self, _timeout: int) -> None:
+            pass
+
+        def set_default_navigation_timeout(self, _timeout: int) -> None:
+            pass
+
+        def goto(self, *_args, **_kwargs):
+            return SimpleNamespace(status=200)
+
+        def wait_for_load_state(self, *_args, **_kwargs) -> None:
+            pass
+
+        def wait_for_timeout(self, _timeout: int) -> None:
+            pass
+
+        def evaluate(self, _script: str) -> dict[str, object]:
+            return {"viewport_width": 390}
+
+    class Context:
+        def route(self, pattern: str, handler) -> None:
+            observed["route_pattern"] = pattern
+            observed["route_handler"] = handler
+
+        def new_page(self) -> Page:
+            return Page()
+
+        def close(self) -> None:
+            pass
+
+    class Browser:
+        def new_context(self, **kwargs):
+            observed["context"] = kwargs
+            return Context()
+
+        def close(self) -> None:
+            pass
+
+    class Chromium:
+        def launch(self, **kwargs):
+            observed["launch"] = kwargs
+            return Browser()
+
+    class PlaywrightContext:
+        def __enter__(self):
+            return SimpleNamespace(chromium=Chromium())
+
+        def __exit__(self, *_args) -> None:
+            pass
+
+    class Queue:
+        def put(self, payload: dict[str, object]) -> None:
+            observed["payload"] = payload
+
+    monkeypatch.setattr(sync_api, "sync_playwright", lambda: PlaywrightContext())
+    monkeypatch.setattr(
+        smoke,
+        "playwright_chromium_launch_kwargs",
+        lambda _playwright, *, args: {
+            "headless": True,
+            "executable_path": "/configured/chromium",
+            "args": args,
+        },
+    )
+
+    smoke._playwright_route_metrics_worker(
+        Queue(),
+        url="https://propertyquarry.test/app/search",
+        headers={"X-EA-Principal-ID": "test"},
+        authorized_origin="https://propertyquarry.test",
+        browser_args=["--no-sandbox"],
+        viewport_width=390,
+        viewport_height=844,
+        route_timeout_ms=5_000,
+    )
+
+    assert observed["launch"] == {
+        "headless": True,
+        "executable_path": "/configured/chromium",
+        "args": ["--no-sandbox"],
+    }
+    assert observed["context"].get("extra_http_headers") is None
+    assert observed["route_pattern"] == "**/*"
+    assert observed["payload"] == {
+        "ok": True,
+        "status_code": 200,
+        "metrics": {"viewport_width": 390},
+    }
+
+
 def test_live_mobile_smoke_accepts_static_html_probe_for_simple_routes() -> None:
     metrics = static_mobile_route_metrics_from_html(
         html='<nav aria-label="PropertyQuarry sections"></nav><main><section class="pqx-card"></section></main>',
@@ -280,11 +378,19 @@ def test_live_mobile_smoke_rejects_billing_handoff_that_requires_second_login() 
 
 
 def test_live_mobile_smoke_resolves_signed_bridge_launch_to_external_billing_host(monkeypatch) -> None:  # noqa: ANN001
-    def _fake_http_get(url: str, *, headers=None, timeout_seconds=0, follow_redirects=True):  # noqa: ANN001
+    def _fake_http_get(  # noqa: ANN001
+        url: str,
+        *,
+        headers=None,
+        timeout_seconds=0,
+        follow_redirects=True,
+        authorized_origin="",
+    ):
         assert url == "http://localhost:8097/app/api/property/billing/bridge-launch"
         assert headers == {"Host": "propertyquarry.com"}
         assert timeout_seconds == 5.0
         assert follow_redirects is False
+        assert authorized_origin == "http://localhost:8097"
         return {
             "status_code": 303,
             "headers": {"location": "https://billing.propertyquarry.com/sso/propertyquarry?pq_bridge=token"},
@@ -590,7 +696,7 @@ def test_live_mobile_smoke_seed_fixture_posts_with_browser_like_headers(monkeypa
         captured["body"] = json.loads((request.data or b"{}").decode("utf-8"))
         return _Response()
 
-    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr(mobile_smoke._HTTP_SMOKE_NO_REDIRECT_OPENER, "open", fake_urlopen)
 
     route = seed_research_detail_fixture(
         base_url="https://propertyquarry.com",
@@ -629,7 +735,7 @@ def test_live_mobile_smoke_seed_fixture_raises_for_http_error(monkeypatch) -> No
             fp=io.BytesIO(b"forbidden"),
         )
 
-    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr(mobile_smoke._HTTP_SMOKE_NO_REDIRECT_OPENER, "open", fake_urlopen)
 
     try:
         seed_research_detail_fixture(
@@ -666,6 +772,23 @@ def test_live_mobile_smoke_builds_blocked_receipt_when_seed_fixture_cannot_be_cr
             "error": "seed_research_detail_fixture_failed:TimeoutError: timed out",
         }
     ]
+
+
+def test_live_mobile_smoke_seed_fixture_blocked_receipt_redacts_reflected_api_token() -> None:
+    api_token = "sentinel-reflected-seed-token"
+    receipt = build_seed_fixture_blocked_receipt(
+        base_url="https://propertyquarry.com",
+        host_header="propertyquarry.com",
+        principal_id="pq-live-mobile-smoke",
+        viewport_width=390,
+        viewport_height=844,
+        error=f"seed_research_detail_fixture_failed: upstream reflected {api_token}",
+        api_token=api_token,
+    )
+
+    serialized = json.dumps(receipt, sort_keys=True)
+    assert api_token not in serialized
+    assert "[redacted-secret]" in serialized
 
 
 def test_live_mobile_smoke_main_writes_blocked_receipt_when_seed_fixture_times_out(monkeypatch, tmp_path) -> None:

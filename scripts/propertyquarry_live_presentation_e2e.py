@@ -21,6 +21,13 @@ if str(EA_ROOT) not in sys.path:
     sys.path.insert(0, str(EA_ROOT))
 
 from scripts.propertyquarry_live_mobile_surface_smoke import seed_research_detail_fixture
+from scripts.propertyquarry_live_http_security import (
+    headers_for_authorized_origin,
+    normalized_origin,
+    redact_secret_values,
+    url_matches_origin,
+    validated_live_base_origin,
+)
 
 
 DEFAULT_DEMO_SLUG = "luxury-residence-with-breathtaking-skyline-views-danubeflats-vienna-layout-first-742df65557"
@@ -45,6 +52,7 @@ def _fetch(
     api_token: str = "",
     principal_id: str = "",
     method: str = "GET",
+    authorized_origin: str = "",
 ) -> dict[str, Any]:
     headers = {
         "User-Agent": "PropertyQuarry-live-presentation-e2e/1.0",
@@ -57,36 +65,81 @@ def _fetch(
         headers["X-EA-API-Token"] = api_token
     if principal_id:
         headers["X-EA-Principal-ID"] = principal_id
-    request = urllib.request.Request(url, headers=headers, method=method)
-    try:
-        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-            body = b"" if method == "HEAD" else response.read(1_500_000)
-            return {
-                "status_code": int(response.status),
-                "final_url": str(response.geturl()),
-                "headers": dict(response.headers.items()),
-                "body_byte_count": len(body),
-                "body": body.decode("utf-8", errors="replace"),
-            }
-    except urllib.error.HTTPError as exc:
-        body = b"" if method == "HEAD" else exc.read(1_500_000)
-        return {
-            "status_code": int(exc.code),
-            "final_url": str(exc.geturl()),
-            "headers": dict(exc.headers.items()),
-            "body_byte_count": len(body),
-            "body": body.decode("utf-8", errors="replace"),
-            "error": str(exc),
-        }
-    except Exception as exc:
+    if api_token and not authorized_origin:
         return {
             "status_code": 0,
             "final_url": url,
             "headers": {},
             "body_byte_count": 0,
             "body": "",
-            "error": f"{type(exc).__name__}: {exc}",
+            "error": "authorized_origin_required_for_api_token",
         }
+    scoped_origin = normalized_origin(authorized_origin or url)
+
+    class _NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, response_headers, newurl):  # noqa: ANN001
+            return None
+
+    opener = urllib.request.build_opener(_NoRedirect)
+    current_url = str(url or "").strip()
+    for _redirect_count in range(6):
+        request = urllib.request.Request(
+            current_url,
+            headers=headers_for_authorized_origin(
+                url=current_url,
+                authorized_origin=scoped_origin,
+                headers=headers,
+            ),
+            method=method,
+        )
+        try:
+            with opener.open(request, timeout=timeout_seconds) as response:
+                body = b"" if method == "HEAD" else response.read(1_500_000)
+                return {
+                    "status_code": int(response.status),
+                    "final_url": str(response.geturl()),
+                    "headers": dict(response.headers.items()),
+                    "body_byte_count": len(body),
+                    "body": body.decode("utf-8", errors="replace"),
+                }
+        except urllib.error.HTTPError as exc:
+            body = b"" if method == "HEAD" else exc.read(1_500_000)
+            result = {
+                "status_code": int(exc.code),
+                "final_url": str(exc.geturl()),
+                "headers": dict(exc.headers.items()),
+                "body_byte_count": len(body),
+                "body": body.decode("utf-8", errors="replace"),
+                "error": str(exc),
+            }
+            location = _header(dict(exc.headers.items()), "Location")
+            if int(exc.code or 0) not in {301, 302, 303, 307, 308} or not location:
+                return result
+            next_url = urllib.parse.urljoin(current_url, location)
+            if not url_matches_origin(next_url, scoped_origin):
+                result["redirect_blocked"] = "cross_origin"
+                result["redirect_location"] = next_url
+                return result
+            current_url = next_url
+            if int(exc.code or 0) == 303:
+                method = "GET"
+        except Exception as exc:
+            return {
+                "status_code": 0,
+                "final_url": current_url,
+                "headers": {},
+                "body_byte_count": 0,
+                "body": "",
+                "error": f"{type(exc).__name__}: {exc}",
+            }
+    return {
+        "status_code": 0,
+        "final_url": current_url,
+        "headers": {},
+        "body_byte_count": 0,
+        "body": "",
+        "error": "same_origin_redirect_limit_exceeded",
+    }
 
 
 def _header(headers: dict[str, object], name: str) -> str:
@@ -141,8 +194,20 @@ def build_live_presentation_e2e_receipt(
     demo_slug: str,
     timeout_seconds: float,
     seed_research_detail: bool,
+    research_detail_route: str = "",
 ) -> dict[str, Any]:
     base = str(base_url or "http://localhost:8097").strip().rstrip("/")
+    try:
+        authorized_origin = validated_live_base_origin(base)
+    except ValueError as exc:
+        return {
+            "contract_name": "propertyquarry.live_presentation_e2e.v1",
+            "generated_at": _utc_now(),
+            "status": "blocked",
+            "base_url": base,
+            "failed_count": 1,
+            "checks": [_check("live_base_origin_safe", False, reason=str(exc))],
+        }
     slug = str(demo_slug or DEFAULT_DEMO_SLUG).strip()
     checks: list[dict[str, object]] = []
 
@@ -186,7 +251,7 @@ def build_live_presentation_e2e_receipt(
     demo = _fetch(f"{base}{demo_path}", timeout_seconds=timeout_seconds, host_header=host_header)
     demo_body = str(demo.get("body") or "")
     demo_final_path = _final_path(demo.get("final_url"))
-    demo_opened_primary_control = demo_final_path == f"{demo_path}/control/matterport"
+    demo_opened_primary_control = demo_final_path == f"{demo_path}/control/3dvista"
     checks.extend(
         [
             _check("demo_tour_route_ok", int(demo.get("status_code") or 0) == 200, status_code=demo.get("status_code")),
@@ -194,17 +259,22 @@ def build_live_presentation_e2e_receipt(
                 "demo_tour_opens_primary_control_directly",
                 demo_opened_primary_control,
                 final_path=demo_final_path,
-                expected_path=f"{demo_path}/control/matterport",
+                expected_path=f"{demo_path}/control/3dvista",
             ),
             _check(
                 "demo_tour_is_propertyquarry_presentation",
-                "3D Tour" in demo_body and "provider-frame" in demo_body and "my.matterport.com" in demo_body,
+                "3D Tour" in demo_body
+                and "provider-frame" in demo_body
+                and f"/tours/3dvista/{slug}/3dvista/index.htm" in demo_body,
             ),
             _check(
-                "demo_tour_has_matterport_control",
+                "demo_tour_has_verified_3dvista_control",
                 demo_opened_primary_control and "provider-frame" in demo_body and "Load 3D tour" not in demo_body,
             ),
-            _check("demo_tour_hides_unproven_3d_export", f"{demo_path}/control/3dvista" not in demo_body),
+            _check(
+                "demo_tour_hides_retired_matterport",
+                f"{demo_path}/control/matterport" not in demo_body and "my.matterport.com" not in demo_body,
+            ),
             _check("demo_tour_hides_panorama_export", f"{demo_path}/control/pano2vr" not in demo_body),
             _check(
                 "demo_tour_has_walkthrough",
@@ -217,27 +287,23 @@ def build_live_presentation_e2e_receipt(
         ]
     )
 
-    for provider, marker in (
-        ("matterport", "3D Tour"),
-    ):
-        route = f"{demo_path}/control/{provider}"
-        response = _fetch(f"{base}{route}", timeout_seconds=timeout_seconds, host_header=host_header)
-        body = str(response.get("body") or "")
-        checks.extend(
-            [
-                _check(f"{provider}_control_route_ok", int(response.get("status_code") or 0) == 200, route=route, status_code=response.get("status_code")),
-                _check(
-                    f"{provider}_control_marker_visible",
-                    marker in body and "provider-frame" in body and "my.matterport.com" in body,
-                    route=route,
-                ),
-                _check(
-                    f"{provider}_control_no_load_hop",
-                    "Load 3D tour" not in body,
-                    route=route,
-                ),
-            ]
+    matterport_route = f"{demo_path}/control/matterport"
+    matterport_control = _fetch(
+        f"{base}{matterport_route}",
+        timeout_seconds=timeout_seconds,
+        host_header=host_header,
+    )
+    matterport_body = str(matterport_control.get("body") or "")
+    checks.append(
+        _check(
+            "matterport_control_retired",
+            int(matterport_control.get("status_code") or 0) == 404
+            and "provider-frame" not in matterport_body
+            and "my.matterport.com" not in matterport_body,
+            route=matterport_route,
+            status_code=matterport_control.get("status_code"),
         )
+    )
     three_d_vista_route = f"{demo_path}/control/3dvista"
     three_d_vista_control = _fetch(
         f"{base}{three_d_vista_route}",
@@ -286,6 +352,7 @@ def build_live_presentation_e2e_receipt(
     )
 
     seeded_route = ""
+    detail_route = str(research_detail_route or "").strip()
     if seed_research_detail:
         try:
             seeded_route = seed_research_detail_fixture(
@@ -295,15 +362,27 @@ def build_live_presentation_e2e_receipt(
                 host_header=host_header,
             )
         except Exception as exc:
-            checks.append(_check("app_research_detail_seeded", False, error=f"{type(exc).__name__}: {exc}"))
+            checks.append(
+                _check(
+                    "app_research_detail_seeded",
+                    False,
+                    error=redact_secret_values(
+                        f"{type(exc).__name__}: {exc}",
+                        secrets=(api_token,),
+                    ),
+                )
+            )
     if seeded_route:
-        checks.append(_check("app_research_detail_seeded", True, route=seeded_route))
+        detail_route = seeded_route
+        checks.append(_check("app_research_detail_seeded", True, route="/app/research/[redacted]"))
+    if detail_route:
         detail = _fetch(
-            f"{base}{seeded_route}",
+            f"{base}{detail_route}",
             timeout_seconds=timeout_seconds,
             host_header=host_header,
             api_token=api_token,
             principal_id=principal_id,
+            authorized_origin=authorized_origin,
         )
         detail_body = str(detail.get("body") or "")
         checks.extend(
@@ -317,6 +396,8 @@ def build_live_presentation_e2e_receipt(
                 ),
             ]
         )
+    else:
+        checks.append(_check("app_research_detail_route_configured", False))
 
     failed = [row for row in checks if not row.get("ok")]
     return {
@@ -328,7 +409,8 @@ def build_live_presentation_e2e_receipt(
         "principal_id": principal_id,
         "demo_slug": slug,
         "demo_url": f"https://propertyquarry.com{demo_path}",
-        "seeded_research_detail_route": seeded_route,
+        "seeded_research_detail_route": "/app/research/[redacted]" if seeded_route else "",
+        "research_detail_route_configured": bool(detail_route),
         "provider_receipt_path": provider_receipt_path,
         "check_count": len(checks),
         "failed_count": len(failed),
@@ -350,6 +432,11 @@ def main() -> int:
     parser.add_argument("--require-provider-matrix", action="store_true")
     parser.add_argument("--demo-slug", default=DEFAULT_DEMO_SLUG)
     parser.add_argument("--timeout-seconds", type=float, default=20.0)
+    parser.add_argument(
+        "--research-detail-route",
+        default=os.getenv("PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE", ""),
+    )
+    parser.add_argument("--seed-research-detail", action="store_true")
     parser.add_argument("--no-seed-research-detail", action="store_true")
     parser.add_argument("--write", default="_completion/smoke/property-live-presentation-e2e-latest.json")
     args = parser.parse_args()
@@ -363,7 +450,8 @@ def main() -> int:
         require_provider_matrix=args.require_provider_matrix,
         demo_slug=args.demo_slug,
         timeout_seconds=max(1.0, float(args.timeout_seconds or 20.0)),
-        seed_research_detail=not bool(args.no_seed_research_detail),
+        seed_research_detail=bool(args.seed_research_detail) and not bool(args.no_seed_research_detail),
+        research_detail_route=str(args.research_detail_route or ""),
     )
     output = json.dumps(receipt, ensure_ascii=True, indent=2, sort_keys=True)
     if args.write:

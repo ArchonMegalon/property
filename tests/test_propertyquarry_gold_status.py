@@ -716,6 +716,72 @@ def _walkthrough_quality_gate_payload(*, status: str = "pass") -> dict[str, obje
     }
 
 
+def _walkthrough_provider_proof_payload(*, status: str = "pass") -> dict[str, object]:
+    passing = status == "pass"
+    verified_providers = ["magicfit", "omagic"] if passing else ["magicfit"]
+    verified_orchestrators = ["ea"] if passing else []
+    return {
+        "contract_name": "propertyquarry.walkthrough_provider_proof_gate.v1",
+        "generated_at": "2026-06-29T10:01:30Z",
+        "status": status,
+        "required_providers": ["magicfit", "omagic"],
+        "verified_providers": verified_providers,
+        "verified_orchestrators": verified_orchestrators,
+        "indexed_participants": ["ea", "magicfit", "omagic"],
+        "provenance_index": [
+            {
+                "key": "ea",
+                "kind": "orchestrator",
+                "role": "governance_and_verification",
+                "status": "pass" if passing else "fail",
+                "media_authorship": False,
+                "evidence_contract": "propertyquarry.walkthrough_provider_proof_gate.v1",
+            },
+            {
+                "key": "magicfit",
+                "kind": "media_provider",
+                "role": "walkthrough_media_provider",
+                "status": "pass",
+                "media_authorship": True,
+            },
+            {
+                "key": "omagic",
+                "kind": "media_provider",
+                "role": "walkthrough_media_provider",
+                "status": "pass" if passing else "fail",
+                "media_authorship": True,
+            },
+        ],
+        "missing_providers": [] if passing else ["omagic"],
+        "failed_count": 0 if passing else 1,
+        "provider_results": [
+            {"provider": "magicfit", "status": "pass", "slug": "magicfit-proof-tour", "failed_count": 0},
+            {
+                "provider": "omagic",
+                "status": "pass" if passing else "fail",
+                "slug": "omagic-proof-tour" if passing else "",
+                "failed_count": 0 if passing else 1,
+            },
+        ],
+    }
+
+
+def test_gold_status_walkthrough_provider_proof_requires_truthful_ea_index() -> None:
+    payload = _walkthrough_provider_proof_payload()
+
+    assert gold_status._walkthrough_provider_proof_receipt_ok(payload) is True
+
+    without_ea = {**payload, "verified_orchestrators": []}
+    assert gold_status._walkthrough_provider_proof_receipt_ok(without_ea) is False
+
+    false_authorship = json.loads(json.dumps(payload))
+    false_authorship["provenance_index"][0]["media_authorship"] = True
+    assert gold_status._walkthrough_provider_proof_receipt_ok(false_authorship) is False
+
+    missing_index = {**payload, "provenance_index": []}
+    assert gold_status._walkthrough_provider_proof_receipt_ok(missing_index) is False
+
+
 def _runtime_reconstruction_payload(
     *,
     status: str = "pass",
@@ -2175,6 +2241,10 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
         _service_generated_reconstruction_payload(),
     )
     walkthrough_quality = _write_json(tmp_path / "walkthrough-quality.json", _walkthrough_quality_gate_payload())
+    walkthrough_provider_proof = _write_json(
+        tmp_path / "walkthrough-provider-proof.json",
+        _walkthrough_provider_proof_payload(),
+    )
     scene_video = _write_json(tmp_path / "scene-video-readiness.json", _scene_video_readiness_payload())
     scene_video_verifier = _write_json(tmp_path / "scene-video-readiness-verifier.json", _scene_video_readiness_verifier_payload())
     scene_video_runtime_status = _write_json(
@@ -2207,6 +2277,7 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
         runtime_reconstruction_receipt_path=runtime_reconstruction,
         service_generated_reconstruction_receipt_path=service_generated_reconstruction,
         walkthrough_quality_receipt_path=walkthrough_quality,
+        walkthrough_provider_proof_receipt_path=walkthrough_provider_proof,
         scene_video_readiness_receipt_path=scene_video,
         scene_video_readiness_verifier_receipt_path=scene_video_verifier,
         scene_video_runtime_status_receipt_path=scene_video_runtime_status,
@@ -2252,6 +2323,7 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
         "generated_reconstruction_glb",
         "service_generated_reconstruction",
         "walkthrough_quality",
+        "walkthrough_provider_proof",
         "scene_video_readiness",
         "scene_video_provider_refresh_packet",
         "receipt_freshness",
@@ -2270,6 +2342,8 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
     assert receipt["service_generated_reconstruction"]["top_level_video_contract_ok"] is True
     assert receipt["service_generated_reconstruction"]["delivery_contract_ok"] is True
     assert receipt["walkthrough_quality"]["ready"] is True
+    assert receipt["walkthrough_provider_proof"]["ready"] is True
+    assert receipt["walkthrough_provider_proof"]["verified_providers"] == ["magicfit", "omagic"]
     assert receipt["scene_video_readiness"]["ready"] is True
     assert receipt["scene_video_readiness"]["actionability_ready"] is True
     assert receipt["scene_video_readiness"]["provider_runtime_ready"] is True
@@ -2279,9 +2353,102 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
     assert receipt["scene_video_readiness"]["runtime_status"]["contract_name"] == "propertyquarry.scene_video_runtime_status.v1"
     assert receipt["scene_video_readiness"]["runtime_status"]["summary"]["provider_count"] == 5
     assert receipt["scene_video_readiness"]["checked_providers"] == ["mootion", "magicfit", "magic", "omagic", "onemin_i2v"]
+    assert receipt["scene_video_readiness"]["required_providers"] == ["magicfit", "magic", "omagic"]
+    assert receipt["scene_video_readiness"]["missing_required_providers"] == []
     assert receipt["scene_video_readiness"]["provider_refresh_packet"]["ready"] is True
     assert receipt["scene_video_readiness"]["provider_refresh_packet"]["checked_providers"] == ["magicfit", "omagic"]
     assert receipt["scene_video_readiness"]["provider_refresh_packet"]["packet_provider_count"] == 2
+
+    failed_walkthrough_provider_proof = _write_json(
+        tmp_path / "walkthrough-provider-proof-failed.json",
+        _walkthrough_provider_proof_payload(status="fail"),
+    )
+    unproven_provider_receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+        tour_provider_ownership_receipt_path=ownership,
+        vendor_tooling_receipt_path=vendor_tooling,
+        security_posture_receipt_path=security_posture,
+        release_hygiene_receipt_path=release_hygiene,
+        furniture_style_contract_receipt_path=furniture_style_contract,
+        bts_methodology_contract_receipt_path=bts_methodology_contract,
+        tour_delivery_contract_receipt_path=tour_delivery_contract,
+        browser_3d_gate_receipt_path=browser_3d_gate,
+        runtime_reconstruction_receipt_path=runtime_reconstruction,
+        service_generated_reconstruction_receipt_path=service_generated_reconstruction,
+        walkthrough_quality_receipt_path=walkthrough_quality,
+        walkthrough_provider_proof_receipt_path=failed_walkthrough_provider_proof,
+        scene_video_readiness_receipt_path=scene_video,
+        scene_video_readiness_verifier_receipt_path=scene_video_verifier,
+        scene_video_runtime_status_receipt_path=scene_video_runtime_status,
+        scene_video_provider_refresh_packet_path=scene_video_provider_refresh_packet,
+        scene_video_provider_refresh_packet_verifier_receipt_path=scene_video_provider_refresh_packet_verifier,
+    )
+    walkthrough_proof_blocker = next(
+        row for row in unproven_provider_receipt["blockers"] if row["area"] == "walkthrough_provider_proof"
+    )
+    assert unproven_provider_receipt["status"] == "blocked"
+    assert unproven_provider_receipt["walkthrough_provider_proof"]["ready"] is False
+    assert walkthrough_proof_blocker["verified_providers"] == ["magicfit"]
+    assert walkthrough_proof_blocker["missing_providers"] == ["omagic"]
+
+    missing_magic_runtime_payload = _scene_video_runtime_status_payload()
+    missing_magic_runtime_payload["providers"] = [
+        row
+        for row in list(missing_magic_runtime_payload["providers"])
+        if row.get("provider") != "magic"
+    ]
+    missing_magic_runtime_payload["summary"] = {
+        "provider_count": 4,
+        "ready_count": 4,
+        "blocked_count": 0,
+        "blocked_providers": [],
+        "action_required_count": 0,
+        "action_required_providers": [],
+        "delivery_ready": True,
+    }
+    missing_magic_runtime_status = _write_json(
+        tmp_path / "scene-video-runtime-status-missing-magic.json",
+        missing_magic_runtime_payload,
+    )
+    missing_magic_runtime_receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        repair_canary_receipt_path=repair_canary,
+        provider_matrix_receipt_path=provider_matrix,
+        tour_provider_ownership_receipt_path=ownership,
+        vendor_tooling_receipt_path=vendor_tooling,
+        security_posture_receipt_path=security_posture,
+        release_hygiene_receipt_path=release_hygiene,
+        furniture_style_contract_receipt_path=furniture_style_contract,
+        bts_methodology_contract_receipt_path=bts_methodology_contract,
+        tour_delivery_contract_receipt_path=tour_delivery_contract,
+        browser_3d_gate_receipt_path=browser_3d_gate,
+        runtime_reconstruction_receipt_path=runtime_reconstruction,
+        service_generated_reconstruction_receipt_path=service_generated_reconstruction,
+        walkthrough_quality_receipt_path=walkthrough_quality,
+        walkthrough_provider_proof_receipt_path=walkthrough_provider_proof,
+        scene_video_readiness_receipt_path=scene_video,
+        scene_video_readiness_verifier_receipt_path=scene_video_verifier,
+        scene_video_runtime_status_receipt_path=missing_magic_runtime_status,
+        scene_video_provider_refresh_packet_path=scene_video_provider_refresh_packet,
+        scene_video_provider_refresh_packet_verifier_receipt_path=scene_video_provider_refresh_packet_verifier,
+    )
+    missing_magic_blocker = next(
+        row
+        for row in missing_magic_runtime_receipt["blockers"]
+        if row["area"] == "scene_video_provider_runtime"
+    )
+    assert missing_magic_runtime_receipt["status"] == "blocked"
+    assert missing_magic_runtime_receipt["scene_video_readiness"]["ready"] is False
+    assert missing_magic_runtime_receipt["scene_video_readiness"]["provider_runtime_ready"] is False
+    assert missing_magic_runtime_receipt["scene_video_readiness"]["runtime_missing_required_providers"] == ["magic"]
+    assert missing_magic_runtime_receipt["scene_video_readiness"]["missing_required_providers"] == ["magic"]
+    assert missing_magic_blocker["runtime_missing_required_providers"] == ["magic"]
 
     blocked_omagic_vendor_payload = json.loads(vendor_tooling.read_text(encoding="utf-8"))
     blocked_omagic_vendor_payload["omagic_adapter"] = {
@@ -2317,6 +2484,7 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
         browser_3d_gate_receipt_path=browser_3d_gate,
         runtime_reconstruction_receipt_path=runtime_reconstruction,
         walkthrough_quality_receipt_path=walkthrough_quality,
+        walkthrough_provider_proof_receipt_path=walkthrough_provider_proof,
         scene_video_readiness_receipt_path=scene_video,
         scene_video_readiness_verifier_receipt_path=scene_video_verifier,
         scene_video_provider_refresh_packet_path=scene_video_provider_refresh_packet,
@@ -2354,6 +2522,7 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
         browser_3d_gate_receipt_path=browser_3d_gate,
         runtime_reconstruction_receipt_path=runtime_reconstruction,
         walkthrough_quality_receipt_path=walkthrough_quality,
+        walkthrough_provider_proof_receipt_path=walkthrough_provider_proof,
         scene_video_readiness_receipt_path=blocked_scene_video,
         scene_video_readiness_verifier_receipt_path=scene_video_verifier,
         scene_video_provider_refresh_packet_path=scene_video_provider_refresh_packet,
@@ -2409,6 +2578,10 @@ def test_gold_status_prefers_scene_video_runtime_status_receipt_for_provider_run
     browser_3d_gate = _write_json(tmp_path / "browser-3d-gate.json", _browser_3d_gate_payload())
     runtime_reconstruction = _write_json(tmp_path / "runtime-reconstruction.json", _runtime_reconstruction_payload())
     walkthrough_quality = _write_json(tmp_path / "walkthrough-quality.json", _walkthrough_quality_gate_payload())
+    walkthrough_provider_proof = _write_json(
+        tmp_path / "walkthrough-provider-proof.json",
+        _walkthrough_provider_proof_payload(),
+    )
     scene_video = _write_json(tmp_path / "scene-video-readiness.json", _scene_video_readiness_payload())
     scene_video_verifier = _write_json(tmp_path / "scene-video-readiness-verifier.json", _scene_video_readiness_verifier_payload())
     scene_video_runtime_status = _write_json(
@@ -2440,6 +2613,7 @@ def test_gold_status_prefers_scene_video_runtime_status_receipt_for_provider_run
         browser_3d_gate_receipt_path=browser_3d_gate,
         runtime_reconstruction_receipt_path=runtime_reconstruction,
         walkthrough_quality_receipt_path=walkthrough_quality,
+        walkthrough_provider_proof_receipt_path=walkthrough_provider_proof,
         scene_video_readiness_receipt_path=scene_video,
         scene_video_readiness_verifier_receipt_path=scene_video_verifier,
         scene_video_runtime_status_receipt_path=scene_video_runtime_status,
@@ -2487,6 +2661,7 @@ def test_gold_status_prefers_scene_video_runtime_status_receipt_for_provider_run
         browser_3d_gate_receipt_path=browser_3d_gate,
         runtime_reconstruction_receipt_path=runtime_reconstruction,
         walkthrough_quality_receipt_path=walkthrough_quality,
+        walkthrough_provider_proof_receipt_path=walkthrough_provider_proof,
         scene_video_readiness_receipt_path=scene_video,
         scene_video_readiness_verifier_receipt_path=scene_video_verifier,
         scene_video_provider_refresh_packet_path=scene_video_provider_refresh_packet,
@@ -3458,6 +3633,62 @@ def test_gold_status_reports_catalog_smoke_separately_from_provider_e2e(tmp_path
     assert receipt["provider_catalog_smoke"]["raw_status"] == "blocked_targeted_search_matrix_not_executed"
     assert receipt["provider_catalog_smoke"]["targeted_search_matrix_executed"] is False
     assert not any(row["area"] == "provider_catalog_smoke" for row in receipt["blockers"])
+
+
+def test_gold_status_blocks_when_provider_matrix_scope_lags_catalog(tmp_path: Path) -> None:
+    performance = _write_json(tmp_path / "performance.json", _performance_payload())
+    tour_controls = _write_json(
+        tmp_path / "tour-controls.json",
+        {
+            "status": "pass",
+            "provider_counts": {"matterport": 1, "3dvista": 1, "magicfit": 1},
+            "ready_provider_modes": ["matterport", "3dvista", "magicfit"],
+            "missing_provider_modes": [],
+        },
+    )
+    discovery = _write_json(
+        tmp_path / "discovery.json",
+        {"status": "ready", "import_count": 2, "rejected_count": 0},
+    )
+    repair_canary = _write_json(
+        tmp_path / "repair.json",
+        {
+            "status": "pass",
+            "run_status": "completed_partial",
+            "source_repair_status": "returned",
+            "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+        },
+    )
+    matrix_payload = _provider_matrix_payload()
+    matrix_payload["targeted_search_matrix"] = [
+        {"country_code": "AT", "provider": "willhaben", "status": "pass"},
+    ]
+    catalog_payload = _provider_catalog_payload()
+    catalog_payload["targeted_search_matrix"] = [
+        {"country_code": "AT", "provider": "willhaben", "status": "planned"},
+        {"country_code": "AT", "provider": "glorit_at", "status": "planned"},
+    ]
+    provider_matrix = _write_json(tmp_path / "provider-matrix.json", matrix_payload)
+    provider_catalog = _write_json(tmp_path / "provider-catalog.json", catalog_payload)
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=performance,
+        tour_control_receipt_path=tour_controls,
+        export_discovery_receipt_path=discovery,
+        repair_canary_receipt_path=repair_canary,
+        provider_catalog_receipt_path=provider_catalog,
+        provider_matrix_receipt_path=provider_matrix,
+    )
+
+    blocker = next(
+        row for row in receipt["blockers"]
+        if row["area"] == "provider_targeted_search_matrix"
+    )
+    assert receipt["status"] == "blocked"
+    assert receipt["provider_matrix"]["catalog_scope_ok"] is False
+    assert blocker["catalog_scope"]["missing_providers"] == [
+        {"country_code": "AT", "provider": "glorit_at"},
+    ]
 
 
 def test_gold_status_blocks_when_provider_catalog_smoke_fails(tmp_path: Path) -> None:

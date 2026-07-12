@@ -27,6 +27,7 @@ Server = uvicorn.Server
 
 from app.api.app import create_app
 from scripts import generate_property_reconstruction as reconstruction_script
+from scripts.propertyquarry_playwright_runtime import playwright_chromium_launch_kwargs
 
 
 def _free_port() -> int:
@@ -460,6 +461,8 @@ def _canvas_visual_metrics(page, selector: str) -> dict[str, object]:
         "frame_count": float(metrics.get("frameCount") or 0),
         "wall_rect_count": float(metrics.get("wallRectCount") or 0),
         "wall_mesh_count": float(metrics.get("wallMeshCount") or 0),
+        "cutaway_wall_count": float(metrics.get("cutawayWallCount") or 0),
+        "hidden_cutaway_wall_count": float(metrics.get("hiddenCutawayWallCount") or 0),
         "visible_wall_count": float(metrics.get("visibleWallCount") or 0),
         "route_stop_count": float(metrics.get("routeStopCount") or 0),
         "active_route_index": float(0 if metrics.get("activeRouteIndex") is None else metrics.get("activeRouteIndex")),
@@ -476,12 +479,15 @@ def _canvas_visual_metrics(page, selector: str) -> dict[str, object]:
         "photo_panel_group_visible": bool(metrics.get("photoPanelGroupVisible")),
         "hotspot_count": float(metrics.get("hotspotCount") or 0),
         "visible_hotspot_count": float(metrics.get("visibleHotspotCount") or 0),
+        "staging_object_count": float(metrics.get("stagingObjectCount") or 0),
+        "visible_staging_object_count": float(metrics.get("visibleStagingObjectCount") or 0),
         "photo_panel_count": float(metrics.get("photoPanelCount") or 0),
         "loaded_photo_texture_count": float(metrics.get("loadedPhotoTextureCount") or 0),
         "visible_photo_panel_count": float(metrics.get("visiblePhotoPanelCount") or 0),
         "scene_child_count": float(metrics.get("sceneChildCount") or 0),
         "projected_coverage_pct": float(metrics.get("projectedCoveragePct") or 0),
         "projected_photo_coverage_pct": float(metrics.get("projectedPhotoCoveragePct") or 0),
+        "projected_staging_coverage_pct": float(metrics.get("projectedStagingCoveragePct") or 0),
         "max_projected_wall_pct": float(metrics.get("maxProjectedWallPct") or 0),
         "render_calls": float(metrics.get("renderCalls") or 0),
         "render_triangles": float(metrics.get("renderTriangles") or 0),
@@ -615,6 +621,8 @@ def _normalized_metrics(metrics):
         "frame_count": float(metrics.get("frameCount") or 0),
         "wall_rect_count": float(metrics.get("wallRectCount") or 0),
         "wall_mesh_count": float(metrics.get("wallMeshCount") or 0),
+        "cutaway_wall_count": float(metrics.get("cutawayWallCount") or 0),
+        "hidden_cutaway_wall_count": float(metrics.get("hiddenCutawayWallCount") or 0),
         "visible_wall_count": float(metrics.get("visibleWallCount") or 0),
         "route_stop_count": float(metrics.get("routeStopCount") or 0),
         "active_route_index": float(0 if metrics.get("activeRouteIndex") is None else metrics.get("activeRouteIndex")),
@@ -631,12 +639,15 @@ def _normalized_metrics(metrics):
         "photo_panel_group_visible": bool(metrics.get("photoPanelGroupVisible")),
         "hotspot_count": float(metrics.get("hotspotCount") or 0),
         "visible_hotspot_count": float(metrics.get("visibleHotspotCount") or 0),
+        "staging_object_count": float(metrics.get("stagingObjectCount") or 0),
+        "visible_staging_object_count": float(metrics.get("visibleStagingObjectCount") or 0),
         "photo_panel_count": float(metrics.get("photoPanelCount") or 0),
         "loaded_photo_texture_count": float(metrics.get("loadedPhotoTextureCount") or 0),
         "visible_photo_panel_count": float(metrics.get("visiblePhotoPanelCount") or 0),
         "scene_child_count": float(metrics.get("sceneChildCount") or 0),
         "projected_coverage_pct": float(metrics.get("projectedCoveragePct") or 0),
         "projected_photo_coverage_pct": float(metrics.get("projectedPhotoCoveragePct") or 0),
+        "projected_staging_coverage_pct": float(metrics.get("projectedStagingCoveragePct") or 0),
         "max_projected_wall_pct": float(metrics.get("maxProjectedWallPct") or 0),
         "render_calls": float(metrics.get("renderCalls") or 0),
         "render_triangles": float(metrics.get("renderTriangles") or 0),
@@ -692,7 +703,11 @@ def _viewer_dom_click(page, selector):
 
 
 with sync_playwright() as playwright:
-    browser = playwright.chromium.launch(headless=True)
+    launch_kwargs = {"headless": True}
+    chromium_executable = os.environ.get("PROPERTYQUARRY_PLAYWRIGHT_CHROMIUM_EXECUTABLE", "").strip()
+    if chromium_executable:
+        launch_kwargs["executable_path"] = chromium_executable
+    browser = playwright.chromium.launch(**launch_kwargs)
     page = browser.new_page(viewport={"width": 1440, "height": 960})
     console_errors = []
     page_errors = []
@@ -866,6 +881,47 @@ def public_tour_browser_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
         ),
         encoding="utf-8",
     )
+    provider_slug = "real-browser-3dvista-tour"
+    provider_bundle_dir = bundle_root / provider_slug
+    provider_bundle_dir.mkdir(parents=True)
+    for asset_name in ("floorplan-01.png", "tour.mp4", "scene-01.png"):
+        shutil.copy2(bundle_dir / asset_name, provider_bundle_dir / asset_name)
+    three_d_vista_dir = provider_bundle_dir / "3dvista"
+    three_d_vista_dir.mkdir()
+    (three_d_vista_dir / "index.htm").write_text(
+        "<!doctype html><html><body><div id='tour-viewer'>3D tour ready</div>"
+        "<script>window.TDVPlayer = { ready: true };</script></body></html>",
+        encoding="utf-8",
+    )
+    provider_manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
+    provider_manifest.update(
+        {
+            "slug": provider_slug,
+            "title": "Real Browser 3DVista Tour",
+            "display_title": "Real Browser 3DVista Tour",
+            "hosted_url": f"https://propertyquarry.com/tours/{provider_slug}",
+            "public_url": f"https://propertyquarry.com/tours/{provider_slug}",
+            "three_d_vista_entry_relpath": "3dvista/index.htm",
+            "three_d_vista_import": {"source_project": "propertyquarry"},
+            "three_d_vista_white_label_proof": {
+                "source_project": "propertyquarry",
+                "private_viewer_verified": True,
+                "non_trial_export_verified": True,
+                "propertyquarry_tour_metadata": True,
+                "trial_branding_checked": True,
+                "trial_branding_present": False,
+            },
+            "three_d_vista_browser_render_proof": {
+                "provider": "3dvista",
+                "status": "pass",
+                "rendered_viewer": True,
+            },
+        }
+    )
+    (provider_bundle_dir / "tour.json").write_text(
+        json.dumps(provider_manifest, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
     video_slug = "real-browser-video-tour"
     video_bundle_dir = bundle_root / video_slug
     video_bundle_dir.mkdir(parents=True, exist_ok=True)
@@ -941,6 +997,7 @@ def public_tour_browser_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
         yield {
             "base_url": browser_base_url,
             "slug": slug,
+            "provider_slug": provider_slug,
             "video_slug": video_slug,
             "generated_reconstruction_slug": generated_reconstruction_slug,
             "generated_reconstruction_viewer_url": generated_reconstruction_viewer_url,
@@ -1163,6 +1220,7 @@ def generated_reconstruction_viewer_server(
     bundle_dir = bundle_root / slug
     reconstruction_dir = bundle_dir / "generated-reconstruction"
     reconstruction_dir.mkdir(parents=True, exist_ok=True)
+    (bundle_root / "favicon.ico").write_bytes(b"\x00")
     floorplan_path = reconstruction_dir / "source-floorplan.png"
     photo_paths = [
         reconstruction_dir / "photo-01.jpg",
@@ -1709,8 +1767,8 @@ def generated_reconstruction_expanded_walkthrough_server(
 @pytest.fixture()
 def browser() -> Iterator[Browser]:
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(
-            headless=True,
+        launch_kwargs = playwright_chromium_launch_kwargs(
+            playwright,
             args=[
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
@@ -1721,6 +1779,7 @@ def browser() -> Iterator[Browser]:
                 "--autoplay-policy=no-user-gesture-required",
             ],
         )
+        browser = playwright.chromium.launch(**launch_kwargs)
         try:
             yield browser
         finally:
@@ -2036,7 +2095,7 @@ def test_public_tour_provider_access_shell_autoplay_without_pane_decodes_and_use
     context.close()
 
 
-def test_public_tour_provider_control_is_mobile_safe_and_opens_vendor_immediately(
+def test_public_tour_provider_control_is_mobile_safe_and_opens_verified_3dvista_immediately(
     public_tour_browser_server: dict[str, str],
     browser: Browser,
 ) -> None:
@@ -2047,21 +2106,29 @@ def test_public_tour_provider_control_is_mobile_safe_and_opens_vendor_immediatel
     page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
     url = (
         f"{public_tour_browser_server['base_url']}/tours/"
-        f"{public_tour_browser_server['slug']}/control/matterport?pane=floorplan-pane"
+        f"{public_tour_browser_server['provider_slug']}/control/3dvista?pane=floorplan-pane"
     )
 
-    page.goto(url, wait_until="networkidle")
+    response = page.goto(url, wait_until="networkidle")
+    assert response is not None
+    assert response.status == 200
+    csp = response.headers.get("content-security-policy", "")
+    assert "frame-src 'self' https://3dvista.com https://*.3dvista.com;" in csp
+    assert "matterport" not in csp.lower()
     page.locator("h1").wait_for()
     assert "Property Tour" not in page.locator("body").inner_text()
-    assert page.locator(".badge").inner_text().lower() == "matterport control"
+    assert page.locator(".badge").inner_text().lower() == "3dvista control"
     assert "MagicFit" not in page.locator("body").inner_text()
     assert page.locator("#load-provider").count() == 0
-    assert page.locator(".provider-frame").get_attribute("src") == "https://my.matterport.com/show/?m=REALBROWSER123"
-    assert page.locator(".provider-frame").get_attribute("data-src") == "https://my.matterport.com/show/?m=REALBROWSER123"
+    provider_frame = page.locator("#provider-frame")
+    expected_src = f"/tours/3dvista/{public_tour_browser_server['provider_slug']}/3dvista/index.htm"
+    assert provider_frame.get_attribute("src") == expected_src
+    assert provider_frame.get_attribute("data-src") == expected_src
+    assert "matterport" not in page.content().lower()
     assert page.locator("#tour-video").count() == 0
     assert page.get_by_role("link", name="Open walkthrough").is_visible()
     assert page.get_by_role("link", name="Open walkthrough").get_attribute("href").endswith(
-        f"/tours/{public_tour_browser_server['slug']}/walkthrough"
+        f"/tours/{public_tour_browser_server['provider_slug']}/walkthrough"
     )
     assert page.locator("#stage-role").inner_text().lower() == "floorplan"
     floorplan_image = page.locator("#stage-image")
@@ -2084,6 +2151,112 @@ def test_public_tour_provider_control_is_mobile_safe_and_opens_vendor_immediatel
         or "decode" in message.lower()
         or "media" in message.lower()
     ]
+    context.close()
+
+
+def test_public_tour_historical_matterport_control_is_retired(
+    public_tour_browser_server: dict[str, str],
+    browser: Browser,
+) -> None:
+    context = _new_context(browser, mobile=True)
+    matterport_requests: list[str] = []
+    context.on(
+        "request",
+        lambda request: matterport_requests.append(request.url)
+        if str(urllib.parse.urlparse(request.url).hostname or "").lower().endswith("matterport.com")
+        else None,
+    )
+    page = context.new_page()
+    response = page.goto(
+        f"{public_tour_browser_server['base_url']}/tours/"
+        f"{public_tour_browser_server['slug']}/control/matterport",
+        wait_until="domcontentloaded",
+    )
+
+    assert response is not None
+    assert response.status == 404
+    assert page.locator("#provider-frame").count() == 0
+    assert matterport_requests == []
+    context.close()
+
+
+def test_public_tour_provider_control_accessibility_and_recovery_journey(
+    public_tour_browser_server: dict[str, str],
+    browser: Browser,
+) -> None:
+    context = browser.new_context(
+        viewport={"width": 390, "height": 844},
+        is_mobile=True,
+        has_touch=True,
+        reduced_motion="reduce",
+    )
+    _stub_matterport_provider(context)
+    page = context.new_page()
+    url = (
+        f"{public_tour_browser_server['base_url']}/tours/"
+        f"{public_tour_browser_server['provider_slug']}/control/3dvista"
+    )
+
+    page.goto(url, wait_until="networkidle")
+    page.wait_for_function(
+        "() => document.querySelector('.provider-frame-wrap')?.dataset.providerState === 'ready'"
+    )
+    assert page.locator("html").get_attribute("lang") == "en"
+    assert page.get_by_role("main").count() == 1
+    provider_frame = page.locator("#provider-frame")
+    assert provider_frame.get_attribute("title")
+    assert provider_frame.get_attribute("aria-label").startswith("3DVista Control:")
+    assert page.locator("[data-provider-status]").get_attribute("role") == "status"
+    assert page.evaluate("() => matchMedia('(prefers-reduced-motion: reduce)').matches") is True
+
+    page.keyboard.press("Tab")
+    assert page.evaluate("() => document.activeElement?.classList.contains('skip-link')") is True
+    focus_outline = page.evaluate(
+        "() => getComputedStyle(document.activeElement).outlineStyle"
+    )
+    assert focus_outline != "none"
+
+    fullscreen_link = page.get_by_role("link", name="Full screen")
+    assert fullscreen_link.is_visible()
+    fullscreen_link.click()
+    page.wait_for_url("**?fullscreen=1")
+    page.wait_for_function(
+        "() => document.querySelector('.provider-frame-wrap')?.dataset.providerState === 'ready'"
+    )
+    back_link = page.get_by_role("link", name="Back")
+    assert back_link.is_visible()
+    assert back_link.get_attribute("href").endswith(
+        f"/tours/{public_tour_browser_server['provider_slug']}"
+    )
+    _assert_no_horizontal_overflow(page)
+    _assert_visible_controls_meet_mobile_target_floor(page)
+    back_link.click()
+    page.wait_for_url(url)
+    page.wait_for_function(
+        "() => document.querySelector('.provider-frame-wrap')?.dataset.providerState === 'ready'"
+    )
+
+    page.evaluate("() => window.dispatchEvent(new Event('offline'))")
+    recovery = page.locator("[data-provider-recovery]")
+    assert recovery.is_visible()
+    assert "3D tour unavailable" in recovery.inner_text()
+    retry_button = page.get_by_role("button", name="Retry")
+    direct_link = page.get_by_role("link", name="Open directly")
+    assert retry_button.is_visible()
+    assert direct_link.is_visible()
+    assert direct_link.get_attribute("href").endswith(
+        f"/tours/3dvista/{public_tour_browser_server['provider_slug']}/3dvista/index.htm"
+    )
+    assert "matterport" not in page.content().lower()
+    _assert_no_horizontal_overflow(page)
+    _assert_visible_controls_meet_mobile_target_floor(page)
+
+    retry_button.click()
+    page.wait_for_function(
+        "() => document.querySelector('.provider-frame-wrap')?.dataset.providerState === 'ready'"
+    )
+    assert recovery.is_hidden()
+    assert page.locator(".provider-frame-wrap").get_attribute("aria-busy") == "false"
     context.close()
 
 
@@ -2258,20 +2431,26 @@ def test_generated_reconstruction_launch_page_renders_honest_public_shell(
     context.close()
 
 
-def test_generated_reconstruction_layout_preview_redirects_to_live_matterport_when_available(
+def test_generated_reconstruction_historical_matterport_never_hijacks_public_layout_preview(
     generated_reconstruction_matterport_server: dict[str, str],
     browser: Browser,
 ) -> None:
     context = _new_context(browser)
+    external_matterport_requests: list[str] = []
+    context.on(
+        "request",
+        lambda request: external_matterport_requests.append(request.url)
+        if str(urllib.parse.urlparse(request.url).hostname or "").lower().endswith("matterport.com")
+        else None,
+    )
     page = context.new_page()
     slug = str(generated_reconstruction_matterport_server["slug"])
     launch_url = f"{generated_reconstruction_matterport_server['base_url']}/tours/{slug}"
 
     response = page.goto(launch_url, wait_until="domcontentloaded")
     assert response is not None
-    assert response.status == 200
-    assert page.url.endswith(f"/tours/{slug}/control/matterport")
-    assert "matterport control" in page.inner_text("body").lower()
+    assert response.status == 404
+    assert page.locator("#provider-frame").count() == 0
 
     preview_page = context.new_page()
     layout_response = preview_page.goto(
@@ -2279,9 +2458,10 @@ def test_generated_reconstruction_layout_preview_redirects_to_live_matterport_wh
         wait_until="domcontentloaded",
     )
     assert layout_response is not None
-    assert layout_response.status == 200
-    assert preview_page.url.endswith(f"/tours/{slug}/control/matterport")
-    assert "matterport control" in preview_page.inner_text("body").lower()
+    assert layout_response.status == 404
+    assert preview_page.url.endswith(f"/tours/{slug}/layout-preview")
+    assert preview_page.locator("#provider-frame").count() == 0
+    assert external_matterport_requests == []
     context.close()
 
 
@@ -2386,21 +2566,27 @@ def test_generated_reconstruction_viewer_renders_routeable_layout_in_real_browse
     assert overview_metrics["frame_count"] >= 2
     assert overview_metrics["wall_rect_count"] >= 4
     assert overview_metrics["wall_mesh_count"] == overview_metrics["wall_rect_count"]
+    assert overview_metrics["cutaway_wall_count"] >= 1
+    assert overview_metrics["hidden_cutaway_wall_count"] >= 1
     assert overview_metrics["visible_wall_count"] >= 1
+    assert overview_metrics["visible_wall_count"] < overview_metrics["wall_mesh_count"]
     assert overview_metrics["route_stop_count"] == 3
     assert overview_metrics["active_route_index"] == 0
     assert overview_metrics["view_mode"] == "overview"
-    assert overview_metrics["wall_opacity"] >= 0.99
-    assert overview_metrics["wall_height_scale"] == 1.0
+    assert 0.7 <= overview_metrics["wall_opacity"] < 0.95
+    assert 0.75 <= overview_metrics["wall_height_scale"] < 0.9
     assert overview_metrics["photo_panel_group_visible"] is True
     assert overview_metrics["hotspot_count"] == 3
     assert overview_metrics["visible_hotspot_count"] >= 1
+    assert overview_metrics["staging_object_count"] >= overview_metrics["route_stop_count"] * 2
+    assert overview_metrics["visible_staging_object_count"] >= overview_metrics["route_stop_count"]
     assert overview_metrics["photo_panel_count"] == 2
     assert overview_metrics["loaded_photo_texture_count"] == overview_metrics["photo_panel_count"]
     assert overview_metrics["visible_photo_panel_count"] >= 1
     assert overview_metrics["scene_child_count"] >= overview_metrics["wall_mesh_count"] + 4
     assert overview_metrics["projected_coverage_pct"] >= 0.5
     assert overview_metrics["projected_photo_coverage_pct"] >= 0.1
+    assert overview_metrics["projected_staging_coverage_pct"] >= 0.03
     assert overview_metrics["max_projected_wall_pct"] >= 0.1
     assert overview_metrics["render_calls"] > 0
     assert overview_metrics["render_triangles"] > 0
@@ -2410,6 +2596,10 @@ def test_generated_reconstruction_viewer_renders_routeable_layout_in_real_browse
     dollhouse_metrics = dict(probe["dollhouse_metrics"])
     assert dollhouse_metrics["view_mode"] == "dollhouse"
     assert dollhouse_metrics["is_transitioning"] is False
+    assert dollhouse_metrics["cutaway_wall_count"] >= overview_metrics["cutaway_wall_count"]
+    assert dollhouse_metrics["hidden_cutaway_wall_count"] >= overview_metrics["hidden_cutaway_wall_count"]
+    assert dollhouse_metrics["staging_object_count"] == overview_metrics["staging_object_count"]
+    assert dollhouse_metrics["visible_staging_object_count"] >= overview_metrics["route_stop_count"]
     assert dollhouse_metrics["wall_opacity"] < 0.6
     assert dollhouse_metrics["wall_height_scale"] < 0.8
     assert dollhouse_metrics["photo_panel_group_visible"] is False

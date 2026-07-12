@@ -7497,6 +7497,68 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
     assert client.get(f"/tours/files/{slug}/magicfit-still-private.jpg").status_code == 404
 
 
+def test_public_tour_routes_serve_responsive_walkthrough_variants(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    slug = "danube-flats-responsive-walkthrough"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "living-room.jpg").write_bytes(b"fake-jpeg-data")
+    desktop_bytes = b"desktop-1080p60-video"
+    mobile_bytes = b"mobile-720p60-video"
+    (bundle_dir / "walkthrough-desktop.mp4").write_bytes(desktop_bytes)
+    (bundle_dir / "walkthrough-mobile.mp4").write_bytes(mobile_bytes)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "title": "Danube Flats",
+                "display_title": "Danube Flats",
+                "video_relpath": "walkthrough-desktop.mp4",
+                "video_mobile_relpath": "walkthrough-mobile.mp4",
+                "video_provider": "magicfit",
+                "video_coverage_proof": "boundary_verified_frame_continuation",
+                "scenes": [
+                    {
+                        "name": "Living room",
+                        "role": "photo",
+                        "asset_relpath": "living-room.jpg",
+                        "mime_type": "image/jpeg",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    client = _client(principal_id="exec-public-tour-responsive-walkthrough")
+
+    page = client.get(f"/tours/{slug}", headers={"host": "propertyquarry.com"})
+    assert page.status_code == 200
+    mobile_url = f"/tours/files/{slug}/walkthrough-mobile.mp4"
+    desktop_url = f"/tours/{slug}/walkthrough"
+    mobile_source = f'<source src="{mobile_url}"'
+    desktop_source = f'<source src="{desktop_url}"'
+    assert page.text.index(mobile_source) < page.text.index(desktop_source)
+    assert 'media="(max-width: 760px)"' in page.text
+
+    public_payload = client.get(f"/tours/{slug}.json").json()
+    assert public_payload["video_url"] == f"/tours/files/{slug}/walkthrough-desktop.mp4"
+    assert public_payload["video_mobile_url"] == mobile_url
+
+    desktop = client.get(desktop_url)
+    assert desktop.status_code == 200
+    assert desktop.content == desktop_bytes
+    mobile = client.get(mobile_url)
+    assert mobile.status_code == 200
+    assert mobile.content == mobile_bytes
+    mobile_range = client.get(mobile_url, headers={"range": "bytes=0-5"})
+    assert mobile_range.status_code == 206
+    assert mobile_range.content == mobile_bytes[:6]
+
+
 def test_public_tour_routes_serve_registered_preview_assets(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -7808,7 +7870,7 @@ def test_generated_reconstruction_bundle_does_not_publish_fake_tour_viewer(
     assert client.get(f"/tours/files/{slug}/generated-reconstruction/private-source.jpg").status_code == 404
 
 
-def test_generated_reconstruction_viewer_redirects_directly_to_real_tour_control(
+def test_generated_reconstruction_viewer_falls_back_when_provider_control_is_retired(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -7841,7 +7903,7 @@ def test_generated_reconstruction_viewer_redirects_directly_to_real_tour_control
     viewer = client.get(f"/tours/files/{slug}/generated-reconstruction/viewer.html", follow_redirects=False)
 
     assert viewer.status_code == 302
-    assert viewer.headers["location"] == f"/tours/{slug}/control/matterport"
+    assert viewer.headers["location"] == f"/tours/{slug}"
 
 
 def _write_shell_ready_generated_reconstruction_fixture(bundle_dir: Path) -> dict[str, object]:
@@ -8485,7 +8547,7 @@ def test_public_tour_routes_embed_live_360_source_when_present(
     assert ">Source<" not in page.text
 
 
-def test_public_tour_routes_allow_matterport_thumb_preview_for_live_360(
+def test_public_tour_routes_keep_matterport_thumb_but_retire_interactive_control(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -8529,12 +8591,13 @@ def test_public_tour_routes_allow_matterport_thumb_preview_for_live_360(
     entry = client.get(f"/tours/{slug}", headers={"host": "propertyquarry.com"}, follow_redirects=False)
     page = client.get(f"/tours/{slug}", headers={"host": "propertyquarry.com"})
 
-    assert entry.status_code == 302
-    assert entry.headers["location"] == f"/tours/{slug}/control/matterport"
+    assert entry.status_code == 200
     assert page.status_code == 200
     assert "Matterport Live 360" in page.text
-    assert 'src="https://my.matterport.com/show/?m=BmVWxvZQZLq"' in page.text
-    assert "Explore the space." in page.text
+    assert 'src="https://my.matterport.com/api/v2/player/models/BmVWxvZQZLq/thumb/"' in page.text
+    assert 'src="https://my.matterport.com/show/?m=BmVWxvZQZLq"' not in page.text
+    assert f"/tours/{slug}/control/matterport" not in page.text
+    assert "Open 3D tour" not in page.text
     assert "Open fullscreen" not in page.text
     assert "Property Tour" not in page.text
     assert "Load 3D tour" not in page.text
@@ -8712,6 +8775,120 @@ def test_public_tour_hides_3dvista_link_without_browser_render_proof_but_keeps_p
     assert control.status_code == 200
     assert f"/tours/3dvista/{slug}/3dvista/index.htm" in control.text
     assert asset.status_code == 200
+
+
+def test_public_tour_hides_external_3dvista_without_browser_render_proof_but_keeps_probe_control(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    slug = "external-3dvista-unrendered"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "scene-01.jpg").write_bytes(b"fake-jpeg-data")
+    external_url = "https://show.3dvista.com/propertyquarry/unrendered"
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "title": "External 3DVista without proof",
+                "display_title": "External 3DVista without proof",
+                "hosted_url": f"https://propertyquarry.com/tours/{slug}",
+                "source_virtual_tour_url": external_url,
+                "three_d_vista_import": {"source_project": "propertyquarry"},
+                "three_d_vista_white_label_proof": {
+                    "source_project": "propertyquarry",
+                    "private_viewer_verified": True,
+                    "non_trial_export_verified": True,
+                    "propertyquarry_tour_metadata": True,
+                    "trial_branding_checked": True,
+                    "trial_branding_present": False,
+                },
+                "scenes": [
+                    {
+                        "name": "Panorama preview",
+                        "role": "photo",
+                        "asset_relpath": "scene-01.jpg",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    client = _client(principal_id="exec-public-tour-external-3dvista-unrendered")
+    page = client.get(f"/tours/{slug}", headers={"host": "propertyquarry.com"})
+    control = client.get(f"/tours/{slug}/control/3dvista", headers={"host": "propertyquarry.com"})
+
+    assert page.status_code == 200
+    assert external_url not in page.text
+    assert "Open 3D tour" not in page.text
+    assert f"/tours/{slug}/control/3dvista" not in page.text
+    assert control.status_code == 200
+    assert external_url in control.text
+
+
+def test_public_tour_exposes_external_3dvista_only_with_browser_render_proof(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    slug = "external-3dvista-rendered"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "scene-01.jpg").write_bytes(b"fake-jpeg-data")
+    external_url = "https://show.3dvista.com/propertyquarry/rendered"
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "title": "External 3DVista with proof",
+                "display_title": "External 3DVista with proof",
+                "hosted_url": f"https://propertyquarry.com/tours/{slug}",
+                "source_virtual_tour_url": external_url,
+                "three_d_vista_import": {"source_project": "propertyquarry"},
+                "three_d_vista_white_label_proof": {
+                    "source_project": "propertyquarry",
+                    "private_viewer_verified": True,
+                    "non_trial_export_verified": True,
+                    "propertyquarry_tour_metadata": True,
+                    "trial_branding_checked": True,
+                    "trial_branding_present": False,
+                },
+                "three_d_vista_browser_render_proof": {
+                    "provider": "3dvista",
+                    "status": "pass",
+                    "rendered_viewer": True,
+                },
+                "scenes": [
+                    {
+                        "name": "Panorama preview",
+                        "role": "photo",
+                        "asset_relpath": "scene-01.jpg",
+                    }
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    client = _client(principal_id="exec-public-tour-external-3dvista-rendered")
+    entry = client.get(f"/tours/{slug}", headers={"host": "propertyquarry.com"}, follow_redirects=False)
+    page = client.get(
+        f"/tours/{slug}?pane=overview-pane",
+        headers={"host": "propertyquarry.com"},
+    )
+
+    assert entry.status_code == 302
+    assert entry.headers["location"] == f"/tours/{slug}/control/3dvista"
+    assert page.status_code == 200
+    assert f'src="{external_url}"' in page.text
+    assert "Open 3D tour" in page.text
+    assert f"/tours/{slug}/control/3dvista" in page.text
 
 
 def test_public_tour_routes_render_pure_360_cube_with_continuing_links(

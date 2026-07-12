@@ -39,6 +39,19 @@ except Exception:
     preferred_public_tour_root = None  # type: ignore[assignment]
     running_container_public_tour_dir = None  # type: ignore[assignment]
 
+try:
+    from scripts.propertyquarry_playwright_runtime import (
+        playwright_chromium_capture_available as _playwright_chromium_capture_available,
+        playwright_chromium_executable as _playwright_chromium_executable,
+        playwright_chromium_launch_kwargs as _playwright_chromium_launch_kwargs,
+    )
+except ModuleNotFoundError:
+    from propertyquarry_playwright_runtime import (  # type: ignore[no-redef]
+        playwright_chromium_capture_available as _playwright_chromium_capture_available,
+        playwright_chromium_executable as _playwright_chromium_executable,
+        playwright_chromium_launch_kwargs as _playwright_chromium_launch_kwargs,
+    )
+
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff"}
 VIEWER_VERSION = "propertyquarry_3d_tour_viewer_v3"
@@ -395,12 +408,57 @@ def _clamp_float(value: float, lower: float, upper: float) -> float:
     return max(lower, min(upper, value))
 
 
+def _route_anchor_from_floorplan_mask(
+    *,
+    desired_x: float,
+    desired_z: float,
+    wall_mask: list[list[int]],
+    used_cells: set[tuple[int, int]],
+) -> tuple[float, float] | None:
+    rows = len(wall_mask)
+    cols = len(wall_mask[0]) if rows else 0
+    if not rows or not cols:
+        return None
+
+    def _open_neighbor_count(row: int, col: int, radius: int = 2) -> int:
+        open_neighbors = 0
+        for near_row in range(max(0, row - radius), min(rows, row + radius + 1)):
+            for near_col in range(max(0, col - radius), min(cols, col + radius + 1)):
+                if near_row == row and near_col == col:
+                    continue
+                if not wall_mask[near_row][near_col]:
+                    open_neighbors += 1
+        return open_neighbors
+
+    candidates: list[tuple[float, int, int]] = []
+    for row in range(rows):
+        for col in range(cols):
+            if wall_mask[row][col]:
+                continue
+            if (row, col) in used_cells:
+                continue
+            candidate_x = ((col + 0.5) / cols) - 0.5
+            candidate_z = ((row + 0.5) / rows) - 0.5
+            distance = math.dist((candidate_x, candidate_z), (desired_x, desired_z))
+            clearance_bonus = _open_neighbor_count(row, col) * 0.012
+            edge_penalty = 0.0
+            if row in {0, rows - 1} or col in {0, cols - 1}:
+                edge_penalty = 0.16
+            candidates.append((distance - clearance_bonus + edge_penalty, row, col))
+    if not candidates:
+        return None
+    _, selected_row, selected_col = min(candidates, key=lambda item: item[0])
+    used_cells.add((selected_row, selected_col))
+    return (((selected_col + 0.5) / cols) - 0.5, ((selected_row + 0.5) / rows) - 0.5)
+
+
 def _reconstruction_walkable_scene(
     *,
     route_labels: list[str] | tuple[str, ...],
     width_m: float,
     depth_m: float,
     height_m: float,
+    geometry: dict[str, object] | None = None,
 ) -> dict[str, object]:
     normalized_labels = [
         _compact_route_label(label)
@@ -433,8 +491,14 @@ def _reconstruction_walkable_scene(
         (0.00, -0.26),
         (-0.22, -0.18),
     ]
+    wall_mask = (
+        [list(row) for row in list((geometry or {}).get("wall_mask") or []) if isinstance(row, list)]
+        if isinstance(geometry, dict)
+        else []
+    )
     stop_positions: list[tuple[float, float]] = []
     used_positions: list[tuple[float, float]] = []
+    used_floorplan_cells: set[tuple[int, int]] = set()
     for index, label in enumerate(normalized_labels):
         kind = _route_label_kind(label)
         base_x, base_z = semantic_anchors.get(kind, semantic_anchors["generic"])
@@ -443,6 +507,14 @@ def _reconstruction_walkable_scene(
             base_x = max(-0.32, base_x - bedroom_offset)
         elif kind == "generic":
             base_x, base_z = fallback_anchors[index % len(fallback_anchors)]
+        floorplan_anchor = _route_anchor_from_floorplan_mask(
+            desired_x=base_x,
+            desired_z=base_z,
+            wall_mask=wall_mask,
+            used_cells=used_floorplan_cells,
+        )
+        if floorplan_anchor is not None:
+            base_x, base_z = floorplan_anchor
         candidate = (base_x, base_z)
         if any(abs(candidate[0] - used_x) < 0.06 and abs(candidate[1] - used_z) < 0.06 for used_x, used_z in used_positions):
             fallback_x, fallback_z = fallback_anchors[index % len(fallback_anchors)]
@@ -2171,6 +2243,36 @@ def _video_duration_seconds(path: Path) -> float:
         return 0.0
 
 
+def _declutter_floorplan_stop_positions(
+    positions: list[tuple[float, float]],
+) -> list[tuple[float, float]]:
+    """Keep 44px route targets separate on the viewer's 4:3 floorplan map."""
+    placed: list[tuple[float, float]] = []
+    x_step = 16.0
+    y_step = 21.0
+    for raw_left, raw_top in positions:
+        candidates: list[tuple[float, float, float]] = []
+        seen: set[tuple[float, float]] = set()
+        for grid_x in range(-6, 7):
+            for grid_y in range(-5, 6):
+                left = round(_clamp_float(raw_left + (grid_x * x_step), 8.0, 92.0), 2)
+                top = round(_clamp_float(raw_top + (grid_y * y_step), 10.0, 90.0), 2)
+                key = (left, top)
+                if key in seen:
+                    continue
+                seen.add(key)
+                distance = ((left - raw_left) ** 2) + ((top - raw_top) ** 2)
+                candidates.append((distance, left, top))
+        candidates.sort(key=lambda row: (row[0], abs(row[2] - raw_top), abs(row[1] - raw_left)))
+        selected = (round(raw_left, 2), round(raw_top, 2))
+        for _distance, left, top in candidates:
+            if all(abs(left - other_left) >= 15.5 or abs(top - other_top) >= 20.0 for other_left, other_top in placed):
+                selected = (left, top)
+                break
+        placed.append(selected)
+    return placed
+
+
 def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_controls_relpath: str) -> str:
     width_m = manifest["room_dimensions_m"]["width"]
     depth_m = manifest["room_dimensions_m"]["depth"]
@@ -2189,7 +2291,7 @@ def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_contr
     escaped_style = html.escape(style_label)
     style_copy = f'<span>{escaped_style}</span>' if escaped_style else ""
     floorplan_relpath = html.escape(str(dict(manifest.get("floorplan") or {}).get("relpath") or "source-floorplan.jpg"))
-    floorplan_stop_items: list[str] = []
+    floorplan_stop_rows: list[dict[str, object]] = []
     for index, stop in enumerate(route_stops):
         if not isinstance(stop, dict):
             continue
@@ -2203,14 +2305,53 @@ def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_contr
             _clamp_float((((float(focus.get("z") or 0.0) / max(float(depth_m), 0.001)) + 0.5) * 100.0), 10.0, 90.0),
             2,
         )
+        floorplan_stop_rows.append(
+            {
+                "index": index,
+                "label": label,
+                "source_left_pct": left_pct,
+                "source_top_pct": top_pct,
+            }
+        )
+    display_positions = _declutter_floorplan_stop_positions(
+        [
+            (float(row["source_left_pct"]), float(row["source_top_pct"]))
+            for row in floorplan_stop_rows
+        ]
+    )
+    floorplan_stop_items: list[str] = []
+    floorplan_leader_items: list[str] = []
+    floorplan_anchor_items: list[str] = []
+    for row, (display_left_pct, display_top_pct) in zip(floorplan_stop_rows, display_positions):
+        index = int(row["index"])
+        label = str(row["label"])
+        source_left_pct = float(row["source_left_pct"])
+        source_top_pct = float(row["source_top_pct"])
+        if abs(display_left_pct - source_left_pct) > 0.5 or abs(display_top_pct - source_top_pct) > 0.5:
+            floorplan_leader_items.append(
+                f'<line x1="{source_left_pct}" y1="{source_top_pct}" x2="{display_left_pct}" y2="{display_top_pct}" />'
+            )
+        floorplan_anchor_items.append(
+            f'<circle cx="{source_left_pct}" cy="{source_top_pct}" r="1.15" />'
+        )
         floorplan_stop_items.append(
             f"""
-        <button class="floorplan-stop" type="button" data-route-index="{index}" style="left:{left_pct}%;top:{top_pct}%;">
+        <button class="floorplan-stop" type="button" data-route-index="{index}" aria-label="Go to {label}" style="left:{display_left_pct}%;top:{display_top_pct}%;">
           <span class="floorplan-stop-index">{index + 1}</span>
           <span class="floorplan-stop-label">{label}</span>
         </button>"""
         )
     floorplan_stop_markup = "".join(floorplan_stop_items)
+    floorplan_route_overlay = (
+        f"""
+        <svg class="floorplan-route-overlay" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+          <polyline points="{' '.join(f'{row["source_left_pct"]},{row["source_top_pct"]}' for row in floorplan_stop_rows)}" />
+          {''.join(floorplan_leader_items)}
+          {''.join(floorplan_anchor_items)}
+        </svg>"""
+        if floorplan_stop_rows
+        else ""
+    )
     route_items = "\n".join(
         f'<button class="route-button" type="button" data-route-index="{index}">{html.escape(str(stop.get("label") or stop.get("room") or stop.get("name") or f"Stop {index + 1}"))}</button>'
         for index, stop in enumerate(route_stops)
@@ -2250,38 +2391,40 @@ def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_contr
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
   <title>Layout preview | PropertyQuarry</title>
   <style>
     :root {{
       color-scheme: light;
-      --ink:#17130c;
-      --muted:#766d5e;
-      --paper:#f6f0e5;
-      --panel:rgba(255,252,245,.78);
-      --line:rgba(54,42,27,.14);
-      --gold:#a77c2b;
-      --shadow:0 24px 70px rgba(68,47,24,.12);
+      --ink:#17201c;
+      --muted:#5f6b65;
+      --canvas:#e8eeeb;
+      --surface:#ffffff;
+      --panel:rgba(255,255,255,.94);
+      --line:#d5ddd8;
+      --accent:#146b5d;
+      --accent-soft:#e4f1ed;
+      --signal:#c85f43;
+      --shadow:0 12px 32px rgba(23,32,28,.1);
     }}
     * {{ box-sizing: border-box; }}
     body {{
       margin:0;
       min-height:100vh;
       font-family:Aptos, ui-sans-serif, system-ui, sans-serif;
-      background:
-        radial-gradient(circle at 18% 10%, rgba(255,255,255,.92), transparent 30%),
-        linear-gradient(135deg,#faf6ed 0%,#efe4d1 48%,#d9c4a5 100%);
+      background:#f2f5f3;
       color:var(--ink);
     }}
-    main {{ min-height:100vh; display:grid; grid-template-columns:minmax(0,1fr) 320px; gap:18px; padding:18px; }}
-    .stage {{ position:relative; min-height:0; }}
+    main {{ min-height:100vh; display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:0; padding:0; }}
+    .stage {{ position:relative; min-height:100vh; }}
     .viewport {{
       width:100%;
-      height:calc(100vh - 36px);
-      min-height:520px;
-      border:1px solid var(--line);
-      border-radius:28px;
-      background:linear-gradient(180deg,#fbf8f1,#e6d8bf);
-      box-shadow:var(--shadow);
+      height:100vh;
+      min-height:560px;
+      border:0;
+      border-radius:0;
+      background:var(--canvas);
+      box-shadow:none;
       overflow:hidden;
       touch-action:none;
     }}
@@ -2300,24 +2443,53 @@ def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_contr
     .route-hotspot {{
       position:absolute;
       transform:translate(-50%,-50%);
-      border:1px solid rgba(54,42,27,.14);
-      border-radius:999px;
-      min-height:34px;
-      padding:0 12px;
-      background:rgba(255,252,245,.94);
-      color:var(--ink);
+      width:44px;
+      height:44px;
+      border:0;
+      border-radius:50%;
+      padding:0;
+      background:transparent;
+      color:var(--accent);
+      display:grid;
+      place-items:center;
       font:inherit;
       font-size:12px;
       font-weight:700;
-      white-space:nowrap;
-      box-shadow:0 16px 32px rgba(52,36,17,.12);
       cursor:pointer;
       pointer-events:auto;
     }}
-    .route-hotspot[data-active="true"] {{
-      border-color:rgba(167,124,43,.52);
-      background:#fff5e2;
-      color:#8a6117;
+    .route-hotspot::before {{
+      content:"";
+      position:absolute;
+      inset:8px;
+      z-index:-1;
+      border:1px solid rgba(20,107,93,.38);
+      border-radius:50%;
+      background:rgba(255,255,255,.94);
+      box-shadow:0 8px 20px rgba(23,32,28,.14);
+    }}
+    .route-hotspot::after {{
+      content:attr(data-label);
+      position:absolute;
+      top:calc(50% + 20px);
+      left:50%;
+      transform:translateX(-50%);
+      padding:5px 8px;
+      border:1px solid var(--line);
+      border-radius:4px;
+      background:rgba(255,255,255,.96);
+      color:var(--ink);
+      box-shadow:0 8px 20px rgba(23,32,28,.12);
+      white-space:nowrap;
+      opacity:0;
+      pointer-events:none;
+    }}
+    .route-hotspot:hover::after,
+    .route-hotspot:focus-visible::after,
+    .route-hotspot[data-active="true"]::after {{ opacity:1; }}
+    .route-hotspot[data-active="true"]::before {{
+      border-color:var(--signal);
+      background:#fff3ef;
     }}
     .hud {{
       position:absolute;
@@ -2332,13 +2504,13 @@ def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_contr
     }}
     .title-card, .hint-pill {{
       border:1px solid var(--line);
-      border-radius:22px;
-      background:rgba(255,252,244,.76);
-      backdrop-filter:blur(18px);
-      box-shadow:0 14px 45px rgba(52,36,17,.09);
+      border-radius:6px;
+      background:rgba(255,255,255,.84);
+      backdrop-filter:blur(14px);
+      box-shadow:0 10px 28px rgba(23,32,28,.1);
     }}
-    .title-card {{ padding:14px 16px; max-width:min(420px,70vw); }}
-    h1 {{ margin:0; font-family:Georgia, ui-serif, serif; font-size:clamp(28px,4vw,54px); line-height:.92; letter-spacing:-.055em; }}
+    .title-card {{ padding:14px 16px; max-width:min(390px,70vw); }}
+    h1 {{ margin:0; font-size:30px; line-height:1.05; letter-spacing:0; }}
     .title-card p {{ margin:8px 0 0; color:var(--muted); font-size:14px; line-height:1.35; }}
     .hint-pill {{ padding:10px 13px; color:var(--muted); font-size:13px; white-space:nowrap; }}
     .viewer-actions {{
@@ -2346,7 +2518,14 @@ def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_contr
       left:18px;
       bottom:18px;
       display:flex;
-      gap:8px;
+      gap:2px;
+      padding:4px;
+      max-width:calc(100% - 36px);
+      border:1px solid var(--line);
+      border-radius:6px;
+      background:rgba(255,255,255,.88);
+      box-shadow:0 10px 28px rgba(23,32,28,.12);
+      backdrop-filter:blur(14px);
       z-index:2;
     }}
     .capture-route-card {{
@@ -2357,28 +2536,27 @@ def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_contr
       min-width:min(320px,56vw);
       padding:14px 16px;
       border:1px solid rgba(255,255,255,.2);
-      border-radius:22px;
-      background:linear-gradient(180deg, rgba(31,25,19,.82), rgba(23,19,15,.7));
+      border-radius:6px;
+      background:rgba(23,32,28,.88);
       color:#fbf6ef;
       backdrop-filter:blur(18px);
-      box-shadow:0 18px 48px rgba(18,12,7,.28);
+      box-shadow:0 18px 48px rgba(23,32,28,.24);
       z-index:2;
     }}
     .capture-route-kicker {{
       display:block;
       font-size:12px;
       font-weight:700;
-      letter-spacing:.08em;
+      letter-spacing:0;
       text-transform:uppercase;
       color:rgba(251,246,239,.72);
     }}
     .capture-route-label {{
       display:block;
       margin-top:8px;
-      font-family:Georgia, ui-serif, serif;
-      font-size:clamp(24px,3vw,38px);
-      line-height:.96;
-      letter-spacing:-.04em;
+      font-size:32px;
+      line-height:1;
+      letter-spacing:0;
     }}
     .capture-route-progress {{
       display:block;
@@ -2387,25 +2565,25 @@ def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_contr
       color:rgba(251,246,239,.78);
     }}
     .viewer-chip {{
-      border:1px solid var(--line);
-      border-radius:999px;
-      background:rgba(255,252,244,.86);
+      border:0;
+      border-radius:4px;
+      background:transparent;
       color:var(--ink);
       min-height:44px;
+      min-width:44px;
       padding:0 14px;
       font:inherit;
       font-size:13px;
       font-weight:600;
-      box-shadow:0 14px 45px rgba(52,36,17,.09);
+      box-shadow:none;
       cursor:pointer;
     }}
     .viewer-chip:hover {{
-      border-color:rgba(167,124,43,.42);
+      background:#f0f4f2;
     }}
     .viewer-chip[data-active="true"] {{
-      border-color:rgba(167,124,43,.5);
-      background:rgba(167,124,43,.12);
-      color:#6c4c16;
+      background:var(--accent-soft);
+      color:var(--accent);
     }}
     .route-buttons {{
       display:flex;
@@ -2414,10 +2592,11 @@ def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_contr
     }}
     .route-button {{
       border:1px solid var(--line);
-      border-radius:999px;
-      background:rgba(255,255,255,.52);
+      border-radius:4px;
+      background:var(--surface);
       color:var(--ink);
-      min-height:38px;
+      min-height:44px;
+      min-width:44px;
       padding:0 12px;
       font:inherit;
       font-size:13px;
@@ -2425,76 +2604,120 @@ def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_contr
       cursor:pointer;
     }}
     .route-button[data-active="true"] {{
-      border-color:rgba(167,124,43,.5);
-      background:rgba(167,124,43,.12);
-      color:#6c4c16;
+      border-color:rgba(20,107,93,.45);
+      background:var(--accent-soft);
+      color:var(--accent);
     }}
-    aside {{ display:flex; flex-direction:column; gap:12px; min-width:0; }}
-    .panel {{ border:1px solid var(--line); border-radius:24px; background:var(--panel); padding:14px; box-shadow:0 16px 44px rgba(60,40,18,.08); }}
+    button:focus-visible {{ outline:3px solid rgba(20,107,93,.38); outline-offset:2px; }}
+    aside {{
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      min-width:0;
+      height:100vh;
+      overflow-y:auto;
+      padding:12px;
+      border-left:1px solid var(--line);
+      background:#f4f7f5;
+    }}
+    .panel {{ border:1px solid var(--line); border-radius:6px; background:var(--panel); padding:14px; box-shadow:0 6px 18px rgba(23,32,28,.05); }}
     .panel-head {{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }}
     .panel-head p, .panel-head span {{ margin:0; color:var(--muted); font-size:13px; }}
     .panel-head p {{ color:var(--ink); font-weight:700; }}
     .facts {{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }}
-    .facts div {{ border:1px solid var(--line); border-radius:18px; padding:11px 10px; background:rgba(255,255,255,.42); }}
-    .facts b {{ display:block; font-family:Georgia, ui-serif, serif; font-size:21px; line-height:1; letter-spacing:-.04em; }}
+    .facts div {{ border:0; border-left:1px solid var(--line); border-radius:0; padding:8px 10px; background:transparent; }}
+    .facts div:first-child {{ border-left:0; }}
+    .facts b {{ display:block; font-size:20px; line-height:1; letter-spacing:0; }}
     .facts span {{ display:block; margin-top:5px; color:var(--muted); font-size:12px; }}
-    .style-pill {{ display:inline-flex; margin-top:10px; padding:8px 10px; border-radius:999px; background:rgba(167,124,43,.1); color:#6c4c16; font-size:13px; }}
-    .floorplan, .photos img {{ width:100%; border:1px solid var(--line); border-radius:18px; object-fit:cover; background:white; }}
+    .style-pill {{ display:inline-flex; margin-top:10px; padding:8px 10px; border-radius:4px; background:var(--accent-soft); color:var(--accent); font-size:13px; }}
+    .floorplan, .photos img {{ width:100%; border:1px solid var(--line); border-radius:4px; object-fit:cover; background:white; }}
     .floorplan {{ aspect-ratio:4/3; }}
-    .floorplan-map {{ position:relative; }}
+    .floorplan-map {{ position:relative; overflow:visible; }}
+    .floorplan-route-overlay {{
+      position:absolute;
+      inset:0;
+      width:100%;
+      height:100%;
+      overflow:visible;
+      pointer-events:none;
+    }}
+    .floorplan-route-overlay polyline,
+    .floorplan-route-overlay line {{
+      fill:none;
+      stroke:rgba(20,107,93,.48);
+      stroke-width:1.5;
+      stroke-linecap:round;
+      stroke-linejoin:round;
+      vector-effect:non-scaling-stroke;
+    }}
+    .floorplan-route-overlay line {{ stroke:rgba(95,107,101,.44); stroke-dasharray:3 3; }}
+    .floorplan-route-overlay circle {{ fill:var(--signal); vector-effect:non-scaling-stroke; }}
     .floorplan-stop {{
       position:absolute;
       transform:translate(-50%,-50%);
-      width:28px;
-      height:28px;
-      border:1px solid rgba(54,42,27,.18);
-      border-radius:999px;
-      background:rgba(255,252,245,.96);
-      color:#6c4c16;
+      width:44px;
+      height:44px;
+      border:0;
+      border-radius:50%;
+      background:transparent;
+      color:var(--accent);
       display:grid;
       place-items:center;
       font:inherit;
       font-size:12px;
       font-weight:700;
-      box-shadow:0 12px 28px rgba(52,36,17,.12);
       cursor:pointer;
       overflow:visible;
     }}
-    .floorplan-stop:hover,
-    .floorplan-stop[data-active="true"] {{
-      border-color:rgba(167,124,43,.52);
-      background:#fff5e2;
-      color:#8a6117;
+    .floorplan-stop::before {{
+      content:"";
+      position:absolute;
+      inset:8px;
+      border:1px solid rgba(20,107,93,.4);
+      border-radius:50%;
+      background:rgba(255,255,255,.96);
+      box-shadow:0 7px 18px rgba(23,32,28,.13);
     }}
+    .floorplan-stop:hover::before,
+    .floorplan-stop[data-active="true"]::before {{
+      border-color:var(--signal);
+      background:#fff3ef;
+    }}
+    .floorplan-stop-index {{ position:relative; z-index:1; }}
     .floorplan-stop-label {{
       position:absolute;
       left:50%;
-      top:calc(100% + 8px);
+      top:calc(50% + 20px);
       transform:translateX(-50%);
-      padding:4px 8px;
-      border:1px solid rgba(54,42,27,.12);
-      border-radius:999px;
-      background:rgba(255,252,245,.94);
+      z-index:2;
+      padding:5px 8px;
+      border:1px solid var(--line);
+      border-radius:4px;
+      background:rgba(255,255,255,.97);
       color:var(--ink);
       font-size:11px;
       font-weight:600;
       line-height:1;
       white-space:nowrap;
-      box-shadow:0 10px 24px rgba(52,36,17,.08);
+      box-shadow:0 8px 20px rgba(23,32,28,.1);
+      opacity:0;
       pointer-events:none;
     }}
+    .floorplan-stop:hover .floorplan-stop-label,
+    .floorplan-stop:focus-visible .floorplan-stop-label,
     .floorplan-stop[data-active="true"] .floorplan-stop-label {{
-      border-color:rgba(167,124,43,.4);
-      background:#fff6e6;
-      color:#6c4c16;
+      opacity:1;
+    }}
+    .floorplan-stop[data-active="true"] .floorplan-stop-label {{
+      border-color:rgba(200,95,67,.4);
+      background:#fff3ef;
+      color:#8f3f2b;
     }}
     .floorplan-note {{ margin-top:10px; }}
     .photos {{ display:grid; grid-template-columns:repeat(2,1fr); gap:8px; }}
     .photos img {{ aspect-ratio:1; }}
     .note {{ margin:0; color:var(--muted); font-size:13px; line-height:1.4; }}
-    html[data-capture-mode="true"] body {{
-      background:linear-gradient(180deg,#f6efe2 0%,#dcc6a5 100%);
-    }}
+    html[data-capture-mode="true"] body {{ background:#dfe7e3; }}
     html[data-capture-mode="true"] main {{
       display:block;
       min-height:100vh;
@@ -2522,13 +2745,29 @@ def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_contr
       display:block;
     }}
     @media (max-width: 880px) {{
-      main {{ display:block; padding:10px; }}
-      .viewport {{ height:68vh; min-height:430px; border-radius:22px; }}
-      aside {{ margin-top:10px; }}
+      main {{ display:block; padding:0; }}
+      .stage {{ min-height:0; }}
+      .viewport {{ height:70svh; min-height:500px; border-radius:0; }}
+      aside {{
+        height:auto;
+        overflow:visible;
+        margin:0;
+        padding:10px;
+        border-top:1px solid var(--line);
+        border-left:0;
+      }}
       .hud {{ top:12px; left:12px; right:12px; }}
       .hint-pill {{ display:none; }}
-      .viewer-actions {{ left:12px; bottom:12px; flex-wrap:wrap; }}
-      .title-card {{ max-width:86vw; padding:12px 13px; }}
+      .viewer-actions {{
+        left:12px;
+        right:12px;
+        bottom:12px;
+        display:grid;
+        grid-template-columns:repeat(2,minmax(0,1fr));
+        max-width:none;
+      }}
+      .title-card {{ max-width:calc(100vw - 24px); padding:12px 13px; }}
+      h1 {{ font-size:27px; }}
       .title-card p {{ font-size:13px; }}
       .floorplan-stop-label {{ font-size:10px; }}
     }}
@@ -2580,6 +2819,7 @@ def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_contr
       </div>
       <div class="floorplan-map">
         <img class="floorplan" src="{floorplan_relpath}" alt="Floorplan">
+        {floorplan_route_overlay}
         {floorplan_stop_markup}
       </div>
       {'<p class="note floorplan-note">Tap a numbered stop on the plan to move through the route.</p>' if floorplan_stop_markup else ''}
@@ -2626,8 +2866,8 @@ const captureRouteLabel = document.getElementById("capture-route-label");
 const captureRouteProgress = document.getElementById("capture-route-progress");
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xf6f0e5);
-scene.fog = new THREE.Fog(0xf6f0e5, 13, 34);
+scene.background = new THREE.Color(0xe8eeeb);
+scene.fog = new THREE.Fog(0xe8eeeb, 13, 34);
 let renderFrameCount = 0;
 
 const camera = new THREE.PerspectiveCamera(48, 1, 0.1, 100);
@@ -2689,22 +2929,35 @@ const wallEdgeMaterial = new THREE.LineBasicMaterial({{
 }});
 const wallMeshes = [];
 const wallEdgeMeshes = [];
+const wallMeshPairs = [];
+const overviewCutawayBoundaryX = Math.max(0.22, Math.min(roomWidth * 0.08, 0.48));
+const overviewCutawayBoundaryZ = Math.max(0.22, Math.min(roomDepth * 0.08, 0.48));
 for (const wall of wallRectangles) {{
+  const wallWidth = Number(wall.width || 0);
+  const wallDepth = Number(wall.depth || 0);
+  const centerX = Number(wall.center_x || 0);
+  const centerZ = Number(wall.center_z || 0);
+  const touchesEastShell = centerX + (wallWidth * 0.5) >= (roomWidth * 0.5) - overviewCutawayBoundaryX;
+  const touchesSouthShell = centerZ + (wallDepth * 0.5) >= (roomDepth * 0.5) - overviewCutawayBoundaryZ;
+  const cutawayEligible = Boolean(touchesEastShell || touchesSouthShell);
   const mesh = new THREE.Mesh(
     new THREE.BoxGeometry(wall.width, roomHeight, wall.depth),
     wallMaterial,
   );
-  mesh.position.set(wall.center_x, roomHeight / 2, wall.center_z);
+  mesh.position.set(centerX, roomHeight / 2, centerZ);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   mesh.userData.baseCenterY = roomHeight / 2;
+  mesh.userData.cutawayEligible = cutawayEligible;
   wallMeshes.push(mesh);
   scene.add(mesh);
   const edges = new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry), wallEdgeMaterial);
   edges.position.copy(mesh.position);
   edges.userData.baseCenterY = roomHeight / 2;
+  edges.userData.cutawayEligible = cutawayEligible;
   wallEdgeMeshes.push(edges);
   scene.add(edges);
+  wallMeshPairs.push({{ mesh, edges, cutawayEligible }});
 }}
 
 const routeMarkerGroup = new THREE.Group();
@@ -2734,7 +2987,10 @@ for (const stop of routeStops) {{
     button.type = "button";
     button.className = "route-hotspot";
     button.dataset.routeIndex = String(routeHotspots.length);
-    button.textContent = String(stop.label || stop.room || stop.name || `Stop ${{routeHotspots.length + 1}}`);
+    const hotspotLabel = String(stop.label || stop.room || stop.name || `Stop ${{routeHotspots.length + 1}}`);
+    button.dataset.label = hotspotLabel;
+    button.setAttribute("aria-label", `Go to ${{hotspotLabel}}`);
+    button.textContent = String(routeHotspots.length + 1);
     button.addEventListener("click", () => setRouteView(Number(button.dataset.routeIndex || 0)));
     hotspotLayer.appendChild(button);
     routeHotspots.push({{
@@ -2754,6 +3010,103 @@ if (routeLinePoints.length >= 2) {{
   );
   routeMarkerGroup.add(routeLine);
 }}
+
+const stagingGroup = new THREE.Group();
+scene.add(stagingGroup);
+const stagingObjects = [];
+const stagingMaterials = {{
+  textile: new THREE.MeshStandardMaterial({{ color: 0xb58f73, roughness: 0.86, metalness: 0.0 }}),
+  paleTextile: new THREE.MeshStandardMaterial({{ color: 0xe4dacd, roughness: 0.9, metalness: 0.0 }}),
+  timber: new THREE.MeshStandardMaterial({{ color: 0x9b7650, roughness: 0.72, metalness: 0.02 }}),
+  stone: new THREE.MeshStandardMaterial({{ color: 0xd7d0c3, roughness: 0.82, metalness: 0.01 }}),
+  accent: new THREE.MeshStandardMaterial({{ color: 0xa77c2b, roughness: 0.58, metalness: 0.03 }}),
+  foliage: new THREE.MeshStandardMaterial({{ color: 0x6f8561, roughness: 0.92, metalness: 0.0 }}),
+}};
+
+function stagingKind(stop) {{
+  const raw = String(stop?.kind || stop?.label || stop?.room || stop?.name || "").toLowerCase();
+  if (raw.includes("kitchen") || raw.includes("kuche") || raw.includes("kueche") || raw.includes("küche")) return "kitchen";
+  if (raw.includes("bed") || raw.includes("schlaf")) return "bedroom";
+  if (raw.includes("bath") || raw.includes("bad") || raw.includes("wc") || raw.includes("toilet")) return "bath";
+  if (raw.includes("balcony") || raw.includes("terrace") || raw.includes("balkon") || raw.includes("terrasse") || raw.includes("loggia")) return "outdoor";
+  if (raw.includes("entry") || raw.includes("hall") || raw.includes("foyer") || raw.includes("flur") || raw.includes("vorraum")) return "entry";
+  if (raw.includes("dining") || raw.includes("esszimmer")) return "dining";
+  if (raw.includes("living") || raw.includes("wohn")) return "living";
+  return "generic";
+}}
+
+function addStagingBox(group, name, dimensions, position, material, rotationY = 0) {{
+  const mesh = new THREE.Mesh(
+    new THREE.BoxGeometry(
+      Math.max(0.04, Number(dimensions.x || 0.2)),
+      Math.max(0.04, Number(dimensions.y || 0.2)),
+      Math.max(0.04, Number(dimensions.z || 0.2)),
+    ),
+    material,
+  );
+  mesh.name = String(name || "generated-staging-object");
+  mesh.position.set(Number(position.x || 0), Number(position.y || 0), Number(position.z || 0));
+  mesh.rotation.y = Number(rotationY || 0);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  group.add(mesh);
+  stagingObjects.push(mesh);
+  return mesh;
+}}
+
+function addStagingRug(group, dimensions, position, material) {{
+  const rug = new THREE.Mesh(
+    new THREE.PlaneGeometry(Math.max(0.2, Number(dimensions.x || 1)), Math.max(0.2, Number(dimensions.z || 1))),
+    material,
+  );
+  rug.name = "generated-staging-rug";
+  rug.rotation.x = -Math.PI / 2;
+  rug.position.set(Number(position.x || 0), 0.024, Number(position.z || 0));
+  rug.receiveShadow = true;
+  group.add(rug);
+  stagingObjects.push(rug);
+  return rug;
+}}
+
+function addGeneratedStagingForStop(stop, index) {{
+  const focus = stop?.focus && typeof stop.focus === "object" ? stop.focus : null;
+  if (!focus) return null;
+  const group = new THREE.Group();
+  const baseX = Math.max(-(roomWidth * 0.38), Math.min(roomWidth * 0.38, Number(focus.x || 0)));
+  const baseZ = Math.max(-(roomDepth * 0.38), Math.min(roomDepth * 0.38, Number(focus.z || 0)));
+  group.position.set(baseX, 0, baseZ);
+  group.rotation.y = (Number(index || 0) % 2 === 0 ? -0.22 : 0.18);
+  const kind = stagingKind(stop);
+  if (kind === "living" || kind === "generic") {{
+    addStagingRug(group, {{ x: 1.62, z: 1.1 }}, {{ x: 0.05, z: 0.02 }}, stagingMaterials.paleTextile);
+    addStagingBox(group, "generated-sofa-seat", {{ x: 1.24, y: 0.28, z: 0.52 }}, {{ x: -0.22, y: 0.14, z: -0.22 }}, stagingMaterials.textile);
+    addStagingBox(group, "generated-sofa-back", {{ x: 1.24, y: 0.48, z: 0.12 }}, {{ x: -0.22, y: 0.38, z: -0.53 }}, stagingMaterials.textile);
+    addStagingBox(group, "generated-coffee-table", {{ x: 0.72, y: 0.2, z: 0.42 }}, {{ x: 0.26, y: 0.1, z: 0.34 }}, stagingMaterials.timber);
+  }} else if (kind === "bedroom") {{
+    addStagingRug(group, {{ x: 1.74, z: 1.22 }}, {{ x: 0.02, z: 0.02 }}, stagingMaterials.paleTextile);
+    addStagingBox(group, "generated-bed-base", {{ x: 1.42, y: 0.34, z: 1.02 }}, {{ x: 0, y: 0.17, z: -0.02 }}, stagingMaterials.paleTextile);
+    addStagingBox(group, "generated-bed-headboard", {{ x: 1.48, y: 0.72, z: 0.12 }}, {{ x: 0, y: 0.44, z: -0.62 }}, stagingMaterials.timber);
+    addStagingBox(group, "generated-bed-pillow", {{ x: 0.64, y: 0.16, z: 0.22 }}, {{ x: -0.26, y: 0.44, z: -0.42 }}, stagingMaterials.stone);
+  }} else if (kind === "kitchen" || kind === "dining") {{
+    addStagingBox(group, "generated-kitchen-counter", {{ x: 1.48, y: 0.68, z: 0.42 }}, {{ x: -0.08, y: 0.34, z: -0.38 }}, stagingMaterials.stone);
+    addStagingBox(group, "generated-kitchen-island", {{ x: 0.9, y: 0.42, z: 0.5 }}, {{ x: 0.28, y: 0.21, z: 0.28 }}, stagingMaterials.timber);
+    addStagingBox(group, "generated-dining-surface", {{ x: 0.86, y: 0.18, z: 0.58 }}, {{ x: -0.48, y: 0.46, z: 0.36 }}, stagingMaterials.timber);
+  }} else if (kind === "bath") {{
+    addStagingBox(group, "generated-bath-vanity", {{ x: 0.72, y: 0.52, z: 0.36 }}, {{ x: -0.22, y: 0.26, z: -0.18 }}, stagingMaterials.stone);
+    addStagingBox(group, "generated-bath-tub", {{ x: 1.08, y: 0.36, z: 0.54 }}, {{ x: 0.28, y: 0.18, z: 0.28 }}, stagingMaterials.paleTextile);
+  }} else if (kind === "entry") {{
+    addStagingBox(group, "generated-entry-bench", {{ x: 1.0, y: 0.28, z: 0.34 }}, {{ x: -0.1, y: 0.14, z: -0.18 }}, stagingMaterials.timber);
+    addStagingBox(group, "generated-entry-console", {{ x: 0.78, y: 0.64, z: 0.22 }}, {{ x: 0.34, y: 0.32, z: 0.24 }}, stagingMaterials.stone);
+  }} else if (kind === "outdoor") {{
+    addStagingBox(group, "generated-outdoor-table", {{ x: 0.72, y: 0.26, z: 0.56 }}, {{ x: 0.0, y: 0.13, z: 0.08 }}, stagingMaterials.timber);
+    addStagingBox(group, "generated-planter", {{ x: 0.34, y: 0.4, z: 0.34 }}, {{ x: -0.52, y: 0.2, z: -0.28 }}, stagingMaterials.accent);
+    addStagingBox(group, "generated-foliage", {{ x: 0.42, y: 0.42, z: 0.42 }}, {{ x: -0.52, y: 0.56, z: -0.28 }}, stagingMaterials.foliage);
+  }}
+  stagingGroup.add(group);
+  return group;
+}}
+
+routeStops.forEach((stop, index) => addGeneratedStagingForStop(stop, index));
 
 function buildPanelLabelTexture(label) {{
   const canvas = document.createElement("canvas");
@@ -3237,6 +3590,16 @@ function setActiveViewChip(mode) {{
   setGuideChipState(guidedRouteState.active);
 }}
 
+const cutawayWallCount = wallMeshPairs.filter((pair) => Boolean(pair.cutawayEligible)).length;
+function applyCutawayWallVisibility(active) {{
+  const hideCutawayWalls = Boolean(active);
+  for (const pair of wallMeshPairs) {{
+    const visible = !(hideCutawayWalls && Boolean(pair.cutawayEligible));
+    pair.mesh.visible = visible;
+    pair.edges.visible = visible;
+  }}
+}}
+
 function setWallHeightScale(scale) {{
   const boundedScale = Math.max(0.42, Math.min(1.0, Number(scale || 1)));
   for (const mesh of wallMeshes) {{
@@ -3251,21 +3614,24 @@ function setWallHeightScale(scale) {{
 
 function applyViewMode(mode) {{
   const normalizedMode = mode === "dollhouse" ? "dollhouse" : mode === "room" ? "room" : "overview";
+  const isOverview = normalizedMode === "overview";
   const isDollhouse = normalizedMode === "dollhouse";
+  const cutawayActive = isOverview || isDollhouse;
   activeViewMode = normalizedMode;
   liveViewerState.viewMode = normalizedMode;
-  wallMaterial.opacity = isDollhouse ? 0.46 : 1.0;
-  wallMaterial.depthWrite = !isDollhouse;
+  wallMaterial.opacity = isDollhouse ? 0.38 : isOverview ? 0.84 : 1.0;
+  wallMaterial.depthWrite = !cutawayActive;
   wallMaterial.needsUpdate = true;
-  wallEdgeMaterial.opacity = isDollhouse ? 0.9 : 0.62;
-  floor.material.color.set(isDollhouse ? 0xfcf8ef : 0xf8f4eb);
+  wallEdgeMaterial.opacity = isDollhouse ? 0.88 : isOverview ? 0.54 : 0.62;
+  floor.material.color.set(isDollhouse ? 0xfcf8ef : isOverview ? 0xfbf7ef : 0xf8f4eb);
   photoPanelGroup.visible = !isDollhouse;
   if (hotspotLayer) {{
     hotspotLayer.style.opacity = isDollhouse ? "0.78" : "1";
   }}
-  controls.minPolarAngle = isDollhouse ? Math.PI * 0.02 : Math.PI * 0.14;
-  controls.maxPolarAngle = isDollhouse ? Math.PI * 0.34 : Math.PI * 0.49;
-  setWallHeightScale(isDollhouse ? 0.62 : 1.0);
+  controls.minPolarAngle = isDollhouse ? Math.PI * 0.02 : isOverview ? Math.PI * 0.1 : Math.PI * 0.14;
+  controls.maxPolarAngle = isDollhouse ? Math.PI * 0.34 : isOverview ? Math.PI * 0.42 : Math.PI * 0.49;
+  setWallHeightScale(isDollhouse ? 0.56 : isOverview ? 0.82 : 1.0);
+  applyCutawayWallVisibility(cutawayActive);
   setActiveViewChip(normalizedMode);
   syncCaptureRouteCard();
 }}
@@ -3432,9 +3798,16 @@ function getRenderMetrics() {{
     const frustum = new THREE.Frustum().setFromProjectionMatrix(projectionMatrix);
     const corner = new THREE.Vector3();
     let visibleWallCount = 0;
+    let hiddenCutawayWallCount = 0;
     let projectedCoverage = 0;
     let maxProjectedArea = 0;
     for (const mesh of wallMeshes) {{
+      if (!mesh.visible) {{
+        if (Boolean(mesh.userData?.cutawayEligible)) {{
+          hiddenCutawayWallCount += 1;
+        }}
+        continue;
+      }}
       const box = new THREE.Box3().setFromObject(mesh);
       if (!frustum.intersectsBox(box)) continue;
       visibleWallCount += 1;
@@ -3504,11 +3877,49 @@ function getRenderMetrics() {{
       const projectedHeight = Math.max(0, (maxY - minY) / 2);
       projectedPhotoCoverage += projectedWidth * projectedHeight;
     }}
+    let visibleStagingObjectCount = 0;
+    let projectedStagingCoverage = 0;
+    for (const object of stagingObjects) {{
+      if (!object.visible) continue;
+      const box = new THREE.Box3().setFromObject(object);
+      if (!frustum.intersectsBox(box)) continue;
+      visibleStagingObjectCount += 1;
+      const corners = [
+        [box.min.x, box.min.y, box.min.z],
+        [box.min.x, box.min.y, box.max.z],
+        [box.min.x, box.max.y, box.min.z],
+        [box.min.x, box.max.y, box.max.z],
+        [box.max.x, box.min.y, box.min.z],
+        [box.max.x, box.min.y, box.max.z],
+        [box.max.x, box.max.y, box.min.z],
+        [box.max.x, box.max.y, box.max.z],
+      ];
+      let minX = 1;
+      let maxX = -1;
+      let minY = 1;
+      let maxY = -1;
+      let hasProjectedCorner = false;
+      for (const [x, y, z] of corners) {{
+        corner.set(x, y, z).project(camera);
+        if (!Number.isFinite(corner.x) || !Number.isFinite(corner.y)) continue;
+        minX = Math.min(minX, Math.max(-1, Math.min(1, corner.x)));
+        maxX = Math.max(maxX, Math.max(-1, Math.min(1, corner.x)));
+        minY = Math.min(minY, Math.max(-1, Math.min(1, corner.y)));
+        maxY = Math.max(maxY, Math.max(-1, Math.min(1, corner.y)));
+        hasProjectedCorner = true;
+      }}
+      if (!hasProjectedCorner) continue;
+      const projectedWidth = Math.max(0, (maxX - minX) / 2);
+      const projectedHeight = Math.max(0, (maxY - minY) / 2);
+      projectedStagingCoverage += projectedWidth * projectedHeight;
+    }}
       return {{
         ready: true,
         frameCount: Number(renderFrameCount || 0),
         wallRectCount: Number(wallRectangles.length || 0),
         wallMeshCount: Number(wallMeshes.length || 0),
+        cutawayWallCount: Number(cutawayWallCount || 0),
+        hiddenCutawayWallCount: Number(hiddenCutawayWallCount || 0),
         visibleWallCount: Number(visibleWallCount || 0),
         routeStopCount: Number(routeStops.length || 0),
         activeRouteIndex: Number(activeRouteIndex ?? -1),
@@ -3527,9 +3938,11 @@ function getRenderMetrics() {{
         wallHeightScale: Number((wallMeshes[0]?.scale.y || 0).toFixed(3)),
         photoPanelGroupVisible: Boolean(photoPanelGroup.visible),
         hotspotCount: Number(routeHotspots.length || 0),
-        visibleHotspotCount: Number(syncRouteHotspots() || 0),
+      visibleHotspotCount: Number(syncRouteHotspots() || 0),
       captureOverlayVisible: Boolean(captureRouteCard && !captureRouteCard.hidden),
       captureRouteLabel: String(captureRouteLabel?.textContent || "").trim(),
+      stagingObjectCount: Number(stagingObjects.length || 0),
+      visibleStagingObjectCount: Number(visibleStagingObjectCount || 0),
       photoPanelCount: Number(photoPanelSpecs.length || 0),
       loadedPhotoTextureCount: Number(loadedPhotoTextureCount || 0),
       visiblePhotoPanelCount: Number(visiblePhotoPanelCount || 0),
@@ -3538,6 +3951,7 @@ function getRenderMetrics() {{
       sampleHeight: Number(canvas.height || 0),
       projectedCoveragePct: Number((Math.min(1, projectedCoverage) * 100).toFixed(2)),
       projectedPhotoCoveragePct: Number((Math.min(1, projectedPhotoCoverage) * 100).toFixed(2)),
+      projectedStagingCoveragePct: Number((Math.min(1, projectedStagingCoverage) * 100).toFixed(2)),
       maxProjectedWallPct: Number((Math.min(1, maxProjectedArea) * 100).toFixed(2)),
       renderCalls: Number(renderer.info.render.calls || 0),
       renderTriangles: Number(renderer.info.render.triangles || 0),
@@ -3626,7 +4040,7 @@ def _write_viewer_walkthrough(
             with _serve_directory(bundle_root) as base_url:
                 viewer_relpath = viewer_path.relative_to(bundle_root).as_posix()
                 with sync_playwright() as playwright:
-                    browser = playwright.chromium.launch(headless=True)
+                    browser = playwright.chromium.launch(**_playwright_chromium_launch_kwargs(playwright))
                     page = browser.new_page(
                         viewport={"width": WALKTHROUGH_VIEWPORT_SIZE[0], "height": WALKTHROUGH_VIEWPORT_SIZE[1]},
                         device_scale_factor=1,
@@ -3978,8 +4392,12 @@ def _write_stop_card_walkthrough(
             frame_index = 0
             for index, card_image in enumerate(card_images):
                 next_image = card_images[index + 1] if index + 1 < len(card_images) else None
+                incoming_transition_frames = transition_frame_count if index > 0 else 0
                 transition_frames_for_segment = transition_frame_count if next_image is not None else 0
-                steady_frame_count = max(1, segment_frame_count - transition_frames_for_segment)
+                steady_frame_count = max(
+                    1,
+                    segment_frame_count - incoming_transition_frames - transition_frames_for_segment,
+                )
                 for steady_index in range(steady_frame_count):
                     progress = steady_index / max(steady_frame_count - 1, 1)
                     frame = _render_stop_card_motion_frame(
@@ -4288,6 +4706,7 @@ def main() -> int:
         width_m=width_m,
         depth_m=depth_m,
         height_m=height_m,
+        geometry=geometry,
     )
     photo_reference_panels = _generated_reconstruction_photo_reference_panels(
         photos=photo_rows,

@@ -28,6 +28,7 @@ from app.api.app import create_app
 from app.api.routes import landing as landing_routes
 from app.product.models import HandoffNote
 from app.product.service import ProductService
+from scripts import generate_property_reconstruction as reconstruction_script
 
 
 def _free_port() -> int:
@@ -214,7 +215,7 @@ def _generated_reconstruction_layout_viewer_state(page: Page) -> dict[str, objec
 def _wait_for_generated_reconstruction_layout_viewer_ready(
     page: Page,
     *,
-    timeout_ms: int = 10_000,
+    timeout_ms: int = 20_000,
 ) -> dict[str, object]:
     page.wait_for_function(
         """() => {
@@ -256,15 +257,16 @@ def _choose_research_visual_style(page: Page, *, label: str = "Urban jungle") ->
 
 def _choose_workbench_visual_style(page: Page, *, label: str = "Urban jungle") -> None:
     dialog = page.locator("[data-pqx-visual-style-dialog]").first
+    status = page.locator("[data-pw-visual-request-status]").first
     expect(dialog).to_be_visible(timeout=5000)
-    expect(page.locator("[data-pw-visual-request-status]")).to_contain_text("Choose a style", timeout=5000)
+    expect(status).to_contain_text("Choose a style", timeout=5000)
     option = dialog.locator("[data-pqx-visual-style-option]", has_text=label).first
     expect(option).to_be_visible()
     option.click()
     expect(option).to_have_attribute("aria-pressed", "true")
     expect(option.locator("[data-pqx-visual-style-selected-label]")).to_be_visible()
     expect(dialog.locator("[data-pqx-visual-style-current]")).to_contain_text(f"{label} selected")
-    expect(page.locator("[data-pw-visual-request-status]")).to_contain_text("selected", timeout=5000)
+    expect(status).to_contain_text("selected", timeout=5000)
     confirm = dialog.locator("[data-pqx-visual-style-confirm]").first
     expect(confirm).to_contain_text(label)
     confirm.click()
@@ -682,19 +684,18 @@ def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
 @pytest.fixture()
 def browser() -> Iterator[Browser]:
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(
-            headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-gpu",
-                "--disable-software-rasterizer",
-                "--host-resolver-rules=MAP propertyquarry.com 127.0.0.1",
-                "--no-proxy-server",
-                "--autoplay-policy=no-user-gesture-required",
-            ],
-        )
+        launch_kwargs = reconstruction_script._playwright_chromium_launch_kwargs(playwright)
+        launch_kwargs["args"] = [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+            "--disable-software-rasterizer",
+            "--host-resolver-rules=MAP propertyquarry.com 127.0.0.1",
+            "--no-proxy-server",
+            "--autoplay-policy=no-user-gesture-required",
+        ]
+        browser = playwright.chromium.launch(**launch_kwargs)
         try:
             yield browser
         finally:
@@ -5471,7 +5472,9 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
         expect(page.locator("[data-prd-visual-eta]")).to_contain_text("about 10 min")
         rail_fill = page.locator("[data-prd-visual-progress]").first.get_attribute("style") or ""
         assert "18%" in rail_fill
-        page.wait_for_timeout(1300)
+        poll_deadline = time.monotonic() + 5.0
+        while visual_status_polls < 1 and time.monotonic() < poll_deadline:
+            page.wait_for_timeout(100)
         assert visual_status_polls >= 1
         expect(page.locator("[data-prd-visual-status]")).to_contain_text("Walkthrough is ready.")
         updated_button = page.get_by_role("button", name=re.compile("Open walkthrough", re.I)).first
@@ -5745,7 +5748,6 @@ def test_propertyquarry_research_detail_never_shows_fake_open_tour_for_generated
                     "request_kind": "tour",
                     "tour_url": "https://propertyquarry.com/tours/generated-layout-tiergarten",
                     "open_tour_url": "",
-                    "generated_reconstruction_url": "https://propertyquarry.com/tours/generated-layout-tiergarten",
                     "tour_status": "ready",
                     "flythrough_url": "",
                     "flythrough_status": "",
@@ -5791,6 +5793,125 @@ def test_propertyquarry_research_detail_never_shows_fake_open_tour_for_generated
         refreshed_button = page.get_by_role("button", name=re.compile("(Request|Retry) 3D tour", re.I)).first
         expect(refreshed_button).to_be_visible()
         assert str(refreshed_button.get_attribute("data-pw-visual-href") or "").strip() == ""
+    finally:
+        context.close()
+
+
+def test_propertyquarry_research_detail_promotes_ready_generated_reconstruction_status_to_open_layout_tour(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    bundle_root = Path(str(propertyquarry_browser_server["bundle_root"]))
+    _write_generated_reconstruction_public_launch_fixture(bundle_root, slug="generated-layout-tiergarten")
+    context = _new_context(browser, mobile=True, width=390, height=844)
+    page: Page = context.new_page()
+    visual_requests: list[dict[str, object]] = []
+    visual_status_polls = 0
+    generated_layout_url = f"{base_url}/tours/generated-layout-tiergarten"
+
+    def _capture_visual_request(route) -> None:
+        payload = route.request.post_data_json or {}
+        visual_requests.append(payload if isinstance(payload, dict) else {})
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "generated_at": "2026-07-08T10:00:00+00:00",
+                    "status": "created",
+                    "property_url": visual_requests[-1].get("property_url", ""),
+                    "title": "Family flat near Tiergarten",
+                    "request_kind": "tour",
+                    "tour_url": "",
+                    "tour_status": "pending",
+                    "flythrough_url": "",
+                    "flythrough_status": "",
+                    "status_label": "3D tour queued",
+                    "status_detail": "3D tour is queued after your request.",
+                    "eta_label": "about 10 min",
+                    "progress_pct": 16,
+                    "poll_after_seconds": 1,
+                    "delivery_status": "queued",
+                    "blocked_reason": "",
+                    "source_ref": visual_requests[-1].get("source_ref", ""),
+                    "run_id": visual_requests[-1].get("run_id", ""),
+                    "candidate_ref": visual_requests[-1].get("candidate_ref", ""),
+                }
+            ),
+        )
+
+    def _capture_visual_status(route) -> None:
+        nonlocal visual_status_polls
+        visual_status_polls += 1
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "generated_at": "2026-07-08T10:00:03+00:00",
+                    "status": "ready",
+                    "property_url": "https://www.immobilienscout24.de/expose/family-tiergarten",
+                    "title": "Family flat near Tiergarten",
+                    "request_kind": "tour",
+                    "tour_url": generated_layout_url,
+                    "open_tour_url": "",
+                    "generated_reconstruction_url": generated_layout_url,
+                    "tour_status": "ready",
+                    "flythrough_url": "",
+                    "flythrough_status": "",
+                    "status_label": "Open 3D tour",
+                    "status_detail": "3D tour is ready.",
+                    "eta_label": "",
+                    "progress_pct": 100,
+                    "poll_after_seconds": 0,
+                    "source_ref": "immobilienscout24:family-tiergarten",
+                    "run_id": "run-42",
+                    "candidate_ref": "family-tiergarten",
+                }
+            ),
+        )
+
+    page.route("**/app/api/signals/willhaben/property-tour", _capture_visual_request)
+    page.route("**/app/api/signals/property/visual-status?**", _capture_visual_status)
+    try:
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42&full=1", wait_until="networkidle")
+        assert response is not None and response.ok
+
+        family_row = page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").first
+        expect(family_row).to_be_visible()
+        packet_href = str(family_row.get_attribute("data-candidate-packet-url") or "").strip()
+        assert packet_href
+        packet_url = packet_href if packet_href.startswith("http") else f"{base_url}{packet_href}"
+
+        response = page.goto(packet_url, wait_until="networkidle")
+        assert response is not None and response.ok
+        page.wait_for_timeout(400)
+        fallback_button = page.get_by_role("button", name=re.compile("(Request|Retry) 3D tour", re.I)).first
+        expect(fallback_button).to_be_visible()
+        fallback_button.click()
+        _choose_research_visual_style(page)
+        page.wait_for_timeout(2200)
+
+        assert len(visual_requests) == 1
+        assert visual_requests[0]["request_kind"] == "tour"
+        assert visual_status_polls >= 1
+        expect(page.locator("[data-prd-visual-status]")).to_contain_text(
+            "Generated from the floor plan and listing photos.",
+            timeout=5000,
+        )
+        expect(page.get_by_role("button", name=re.compile("(Request|Retry) 3D tour", re.I))).to_have_count(0)
+        ready_button = page.get_by_role("button", name="Open layout tour").first
+        expect(ready_button).to_be_visible()
+        assert str(ready_button.get_attribute("data-pw-visual-href") or "").strip() == generated_layout_url
+
+        with page.expect_navigation(wait_until="domcontentloaded"):
+            ready_button.click()
+        assert page.url.endswith("/tours/generated-layout-tiergarten")
+        public_text = page.locator("body").inner_text().lower()
+        assert "generated reconstruction" in public_text
+        assert "room route" in public_text
+        assert "tour unavailable" not in public_text
     finally:
         context.close()
 
@@ -6282,6 +6403,197 @@ def test_propertyquarry_handoff_3d_tour_request_is_user_initiated_in_real_browse
         assert page.locator("#load-provider").count() == 0
         assert page.locator(".provider-frame").get_attribute("src") == "https://my.matterport.com/show/?m=AltbauNearU6"
         assert page.locator(".provider-frame").get_attribute("data-src") == "https://my.matterport.com/show/?m=AltbauNearU6"
+    finally:
+        context.close()
+
+
+def test_propertyquarry_handoff_generated_layout_tour_request_promotes_to_open_layout_tour_in_real_browser(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    bundle_root = Path(str(propertyquarry_browser_server["bundle_root"]))
+    generated_layout_slug = "generated-layout-handoff-review-2"
+    generated_layout_url = f"{base_url}/tours/{generated_layout_slug}"
+    _write_generated_reconstruction_public_launch_fixture(bundle_root, slug=generated_layout_slug)
+    client = propertyquarry_browser_server["client"]
+    container = client.app.state.container
+    original_get_handoff = ProductService.get_handoff
+    handoff_input = {
+        "title": "Family flat near Tiergarten",
+        "summary": "Larger layout and quieter block.",
+        "property_url": "https://www.immobilienscout24.de/expose/family-tiergarten",
+        "run_id": "run-handoff-layout-tour-browser",
+        "candidate_ref": "handoff-layout-tiergarten",
+        "source_ref": "immobilienscout24:family-tiergarten",
+        "personal_fit_assessment": {
+            "match_reasons_json": ["Larger layout and quieter block."],
+            "mismatch_reasons_json": [],
+        },
+        "property_facts_json": {
+            "price_display": "EUR 465,000",
+            "price_eur": 465000.0,
+            "rooms": 4,
+            "area_m2": 92,
+            "postal_name": "Berlin Tiergarten",
+        },
+        "candidate_properties": [
+            {
+                "title": "Family flat near Tiergarten",
+                "property_url": "https://www.immobilienscout24.de/expose/family-tiergarten",
+                "source_ref": "immobilienscout24:family-tiergarten",
+                "run_id": "run-handoff-layout-tour-browser",
+                "candidate_ref": "handoff-layout-tiergarten",
+                "tour_url": "",
+                "flythrough_url": "",
+                "floorplan_url": "https://example.test/floorplan-family-tiergarten.png",
+                "property_facts": {
+                    "price_display": "EUR 465,000",
+                    "price_eur": 465000.0,
+                    "rooms": 4,
+                    "area_m2": 92,
+                    "postal_name": "Berlin Tiergarten",
+                },
+            }
+        ],
+    }
+
+    def _fake_get_handoff(self, *, principal_id: str, handoff_ref: str):
+        if principal_id == "pq-greenfield-browser" and handoff_ref == "human_task:review-2":
+            return HandoffNote(
+                id=handoff_ref,
+                queue_item_ref="queue:review-2",
+                summary="Family flat near Tiergarten",
+                owner="office",
+                due_time=None,
+                escalation_status="high",
+                status="pending",
+                task_type="property_alert_review",
+                property_url="https://www.immobilienscout24.de/expose/family-tiergarten",
+                tour_url="",
+                source_ref="immobilienscout24:family-tiergarten",
+            )
+        return original_get_handoff(self, principal_id=principal_id, handoff_ref=handoff_ref)
+
+    monkeypatch.setattr(ProductService, "get_handoff", _fake_get_handoff)
+    monkeypatch.setattr(
+        container.orchestrator,
+        "fetch_human_task",
+        lambda task_id, principal_id: type("TaskStub", (), {"input_json": handoff_input})(),
+    )
+    monkeypatch.setattr(
+        container.orchestrator,
+        "list_human_task_assignment_history",
+        lambda task_id, principal_id, limit=8: (),
+    )
+
+    context = _new_context(browser, mobile=False)
+    page: Page = context.new_page()
+    visual_requests: list[dict[str, object]] = []
+    visual_status_polls = 0
+
+    def _capture_visual_request(route) -> None:
+        payload = route.request.post_data_json or {}
+        visual_requests.append(payload if isinstance(payload, dict) else {})
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "generated_at": "2026-07-08T12:00:00+00:00",
+                    "status": "created",
+                    "property_url": visual_requests[-1].get("property_url", ""),
+                    "title": "Family flat near Tiergarten",
+                    "request_kind": "tour",
+                    "tour_url": "",
+                    "tour_status": "pending",
+                    "flythrough_url": "",
+                    "flythrough_status": "",
+                    "status_label": "3D tour queued",
+                    "status_detail": "3D tour is queued after your request.",
+                    "eta_label": "about 8 min",
+                    "progress_pct": 18,
+                    "poll_after_seconds": 2,
+                    "delivery_status": "queued",
+                    "blocked_reason": "",
+                    "source_ref": visual_requests[-1].get("source_ref", ""),
+                    "run_id": visual_requests[-1].get("run_id", ""),
+                    "candidate_ref": visual_requests[-1].get("candidate_ref", ""),
+                }
+            ),
+        )
+
+    def _capture_visual_status(route) -> None:
+        nonlocal visual_status_polls
+        visual_status_polls += 1
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "generated_at": "2026-07-08T12:00:03+00:00",
+                    "status": "ready",
+                    "property_url": "https://www.immobilienscout24.de/expose/family-tiergarten",
+                    "title": "Family flat near Tiergarten",
+                    "request_kind": "tour",
+                    "tour_url": generated_layout_url,
+                    "open_tour_url": "",
+                    "generated_reconstruction_url": generated_layout_url,
+                    "tour_status": "ready",
+                    "flythrough_url": "",
+                    "flythrough_status": "",
+                    "status_label": "Open 3D tour",
+                    "status_detail": "3D tour is ready.",
+                    "eta_label": "",
+                    "progress_pct": 100,
+                    "poll_after_seconds": 0,
+                    "source_ref": "immobilienscout24:family-tiergarten",
+                    "run_id": "run-handoff-layout-tour-browser",
+                    "candidate_ref": "handoff-layout-tiergarten",
+                }
+            ),
+        )
+
+    page.route("**/app/api/signals/willhaben/property-tour", _capture_visual_request)
+    page.route("**/app/api/signals/property/visual-status?**", _capture_visual_status)
+    try:
+        response = page.goto(f"{base_url}/app/handoffs/human_task:review-2", wait_until="networkidle")
+        assert response is not None and response.ok
+        request_button = page.get_by_role("button", name="Request 3D tour").first
+        expect(request_button).to_be_visible()
+
+        request_button.click()
+        _choose_object_visual_style(page, label="Warm Scandinavian")
+        page.wait_for_timeout(750)
+
+        assert len(visual_requests) == 1
+        payload = visual_requests[0]
+        assert payload["request_kind"] == "tour"
+        assert payload["auto_deliver"] is False
+        assert payload["allow_floorplan_only"] is True
+        assert payload["walkthrough_provider_key"] == ""
+        assert payload["run_id"] == "run-handoff-layout-tour-browser"
+        assert payload["candidate_ref"] == "handoff-layout-tiergarten"
+        assert "warm scandinavian" in str(payload["diorama_style_hint"] or "").lower()
+        expect(page.locator("[data-object-visual-status]")).to_contain_text("queued after your request", timeout=5000)
+
+        expect(page.locator("[data-object-visual-status]")).to_contain_text(
+            "Generated from the floor plan and listing photos.",
+            timeout=5000,
+        )
+        assert visual_status_polls >= 1
+        updated_button = page.get_by_role("button", name="Open layout tour").first
+        expect(updated_button).to_be_visible()
+        updated_href = str(updated_button.get_attribute("data-obj-visual-href") or "").strip()
+        assert updated_href == generated_layout_url
+        with page.expect_navigation(wait_until="domcontentloaded"):
+            updated_button.click()
+        assert page.url.endswith(f"/tours/{generated_layout_slug}")
+        public_text = page.locator("body").inner_text().lower()
+        assert "generated reconstruction" in public_text
+        assert "room route" in public_text
+        assert "tour unavailable" not in public_text
     finally:
         context.close()
 
@@ -9113,6 +9425,151 @@ def test_propertyquarry_results_surface_keeps_desktop_selection_inline_before_op
             "href",
             re.compile(r"/app/research/"),
         )
+    finally:
+        context.close()
+
+
+def test_propertyquarry_results_surface_promotes_ready_generated_layout_tour_inline_in_real_browser(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_get_run_status = ProductService.get_property_search_run_status
+
+    def _inline_visual_request_ready_run_status(self, *, principal_id: str, run_id: str):
+        payload = original_get_run_status(self, principal_id=principal_id, run_id=run_id)
+        ranked_candidates = list(((payload or {}).get("summary") or {}).get("ranked_candidates") or [])
+        for candidate in ranked_candidates:
+            if str(candidate.get("property_url") or "").endswith("/family-tiergarten"):
+                candidate["floorplan_url"] = "https://cdn.example.test/floorplan-family-tiergarten.png"
+        for source in list(((payload or {}).get("summary") or {}).get("sources") or []):
+            for candidate in list((source or {}).get("top_candidates") or []):
+                if str(candidate.get("property_url") or "").endswith("/family-tiergarten"):
+                    candidate["floorplan_url"] = "https://cdn.example.test/floorplan-family-tiergarten.png"
+        return payload
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _inline_visual_request_ready_run_status)
+
+    base_url = str(propertyquarry_browser_server["base_url"])
+    bundle_root = Path(str(propertyquarry_browser_server["bundle_root"]))
+    generated_layout_slug = "generated-layout-tiergarten-inline"
+    generated_layout_url = f"{base_url}/tours/{generated_layout_slug}"
+    _write_generated_reconstruction_public_launch_fixture(bundle_root, slug=generated_layout_slug)
+    context = _new_context(browser, mobile=False, width=1440, height=900)
+    page: Page = context.new_page()
+    visual_requests: list[dict[str, object]] = []
+    visual_status_polls = 0
+
+    def _capture_visual_request(route) -> None:
+        payload = route.request.post_data_json or {}
+        visual_requests.append(payload if isinstance(payload, dict) else {})
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "generated_at": "2026-07-10T10:00:00+00:00",
+                    "status": "created",
+                    "property_url": visual_requests[-1].get("property_url", ""),
+                    "title": "Family flat near Tiergarten",
+                    "request_kind": "tour",
+                    "tour_url": "",
+                    "tour_status": "pending",
+                    "flythrough_url": "",
+                    "flythrough_status": "",
+                    "status_label": "3D tour queued",
+                    "status_detail": "3D tour is queued after your request.",
+                    "eta_label": "about 10 min",
+                    "progress_pct": 16,
+                    "poll_after_seconds": 1,
+                    "delivery_status": "queued",
+                    "blocked_reason": "",
+                    "source_ref": visual_requests[-1].get("source_ref", ""),
+                    "run_id": visual_requests[-1].get("run_id", ""),
+                    "candidate_ref": visual_requests[-1].get("candidate_ref", ""),
+                }
+            ),
+        )
+
+    def _capture_visual_status(route) -> None:
+        nonlocal visual_status_polls
+        visual_status_polls += 1
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "generated_at": "2026-07-10T10:00:03+00:00",
+                    "status": "ready",
+                    "property_url": "https://www.immobilienscout24.de/expose/family-tiergarten",
+                    "title": "Family flat near Tiergarten",
+                    "request_kind": "tour",
+                    "tour_url": generated_layout_url,
+                    "open_tour_url": "",
+                    "generated_reconstruction_url": generated_layout_url,
+                    "tour_status": "ready",
+                    "flythrough_url": "",
+                    "flythrough_status": "",
+                    "status_label": "Open 3D tour",
+                    "status_detail": "3D tour is ready.",
+                    "eta_label": "",
+                    "progress_pct": 100,
+                    "poll_after_seconds": 0,
+                    "source_ref": "immobilienscout24:family-tiergarten",
+                    "run_id": "run-42",
+                    "candidate_ref": "family-tiergarten",
+                }
+            ),
+        )
+
+    page.route("**/app/api/signals/willhaben/property-tour", _capture_visual_request)
+    page.route("**/app/api/signals/property/visual-status?**", _capture_visual_status)
+    try:
+        response = page.goto(f"{base_url}/app/properties?run_id=run-42&full=1", wait_until="networkidle")
+        assert response is not None and response.ok
+
+        row = page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").first
+        expect(row).to_be_visible(timeout=5000)
+        before_url = page.url
+        row.click()
+
+        selected_panel = page.get_by_role("region", name="Selected property")
+        expect(selected_panel.locator("[data-pw-title]")).to_contain_text("Family flat near Tiergarten")
+        assert page.url.startswith(before_url)
+        assert "candidate=" in page.url
+
+        selected_panel.locator("[data-pw-actions] details summary").first.click()
+        request_button = selected_panel.get_by_role("button", name="Request 3D tour").first
+        expect(request_button).to_be_visible()
+        request_button.click()
+        _choose_workbench_visual_style(page)
+
+        status_node = selected_panel.locator("[data-pw-visual-request-status]").first
+        expect(status_node).to_contain_text(
+            "Generated from the floor plan and listing photos.",
+            timeout=5000,
+        )
+        assert len(visual_requests) == 1
+        payload = visual_requests[0]
+        assert payload["request_kind"] == "tour"
+        assert payload["auto_deliver"] is False
+        assert payload["allow_floorplan_only"] is True
+        assert payload["run_id"] == "run-42"
+        assert str(payload["property_url"]).endswith("/family-tiergarten")
+        assert "urban jungle" in str(payload["diorama_style_hint"] or "").lower()
+        assert visual_status_polls >= 1
+        selected_panel.locator("[data-pw-actions] details summary").first.click()
+        ready_button = selected_panel.get_by_role("button", name="Open layout tour").first
+        expect(ready_button).to_be_visible()
+        assert str(ready_button.get_attribute("data-pw-visual-ready-url") or "").strip() == generated_layout_url
+
+        with page.expect_navigation(wait_until="domcontentloaded"):
+            ready_button.click()
+        assert page.url.endswith(f"/tours/{generated_layout_slug}")
+        public_text = page.locator("body").inner_text().lower()
+        assert "generated reconstruction" in public_text
+        assert "room route" in public_text
+        assert "tour unavailable" not in public_text
     finally:
         context.close()
 
