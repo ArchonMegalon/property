@@ -1413,7 +1413,8 @@ def test_krpano_control_rejects_16_9_stills_as_fake_panorama(tmp_path: Path, mon
     receipt = build_property_tour_control_receipt(tour_root=tmp_path / "public_tours")
 
     assert receipt["provider_counts"]["krpano"] == 0
-    missing = receipt["tours"][0]["missing_evidence"]
+    assert all(row["provider"] != "krpano" for row in receipt["tours"][0]["missing_evidence"])
+    missing = receipt["tours"][0]["optional_missing_evidence"]
     assert any(row["provider"] == "krpano" and row["reason"] == "walkable_scene_asset_missing_or_not_360" for row in missing)
 
 

@@ -447,6 +447,32 @@ def _magicfit_provider_declared(payload: dict[str, object]) -> bool:
     return provider == "magicfit"
 
 
+def _magicfit_delivery_receipt_disqualified(bundle_dir: Path) -> bool:
+    receipt_path = bundle_dir / "tour.magicfit.json"
+    if not receipt_path.is_file():
+        return False
+    try:
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except Exception:
+        return True
+    if not isinstance(receipt, dict):
+        return True
+
+    acceptance_status = str(receipt.get("acceptance_status") or "").strip().lower()
+    if acceptance_status in {"blocked", "disqualified", "fail", "failed", "rejected"}:
+        return True
+    if "launch_eligible" in receipt and not _truthy(receipt.get("launch_eligible")):
+        return True
+    disqualification = receipt.get("disqualification")
+    if isinstance(disqualification, dict) and disqualification:
+        return True
+    if isinstance(disqualification, list) and disqualification:
+        return True
+    if isinstance(disqualification, str) and disqualification.strip():
+        return True
+    return False
+
+
 def _file_exists(bundle_dir: Path, relpath: str) -> bool:
     return _local_asset_path(bundle_dir, relpath) is not None
 
@@ -652,7 +678,11 @@ def _local_video_asset_is_playable(bundle_dir: Path, relpath: str) -> bool:
 
 
 def _magicfit_local_video_ready(bundle_dir: Path, payload: dict[str, object]) -> bool:
-    return _magicfit_provider_declared(payload) and _local_video_asset_is_playable(bundle_dir, _magicfit_video_relpath(payload))
+    return (
+        _magicfit_provider_declared(payload)
+        and not _magicfit_delivery_receipt_disqualified(bundle_dir)
+        and _local_video_asset_is_playable(bundle_dir, _magicfit_video_relpath(payload))
+    )
 
 
 def _tour_payload_is_disabled_fallback(payload: dict[str, object]) -> bool:
@@ -817,7 +847,10 @@ def _provider_missing_evidence(bundle_dir: Path, payload: dict[str, object]) -> 
             or payload.get("video_render_provider")
             or ""
         ).strip().lower()
-        if provider and provider != "magicfit":
+        if _magicfit_delivery_receipt_disqualified(bundle_dir):
+            reason = "magicfit_walkthrough_disqualified"
+            action = "render and import a replacement MagicFit walkthrough that passes the delivery acceptance gate"
+        elif provider and provider != "magicfit":
             reason = "walkthrough_provider_not_magicfit"
             action = "render and import a MagicFit walkthrough with provider=magicfit"
         elif magicfit_url:
@@ -934,6 +967,7 @@ def _control_candidates(*, slug: str, bundle_dir: Path, payload: dict[str, objec
 
     magicfit_relpath = _magicfit_video_relpath(payload)
     magicfit_url = _magicfit_video_url(payload)
+    magicfit_disqualified = _magicfit_delivery_receipt_disqualified(bundle_dir)
     if _magicfit_local_video_ready(bundle_dir, payload):
         rows.append(
             {
@@ -943,7 +977,7 @@ def _control_candidates(*, slug: str, bundle_dir: Path, payload: dict[str, objec
                 "evidence": "local_magicfit_playable_video",
             }
         )
-    elif magicfit_url:
+    elif magicfit_url and not magicfit_disqualified:
         rows.append(
             {
                 "provider": "magicfit",

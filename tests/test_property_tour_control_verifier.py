@@ -874,6 +874,36 @@ def test_property_tour_control_verifier_rejects_magicfit_signature_only_stub(tmp
     assert missing["magicfit"]["reason"] == "magicfit_video_missing_or_unplayable"
 
 
+def test_property_tour_control_verifier_rejects_disqualified_magicfit_delivery_receipts(tmp_path: Path) -> None:
+    playable_magicfit = tmp_path / "walkthrough.mp4"
+    _write_playable_mp4(playable_magicfit)
+    disqualifications = {
+        "acceptance-status": {"acceptance_status": "disqualified"},
+        "launch-eligibility": {"launch_eligible": False},
+        "explicit-disqualification": {"disqualification": {"reason_codes": ["visible_rotation_jump"]}},
+    }
+    for slug, delivery_receipt in disqualifications.items():
+        _write_tour(
+            tmp_path,
+            slug,
+            {"video_provider": "magicfit", "video_relpath": "walkthrough.mp4"},
+            {
+                "walkthrough.mp4": playable_magicfit.read_bytes(),
+                "tour.magicfit.json": json.dumps(delivery_receipt),
+            },
+        )
+
+    receipt = build_property_tour_control_receipt(tour_root=tmp_path)
+
+    assert receipt["status"] == "blocked_missing_verified_controls"
+    assert receipt["provider_counts"]["magicfit"] == 0
+    assert receipt["ready_provider_modes"] == []
+    for tour in receipt["tours"]:
+        missing = {row["provider"]: row for row in tour["missing_evidence"]}
+        assert missing["magicfit"]["reason"] == "magicfit_walkthrough_disqualified"
+        assert "replacement MagicFit walkthrough" in missing["magicfit"]["action"]
+
+
 def test_property_tour_control_verifier_requires_live_probe_for_remote_magicfit_video(tmp_path: Path) -> None:
     _write_tour(
         tmp_path,
