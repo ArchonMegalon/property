@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import mimetypes
+import re
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
-from typing import Callable
+from typing import Callable, Mapping
 
 from fastapi import HTTPException
 
@@ -32,6 +34,7 @@ class PrivateTourReceipt:
     three_d_vista_import: dict[str, object] = field(default_factory=dict)
     three_d_vista_white_label_proof: dict[str, object] = field(default_factory=dict)
     three_d_vista_browser_render_proof: dict[str, object] = field(default_factory=dict)
+    three_d_vista_entry_relpath: str = ""
     three_d_vista_url: str = ""
     matterport_url: str = ""
 
@@ -58,6 +61,12 @@ class PrivateTourReceipt:
             three_d_vista_browser_render_proof=dict(source.get("three_d_vista_browser_render_proof") or {})
             if isinstance(source.get("three_d_vista_browser_render_proof"), dict)
             else {},
+            three_d_vista_entry_relpath=str(
+                source.get("three_d_vista_entry_relpath")
+                or source.get("threedvista_entry_relpath")
+                or source.get("3dvista_entry_relpath")
+                or ""
+            ).strip(),
             three_d_vista_url=str(source.get("three_d_vista_url") or "").strip(),
             matterport_url=str(source.get("matterport_url") or "").strip(),
         )
@@ -77,6 +86,7 @@ class PrivateTourReceipt:
             "three_d_vista_import": self.three_d_vista_import,
             "three_d_vista_white_label_proof": self.three_d_vista_white_label_proof,
             "three_d_vista_browser_render_proof": self.three_d_vista_browser_render_proof,
+            "three_d_vista_entry_relpath": self.three_d_vista_entry_relpath,
             "three_d_vista_url": self.three_d_vista_url,
             "matterport_url": self.matterport_url,
         }
@@ -197,6 +207,7 @@ _PUBLIC_TOUR_GENERATED_RECONSTRUCTION_MODEL_ROLES = frozenset(
         "generated_reconstruction_material",
     }
 )
+_PUBLIC_TOUR_GENERATED_RECONSTRUCTION_PREFIX = "generated-reconstruction/"
 _PUBLIC_TOUR_DENIED_ASSET_EXTENSIONS = frozenset(
     {
         ".conf",
@@ -403,6 +414,91 @@ def public_tour_privacy_mode(payload: dict[str, object]) -> str:
 def require_public_tour_viewable(payload: dict[str, object]) -> None:
     if public_tour_privacy_mode(payload) == "owner_private":
         raise HTTPException(status_code=404, detail="tour_not_found")
+    require_governed_spatial_public_tour_viewable(payload)
+
+
+def require_governed_spatial_public_tour_viewable(
+    payload: dict[str, object],
+    *,
+    observed_at: datetime | None = None,
+    lifecycle_resolver: Callable[[str, datetime], Mapping[str, object]] | None = None,
+) -> None:
+    marker = payload.get("governed_spatial")
+    marker_present = marker is not None
+    if marker_present and not isinstance(marker, dict):
+        raise HTTPException(status_code=404, detail="tour_not_found")
+    now = observed_at or datetime.now(timezone.utc)
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise HTTPException(status_code=404, detail="tour_not_found")
+    now = now.astimezone(timezone.utc).replace(microsecond=0)
+    slug = str(payload.get("slug") or "").strip()
+    if not slug:
+        if not marker_present:
+            return
+        raise HTTPException(status_code=404, detail="tour_not_found")
+    if lifecycle_resolver is None:
+        from app.product.property_tour_hosting import (
+            GovernedPropertyTourContractError,
+            GovernedPropertyTourIntegrityError,
+            GovernedPropertyTourLifecycleStore,
+            _public_tour_dir,
+        )
+
+        public_root = _public_tour_dir()
+        private_root = public_root / GovernedPropertyTourLifecycleStore._PRIVATE_DIR
+        if not private_root.exists() or private_root.is_symlink():
+            if not marker_present and not private_root.is_symlink():
+                return
+            raise HTTPException(status_code=404, detail="tour_not_found")
+        try:
+            lifecycle = GovernedPropertyTourLifecycleStore(public_root).public_state(
+                slug=slug,
+                observed_at=now,
+            )
+        except (GovernedPropertyTourContractError, GovernedPropertyTourIntegrityError, OSError) as exc:
+            raise HTTPException(status_code=404, detail="tour_not_found") from exc
+    else:
+        lifecycle = lifecycle_resolver(slug, now)
+    if not isinstance(lifecycle, Mapping):
+        raise HTTPException(status_code=404, detail="tour_not_found")
+    lifecycle_missing = (
+        lifecycle.get("status") == "blocked"
+        and lifecycle.get("reason") == "privacy_lifecycle_missing"
+    )
+    if lifecycle_missing and not marker_present:
+        return
+    if lifecycle_missing or not marker_present:
+        raise HTTPException(status_code=404, detail="tour_not_found")
+    expected_marker_fields = {
+        "contract_name",
+        "composition_digest",
+        "artifact_digest",
+        "publication_decision_digest",
+    }
+    if not isinstance(marker, Mapping) or set(marker) != expected_marker_fields:
+        raise HTTPException(status_code=404, detail="tour_not_found")
+    if marker.get("contract_name") != "propertyquarry.governed_spatial_public_binding.v1":
+        raise HTTPException(status_code=404, detail="tour_not_found")
+    for field in ("composition_digest", "artifact_digest", "publication_decision_digest"):
+        value = marker.get(field)
+        if (
+            not isinstance(value, str)
+            or not re.fullmatch(r"sha256:[0-9a-f]{64}", value)
+            or value != lifecycle.get(field)
+        ):
+            raise HTTPException(status_code=404, detail="tour_not_found")
+    try:
+        retention_expires_at_epoch = int(lifecycle.get("retention_expires_at_epoch") or 0)
+    except (TypeError, ValueError):
+        retention_expires_at_epoch = 0
+    eligible = (
+        lifecycle.get("status") == "active"
+        and lifecycle.get("serving_allowed") is True
+        and lifecycle.get("deleted") is False
+        and lifecycle.get("revoked") is False
+    )
+    if not eligible or retention_expires_at_epoch <= int(now.timestamp()):
+        raise HTTPException(status_code=404, detail="tour_not_found")
 
 
 def public_tour_exact_address_allowed(payload: dict[str, object], *, privacy_mode: str) -> bool:
@@ -428,6 +524,9 @@ def public_tour_asset_path_is_public(
     suffix = PurePosixPath(safe_relpath).suffix.lower()
     normalized_privacy = str(privacy_class or "").strip().lower()
     normalized_role = str(role or "").strip().lower().replace("-", "_")
+    is_generated_reconstruction_asset = normalized_privacy in _PUBLIC_TOUR_GENERATED_RECONSTRUCTION_PRIVACY_CLASSES
+    if is_generated_reconstruction_asset and not safe_relpath.startswith(_PUBLIC_TOUR_GENERATED_RECONSTRUCTION_PREFIX):
+        return False
     if suffix in {".htm", ".html"}:
         return (
             (
@@ -435,13 +534,13 @@ def public_tour_asset_path_is_public(
                 and normalized_role in _PUBLIC_TOUR_PANO2VR_ENTRY_ROLES
             )
             or (
-                normalized_privacy in _PUBLIC_TOUR_GENERATED_RECONSTRUCTION_PRIVACY_CLASSES
+                is_generated_reconstruction_asset
                 and normalized_role in _PUBLIC_TOUR_GENERATED_RECONSTRUCTION_HTML_ROLES
             )
         )
     if suffix in {".js", ".mjs"}:
         return (
-            normalized_privacy in _PUBLIC_TOUR_GENERATED_RECONSTRUCTION_PRIVACY_CLASSES
+            is_generated_reconstruction_asset
             and normalized_role in _PUBLIC_TOUR_GENERATED_RECONSTRUCTION_VIEWER_ASSET_ROLES
         )
     if suffix in {".obj", ".mtl", ".glb"}:
@@ -708,14 +807,27 @@ def public_tour_manifest(
 
 def public_tour_safe_http_url(value: object) -> str:
     normalized = str(value or "").strip()
-    if not normalized:
+    if not normalized or len(normalized) > 4096:
         return ""
     from urllib.parse import urlparse
 
-    parsed = urlparse(normalized)
-    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+    if "\\" in normalized or any(ord(character) < 32 or ord(character) == 127 for character in normalized):
         return ""
-    return normalized
+    parsed = urlparse(normalized)
+    if parsed.scheme.lower() != "https" or not parsed.netloc:
+        return ""
+    if parsed.username is not None or parsed.password is not None:
+        return ""
+    try:
+        if parsed.port not in {None, 443}:
+            return ""
+    except ValueError:
+        return ""
+    hostname = str(parsed.hostname or "").strip().lower().rstrip(".")
+    if not hostname or ".." in hostname or not re.fullmatch(r"[a-z0-9.-]+", hostname):
+        return ""
+    netloc = hostname
+    return parsed._replace(scheme="https", netloc=netloc).geturl()
 
 
 def public_tour_external_media_url_allowed(
@@ -855,6 +967,7 @@ def redacted_public_tour_payload(
     rendered: dict[str, object] = {}
     slug = str(payload.get("slug") or "").strip()
     privacy_mode = public_tour_privacy_mode(payload)
+    governed = payload.get("governed_spatial") is not None
     for key in _PUBLIC_TOUR_TOP_LEVEL_KEYS:
         if key not in payload or public_tour_key_is_private(key):
             continue
@@ -866,11 +979,18 @@ def redacted_public_tour_payload(
             )
             continue
         if key == "scenes":
-            rendered[key] = redacted_public_tour_scenes(
+            rendered_scenes = redacted_public_tour_scenes(
                 payload,
                 expose_asset_relpaths=expose_asset_relpaths,
-                url_allowed=url_allowed,
+                url_allowed=(lambda _value: False) if governed else url_allowed,
             )
+            if governed:
+                rendered_scenes = [
+                    scene
+                    for scene in rendered_scenes
+                    if "image_url" in scene or "asset_relpath" in scene or "cube_faces" in scene
+                ]
+            rendered[key] = rendered_scenes
             continue
         if key in {"video_relpath", "video_mobile_relpath"}:
             relpath = public_tour_safe_asset_relpath(payload.get(key))

@@ -8,6 +8,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Iterator
@@ -1065,6 +1066,12 @@ def _write_generated_reconstruction_public_shell_bundle(
         _write_photo_panel(reconstruction_dir / f"photo-{index:02d}.jpg", label=label, fill=fill)
     _write_cube_face_png(bundle_dir / "diorama-preview.png", label="Generated diorama", fill=(128, 98, 76))
     _write_h264_flythrough(reconstruction_dir / "generated-walkthrough.mp4")
+    vendor_dir = reconstruction_dir / "vendor"
+    controls_dir = vendor_dir / "examples" / "jsm" / "controls"
+    controls_dir.mkdir(parents=True, exist_ok=True)
+    (vendor_dir / "three.module.js").write_text("export const REVISION = 'route-test';\n", encoding="utf-8")
+    (controls_dir / "OrbitControls.js").write_text("export class OrbitControls {}\n", encoding="utf-8")
+    (vendor_dir / "viewer-symlink.js").symlink_to(vendor_dir / "three.module.js")
 
     coverage_proof = {
         "status": "pass",
@@ -1111,14 +1118,18 @@ def _write_generated_reconstruction_public_shell_bundle(
     )
     (reconstruction_dir / "viewer.html").write_text(
         f"""<!doctype html>
-<html lang="en">
+<html lang="en" data-pq-preview-kind="approximate-layout" data-pq-verified-provider-capture="false">
   <head>
     <meta charset="utf-8">
     <title>Layout preview</title>
   </head>
   <body>
     <h1>Layout preview</h1>
-    <script>
+    <script type="module">
+      import * as THREE from './vendor/three.module.js';
+      import {{ OrbitControls }} from './vendor/examples/jsm/controls/OrbitControls.js';
+      void THREE;
+      void OrbitControls;
       let activeRouteIndex = 0;
       window.__pqReconstructionDebug = {{
         setRouteView(index) {{
@@ -1202,6 +1213,26 @@ def _write_generated_reconstruction_public_shell_bundle(
                 "video_provider": "propertyquarry_generated_reconstruction",
                 "video_provider_key": "propertyquarry_generated_reconstruction",
                 "video_coverage_proof": "boundary_verified_frame_continuation",
+                "public_assets": [
+                    {
+                        "path": "generated-reconstruction/vendor/three.module.js",
+                        "privacy_class": "generated_reconstruction_public",
+                        "role": "generated_reconstruction_viewer_asset",
+                        "mime_type": "text/javascript",
+                    },
+                    {
+                        "path": "generated-reconstruction/vendor/examples/jsm/controls/OrbitControls.js",
+                        "privacy_class": "generated_reconstruction_public",
+                        "role": "generated_reconstruction_viewer_asset",
+                        "mime_type": "text/javascript",
+                    },
+                    {
+                        "path": "generated-reconstruction/vendor/viewer-symlink.js",
+                        "privacy_class": "generated_reconstruction_public",
+                        "role": "generated_reconstruction_viewer_asset",
+                        "mime_type": "text/javascript",
+                    },
+                ],
                 "scenes": scenes,
             },
             ensure_ascii=False,
@@ -1340,6 +1371,12 @@ def generated_reconstruction_shell_server(
     _write_photo_panel(reconstruction_dir / "photo-02.jpg", label="Bedroom reference", fill=(84, 104, 122))
     _write_cube_face_png(bundle_dir / "diorama-preview.png", label="Generated diorama", fill=(128, 98, 76))
     _write_h264_flythrough(reconstruction_dir / "generated-walkthrough.mp4")
+    vendor_dir = reconstruction_dir / "vendor"
+    controls_dir = vendor_dir / "examples" / "jsm" / "controls"
+    controls_dir.mkdir(parents=True, exist_ok=True)
+    (vendor_dir / "three.module.js").write_text("export const REVISION = 'route-test';\n", encoding="utf-8")
+    (controls_dir / "OrbitControls.js").write_text("export class OrbitControls {}\n", encoding="utf-8")
+    (vendor_dir / "viewer-symlink.js").symlink_to(vendor_dir / "three.module.js")
 
     route_labels = ["entry/hall", "living room", "bedroom"]
     walkthrough_route_labels = ["entry/hall", "living room", "bedroom"]
@@ -1458,14 +1495,18 @@ def generated_reconstruction_shell_server(
     )
     (reconstruction_dir / "viewer.html").write_text(
         """<!doctype html>
-<html lang="en">
+<html lang="en" data-pq-preview-kind="approximate-layout" data-pq-verified-provider-capture="false">
   <head>
     <meta charset="utf-8">
     <title>Layout preview</title>
   </head>
   <body>
     <h1>Layout preview</h1>
-    <script>
+    <script type="module">
+      import * as THREE from './vendor/three.module.js';
+      import { OrbitControls } from './vendor/examples/jsm/controls/OrbitControls.js';
+      void THREE;
+      void OrbitControls;
       let activeRouteIndex = 0;
       window.__pqReconstructionDebug = {
         setRouteView(index) {
@@ -1534,6 +1575,26 @@ def generated_reconstruction_shell_server(
                 "video_provider": "propertyquarry_generated_reconstruction",
                 "video_provider_key": "propertyquarry_generated_reconstruction",
                 "video_coverage_proof": "boundary_verified_frame_continuation",
+                "public_assets": [
+                    {
+                        "path": "generated-reconstruction/vendor/three.module.js",
+                        "privacy_class": "generated_reconstruction_public",
+                        "role": "generated_reconstruction_viewer_asset",
+                        "mime_type": "text/javascript",
+                    },
+                    {
+                        "path": "generated-reconstruction/vendor/examples/jsm/controls/OrbitControls.js",
+                        "privacy_class": "generated_reconstruction_public",
+                        "role": "generated_reconstruction_viewer_asset",
+                        "mime_type": "text/javascript",
+                    },
+                    {
+                        "path": "generated-reconstruction/vendor/viewer-symlink.js",
+                        "privacy_class": "generated_reconstruction_public",
+                        "role": "generated_reconstruction_viewer_asset",
+                        "mime_type": "text/javascript",
+                    },
+                ],
                 "scenes": [
                     {
                         "scene_id": "floorplan-1",
@@ -1584,6 +1645,8 @@ def generated_reconstruction_shell_server(
     try:
         yield {
             "base_url": browser_base_url,
+            "bundle_root": str(bundle_root),
+            "local_base_url": local_base_url,
             "slug": slug,
         }
     finally:
@@ -2573,8 +2636,8 @@ def test_generated_reconstruction_viewer_renders_routeable_layout_in_real_browse
     assert overview_metrics["route_stop_count"] == 3
     assert overview_metrics["active_route_index"] == 0
     assert overview_metrics["view_mode"] == "overview"
-    assert 0.7 <= overview_metrics["wall_opacity"] < 0.95
-    assert 0.75 <= overview_metrics["wall_height_scale"] < 0.9
+    assert 0.6 <= overview_metrics["wall_opacity"] < 0.8
+    assert 0.55 <= overview_metrics["wall_height_scale"] < 0.75
     assert overview_metrics["photo_panel_group_visible"] is True
     assert overview_metrics["hotspot_count"] == 3
     assert overview_metrics["visible_hotspot_count"] >= 1
@@ -2602,6 +2665,8 @@ def test_generated_reconstruction_viewer_renders_routeable_layout_in_real_browse
     assert dollhouse_metrics["visible_staging_object_count"] >= overview_metrics["route_stop_count"]
     assert dollhouse_metrics["wall_opacity"] < 0.6
     assert dollhouse_metrics["wall_height_scale"] < 0.8
+    assert dollhouse_metrics["wall_opacity"] < overview_metrics["wall_opacity"]
+    assert dollhouse_metrics["wall_height_scale"] < overview_metrics["wall_height_scale"]
     assert dollhouse_metrics["photo_panel_group_visible"] is False
     assert dollhouse_metrics["visible_wall_count"] >= 1
     assert dollhouse_metrics["visible_hotspot_count"] >= 1
@@ -2660,16 +2725,39 @@ def test_generated_reconstruction_ready_viewer_route_renders_in_real_browser(
     generated_reconstruction_shell_server: dict[str, str],
     browser: Browser,
 ) -> None:
+    from app.product.property_tour_hosting import _hosted_property_tour_generated_reconstruction_asset_url
+
     context = _new_context(browser)
     page = context.new_page()
+    external_requests: list[str] = []
+    page.on(
+        "request",
+        lambda request: external_requests.append(request.url)
+        if str(urllib.parse.urlparse(request.url).hostname or "").lower() != "propertyquarry.com"
+        else None,
+    )
     slug = str(generated_reconstruction_shell_server["slug"])
+    assert _hosted_property_tour_generated_reconstruction_asset_url(
+        f"https://propertyquarry.com/tours/{slug}",
+        asset_key="viewer_relpath",
+    ) == f"https://propertyquarry.com/tours/viewer/{slug}/generated-reconstruction/viewer.html"
     response = page.goto(
-        f"{generated_reconstruction_shell_server['base_url']}/tours/files/{slug}/generated-reconstruction/viewer.html",
+        f"{generated_reconstruction_shell_server['base_url']}/tours/viewer/{slug}/generated-reconstruction/viewer.html",
         wait_until="domcontentloaded",
     )
     assert response is not None
     assert response.status == 200
-    assert page.url.endswith(f"/tours/files/{slug}/generated-reconstruction/viewer.html")
+    assert page.url.endswith(f"/tours/viewer/{slug}/generated-reconstruction/viewer.html")
+    response_headers = response.headers
+    policy = response_headers["content-security-policy"]
+    assert response_headers["x-propertyquarry-preview-kind"] == "approximate-layout"
+    assert response_headers["x-propertyquarry-verified-provider-capture"] == "false"
+    assert response_headers["x-propertyquarry-verified-tour-gate"] == "false"
+    assert "script-src 'self'" in policy
+    assert "connect-src 'self'" in policy
+    assert "https://cdn.jsdelivr.net" not in policy
+    assert "https://3dvista.com" not in policy
+    assert "https://" not in policy
     assert page.title() == "Layout preview"
     assert page.locator("h1").inner_text().strip() == "Layout preview"
     initial_metrics = page.evaluate(
@@ -2687,10 +2775,102 @@ def test_generated_reconstruction_ready_viewer_route_renders_in_real_browser(
     )
     assert isinstance(updated_metrics, dict)
     assert updated_metrics["activeRouteIndex"] == 2
+    assert external_requests == []
     context.close()
 
 
-def test_generated_reconstruction_viewer_routes_to_clean_unavailable_shell(
+def test_generated_reconstruction_preview_route_rejects_symlinks_traversal_and_external_urls(
+    generated_reconstruction_shell_server: dict[str, str],
+) -> None:
+    slug = str(generated_reconstruction_shell_server["slug"])
+    local_base_url = str(generated_reconstruction_shell_server["local_base_url"])
+
+    def _status(asset_path: str) -> int:
+        request = urllib.request.Request(
+            f"{local_base_url}/tours/viewer/{slug}/{asset_path}",
+            headers={"Host": "propertyquarry.com"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=5.0) as response:
+                return int(response.status)
+        except urllib.error.HTTPError as exc:
+            return int(exc.code)
+
+    assert _status("generated-reconstruction/vendor/three.module.js") == 200
+    assert _status("generated-reconstruction/vendor/viewer-symlink.js") == 404
+    assert _status("generated-reconstruction/vendor/not-declared.js") == 404
+    assert _status("generated-reconstruction/%2e%2e/tour.json") == 404
+    assert _status("https%3A%2F%2Fevil.example%2Fpayload.js") == 404
+
+
+def test_generated_reconstruction_noncanonical_viewer_html_fails_closed_on_both_asset_routes(
+    generated_reconstruction_shell_server: dict[str, str],
+) -> None:
+    slug = str(generated_reconstruction_shell_server["slug"])
+    bundle_dir = Path(str(generated_reconstruction_shell_server["bundle_root"])) / slug
+    canonical_viewer = bundle_dir / "generated-reconstruction" / "viewer.html"
+    extra_viewer = bundle_dir / "generated-reconstruction" / "extra-viewer.html"
+    extra_viewer.write_bytes(canonical_viewer.read_bytes())
+    manifest_path = bundle_dir / "tour.json"
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    public_assets = list(payload.get("public_assets") or [])
+    public_assets.append(
+        {
+            "path": "generated-reconstruction/extra-viewer.html",
+            "privacy_class": "generated_reconstruction_public",
+            "role": "generated_reconstruction_viewer",
+            "mime_type": "text/html",
+        }
+    )
+    payload["public_assets"] = public_assets
+    manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    local_base_url = str(generated_reconstruction_shell_server["local_base_url"])
+    for route_prefix in ("files", "viewer"):
+        request = urllib.request.Request(
+            f"{local_base_url}/tours/{route_prefix}/{slug}/generated-reconstruction/extra-viewer.html",
+            headers={"Host": "propertyquarry.com"},
+        )
+        with pytest.raises(urllib.error.HTTPError) as exc_info:
+            urllib.request.urlopen(request, timeout=5.0)
+        assert exc_info.value.code == 404
+
+
+def test_generated_reconstruction_preview_without_explicit_false_gate_keeps_legacy_302_fallback(
+    generated_reconstruction_shell_server: dict[str, str],
+) -> None:
+    slug = str(generated_reconstruction_shell_server["slug"])
+    manifest_path = Path(str(generated_reconstruction_shell_server["bundle_root"])) / slug / "tour.json"
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    generated_reconstruction = dict(payload["generated_reconstruction"])
+    generated_reconstruction.pop("satisfies_verified_tour_gate", None)
+    payload["generated_reconstruction"] = generated_reconstruction
+    manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    class _NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
+            return None
+
+    local_base_url = str(generated_reconstruction_shell_server["local_base_url"])
+    request = urllib.request.Request(
+        f"{local_base_url}/tours/files/{slug}/generated-reconstruction/viewer.html",
+        headers={"Host": "propertyquarry.com"},
+    )
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        urllib.request.build_opener(_NoRedirect).open(request, timeout=5.0)
+    assert exc_info.value.code == 302
+    assert exc_info.value.headers["location"] == f"/tours/{slug}"
+
+    alias_request = urllib.request.Request(
+        f"{local_base_url}/tours/viewer/{slug}/generated-reconstruction/viewer.html",
+        headers={"Host": "propertyquarry.com"},
+    )
+    with pytest.raises(urllib.error.HTTPError) as alias_exc_info:
+        urllib.request.urlopen(alias_request, timeout=5.0)
+    assert alias_exc_info.value.code == 404
+
+
+def test_generated_reconstruction_viewer_serves_honest_approximate_layout_preview(
     public_tour_browser_server: dict[str, str],
     browser: Browser,
 ) -> None:
@@ -2703,15 +2883,23 @@ def test_generated_reconstruction_viewer_routes_to_clean_unavailable_shell(
     slug = str(public_tour_browser_server["generated_reconstruction_slug"])
     url = f"{public_tour_browser_server['base_url']}/tours/files/{slug}/generated-reconstruction/viewer.html"
 
-    response = page.goto(url, wait_until="domcontentloaded")
+    external_requests: list[str] = []
+    page.on(
+        "request",
+        lambda request: external_requests.append(request.url)
+        if str(urllib.parse.urlparse(request.url).hostname or "").lower() != "propertyquarry.com"
+        else None,
+    )
+
+    response = page.goto(url, wait_until="networkidle")
     assert response is not None
-    assert response.status == 404
-    assert page.url.endswith(f"/tours/{slug}")
-    body_text = page.locator("body").inner_text()
-    assert "This tour link is no longer available." in body_text
-    assert "This link points to a generated layout reconstruction, not a published 3D tour." in body_text
-    assert page.locator("canvas").count() == 0
-    assert "generated-reconstruction/viewer.html" not in body_text
+    assert response.status == 200
+    assert page.url.endswith(f"/tours/files/{slug}/generated-reconstruction/viewer.html")
+    assert page.locator("html").get_attribute("data-pq-preview-kind") == "approximate-layout"
+    assert page.locator("html").get_attribute("data-pq-verified-provider-capture") == "false"
+    assert page.get_by_role("heading", name="Layout preview").is_visible()
+    assert page.locator("canvas").count() == 1
+    assert external_requests == []
     assert not page_errors
     assert not [
         message
@@ -2723,7 +2911,7 @@ def test_generated_reconstruction_viewer_routes_to_clean_unavailable_shell(
     context.close()
 
 
-def test_generated_reconstruction_viewer_mobile_routes_to_clean_unavailable_shell(
+def test_generated_reconstruction_viewer_mobile_serves_honest_approximate_layout_preview(
     public_tour_browser_server: dict[str, str],
     browser: Browser,
 ) -> None:
@@ -2736,16 +2924,15 @@ def test_generated_reconstruction_viewer_mobile_routes_to_clean_unavailable_shel
     slug = str(public_tour_browser_server["generated_reconstruction_slug"])
     url = f"{public_tour_browser_server['base_url']}/tours/files/{slug}/generated-reconstruction/viewer.html"
 
-    response = page.goto(url, wait_until="domcontentloaded")
+    response = page.goto(url, wait_until="networkidle")
     assert response is not None
-    assert response.status == 404
-    assert page.url.endswith(f"/tours/{slug}")
+    assert response.status == 200
+    assert page.url.endswith(f"/tours/files/{slug}/generated-reconstruction/viewer.html")
     _assert_no_horizontal_overflow(page)
-    body_text = page.locator("body").inner_text()
-    assert "This tour link is no longer available." in body_text
-    assert "This link points to a generated layout reconstruction, not a published 3D tour." in body_text
-    assert page.locator("canvas").count() == 0
-    assert "generated-reconstruction/viewer.html" not in body_text
+    assert page.locator("html").get_attribute("data-pq-preview-kind") == "approximate-layout"
+    assert page.locator("html").get_attribute("data-pq-verified-provider-capture") == "false"
+    assert page.get_by_role("heading", name="Layout preview").is_visible()
+    assert page.locator("canvas").count() == 1
     assert not page_errors
     assert not [
         message

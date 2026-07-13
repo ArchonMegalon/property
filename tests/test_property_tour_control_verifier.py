@@ -222,7 +222,7 @@ def test_public_tour_control_labels_manual_video_as_video_evidence_not_walkthrou
     html_body = _tour_control_external_iframe_html(
         title="Manual media loft",
         iframe_src="https://my.matterport.com/show/?m=abc123",
-        badge="Matterport Control",
+        badge="3D Tour",
         payload={
             "slug": "manual-media-loft",
             "video_provider": "manual_upload",
@@ -238,6 +238,8 @@ def test_public_tour_control_labels_manual_video_as_video_evidence_not_walkthrou
     assert "/tours/manual-media-loft/walkthrough" in html_body
     assert "MagicFit walkthrough" not in html_body
     assert '<div class="card-label">Walkthrough</div>' not in html_body
+    assert "my.matterport.com" not in html_body
+    assert 'data-src="about:blank"' in html_body
 
 
 def test_public_tour_control_labels_magicfit_video_as_magicfit_walkthrough() -> None:
@@ -550,6 +552,7 @@ def test_property_tour_control_verifier_counts_provider_gaps_on_ready_tours(tmp_
     missing = {row["provider"]: row for row in receipt["tours"][0]["missing_evidence"]}
     assert receipt["status"] == "blocked_missing_provider_modes"
     assert receipt["tours"][0]["status"] == "ready"
+    assert set(receipt["required_provider_modes"]) == {"3dvista", "magicfit"}
     assert set(missing) == {"3dvista", "magicfit"}
     assert missing["3dvista"]["reason"] == "missing_3dvista_export"
     assert missing["magicfit"]["reason"] == "missing_magicfit_walkthrough"
@@ -575,6 +578,7 @@ def test_property_tour_control_verifier_distinguishes_empty_provider_placeholder
     assert missing["3dvista"]["reason"] == "3dvista_placeholder_field_empty_or_unusable"
     assert "empty 3DVista placeholder" in missing["3dvista"]["action"]
     assert "pano2vr" not in missing
+    assert {row["provider"] for row in receipt["tours"][0]["optional_missing_evidence"]} == {"pano2vr"}
     assert receipt["provider_blockers"]["pano2vr"]["reasons"][0]["reason"] == "pano2vr_placeholder_field_empty_or_unusable"
 
 
@@ -1013,7 +1017,7 @@ def test_property_tour_control_verifier_blocks_when_no_verified_controls(tmp_pat
     assert receipt["ready_provider_modes"] == []
     assert receipt["tours"][0]["status"] == "blocked_missing_verified_controls"
     assert receipt["tours"][0]["blocked_reason"] == "generated_cube_not_verified_3d"
-    assert set(receipt["missing_provider_modes"]) == {"matterport", "3dvista", "magicfit"}
+    assert set(receipt["missing_provider_modes"]) == {"3dvista", "magicfit"}
 
 
 def test_property_tour_control_verifier_marks_photo_gallery_as_not_3d(tmp_path: Path) -> None:
@@ -1042,7 +1046,6 @@ def test_property_tour_control_verifier_marks_photo_gallery_as_not_3d(tmp_path: 
     assert receipt["tours"][0]["controls"] == []
     assert receipt["tours"][0]["missing_evidence"] == []
     assert {row["provider"] for row in receipt["next_required_actions"]} == {
-        "matterport",
         "3dvista",
         "magicfit",
     }
@@ -1072,11 +1075,13 @@ def test_property_tour_control_verifier_reports_actionable_missing_evidence(tmp_
     receipt = build_property_tour_control_receipt(tour_root=tmp_path)
 
     missing = {row["provider"]: row for row in receipt["tours"][0]["missing_evidence"]}
-    assert missing["matterport"]["reason"] == "matterport_url_not_allowlisted_or_invalid"
+    assert "matterport" not in missing
+    assert receipt["provider_blockers"]["matterport"]["reasons"][0]["reason"] == "matterport_url_not_allowlisted_or_invalid"
     assert missing["3dvista"]["reason"] == "3dvista_entry_missing_or_not_verified"
     assert "pano2vr" not in missing
     assert receipt["provider_blockers"]["pano2vr"]["reasons"][0]["reason"] == "pano2vr_entry_missing_or_not_verified"
     assert "krpano" not in missing
+    assert {row["provider"] for row in receipt["tours"][0]["optional_missing_evidence"]} == {"pano2vr", "krpano"}
     assert missing["magicfit"]["reason"] == "walkthrough_provider_not_magicfit"
     assert "tracker.example" not in json.dumps(receipt)
 

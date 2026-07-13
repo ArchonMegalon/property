@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import subprocess
 import sys
@@ -40,6 +41,31 @@ def _write_floorplan(path: Path) -> None:
     draw.line((620, 80, 620, 720), fill=(42, 36, 28), width=8)
     draw.line((80, 420, 620, 420), fill=(42, 36, 28), width=8)
     image.save(path, format="JPEG")
+
+
+def _write_annotated_architectural_floorplan(path: Path) -> None:
+    image = Image.new("RGB", (1400, 1000), color=(250, 249, 246))
+    draw = ImageDraw.Draw(image)
+    wall = (36, 34, 31)
+    annotation = (112, 108, 101)
+    draw.line((0, 100, 1280, 55), fill=wall, width=18)
+    draw.line((1280, 55, 1350, 930), fill=wall, width=18)
+    draw.line((1350, 930, 45, 940), fill=wall, width=18)
+    draw.line((45, 940, 0, 100), fill=wall, width=18)
+    draw.line((610, 80, 625, 690), fill=wall, width=14)
+    draw.line((40, 520, 625, 500), fill=wall, width=14)
+    draw.line((625, 690, 1325, 665), fill=wall, width=14)
+    draw.line((980, 675, 990, 925), fill=wall, width=14)
+    for offset in range(-500, 1400, 28):
+        draw.line((offset, 180, offset + 720, 900), fill=(218, 216, 210), width=1)
+    for box in ((160, 180, 440, 360), (760, 170, 1120, 410), (700, 720, 930, 880)):
+        draw.rectangle(box, outline=annotation, width=2)
+        draw.line((box[0], box[1], box[2], box[3]), fill=annotation, width=2)
+        draw.line((box[2], box[1], box[0], box[3]), fill=annotation, width=2)
+    draw.text((260, 260), "ROOM 2  18.4 m2", fill=(42, 40, 37))
+    draw.text((810, 300), "LIVING / KITCHEN", fill=(42, 40, 37))
+    draw.text((735, 770), "BED", fill=(42, 40, 37))
+    image.save(path, format="PNG")
 
 
 def _write_photo(path: Path, color: tuple[int, int, int]) -> None:
@@ -165,6 +191,15 @@ def _viewer_accessibility_receipt(page) -> dict[str, object]:
               targetCount: targets.length,
               undersizedTargets: targets.filter((target) => target.width < 44 || target.height < 44),
               floorplanTargetOverlaps: overlaps,
+              clippedVisibleHotspotLabels: Array.from(document.querySelectorAll('.route-hotspot-label'))
+                .filter((label) => Number.parseFloat(getComputedStyle(label).opacity || '0') > 0)
+                .map((label) => ({ label, rect: label.getBoundingClientRect() }))
+                .filter(({ rect }) => {
+                  const viewport = document.getElementById('stage-hotspots')?.getBoundingClientRect();
+                  return !viewport || rect.left < viewport.left + 7 || rect.right > viewport.right - 7
+                    || rect.top < viewport.top + 7 || rect.bottom > viewport.bottom - 7;
+                })
+                .map(({ label }) => String(label.textContent || '').trim()),
               horizontalOverflowPx: Math.max(0, document.documentElement.scrollWidth - window.innerWidth),
             };
         }"""
@@ -304,7 +339,17 @@ def test_generated_reconstruction_diorama_preview_reads_as_staged_layout_composi
     _write_photo(support, (86, 104, 112))
     _write_photo(detail, (132, 118, 84))
     walkable_scene = reconstruction_script._reconstruction_walkable_scene(
-        route_labels=["entry/hall", "living room", "bedroom"],
+        route_labels=[
+            "entry/hall",
+            "living room",
+            "bedroom",
+            "kitchen",
+            "dining room",
+            "bathroom",
+            "storage",
+            "balcony",
+            "WWWWWWWWWWWWWWWWWWWWWWWW",
+        ],
         width_m=10.0,
         depth_m=7.4,
         height_m=2.8,
@@ -319,6 +364,26 @@ def test_generated_reconstruction_diorama_preview_reads_as_staged_layout_composi
     )
 
     assert receipt["status"] == "generated", receipt
+    assert receipt["source_mode"] == "floorplan_and_listing_photos"
+    assert receipt["source_photo_count"] == 3
+    assert "the floor plan and listing photos" in str(receipt["source_disclosure"])
+    layout = dict(receipt["layout"])
+    assert layout["status"] == "pass"
+    assert all(dict(layout["checks"]).values())
+    assert layout["displayed_route_stop_count"] == 9
+    assert layout["route_sequence_complete"] is True
+    boxes = dict(layout["boxes"])
+    route_rows = [list(box) for box in boxes["route_rows"]]
+    route_label_boxes = [list(box) for box in boxes["route_labels"]]
+    assert len(route_rows) == 9
+    assert len(route_label_boxes) == len(route_rows)
+    assert all(first[3] <= second[1] for first, second in zip(route_rows, route_rows[1:]))
+    assert route_rows[-1][3] <= list(boxes["route_rail"])[3] - 12
+    assert all(
+        row[0] + 6 <= label[0] <= label[2] <= row[2] - 6 and row[1] + 6 <= label[1] <= label[3] <= row[3] - 6
+        for row, label in zip(route_rows, route_label_boxes)
+    )
+    assert str(layout["displayed_route_labels"][-1]).endswith("…")
     rendered = Image.open(preview).convert("RGB")
     assert rendered.size == (1600, 1100)
     background_mean = _mean_rgb(rendered, (24, 24, 144, 144))
@@ -348,6 +413,49 @@ def test_generated_reconstruction_diorama_preview_reads_as_staged_layout_composi
     assert dark_structure_pixels > 340
 
 
+def test_generated_reconstruction_previews_disclose_floorplan_only_and_fit_share_canvas(tmp_path: Path) -> None:
+    floorplan = tmp_path / "floorplan.jpg"
+    preview = tmp_path / "diorama-preview.png"
+    telegram_preview = tmp_path / "telegram-preview.png"
+    _write_floorplan(floorplan)
+    walkable_scene = reconstruction_script._reconstruction_walkable_scene(
+        route_labels=["entry/hall", "living room", "bedroom", "kitchen"],
+        width_m=10.0,
+        depth_m=7.4,
+        height_m=2.8,
+    )
+
+    receipt = reconstruction_script._write_generated_reconstruction_diorama_preview(
+        preview,
+        floorplan_path=floorplan,
+        photo_paths=[],
+        walkable_scene=walkable_scene,
+        style_label="architectural dollhouse",
+    )
+
+    assert receipt["status"] == "generated", receipt
+    assert receipt["source_mode"] == "floorplan_only"
+    assert receipt["source_photo_count"] == 0
+    assert receipt["source_disclosure"] == (
+        "Generated from the floor plan. Use it as a layout-first briefing image, not as a captured tour."
+    )
+    assert "listing photos" not in str(receipt["source_disclosure"])
+    assert all(dict(dict(receipt["layout"])["checks"]).values())
+
+    telegram_receipt = reconstruction_script._write_generated_reconstruction_telegram_preview(
+        telegram_preview,
+        source_path=preview,
+        style_label="architectural dollhouse",
+    )
+
+    assert telegram_receipt["status"] == "generated", telegram_receipt
+    assert telegram_receipt["source_sha256"] == receipt["sha256"]
+    assert telegram_receipt["composition"] == "telegram_share_fit_full_diorama"
+    assert all(dict(dict(telegram_receipt["layout"])["checks"]).values())
+    with Image.open(telegram_preview) as rendered:
+        assert rendered.size == (1600, 1000)
+
+
 def test_generated_reconstruction_walkable_scene_snaps_route_stops_to_open_floorplan_cells() -> None:
     wall_mask = [
         [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
@@ -372,8 +480,8 @@ def test_generated_reconstruction_walkable_scene_snaps_route_stops_to_open_floor
     seen_cells: set[tuple[int, int]] = set()
     rows = len(wall_mask)
     cols = len(wall_mask[0])
-    inner_width = max(1.2, 10.0 * 0.34)
-    inner_depth = max(1.2, 7.0 * 0.34)
+    inner_width = max(1.2, 10.0 * 0.88)
+    inner_depth = max(1.2, 7.0 * 0.88)
     for stop in route:
         focus = dict(stop["focus"])
         col = min(cols - 1, max(0, int((((float(focus["x"]) / inner_width) + 0.5) * cols))))
@@ -381,6 +489,81 @@ def test_generated_reconstruction_walkable_scene_snaps_route_stops_to_open_floor
         assert wall_mask[row][col] == 0
         seen_cells.add((row, col))
     assert len(seen_cells) == len(route)
+    assert walkable_scene["route_anchor_method"] == "coverage_aware_floorplan_open_cell_sampling"
+    assert walkable_scene["route_label_binding"] == "operator_supplied_labels_without_pixel_semantic_inference"
+
+
+def test_generated_reconstruction_route_sampling_is_deterministic_spread_and_wall_safe() -> None:
+    rows = 21
+    cols = 25
+    wall_mask = [[0 for _ in range(cols)] for _ in range(rows)]
+    for col in range(2, 23):
+        wall_mask[2][col] = 1
+        wall_mask[18][col] = 1
+    for row in range(2, 19):
+        wall_mask[row][2] = 1
+        wall_mask[row][22] = 1
+    wall_mask[9][2] = 0  # Exterior-shell gap: edge flood fill alone is insufficient.
+    for row in range(3, 18):
+        if row != 9:
+            wall_mask[row][11] = 1
+    for col in range(3, 22):
+        if col not in {6, 16}:
+            wall_mask[10][col] = 1
+
+    labels = [
+        "entry/hall",
+        "living room",
+        "kitchen",
+        "dining room",
+        "bedroom 1",
+        "bedroom 2",
+        "bathroom",
+        "storage",
+        "balcony",
+    ]
+    scene = reconstruction_script._reconstruction_walkable_scene(
+        route_labels=labels,
+        width_m=15.0,
+        depth_m=12.0,
+        height_m=2.8,
+        geometry={"wall_mask": wall_mask},
+    )
+    repeated_scene = reconstruction_script._reconstruction_walkable_scene(
+        route_labels=labels,
+        width_m=15.0,
+        depth_m=12.0,
+        height_m=2.8,
+        geometry={"wall_mask": wall_mask},
+    )
+
+    assert scene["route"] == repeated_scene["route"]
+    assert scene["route_anchor_method"] == "coverage_aware_floorplan_open_cell_sampling"
+    walkable_cells = set(reconstruction_script._floorplan_walkable_cells(wall_mask))
+    assert walkable_cells
+    inner_width = 15.0 * 0.88
+    inner_depth = 12.0 * 0.88
+    normalized_positions: list[tuple[float, float]] = []
+    sampled_cells: set[tuple[int, int]] = set()
+    for stop in scene["route"]:
+        focus = stop["focus"]
+        normalized_x = float(focus["x"]) / inner_width
+        normalized_z = float(focus["z"]) / inner_depth
+        col = min(cols - 1, max(0, int((normalized_x + 0.5) * cols)))
+        row = min(rows - 1, max(0, int((normalized_z + 0.5) * rows)))
+        assert wall_mask[row][col] == 0
+        assert (row, col) in walkable_cells
+        sampled_cells.add((row, col))
+        normalized_positions.append((normalized_x, normalized_z))
+
+    assert len(sampled_cells) == len(labels)
+    assert max(x for x, _ in normalized_positions) - min(x for x, _ in normalized_positions) >= 0.68
+    assert max(z for _, z in normalized_positions) - min(z for _, z in normalized_positions) >= 0.64
+    assert min(
+        math.dist(first, second)
+        for index, first in enumerate(normalized_positions)
+        for second in normalized_positions[index + 1 :]
+    ) >= 0.2
 
 
 def test_generated_reconstruction_declutters_flagship_floorplan_route_targets() -> None:
@@ -393,6 +576,69 @@ def test_generated_reconstruction_declutters_flagship_floorplan_route_targets() 
     for index, (left, top) in enumerate(displayed):
         for other_left, other_top in displayed[index + 1 :]:
             assert abs(left - other_left) >= 15.5 or abs(top - other_top) >= 20.0
+
+
+def test_generated_reconstruction_filters_annotations_into_oriented_wall_segments(tmp_path: Path) -> None:
+    floorplan = tmp_path / "annotated-floorplan.png"
+    _write_annotated_architectural_floorplan(floorplan)
+    source_pixels = Image.open(floorplan).convert("RGB").tobytes()
+
+    geometry = reconstruction_script._extract_floorplan_geometry(floorplan)
+    dimensions = reconstruction_script._room_dimensions(
+        int(geometry["content_size_px"]["width"]),
+        int(geometry["content_size_px"]["height"]),
+        max_width_m=14.0,
+    )
+    wall_segments = reconstruction_script._wall_rectangles_from_mask(
+        geometry["wall_mask"],
+        width_m=dimensions[0],
+        depth_m=dimensions[1],
+    )
+
+    assert geometry["extraction_method"] == "autocontrast_geometry_mask_directional_segments_v1"
+    assert geometry["content_bbox_px"]["left"] <= 20
+    assert geometry["content_bbox_px"]["right"] >= 1300
+    assert 4 <= len(wall_segments) < 30
+    assert any(abs(float(segment["rotation_y"])) >= 0.02 for segment in wall_segments)
+    assert all(max(float(segment["width"]), float(segment["depth"])) >= 0.9 for segment in wall_segments)
+    assert Image.open(floorplan).convert("RGB").tobytes() == source_pixels
+
+
+def test_generated_reconstruction_recovers_thin_dark_dividers_without_colored_annotation_boxes(
+    tmp_path: Path,
+) -> None:
+    floorplan = tmp_path / "thin-divider-floorplan.png"
+    image = Image.new("RGB", (1280, 900), (248, 246, 242))
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((80, 80, 1200, 820), outline=(42, 42, 42), width=8)
+    draw.line((420, 80, 420, 820), fill=(58, 58, 58), width=6)
+    draw.line((80, 410, 1200, 410), fill=(58, 58, 58), width=6)
+    for box, color in (
+        ((450, 120, 1110, 360), (148, 68, 48)),
+        ((110, 120, 380, 360), (73, 108, 170)),
+        ((110, 450, 380, 770), (73, 108, 170)),
+        ((450, 450, 1110, 770), (148, 68, 48)),
+    ):
+        draw.rectangle(box, outline=color, width=6)
+    image.save(floorplan, format="PNG")
+
+    geometry = reconstruction_script._extract_floorplan_geometry(floorplan)
+    width_m, depth_m, _height_m = reconstruction_script._room_dimensions(
+        int(geometry["content_size_px"]["width"]),
+        int(geometry["content_size_px"]["height"]),
+        max_width_m=10.0,
+    )
+    wall_segments = reconstruction_script._wall_rectangles_from_mask(
+        geometry["wall_mask"],
+        width_m=width_m,
+        depth_m=depth_m,
+    )
+
+    assert len(wall_segments) == 6
+    assert sum(abs(float(segment["rotation_y"])) >= 1.4 for segment in wall_segments) == 3
+    assert sum(abs(float(segment["rotation_y"])) < 0.2 for segment in wall_segments) == 3
+    assert any(-4.0 < float(segment["center_x"]) < -0.5 for segment in wall_segments)
+    assert any(-1.0 < float(segment["center_z"]) < 1.0 for segment in wall_segments)
 
 
 def test_generated_reconstruction_materializes_model_viewer_receipt_and_walkthrough(
@@ -453,11 +699,34 @@ def test_generated_reconstruction_materializes_model_viewer_receipt_and_walkthro
     assert "Built from the floorplan and listing photos" in viewer_html
     assert "three.module.js" in viewer_html
     assert "OrbitControls" in viewer_html
+    assert 'data-pq-preview-kind="approximate-layout"' in viewer_html
+    assert 'data-pq-verified-provider-capture="false"' in viewer_html
+    assert "Approximate planning preview. Built from the floorplan and listing photos." in viewer_html
     assert "cdn.jsdelivr.net" not in viewer_html
-    assert '"three": "./vendor/three.module.js"' in viewer_html
-    assert 'import * as THREE from "three";' in viewer_html
+    assert 'src="http://' not in viewer_html
+    assert 'src="https://' not in viewer_html
+    assert 'from "http://' not in viewer_html
+    assert 'from "https://' not in viewer_html
+    assert '<script type="importmap">' not in viewer_html
+    assert 'import * as THREE from "./vendor/three.module.js";' in viewer_html
     assert 'import { OrbitControls } from "./vendor/examples/jsm/controls/OrbitControls.js";' in viewer_html
     assert "wallRectangles" in viewer_html
+    assert "route-hotspot-label" in viewer_html
+    assert "getVisibleHotspotLabelBounds" in viewer_html
+    assert "floorTextureCrop" in viewer_html
+    assert "floorTexture.offset.set" in viewer_html
+    assert "floorTexture.repeat.set" in viewer_html
+    orbit_controls_html = (output_dir / "vendor" / "examples" / "jsm" / "controls" / "OrbitControls.js").read_text(
+        encoding="utf-8"
+    )
+    three_module_html = (output_dir / "vendor" / "three.module.js").read_text(encoding="utf-8")
+    full_mit_license = reconstruction_script.THREE_LICENSE_SOURCE.read_text(encoding="utf-8").rstrip()
+    assert three_module_html.startswith("/*!\nThe MIT License\n")
+    assert orbit_controls_html.startswith("/*!\nThe MIT License\n")
+    assert full_mit_license in three_module_html
+    assert full_mit_license in orbit_controls_html
+    assert "from '../../../three.module.js';" in orbit_controls_html
+    assert "from 'three';" not in orbit_controls_html
     assert "const points = [" not in viewer_html
     assert "Generated reconstruction" not in viewer_html
     assert "not a verified" not in viewer_html
@@ -508,10 +777,42 @@ def test_generated_reconstruction_materializes_model_viewer_receipt_and_walkthro
     for provider_name in ("Matterport", "3DVista", "Pano2VR", "krpano", "MagicFit", "verified provider"):
         assert provider_name not in receipt["disclosure"]
     assert receipt["viewer"]["version"] == "propertyquarry_3d_tour_viewer_v3"
+    vendor_receipt = dict(receipt["viewer"]["vendor"])
+    assert vendor_receipt["name"] == "three"
+    assert vendor_receipt["version"] == "0.167.1"
+    assert vendor_receipt["license"] == "MIT"
+    assert vendor_receipt["upstream_git_head"] == reconstruction_script.THREE_UPSTREAM_GIT_HEAD
+    assert vendor_receipt["upstream_dist_integrity"] == reconstruction_script.THREE_UPSTREAM_DIST_INTEGRITY
+    assert dict(vendor_receipt["source"]) == {
+        "three_module_sha256": reconstruction_script.THREE_MODULE_SOURCE_SHA256,
+        "orbit_controls_sha256": reconstruction_script.ORBIT_CONTROLS_SOURCE_SHA256,
+        "license_sha256": reconstruction_script.THREE_LICENSE_SOURCE_SHA256,
+    }
+    license_receipt = dict(vendor_receipt["license_notice"])
+    assert license_receipt["embedded_in_all_emitted_modules"] is True
+    assert license_receipt["embedded_notice_sha256"] == reconstruction_script.THREE_LICENSE_NOTICE_SHA256
+    transform_receipt = dict(vendor_receipt["transform"])
+    assert transform_receipt["id"] == "orbit_controls_relative_import_v1"
+    assert transform_receipt["from"] == "} from 'three';"
+    assert transform_receipt["to"] == "} from '../../../three.module.js';"
+    assert transform_receipt["replacement_count"] == 1
+    assert transform_receipt["transformed_before_notice_sha256"] == reconstruction_script.ORBIT_CONTROLS_TRANSFORMED_SHA256
+    assert transform_receipt["notice_embedding"] == "full_mit_in_each_emitted_module"
+    emitted_receipt = dict(vendor_receipt["emitted"])
+    assert emitted_receipt["three_module"]["sha256"] == reconstruction_script._sha256(
+        output_dir / "vendor" / "three.module.js"
+    )
+    assert emitted_receipt["orbit_controls"]["sha256"] == reconstruction_script._sha256(
+        output_dir / "vendor" / "examples" / "jsm" / "controls" / "OrbitControls.js"
+    )
     assert receipt["room_dimensions_m"]["width"] == 10.0
     assert receipt["room_dimensions_m"]["depth"] < 10.0
     assert receipt["geometry"]["wall_rect_count"] > 0
     assert len(receipt["geometry"]["wall_rectangles"]) == receipt["geometry"]["wall_rect_count"]
+    assert 0.0 <= receipt["geometry"]["floor_texture_crop"]["offset_x"] < 1.0
+    assert 0.0 <= receipt["geometry"]["floor_texture_crop"]["offset_y"] < 1.0
+    assert 0.0 < receipt["geometry"]["floor_texture_crop"]["repeat_x"] <= 1.0
+    assert 0.0 < receipt["geometry"]["floor_texture_crop"]["repeat_y"] <= 1.0
     assert receipt["walkable_scene"]["kind"] == "generated_reconstruction_layout"
     assert len(receipt["walkable_scene"]["route"]) >= 1
     assert len(receipt["walkable_scene"]["rooms"]) == len(receipt["walkable_scene"]["route"])
@@ -642,12 +943,13 @@ def test_generated_reconstruction_does_not_satisfy_verified_provider_gate(tmp_pa
         require_all_provider_modes=True,
     )
     assert receipt["status"] == "blocked_missing_provider_modes"
+    assert receipt["provider_counts"]["matterport"] == 0
     assert receipt["provider_counts"]["3dvista"] == 0
     assert receipt["provider_counts"]["pano2vr"] == 0
     assert receipt["provider_counts"]["krpano"] == 0
     assert receipt["provider_counts"]["magicfit"] == 0
-    assert set(receipt["missing_provider_modes"]) == {"matterport", "3dvista", "magicfit"}
-    assert receipt["optional_provider_modes"] == ["pano2vr", "krpano"]
+    assert set(receipt["missing_provider_modes"]) == {"3dvista", "magicfit"}
+    assert receipt["optional_provider_modes"] == ["matterport", "pano2vr", "krpano"]
 
 
 def test_generated_reconstruction_can_disclose_inferred_floorplan_from_photos(tmp_path: Path) -> None:
@@ -775,6 +1077,40 @@ def test_generated_reconstruction_manifest_whitelists_viewer_vendor_assets(tmp_p
         "generated-reconstruction/vendor/three.module.js",
         "generated-reconstruction/vendor/examples/jsm/controls/OrbitControls.js",
     }
+    assert "generated-reconstruction/vendor/LICENSE" not in public_asset_paths
+
+
+def test_generated_reconstruction_vendor_copy_fails_closed_on_source_or_license_tamper(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_three_source = reconstruction_script.THREE_MODULE_SOURCE
+    tampered_three_source = tmp_path / "three.module.js"
+    tampered_three_source.write_bytes(original_three_source.read_bytes() + b"\n")
+    monkeypatch.setattr(reconstruction_script, "THREE_MODULE_SOURCE", tampered_three_source)
+
+    with pytest.raises(RuntimeError, match="viewer_vendor_integrity_mismatch:three.module.js"):
+        reconstruction_script._copy_viewer_vendor_assets(tmp_path / "three-tamper-output")
+
+    monkeypatch.setattr(reconstruction_script, "THREE_MODULE_SOURCE", original_three_source)
+    original_orbit_source = reconstruction_script.ORBIT_CONTROLS_SOURCE
+    tampered_orbit_source = tmp_path / "OrbitControls.js"
+    tampered_orbit_source.write_bytes(original_orbit_source.read_bytes() + b"\n")
+    monkeypatch.setattr(reconstruction_script, "ORBIT_CONTROLS_SOURCE", tampered_orbit_source)
+
+    with pytest.raises(RuntimeError, match="viewer_vendor_integrity_mismatch:OrbitControls.js"):
+        reconstruction_script._copy_viewer_vendor_assets(tmp_path / "orbit-tamper-output")
+
+    monkeypatch.setattr(reconstruction_script, "ORBIT_CONTROLS_SOURCE", original_orbit_source)
+    tampered_license_source = tmp_path / "LICENSE"
+    tampered_license_source.write_text(
+        reconstruction_script.THREE_LICENSE_SOURCE.read_text(encoding="utf-8") + "tampered\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(reconstruction_script, "THREE_LICENSE_SOURCE", tampered_license_source)
+
+    with pytest.raises(RuntimeError, match="viewer_vendor_integrity_mismatch:LICENSE"):
+        reconstruction_script._copy_viewer_vendor_assets(tmp_path / "license-tamper-output")
 
 
 def test_generated_reconstruction_runtime_sync_timeout_returns_receipt(
@@ -1086,6 +1422,7 @@ def test_generated_reconstruction_viewer_guided_route_runs_in_real_browser(tmp_p
                 assert desktop_accessibility["targetCount"] >= 10
                 assert desktop_accessibility["undersizedTargets"] == []
                 assert desktop_accessibility["floorplanTargetOverlaps"] == []
+                assert desktop_accessibility["clippedVisibleHotspotLabels"] == []
                 assert desktop_accessibility["horizontalOverflowPx"] == 0
                 _wait_for_playwright_condition(
                     page,
@@ -1159,6 +1496,7 @@ def test_generated_reconstruction_viewer_guided_route_runs_in_real_browser(tmp_p
                 assert mobile_accessibility["targetCount"] >= 10
                 assert mobile_accessibility["undersizedTargets"] == []
                 assert mobile_accessibility["floorplanTargetOverlaps"] == []
+                assert mobile_accessibility["clippedVisibleHotspotLabels"] == []
                 assert mobile_accessibility["horizontalOverflowPx"] == 0
             finally:
                 browser.close()

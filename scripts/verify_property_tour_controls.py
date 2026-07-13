@@ -34,7 +34,7 @@ except ModuleNotFoundError:
 
 
 PROVIDER_MODES = ("matterport", "3dvista", "pano2vr", "krpano", "magicfit")
-PUBLIC_REQUIRED_PROVIDER_MODES = ("matterport", "3dvista", "magicfit")
+PUBLIC_REQUIRED_PROVIDER_MODES = ("3dvista", "magicfit")
 OPTIONAL_PROVIDER_CONFIGURED_BLOCKER_REASONS = {
     "krpano": {
         "missing_krpano_license_environment",
@@ -843,13 +843,19 @@ def _surface_optional_missing_evidence(row: dict[str, str], payload: dict[str, o
     provider = str(row.get("provider") or "").strip().lower()
     if provider == "krpano":
         walkable_scene = payload.get("walkable_scene")
-        if not isinstance(walkable_scene, dict) or not walkable_scene:
+        if not isinstance(walkable_scene, dict):
             return False
         scene_strategy = str(payload.get("scene_strategy") or "").strip().lower()
         creation_mode = str(payload.get("creation_mode") or "").strip().lower()
-        return scene_strategy == "walkable_panorama" or creation_mode == "hosted_walkable_360"
+        return bool(walkable_scene) or scene_strategy == "walkable_panorama" or creation_mode == "hosted_walkable_360"
     if provider == "pano2vr":
-        return bool(_pano2vr_entry_relpath(payload))
+        return bool(_pano2vr_entry_relpath(payload)) or _has_key(
+            payload,
+            "pano2vr_entry_relpath",
+            "pano2vr_export_entry_relpath",
+            "pano2vr_export_root_relpath",
+            "pano2vr_root_relpath",
+        )
     return False
 
 
@@ -1255,12 +1261,7 @@ def build_property_tour_control_receipt(
                 for row in missing_evidence
                 if not _missing_evidence_blocks_public_tour(row) and _surface_optional_missing_evidence(row, payload)
             ]
-            if require_all_provider_modes:
-                missing_public_evidence = missing_evidence
-            elif ready_controls:
-                missing_public_evidence = optional_missing_evidence
-            else:
-                missing_public_evidence = required_missing_evidence + optional_missing_evidence
+            missing_public_evidence = required_missing_evidence
             tour_missing_provider_modes = sorted(
                 {
                     str(row.get("provider") or "").strip().lower()
@@ -1284,6 +1285,7 @@ def build_property_tour_control_receipt(
                         for control in controls
                     ],
                     "missing_evidence": missing_public_evidence,
+                    "optional_missing_evidence": optional_missing_evidence,
                     "missing_provider_modes": tour_missing_provider_modes,
                 }
             )
@@ -1351,10 +1353,11 @@ def build_property_tour_control_receipt(
             "require_all_provider_modes": bool(require_all_provider_modes),
             "tours": tours,
             "notes": [
-                "Matterport, 3DVista, and krpano are ready only when a hosted control route can be justified from manifest evidence.",
+                "Verified 3DVista is the only interactive 3D provider required for customer tour delivery.",
+                "Matterport is retained for historical/internal audit only and does not satisfy or block the public delivery gate.",
                 "Pano2VR is tracked as an optional/internal export lane and does not block the public tour-control gold gate.",
                 "Optional panorama export lanes can count as ready from verified local evidence even when the panorama control shell stays intentionally hidden on the public route.",
-                "MagicFit is ready only when the manifest points to a local playable video asset or a live-probed allowlisted hosted video URL with provider=magicfit.",
+                "MagicFit is the required walkthrough lane and is ready only when the manifest points to a local playable video asset or a live-probed allowlisted hosted video URL with provider=magicfit.",
                 "The receipt intentionally omits raw external provider URLs and private listing/source fields.",
             ],
         }

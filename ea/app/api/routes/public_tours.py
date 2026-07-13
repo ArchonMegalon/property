@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
+import base64
 import fcntl
 import hashlib
 import html
@@ -12,6 +14,7 @@ import mimetypes
 import os
 from pathlib import Path, PurePosixPath
 import re
+import secrets
 import time
 import urllib.parse
 from urllib.parse import urlparse
@@ -56,6 +59,7 @@ from app.api.routes.public_tour_payloads import (
 from app.product.property_tour_hosting import (
     _PROPERTY_GENERATED_RECONSTRUCTION_VIEWER_VERSION,
     _hosted_property_tour_preview_image_url,
+    hosted_property_tour_revocation_receipt,
 )
 from app.product.service import _property_feedback_reason_map, build_product_service
 from app.services.public_clickrank import clickrank_head_snippet, request_hostname, request_path
@@ -74,6 +78,26 @@ _PUBLIC_TOUR_DEFAULT_EXTERNAL_MEDIA_HOSTS = (
     "3dvista.com",
     "*.3dvista.com",
     "360.kalandra.at",
+)
+_PUBLIC_TOUR_PROVIDER_CSP_ORIGINS = (
+    "https://3dvista.com",
+    "https://*.3dvista.com",
+)
+# This bootstrap is retained solely for the private, receipt-backed SDK
+# walkthrough proof helper below.  Public tour routing deliberately rejects the
+# retired Matterport control and its CSP never grants this origin.
+_MATTERPORT_SDK_BOOTSTRAP_URL = "https://static.matterport.com/showcase-sdk/latest.js"
+_PUBLIC_TOUR_CSP_REPORT_PATH = "/tours/security/csp-report"
+_PUBLIC_TOUR_NONCE_PATTERN = re.compile(r"^[A-Za-z0-9_-]{16,128}$")
+_GENERATED_RECONSTRUCTION_PREVIEW_PREFIX = "generated-reconstruction/"
+_GENERATED_RECONSTRUCTION_PREVIEW_PRIVACY_CLASS = "generated_reconstruction_public"
+_GENERATED_RECONSTRUCTION_PREVIEW_ROLES = frozenset(
+    {
+        "floorplan",
+        "generated_reconstruction_viewer",
+        "generated_reconstruction_viewer_asset",
+        "photo",
+    }
 )
 _PANO2VR_EXPORT_ALLOWED_EXTENSIONS = frozenset(
     {
@@ -175,8 +199,13 @@ def _resolved_tour_bundle(slug: str) -> Path:
     safe = str(slug or "").strip()
     if not safe or "/" in safe or ".." in safe:
         raise HTTPException(status_code=404, detail="tour_not_found")
+    if hosted_property_tour_revocation_receipt(safe):
+        raise HTTPException(status_code=410, detail="tour_revoked")
     root = _resolved_tour_root()
-    bundle_dir = (root / safe).resolve()
+    bundle_entry = root / safe
+    if bundle_entry.is_symlink():
+        raise HTTPException(status_code=404, detail="tour_not_found")
+    bundle_dir = bundle_entry.resolve()
     if bundle_dir != root and root not in bundle_dir.parents:
         raise HTTPException(status_code=404, detail="tour_not_found")
     if not bundle_dir.exists() or not bundle_dir.is_dir():
@@ -190,7 +219,9 @@ def _tour_path(slug: str) -> Path:
         raise HTTPException(status_code=404, detail="tour_not_found")
     try:
         bundle_dir = _resolved_tour_bundle(slug)
-    except HTTPException:
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
         bundle_dir = None
     if bundle_dir is not None:
         bundle_manifest = bundle_dir / "tour.json"
@@ -342,12 +373,91 @@ def _public_tour_safe_http_url(value: object) -> str:
     return _payload_public_tour_safe_http_url(value)
 
 
+def _public_tour_safe_navigation_url(value: object, *, allow_fragment: bool = False) -> str:
+    normalized = str(value or "").strip()
+    if not normalized or len(normalized) > 4096:
+        return ""
+    if allow_fragment and re.fullmatch(r"#[A-Za-z][A-Za-z0-9_-]{0,127}", normalized):
+        return normalized
+    if normalized.startswith("/") and not normalized.startswith("//"):
+        if "\\" in normalized or any(ord(character) < 32 or ord(character) == 127 for character in normalized):
+            return ""
+        parsed = urllib.parse.urlsplit(normalized)
+        if parsed.scheme or parsed.netloc:
+            return ""
+        return urllib.parse.urlunsplit(("", "", parsed.path, parsed.query, parsed.fragment))
+    return _public_tour_safe_http_url(normalized)
+
+
+def _public_tour_script_json(value: object) -> str:
+    return (
+        json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+        .replace("&", "\\u0026")
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    )
+
+
+def _public_tour_normalize_host_pattern(value: object) -> str:
+    normalized = str(value or "").strip().lower().rstrip(".")
+    wildcard = normalized.startswith("*.")
+    hostname = normalized[2:] if wildcard else normalized
+    if (
+        not hostname
+        or len(hostname) > 253
+        or ".." in hostname
+        or not re.fullmatch(r"[a-z0-9.-]+", hostname)
+        or any(not label or len(label) > 63 or label.startswith("-") or label.endswith("-") for label in hostname.split("."))
+    ):
+        return ""
+    try:
+        ipaddress.ip_address(hostname)
+    except ValueError:
+        pass
+    else:
+        return "" if wildcard else hostname
+    return f"*.{hostname}" if wildcard else hostname
+
+
 def _public_tour_static_media_allowed_hosts() -> tuple[str, ...]:
     raw = str(os.getenv("PROPERTYQUARRY_PUBLIC_MEDIA_ALLOWED_HOSTS") or "").strip()
-    if not raw:
-        return _PUBLIC_TOUR_DEFAULT_EXTERNAL_MEDIA_HOSTS
-    hosts = tuple(item.strip().lower().rstrip(".") for item in raw.split(",") if item.strip())
-    return hosts or _PUBLIC_TOUR_DEFAULT_EXTERNAL_MEDIA_HOSTS
+    candidates = raw.split(",") if raw else _PUBLIC_TOUR_DEFAULT_EXTERNAL_MEDIA_HOSTS
+    hosts = tuple(
+        normalized
+        for item in candidates
+        if (normalized := _public_tour_normalize_host_pattern(item))
+    )
+    if hosts:
+        return tuple(dict.fromkeys(hosts))
+    return tuple(
+        normalized
+        for item in _PUBLIC_TOUR_DEFAULT_EXTERNAL_MEDIA_HOSTS
+        if (normalized := _public_tour_normalize_host_pattern(item))
+    )
+
+
+def _public_tour_live_360_allowed_hosts() -> tuple[str, ...]:
+    raw = str(
+        os.getenv(
+            "PROPERTYQUARRY_PUBLIC_360_ALLOWED_HOSTS",
+            "propertyquarry.com,*.propertyquarry.com,3dvista.com,*.3dvista.com,360.kalandra.at",
+        )
+        or ""
+    ).strip()
+    return tuple(
+        dict.fromkeys(
+            normalized
+            for item in raw.split(",")
+            if (normalized := _public_tour_normalize_host_pattern(item))
+        )
+    )
+
+
+def _public_tour_external_csp_origins() -> tuple[str, ...]:
+    hosts = tuple(dict.fromkeys((*_public_tour_static_media_allowed_hosts(), *_public_tour_live_360_allowed_hosts())))
+    return tuple(f"https://{hostname}" for hostname in hosts)
 
 
 def _public_tour_hostname_matches_allowed_pattern(hostname: str, pattern: str) -> bool:
@@ -485,7 +595,12 @@ def _asset_file(slug: str, asset_path: str) -> Path:
         raise HTTPException(status_code=404, detail="tour_file_not_found")
     if safe_relpath not in manifest:
         raise HTTPException(status_code=404, detail="tour_file_not_found")
-    candidate = (bundle_dir / safe_relpath).resolve()
+    unresolved_candidate = bundle_dir
+    for part in PurePosixPath(safe_relpath).parts:
+        unresolved_candidate = unresolved_candidate / part
+        if unresolved_candidate.is_symlink():
+            raise HTTPException(status_code=404, detail="tour_file_not_found")
+    candidate = unresolved_candidate.resolve()
     if bundle_dir.resolve() not in candidate.parents:
         raise HTTPException(status_code=404, detail="tour_file_not_found")
     if not candidate.exists() or not candidate.is_file():
@@ -591,26 +706,17 @@ def _money(value: object, *, currency_code: object = "EUR") -> str:
 
 
 def _safe_live_360_url(value: object) -> str:
-    normalized = str(value or "").strip()
+    normalized = _public_tour_safe_http_url(value)
     if not normalized:
         return ""
     parsed = urlparse(normalized)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        return ""
     host = str(parsed.hostname or "").strip().lower().rstrip(".")
     if host == "matterport.com" or host.endswith(".matterport.com"):
         return ""
-    raw_allowed = str(
-        os.getenv(
-            "PROPERTYQUARRY_PUBLIC_360_ALLOWED_HOSTS",
-            "propertyquarry.com,*.propertyquarry.com,3dvista.com,*.3dvista.com,360.kalandra.at",
-        )
-        or ""
-    ).strip()
-    allowed = tuple(item.strip().lower().rstrip(".") for item in raw_allowed.split(",") if item.strip())
+    allowed = _public_tour_live_360_allowed_hosts()
     if not allowed:
         return ""
-    if not any(host == item or (item.startswith("*.") and host.endswith(item[1:])) for item in allowed):
+    if not any(_public_tour_hostname_matches_allowed_pattern(host, item) for item in allowed):
         return ""
     return normalized
 
@@ -1867,6 +1973,150 @@ def _generated_reconstruction_non_tour_asset(payload: dict[str, object], relpath
     return ""
 
 
+def _generated_reconstruction_preview_relpath(value: object) -> str:
+    safe_relpath = _public_tour_safe_asset_relpath(value)
+    if not safe_relpath or not safe_relpath.startswith(_GENERATED_RECONSTRUCTION_PREVIEW_PREFIX):
+        return ""
+    return safe_relpath
+
+
+def _generated_reconstruction_viewer_module_relpath(viewer_relpath: str, value: object) -> str:
+    raw_ref = str(value or "").strip()
+    if (
+        not raw_ref
+        or raw_ref.startswith(("/", "#"))
+        or "://" in raw_ref
+        or "?" in raw_ref
+        or "#" in raw_ref
+        or "\\" in raw_ref
+    ):
+        return ""
+    ref_path = PurePosixPath(raw_ref)
+    if ref_path.is_absolute() or any(part == ".." for part in ref_path.parts):
+        return ""
+    parts = [*PurePosixPath(viewer_relpath).parent.parts]
+    parts.extend(part for part in ref_path.parts if part not in {"", "."})
+    return _generated_reconstruction_preview_relpath("/".join(parts))
+
+
+def _generated_reconstruction_preview_contract(payload: dict[str, object]) -> dict[str, object]:
+    generated_reconstruction = payload.get("generated_reconstruction")
+    if not isinstance(generated_reconstruction, dict):
+        return {}
+    if str(generated_reconstruction.get("provider") or "").strip().lower() != "propertyquarry_generated_reconstruction":
+        return {}
+    # These are deliberately identity checks: publication requires the
+    # generator to state the unverified boundary, not merely omit a proof.
+    if generated_reconstruction.get("verified_provider_capture") is not False:
+        return {}
+    if generated_reconstruction.get("satisfies_verified_tour_gate") is not False:
+        return {}
+    if str(generated_reconstruction.get("viewer_version") or "").strip() != _PROPERTY_GENERATED_RECONSTRUCTION_VIEWER_VERSION:
+        return {}
+    slug = str(payload.get("slug") or "").strip()
+    viewer_relpath = _generated_reconstruction_preview_relpath(generated_reconstruction.get("viewer_relpath"))
+    if not slug or not viewer_relpath or PurePosixPath(viewer_relpath).suffix.lower() not in {".htm", ".html"}:
+        return {}
+    manifest = _public_tour_manifest(payload)
+    viewer_row = manifest.get(viewer_relpath)
+    if not isinstance(viewer_row, dict):
+        return {}
+    if str(viewer_row.get("privacy_class") or "").strip().lower() != _GENERATED_RECONSTRUCTION_PREVIEW_PRIVACY_CLASS:
+        return {}
+    if str(viewer_row.get("role") or "").strip().lower() != "generated_reconstruction_viewer":
+        return {}
+    try:
+        viewer_path = _asset_file(slug, viewer_relpath)
+        if viewer_path.stat().st_size > 4 * 1024 * 1024:
+            return {}
+        viewer_html = viewer_path.read_text(encoding="utf-8")
+    except (HTTPException, OSError, UnicodeError):
+        return {}
+    if not re.search(
+        r"\bdata-pq-preview-kind\s*=\s*(['\"])approximate-layout\1",
+        viewer_html,
+        flags=re.IGNORECASE,
+    ):
+        return {}
+    if not re.search(
+        r"\bdata-pq-verified-provider-capture\s*=\s*(['\"])false\1",
+        viewer_html,
+        flags=re.IGNORECASE,
+    ):
+        return {}
+    if re.search(r"(?i)(?:https?:)?//[a-z0-9]", viewer_html):
+        return {}
+
+    module_refs: list[str] = []
+    for pattern in (
+        r"\bfrom\s*(['\"])(?P<ref>[^'\"]+)\1",
+        r"\bimport\s*(['\"])(?P<ref>[^'\"]+)\1",
+        r"<script\b[^>]*\bsrc\s*=\s*(['\"])(?P<ref>[^'\"]+)\1",
+    ):
+        for match in re.finditer(pattern, viewer_html, flags=re.IGNORECASE):
+            module_relpath = _generated_reconstruction_viewer_module_relpath(
+                viewer_relpath,
+                match.group("ref"),
+            )
+            if not module_relpath:
+                return {}
+            module_refs.append(module_relpath)
+    required_module_suffixes = (
+        "/vendor/three.module.js",
+        "/vendor/examples/jsm/controls/OrbitControls.js",
+    )
+    if not all(any(relpath.endswith(suffix) for relpath in module_refs) for suffix in required_module_suffixes):
+        return {}
+    for module_relpath in module_refs:
+        module_row = manifest.get(module_relpath)
+        if not isinstance(module_row, dict):
+            return {}
+        if str(module_row.get("privacy_class") or "").strip().lower() != _GENERATED_RECONSTRUCTION_PREVIEW_PRIVACY_CLASS:
+            return {}
+        if str(module_row.get("role") or "").strip().lower() != "generated_reconstruction_viewer_asset":
+            return {}
+        try:
+            _asset_file(slug, module_relpath)
+        except HTTPException:
+            return {}
+    return {
+        "manifest": manifest,
+        "viewer_html": viewer_html,
+        "viewer_path": viewer_path,
+        "viewer_relpath": viewer_relpath,
+    }
+
+
+def _generated_reconstruction_preview_asset_manifest_row(
+    payload: dict[str, object],
+    relpath: object,
+) -> dict[str, object]:
+    safe_relpath = _generated_reconstruction_preview_relpath(relpath)
+    if not safe_relpath:
+        return {}
+    contract = _generated_reconstruction_preview_contract(payload)
+    manifest = contract.get("manifest")
+    if not contract or not safe_relpath or not isinstance(manifest, dict):
+        return {}
+    row = manifest.get(safe_relpath)
+    if not isinstance(row, dict):
+        return {}
+    privacy_class = str(row.get("privacy_class") or "").strip().lower()
+    role = str(row.get("role") or "").strip().lower().replace("-", "_")
+    if privacy_class != _GENERATED_RECONSTRUCTION_PREVIEW_PRIVACY_CLASS or role not in _GENERATED_RECONSTRUCTION_PREVIEW_ROLES:
+        return {}
+    if role == "generated_reconstruction_viewer" and safe_relpath != contract.get("viewer_relpath"):
+        return {}
+    if role == "generated_reconstruction_viewer_asset" and PurePosixPath(safe_relpath).suffix.lower() not in {".js", ".mjs"}:
+        return {}
+    slug = str(payload.get("slug") or "").strip()
+    try:
+        _asset_file(slug, safe_relpath)
+    except HTTPException:
+        return {}
+    return dict(row)
+
+
 def _public_tour_is_generated_reconstruction_only(payload: dict[str, object]) -> bool:
     generated_reconstruction = payload.get("generated_reconstruction")
     if not isinstance(generated_reconstruction, dict):
@@ -2047,7 +2297,9 @@ def _generated_reconstruction_public_shell_ready(payload: dict[str, object]) -> 
 
 
 def _generated_reconstruction_public_viewer_enabled(payload: dict[str, object]) -> bool:
-    return _public_tour_is_generated_reconstruction_only(payload) and _generated_reconstruction_public_shell_ready(payload)
+    return _public_tour_is_generated_reconstruction_only(payload) and bool(
+        _generated_reconstruction_preview_contract(payload)
+    )
 
 
 def _public_tour_request_prefers_embedded_media(request: Request) -> bool:
@@ -2066,7 +2318,8 @@ def _public_tour_request_embeds_walkthrough(request: Request) -> bool:
     return _truthy(request.query_params.get("autoplay"))
 
 
-def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = "") -> str:
+def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = "", nonce: str = "") -> str:
+    nonce_attr = html.escape(_public_tour_normalized_nonce(nonce) or _public_tour_csp_nonce(), quote=True)
     if _public_tour_payload_needs_defensive_redaction(payload):
         rendered_payload = _redacted_public_tour_payload(payload, expose_asset_relpaths=True)
         for runtime_key in (
@@ -2143,7 +2396,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{safe_title}</title>
     {clickrank_head_snippet(hostname, path)}
-    <style>
+    <style nonce="{nonce_attr}">
       html, body {{ margin: 0; min-height: 100%; background: #111; color: #f7f1e6; font-family: Inter, system-ui, sans-serif; }}
       body {{ display: grid; place-items: center; padding: 24px; }}
       main {{ width: min(760px, 100%); border: 1px solid rgba(255,255,255,.18); border-radius: 8px; padding: 22px; background: rgba(255,255,255,.06); }}
@@ -2181,7 +2434,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     brief = dict(payload.get("brief") or {})
     title = str(payload.get("title") or payload.get("tour_title") or payload.get("slug") or "Property Tour").strip()
     display_title = str(payload.get("display_title") or title).strip() or title
-    listing_url = str(payload.get("listing_url") or "").strip()
+    listing_url = _public_tour_safe_navigation_url(payload.get("listing_url"))
     hosted_url = _payload_public_tour_canonical_path(slug)
     source_virtual_tour_url = _embedded_live_360_url(payload)
     is_pure_360_cube = str(payload.get("scene_strategy") or "").strip() == "pure_360_cube"
@@ -2530,6 +2783,17 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
             + _collect_scene_refs(scene.get("prev_location_id"))
             + _collect_scene_refs(scene.get("prev"))
         )
+        scene_asset_relpath = _public_tour_safe_asset_relpath(scene.get("asset_relpath"))
+        scene_image_url = ""
+        if slug and scene_asset_relpath:
+            scene_image_url = (
+                f"/tours/files/{urllib.parse.quote(slug, safe='')}/"
+                f"{urllib.parse.quote(scene_asset_relpath, safe='/')}"
+            )
+        else:
+            external_image_url = _public_tour_safe_http_url(scene.get("image_url"))
+            if external_image_url and _public_tour_static_media_url_allowed(external_image_url):
+                scene_image_url = external_image_url
         scene_row = {
             "name": str(scene.get("name") or "").strip(),
             "scene_id": scene_id,
@@ -2537,19 +2801,15 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
             "prev_scene_id": _trim_text(prev_scene_refs[0]) if prev_scene_refs else "",
             "next_scene_index": scene.get("next_scene_index"),
             "prev_scene_index": scene.get("prev_scene_index"),
-            "image_url": (
-                f"/tours/files/{slug}/{str(scene.get('asset_relpath') or '').strip()}"
-                if slug and str(scene.get("asset_relpath") or "").strip()
-                else str(scene.get("image_url") or "").strip()
-            ),
+            "image_url": scene_image_url,
             "role": str(scene.get("role") or "photo").strip(),
             "mime_type": str(scene.get("mime_type") or "").strip(),
-            "source_url": "" if is_pure_360_cube else str(scene.get("source_url") or "").strip(),
+            "source_url": "",
         }
         cube_faces = {
-            key: f"/tours/files/{slug}/{str(value or '').strip()}"
+            key: f"/tours/files/{urllib.parse.quote(slug, safe='')}/{urllib.parse.quote(relpath, safe='/')}"
             for key, value in dict(scene.get("cube_faces") or {}).items()
-            if slug and str(value or "").strip()
+            if slug and (relpath := _public_tour_safe_asset_relpath(value))
         }
         if cube_faces:
             scene_row["cube_faces"] = cube_faces
@@ -2573,7 +2833,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
             prev_index = _resolve_scene_index(prev_index_raw, (index - 1) % len(scene_data))
             entry["next_scene_index"] = next_index
             entry["prev_scene_index"] = prev_index
-    data_json = json.dumps(scene_data, ensure_ascii=False).replace("</", "<\\/")
+    data_json = _public_tour_script_json(scene_data)
     title_html = html.escape(title)
     display_html = html.escape(display_title)
     raw_variant_label = str(payload.get("variant_label") or payload.get("variant_key") or "").strip()
@@ -2860,7 +3120,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
             '<section class="panel">'
             '<div class="eyebrow">Quick read</div>'
             '<h2>Quick take</h2>'
-            '<div class="summary-grid" style="margin-top:0;">'
+            '<div class="summary-grid flush-top">'
             '<div class="summary-card"><h3>Best points</h3><ul>'
             f'{"".join(f"<li>{html.escape(item)}</li>" for item in comparison_positive) or "<li>No best point saved yet.</li>"}'
             '</ul></div>'
@@ -2889,8 +3149,8 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
                     f'<div class="subtle">{html.escape(str(card.get("score_label") or "Fit").strip())} '
                     f'{int(round(float(card.get("score") or 0.0))):d}/100</div>'
                     f'<p class="sub">{html.escape(str(card.get("why_now") or "No ranking note stored.").strip())}</p>'
-                    f'<a class="chip rank-chip" href="{html.escape(str(card.get("listing_url") or "#").strip())}"'
-                    f'{"" if str(card.get("listing_url") or "").strip() else " aria-disabled=\"true\""}>{html.escape(_public_shortlist_action_label(card.get("recommended_action")))}</a>'
+                    f'<a class="chip rank-chip" href="{html.escape(_public_tour_safe_navigation_url(card.get("listing_url")) or "#")}"'
+                    f'{"" if _public_tour_safe_navigation_url(card.get("listing_url")) else " aria-disabled=\"true\""}>{html.escape(_public_shortlist_action_label(card.get("recommended_action")))}</a>'
                     '</div>'
                 )
                 for card in shortlist_rows[:3]
@@ -2899,7 +3159,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
             '<section class="panel">'
             '<div class="eyebrow">Shortlist</div>'
             '<h2>Current property in the active shortlist</h2>'
-            '<div class="summary-grid" style="margin-top:0;">'
+            '<div class="summary-grid flush-top">'
             f'{shortlist_cards or "<div class=\"summary-card\"><h3>No shortlist loaded</h3><p class=\"sub\">No other active shortlist property is currently available.</p></div>"}'
             '</div>'
             '</section>'
@@ -2975,7 +3235,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{title_html}</title>
     {clickrank_head_snippet(hostname, path)}
-    <style>
+    <style nonce="{nonce_attr}">
       :root {{
         --bg: #f5f2ec;
         --panel: #ffffff;
@@ -3013,6 +3273,9 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
       .hero {{ display: grid; grid-template-columns: 1.25fr 0.75fr; gap: 18px; align-items: start; margin-bottom: 18px; }}
       .summary-grid, .section-grid {{ display: grid; gap: 18px; }}
       .summary-grid {{ grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 18px; }}
+      .flush-top {{ margin-top: 0; }}
+      .spaced-top {{ margin-top: 12px; }}
+      .spaced-top-lg {{ margin-top: 16px; }}
       .section-grid {{ grid-template-columns: 1.05fr 0.95fr; margin-top: 18px; }}
       .facts, .actions {{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }}
       .chip, .ghost, .cta {{
@@ -3432,7 +3695,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         <aside class="panel">
           <h2>At a glance</h2>
           <div class="stat-grid">{decision_html}</div>
-          <div class="ooda-grid" style="margin-top:16px;">
+          <div class="ooda-grid spaced-top-lg">
             <div class="ooda-cell"><b>Observe</b>{html.escape(highlight_lines[0]) if highlight_lines else 'Current facts are still incomplete.'}</div>
             <div class="ooda-cell"><b>Orient</b>{html.escape((personalized_positive or good_fit_reasons or ['The current fit is driven by the stored constraints and research pass.'])[0])}</div>
             <div class="ooda-cell"><b>Decide</b>{html.escape((personalized_caution or bad_fit_reasons or ['Shortlist only if the open questions are acceptable.'])[0])}</div>
@@ -3498,7 +3761,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
             </details>
             <details class="research-card">
               <summary>Details</summary>
-              <div class="evidence-stack" style="margin-top:12px;">{evidence_html}</div>
+              <div class="evidence-stack spaced-top">{evidence_html}</div>
             </details>
             <details class="research-card">
               <summary>Still to check</summary>
@@ -3519,7 +3782,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         </div>
       </div>
     </div>
-    <script>
+    <script nonce="{nonce_attr}">
       const requestButton = document.getElementById("request-details-btn");
       const requestStatus = document.getElementById("request-details-status");
       let selectedReaction = "";
@@ -3670,7 +3933,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     <title>{title_html}</title>
     {clickrank_head_snippet(hostname, path)}
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@photo-sphere-viewer/core/index.min.css">
-    <style>
+    <style nonce="{nonce_attr}">
       :root {{
         --bg: #f5efe3;
         --panel: rgba(255,255,255,0.82);
@@ -4198,8 +4461,8 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         </div>
       </section>
     </div>
-    <script id="scene-data" type="application/json">{data_json}</script>
-    <script type="importmap">
+    <script nonce="{nonce_attr}" id="scene-data" type="application/json">{data_json}</script>
+    <script nonce="{nonce_attr}" type="importmap">
       {{
         "imports": {{
           "three": "https://cdn.jsdelivr.net/npm/three/build/three.module.js",
@@ -4208,7 +4471,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         }}
       }}
     </script>
-    <script type="module">
+    <script nonce="{nonce_attr}" type="module">
       import {{ Viewer }} from '@photo-sphere-viewer/core';
       import {{ CubemapAdapter }} from '@photo-sphere-viewer/cubemap-adapter';
 
@@ -4236,16 +4499,20 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
 
       function showPanoramaFallback(message) {{
         if (!viewerContainer) return;
-        viewerContainer.innerHTML = `
-          <div class="viewer-empty">
-            <div>
-              <strong>Panorama preview unavailable on this device right now</strong>
-              <p>${{message || 'Use the overview and floorplan tabs to keep the layout review moving, then reopen the panorama after the connection or browser stabilizes.'}}</p>
-              <button type="button" id="panorama-fallback-overview">Open overview instead</button>
-            </div>
-          </div>
-        `;
-        const fallbackButton = document.getElementById('panorama-fallback-overview');
+        const fallback = document.createElement('div');
+        fallback.className = 'viewer-empty';
+        const content = document.createElement('div');
+        const heading = document.createElement('strong');
+        heading.textContent = 'Panorama preview unavailable on this device right now';
+        const detail = document.createElement('p');
+        detail.textContent = String(message || 'Use the overview and floorplan tabs to keep the layout review moving, then reopen the panorama after the connection or browser stabilizes.');
+        const fallbackButton = document.createElement('button');
+        fallbackButton.type = 'button';
+        fallbackButton.id = 'panorama-fallback-overview';
+        fallbackButton.textContent = 'Open overview instead';
+        content.append(heading, detail, fallbackButton);
+        fallback.appendChild(content);
+        viewerContainer.replaceChildren(fallback);
         if (fallbackButton) {{
           fallbackButton.addEventListener('click', () => switchPane(floorplanScenes.length ? 'floorplan-pane' : 'overview-pane'));
         }}
@@ -4392,37 +4659,52 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
 
       function renderLayoutPreview() {{
         if (!layoutPreview) return;
+        layoutPreview.replaceChildren();
         if (!floorplanScenes.length) {{
-          layoutPreview.innerHTML = `
-            <div class="plan-preview-doc">No plan</div>
-            <div class="plan-preview-copy">
-              <strong>Layout preview unavailable</strong>
-              <p class="note">This tour currently has no stored floorplan document.</p>
-            </div>
-          `;
+          const documentLabel = document.createElement('div');
+          documentLabel.className = 'plan-preview-doc';
+          documentLabel.textContent = 'No plan';
+          const copy = document.createElement('div');
+          copy.className = 'plan-preview-copy';
+          const heading = document.createElement('strong');
+          heading.textContent = 'Layout preview unavailable';
+          const note = document.createElement('p');
+          note.className = 'note';
+          note.textContent = 'This tour currently has no stored floorplan document.';
+          copy.append(heading, note);
+          layoutPreview.append(documentLabel, copy);
           return;
         }}
         const scene = floorplanScenes[0];
         const url = String(scene.image_url || '');
         const isPdf = String(scene.mime_type || '').includes('pdf') || /\\.pdf(?:$|[?#])/i.test(url);
-        layoutPreview.innerHTML = isPdf
-          ? `
-              <div class="plan-preview-doc">PDF</div>
-              <div class="plan-preview-copy">
-                <strong>${{scene.name || 'Attached floorplan'}}</strong>
-                <p class="note">Open the plan sheet to validate room flow, circulation, and usable edges.</p>
-                <button type="button" id="layout-preview-open">Open floorplan</button>
-              </div>
-            `
-          : `
-              <img src="${{url}}" alt="${{scene.name || 'Floorplan preview'}}" referrerpolicy="no-referrer">
-              <div class="plan-preview-copy">
-                <strong>${{scene.name || 'Attached floorplan'}}</strong>
-                <p class="note">Use the layout image as a quick map while reading the panorama.</p>
-                <button type="button" id="layout-preview-open">Open floorplan</button>
-              </div>
-            `;
-        const openButton = document.getElementById('layout-preview-open');
+        if (isPdf) {{
+          const documentLabel = document.createElement('div');
+          documentLabel.className = 'plan-preview-doc';
+          documentLabel.textContent = 'PDF';
+          layoutPreview.appendChild(documentLabel);
+        }} else {{
+          const image = document.createElement('img');
+          image.src = url;
+          image.alt = String(scene.name || 'Floorplan preview');
+          image.referrerPolicy = 'no-referrer';
+          layoutPreview.appendChild(image);
+        }}
+        const copy = document.createElement('div');
+        copy.className = 'plan-preview-copy';
+        const heading = document.createElement('strong');
+        heading.textContent = String(scene.name || 'Attached floorplan');
+        const note = document.createElement('p');
+        note.className = 'note';
+        note.textContent = isPdf
+          ? 'Open the plan sheet to validate room flow, circulation, and usable edges.'
+          : 'Use the layout image as a quick map while reading the panorama.';
+        const openButton = document.createElement('button');
+        openButton.type = 'button';
+        openButton.id = 'layout-preview-open';
+        openButton.textContent = 'Open floorplan';
+        copy.append(heading, note, openButton);
+        layoutPreview.appendChild(copy);
         if (openButton) {{
           openButton.addEventListener('click', () => {{
             switchPane('floorplan-pane');
@@ -4455,14 +4737,18 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
       panoramaScenes.forEach((scene, index) => {{
         const row = document.createElement('div');
         row.className = 'scene-row';
-        row.innerHTML = `
-          <div>
-            <strong>${{scene.name || `Scene ${{index + 1}}`}}</strong>
-            <div class="note">Panorama position ${{index + 1}}</div>
-          </div>
-          <button type="button">Open</button>
-        `;
-        row.querySelector('button').addEventListener('click', () => {{
+        const rowCopy = document.createElement('div');
+        const rowHeading = document.createElement('strong');
+        rowHeading.textContent = String(scene.name || `Scene ${{index + 1}}`);
+        const rowNote = document.createElement('div');
+        rowNote.className = 'note';
+        rowNote.textContent = `Panorama position ${{index + 1}}`;
+        const rowButton = document.createElement('button');
+        rowButton.type = 'button';
+        rowButton.textContent = 'Open';
+        rowCopy.append(rowHeading, rowNote);
+        row.append(rowCopy, rowButton);
+        rowButton.addEventListener('click', () => {{
           switchPane('panorama-pane');
           setPanoramaScene(index);
         }});
@@ -4470,12 +4756,15 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
 
         const card = document.createElement('article');
         card.className = 'overview-card';
-        card.innerHTML = `
-          <strong>${{scene.name || `Scene ${{index + 1}}`}}</strong>
-          <p>Use this viewpoint for the spatial read before switching into the packet and floorplan review.</p>
-          <button type="button">View panorama</button>
-        `;
-        card.querySelector('button').addEventListener('click', () => {{
+        const cardHeading = document.createElement('strong');
+        cardHeading.textContent = String(scene.name || `Scene ${{index + 1}}`);
+        const cardCopy = document.createElement('p');
+        cardCopy.textContent = 'Use this viewpoint for the spatial read before switching into the packet and floorplan review.';
+        const cardButton = document.createElement('button');
+        cardButton.type = 'button';
+        cardButton.textContent = 'View panorama';
+        card.append(cardHeading, cardCopy, cardButton);
+        cardButton.addEventListener('click', () => {{
           switchPane('panorama-pane');
           setPanoramaScene(index);
         }});
@@ -4486,7 +4775,14 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         thumb.className = 'thumb';
         thumb.dataset.role = 'pure_360';
         thumb.dataset.index = String(index);
-        thumb.innerHTML = `<span class="thumb-badge">360</span><img src="${{scene.image_url || scene.cube_faces.f}}" alt="${{scene.name || `Scene ${{index + 1}}`}}" referrerpolicy="no-referrer">`;
+        const thumbBadge = document.createElement('span');
+        thumbBadge.className = 'thumb-badge';
+        thumbBadge.textContent = '360';
+        const thumbImage = document.createElement('img');
+        thumbImage.src = String(scene.image_url || scene.cube_faces.f || '');
+        thumbImage.alt = String(scene.name || `Scene ${{index + 1}}`);
+        thumbImage.referrerPolicy = 'no-referrer';
+        thumb.append(thumbBadge, thumbImage);
         thumb.addEventListener('click', () => {{
           switchPane('panorama-pane');
           setPanoramaScene(index);
@@ -4501,9 +4797,22 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         thumb.dataset.role = 'floorplan';
         thumb.dataset.index = String(index);
         const isPdf = String(scene.mime_type || '').includes('pdf') || /\\.pdf(?:$|[?#])/i.test(String(scene.image_url || ''));
-        thumb.innerHTML = isPdf
-          ? `<span class="thumb-badge">Plan</span><div class="thumb-doc">PDF</div>`
-          : `<span class="thumb-badge">Plan</span><img src="${{scene.image_url || ''}}" alt="${{scene.name || `Floorplan ${{index + 1}}`}}" referrerpolicy="no-referrer">`;
+        const thumbBadge = document.createElement('span');
+        thumbBadge.className = 'thumb-badge';
+        thumbBadge.textContent = 'Plan';
+        thumb.appendChild(thumbBadge);
+        if (isPdf) {{
+          const documentLabel = document.createElement('div');
+          documentLabel.className = 'thumb-doc';
+          documentLabel.textContent = 'PDF';
+          thumb.appendChild(documentLabel);
+        }} else {{
+          const thumbImage = document.createElement('img');
+          thumbImage.src = String(scene.image_url || '');
+          thumbImage.alt = String(scene.name || `Floorplan ${{index + 1}}`);
+          thumbImage.referrerPolicy = 'no-referrer';
+          thumb.appendChild(thumbImage);
+        }}
         thumb.addEventListener('click', () => {{
           switchPane('floorplan-pane');
           setFloorplan(index);
@@ -4512,12 +4821,15 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
 
         const card = document.createElement('article');
         card.className = 'overview-card';
-        card.innerHTML = `
-          <strong>${{scene.name || `Floorplan ${{index + 1}}`}}</strong>
-          <p>Use the layout sheet to validate room flow, circulation, and usable edges before a viewing.</p>
-          <button type="button">Open floorplan</button>
-        `;
-        card.querySelector('button').addEventListener('click', () => {{
+        const cardHeading = document.createElement('strong');
+        cardHeading.textContent = String(scene.name || `Floorplan ${{index + 1}}`);
+        const cardCopy = document.createElement('p');
+        cardCopy.textContent = 'Use the layout sheet to validate room flow, circulation, and usable edges before a viewing.';
+        const cardButton = document.createElement('button');
+        cardButton.type = 'button';
+        cardButton.textContent = 'Open floorplan';
+        card.append(cardHeading, cardCopy, cardButton);
+        cardButton.addEventListener('click', () => {{
           switchPane('floorplan-pane');
           setFloorplan(index);
         }});
@@ -4668,7 +4980,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{title_html}</title>
     {clickrank_html}
-    <style>
+    <style nonce="{nonce_attr}">
       :root {{
         --bg: #f3eee3;
         --panel: rgba(255,255,255,0.76);
@@ -5050,8 +5362,8 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         <div id="thumbs" class="thumbs"></div>
       </section>
     </div>
-    <script id="scene-data" type="application/json">{data_json}</script>
-    <script>
+    <script nonce="{nonce_attr}" id="scene-data" type="application/json">{data_json}</script>
+    <script nonce="{nonce_attr}">
       const scenes = JSON.parse(document.getElementById("scene-data").textContent);
       let activeIndex = 0;
       const stageImage = document.getElementById("stage-image");
@@ -5069,16 +5381,29 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
           .filter((index) => index >= 0);
       }}
       function renderThumbs() {{
-        thumbs.innerHTML = "";
+        thumbs.replaceChildren();
         scenes.forEach((scene, index) => {{
           const button = document.createElement("button");
           button.className = "thumb" + (index === activeIndex ? " active" : "");
           button.type = "button";
           if (activeRoleFilter !== "all" && scene.role !== activeRoleFilter) button.classList.add("hidden");
           const isPdf = String(scene.mime_type || "").includes("pdf") || /\\.pdf(?:$|[?#])/i.test(String(scene.image_url || ""));
-          button.innerHTML = isPdf
-            ? `<span class="badge">${{scene.role}}</span><span class="thumb-doc">PDF</span>`
-            : `<span class="badge">${{scene.role}}</span><img src="${{scene.image_url}}" alt="${{scene.name}}" referrerpolicy="no-referrer">`;
+          const badge = document.createElement("span");
+          badge.className = "badge";
+          badge.textContent = String(scene.role || "view");
+          button.appendChild(badge);
+          if (isPdf) {{
+            const documentLabel = document.createElement("span");
+            documentLabel.className = "thumb-doc";
+            documentLabel.textContent = "PDF";
+            button.appendChild(documentLabel);
+          }} else {{
+            const image = document.createElement("img");
+            image.src = String(scene.image_url || "");
+            image.alt = String(scene.name || "Scene");
+            image.referrerPolicy = "no-referrer";
+            button.appendChild(image);
+          }}
           button.addEventListener("click", () => setActive(index));
           thumbs.appendChild(button);
         }});
@@ -5213,33 +5538,181 @@ def _render_tour_unavailable_page(
         ),
     )
     response.status_code = status_code
+    rendered_html = bytes(response.body).decode("utf-8", errors="replace")
+    for key, value in _public_tour_security_headers(
+        cache_control="no-store",
+        script_hashes=_public_tour_inline_csp_hashes(rendered_html, tag_name="script"),
+        style_hashes=_public_tour_inline_csp_hashes(rendered_html, tag_name="style"),
+    ).items():
+        response.headers[key] = value
     response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["Referrer-Policy"] = "no-referrer"
     return response
 
 
-def _public_tour_security_headers(*, cache_control: str = "no-store", allow_base_uri_self: bool = False) -> dict[str, str]:
+def _public_tour_csp_nonce() -> str:
+    return secrets.token_urlsafe(24)
+
+
+def _public_tour_normalized_nonce(value: object) -> str:
+    normalized = str(value or "").strip()
+    return normalized if _PUBLIC_TOUR_NONCE_PATTERN.fullmatch(normalized) else ""
+
+
+def _public_tour_inline_csp_hashes(html_body: str, *, tag_name: str) -> tuple[str, ...]:
+    tag = re.escape(str(tag_name or "").strip().lower())
+    if tag not in {"script", "style"}:
+        return ()
+    pattern = re.compile(rf"<{tag}\b(?P<attrs>[^>]*)>(?P<body>.*?)</{tag}\s*>", flags=re.IGNORECASE | re.DOTALL)
+    hashes: list[str] = []
+    for match in pattern.finditer(str(html_body or "")):
+        attrs = str(match.group("attrs") or "")
+        if tag == "script" and re.search(r"\bsrc\s*=", attrs, flags=re.IGNORECASE):
+            continue
+        digest = hashlib.sha256(str(match.group("body") or "").encode("utf-8")).digest()
+        hashes.append("'sha256-" + base64.b64encode(digest).decode("ascii") + "'")
+    return tuple(dict.fromkeys(hashes))
+
+
+def _public_tour_security_headers(
+    *,
+    cache_control: str = "no-store",
+    allow_base_uri_self: bool = False,
+    nonce: str = "",
+    allow_jsdelivr: bool = False,
+    runtime_profile: str = "document",
+    script_hashes: tuple[str, ...] = (),
+    style_hashes: tuple[str, ...] = (),
+) -> dict[str, str]:
     base_uri_policy = "'self'" if allow_base_uri_self else "'none'"
+    normalized_nonce = _public_tour_normalized_nonce(nonce)
+    normalized_profile = str(runtime_profile or "document").strip().lower()
+    external_origins = () if normalized_profile == "generated_viewer" else _public_tour_external_csp_origins()
+    media_sources = " ".join(("'self'", "data:", "blob:", *external_origins))
+    # Public control routes expose only local assets and verified 3DVista
+    # exports. Media host configuration must never silently expand iframe
+    # authority (or revive a retired provider).
+    frame_origins = () if normalized_profile == "generated_viewer" else _PUBLIC_TOUR_PROVIDER_CSP_ORIGINS
+    frame_sources = " ".join(("'self'", *frame_origins))
+
+    script_sources: list[str] = ["'self'"]
+    style_sources: list[str] = ["'self'"]
+    if normalized_nonce:
+        script_sources.append(f"'nonce-{normalized_nonce}'")
+        style_sources.append(f"'nonce-{normalized_nonce}'")
+    script_sources.extend(value for value in script_hashes if re.fullmatch(r"'sha256-[A-Za-z0-9+/=]+'", value))
+    style_sources.extend(value for value in style_hashes if re.fullmatch(r"'sha256-[A-Za-z0-9+/=]+'", value))
+    if allow_jsdelivr and normalized_profile != "generated_viewer":
+        script_sources.append("https://cdn.jsdelivr.net")
+    if normalized_profile == "vendor_export":
+        # Vendor-authored 3DVista/Pano2VR exports can require dynamic code and
+        # inline runtime styles. Keep those exceptions confined to the export
+        # asset route rather than granting them to every public tour document.
+        script_sources.extend(("'unsafe-inline'", "'unsafe-eval'", "'wasm-unsafe-eval'", *_PUBLIC_TOUR_PROVIDER_CSP_ORIGINS))
+        style_sources.append("'unsafe-inline'")
+
+    script_attr_policy = "'unsafe-inline'" if normalized_profile == "vendor_export" else "'none'"
+    style_attr_policy = "'unsafe-inline'" if normalized_profile in {"vendor_export", "generated_viewer"} else "'none'"
+    connect_sources = ["'self'"]
+    if normalized_profile == "vendor_export":
+        connect_sources.extend(_PUBLIC_TOUR_PROVIDER_CSP_ORIGINS)
+    directives = (
+        "default-src 'none'; "
+        f"base-uri {base_uri_policy}; "
+        "object-src 'none'; "
+        "frame-ancestors 'self'; "
+        "form-action 'self'; "
+        f"img-src {media_sources}; "
+        f"media-src {media_sources}; "
+        f"frame-src {frame_sources}; "
+        f"script-src {' '.join(dict.fromkeys(script_sources))}; "
+        f"script-src-attr {script_attr_policy}; "
+        f"style-src {' '.join(dict.fromkeys(style_sources))}; "
+        f"style-src-attr {style_attr_policy}; "
+        "font-src 'self' data:; "
+        f"connect-src {' '.join(dict.fromkeys(connect_sources))}; "
+        "worker-src 'self' blob:; "
+        "manifest-src 'self'"
+    )
+    report_only_directives = directives
+    if normalized_profile == "vendor_export":
+        strict_script_sources = [source for source in script_sources if source not in {"'unsafe-inline'", "'unsafe-eval'", "'wasm-unsafe-eval'"}]
+        strict_style_sources = [source for source in style_sources if source != "'unsafe-inline'"]
+        report_only_directives = directives.replace(
+            f"script-src {' '.join(dict.fromkeys(script_sources))}",
+            f"script-src {' '.join(dict.fromkeys(strict_script_sources))}",
+        ).replace(
+            f"style-src {' '.join(dict.fromkeys(style_sources))}",
+            f"style-src {' '.join(dict.fromkeys(strict_style_sources))}",
+        ).replace("script-src-attr 'unsafe-inline'", "script-src-attr 'none'").replace(
+            "style-src-attr 'unsafe-inline'", "style-src-attr 'none'"
+        )
+    report_only_directives += f"; report-uri {_PUBLIC_TOUR_CSP_REPORT_PATH}; report-to propertyquarry-csp"
     return {
         "Cache-Control": cache_control,
-        "Content-Security-Policy": (
-            "default-src 'self'; "
-            f"base-uri {base_uri_policy}; "
-            "object-src 'none'; "
-            "frame-ancestors 'self'; "
-            "img-src 'self' data: blob: https:; "
-            "media-src 'self' data: blob: https:; "
-            "frame-src 'self' https://3dvista.com https://*.3dvista.com; "
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https://js.clickrank.ai https://app.rybbit.io https://cdn.jsdelivr.net; "
-            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
-            "connect-src 'self' data: blob: https://app.rybbit.io https://cdn.jsdelivr.net; "
-            "worker-src 'self' blob:"
-        ),
+        "Content-Security-Policy": directives,
+        "Content-Security-Policy-Report-Only": report_only_directives,
+        "Reporting-Endpoints": f'propertyquarry-csp="{_PUBLIC_TOUR_CSP_REPORT_PATH}"',
         "Referrer-Policy": "no-referrer",
         "X-Content-Type-Options": "nosniff",
         "X-Robots-Tag": "noindex, nofollow, noarchive",
+        "Surrogate-Control": "no-store" if cache_control == "no-store" else cache_control,
     }
+
+
+def _public_tour_csp_report_location(value: object) -> str:
+    normalized = str(value or "").strip()[:2048]
+    if normalized in {"inline", "eval", "self", "data", "blob"}:
+        return normalized
+    safe_url = _public_tour_safe_http_url(normalized)
+    if safe_url:
+        parsed = urllib.parse.urlsplit(safe_url)
+        return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, parsed.path[:1024], "", ""))
+    if normalized.startswith("/") and not normalized.startswith("//"):
+        parsed = urllib.parse.urlsplit(normalized)
+        return parsed.path[:1024]
+    return "redacted"
+
+
+@router.post(_PUBLIC_TOUR_CSP_REPORT_PATH, include_in_schema=False)
+async def public_tour_csp_report(request: Request) -> Response:
+    report_identity = hashlib.sha256(_public_tour_client_identity(request).encode("utf-8")).hexdigest()[:24]
+    try:
+        _enforce_public_tour_feedback_memory_rate_limit(key=f"csp-report:{report_identity}", now=time.time())
+    except HTTPException:
+        # CSP reporters retry aggressively. A quiet 204 avoids amplifying a
+        # noisy client while keeping the public report endpoint non-reflective.
+        return Response(status_code=204, headers=_public_tour_security_headers())
+    content_type = str(request.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
+    if content_type not in {"application/csp-report", "application/reports+json", "application/json"}:
+        return Response(status_code=415, headers=_public_tour_security_headers())
+    raw_body = await request.body()
+    if not raw_body or len(raw_body) > 16_384:
+        return Response(status_code=413 if raw_body else 204, headers=_public_tour_security_headers())
+    try:
+        payload = json.loads(raw_body)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return Response(status_code=400, headers=_public_tour_security_headers())
+    reports = payload if isinstance(payload, list) else [payload]
+    for raw_report in reports[:10]:
+        if not isinstance(raw_report, dict):
+            continue
+        report = raw_report.get("csp-report") or raw_report.get("body") or raw_report
+        if not isinstance(report, dict):
+            continue
+        directive = re.sub(
+            r"[^a-z0-9-]",
+            "",
+            str(report.get("effective-directive") or report.get("effectiveDirective") or report.get("violated-directive") or "unknown").lower(),
+        )[:80]
+        disposition = re.sub(r"[^a-z]", "", str(report.get("disposition") or "enforce").lower())[:20]
+        log.warning(
+            "public tour csp violation directive=%s disposition=%s document=%s blocked=%s",
+            directive or "unknown",
+            disposition or "unknown",
+            _public_tour_csp_report_location(report.get("document-uri") or report.get("documentURL") or report.get("url")),
+            _public_tour_csp_report_location(report.get("blocked-uri") or report.get("blockedURL")),
+        )
+    return Response(status_code=204, headers=_public_tour_security_headers())
 
 
 @router.get("/tours/{slug}.json", response_class=JSONResponse)
@@ -5265,6 +5738,8 @@ def public_tour_file(slug: str, asset_path: str, request: Request):
     payload = _load_tour_with_private_receipt(slug)
     _require_public_tour_viewable(payload)
     safe_relpath = _public_tour_safe_asset_relpath(asset_path)
+    manifest_row = _public_tour_manifest(payload, only_relpath=safe_relpath).get(safe_relpath, {}) if safe_relpath else {}
+    preview_manifest_row = _generated_reconstruction_preview_asset_manifest_row(payload, safe_relpath)
     walkthrough_acceptance = _public_tour_walkthrough_acceptance(payload)
     if walkthrough_acceptance.get("allowed") is False and safe_relpath in set(
         walkthrough_acceptance.get("asset_relpaths") or []
@@ -5278,7 +5753,7 @@ def public_tour_file(slug: str, asset_path: str, request: Request):
     safe_name = PurePosixPath(safe_relpath).name
     generated_asset_kind = _generated_reconstruction_non_tour_asset(payload, safe_relpath)
     if generated_asset_kind == "viewer":
-        if not _generated_reconstruction_public_viewer_enabled(payload):
+        if not preview_manifest_row or not _generated_reconstruction_public_viewer_enabled(payload):
             primary_control_path = _public_tour_primary_control_path(payload)
             if primary_control_path:
                 return RedirectResponse(
@@ -5291,6 +5766,14 @@ def public_tour_file(slug: str, asset_path: str, request: Request):
                 status_code=302,
                 headers=_public_tour_security_headers(cache_control="no-store"),
             )
+    elif (
+        str(manifest_row.get("privacy_class") or "").strip().lower()
+        == _GENERATED_RECONSTRUCTION_PREVIEW_PRIVACY_CLASS
+        and str(manifest_row.get("role") or "").strip().lower().replace("-", "_")
+        in {"generated_reconstruction_viewer", "generated_reconstruction_viewer_asset"}
+        and not preview_manifest_row
+    ):
+        raise HTTPException(status_code=404, detail="tour_file_not_found")
     if generated_asset_kind == "model":
         return Response(
             "This generated model is not a public 3D tour.\n",
@@ -5310,15 +5793,31 @@ def public_tour_file(slug: str, asset_path: str, request: Request):
         )
     # Public PDFs must stay on explicit public privacy classes such as
     # `floorplan_pdf_public` from `_PUBLIC_TOUR_PUBLIC_PDF_PRIVACY_CLASSES`.
-    manifest_row = _public_tour_manifest(payload, only_relpath=safe_relpath).get(safe_relpath, {}) if safe_relpath else {}
     file_path = _asset_file(slug, asset_path)
     media_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
     headers = _public_tour_security_headers(cache_control="public, max-age=86400, immutable")
     if generated_asset_kind == "viewer":
-        headers = _public_tour_security_headers(cache_control="no-cache, max-age=0, must-revalidate")
+        viewer_html = ""
+        if media_type in {"text/html", "application/xhtml+xml"}:
+            try:
+                viewer_html = file_path.read_text(encoding="utf-8")
+            except (OSError, UnicodeError):
+                viewer_html = ""
+        headers = _public_tour_security_headers(
+            cache_control="no-cache, max-age=0, must-revalidate",
+            allow_base_uri_self=True,
+            runtime_profile="generated_viewer",
+            script_hashes=_public_tour_inline_csp_hashes(viewer_html, tag_name="script"),
+            style_hashes=_public_tour_inline_csp_hashes(viewer_html, tag_name="style"),
+        )
         headers["Cross-Origin-Resource-Policy"] = "same-origin"
         headers["X-Frame-Options"] = "SAMEORIGIN"
         headers["X-PropertyQuarry-Tour-Asset-Kind"] = "generated-reconstruction-viewer"
+    if preview_manifest_row:
+        headers["Cross-Origin-Resource-Policy"] = "same-origin"
+        headers["X-PropertyQuarry-Preview-Kind"] = "approximate-layout"
+        headers["X-PropertyQuarry-Verified-Provider-Capture"] = "false"
+        headers["X-PropertyQuarry-Verified-Tour-Gate"] = "false"
     if manifest_row.get("sha256"):
         headers["X-PropertyQuarry-Asset-SHA256"] = str(manifest_row["sha256"])
     if manifest_row.get("privacy_class"):
@@ -5330,15 +5829,31 @@ def public_tour_file(slug: str, asset_path: str, request: Request):
     )
 
 
+@router.get("/tours/viewer/{slug}/{asset_path:path}")
+@router.head("/tours/viewer/{slug}/{asset_path:path}")
+def public_tour_generated_reconstruction_preview_asset(slug: str, asset_path: str, request: Request):
+    payload = _load_tour_with_private_receipt(slug)
+    _require_public_tour_viewable(payload)
+    safe_relpath = _generated_reconstruction_preview_relpath(asset_path)
+    if not safe_relpath or not _generated_reconstruction_preview_asset_manifest_row(payload, safe_relpath):
+        raise HTTPException(status_code=404, detail="tour_file_not_found")
+    return public_tour_file(slug, safe_relpath, request)
+
+
 @router.get("/tours/pano2vr/{slug}/{asset_path:path}")
 @router.head("/tours/pano2vr/{slug}/{asset_path:path}")
 def public_tour_pano2vr_file(slug: str, asset_path: str):
     file_path = _pano2vr_export_file(slug, asset_path)
     media_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
+    runtime_profile = "vendor_export" if media_type in {"text/html", "application/xhtml+xml"} else "document"
     return FileResponse(
         file_path,
         media_type=media_type,
-        headers=_public_tour_security_headers(cache_control="public, max-age=86400"),
+        headers=_public_tour_security_headers(
+            cache_control="public, max-age=86400",
+            allow_base_uri_self=runtime_profile == "vendor_export",
+            runtime_profile=runtime_profile,
+        ),
     )
 
 
@@ -5347,10 +5862,15 @@ def public_tour_pano2vr_file(slug: str, asset_path: str):
 def public_tour_3dvista_file(slug: str, asset_path: str):
     file_path = _3dvista_export_file(slug, asset_path)
     media_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
+    runtime_profile = "vendor_export" if media_type in {"text/html", "application/xhtml+xml"} else "document"
     return FileResponse(
         file_path,
         media_type=media_type,
-        headers=_public_tour_security_headers(cache_control="public, max-age=86400"),
+        headers=_public_tour_security_headers(
+            cache_control="public, max-age=86400",
+            allow_base_uri_self=runtime_profile == "vendor_export",
+            runtime_profile=runtime_profile,
+        ),
     )
 
 
@@ -5399,15 +5919,51 @@ def public_tour_generated_layout_preview(slug: str, request: Request) -> HTMLRes
         if _public_tour_is_generated_reconstruction_only(payload):
             return _generated_reconstruction_public_launch_response(payload, layout_focus=True, request=request)
         html_body = _generated_reconstruction_layout_preview_html(slug=slug, payload=payload)
-        return HTMLResponse(html_body, headers=_public_tour_security_headers(allow_base_uri_self=True))
+        return HTMLResponse(
+            html_body,
+            headers=_public_tour_security_headers(
+                allow_base_uri_self=True,
+                allow_jsdelivr="https://cdn.jsdelivr.net/" in html_body,
+                runtime_profile="generated_viewer",
+                script_hashes=_public_tour_inline_csp_hashes(html_body, tag_name="script"),
+                style_hashes=_public_tour_inline_csp_hashes(html_body, tag_name="style"),
+            ),
+        )
     except HTTPException as exc:
         detail = str(exc.detail or "").strip().lower()
+        if exc.status_code == 410 and detail == "tour_revoked":
+            return _render_tour_unavailable_page(
+                request,
+                status_code=410,
+                title="This tour was removed by its owner.",
+                summary="The public copy and its assets are no longer available. Cached copies are queued for removal too.",
+                status_label="Tour revoked",
+                rows=[
+                    {
+                        "label": "Tour state",
+                        "value": "Removed",
+                        "detail": "PropertyQuarry blocks this link even while edge caches finish purging.",
+                    },
+                    {
+                        "label": "Next step",
+                        "value": "Return to PropertyQuarry",
+                        "detail": "Ask the owner for a new share only if they choose to publish again.",
+                    },
+                ],
+            )
         if exc.status_code == 404 and detail in {"tour_disabled_fallback", "tour_generated_layout_preview_unavailable"}:
             return _render_generated_reconstruction_not_tour_page(request)
         raise
 
 
-def _tour_control_html(payload: dict[str, object], *, viewer_mode: str = "", fullscreen: bool = False) -> str:
+def _tour_control_html(
+    payload: dict[str, object],
+    *,
+    viewer_mode: str = "",
+    fullscreen: bool = False,
+    nonce: str = "",
+) -> str:
+    control_nonce = _public_tour_normalized_nonce(nonce) or _public_tour_csp_nonce()
     if fullscreen:
         payload = {**payload, "_tour_control_fullscreen": True}
     forced_mode = str(viewer_mode or "").strip().lower()
@@ -5416,14 +5972,14 @@ def _tour_control_html(payload: dict[str, object], *, viewer_mode: str = "", ful
     if forced_mode in {"matterport", "metaport"}:
         raise HTTPException(status_code=404, detail="tour_control_provider_retired")
     if forced_mode in {"3dvista", "3d_vista", "three_d_vista"}:
-        return _tour_control_3dvista_html(payload)
+        return _tour_control_3dvista_html(payload, nonce=control_nonce)
     if forced_mode in {"pano2vr", "pano_2_vr", "krpano"}:
         raise HTTPException(status_code=404, detail="tour_control_panorama_export_hidden")
     control_mode = str(payload.get("control_mode") or "").strip().lower()
     if control_mode == "marzipano":
         raise HTTPException(status_code=410, detail="tour_control_legacy_viewer_removed")
     if control_mode in {"3dvista", "3d_vista", "three_d_vista"}:
-        return _tour_control_3dvista_html(payload)
+        return _tour_control_3dvista_html(payload, nonce=control_nonce)
     if control_mode in {"pano2vr", "pano_2_vr"}:
         raise HTTPException(status_code=404, detail="tour_control_panorama_export_hidden")
     if control_mode == "internal_walkable_3d":
@@ -5447,12 +6003,10 @@ def _krpano_license_runtime_config() -> dict[str, str]:
 
 
 def _safe_3dvista_external_url(value: object) -> str:
-    normalized = str(value or "").strip()
+    normalized = _public_tour_safe_http_url(value)
     if not normalized:
         return ""
     parsed = urllib.parse.urlparse(normalized)
-    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
-        return ""
     host = str(parsed.hostname or "").strip().lower().rstrip(".")
     if host != "3dvista.com" and not host.endswith(".3dvista.com"):
         return ""
@@ -5460,12 +6014,10 @@ def _safe_3dvista_external_url(value: object) -> str:
 
 
 def _safe_matterport_external_url(value: object) -> str:
-    normalized = str(value or "").strip()
+    normalized = _public_tour_safe_http_url(value)
     if not normalized:
         return ""
     parsed = urllib.parse.urlparse(normalized)
-    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
-        return ""
     host = str(parsed.hostname or "").strip().lower().rstrip(".")
     if host != "matterport.com" and not host.endswith(".matterport.com"):
         return ""
@@ -5477,7 +6029,389 @@ def _safe_matterport_external_url(value: object) -> str:
         model_id = parsed.path.rsplit("/", 1)[-1].strip()
         if re.fullmatch(r"[A-Za-z0-9_-]{6,32}", model_id):
             return f"https://my.matterport.com/show/?m={urllib.parse.quote(model_id)}"
-    return normalized
+    if host != "my.matterport.com" or parsed.path.rstrip("/") != "/show":
+        return ""
+    allowed_query_keys = {"m", "mls", "play", "qs", "brand", "help", "vr", "dh", "gt"}
+    query_items = urllib.parse.parse_qsl(parsed.query, keep_blank_values=False)
+    model_id = next((item for key, item in query_items if key == "m"), "")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{6,32}", model_id):
+        return ""
+    safe_query = urllib.parse.urlencode(
+        [(key, item[:80]) for key, item in query_items if key in allowed_query_keys],
+        doseq=True,
+    )
+    return urllib.parse.urlunparse(("https", "my.matterport.com", "/show/", "", safe_query, ""))
+
+
+def _matterport_sdk_walkthrough_contract(payload: dict[str, object]) -> dict[str, object]:
+    """Return a normalized, edit-free private Matterport FLY route or fail closed."""
+
+    raw_contract = payload.get("matterport_walkthrough")
+    if not isinstance(raw_contract, dict):
+        return {}
+    contract = dict(raw_contract)
+    if str(contract.get("status") or "").strip().lower() != "pass":
+        return {}
+    model_sid = str(contract.get("model_sid") or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{6,32}", model_sid):
+        return {}
+    try:
+        edit_counts = {
+            key: int(contract.get(key) or 0)
+            for key in ("cut_count", "dissolve_count", "teleport_count")
+        }
+    except (TypeError, ValueError):
+        return {}
+    if any(value != 0 for value in edit_counts.values()):
+        return {}
+    declared_transition = str(contract.get("transition") or "fly").strip().lower()
+    if declared_transition != "fly":
+        return {}
+
+    raw_route = contract.get("route")
+    raw_walkable_rooms = contract.get("walkable_room_ids")
+    if not isinstance(raw_route, list) or len(raw_route) < 2 or not isinstance(raw_walkable_rooms, list):
+        return {}
+    walkable_room_ids = {
+        str(room_id or "").strip()
+        for room_id in raw_walkable_rooms
+        if str(room_id or "").strip()
+    }
+    if not walkable_room_ids:
+        return {}
+
+    route: list[dict[str, object]] = []
+    seen_sweep_ids: set[str] = set()
+    covered_room_ids: set[str] = set()
+    for raw_node in raw_route:
+        if not isinstance(raw_node, dict):
+            return {}
+        sweep_id = str(raw_node.get("sweep_id") or "").strip()
+        room_id = str(raw_node.get("room_id") or "").strip()
+        try:
+            transition_time_ms = int(raw_node.get("transition_time_ms") or 0)
+        except (TypeError, ValueError):
+            return {}
+        if (
+            not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", sweep_id)
+            or sweep_id in seen_sweep_ids
+            or not room_id
+            or transition_time_ms < 600
+            or transition_time_ms > 30_000
+        ):
+            return {}
+        rotation = raw_node.get("rotation")
+        normalized_rotation: dict[str, float] = {}
+        if rotation is not None:
+            if not isinstance(rotation, dict):
+                return {}
+            try:
+                normalized_rotation = {
+                    axis: float(rotation[axis])
+                    for axis in ("x", "y")
+                    if axis in rotation
+                }
+            except (TypeError, ValueError):
+                return {}
+        node: dict[str, object] = {
+            "sweep_id": sweep_id,
+            "room_id": room_id,
+            "transition_time_ms": transition_time_ms,
+        }
+        if normalized_rotation:
+            node["rotation"] = normalized_rotation
+        route.append(node)
+        seen_sweep_ids.add(sweep_id)
+        covered_room_ids.add(room_id)
+
+    missing_room_ids = sorted(walkable_room_ids - covered_room_ids)
+    if missing_room_ids or list(contract.get("missing_room_ids") or []):
+        return {}
+    try:
+        start_ss = int(contract.get("start_ss") or 1)
+    except (TypeError, ValueError):
+        return {}
+    if start_ss < 1:
+        return {}
+    return {
+        **contract,
+        **edit_counts,
+        "model_sid": model_sid,
+        "transition": "fly",
+        "start_ss": start_ss,
+        "route_node_count": len(route),
+        "walkable_room_count": len(walkable_room_ids),
+        "walkable_room_ids": sorted(walkable_room_ids),
+        "covered_room_ids": sorted(walkable_room_ids),
+        "missing_room_ids": [],
+        "route": route,
+    }
+
+
+def _matterport_sdk_timestamp(value: object) -> datetime | None:
+    raw_value = str(value or "").strip()
+    if not raw_value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw_value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def _matterport_model_publication_contract(
+    payload: dict[str, object],
+    *,
+    model_sid: str,
+) -> dict[str, object]:
+    raw_publication = payload.get("matterport_model_publication")
+    if not isinstance(raw_publication, dict):
+        return {}
+    publication = dict(raw_publication)
+    if (
+        str(publication.get("status") or "").strip().lower() != "pass"
+        or publication.get("model_available") is not True
+        or str(publication.get("model_sid") or "").strip() != model_sid
+    ):
+        return {}
+    checked_at = _matterport_sdk_timestamp(publication.get("checked_at"))
+    asset_valid_until = _matterport_sdk_timestamp(publication.get("asset_valid_until"))
+    now = datetime.now(timezone.utc)
+    if (
+        checked_at is None
+        or checked_at < now - timedelta(hours=24)
+        or checked_at > now + timedelta(minutes=5)
+        or asset_valid_until is None
+        or asset_valid_until <= now
+    ):
+        return {}
+    try:
+        enabled_sweep_count = int(publication.get("enabled_sweep_count") or 0)
+        connected_component_count = int(publication.get("connected_component_count") or 0)
+    except (TypeError, ValueError):
+        return {}
+    if enabled_sweep_count < 2 or connected_component_count != 1:
+        return {}
+    source_sha256 = str(publication.get("source_sha256") or "").strip().lower()
+    if not re.fullmatch(r"[a-f0-9]{64}", source_sha256):
+        return {}
+    return publication
+
+
+def _matterport_sdk_walkthrough_context(
+    payload: dict[str, object],
+    *,
+    external_url: str,
+) -> dict[str, object]:
+    """Build private SDK state only when every key, route, and publication proof agrees."""
+
+    if payload.get("_tour_control_matterport_walkthrough") is not True:
+        return {}
+    sdk_key = str(
+        os.getenv("MATTERPORT_SDK_KEY")
+        or os.getenv("MATTERPORT_APPLICATION_KEY")
+        or ""
+    ).strip()
+    if not sdk_key or len(sdk_key) > 512 or any(ord(character) < 33 for character in sdk_key):
+        return {}
+    safe_external_url = _safe_matterport_external_url(external_url)
+    if not safe_external_url:
+        return {}
+    parsed_url = urllib.parse.urlparse(safe_external_url)
+    model_sid = next(
+        (
+            value
+            for key, value in urllib.parse.parse_qsl(parsed_url.query, keep_blank_values=False)
+            if key == "m"
+        ),
+        "",
+    )
+    contract = _matterport_sdk_walkthrough_contract(payload)
+    if not contract or str(contract.get("model_sid") or "") != model_sid:
+        return {}
+    publication = _matterport_model_publication_contract(payload, model_sid=model_sid)
+    if not publication:
+        return {}
+
+    query_items = [
+        (key, value)
+        for key, value in urllib.parse.parse_qsl(parsed_url.query, keep_blank_values=False)
+        if key not in {"applicationKey", "play", "qs", "ss"}
+    ]
+    query_items.extend(
+        (
+            ("applicationKey", sdk_key),
+            ("play", "0"),
+            ("qs", "1"),
+            ("ss", str(contract["start_ss"])),
+        )
+    )
+    iframe_url = urllib.parse.urlunparse(
+        (
+            "https",
+            "my.matterport.com",
+            "/show/",
+            "",
+            urllib.parse.urlencode(query_items),
+            "",
+        )
+    )
+    return {
+        "sdk_key": sdk_key,
+        "iframe_url": iframe_url,
+        "contract": contract,
+        "publication": publication,
+    }
+
+
+def _tour_control_matterport_html(payload: dict[str, object]) -> str:
+    """Render the isolated private SDK proof harness; never selected by public routing."""
+
+    external_url = _safe_matterport_external_url(payload.get("matterport_url"))
+    context = _matterport_sdk_walkthrough_context(payload, external_url=external_url)
+    title = html.escape(str(payload.get("title") or "Matterport walkthrough").strip())
+    if not context:
+        iframe = (
+            f'<iframe title="{title}" src="{html.escape(external_url, quote=True)}" '
+            'allow="fullscreen; xr-spatial-tracking" allowfullscreen></iframe>'
+            if external_url
+            else '<p role="status">Matterport walkthrough unavailable.</p>'
+        )
+        return f"<!doctype html><html><head><meta charset=\"utf-8\"><title>{title}</title></head><body>{iframe}</body></html>"
+
+    script_config = _public_tour_script_json(
+        {
+            "sdkKey": context["sdk_key"],
+            "contract": context["contract"],
+        }
+    )
+    iframe_url = html.escape(str(context["iframe_url"]), quote=True)
+    bootstrap_url = html.escape(_MATTERPORT_SDK_BOOTSTRAP_URL, quote=True)
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{title}</title>
+</head>
+<body>
+  <main>
+    <iframe id="matterport-showcase" title="{title}" src="{iframe_url}" allow="fullscreen; xr-spatial-tracking" allowfullscreen></iframe>
+    <button type="button" data-matterport-walkthrough-toggle aria-label="Pause walkthrough">Pause</button>
+    <p data-matterport-walkthrough-status aria-live="polite">Preparing walkthrough…</p>
+  </main>
+  <script src="{bootstrap_url}"></script>
+  <script>
+  (() => {{
+    'use strict';
+    const config = {script_config};
+    const frame = document.getElementById('matterport-showcase');
+    const toggle = document.querySelector('[data-matterport-walkthrough-toggle]');
+    const status = document.querySelector('[data-matterport-walkthrough-status]');
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let paused = reducedMotion;
+    let running = false;
+    let initialized = false;
+    let resumeWaiters = [];
+
+    const publish = (state, detail = {{}}) => {{
+      const proof = {{
+        status: state,
+        transition: 'fly',
+        route_node_count: config.contract.route.length,
+        walkable_room_count: config.contract.walkable_room_ids.length,
+        missing_room_count: Number(detail.missing_room_count || 0),
+        ...detail,
+      }};
+      window.__PROPERTYQUARRY_MATTERPORT_WALKTHROUGH__ = proof;
+      document.documentElement.dataset.matterportWalkthroughState = state;
+      window.dispatchEvent(new CustomEvent('propertyquarry:matterport-walkthrough', {{ detail: proof }}));
+    }};
+
+    const renderToggle = () => {{
+      const manual = !running && reducedMotion;
+      const label = manual ? 'Play walkthrough' : paused ? 'Resume walkthrough' : 'Pause walkthrough';
+      toggle.setAttribute('aria-label', label);
+      toggle.textContent = label.replace(' walkthrough', '');
+      status.textContent = manual ? 'Walkthrough ready to play.' : paused ? 'Walkthrough paused.' : 'Walkthrough playing.';
+    }};
+
+    const waitForMatterportWalkthroughResume = async () => {{
+      if (!paused) return;
+      await new Promise((resolve) => resumeWaiters.push(resolve));
+    }};
+
+    const play = async () => {{
+      if (running) return;
+      running = true;
+      paused = false;
+      renderToggle();
+      publish('running');
+      try {{
+        if (!window.MP_SDK || typeof window.MP_SDK.connect !== 'function') {{
+          throw new Error('matterport_sdk_bootstrap_unavailable');
+        }}
+        const mpSdk = await window.MP_SDK.connect(frame, config.sdkKey);
+        const coveredRoomIds = new Set();
+        if (mpSdk.Sweep.current && typeof mpSdk.Sweep.current.subscribe === 'function') {{
+          mpSdk.Sweep.current.subscribe(() => {{}});
+        }}
+        for (const node of config.contract.route) {{
+          await waitForMatterportWalkthroughResume();
+          await mpSdk.Sweep.moveTo(node.sweep_id, {{
+            rotation: node.rotation || undefined,
+            transition: mpSdk.Camera.TransitionType.FLY,
+            transitionTime: node.transition_time_ms,
+          }});
+          coveredRoomIds.add(node.room_id);
+        }}
+        const missingRoomIds = config.contract.walkable_room_ids.filter((roomId) => !coveredRoomIds.has(roomId));
+        if (missingRoomIds.length) throw new Error('walkable_room_coverage_missing');
+        paused = false;
+        renderToggle();
+        status.textContent = 'Walkthrough complete.';
+        publish('pass', {{ missing_room_count: 0 }});
+      }} catch (error) {{
+        status.textContent = 'Walkthrough could not be completed.';
+        publish('fail', {{ reason: String(error && error.message || error) }});
+      }} finally {{
+        running = false;
+      }}
+    }};
+
+    toggle.addEventListener('click', () => {{
+      if (!running) {{
+        void play();
+        return;
+      }}
+      paused = !paused;
+      if (!paused) {{
+        const waiters = resumeWaiters;
+        resumeWaiters = [];
+        waiters.forEach((resolve) => resolve());
+      }}
+      renderToggle();
+      publish(paused ? 'paused' : 'running');
+    }});
+
+    const initialize = () => {{
+      if (initialized) return;
+      initialized = true;
+      if (reducedMotion) {{
+        renderToggle();
+        publish('manual');
+      }} else {{
+        void play();
+      }}
+    }};
+    frame.addEventListener('load', initialize, {{ once: true }});
+    window.setTimeout(initialize, 0);
+  }})();
+  </script>
+</body>
+</html>"""
 
 
 def _public_tour_walkthrough_acceptance(payload: dict[str, object]) -> dict[str, object]:
@@ -5879,9 +6813,15 @@ def _generated_reconstruction_public_launch_response(
         raise HTTPException(status_code=404, detail="tour_generated_layout_preview_unavailable")
     if request is not None and _truthy(request.query_params.get("browser_shell_probe")):
         launch_payload = {**launch_payload, "_generated_reconstruction_browser_shell_probe": True}
+    nonce = _public_tour_csp_nonce()
+    html_body = _generated_reconstruction_public_launch_html(launch_payload, nonce=nonce)
     return HTMLResponse(
-        _generated_reconstruction_public_launch_html(launch_payload),
-        headers=_public_tour_security_headers(allow_base_uri_self=True),
+        html_body,
+        headers=_public_tour_security_headers(
+            allow_base_uri_self=True,
+            nonce=nonce,
+            allow_jsdelivr="https://cdn.jsdelivr.net/" in html_body,
+        ),
     )
 
 
@@ -5925,23 +6865,8 @@ def _generated_reconstruction_launch_payload(
 
 
 def _generated_reconstruction_layout_preview_relpath(payload: dict[str, object]) -> str:
-    generated_reconstruction = payload.get("generated_reconstruction")
-    if not isinstance(generated_reconstruction, dict):
-        return ""
-    provider = str(generated_reconstruction.get("provider") or "").strip().lower()
-    if provider != "propertyquarry_generated_reconstruction":
-        return ""
-    if bool(generated_reconstruction.get("verified_provider_capture")):
-        return ""
-    viewer_version = str(generated_reconstruction.get("viewer_version") or "").strip()
-    if viewer_version != _PROPERTY_GENERATED_RECONSTRUCTION_VIEWER_VERSION:
-        return ""
-    if not _generated_reconstruction_public_shell_ready(payload):
-        return ""
-    viewer_relpath = _public_tour_safe_asset_relpath(str(generated_reconstruction.get("viewer_relpath") or "").strip())
-    if not viewer_relpath:
-        return ""
-    return viewer_relpath
+    contract = _generated_reconstruction_preview_contract(payload)
+    return str(contract.get("viewer_relpath") or "").strip()
 
 
 def _generated_reconstruction_layout_preview_html(*, slug: str, payload: dict[str, object]) -> str:
@@ -5967,7 +6892,8 @@ def _generated_reconstruction_layout_preview_html(*, slug: str, payload: dict[st
     return html_body
 
 
-def _generated_reconstruction_public_launch_html(payload: dict[str, object]) -> str:
+def _generated_reconstruction_public_launch_html(payload: dict[str, object], *, nonce: str = "") -> str:
+    nonce_attr = html.escape(_public_tour_normalized_nonce(nonce) or _public_tour_csp_nonce(), quote=True)
     slug = str(payload.get("slug") or "").strip()
     title_text = str(payload.get("display_title") or payload.get("title") or slug or "Layout walkthrough").strip()
     title = html.escape(title_text)
@@ -6120,7 +7046,8 @@ def _generated_reconstruction_public_launch_html(payload: dict[str, object]) -> 
           <a class="mini-btn" id="layout-viewer-open" href="{layout_viewer_open_url}" target="_blank" rel="noopener noreferrer">Open full viewer</a>
         </div>
         <div class="layout-viewer-shell">
-          <div class="layout-viewer-poster" id="layout-viewer-poster" style="{f"background-image:linear-gradient(180deg, rgba(255,252,245,.12), rgba(255,252,245,.02)), url('{layout_viewer_poster_url}');" if layout_viewer_poster_url_raw else ''}">
+          <div class="layout-viewer-poster" id="layout-viewer-poster">
+            {f'<img class="layout-viewer-poster-media" src="{layout_viewer_poster_url}" alt="" aria-hidden="true" referrerpolicy="no-referrer">' if layout_viewer_poster_url_raw else ''}
             <div class="layout-viewer-poster-copy">
               <div class="eyebrow">{"Layout-first entry" if layout_focus else "Interactive layout viewer"}</div>
               <strong>{"Loading the room layout" if layout_focus else "Loading spatial layout"}</strong>
@@ -6140,7 +7067,7 @@ def _generated_reconstruction_public_launch_html(payload: dict[str, object]) -> 
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{title} | PropertyQuarry</title>
-    <style>
+    <style nonce="{nonce_attr}">
       :root {{ color-scheme: light; --ink:#17130c; --muted:#766d5e; --paper:#f6f0e5; --card:rgba(255,252,245,.84); --line:rgba(54,42,27,.14); --gold:#a77c2b; --gold-soft:rgba(167,124,43,.14); --shadow:0 24px 70px rgba(68,47,24,.12); }}
       * {{ box-sizing:border-box; }}
       html, body {{ margin:0; min-height:100%; background:radial-gradient(circle at 18% 10%, rgba(255,255,255,.92), transparent 28%), linear-gradient(135deg,#faf6ed 0%,#efe4d1 48%,#d9c4a5 100%); color:var(--ink); font-family:Aptos, ui-sans-serif, system-ui, sans-serif; }}
@@ -6232,6 +7159,7 @@ def _generated_reconstruction_public_launch_html(payload: dict[str, object]) -> 
       .layout-viewer-shell iframe {{ position:relative; z-index:2; display:block; width:100%; height:min(78vh, 860px); min-height:560px; border:0; background:#111; opacity:0; transition:opacity .24s ease; }}
       .layout-viewer-shell.is-ready iframe {{ opacity:1; }}
       .layout-viewer-poster {{ position:absolute; inset:0; z-index:1; display:grid; align-content:end; padding:22px; background-position:center; background-size:cover; background-repeat:no-repeat; transition:opacity .24s ease, visibility .24s ease; }}
+      .layout-viewer-poster-media {{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }}
       .layout-viewer-poster::after {{ content:""; position:absolute; inset:0; background:linear-gradient(180deg, rgba(17,13,9,.1) 0%, rgba(17,13,9,.2) 40%, rgba(17,13,9,.72) 100%); }}
       .layout-viewer-shell.is-ready .layout-viewer-poster {{ opacity:0; visibility:hidden; }}
       .layout-viewer-poster-copy {{ position:relative; z-index:1; display:grid; gap:8px; width:min(420px, 100%); padding:18px; border-radius:22px; background:linear-gradient(180deg, rgba(23,19,12,.78), rgba(23,19,12,.52)); color:#fff7eb; box-shadow:0 18px 42px rgba(16,12,7,.18); backdrop-filter:blur(10px); }}
@@ -6357,7 +7285,7 @@ def _generated_reconstruction_public_launch_html(payload: dict[str, object]) -> 
       </section>
       {'' if layout_focus else layout_viewer_section}
     </div>
-    <script>
+    <script nonce="{nonce_attr}">
       const mediaCards = Array.from(document.querySelectorAll('[data-target]'));
       const routeActions = Array.from(document.querySelectorAll('.route-action'));
       const routeMetadata = routeActions
@@ -6822,7 +7750,11 @@ def _tour_control_media_context(payload: dict[str, object]) -> tuple[list[dict[s
         if not isinstance(scene, dict):
             continue
         asset_relpath = _public_tour_safe_asset_relpath(str(scene.get("asset_relpath") or "").strip())
-        image_url = f"/tours/files/{slug}/{asset_relpath}" if slug and asset_relpath else str(scene.get("image_url") or "").strip()
+        image_url = f"/tours/files/{urllib.parse.quote(slug, safe='')}/{urllib.parse.quote(asset_relpath, safe='/')}" if slug and asset_relpath else ""
+        if not image_url:
+            external_image_url = _public_tour_safe_http_url(scene.get("image_url"))
+            if external_image_url and _public_tour_static_media_url_allowed(external_image_url):
+                image_url = external_image_url
         if not image_url:
             continue
         name = str(scene.get("name") or f"Scene {index + 1}").strip() or f"Scene {index + 1}"
@@ -6857,6 +7789,23 @@ def _public_tour_layer_disclosure(value: object, *, fallback: str = "Styled view
     return text
 
 
+def _public_tour_safe_frame_url(value: object) -> str:
+    normalized = str(value or "").strip()
+    if normalized == "about:blank":
+        return normalized
+    local_url = _public_tour_safe_navigation_url(normalized)
+    if local_url.startswith("/tours/"):
+        parsed = urllib.parse.urlsplit(local_url)
+        if re.match(r"^/tours/(?:3dvista|pano2vr|files)/", parsed.path):
+            return local_url
+        return ""
+    return (
+        _safe_3dvista_external_url(normalized)
+        or _safe_matterport_external_url(normalized)
+        or _safe_live_360_url(normalized)
+    )
+
+
 def _tour_control_provider_layers(
     *,
     payload: dict[str, object],
@@ -6864,17 +7813,20 @@ def _tour_control_provider_layers(
     default_label: str,
 ) -> list[dict[str, str]]:
     slug = str(payload.get("slug") or "").strip()
-    safe_slug = html.escape(slug)
+    safe_slug = urllib.parse.quote(slug, safe="")
+    safe_default_src = _public_tour_safe_frame_url(default_src)
+    if not safe_default_src or safe_default_src == "about:blank":
+        return []
     layers: list[dict[str, str]] = [
         {
             "id": "as_listed",
             "label": "As listed",
-            "src": str(default_src or "").strip(),
+            "src": safe_default_src,
             "provider": "3D tour",
             "disclosure": "Current view.",
         }
     ]
-    if _safe_matterport_external_url(default_src):
+    if _safe_matterport_external_url(safe_default_src):
         return []
     seen = {layers[0]["src"]}
     raw_layers = payload.get("tour_layers") or payload.get("provider_layers") or payload.get("interactive_layers")
@@ -6899,10 +7851,10 @@ def _tour_control_provider_layers(
             if not src and bool(row.get("same_tour_layer")):
                 query = str(row.get("query") or row.get("layer_query") or "").strip().lstrip("?")
                 fragment = str(row.get("fragment") or row.get("hash") or row.get("layer_hash") or "").strip().lstrip("#")
-                if default_src and (query or fragment):
+                if safe_default_src and (query or fragment):
                     safe_query = urllib.parse.urlencode(urllib.parse.parse_qsl(query, keep_blank_values=False), doseq=True)
                     safe_fragment = urllib.parse.quote(fragment, safe="/=&:;,+_-")
-                    parsed_default = urllib.parse.urlparse(default_src)
+                    parsed_default = urllib.parse.urlparse(safe_default_src)
                     src = urllib.parse.urlunparse(
                         (
                             parsed_default.scheme,
@@ -6928,6 +7880,7 @@ def _tour_control_provider_layers(
             disclosure = _public_tour_layer_disclosure(disclosure)
         else:
             continue
+        src = _public_tour_safe_frame_url(src)
         if not src or src in seen:
             continue
         seen.add(src)
@@ -6944,6 +7897,7 @@ def _tour_control_provider_layers(
 
 
 def _tour_control_provider_recovery_html(*, direct_href: str) -> str:
+    safe_direct_href = _public_tour_safe_frame_url(direct_href) or "#"
     return f"""<div class="provider-load-state" data-provider-status role="status" aria-live="polite" aria-atomic="true">
               <div class="provider-loading" data-provider-loading>Loading 3D tour...</div>
               <div class="provider-recovery" data-provider-recovery hidden>
@@ -6951,7 +7905,7 @@ def _tour_control_provider_recovery_html(*, direct_href: str) -> str:
                 <span>Try again or open the provider directly.</span>
                 <div class="provider-recovery-actions">
                   <button type="button" data-provider-retry>Retry</button>
-                  <a href="{html.escape(str(direct_href or '#').strip())}" data-provider-direct target="_blank" rel="noopener noreferrer">Open directly</a>
+                  <a href="{html.escape(safe_direct_href)}" data-provider-direct target="_blank" rel="noopener noreferrer">Open directly</a>
                 </div>
               </div>
             </div>"""
@@ -7028,7 +7982,9 @@ def _tour_control_external_iframe_html(
     payload: dict[str, object] | None = None,
     fullscreen_href: str = "",
     fullscreen: bool = False,
+    nonce: str = "",
 ) -> str:
+    nonce_attr = html.escape(_public_tour_normalized_nonce(nonce) or _public_tour_csp_nonce(), quote=True)
     payload = payload or {}
     scene_data, video_url, video_mime_type = _tour_control_media_context(payload)
     video_source_markup = _public_tour_walkthrough_source_markup(
@@ -7038,11 +7994,13 @@ def _tour_control_external_iframe_html(
     )
     embed_walkthrough = bool(payload.get("_tour_control_embed_walkthrough"))
     provider_layers = _tour_control_provider_layers(payload=payload, default_src=iframe_src, default_label=badge)
-    provider_layers_json = html.escape(json.dumps(provider_layers, ensure_ascii=False).replace("</", "<\\/"), quote=False)
+    provider_layers_json = _public_tour_script_json(provider_layers)
     has_provider_layers = len(provider_layers) > 1
     provider_badge = html.escape(str(badge or "3D Tour").strip() or "3D Tour")
     provider_layer_buttons = "".join(
-        f'<button type="button" data-provider-layer="{html.escape(row["id"])}" aria-pressed="{"true" if index == 0 else "false"}">{html.escape(row["label"])}</button>'
+        f'<button type="button" data-provider-layer="{html.escape(row["id"])}" '
+        f'data-provider-src="{html.escape(row["src"])}" '
+        f'aria-pressed="{"true" if index == 0 else "false"}">{html.escape(row["label"])}</button>'
         for index, row in enumerate(provider_layers)
     )
     provider_layer_switch_html = (
@@ -7050,18 +8008,23 @@ def _tour_control_external_iframe_html(
         if has_provider_layers
         else ""
     )
-    clean_fullscreen_href = html.escape(str(fullscreen_href or iframe_src or "#").strip())
-    payload_slug = str(payload.get("slug") or "").strip()
-    clean_return_href = html.escape(
-        f"/tours/{urllib.parse.quote(payload_slug, safe='')}"
-        if payload_slug
-        else str(fullscreen_href or iframe_src or "#").strip().split("?", 1)[0]
+    initial_provider_layer = provider_layers[0] if provider_layers else {}
+    initial_provider_src_raw = str(initial_provider_layer.get("src") or "about:blank").strip() or "about:blank"
+    initial_provider_disclosure = str(initial_provider_layer.get("disclosure") or "3D tour unavailable.").strip()
+    raw_fullscreen_href = str((fullscreen_href or initial_provider_src_raw) if provider_layers else "#").strip() or "#"
+    safe_fullscreen_href = (
+        _public_tour_safe_navigation_url(raw_fullscreen_href, allow_fragment=True)
+        or _public_tour_safe_frame_url(raw_fullscreen_href)
+        or "#"
     )
+    clean_fullscreen_href = html.escape(safe_fullscreen_href)
+    payload_slug = str(payload.get("slug") or "").strip()
+    return_href = f"/tours/{urllib.parse.quote(payload_slug, safe='')}" if payload_slug else "#"
+    clean_return_href = html.escape(_public_tour_safe_navigation_url(return_href, allow_fragment=True) or "#")
     provider_recovery_script = _tour_control_provider_recovery_script()
     if (scene_data or video_url) and not fullscreen:
-        data_json = html.escape(json.dumps(scene_data, ensure_ascii=False).replace("</", "<\\/"), quote=False)
+        data_json = _public_tour_script_json(scene_data)
         first_scene = scene_data[0] if scene_data else {"name": title, "image_url": "", "role": "photo", "mime_type": ""}
-        initial_provider_src_raw = str(provider_layers[0].get("src") or iframe_src or "about:blank").strip()
         initial_provider_src = html.escape(initial_provider_src_raw)
         provider_recovery_html = _tour_control_provider_recovery_html(direct_href=initial_provider_src_raw)
         _ = video_mime_type
@@ -7109,7 +8072,7 @@ def _tour_control_external_iframe_html(
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{title} - {provider_badge}</title>
-    <style>
+    <style nonce="{nonce_attr}">
       :root {{ color-scheme: dark; --bg: #111412; --panel: #1a1e1b; --line: #46514b; --text: #f6f8f4; --muted: #b7c2bc; --accent: #7bd8c3; --warm: #f2b66d; --focus: #9de7d5; }}
       html, body {{ margin: 0; min-height: 100%; background: var(--bg); color: var(--text); font-family: Inter, system-ui, sans-serif; }}
       body {{ overflow-x: hidden; }}
@@ -7207,7 +8170,7 @@ def _tour_control_external_iframe_html(
               <strong>{provider_badge}</strong>
               <p class="hint">Explore the space.</p>
               {provider_layer_switch_html}
-              <p class="provider-layer-note" id="provider-layer-note">{html.escape(provider_layers[0]["disclosure"])}</p>
+              <p class="provider-layer-note" id="provider-layer-note">{html.escape(initial_provider_disclosure)}</p>
             </div>
             <div class="provider-actions">
               <a href="{clean_fullscreen_href}">Full screen</a>
@@ -7228,9 +8191,9 @@ def _tour_control_external_iframe_html(
         </aside>
       </main>
     </div>
-    <script id="provider-layers" type="application/json">{provider_layers_json}</script>
-    <script id="scene-data" type="application/json">{data_json}</script>
-    <script>
+    <script nonce="{nonce_attr}" id="provider-layers" type="application/json">{provider_layers_json}</script>
+    <script nonce="{nonce_attr}" id="scene-data" type="application/json">{data_json}</script>
+    <script nonce="{nonce_attr}">
       const providerLayers = JSON.parse(document.getElementById("provider-layers").textContent || "[]");
       const scenes = JSON.parse(document.getElementById("scene-data").textContent || "[]");
       const stageImage = document.getElementById("stage-image");
@@ -7262,16 +8225,29 @@ def _tour_control_external_iframe_html(
       }}
       function renderThumbs() {{
         if (!thumbs) return;
-        thumbs.innerHTML = "";
+        thumbs.replaceChildren();
         scenes.forEach((scene, index) => {{
           const button = document.createElement("button");
           button.type = "button";
           button.className = "thumb" + (index === activeIndex ? " active" : "");
           if (activeRoleFilter !== "all" && scene.role !== activeRoleFilter) button.classList.add("hidden");
           const isPdf = String(scene.mime_type || "").includes("pdf") || /\\.pdf(?:$|[?#])/i.test(String(scene.image_url || ""));
-          button.innerHTML = isPdf
-            ? `<span class="mini-badge">${{scene.role || "doc"}}</span><span class="thumb-doc">PDF</span>`
-            : `<span class="mini-badge">${{scene.role || "photo"}}</span><img src="${{scene.image_url || ""}}" alt="${{scene.name || "Scene"}}" referrerpolicy="no-referrer">`;
+          const badge = document.createElement("span");
+          badge.className = "mini-badge";
+          badge.textContent = String(scene.role || (isPdf ? "doc" : "photo"));
+          button.appendChild(badge);
+          if (isPdf) {{
+            const documentLabel = document.createElement("span");
+            documentLabel.className = "thumb-doc";
+            documentLabel.textContent = "PDF";
+            button.appendChild(documentLabel);
+          }} else {{
+            const image = document.createElement("img");
+            image.src = String(scene.image_url || "");
+            image.alt = String(scene.name || "Scene");
+            image.referrerPolicy = "no-referrer";
+            button.appendChild(image);
+          }}
           button.addEventListener("click", () => setActive(index));
           thumbs.appendChild(button);
         }});
@@ -7350,14 +8326,14 @@ def _tour_control_external_iframe_html(
     </script>
   </body>
 </html>"""
-    fullscreen_recovery_html = _tour_control_provider_recovery_html(direct_href=iframe_src)
+    fullscreen_recovery_html = _tour_control_provider_recovery_html(direct_href=initial_provider_src_raw)
     return f"""<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{title} - {provider_badge}</title>
-    <style>
+    <style nonce="{nonce_attr}">
       :root {{ color-scheme: dark; --bg: #111412; --panel: #1a1e1b; --line: #46514b; --text: #f6f8f4; --muted: #b7c2bc; --accent: #7bd8c3; --focus: #9de7d5; }}
       html, body {{ margin: 0; width: 100%; height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: Inter, system-ui, sans-serif; }}
       :focus-visible {{ outline: 3px solid var(--focus); outline-offset: 3px; }}
@@ -7392,7 +8368,7 @@ def _tour_control_external_iframe_html(
   </head>
   <body>
     <div class="provider-frame-wrap" aria-busy="true" data-provider-state="loading">
-      <iframe id="provider-frame" src="about:blank" data-src="{html.escape(iframe_src)}" title="{title}" aria-label="{provider_badge}: {title}" allowfullscreen loading="eager" referrerpolicy="no-referrer"></iframe>
+      <iframe id="provider-frame" src="about:blank" data-src="{html.escape(initial_provider_src_raw)}" title="{title}" aria-label="{provider_badge}: {title}" allowfullscreen loading="eager" referrerpolicy="no-referrer"></iframe>
       {fullscreen_recovery_html}
     </div>
     <div class="shell">
@@ -7404,8 +8380,8 @@ def _tour_control_external_iframe_html(
         <h1>{title}</h1>
       </section>
     </div>
-    <script id="provider-layers" type="application/json">{provider_layers_json}</script>
-    <script>
+    <script nonce="{nonce_attr}" id="provider-layers" type="application/json">{provider_layers_json}</script>
+    <script nonce="{nonce_attr}">
       const providerLayers = JSON.parse(document.getElementById("provider-layers").textContent || "[]");
       const providerFrame = document.getElementById("provider-frame");
       const providerLayerNote = document.getElementById("provider-layer-note");
@@ -7424,7 +8400,7 @@ def _tour_control_external_iframe_html(
 </html>"""
 
 
-def _tour_control_3dvista_html(payload: dict[str, object]) -> str:
+def _tour_control_3dvista_html(payload: dict[str, object], *, nonce: str = "") -> str:
     title = html.escape(str(payload.get("display_title") or payload.get("title") or "3D tour control").strip())
     raw_slug = str(payload.get("slug") or "").strip()
     slug = html.escape(raw_slug)
@@ -7449,11 +8425,12 @@ def _tour_control_3dvista_html(payload: dict[str, object]) -> str:
             payload=payload,
             fullscreen_href=f"/tours/{urllib.parse.quote(raw_slug, safe='')}/control/3dvista?fullscreen=1" if raw_slug else iframe_src,
             fullscreen=bool(payload.get("_tour_control_fullscreen")),
+            nonce=nonce,
         )
     raise HTTPException(status_code=404, detail="tour_control_3dvista_export_missing")
 
 
-def _tour_control_pano2vr_html(payload: dict[str, object]) -> str:
+def _tour_control_pano2vr_html(payload: dict[str, object], *, nonce: str = "") -> str:
     title = html.escape(str(payload.get("display_title") or payload.get("title") or "3D tour control").strip())
     slug = str(payload.get("slug") or "").strip()
     entry_relpath = _pano2vr_entry_relpath(payload)
@@ -7469,6 +8446,7 @@ def _tour_control_pano2vr_html(payload: dict[str, object]) -> str:
         payload=payload,
         fullscreen_href=f"/tours/{urllib.parse.quote(slug, safe='')}/control/pano2vr?fullscreen=1" if slug else iframe_src,
         fullscreen=bool(payload.get("_tour_control_fullscreen")),
+        nonce=nonce,
     )
 
 
@@ -7478,7 +8456,9 @@ def _tour_control_walkable_html(
     provider_label: str = "Interactive Viewing",
     license_config: dict[str, str] | None = None,
     viewer_name: str = "",
+    nonce: str = "",
 ) -> str:
+    nonce_attr = html.escape(_public_tour_normalized_nonce(nonce) or _public_tour_csp_nonce(), quote=True)
     title = html.escape(str(payload.get("display_title") or payload.get("title") or "3D walk control").strip())
     safe_provider_label = html.escape(str(provider_label or "Interactive Viewing").strip())
     walkable_scene = payload.get("walkable_scene") if isinstance(payload.get("walkable_scene"), dict) else {}
@@ -7492,9 +8472,9 @@ def _tour_control_walkable_html(
     license_enabled = bool(str(normalized_license.get("domain") or "").strip() and str(normalized_license.get("key") or "").strip())
     if license_enabled and ((viewer_name or "").strip().lower() == "krpano" or "krpano" in safe_provider_label.lower()) and not _walkable_scene_has_real_360_asset(payload):
         raise HTTPException(status_code=404, detail="tour_control_krpano_asset_missing")
-    data_json = html.escape(json.dumps(public_walkable_scene, ensure_ascii=False), quote=False)
+    data_json = _public_tour_script_json(public_walkable_scene)
     license_domain = html.escape(str(normalized_license.get("domain") or "").strip())
-    license_json = html.escape(json.dumps({"domain": str(normalized_license.get("domain") or "").strip()}, ensure_ascii=False), quote=False) if license_enabled else ""
+    license_json = _public_tour_script_json({"domain": str(normalized_license.get("domain") or "").strip()}) if license_enabled else ""
     license_badge = f'<div class="panel license"><strong>Viewer license</strong><span>Registered for {license_domain}</span></div>' if license_enabled else ""
     resolved_viewer_name = str(viewer_name or "").strip().lower() or (
         "krpano" if license_enabled and "krpano" in safe_provider_label.lower() else "walkable"
@@ -7505,7 +8485,7 @@ def _tour_control_walkable_html(
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{title} - {safe_provider_label}</title>
-    <style>
+    <style nonce="{nonce_attr}">
       html, body {{ margin: 0; width: 100%; height: 100%; overflow: hidden; background: #15130f; color: #f7f1e6; font-family: Inter, system-ui, sans-serif; }}
       #viewer {{ position: fixed; inset: 0; }}
       #walkthrough-still-view {{ position: fixed; inset: 0; width: 100vw; height: 100vh; object-fit: cover; display: none; z-index: 1; background: #15130f; }}
@@ -7537,10 +8517,10 @@ def _tour_control_walkable_html(
       <button data-hold="left">A</button><button data-hold="back">S</button><button data-hold="right">D</button>
     </div>
     <div class="turn-pad"><button data-hold="turn-left">Turn left</button><button data-hold="turn-right">Turn right</button></div>
-    <script id="walkable-data" type="application/json">{data_json}</script>
+    <script nonce="{nonce_attr}" id="walkable-data" type="application/json">{data_json}</script>
     {f'<script id="krpano-license" type="application/json">{license_json}</script>' if license_enabled else ''}
-    <script type="importmap">{{"imports":{{"three":"https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js"}}}}</script>
-    <script type="module">
+    <script nonce="{nonce_attr}" type="importmap">{{"imports":{{"three":"https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js"}}}}</script>
+    <script nonce="{nonce_attr}" type="module">
       import * as THREE from 'three';
       const spec = JSON.parse(document.getElementById('walkable-data').textContent || '{{}}');
       const krpanoLicense = document.getElementById('krpano-license');
@@ -7697,12 +8677,42 @@ def public_tour_page(
         rendered_payload["_feedback_suggestions"] = dict(feedback_context.get("feedback_suggestions") or {})
         rendered_payload["_learning_summary"] = dict(feedback_context.get("learning_summary") or {})
         rendered_payload["_shortlist_compare"] = dict(shortlist_compare or {})
+        nonce = _public_tour_csp_nonce()
+        html_body = _tour_html(
+            rendered_payload,
+            hostname=hostname,
+            path=request_path(request),
+            nonce=nonce,
+        )
         return HTMLResponse(
-            _tour_html(rendered_payload, hostname=hostname, path=request_path(request)),
-            headers=_public_tour_security_headers(),
+            html_body,
+            headers=_public_tour_security_headers(
+                nonce=nonce,
+                allow_jsdelivr="https://cdn.jsdelivr.net/" in html_body,
+            ),
         )
     except HTTPException as exc:
         detail = str(exc.detail or "").strip().lower()
+        if exc.status_code == 410 and detail == "tour_revoked":
+            return _render_tour_unavailable_page(
+                request,
+                status_code=410,
+                title="This tour was removed by its owner.",
+                summary="The public copy and its assets are no longer available. Cached copies are queued for removal too.",
+                status_label="Tour revoked",
+                rows=[
+                    {
+                        "label": "Tour state",
+                        "value": "Removed",
+                        "detail": "PropertyQuarry blocks this link even while edge caches finish purging.",
+                    },
+                    {
+                        "label": "Next step",
+                        "value": "Return to PropertyQuarry",
+                        "detail": "Ask the owner for a new share only if they choose to publish again.",
+                    },
+                ],
+            )
         if exc.status_code == 404 and detail == "tour_generated_layout_preview_unavailable":
             return _render_generated_reconstruction_not_tour_page(request)
         if exc.status_code == 404 and detail == "tour_disabled_fallback":
@@ -7781,7 +8791,15 @@ def public_tour_control(slug: str, request: Request) -> HTMLResponse:
     if _public_tour_request_embeds_walkthrough(request):
         rendered_payload["_tour_control_embed_walkthrough"] = True
     fullscreen = str(request.query_params.get("fullscreen") or "").strip().lower() in {"1", "true", "yes", "on"}
-    return HTMLResponse(_tour_control_html(rendered_payload, fullscreen=fullscreen), headers=_public_tour_security_headers())
+    nonce = _public_tour_csp_nonce()
+    html_body = _tour_control_html(rendered_payload, fullscreen=fullscreen, nonce=nonce)
+    return HTMLResponse(
+        html_body,
+        headers=_public_tour_security_headers(
+            nonce=nonce,
+            allow_jsdelivr="https://cdn.jsdelivr.net/" in html_body,
+        ),
+    )
 
 
 @router.get("/tours/{slug}/control/{viewer_mode}", response_class=HTMLResponse)
@@ -7795,30 +8813,45 @@ def public_tour_control_viewer(slug: str, viewer_mode: str, request: Request) ->
     fullscreen = str(request.query_params.get("fullscreen") or "").strip().lower() in {"1", "true", "yes", "on"}
     if normalized_viewer_mode in {"matterport", "metaport"}:
         raise HTTPException(status_code=404, detail="tour_control_provider_retired")
+    nonce = _public_tour_csp_nonce()
     if normalized_viewer_mode in {"3dvista", "3d_vista", "three_d_vista"}:
         # Provider controls need the verified private receipt URL server-side, but
         # the public JSON manifest must continue to omit source/provider URLs.
         rendered_payload = payload
         if _public_tour_request_embeds_walkthrough(request):
             rendered_payload = {**rendered_payload, "_tour_control_embed_walkthrough": True}
-        if fullscreen:
-            return HTMLResponse(
-                _tour_control_html(rendered_payload, viewer_mode=viewer_mode, fullscreen=fullscreen),
-                headers=_public_tour_security_headers(),
-            )
-        return HTMLResponse(_tour_control_html(rendered_payload, viewer_mode=viewer_mode), headers=_public_tour_security_headers())
+        html_body = _tour_control_html(
+            rendered_payload,
+            viewer_mode=viewer_mode,
+            fullscreen=fullscreen,
+            nonce=nonce,
+        )
+        return HTMLResponse(
+            html_body,
+            headers=_public_tour_security_headers(
+                nonce=nonce,
+                allow_jsdelivr="https://cdn.jsdelivr.net/" in html_body,
+            ),
+        )
     rendered_payload = _redacted_public_tour_payload(
         payload,
         expose_asset_relpaths=normalized_viewer_mode in {"pano2vr", "pano_2_vr"},
     )
     if _public_tour_request_embeds_walkthrough(request):
         rendered_payload["_tour_control_embed_walkthrough"] = True
-    if fullscreen:
-        return HTMLResponse(
-            _tour_control_html(rendered_payload, viewer_mode=viewer_mode, fullscreen=fullscreen),
-            headers=_public_tour_security_headers(),
-        )
-    return HTMLResponse(_tour_control_html(rendered_payload, viewer_mode=viewer_mode), headers=_public_tour_security_headers())
+    html_body = _tour_control_html(
+        rendered_payload,
+        viewer_mode=viewer_mode,
+        fullscreen=fullscreen,
+        nonce=nonce,
+    )
+    return HTMLResponse(
+        html_body,
+        headers=_public_tour_security_headers(
+            nonce=nonce,
+            allow_jsdelivr="https://cdn.jsdelivr.net/" in html_body,
+        ),
+    )
 
 
 @router.post("/tours/{slug}/request-details", response_class=JSONResponse)

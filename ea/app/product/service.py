@@ -16621,12 +16621,13 @@ def _default_public_guide_manifest_path() -> Path:
 
 
 def _is_willhaben_property_url(value: object) -> bool:
+    from .outbound_url_security import canonical_http_hostname, hostname_matches_allowlist
+
     normalized = str(value or "").strip()
     if not normalized:
         return False
-    parsed = urllib.parse.urlparse(normalized)
-    host = str(parsed.netloc or "").strip().lower()
-    return bool(host) and any(marker in host for marker in _WILLHABEN_HOST_MARKERS)
+    host = canonical_http_hostname(normalized)
+    return bool(host) and hostname_matches_allowlist(host, _WILLHABEN_HOST_MARKERS)
 
 
 def _willhaben_packet_panorama_media_urls(packet: dict[str, object]) -> list[str]:
