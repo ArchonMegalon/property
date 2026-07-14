@@ -2,12 +2,26 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from scripts import check_property_repo_isolation as repo_isolation
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def _read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
+
+
+def test_repo_isolation_requires_the_governed_deploy_handoff() -> None:
+    assert repo_isolation._makefile_deploy_uses_governed_handoff(
+        "deploy:\n\t./scripts/deploy_propertyquarry.sh\n"
+    )
+    assert not repo_isolation._makefile_deploy_uses_governed_handoff(
+        "deploy:\n\tdocker compose -f docker-compose.property.yml up -d\n"
+    )
+    assert not repo_isolation._makefile_deploy_uses_governed_handoff(
+        "deploy:\n\t./scripts/deploy_propertyquarry.sh\n\tdocker compose up -d\n"
+    )
 
 
 def test_property_release_scripts_bootstrap_repo_local_app_imports() -> None:

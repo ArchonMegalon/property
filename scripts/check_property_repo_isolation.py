@@ -79,11 +79,11 @@ def _script_path(path: str) -> Path:
     return ROOT / path
 
 
-def _makefile_deploy_uses_property_compose(makefile: str) -> bool:
+def _makefile_deploy_uses_governed_handoff(makefile: str) -> bool:
     match = re.search(r"^deploy:\n(?P<body>(?:\t.*\n)+)", makefile, flags=re.MULTILINE)
     if not match:
         return False
-    return "docker-compose.property.yml" in match.group("body")
+    return match.group("body").strip() == "./scripts/deploy_propertyquarry.sh"
 
 
 def main() -> int:
@@ -129,8 +129,10 @@ def main() -> int:
             failures.append(f"{path} must support a dry-run mode for host recovery actions")
 
     makefile = _read("Makefile")
-    if not _makefile_deploy_uses_property_compose(makefile):
-        failures.append("Makefile deploy target must use docker-compose.property.yml")
+    if not _makefile_deploy_uses_governed_handoff(makefile):
+        failures.append(
+            "Makefile deploy target must delegate only to scripts/deploy_propertyquarry.sh"
+        )
     if "PROPERTYQUARRY_USE_LEGACY_STACK=1 bash scripts/deploy.sh" not in makefile:
         failures.append("Makefile must keep legacy EA deploy behind PROPERTYQUARRY_USE_LEGACY_STACK=1")
 
