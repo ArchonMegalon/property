@@ -4,6 +4,9 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
+from scripts.propertyquarry_release_receipt_binding import ReleaseBindingError
 from scripts.propertyquarry_release_receipt_binding import build_source_binding
 
 
@@ -110,3 +113,26 @@ def test_source_binding_does_not_hide_evidence_changes_in_metadata_commit(tmp_pa
         "rev-parse",
         f"{evidence_commit}:{SOURCE_CASES[0].as_posix()}",
     )
+
+
+def test_source_binding_rejects_shallow_metadata_history(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    evidence_sources, source_commit = _initialize_repository(source)
+    _write(
+        source,
+        ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json",
+        f"metadata for {source_commit}\n",
+    )
+    _commit(source, "refresh release metadata")
+
+    checkout = tmp_path / "checkout"
+    subprocess.run(
+        ["git", "clone", "--depth", "1", source.resolve().as_uri(), str(checkout)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    with pytest.raises(ReleaseBindingError, match="ancestry is shallow"):
+        _binding(checkout, evidence_sources)

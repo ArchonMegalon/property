@@ -95,6 +95,16 @@ def commit_parents(root: Path, commit: str) -> list[str]:
     return [item.lower() for item in fields[1:]]
 
 
+def declared_commit_parents(root: Path, commit: str) -> list[str]:
+    parents: list[str] = []
+    for line in git_bytes(root, "cat-file", "-p", commit).splitlines():
+        if not line:
+            break
+        if line.startswith(b"parent "):
+            parents.append(line.removeprefix(b"parent ").decode("ascii").lower())
+    return parents
+
+
 def changed_paths(root: Path, parent: str, commit: str) -> list[str]:
     output = git_text(root, "diff-tree", "--no-commit-id", "--name-only", "-r", parent, commit)
     return [line.strip() for line in output.splitlines() if line.strip()]
@@ -105,6 +115,11 @@ def resolve_source_binding_commit(root: Path, revision: str = "HEAD") -> str:
     candidate = resolve_commit(root, revision)
     for _depth in range(MAX_METADATA_ONLY_ANCESTORS):
         parents = commit_parents(root, candidate)
+        declared_parents = declared_commit_parents(root, candidate)
+        if not parents and declared_parents:
+            raise ReleaseBindingError(
+                "source binding ancestry is shallow; fetch complete Git history before materialization"
+            )
         if len(parents) != 1:
             return candidate
         parent = parents[0]
