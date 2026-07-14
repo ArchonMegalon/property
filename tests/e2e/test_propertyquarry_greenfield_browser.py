@@ -5870,7 +5870,7 @@ def test_propertyquarry_3d_tour_request_is_user_initiated_in_real_browser(
         expected_provider_src = "/tours/3dvista/altbau-u6/3dvista/index.htm"
         expect(page.locator(".provider-frame")).to_have_attribute("src", expected_provider_src, timeout=5000)
         expect(page.locator(".provider-frame")).to_have_attribute("data-src", expected_provider_src)
-        response = page.go_back(wait_until="networkidle")
+        response = page.go_back(wait_until="domcontentloaded")
         assert response is not None and response.ok
         expect(page.locator("[data-property-research-detail]")).to_be_visible()
         expect(page.locator("[data-prd-visual-status]")).to_contain_text("3D tour is ready.", timeout=5000)
