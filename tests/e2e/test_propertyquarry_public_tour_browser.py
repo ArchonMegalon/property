@@ -1183,6 +1183,8 @@ def _write_generated_reconstruction_public_shell_bundle(
                 "display_title": title,
                 "hosted_url": f"https://propertyquarry.com/tours/{slug}",
                 "public_url": f"https://propertyquarry.com/tours/{slug}",
+                "scene_strategy": "floorplan_hosted",
+                "creation_mode": "hosted_floorplan_tour",
                 "diorama_preview_relpath": "diorama-preview.png",
                 "preview_relpath": "diorama-preview.png",
                 "photo_count": len(photo_specs),
@@ -1538,6 +1540,8 @@ def generated_reconstruction_shell_server(
                 "display_title": "Generated Reconstruction Shell Browser Tour",
                 "hosted_url": f"https://propertyquarry.com/tours/{slug}",
                 "public_url": f"https://propertyquarry.com/tours/{slug}",
+                "scene_strategy": "floorplan_hosted",
+                "creation_mode": "hosted_floorplan_tour",
                 "diorama_preview_relpath": "diorama-preview.png",
                 "preview_relpath": "diorama-preview.png",
                 "generated_reconstruction": {
@@ -2461,6 +2465,23 @@ def test_generated_reconstruction_launch_page_renders_honest_public_shell(
     context = _new_context(browser)
     page = context.new_page()
     slug = str(generated_reconstruction_shell_server["slug"])
+    manifest = json.loads(
+        (
+            Path(generated_reconstruction_shell_server["bundle_root"])
+            / slug
+            / "tour.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert manifest["scene_strategy"] == "floorplan_hosted"
+    assert manifest["creation_mode"] == "hosted_floorplan_tour"
+
+    layout_preview_url = f"{generated_reconstruction_shell_server['local_base_url']}/tours/{slug}/layout-preview"
+    with urllib.request.urlopen(layout_preview_url, timeout=10.0) as layout_preview_response:
+        assert int(layout_preview_response.status) == 200
+        layout_preview_html = layout_preview_response.read().decode("utf-8")
+    assert "generated reconstruction" in layout_preview_html.lower()
+    assert "tour unavailable" not in layout_preview_html.lower()
+
     launch_url = f"{generated_reconstruction_shell_server['base_url']}/tours/{slug}"
 
     response = page.goto(launch_url, wait_until="domcontentloaded")

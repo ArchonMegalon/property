@@ -5905,7 +5905,8 @@ def public_tour_generated_layout_preview(slug: str, request: Request) -> HTMLRes
     try:
         payload = _load_tour_with_private_receipt(slug)
         _require_public_tour_viewable(payload)
-        if _tour_payload_is_disabled_fallback(payload):
+        generated_reconstruction_only = _public_tour_is_generated_reconstruction_only(payload)
+        if _tour_payload_is_disabled_fallback(payload) and not generated_reconstruction_only:
             raise HTTPException(status_code=404, detail="tour_disabled_fallback")
         primary_control_path = _public_tour_primary_control_path(payload)
         if primary_control_path:
@@ -5916,7 +5917,7 @@ def public_tour_generated_layout_preview(slug: str, request: Request) -> HTMLRes
             )
         if _generated_reconstruction_layout_preview_relpath(payload):
             return _generated_reconstruction_public_launch_response(payload, layout_focus=True, request=request)
-        if _public_tour_is_generated_reconstruction_only(payload):
+        if generated_reconstruction_only:
             return _generated_reconstruction_public_launch_response(payload, layout_focus=True, request=request)
         html_body = _generated_reconstruction_layout_preview_html(slug=slug, payload=payload)
         return HTMLResponse(
@@ -8639,7 +8640,8 @@ def public_tour_page(
     try:
         payload = _load_tour_with_private_receipt(slug)
         _require_public_tour_viewable(payload)
-        if _tour_payload_is_disabled_fallback(payload):
+        generated_reconstruction_only = _public_tour_is_generated_reconstruction_only(payload)
+        if _tour_payload_is_disabled_fallback(payload) and not generated_reconstruction_only:
             raise HTTPException(status_code=404, detail="tour_disabled_fallback")
         primary_control_path = _public_tour_primary_control_path(payload)
         if primary_control_path and not _public_tour_request_prefers_embedded_media(request):
@@ -8648,7 +8650,7 @@ def public_tour_page(
                 status_code=302,
                 headers=_public_tour_security_headers(),
             )
-        if _public_tour_is_generated_reconstruction_only(payload):
+        if generated_reconstruction_only:
             return _generated_reconstruction_public_launch_response(payload, request=request)
         rendered_payload = _redacted_public_tour_payload(payload, expose_asset_relpaths=True)
         rendered_facts, research_snapshot = _merged_facts_with_listing_research(payload, dict(payload.get("facts") or {}))
