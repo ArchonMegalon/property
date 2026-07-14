@@ -16793,11 +16793,13 @@ def _repo_root() -> Path:
         if candidate.exists():
             return candidate
     service_path = Path(__file__).resolve()
+    candidate = service_path.parents[3]
+    if (candidate / ".codex-design").exists():
+        return candidate
     if len(service_path.parents) >= 3:
         container_like_root = service_path.parents[2]
         if (container_like_root / "app").exists() and (container_like_root / "scripts").exists():
             return container_like_root
-    candidate = service_path.parents[3]
     if (candidate / "scripts").exists() or (candidate / ".codex-design").exists():
         return candidate
     container_root = Path("/app")

@@ -872,6 +872,7 @@ def test_restore_forbids_arbitrary_retrieval_hooks_and_provider_binary_overrides
                 **override,
             },
             runner=lambda command, **_kwargs: commands.append(list(command)),
+            clock=_Clock(datetime(2026, 7, 13, 10, 0, 5, tzinfo=timezone.utc).timestamp()),
             which=_which,
         )
 

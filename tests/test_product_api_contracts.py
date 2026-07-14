@@ -85,6 +85,18 @@ def _write_clean_3dvista_export(bundle_dir: Path) -> dict[str, object]:
     }
 
 
+def test_product_service_repo_root_prefers_design_mirror(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("EA_REPO_ROOT", raising=False)
+    monkeypatch.delenv("CHUMMER6_DESIGN_PRODUCT_ROOT", raising=False)
+
+    repo_root = Path(__file__).resolve().parents[1]
+    design_root = repo_root / ".codex-design" / "product"
+
+    assert design_root.exists()
+    assert product_service._repo_root() == repo_root
+    assert product_service._design_product_root() == design_root
+
+
 def test_product_api_projects_real_runtime_objects() -> None:
     principal_id = "exec-product-api"
     client = build_product_client(principal_id=principal_id)

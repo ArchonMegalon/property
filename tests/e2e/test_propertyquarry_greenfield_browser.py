@@ -4476,12 +4476,8 @@ def test_propertyquarry_mobile_what_matters_select_changes_keep_current_group_st
 
         parking_row = page.locator('[data-keyword-priority-row][data-keyword-value="parking pressure check"]')
         parking_group = parking_row.locator("xpath=ancestor::details[@data-what-matters-group]")
-        if not parking_group.get_attribute("open"):
-            parking_group.locator(":scope > summary").click()
+        parking_row.evaluate(open_row_group)
         expect(parking_group).to_have_attribute("open", "")
-        parking_row.evaluate(
-            "node => { node.closest('details[data-what-matters-group]').open = true; node.querySelector('select')?.focus({preventScroll: true}); node.scrollIntoView({block: 'center', inline: 'nearest'}); }"
-        )
         expect(parking_row).to_be_visible()
         before_parking = page.evaluate(capture_keyword_state, "parking pressure check")
         parking_preference = parking_row.locator("[data-keyword-preference-select]")
@@ -8149,10 +8145,11 @@ def test_propertyquarry_setup_summary_tiles_do_not_clip_and_sideframe_stays_comp
             """
             () => {
               const list = document.querySelector('[data-pqx-previous-searches]');
-              if (!list || list.querySelector('[data-pqx-previous-search-card]')) return;
+              if (!list || list.querySelector('[data-pqx-layout-gate-card]')) return;
               const card = document.createElement('article');
               card.className = 'pqx-previous-search';
               card.setAttribute('data-pqx-previous-search-card', '');
+              card.setAttribute('data-pqx-layout-gate-card', '');
               const longTitle = 'Review apartment alert: Ruhige und moderne 2-Zimmer Wohnung - sehr gepflegt - optimale Raumaufteilung / Top Innenhoflage mit extra langem Titel fuer Layout Gate';
               const scopeSvg = encodeURIComponent(`
                 <svg xmlns="http://www.w3.org/2000/svg" width="320" height="184" viewBox="0 0 320 184" fill="none">
@@ -8286,7 +8283,7 @@ def test_propertyquarry_setup_summary_tiles_do_not_clip_and_sideframe_stays_comp
         assert layout["previousPreviewPlacementFailureCount"] == 0
         assert "Saved searches" in set(layout["visibleRowLabels"])
         assert len([value for value in layout["visibleRowValues"] if value]) >= 2
-        page.locator('[data-pqx-previous-search-card] .pqx-previous-scope-trigger[data-pqx-scope-open]').first.evaluate(
+        page.locator('[data-pqx-layout-gate-card] .pqx-previous-scope-trigger[data-pqx-scope-open]').evaluate(
             "(node) => node.click()"
         )
         page.locator('[data-pqx-scope-lightbox]').wait_for(state="visible")
