@@ -689,8 +689,47 @@ def _property_tour_source_gap_detail(candidate: dict[str, object]) -> str:
     return "3D tour not ready yet. More source media is still needed."
 
 
-def _property_hosted_tour_ready(tour_url: str) -> bool:
-    return bool(property_tour_hosting._hosted_property_tour_verified_open_url(tour_url))
+def _property_tour_verified_open_url(tour_url: object, *, principal_id: str = "") -> str:
+    normalized_principal_id = str(principal_id or "").strip()
+    resolved_url = (
+        property_tour_hosting._hosted_property_tour_verified_open_url(
+            tour_url,
+            principal_id=normalized_principal_id,
+        )
+        if normalized_principal_id
+        else property_tour_hosting._hosted_property_tour_verified_open_url(tour_url)
+    )
+    return str(resolved_url or "").strip()
+
+
+def _property_tour_verified_provider(tour_url: object, *, principal_id: str = "") -> str:
+    normalized_principal_id = str(principal_id or "").strip()
+    resolved_provider = (
+        property_tour_hosting._hosted_property_tour_verified_provider(
+            tour_url,
+            principal_id=normalized_principal_id,
+        )
+        if normalized_principal_id
+        else property_tour_hosting._hosted_property_tour_verified_provider(tour_url)
+    )
+    return str(resolved_provider or "").strip()
+
+
+def _property_tour_first_party_open_url(tour_url: object, *, principal_id: str = "") -> str:
+    normalized_principal_id = str(principal_id or "").strip()
+    resolved_url = (
+        property_tour_hosting._hosted_property_tour_first_party_open_url(
+            tour_url,
+            principal_id=normalized_principal_id,
+        )
+        if normalized_principal_id
+        else property_tour_hosting._hosted_property_tour_first_party_open_url(tour_url)
+    )
+    return str(resolved_url or "").strip()
+
+
+def _property_hosted_tour_ready(tour_url: str, *, principal_id: str = "") -> bool:
+    return bool(_property_tour_verified_open_url(tour_url, principal_id=principal_id))
 
 
 def _property_hosted_tour_disabled_fallback(tour_url: object) -> bool:
@@ -725,18 +764,23 @@ def _property_visual_provider_label(value: object) -> str:
     return "3D tour" if normalized else ""
 
 
-def _customer_facing_vendor_tour_url(value: object) -> str:
+def _customer_facing_vendor_tour_url(value: object, *, principal_id: str = "") -> str:
     normalized = str(value or "").strip()
     if not normalized:
         return ""
-    verified_open_url = str(property_tour_hosting._hosted_property_tour_verified_open_url(normalized) or "").strip()
-    verified_provider = str(property_tour_hosting._hosted_property_tour_verified_provider(normalized) or "").strip().lower()
+    verified_open_url = _property_tour_verified_open_url(normalized, principal_id=principal_id)
+    verified_provider = _property_tour_verified_provider(normalized, principal_id=principal_id).lower()
     if verified_open_url and verified_provider in {"matterport", "3dvista"}:
         return verified_open_url
     return ""
 
 
-def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, object]:
+def _property_tour_media_payload(
+    candidate: dict[str, object],
+    *,
+    principal_id: str = "",
+) -> dict[str, object]:
+    normalized_principal_id = str(principal_id or "").strip()
     raw_tour_payload = dict(candidate.get("tour") or {}) if isinstance(candidate.get("tour"), dict) else {}
     tour_url = str(
         candidate.get("tour_url")
@@ -746,7 +790,10 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
     ).strip()
     if tour_url and _property_hosted_tour_disabled_fallback(tour_url):
         tour_url = ""
-    vendor_tour_url = _customer_facing_vendor_tour_url(candidate.get("vendor_tour_url"))
+    vendor_tour_url = _customer_facing_vendor_tour_url(
+        candidate.get("vendor_tour_url"),
+        principal_id=normalized_principal_id,
+    )
     review_url = str(candidate.get("review_url") or "").strip()
     status = str(candidate.get("tour_status") or "").strip().lower()
     terminal_status = _property_visual_terminal_status_for_reason(
@@ -771,9 +818,20 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
         requested_at=requested_at,
         status_updated_at=status_updated_at,
     )
-    hosted_tour_ready = _property_hosted_tour_ready(tour_url)
-    verified_tour_href = property_tour_hosting._hosted_property_tour_verified_open_url(tour_url) if hosted_tour_ready else ""
-    verified_tour_provider = property_tour_hosting._hosted_property_tour_verified_provider(tour_url) if hosted_tour_ready else ""
+    hosted_tour_ready = _property_hosted_tour_ready(
+        tour_url,
+        principal_id=normalized_principal_id,
+    )
+    verified_tour_href = (
+        _property_tour_verified_open_url(tour_url, principal_id=normalized_principal_id)
+        if hosted_tour_ready
+        else ""
+    )
+    verified_tour_provider = (
+        _property_tour_verified_provider(tour_url, principal_id=normalized_principal_id)
+        if hosted_tour_ready
+        else ""
+    )
     generated_reconstruction_source_url = str(candidate.get("generated_reconstruction_url") or "").strip()
     if (
         not generated_reconstruction_source_url
@@ -781,11 +839,12 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
         and property_tour_hosting._hosted_property_tour_generated_reconstruction_bundle_ready(tour_url)
     ):
         generated_reconstruction_source_url = tour_url
-    generated_reconstruction_href = (
-        property_tour_hosting._hosted_property_tour_first_party_open_url(generated_reconstruction_source_url)
-        if generated_reconstruction_source_url and not _property_hosted_tour_disabled_fallback(generated_reconstruction_source_url)
-        else ""
-    )
+    generated_reconstruction_href = ""
+    if generated_reconstruction_source_url and not _property_hosted_tour_disabled_fallback(generated_reconstruction_source_url):
+        generated_reconstruction_href = _property_tour_first_party_open_url(
+            generated_reconstruction_source_url,
+            principal_id=normalized_principal_id,
+        )
     generated_reconstruction_ready = bool(generated_reconstruction_href)
     open_tour_href = verified_tour_href
     embed_href = verified_tour_href if hosted_tour_ready else ""
@@ -817,7 +876,11 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
         and walkthrough_status in {"", "queued", "pending", "processing", "running", "in_progress", "started", "rendering", "repairing"}
     ):
         walkthrough_status = str(live_walkthrough_progress.get("status") or "").strip().lower()
-    vendor_tour_provider = property_tour_hosting._hosted_property_tour_verified_provider(vendor_tour_url) if vendor_tour_url else ""
+    vendor_tour_provider = (
+        _property_tour_verified_provider(vendor_tour_url, principal_id=normalized_principal_id)
+        if vendor_tour_url
+        else ""
+    )
     walkthrough_provider = str(candidate.get("flythrough_provider") or "").strip()
     if hosted_tour_ready:
         status_label = "3D tour available"
@@ -928,10 +991,22 @@ def _property_tour_media_payload(candidate: dict[str, object]) -> dict[str, obje
     }
 
 
-def _property_tour_detail_line(candidate: dict[str, object]) -> str:
+def _property_tour_detail_line(
+    candidate: dict[str, object],
+    *,
+    principal_id: str = "",
+) -> str:
+    normalized_principal_id = str(principal_id or "").strip()
     tour_url = str(candidate.get("tour_url") or "").strip()
-    vendor_tour_url = _customer_facing_vendor_tour_url(candidate.get("vendor_tour_url"))
-    if str(property_tour_hosting._hosted_property_tour_first_party_open_url(tour_url) or "").strip():
+    vendor_tour_url = _customer_facing_vendor_tour_url(
+        candidate.get("vendor_tour_url"),
+        principal_id=normalized_principal_id,
+    )
+    first_party_open_url = _property_tour_first_party_open_url(
+        tour_url,
+        principal_id=normalized_principal_id,
+    )
+    if str(first_party_open_url or "").strip():
         return "Open the 3D tour on PropertyQuarry."
     if vendor_tour_url:
         return "An original tour exists, but the in-page 3D tour is not ready yet."

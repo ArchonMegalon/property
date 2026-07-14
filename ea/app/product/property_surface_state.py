@@ -567,6 +567,12 @@ def property_run_customer_safe_status_detail(
         repair_active=bool(repair_flags.get("active")),
         repair_failed=bool(repair_flags.get("failed")),
     )
+    if (
+        status in {"queued", "starting", "running", "in_progress", "processing", "scanning"}
+        and "provider" in lowered
+        and "scann" in lowered
+    ):
+        return "Checking search pages."
     if _customer_status_is_internal_failure_copy(customer_status) and calm_repair_copy:
         customer_status = calm_repair_copy
     if customer_status and calm_repair_copy and customer_status.lower() == calm_repair_copy.lower():
@@ -1162,8 +1168,12 @@ def _property_run_current_progress_message(
     detail_queue_message = _property_run_detail_queue_message(summary, status=status, message=raw_message)
     if detail_queue_message:
         return detail_queue_message
+    if safe_message == "Checking search pages.":
+        return safe_message
 
     step = str(payload.get("current_step") or summary.get("current_step") or "").strip().lower()
+    if step == "provider_scan":
+        return safe_message or "Checking search pages."
     live_board = build_property_run_live_board_snapshot(payload, plan_key="free")
     provider_label = _compact_property_provider_label(
         live_board.get("provider_full_label") or live_board.get("provider_label") or ""

@@ -8345,6 +8345,33 @@ def test_property_surface_state_builds_active_run_health_summary_from_compact_fr
     assert snapshot["message"] == "102 homes found · all found homes are checked"
 
 
+def test_property_surface_state_uses_minimal_customer_copy_for_provider_scan_events() -> None:
+    events = property_surface_state.property_run_customer_visible_events(
+        run_payload={
+            "run_id": "run-provider-scan-copy",
+            "status": "in_progress",
+            "message": "Scanning cooperative providers.",
+            "summary": {"sources_total": 2, "provider_total": 2},
+            "events": [
+                {
+                    "step": "sources_resolved",
+                    "status": "in_progress",
+                    "message": "Resolved 2 provider(s) for scanning.",
+                },
+                {
+                    "step": "provider_scan",
+                    "status": "in_progress",
+                    "message": "Scanning cooperative providers.",
+                }
+            ],
+        }
+    )
+
+    messages = [str(event.get("message") or "") for event in events]
+    assert "Checking search pages." in messages
+    assert all("provider" not in message.lower() for message in messages)
+
+
 def test_property_source_completion_names_one_site_batch_and_checked_home_fraction() -> None:
     run_payload = {
         "run_id": "run-costa-rica-site-batch",
@@ -13649,10 +13676,16 @@ def test_propertyquarry_prepare_run_payload_synthesizes_tour_payload_for_verifie
     from app.product import property_tour_hosting
 
     verified_url = "https://propertyquarry.com/tours/ready-tour/control/matterport"
+    validated_principals: list[str] = []
+
+    def _verified_open_url(_url: str, *, principal_id: str = "") -> str:
+        validated_principals.append(principal_id)
+        return verified_url
+
     monkeypatch.setattr(
         property_tour_hosting,
         "_hosted_property_tour_verified_open_url",
-        lambda _url, *, principal_id="": verified_url,
+        _verified_open_url,
     )
 
     normalized = landing_routes._propertyquarry_prepare_run_payload(
@@ -13679,6 +13712,7 @@ def test_propertyquarry_prepare_run_payload_synthesizes_tour_payload_for_verifie
             },
         },
         backfill_cached_previews=False,
+        principal_id="pq-normalization-unit",
     )
 
     ranked_candidate = normalized["summary"]["ranked_candidates"][0]
@@ -13690,6 +13724,7 @@ def test_propertyquarry_prepare_run_payload_synthesizes_tour_payload_for_verifie
     assert source_candidate["tour_url"] == verified_url
     assert source_candidate["tour"]["url"] == verified_url
     assert source_candidate["tour"]["embed_url"] == verified_url
+    assert validated_principals == ["pq-normalization-unit", "pq-normalization-unit"]
 
 
 def test_propertyquarry_prepare_run_payload_clears_stale_first_party_tour_links(
@@ -14862,22 +14897,33 @@ def test_property_research_media_ignores_disabled_fallback_tour_record(monkeypat
 
 
 def test_property_research_media_uses_generic_label_for_verified_controls(monkeypatch) -> None:
+    validated_principals: list[tuple[str, str]] = []
+
+    def _verified_open_url(_url: str, *, principal_id: str = "") -> str:
+        validated_principals.append(("open", principal_id))
+        return "https://propertyquarry.com/tours/ready-tour/control/3dvista"
+
+    def _verified_provider(_url: str, *, principal_id: str = "") -> str:
+        validated_principals.append(("provider", principal_id))
+        return "3dvista"
+
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
         "_hosted_property_tour_verified_open_url",
-        lambda _url: "https://propertyquarry.com/tours/ready-tour/control/3dvista",
+        _verified_open_url,
     )
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
         "_hosted_property_tour_verified_provider",
-        lambda _url: "3dvista",
+        _verified_provider,
     )
 
     payload = landing_property_research._property_tour_media_payload(
         {
             "tour_url": "https://propertyquarry.com/tours/ready-tour",
             "property_url": "https://example.test/listing",
-        }
+        },
+        principal_id="pq-verified-media-unit",
     )
 
     assert payload["hosted_ready"] is True
@@ -14885,6 +14931,30 @@ def test_property_research_media_uses_generic_label_for_verified_controls(monkey
     assert payload["primary_label"] == "Open 3D tour"
     assert payload["status_label"] == "3D tour available"
     assert payload["status_detail"] == "3D tour is ready."
+    assert {principal_id for _kind, principal_id in validated_principals} == {"pq-verified-media-unit"}
+    assert {kind for kind, _principal_id in validated_principals} == {"open", "provider"}
+
+
+def test_property_tour_detail_line_threads_principal_to_first_party_tour_validation(monkeypatch) -> None:
+    validated_principals: list[str] = []
+
+    def _first_party_open_url(_url: str, *, principal_id: str = "") -> str:
+        validated_principals.append(principal_id)
+        return "https://propertyquarry.com/tours/ready-tour"
+
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_first_party_open_url",
+        _first_party_open_url,
+    )
+
+    detail = landing_property_research._property_tour_detail_line(
+        {"tour_url": "https://propertyquarry.com/tours/ready-tour"},
+        principal_id="pq-detail-unit",
+    )
+
+    assert detail == "Open the 3D tour on PropertyQuarry."
+    assert validated_principals == ["pq-detail-unit"]
 
 
 def test_property_research_media_treats_krpano_only_bundle_as_needing_rebuild(monkeypatch) -> None:
@@ -14914,18 +14984,33 @@ def test_property_research_media_treats_krpano_only_bundle_as_needing_rebuild(mo
 
 
 def test_property_research_media_surfaces_generated_reconstruction_as_layout_tour(monkeypatch) -> None:
-    monkeypatch.setattr(landing_property_research.property_tour_hosting, "_hosted_property_tour_verified_open_url", lambda _url: "")
+    validated_principals: list[tuple[str, str]] = []
+
+    def _verified_open_url(_url: str, *, principal_id: str = "") -> str:
+        validated_principals.append(("verified", principal_id))
+        return ""
+
+    def _generated_open_url(_url: str, *, principal_id: str = "") -> str:
+        validated_principals.append(("generated", principal_id))
+        return "https://propertyquarry.com/tours/generated-tour"
+
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_verified_open_url",
+        _verified_open_url,
+    )
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
         "_hosted_property_tour_first_party_open_url",
-        lambda _url: "https://propertyquarry.com/tours/generated-tour",
+        _generated_open_url,
     )
 
     payload = landing_property_research._property_tour_media_payload(
         {
             "generated_reconstruction_url": "https://propertyquarry.com/tours/generated-tour",
             "property_url": "https://example.test/listing",
-        }
+        },
+        principal_id="pq-research-unit",
     )
 
     assert payload["hosted_ready"] is False
@@ -14940,6 +15025,8 @@ def test_property_research_media_surfaces_generated_reconstruction_as_layout_tou
     assert payload["status_label"] == "Layout tour available"
     assert payload["generated_reconstruction_label"] == "Open layout tour"
     assert payload["generated_reconstruction_status_detail"].startswith("Generated from the floor plan")
+    assert {kind for kind, _principal_id in validated_principals} == {"verified", "generated"}
+    assert {principal_id for _kind, principal_id in validated_principals} == {"pq-research-unit"}
 
 
 def test_property_research_media_uses_generated_reconstruction_layout_tour_when_bundle_is_ready(monkeypatch) -> None:
@@ -21257,7 +21344,11 @@ def test_property_lookup_candidate_across_runs_collects_recent_run_ids_without_h
         def get_property_search_run_status(self, *, principal_id: str, run_id: str):
             return {"run_id": run_id, "summary": {}}
 
-    monkeypatch.setattr(landing_routes, "_propertyquarry_prepare_run_payload", lambda product, run_payload: dict(run_payload))
+    def _prepare_run_payload(*, product, run_payload, principal_id: str = ""):
+        assert principal_id == "pq-research-cross-run"
+        return dict(run_payload)
+
+    monkeypatch.setattr(landing_routes, "_propertyquarry_prepare_run_payload", _prepare_run_payload)
     monkeypatch.setattr(
         landing_routes,
         "_property_lookup_candidate",

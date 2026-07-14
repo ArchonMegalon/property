@@ -1063,7 +1063,11 @@ def _property_cached_direct_billing_verification_receipt() -> dict[str, object]:
     return resolved_receipt
 
 
-def _propertyquarry_normalize_public_tour_candidate(candidate: object) -> dict[str, object] | object:
+def _propertyquarry_normalize_public_tour_candidate(
+    candidate: object,
+    *,
+    principal_id: str = "",
+) -> dict[str, object] | object:
     if not isinstance(candidate, dict):
         return candidate
     candidate_row = dict(candidate)
@@ -1081,9 +1085,18 @@ def _propertyquarry_normalize_public_tour_candidate(candidate: object) -> dict[s
         or tour_payload.get("embed_url")
         or tour_payload.get("url")
     )
-    ready_tour_url = _property_visual_ready_tour_url(
-        tour_url=tour_url,
-        open_tour_url=open_tour_url,
+    normalized_principal_id = str(principal_id or "").strip()
+    ready_tour_url = (
+        _property_visual_ready_tour_url(
+            tour_url=tour_url,
+            open_tour_url=open_tour_url,
+            principal_id=normalized_principal_id,
+        )
+        if normalized_principal_id
+        else _property_visual_ready_tour_url(
+            tour_url=tour_url,
+            open_tour_url=open_tour_url,
+        )
     )
     if ready_tour_url:
         candidate_row["tour_url"] = ready_tour_url
@@ -1109,7 +1122,11 @@ def _propertyquarry_normalize_public_tour_candidate(candidate: object) -> dict[s
     return candidate_row
 
 
-def _propertyquarry_normalize_run_public_tour_targets(run_payload: dict[str, object]) -> dict[str, object]:
+def _propertyquarry_normalize_run_public_tour_targets(
+    run_payload: dict[str, object],
+    *,
+    principal_id: str = "",
+) -> dict[str, object]:
     if not isinstance(run_payload, dict) or not run_payload:
         return run_payload
     summary = dict(run_payload.get("summary") or {}) if isinstance(run_payload.get("summary"), dict) else {}
@@ -1117,7 +1134,7 @@ def _propertyquarry_normalize_run_public_tour_targets(run_payload: dict[str, obj
         return run_payload
 
     ranked_candidates = [
-        _propertyquarry_normalize_public_tour_candidate(candidate)
+        _propertyquarry_normalize_public_tour_candidate(candidate, principal_id=principal_id)
         for candidate in list(summary.get("ranked_candidates") or [])
     ]
     if ranked_candidates:
@@ -1128,7 +1145,7 @@ def _propertyquarry_normalize_run_public_tour_targets(run_payload: dict[str, obj
             continue
         source_row = dict(source)
         top_candidates = [
-            _propertyquarry_normalize_public_tour_candidate(candidate)
+            _propertyquarry_normalize_public_tour_candidate(candidate, principal_id=principal_id)
             for candidate in list(source_row.get("top_candidates") or [])
         ]
         if top_candidates:
@@ -1338,8 +1355,14 @@ def _propertyquarry_prepare_run_payload(
     product: object,
     run_payload: dict[str, object],
     backfill_cached_previews: bool = True,
+    principal_id: str = "",
 ) -> dict[str, object]:
-    normalized_run = normalize_property_search_run_snapshot(_propertyquarry_normalize_run_public_tour_targets(run_payload))
+    normalized_run = normalize_property_search_run_snapshot(
+        _propertyquarry_normalize_run_public_tour_targets(
+            run_payload,
+            principal_id=principal_id,
+        )
+    )
     if backfill_cached_previews:
         normalized_run = _propertyquarry_backfill_run_cached_preview_candidates(product=product, run_payload=normalized_run)
     summary = dict(normalized_run.get("summary") or {}) if isinstance(normalized_run.get("summary"), dict) else {}
@@ -1510,6 +1533,7 @@ def _propertyquarry_refresh_run_candidate_preview_if_needed(
     run_payload: dict[str, object],
     candidate_ref: str,
     allow_network: bool = True,
+    principal_id: str = "",
 ) -> dict[str, object]:
     normalized_candidate_ref = str(candidate_ref or "").strip()
     if not normalized_candidate_ref:
@@ -1571,6 +1595,7 @@ def _propertyquarry_refresh_run_candidate_preview_if_needed(
         product=product,
         run_payload=updated_run_payload,
         backfill_cached_previews=False,
+        principal_id=principal_id,
     )
 
 
@@ -2080,7 +2105,12 @@ def _property_candidate_diorama_preview_image(candidate: dict[str, object]) -> s
     return ""
 
 
-def _propertyquarry_home_result_row(candidate: dict[str, object], *, run_id: str) -> dict[str, object]:
+def _propertyquarry_home_result_row(
+    candidate: dict[str, object],
+    *,
+    run_id: str,
+    principal_id: str = "",
+) -> dict[str, object]:
     facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
     title = _property_result_title_display(candidate.get("title") or candidate.get("property_url") or "Property")
     detail = _shared_clean_property_candidate_detail_copy(
@@ -2124,7 +2154,7 @@ def _propertyquarry_home_result_row(candidate: dict[str, object], *, run_id: str
     except Exception:
         score = 0
     property_href = _propertyquarry_home_property_href(candidate, run_id=run_id)
-    research_media = _property_tour_media_payload(candidate)
+    research_media = _property_tour_media_payload(candidate, principal_id=principal_id)
     return {
         "title": title,
         "detail": detail or "Open the property page to review the details.",
@@ -2201,11 +2231,16 @@ def _propertyquarry_home_shortlist_panel(
         product=product,
         run_payload=latest_run,
         backfill_cached_previews=False,
+        principal_id=normalized_principal_id,
     )
     summary = dict(prepared_run.get("summary") or {}) if isinstance(prepared_run.get("summary"), dict) else {}
     ranked_candidates = _propertyquarry_run_summary_candidates(summary)
     rows = [
-        _propertyquarry_home_result_row(candidate, run_id=latest_run_id)
+        _propertyquarry_home_result_row(
+            candidate,
+            run_id=latest_run_id,
+            principal_id=normalized_principal_id,
+        )
         for candidate in ranked_candidates[:3]
     ]
     rows = [row for row in rows if isinstance(row, dict)]
@@ -2961,7 +2996,11 @@ def _property_lookup_candidate_across_runs(
             continue
         if not isinstance(run_payload, dict):
             continue
-        run_payload = _propertyquarry_prepare_run_payload(product=product, run_payload=run_payload)
+        run_payload = _propertyquarry_prepare_run_payload(
+            product=product,
+            run_payload=run_payload,
+            principal_id=principal_id,
+        )
         candidate = _property_lookup_candidate(
             property_context={"run": run_payload},
             candidate_ref=normalized_candidate_ref,
@@ -4888,6 +4927,7 @@ def _property_console_context(
         product=product,
         run_payload=run_payload,
         backfill_cached_previews=surface_scope.section != "research",
+        principal_id=principal_id,
     )
     if selected_candidate_ref and surface_scope.section in {"properties", "shortlist", "research"}:
         run_payload = _propertyquarry_refresh_run_candidate_preview_if_needed(
@@ -4895,6 +4935,7 @@ def _property_console_context(
             run_payload=run_payload,
             candidate_ref=selected_candidate_ref,
             allow_network=surface_scope.section not in {"research", "shortlist"},
+            principal_id=principal_id,
         )
     run_status_value = str(run_payload.get("status") or "").strip().lower()
     # First paint must stay fast; preference fine-tuning loads feedback explicitly.
@@ -5388,12 +5429,14 @@ def propertyquarry_candidate_preview_refresh(
         product=product,
         run_payload=raw_run_payload,
         backfill_cached_previews=False,
+        principal_id=authenticated_principal,
     )
     refreshed_run_payload = _propertyquarry_refresh_run_candidate_preview_if_needed(
         product=product,
         run_payload=run_payload,
         candidate_ref=normalized_candidate_ref,
         allow_network=True,
+        principal_id=authenticated_principal,
     )
     candidate = _propertyquarry_find_run_candidate(
         run_payload=refreshed_run_payload,
@@ -6717,6 +6760,7 @@ def property_research_packet(
                         or {}
                     ),
                     backfill_cached_previews=False,
+                    principal_id=context.principal_id,
                 )
             except TypeError:
                 with contextlib.suppress(Exception):
@@ -6730,6 +6774,7 @@ def property_research_packet(
                             or {}
                         ),
                         backfill_cached_previews=False,
+                        principal_id=context.principal_id,
                     )
             except Exception:
                 pass
@@ -6755,6 +6800,7 @@ def property_research_packet(
                         or {}
                     ),
                     backfill_cached_previews=False,
+                    principal_id=context.principal_id,
                 )
             except TypeError:
                 with contextlib.suppress(Exception):
@@ -6768,6 +6814,7 @@ def property_research_packet(
                             or {}
                         ),
                         backfill_cached_previews=False,
+                        principal_id=context.principal_id,
                     )
             except Exception:
                 pass
@@ -7059,7 +7106,11 @@ def property_research_packet(
     if not timeline_rows:
         timeline_rows = [
             _object_detail_row("Shortlist state", "This property page is ready for a decision and agent follow-up.", "Now"),
-            _object_detail_row("Tour state", _property_tour_detail_line(candidate), "3D tour"),
+            _object_detail_row(
+                "Tour state",
+                _property_tour_detail_line(candidate, principal_id=context.principal_id),
+                "3D tour",
+            ),
             _object_detail_row("Feedback state", "No timeline events are recorded yet. The first saved decision will start the visible timeline.", "Waiting"),
         ]
     latest_magic_fit_scene: dict[str, object] = {}
@@ -7134,7 +7185,10 @@ def property_research_packet(
     object_summary = " · ".join(headline_summary_parts) or display_source_label
     if price_summary and not any(str(row.get("label") or "").strip().lower() == "rent / price" for row in list(detail_sections.get("cost_rows") or [])):
         detail_sections["cost_rows"] = [{"label": "Rent / price", "value": price_summary}] + list(detail_sections.get("cost_rows") or [])
-    research_media = _property_tour_media_payload(candidate)
+    research_media = _property_tour_media_payload(
+        candidate,
+        principal_id=context.principal_id,
+    )
     orientation_preview = _property_candidate_orientation_preview(candidate)
     preview_image = _property_candidate_preview_image(candidate)
     diorama_preview_image = _property_candidate_diorama_preview_image(candidate)
@@ -7816,6 +7870,7 @@ def propertyquarry_fast_ranked_run_page(
             initial_run_payload = _propertyquarry_prepare_run_payload(
                 product=product,
                 run_payload=raw_initial_run_payload,
+                principal_id=authenticated_principal,
             )
             sample_payload_requested = _propertyquarry_payload_is_example_shortlist(initial_run_payload or raw_initial_run_payload)
             if sample_payload_requested:
@@ -7842,6 +7897,7 @@ def propertyquarry_fast_ranked_run_page(
                 initial_run_payload = _propertyquarry_prepare_run_payload(
                     product=product,
                     run_payload=latest_run,
+                    principal_id=authenticated_principal,
                 )
         elif requested_run_is_recent is False:
             latest_run = _propertyquarry_latest_shortlist_run_with_results(

@@ -515,6 +515,8 @@ def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
 
     def _fake_run_status(self, *, principal_id: str, run_id: str):
         assert principal_id == "pq-greenfield-browser"
+        if run_id == "run-always-active":
+            return _fake_empty_run_status(run_id=run_id, principal_id=principal_id, processed=False)
         if run_id == "run-active-empty":
             calls = run_status_calls.get(run_id, 0)
             run_status_calls[run_id] = calls + 1
@@ -2541,12 +2543,13 @@ def test_propertyquarry_repair_states_use_calm_browser_copy_on_properties_surfac
         assert response is not None and response.ok
         page.wait_for_selector("[data-pqx-empty-results]", timeout=7000)
         expect(page.locator(".pqx-shell")).to_have_attribute("data-pqx-state", "empty_results")
-        expect(page.locator("[data-pqx-empty-results] h1")).to_contain_text("One site changed, so PropertyQuarry is retrying it.")
+        expect(page.locator("[data-pqx-empty-results] h1")).to_contain_text(
+            "PropertyQuarry is checking the saved search again."
+        )
         expect(page.locator("[data-pqx-empty-results] .pqx-empty-outcome-line")).to_contain_text(
             "PropertyQuarry started a fresh check before any listing inspection completed."
         )
         visible_text = page.locator("body").inner_text()
-        assert "PropertyQuarry is checking the saved search again." not in visible_text
         assert "Repair took over before any listing inspection completed." not in visible_text
         assert "Provider returned 403 while fetching Willhaben." not in visible_text
         assert "Retrying Willhaben provider check" not in visible_text
@@ -3173,7 +3176,7 @@ def test_propertyquarry_running_progress_panel_fits_the_first_viewport(
     page: Page = context.new_page()
     screenshot_path = tmp_path / "property_running_progress_desktop.png"
     try:
-        response = page.goto(f"{base_url}/app/properties?run_id=run-active-empty", wait_until="domcontentloaded")
+        response = page.goto(f"{base_url}/app/properties?run_id=run-always-active", wait_until="domcontentloaded")
         assert response is not None and response.ok
         page.wait_for_selector('[data-pqx-screenfit-target="run-progress"]', timeout=5000)
         assert page.locator('[data-pqx-screenfit-target="run-progress"] :is(h1, h2)').first.is_visible()
@@ -5175,7 +5178,7 @@ def test_propertyquarry_running_progress_panel_fits_the_first_mobile_viewport(
     context = _new_context(browser, mobile=True)
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/app/properties?run_id=run-active-empty", wait_until="domcontentloaded")
+        response = page.goto(f"{base_url}/app/properties?run_id=run-always-active", wait_until="domcontentloaded")
         assert response is not None and response.ok
         page.wait_for_selector('[data-pqx-screenfit-target="run-progress"]', timeout=5000)
         assert page.locator('[data-pqx-screenfit-target="run-progress"] :is(h1, h2)').first.is_visible()
@@ -6166,11 +6169,28 @@ def test_propertyquarry_research_detail_surfaces_generated_diorama_and_layout_to
     original_get_run_status = ProductService.get_property_search_run_status
     monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
     monkeypatch.setattr(landing_property_research, "_property_investment_research_snapshot", lambda **kwargs: {})
-    monkeypatch.setattr(landing_property_research.property_tour_hosting, "_hosted_property_tour_verified_open_url", lambda _url: "")
+
+    validated_tour_principals: list[tuple[str, str]] = []
+
+    def _verified_tour_url(_url: str, *, principal_id: str = "") -> str:
+        validated_tour_principals.append(("verified", principal_id))
+        assert principal_id == "pq-greenfield-browser"
+        return ""
+
+    def _generated_tour_url(_url: str, *, principal_id: str = "") -> str:
+        validated_tour_principals.append(("generated", principal_id))
+        assert principal_id == "pq-greenfield-browser"
+        return f"{base_url}/tours/generated-reconstruction-loft"
+
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_verified_open_url",
+        _verified_tour_url,
+    )
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
         "_hosted_property_tour_first_party_open_url",
-        lambda _url: f"{base_url}/tours/generated-reconstruction-loft",
+        _generated_tour_url,
     )
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
@@ -6206,6 +6226,8 @@ def test_propertyquarry_research_detail_surfaces_generated_diorama_and_layout_to
             wait_until="networkidle",
         )
         assert response is not None and response.ok
+        assert {kind for kind, _principal_id in validated_tour_principals} == {"verified", "generated"}
+        assert {principal_id for _kind, principal_id in validated_tour_principals} == {"pq-greenfield-browser"}
         expect(page.locator("[data-property-research-detail]")).to_be_visible()
         expect(page.locator("[data-prd-hero-image]")).to_have_attribute(
             "src",
@@ -8764,6 +8786,17 @@ def _write_generated_reconstruction_public_launch_fixture(bundle_root: Path, *, 
     bundle_dir = bundle_root / slug
     reconstruction_dir = bundle_dir / "generated-reconstruction"
     reconstruction_dir.mkdir(parents=True, exist_ok=True)
+    viewer_vendor_dir = reconstruction_dir / "vendor"
+    orbit_controls_dir = viewer_vendor_dir / "examples" / "jsm" / "controls"
+    orbit_controls_dir.mkdir(parents=True, exist_ok=True)
+    (viewer_vendor_dir / "three.module.js").write_text(
+        'export const REVISION = "propertyquarry-browser-fixture";\n',
+        encoding="utf-8",
+    )
+    (orbit_controls_dir / "OrbitControls.js").write_text(
+        "export class OrbitControls {}\n",
+        encoding="utf-8",
+    )
     route_labels = [
         "entry/hall",
         "living area",
@@ -8936,7 +8969,11 @@ def _write_generated_reconstruction_public_launch_fixture(bundle_root: Path, *, 
     </style>
   </head>
   <body>
-    <main data-pq-reconstruction-viewer>
+    <main
+      data-pq-reconstruction-viewer
+      data-pq-preview-kind="approximate-layout"
+      data-pq-verified-provider-capture="false"
+    >
       <div class="eyebrow">PropertyQuarry layout viewer</div>
       <h1>Generated layout viewer</h1>
       <p>Fixture viewer for the room-route shell. It exposes the same debug hooks the public launch uses to prove route sync and readiness.</p>
@@ -8958,6 +8995,14 @@ def _write_generated_reconstruction_public_launch_fixture(bundle_root: Path, *, 
         </div>
       </section>
     </main>
+    <script type="module">
+      import * as THREE from './vendor/three.module.js';
+      import {{ OrbitControls }} from './vendor/examples/jsm/controls/OrbitControls.js';
+      window.__pqFixtureViewerModules = {{
+        three: Boolean(THREE.REVISION),
+        orbitControls: typeof OrbitControls === 'function',
+      }};
+    </script>
     <script>
       const routeLabels = {viewer_route_labels_json};
       const routePosition = document.getElementById('viewer-route-position');
@@ -9079,6 +9124,20 @@ def _write_generated_reconstruction_public_launch_fixture(bundle_root: Path, *, 
                 "preview_relpath": "diorama-preview.png",
                 "photo_count": len(photo_specs),
                 "media": {"source_photos": {"count": len(photo_specs)}},
+                "public_assets": [
+                    {
+                        "path": "generated-reconstruction/vendor/three.module.js",
+                        "privacy_class": "generated_reconstruction_public",
+                        "role": "generated_reconstruction_viewer_asset",
+                        "mime_type": "text/javascript",
+                    },
+                    {
+                        "path": "generated-reconstruction/vendor/examples/jsm/controls/OrbitControls.js",
+                        "privacy_class": "generated_reconstruction_public",
+                        "role": "generated_reconstruction_viewer_asset",
+                        "mime_type": "text/javascript",
+                    },
+                ],
                 "generated_reconstruction": {
                     "provider": "propertyquarry_generated_reconstruction",
                     "viewer_version": "propertyquarry_3d_tour_viewer_v3",
