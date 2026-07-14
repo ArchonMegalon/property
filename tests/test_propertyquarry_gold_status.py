@@ -3751,7 +3751,16 @@ def test_gold_status_blocks_when_release_hygiene_receipt_fails(tmp_path: Path) -
 
 @pytest.mark.parametrize(
     "mutation",
-    ("status", "schema", "helper_plan_caps", "availability_mode", "pricing_surface_bound"),
+    (
+        "status",
+        "schema",
+        "plan_caps",
+        "helper_plan_caps",
+        "availability_mode",
+        "pricing_surface_bound",
+        "style_count",
+        "failures",
+    ),
 )
 def test_gold_status_blocks_when_furniture_style_contract_fails(
     tmp_path: Path,
@@ -3780,20 +3789,21 @@ def test_gold_status_blocks_when_furniture_style_contract_fails(
     provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
     furniture_style_payload = _furniture_style_contract_payload()
     if mutation == "status":
-        furniture_style_payload.update(
-            status="fail",
-            style_count=4,
-            failure_count=1,
-            failures=["furniture style catalog missing value urban_jungle"],
-        )
+        furniture_style_payload["status"] = "fail"
     elif mutation == "schema":
         furniture_style_payload["schema"] = "propertyquarry.furniture_style_contract_receipt.v1"
+    elif mutation == "plan_caps":
+        furniture_style_payload["plan_caps"] = {"free": 1, "plus": 5, "agent": 5}
     elif mutation == "helper_plan_caps":
         furniture_style_payload["helper_plan_caps"] = {"free": 1, "plus": 5, "agent": 5}
     elif mutation == "availability_mode":
         furniture_style_payload["availability_mode"] = "saved_search_preference"
     elif mutation == "pricing_surface_bound":
         furniture_style_payload["pricing_surface_bound"] = False
+    elif mutation == "style_count":
+        furniture_style_payload["style_count"] = 4
+    elif mutation == "failures":
+        furniture_style_payload["failures"] = ["furniture style catalog missing value urban_jungle"]
     furniture_style_contract = _write_json(
         tmp_path / "furniture-style-contract.json",
         furniture_style_payload,
@@ -3811,7 +3821,7 @@ def test_gold_status_blocks_when_furniture_style_contract_fails(
     blocker = next(row for row in receipt["blockers"] if row["area"] == "furniture_style_variants")
     assert receipt["status"] == "blocked"
     assert receipt["furniture_style_variants"]["status"] == ("fail" if mutation == "status" else "pass")
-    assert blocker["style_count"] == (4 if mutation == "status" else 5)
+    assert blocker["style_count"] == (4 if mutation == "style_count" else 5)
     assert blocker["availability_mode"] == (
         "saved_search_preference"
         if mutation == "availability_mode"
