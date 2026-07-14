@@ -5,7 +5,7 @@
   "proof_target": "propertyquarry",
   "version": 1,
   "kind": "proof_receipt",
-  "generated_at": "2026-07-14T15:07:24Z",
+  "generated_at": "2026-07-14T15:11:50Z",
   "generated_by": "scripts/materialize_ea_browser_workflow_proof.py",
   "status": "pass",
   "operator_summary": "PropertyQuarry browser workflow proof is published and green across both source-backed journeys and real-browser E2E.",
@@ -20,7 +20,7 @@
   ],
   "source_binding": {
     "version": 1,
-    "code_commit": "734c4f62d18e0decdcd62d3cb80fab4187fe808d",
+    "code_commit": "a0a850f4cf05242200db15e867b3cad23466dbd5",
     "seed": {
       "path": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
       "sha256": "542cd03e2ea8ca3432f8be73a4b37dd2b58c52dd92cd8726375db507e09ebf07",
@@ -34,26 +34,26 @@
       },
       {
         "path": "tests/e2e/test_propertyquarry_greenfield_browser.py",
-        "sha256": "b77f43eb3eb4b568a89ba27576dac44a7928a71f7caaa430f9fe185e30cfcaee",
-        "git_blob_oid": "ea18aef5b458a42a521b324e993e88d99bdcab04"
+        "sha256": "322a70552e007c97d46dd6e26bde6745568f4c32c99985fce4434faf174cf93f",
+        "git_blob_oid": "c3c1de4411f31bc12abba25ec294aa673165ffb0"
       }
     ]
   },
   "source_backed_journey_proof": {
     "status": "pass",
-    "command": "/usr/bin/python3 -m pytest -q tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_workspace_routes_render_greenfield_surfaces tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_failed_run_stays_on_activity_surface",
-    "cwd": "/home/tibor/.local/share/ea-releases/property-ci-generated-evidence-20260714",
-    "python_bin": "/usr/bin/python3",
+    "command": "/docker/property/.venv/bin/python -m pytest -q tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_workspace_routes_render_greenfield_surfaces tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_failed_run_stays_on_activity_surface",
+    "cwd": "/docker/property",
+    "python_bin": "/docker/property/.venv/bin/python",
     "test_file": "tests/test_propertyquarry_workspace_redesign.py",
     "cases": [
       "test_propertyquarry_workspace_routes_render_greenfield_surfaces",
       "test_propertyquarry_failed_run_stays_on_activity_surface"
     ],
     "exit_code": 0,
-    "duration_seconds": 48.265,
+    "duration_seconds": 42.081,
     "output_excerpt": [
       "..                                                                       [100%]",
-      "2 passed in 44.51s"
+      "2 passed in 38.75s"
     ],
     "limitations": [],
     "outcome_counts": {
@@ -70,19 +70,19 @@
   },
   "real_browser_e2e_proof": {
     "status": "pass",
-    "command": "/usr/bin/python3 -m pytest -q tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_greenfield_workspace_in_real_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_greenfield_workspace_is_mobile_usable -rs",
-    "cwd": "/home/tibor/.local/share/ea-releases/property-ci-generated-evidence-20260714",
-    "python_bin": "/usr/bin/python3",
+    "command": "/docker/property/.venv/bin/python -m pytest -q tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_greenfield_workspace_in_real_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_greenfield_workspace_is_mobile_usable -rs",
+    "cwd": "/docker/property",
+    "python_bin": "/docker/property/.venv/bin/python",
     "test_file": "tests/e2e/test_propertyquarry_greenfield_browser.py",
     "cases": [
       "test_propertyquarry_greenfield_workspace_in_real_browser",
       "test_propertyquarry_greenfield_workspace_is_mobile_usable"
     ],
     "exit_code": 0,
-    "duration_seconds": 59.811,
+    "duration_seconds": 53.508,
     "output_excerpt": [
       "..                                                                       [100%]",
-      "2 passed in 56.01s"
+      "2 passed in 49.22s"
     ],
     "limitations": [],
     "outcome_counts": {
