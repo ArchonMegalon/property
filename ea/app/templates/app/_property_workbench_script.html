@@ -4930,9 +4930,25 @@
         };
       };
       const restoreWhatMattersInteractionSnapshot = (snapshot) => {
-        if (!snapshot || !(snapshot.row instanceof HTMLElement) || !(snapshot.group instanceof HTMLDetailsElement)) return;
+        if (!snapshot || !(snapshot.row instanceof HTMLElement) || !(snapshot.group instanceof HTMLDetailsElement)) return false;
         const mobile = window.matchMedia('(max-width: 760px)').matches;
         const groupStates = Array.isArray(snapshot.groupStates) ? snapshot.groupStates : [];
+        const supersedingOpenGroup = mobile
+          ? groupStates.find((entry) => (
+            entry?.node instanceof HTMLDetailsElement
+            && entry.node.isConnected
+            && entry.open === false
+            && entry.node.open
+          ))?.node || null
+          : null;
+        if (supersedingOpenGroup) {
+          suppressMobileAccordionAutoCollapse();
+          groupStates.forEach((entry) => {
+            if (!(entry?.node instanceof HTMLDetailsElement) || !entry.node.isConnected) return;
+            entry.node.open = entry.node === supersedingOpenGroup;
+          });
+          return false;
+        }
         if (mobile) suppressMobileAccordionAutoCollapse();
         if (mobile) {
           const preferredGroup = snapshot.group.isConnected ? snapshot.group : null;
@@ -4984,6 +5000,7 @@
             list.scrollTop = Number(entry.listScrollTop || 0);
           });
         });
+        return true;
       };
       let whatMattersInteractionRestoreFrame = 0;
       let whatMattersInteractionRestoreFollowupFrame = 0;
@@ -5016,6 +5033,14 @@
           whatMattersInteractionRestoreLateTimeout = 0;
         }
       };
+      const applyWhatMattersInteractionRestore = (snapshot) => {
+        if (!restoreWhatMattersInteractionSnapshot(snapshot)) {
+          cancelPendingWhatMattersInteractionRestore();
+          return false;
+        }
+        refreshLastWhatMattersInteractionSnapshot(snapshot);
+        return true;
+      };
       const stabilizeWhatMattersInteraction = (target, callback, { restoreFocus = true, snapshotOverride = null, preserveScroll = true } = {}) => {
         cancelPendingWhatMattersInteractionRestore();
         const snapshot = snapshotOverride
@@ -5023,25 +5048,20 @@
           : captureWhatMattersInteractionSnapshot(target, { restoreFocus, preserveScroll });
         callback();
         if (!snapshot) return;
-        restoreWhatMattersInteractionSnapshot(snapshot);
-        refreshLastWhatMattersInteractionSnapshot(snapshot);
+        if (!applyWhatMattersInteractionRestore(snapshot)) return;
         whatMattersInteractionRestoreFrame = window.requestAnimationFrame(() => {
           whatMattersInteractionRestoreFrame = 0;
-          restoreWhatMattersInteractionSnapshot(snapshot);
-          refreshLastWhatMattersInteractionSnapshot(snapshot);
+          if (!applyWhatMattersInteractionRestore(snapshot)) return;
           whatMattersInteractionRestoreFollowupFrame = window.requestAnimationFrame(() => {
             whatMattersInteractionRestoreFollowupFrame = 0;
-            restoreWhatMattersInteractionSnapshot(snapshot);
-            refreshLastWhatMattersInteractionSnapshot(snapshot);
+            if (!applyWhatMattersInteractionRestore(snapshot)) return;
             whatMattersInteractionRestoreTimeout = window.setTimeout(() => {
               whatMattersInteractionRestoreTimeout = 0;
-              restoreWhatMattersInteractionSnapshot(snapshot);
-              refreshLastWhatMattersInteractionSnapshot(snapshot);
+              if (!applyWhatMattersInteractionRestore(snapshot)) return;
             }, 0);
             whatMattersInteractionRestoreLateTimeout = window.setTimeout(() => {
               whatMattersInteractionRestoreLateTimeout = 0;
-              restoreWhatMattersInteractionSnapshot(snapshot);
-              refreshLastWhatMattersInteractionSnapshot(snapshot);
+              if (!applyWhatMattersInteractionRestore(snapshot)) return;
             }, 64);
           });
         });
@@ -5164,17 +5184,28 @@
         if (typeof syncWhatMattersMobileGroups === 'function') syncWhatMattersMobileGroups(form, { preferredGroup });
         syncWhatMattersSummary();
       };
-      const syncMobileWhatMattersAccordion = (openedPanel = null) => {
+      const syncMobileWhatMattersAccordion = (openedPanel = null, { forceSingleOpen = false } = {}) => {
         const panel = openedPanel?.closest?.('[data-property-what-matters-panel]') || form.querySelector('[data-property-what-matters-panel]');
         syncMobileDetailsAccordion({
           selector: 'details[data-what-matters-group]',
           openedPanel,
           container: panel,
+          forceSingleOpen,
         });
       };
       form.querySelectorAll('details[data-what-matters-group]').forEach((details) => {
         details.addEventListener('toggle', () => {
-          if (mobileAccordionAutoCollapseIsSuppressed()) return;
+          const mobile = window.matchMedia('(max-width: 760px)').matches;
+          const suppressed = mobileAccordionAutoCollapseIsSuppressed();
+          const capturedGroupState = Array.isArray(lastWhatMattersInteractionSnapshot?.groupStates)
+            ? lastWhatMattersInteractionSnapshot.groupStates.find((entry) => entry?.node === details)
+            : null;
+          if (mobile && suppressed && details.open && capturedGroupState?.open === false) {
+            cancelPendingWhatMattersInteractionRestore();
+            syncMobileWhatMattersAccordion(details, { forceSingleOpen: true });
+            return;
+          }
+          if (suppressed) return;
           cancelPendingWhatMattersInteractionRestore();
           if (details.open) {
             syncMobileWhatMattersAccordion(details);

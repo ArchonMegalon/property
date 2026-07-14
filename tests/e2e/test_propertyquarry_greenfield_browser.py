@@ -4480,6 +4480,7 @@ def test_propertyquarry_mobile_what_matters_select_changes_keep_current_group_st
         expect(parking_group).to_have_attribute("open", "")
         expect(parking_row).to_be_visible()
         before_parking = page.evaluate(capture_keyword_state, "parking pressure check")
+        assert before_parking["riskOpen"] is True, before_parking
         parking_preference = parking_row.locator("[data-keyword-preference-select]")
         parking_preference.select_option("low")
         page.wait_for_function(
