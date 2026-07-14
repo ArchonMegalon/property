@@ -132,8 +132,16 @@
           data-analytics-event="pricing_checkout_{{ plan.plan_key }}"
           data-rybbit-event="pricing_checkout_start"
           data-rybbit-prop-plan="{{ plan.plan_key }}"
+          aria-describedby="pricing-checkout-status-{{ plan.plan_key }}"
         >Start checkout</button>
-        <span class="tier-provider">Secure checkout.</span>
+        <span
+          class="tier-provider"
+          id="pricing-checkout-status-{{ plan.plan_key }}"
+          data-pricing-checkout-status
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >Secure checkout.</span>
         {% elif plan.plan_key in (pricing_checkout_enabled_plans or []) %}
         <a class="btn primary" href="/sign-in?signing_in=1" data-analytics-event="pricing_sign_in_{{ plan.plan_key }}" data-rybbit-event="pricing_sign_in_to_upgrade" data-rybbit-prop-plan="{{ plan.plan_key }}">Sign in to upgrade</a>
         <span class="tier-provider">Secure checkout.</span>
@@ -159,9 +167,11 @@
       const planKey = String(button.getAttribute('data-pricing-upgrade') || '').trim();
       const endpoint = String(button.getAttribute('data-pricing-endpoint') || '').trim();
       if (!planKey || !endpoint) return;
-      const original = button.textContent || 'Start checkout';
+      const statusId = String(button.getAttribute('aria-describedby') || '').trim();
+      const status = statusId ? document.getElementById(statusId) : null;
       button.disabled = true;
-      button.textContent = 'Opening secure checkout...';
+      button.setAttribute('aria-busy', 'true');
+      if (status) status.textContent = 'Opening secure checkout...';
       try {
         const response = await fetch(endpoint, {
           method: 'POST',
@@ -169,16 +179,14 @@
           body: JSON.stringify({ plan_key: planKey }),
         });
         const body = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(String(body.detail || 'Could not start checkout.'));
+        if (!response.ok) throw new Error('checkout_unavailable');
         const approveUrl = String(body.approve_url || '').trim();
-        if (!approveUrl) throw new Error('Checkout URL missing.');
+        if (!approveUrl) throw new Error('checkout_unavailable');
         window.location.href = approveUrl;
-      } catch (error) {
+      } catch (_error) {
         button.disabled = false;
-        button.textContent = error instanceof Error ? error.message : original;
-        window.setTimeout(() => {
-          button.textContent = original;
-        }, 3200);
+        button.removeAttribute('aria-busy');
+        if (status) status.textContent = 'We couldn’t open checkout. Please try again.';
       }
     });
   });

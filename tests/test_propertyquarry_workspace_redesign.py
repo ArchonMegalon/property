@@ -2022,6 +2022,26 @@ def test_propertyquarry_pricing_exposes_all_request_time_styles_to_every_plan() 
     assert pricing.text.count("Interior styles</span><strong>5</strong>") == 3
 
 
+def test_propertyquarry_pricing_checkout_failure_copy_is_safe_and_accessible() -> None:
+    pricing_template = (
+        Path(__file__).resolve().parents[1] / "ea/app/templates/pricing_page.html"
+    ).read_text(encoding="utf-8")
+
+    assert 'aria-describedby="pricing-checkout-status-{{ plan.plan_key }}"' in pricing_template
+    assert 'data-pricing-checkout-status' in pricing_template
+    assert 'role="status"' in pricing_template
+    assert 'aria-live="polite"' in pricing_template
+    assert 'aria-atomic="true"' in pricing_template
+    assert "button.setAttribute('aria-busy', 'true');" in pricing_template
+    assert "button.removeAttribute('aria-busy');" in pricing_template
+    assert "button.disabled = false;" in pricing_template
+    assert "We couldn’t open checkout. Please try again." in pricing_template
+    assert "body.detail" not in pricing_template
+    assert "Checkout URL missing." not in pricing_template
+    assert "error.message" not in pricing_template
+    assert "button.textContent" not in pricing_template
+
+
 def test_propertyquarry_signed_in_pricing_uses_bridge_language_when_direct_account_is_not_ready(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
