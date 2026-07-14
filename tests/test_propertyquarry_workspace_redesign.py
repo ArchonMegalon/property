@@ -2013,6 +2013,15 @@ def test_propertyquarry_signed_in_pricing_prefers_verified_external_billing_hand
     assert 'href="/app/account?billing=1#delivery"' not in pricing.text
 
 
+def test_propertyquarry_pricing_exposes_all_request_time_styles_to_every_plan() -> None:
+    client = build_property_client(principal_id="pq-pricing-style-contract")
+
+    pricing = client.get("/pricing", headers={"host": "propertyquarry.com"})
+
+    assert pricing.status_code == 200
+    assert pricing.text.count("Interior styles</span><strong>5</strong>") == 3
+
+
 def test_propertyquarry_signed_in_pricing_uses_bridge_language_when_direct_account_is_not_ready(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -9,6 +9,16 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+EA_ROOT = ROOT / "ea"
+if str(EA_ROOT) not in sys.path:
+    sys.path.insert(0, str(EA_ROOT))
+
+from app.services.property_billing import (  # noqa: E402
+    property_furniture_style_cap,
+    property_plan_catalog,
+)
+
+EXPECTED_PLAN_STYLE_COUNTS = {"free": 5, "plus": 5, "agent": 5}
 
 REQUIRED_STYLES = {
     "warm_scandi": ("Warm Scandinavian", "warm Scandinavian staging"),
@@ -26,10 +36,10 @@ def _read(path: str) -> str:
 def build_furniture_style_contract_receipt() -> dict[str, object]:
     failures: list[str] = []
     view_models = _read("ea/app/api/routes/landing_view_models.py")
-    billing = _read("ea/app/services/property_billing.py")
     workbench = _read("ea/app/templates/app/property_decision_workbench.html")
     workbench_script = _read("ea/app/templates/app/_property_workbench_script.html")
     research_detail = _read("ea/app/templates/app/property_research_detail.html")
+    pricing = _read("ea/app/templates/pricing_page.html")
     service = _read("ea/app/product/service.py")
 
     for value, (label, prompt_token) in REQUIRED_STYLES.items():
@@ -42,11 +52,27 @@ def build_furniture_style_contract_receipt() -> dict[str, object]:
     for token in ("example_tone", "example_caption"):
         if token not in view_models:
             failures.append(f"furniture style catalog missing {token}")
-    if "return 5" not in billing:
-        failures.append("property_furniture_style_cap must allow every tier to choose all request-time styles")
-    for token in ("furniture_style_limit=5",):
-        if token not in billing:
-            failures.append(f"plan catalog missing {token}")
+    helper_plan_caps = {
+        plan_key: property_furniture_style_cap(plan_key)
+        for plan_key in EXPECTED_PLAN_STYLE_COUNTS
+    }
+    catalog_plan_caps = {
+        str(spec.plan_key): int(spec.furniture_style_limit)
+        for spec in property_plan_catalog()
+    }
+    if helper_plan_caps != EXPECTED_PLAN_STYLE_COUNTS:
+        failures.append(
+            "property_furniture_style_cap must expose all five request-time styles "
+            f"for every tier; got {helper_plan_caps}"
+        )
+    if catalog_plan_caps != EXPECTED_PLAN_STYLE_COUNTS:
+        failures.append(
+            "property plan catalog must expose all five request-time styles "
+            f"for every tier; got {catalog_plan_caps}"
+        )
+    for token in ("Interior styles", "{{ plan.furniture_style_limit }}"):
+        if token not in pricing:
+            failures.append(f"pricing surface missing live request-time style count token {token}")
     for token in ('name="furniture_style"', "data-furniture-style-select", "data-furniture-style-card", "field.name == 'furniture_style'"):
         if token not in workbench:
             continue
@@ -70,15 +96,21 @@ def build_furniture_style_contract_receipt() -> dict[str, object]:
             failures.append(f"MagicFit/furnished-scene style-aware cache wiring missing {token}")
 
     return {
-        "schema": "propertyquarry.furniture_style_contract_receipt.v1",
+        "schema": "propertyquarry.furniture_style_contract_receipt.v2",
         "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "status": "pass" if not failures else "fail",
         "style_count": len(REQUIRED_STYLES),
         "style_values": sorted(REQUIRED_STYLES),
-        "plan_caps": {"free": 5, "plus": 5, "agent": 5},
+        "availability_mode": "per_visual_request",
+        "plan_caps": catalog_plan_caps,
+        "helper_plan_caps": helper_plan_caps,
+        "pricing_surface_bound": all(
+            token in pricing
+            for token in ("Interior styles", "{{ plan.furniture_style_limit }}")
+        ),
         "failure_count": len(failures),
         "failures": failures,
-        "note": "Verifies furniture-style catalog, request-time 3D-tour and walkthrough style choice, UI handoff, and style-aware rendered-scene cache reuse.",
+        "note": "Verifies that all plans can choose any catalog style per 3D-tour or walkthrough request, while generation quotas remain plan-specific.",
     }
 
 

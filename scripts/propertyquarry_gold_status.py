@@ -3023,10 +3023,14 @@ def build_gold_status_receipt(
     furniture_style_contract_ok = (
         furniture_style_contract_receipt_path is None
         or (
-            furniture_style_contract.get("status") == "pass"
+            furniture_style_contract.get("schema") == "propertyquarry.furniture_style_contract_receipt.v2"
+            and furniture_style_contract.get("status") == "pass"
             and not list(furniture_style_contract.get("failures") or [])
             and int(furniture_style_contract.get("style_count") or 0) >= 5
             and dict(furniture_style_contract.get("plan_caps") or {}) == {"free": 5, "plus": 5, "agent": 5}
+            and dict(furniture_style_contract.get("helper_plan_caps") or {}) == {"free": 5, "plus": 5, "agent": 5}
+            and str(furniture_style_contract.get("availability_mode") or "") == "per_visual_request"
+            and furniture_style_contract.get("pricing_surface_bound") is True
         )
     )
     bts_methodology_contract_ok = (
@@ -3512,6 +3516,9 @@ def build_gold_status_receipt(
                 "status": furniture_style_contract.get("status") or "missing",
                 "style_count": furniture_style_contract.get("style_count"),
                 "plan_caps": furniture_style_contract.get("plan_caps") or {},
+                "helper_plan_caps": furniture_style_contract.get("helper_plan_caps") or {},
+                "availability_mode": furniture_style_contract.get("availability_mode") or "",
+                "pricing_surface_bound": furniture_style_contract.get("pricing_surface_bound") is True,
                 "failures": list(furniture_style_contract.get("failures") or [])[:12],
                 "action": "rerun check_property_furniture_style_contract.py --write and keep the five visible style choices, all-tier request-time choice, examples, UI handoff, and style-aware cached rendering contract passing",
             }
@@ -3738,6 +3745,9 @@ def build_gold_status_receipt(
             "status": "pass",
             "style_count": furniture_style_contract.get("style_count"),
             "plan_caps": furniture_style_contract.get("plan_caps") or {},
+            "helper_plan_caps": furniture_style_contract.get("helper_plan_caps") or {},
+            "availability_mode": furniture_style_contract.get("availability_mode") or "",
+            "pricing_surface_bound": furniture_style_contract.get("pricing_surface_bound") is True,
             "receipt_path": str(furniture_style_contract_receipt_path),
         }
         if furniture_style_contract_receipt_path is not None and furniture_style_contract_ok
@@ -4457,10 +4467,13 @@ def build_gold_status_receipt(
             "style_count": furniture_style_contract.get("style_count") if furniture_style_contract_receipt_path is not None else None,
             "style_values": furniture_style_contract.get("style_values") or [],
             "plan_caps": furniture_style_contract.get("plan_caps") or {},
+            "helper_plan_caps": furniture_style_contract.get("helper_plan_caps") or {},
+            "availability_mode": str(furniture_style_contract.get("availability_mode") or ""),
+            "pricing_surface_bound": furniture_style_contract.get("pricing_surface_bound") is True,
             "failure_count": len(list(furniture_style_contract.get("failures") or [])) if furniture_style_contract_receipt_path is not None else None,
             "failures": list(furniture_style_contract.get("failures") or [])[:12] if furniture_style_contract_receipt_path is not None else [],
             "receipt_path": str(furniture_style_contract_receipt_path) if furniture_style_contract_receipt_path is not None else "",
-            "note": "Furniture-style variants are entitlement-gated and style-aware; this does not replace verified 3D-tour provider evidence.",
+            "note": "Furniture styles are chosen per visual request and remain style-aware across caching; this does not replace verified 3D-tour provider evidence.",
         },
         "bts_methodology": {
             "status": bts_methodology_contract.get("status") or ("not_configured" if bts_methodology_contract_receipt_path is None else "missing"),

@@ -6,6 +6,7 @@ This manifest records the last verified runtime candidate for branch/deployment 
 
 The latest live recheck on 2026-06-27 supersedes the earlier provisional Brilliant Directories billing pass. The current edge proof is narrower and more accurate:
 
+- The current furniture-style contract supersedes the candidate-era `1/3/5` note retained in the history below: Free, Plus, and Agent can each choose any of the five styles when requesting a 3D tour or walkthrough. Plan differences remain in generation quotas, search coverage, and research depth; already-rendered assets remain viewable.
 - `billing.propertyquarry.com` now resolves and stays first-party.
 - `https://billing.propertyquarry.com/account` now redirects only to `https://billing.propertyquarry.com/login?login_direct_url=%2Faccount`.
 - The Cloudflare billing handoff worker now keeps `/join` off the stock Brilliant Directories pricing surface by returning `302` to `https://propertyquarry.com/pricing`.

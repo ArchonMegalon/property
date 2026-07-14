@@ -4,6 +4,8 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
+
 from scripts import propertyquarry_gold_status as gold_status
 from scripts.propertyquarry_gold_status import _latest_receipt_path, build_gold_status_receipt
 
@@ -1490,11 +1492,14 @@ def _release_hygiene_payload(*, status: str = "pass", tracked_dirty_path_count: 
 def _furniture_style_contract_payload(*, status: str = "pass") -> dict[str, object]:
     failures = [] if status == "pass" else ["furniture style catalog missing value urban_jungle"]
     return {
-        "schema": "propertyquarry.furniture_style_contract_receipt.v1",
+        "schema": "propertyquarry.furniture_style_contract_receipt.v2",
         "status": status,
         "style_count": 5 if status == "pass" else 4,
         "style_values": ["gilded_penthouse", "ikea_practical", "landhaus", "urban_jungle", "warm_scandi"],
         "plan_caps": {"free": 5, "plus": 5, "agent": 5},
+        "helper_plan_caps": {"free": 5, "plus": 5, "agent": 5},
+        "availability_mode": "per_visual_request",
+        "pricing_surface_bound": True,
         "failure_count": len(failures),
         "failures": failures,
     }
@@ -3744,7 +3749,14 @@ def test_gold_status_blocks_when_release_hygiene_receipt_fails(tmp_path: Path) -
     assert "release manifest runtime commit" in blocker["failures"][0]
 
 
-def test_gold_status_blocks_when_furniture_style_contract_fails(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "mutation",
+    ("status", "schema", "helper_plan_caps", "availability_mode", "pricing_surface_bound"),
+)
+def test_gold_status_blocks_when_furniture_style_contract_fails(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
     performance = _write_json(tmp_path / "performance.json", _performance_payload())
     tour_controls = _write_json(
         tmp_path / "tour-controls.json",
@@ -3766,7 +3778,26 @@ def test_gold_status_blocks_when_furniture_style_contract_fails(tmp_path: Path) 
         },
     )
     provider_matrix = _write_json(tmp_path / "provider-matrix.json", _provider_matrix_payload())
-    furniture_style_contract = _write_json(tmp_path / "furniture-style-contract.json", _furniture_style_contract_payload(status="fail"))
+    furniture_style_payload = _furniture_style_contract_payload()
+    if mutation == "status":
+        furniture_style_payload.update(
+            status="fail",
+            style_count=4,
+            failure_count=1,
+            failures=["furniture style catalog missing value urban_jungle"],
+        )
+    elif mutation == "schema":
+        furniture_style_payload["schema"] = "propertyquarry.furniture_style_contract_receipt.v1"
+    elif mutation == "helper_plan_caps":
+        furniture_style_payload["helper_plan_caps"] = {"free": 1, "plus": 5, "agent": 5}
+    elif mutation == "availability_mode":
+        furniture_style_payload["availability_mode"] = "saved_search_preference"
+    elif mutation == "pricing_surface_bound":
+        furniture_style_payload["pricing_surface_bound"] = False
+    furniture_style_contract = _write_json(
+        tmp_path / "furniture-style-contract.json",
+        furniture_style_payload,
+    )
 
     receipt = build_gold_status_receipt(
         performance_receipt_path=performance,
@@ -3779,8 +3810,14 @@ def test_gold_status_blocks_when_furniture_style_contract_fails(tmp_path: Path) 
 
     blocker = next(row for row in receipt["blockers"] if row["area"] == "furniture_style_variants")
     assert receipt["status"] == "blocked"
-    assert receipt["furniture_style_variants"]["status"] == "fail"
-    assert blocker["style_count"] == 4
+    assert receipt["furniture_style_variants"]["status"] == ("fail" if mutation == "status" else "pass")
+    assert blocker["style_count"] == (4 if mutation == "status" else 5)
+    assert blocker["availability_mode"] == (
+        "saved_search_preference"
+        if mutation == "availability_mode"
+        else "per_visual_request"
+    )
+    assert blocker["pricing_surface_bound"] is (mutation != "pricing_surface_bound")
     assert "all-tier request-time choice" in blocker["action"]
 
 

@@ -21,6 +21,12 @@ _AGENT_PLAN_ALIASES = {
     "agent_tier_lifetime": "agent",
 }
 
+_PROPERTY_FURNITURE_STYLE_LIMIT_BY_PLAN = {
+    "free": 5,
+    "plus": 5,
+    "agent": 5,
+}
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -69,8 +75,11 @@ def property_worker_cap(plan_key: object) -> int:
 
 
 def property_furniture_style_cap(plan_key: object) -> int:
-    normalize_property_plan_key(plan_key)
-    return 5
+    normalized = normalize_property_plan_key(plan_key)
+    return _PROPERTY_FURNITURE_STYLE_LIMIT_BY_PLAN.get(
+        normalized,
+        _PROPERTY_FURNITURE_STYLE_LIMIT_BY_PLAN["free"],
+    )
 
 
 @dataclass(frozen=True)
@@ -107,7 +116,7 @@ _FREE_PLAN = PropertyPlanSpec(
     max_match_score=35,
     research_depth="standard",
     investment_research_level="none",
-    furniture_style_limit=5,
+    furniture_style_limit=property_furniture_style_cap("free"),
     magic_fit_scene_limit=1,
     magic_fit_video_limit=1,
     magic_fit_scene_period="week",
@@ -134,7 +143,7 @@ _PAID_PLANS = {
         max_match_score=45,
         research_depth="deep",
         investment_research_level="preview",
-        furniture_style_limit=5,
+        furniture_style_limit=property_furniture_style_cap("plus"),
         magic_fit_scene_limit=5,
         magic_fit_video_limit=3,
         magic_fit_scene_period="day",
@@ -159,7 +168,7 @@ _PAID_PLANS = {
         max_match_score=60,
         research_depth="deep",
         investment_research_level="full",
-        furniture_style_limit=5,
+        furniture_style_limit=property_furniture_style_cap("agent"),
         magic_fit_scene_limit=0,
         magic_fit_video_limit=0,
         magic_fit_scene_period="none",
