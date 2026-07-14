@@ -1133,6 +1133,84 @@ def test_generated_reconstruction_runtime_sync_timeout_returns_receipt(
     assert receipt["container"] == "propertyquarry-api"
 
 
+def test_generated_reconstruction_runtime_sync_makes_only_public_manifest_readable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    slug = "runtime-readable"
+    bundle_dir = _write_base_tour(tmp_path, slug)
+    (bundle_dir / "tour.private.json").write_text('{"private": true}\n', encoding="utf-8")
+    calls: list[tuple[list[str], dict[str, object]]] = []
+
+    def _fake_run(command, **kwargs):
+        calls.append((list(command), dict(kwargs)))
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(reconstruction_script.shutil, "which", lambda _name: "/usr/bin/docker")
+    monkeypatch.setattr(reconstruction_script.subprocess, "run", _fake_run)
+    monkeypatch.setenv("PROPERTYQUARRY_RECONSTRUCTION_RUNTIME_PERMISSION_TIMEOUT_SECONDS", "11")
+
+    receipt = reconstruction_script._sync_bundle_to_runtime_container(bundle_dir, slug=slug)
+
+    remote_bundle = f"/data/public_property_tours/{slug}"
+    assert receipt == {"status": "updated", "slug": slug, "container": "propertyquarry-api"}
+    assert calls[0][0] == [
+        "/usr/bin/docker",
+        "exec",
+        "propertyquarry-api",
+        "mkdir",
+        "-p",
+        remote_bundle,
+    ]
+    assert calls[1][0] == [
+        "/usr/bin/docker",
+        "cp",
+        f"{bundle_dir.resolve()}/.",
+        f"propertyquarry-api:{remote_bundle}/",
+    ]
+    assert calls[2][0] == [
+        "/usr/bin/docker",
+        "exec",
+        "--user",
+        "0",
+        "propertyquarry-api",
+        "chmod",
+        "0644",
+        f"{remote_bundle}/tour.json",
+    ]
+    assert calls[2][1]["timeout"] == 11.0
+    assert all("tour.private.json" not in argument for argument in calls[2][0])
+
+
+def test_generated_reconstruction_runtime_sync_fails_closed_when_public_manifest_chmod_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    slug = "runtime-unreadable"
+    bundle_dir = _write_base_tour(tmp_path, slug)
+    calls: list[list[str]] = []
+
+    def _fake_run(command, **_kwargs):
+        calls.append(list(command))
+        return subprocess.CompletedProcess(
+            command,
+            1 if len(calls) == 3 else 0,
+            stdout="",
+            stderr="permission denied" if len(calls) == 3 else "",
+        )
+
+    monkeypatch.setattr(reconstruction_script.shutil, "which", lambda _name: "/usr/bin/docker")
+    monkeypatch.setattr(reconstruction_script.subprocess, "run", _fake_run)
+
+    receipt = reconstruction_script._sync_bundle_to_runtime_container(bundle_dir, slug=slug)
+
+    assert receipt["status"] == "runtime_permission_failed"
+    assert receipt["slug"] == slug
+    assert receipt["container"] == "propertyquarry-api"
+    assert receipt["public_manifest"] == f"/data/public_property_tours/{slug}/tour.json"
+    assert receipt["stderr"] == "permission denied"
+
+
 def test_generated_reconstruction_required_runtime_publish_failure_exits_nonzero(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

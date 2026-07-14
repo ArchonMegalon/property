@@ -1993,6 +1993,16 @@ def _sync_bundle_to_runtime_container(bundle_dir: Path, *, slug: str) -> dict[st
     except Exception:
         copy_timeout_seconds = 30.0
     try:
+        permission_timeout_seconds = max(
+            2.0,
+            float(
+                str(os.getenv("PROPERTYQUARRY_RECONSTRUCTION_RUNTIME_PERMISSION_TIMEOUT_SECONDS") or "8").strip()
+                or "8"
+            ),
+        )
+    except Exception:
+        permission_timeout_seconds = 8.0
+    try:
         mkdir_result = subprocess.run(
             [docker_bin, "exec", container, "mkdir", "-p", remote_bundle],
             check=False,
@@ -2035,6 +2045,31 @@ def _sync_bundle_to_runtime_container(bundle_dir: Path, *, slug: str) -> dict[st
             "slug": slug,
             "container": container,
             "stderr": (copy_result.stderr or "").strip()[-400:],
+        }
+    public_manifest = f"{remote_bundle}/tour.json"
+    try:
+        permission_result = subprocess.run(
+            [docker_bin, "exec", "--user", "0", container, "chmod", "0644", public_manifest],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=permission_timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "status": "runtime_permission_timeout",
+            "slug": slug,
+            "container": container,
+            "public_manifest": public_manifest,
+            "timeout_seconds": exc.timeout,
+        }
+    if permission_result.returncode != 0:
+        return {
+            "status": "runtime_permission_failed",
+            "slug": slug,
+            "container": container,
+            "public_manifest": public_manifest,
+            "stderr": (permission_result.stderr or "").strip()[-400:],
         }
     return {"status": "updated", "slug": slug, "container": container}
 
