@@ -5,7 +5,7 @@
   "proof_target": "propertyquarry",
   "version": 1,
   "kind": "proof_receipt",
-  "generated_at": "2026-07-14T16:45:30Z",
+  "generated_at": "2026-07-14T16:57:36Z",
   "generated_by": "scripts/materialize_ea_browser_workflow_proof.py",
   "status": "pass",
   "operator_summary": "PropertyQuarry browser workflow proof is published and green across both source-backed journeys and real-browser E2E.",
@@ -20,7 +20,7 @@
   ],
   "source_binding": {
     "version": 1,
-    "code_commit": "5779f38bae699bc87af01722e513ce03d190940b",
+    "code_commit": "c9315ffccb2b5b247ec3611c95019f63cd336293",
     "seed": {
       "path": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
       "sha256": "542cd03e2ea8ca3432f8be73a4b37dd2b58c52dd92cd8726375db507e09ebf07",
@@ -50,10 +50,10 @@
       "test_propertyquarry_failed_run_stays_on_activity_surface"
     ],
     "exit_code": 0,
-    "duration_seconds": 33.674,
+    "duration_seconds": 65.615,
     "output_excerpt": [
       "..                                                                       [100%]",
-      "2 passed in 30.29s"
+      "2 passed in 57.22s"
     ],
     "limitations": [],
     "outcome_counts": {
@@ -79,10 +79,10 @@
       "test_propertyquarry_greenfield_workspace_is_mobile_usable"
     ],
     "exit_code": 0,
-    "duration_seconds": 58.193,
+    "duration_seconds": 61.501,
     "output_excerpt": [
       "..                                                                       [100%]",
-      "2 passed in 51.09s"
+      "2 passed in 53.62s"
     ],
     "limitations": [],
     "outcome_counts": {
