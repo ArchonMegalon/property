@@ -738,12 +738,16 @@ def _provider_probe_limit() -> int:
 def _provider_pick_window_size(total: int) -> int:
     if total <= 0:
         return 0
-    default_window = max(_provider_probe_limit() * 2, 12)
+    rank_budget = _rank_threshold()
     try:
-        configured = int(os.environ.get("PROPERTYQUARRY_TARGET_RECOVERY_PICK_WINDOW") or default_window)
+        configured = int(os.environ.get("PROPERTYQUARRY_TARGET_RECOVERY_PICK_WINDOW") or rank_budget)
     except Exception:
-        configured = default_window
-    return max(1, min(total, configured))
+        configured = rank_budget
+    # The canary may only select a target from the provider positions that the
+    # product is subsequently required to recover. Sampling a deeper listing
+    # and then requiring a top-N result turns provider ordering into a random
+    # failure instead of exercising PropertyQuarry's ranking contract.
+    return max(1, min(total, configured, rank_budget))
 
 
 def _ordered_probe_candidates(urls: list[str], *, seed_basis: str) -> list[tuple[int, str]]:
@@ -1370,21 +1374,26 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
     assert successful_case_total > 0, "no target-recovery case completed successfully"
 
 
-def test_ordered_probe_candidates_stays_within_fresh_pick_window(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ordered_probe_candidates_never_samples_beyond_rank_gate(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PROPERTYQUARRY_TARGET_RECOVERY_PROBE_LIMIT", "4")
     monkeypatch.setenv("PROPERTYQUARRY_TARGET_RECOVERY_PICK_WINDOW", "6")
+    monkeypatch.setenv("PROPERTYQUARRY_TARGET_RECOVERY_TARGET_RANK_MAX", "3")
     urls = [f"https://example.test/{index}" for index in range(12)]
     ordered = _ordered_probe_candidates(urls, seed_basis="AT|willhaben|demo")
-    assert len(ordered) == 4
-    assert all(index < 6 for index, _url in ordered)
-    assert len({index for index, _url in ordered}) == 4
+    assert len(ordered) == 3
+    assert all(index < 3 for index, _url in ordered)
+    assert len({index for index, _url in ordered}) == 3
 
 
-def test_provider_pick_window_size_scales_from_probe_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_provider_pick_window_size_is_bounded_by_rank_gate(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("PROPERTYQUARRY_TARGET_RECOVERY_PICK_WINDOW", raising=False)
     monkeypatch.setenv("PROPERTYQUARRY_TARGET_RECOVERY_PROBE_LIMIT", "5")
-    assert _provider_pick_window_size(40) == 12
-    assert _provider_pick_window_size(7) == 7
+    monkeypatch.setenv("PROPERTYQUARRY_TARGET_RECOVERY_TARGET_RANK_MAX", "5")
+    assert _provider_pick_window_size(40) == 5
+    assert _provider_pick_window_size(3) == 3
+
+    monkeypatch.setenv("PROPERTYQUARRY_TARGET_RECOVERY_PICK_WINDOW", "2")
+    assert _provider_pick_window_size(40) == 2
 
 
 def test_target_provider_matrix_expands_to_all_search_ready_countries(monkeypatch: pytest.MonkeyPatch) -> None:
