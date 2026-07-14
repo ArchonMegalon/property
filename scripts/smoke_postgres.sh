@@ -475,6 +475,8 @@ if [[ "${sessions_count}" -lt 1 || "${events_count}" -lt 1 || "${policy_count}" 
 fi
 
 echo "== smoke-postgres: prod fail-fast check =="
+set_env_value "EA_ALLOW_LOOPBACK_NO_AUTH" "0"
+export EA_ALLOW_LOOPBACK_NO_AUTH="0"
 set_env_value "EA_RUNTIME_MODE" "prod"
 set_env_value "EA_STORAGE_BACKEND" "auto"
 set_env_value "EA_API_TOKEN" "smoke-prod-token"

@@ -95,6 +95,11 @@ def test_legacy_migration_regression_smoke_contract_is_wired() -> None:
     )
     assert 'set_env_value "EA_ALLOW_LOOPBACK_NO_AUTH" "1"' in smoke
     assert 'export EA_ALLOW_LOOPBACK_NO_AUTH="1"' in smoke
+    assert 'set_env_value "EA_ALLOW_LOOPBACK_NO_AUTH" "0"' in smoke
+    assert 'export EA_ALLOW_LOOPBACK_NO_AUTH="0"' in smoke
+    assert smoke.index('set_env_value "EA_ALLOW_LOOPBACK_NO_AUTH" "0"') < smoke.index(
+        'set_env_value "EA_RUNTIME_MODE" "prod"'
+    )
     assert "secrets.token_hex(32)" in smoke
     assert 'set_env_value "EA_SIGNING_SECRET" "${smoke_signing_secret}"' in smoke
     assert 'export EA_SIGNING_SECRET="${smoke_signing_secret}"' in smoke
