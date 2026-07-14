@@ -1862,7 +1862,7 @@ def test_propertyquarry_fast_ranked_shell_uses_generated_diorama_from_ready_layo
     monkeypatch.setattr(
         landing_routes,
         "_property_visual_ready_tour_url",
-        lambda *, tour_url="", open_tour_url="": (
+        lambda *, tour_url="", open_tour_url="", principal_id="": (
             generated_reconstruction_url
             if str(tour_url or open_tour_url).strip() == generated_reconstruction_url
             else ""
@@ -8710,7 +8710,7 @@ def test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_b
         tour_url = str(open_3d_tour.get_attribute("href") or "").strip()
         assert tour_url.endswith("/tours/altbau-u6/control/3dvista")
         tour_entry = tour_url if tour_url.startswith("http") else f"{base_url}{tour_url}"
-        response = page.goto(f"{tour_entry}?pane=floorplan-pane", wait_until="domcontentloaded")
+        response = page.goto(f"{tour_entry}?pane=floorplan-pane", wait_until="networkidle")
         assert response is not None and response.ok
         page.locator("h1").wait_for()
         assert page.locator("body", has_text="Altbau near U6").is_visible()
