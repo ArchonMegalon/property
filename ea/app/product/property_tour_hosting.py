@@ -785,11 +785,11 @@ def _hosted_property_tour_entry_has_marker(bundle_dir: Path, relpath: object, *,
         return False
     if path.suffix.lower() not in {".htm", ".html"}:
         return False
-    candidate = (bundle_dir / "/".join(path.parts)).resolve()
-    resolved_bundle = bundle_dir.resolve()
-    if candidate == resolved_bundle or resolved_bundle not in candidate.parents or not candidate.is_file():
-        return False
     try:
+        candidate = (bundle_dir / "/".join(path.parts)).resolve()
+        resolved_bundle = bundle_dir.resolve()
+        if candidate == resolved_bundle or resolved_bundle not in candidate.parents or not candidate.is_file():
+            return False
         body = candidate.read_text(encoding="utf-8", errors="replace")[:200_000].lower()
     except OSError:
         return False
@@ -846,11 +846,15 @@ def _hosted_property_tour_asset_path(bundle_dir: Path, relpath: object) -> Path 
     if not normalized:
         return None
     parts = [part for part in normalized.split("/") if part and part not in {".", ".."}]
-    if not parts:
+    if not parts or any(part in {".propertyquarry-publish-token", ".publish..staging"} for part in parts):
         return None
     safe_relpath = "/".join(parts)
-    candidate = (bundle_dir / safe_relpath).resolve()
-    if bundle_dir.resolve() not in candidate.parents or not candidate.is_file():
+    try:
+        candidate = (bundle_dir / safe_relpath).resolve()
+        resolved_bundle = bundle_dir.resolve()
+        if resolved_bundle not in candidate.parents or not candidate.is_file():
+            return None
+    except OSError:
         return None
     return candidate
 
@@ -1117,13 +1121,14 @@ def _hosted_property_tour_walkthrough_open_url(tour_url: object, walkthrough_url
 
 def _generated_reconstruction_relpath_file(bundle_dir: Path, relpath: object) -> Path | None:
     normalized = str(relpath or "").strip().lstrip("/")
-    if not normalized:
+    if not normalized or ".propertyquarry-publish-token" in normalized.replace("\\", "/").split("/"):
         return None
     try:
+        resolved_bundle = bundle_dir.resolve()
         asset_path = (bundle_dir / normalized).resolve()
+        if resolved_bundle not in asset_path.parents or not asset_path.is_file():
+            return None
     except OSError:
-        return None
-    if bundle_dir.resolve() not in asset_path.parents or not asset_path.is_file():
         return None
     return asset_path
 

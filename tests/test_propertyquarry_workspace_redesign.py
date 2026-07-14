@@ -7082,6 +7082,39 @@ def test_propertyquarry_example_media_targets_use_real_public_tour_assets(monkey
     }
 
 
+def test_propertyquarry_root_ignores_unreadable_optional_example_media(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path / "public_tours"))
+    landing_routes._propertyquarry_example_media_targets_cached.cache_clear()
+    monkeypatch.setattr(landing_routes, "_propertyquarry_example_media_cache_bucket", lambda: 123)
+    attempts = 0
+
+    def _unreadable_media(_root: Path) -> dict[str, str]:
+        nonlocal attempts
+        attempts += 1
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(
+        landing_routes,
+        "_propertyquarry_example_media_targets_scan",
+        _unreadable_media,
+    )
+    public_client = build_property_client(principal_id="pq-unreadable-example-media")
+    public_client.headers.pop("X-EA-Principal-ID", None)
+
+    response = public_client.get("/", headers={"host": "propertyquarry.com"})
+    repeated_response = public_client.get("/", headers={"host": "propertyquarry.com"})
+
+    assert response.status_code == 200
+    assert repeated_response.status_code == 200
+    assert attempts == 1
+    assert "Example shortlist" in response.text
+    assert "/static/property/home/example-shortlist-home-1.png" in response.text
+
+
 def test_propertyquarry_example_shortlist_rows_reuse_cached_media_target_scan(
     monkeypatch,
     tmp_path: Path,

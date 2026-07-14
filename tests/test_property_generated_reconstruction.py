@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import io
 import json
 import math
 import os
+import pwd
 import subprocess
 import sys
+import tarfile
+import tempfile
 import threading
 import time
 from contextlib import contextmanager
@@ -1377,23 +1381,30 @@ def test_generated_reconstruction_runtime_sync_timeout_returns_receipt(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    bundle_dir = tmp_path / "public_tours" / "runtime-timeout"
-    bundle_dir.mkdir(parents=True)
+    bundle_dir = _write_base_tour(tmp_path, "runtime-timeout")
 
-    def _fake_run(*args, **kwargs):
-        raise subprocess.TimeoutExpired(args[0], timeout=kwargs.get("timeout") or 0)
+    calls: list[list[str]] = []
+
+    def _fake_run(command, **kwargs):
+        calls.append(list(command))
+        if len(calls) == 1:
+            raise subprocess.TimeoutExpired(command, timeout=kwargs.get("timeout") or 0)
+        return subprocess.CompletedProcess(command, 0, stdout="state=not_committed\n", stderr="")
 
     monkeypatch.setattr(reconstruction_script.shutil, "which", lambda _name: "/usr/bin/docker")
     monkeypatch.setattr(reconstruction_script.subprocess, "run", _fake_run)
+    monkeypatch.setattr(reconstruction_script, "_runtime_publish_token", lambda _slug: "0" * 32)
 
     receipt = reconstruction_script._sync_bundle_to_runtime_container(bundle_dir, slug="runtime-timeout")
 
-    assert receipt["status"] == "runtime_mkdir_timeout"
+    assert receipt["status"] == "runtime_finalize_timeout"
     assert receipt["slug"] == "runtime-timeout"
     assert receipt["container"] == "propertyquarry-api"
+    assert receipt["recovery"] == {"state": "not_committed", "cleanup": "complete"}
+    assert len(calls) == 2
 
 
-def test_generated_reconstruction_runtime_sync_makes_only_public_manifest_readable(
+def test_generated_reconstruction_runtime_sync_normalizes_private_bundle_for_api_user(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1404,45 +1415,64 @@ def test_generated_reconstruction_runtime_sync_makes_only_public_manifest_readab
 
     def _fake_run(command, **kwargs):
         calls.append((list(command), dict(kwargs)))
-        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        stdout = "state=committed\n" if reconstruction_script._RUNTIME_PUBLISH_RECOVER_SCRIPT in command else ""
+        return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
 
     monkeypatch.setattr(reconstruction_script.shutil, "which", lambda _name: "/usr/bin/docker")
     monkeypatch.setattr(reconstruction_script.subprocess, "run", _fake_run)
+    publish_token = "1" * 32
+    monkeypatch.setattr(reconstruction_script, "_runtime_publish_token", lambda _slug: publish_token)
     monkeypatch.setenv("PROPERTYQUARRY_RECONSTRUCTION_RUNTIME_PERMISSION_TIMEOUT_SECONDS", "11")
 
     receipt = reconstruction_script._sync_bundle_to_runtime_container(bundle_dir, slug=slug)
 
     remote_bundle = f"/data/public_property_tours/{slug}"
+    remote_staging = f"/data/public_property_tours/.publish..staging/{slug}-{publish_token}"
+    remote_backup = f"{remote_staging}.previous"
     assert receipt == {"status": "updated", "slug": slug, "container": "propertyquarry-api"}
-    assert calls[0][0] == [
+    finalize_command = calls[0][0]
+    assert finalize_command[:9] == [
         "/usr/bin/docker",
         "exec",
-        "propertyquarry-api",
-        "mkdir",
-        "-p",
-        remote_bundle,
-    ]
-    assert calls[1][0] == [
-        "/usr/bin/docker",
-        "cp",
-        f"{bundle_dir.resolve()}/.",
-        f"propertyquarry-api:{remote_bundle}/",
-    ]
-    assert calls[2][0] == [
-        "/usr/bin/docker",
-        "exec",
+        "-i",
         "--user",
-        "0",
+        "ea",
         "propertyquarry-api",
-        "chmod",
-        "0644",
-        f"{remote_bundle}/tour.json",
+        "python",
+        "-c",
+        reconstruction_script._RUNTIME_PUBLISH_FINALIZE_SCRIPT,
     ]
-    assert calls[2][1]["timeout"] == 11.0
-    assert all("tour.private.json" not in argument for argument in calls[2][0])
+    assert finalize_command[9:15] == [
+        remote_staging,
+        remote_bundle,
+        remote_backup,
+        "ea",
+        "41.0",
+        publish_token,
+    ]
+    assert int(finalize_command[15]) > 0
+    assert int(finalize_command[16]) > 0
+    assert int(finalize_command[17]) >= int(finalize_command[16])
+    assert len(finalize_command[18]) == 64
+    assert calls[0][1]["timeout"] == 56.0
+    assert calls[0][1]["stdin"] is not None
+    assert "0" not in finalize_command[3:6]
+    assert "cp" not in finalize_command
+    recovery_command = calls[1][0]
+    assert recovery_command[7] == reconstruction_script._RUNTIME_PUBLISH_RECOVER_SCRIPT
+    assert recovery_command[8:13] == [
+        "/data/public_property_tours",
+        remote_staging,
+        remote_bundle,
+        remote_backup,
+        publish_token,
+    ]
+    assert recovery_command[2:5] == ["--user", "ea", "propertyquarry-api"]
+    assert recovery_command[-1] == "ea"
+    assert len(calls) == 2
 
 
-def test_generated_reconstruction_runtime_sync_fails_closed_when_public_manifest_chmod_fails(
+def test_generated_reconstruction_runtime_sync_fails_closed_when_archive_extraction_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1452,23 +1482,399 @@ def test_generated_reconstruction_runtime_sync_fails_closed_when_public_manifest
 
     def _fake_run(command, **_kwargs):
         calls.append(list(command))
+        if reconstruction_script._RUNTIME_PUBLISH_RECOVER_SCRIPT in command:
+            return subprocess.CompletedProcess(command, 0, stdout="state=not_committed\n", stderr="")
         return subprocess.CompletedProcess(
             command,
-            1 if len(calls) == 3 else 0,
+            1,
             stdout="",
-            stderr="permission denied" if len(calls) == 3 else "",
+            stderr="phase=extraction error=PermissionError:permission denied",
         )
+
+    monkeypatch.setattr(reconstruction_script.shutil, "which", lambda _name: "/usr/bin/docker")
+    monkeypatch.setattr(reconstruction_script.subprocess, "run", _fake_run)
+    publish_token = "2" * 32
+    monkeypatch.setattr(reconstruction_script, "_runtime_publish_token", lambda _slug: publish_token)
+
+    receipt = reconstruction_script._sync_bundle_to_runtime_container(bundle_dir, slug=slug)
+
+    assert receipt["status"] == "runtime_copy_failed"
+    assert receipt["slug"] == slug
+    assert receipt["container"] == "propertyquarry-api"
+    assert receipt["remote_bundle"] == f"/data/public_property_tours/{slug}"
+    assert receipt["remote_staging"] == (
+        f"/data/public_property_tours/.publish..staging/{slug}-{publish_token}"
+    )
+    assert "phase=extraction" in receipt["stderr"]
+    assert all("cp" not in call for call in calls)
+    assert calls[0][3:6] == ["--user", "ea", "propertyquarry-api"]
+    assert receipt["recovery"] == {"state": "not_committed", "cleanup": "complete"}
+    assert len(calls) == 2
+
+
+def test_generated_reconstruction_runtime_archive_rejects_symlink_before_container_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    slug = "runtime-symlink"
+    bundle_dir = _write_base_tour(tmp_path, slug)
+    calls: list[list[str]] = []
+    (bundle_dir / "viewer-link.html").symlink_to(bundle_dir / "tour.json")
+
+    def _fake_run(command, **_kwargs):
+        calls.append(list(command))
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
     monkeypatch.setattr(reconstruction_script.shutil, "which", lambda _name: "/usr/bin/docker")
     monkeypatch.setattr(reconstruction_script.subprocess, "run", _fake_run)
 
     receipt = reconstruction_script._sync_bundle_to_runtime_container(bundle_dir, slug=slug)
 
-    assert receipt["status"] == "runtime_permission_failed"
+    assert receipt["status"] == "runtime_archive_failed"
     assert receipt["slug"] == slug
     assert receipt["container"] == "propertyquarry-api"
-    assert receipt["public_manifest"] == f"/data/public_property_tours/{slug}/tour.json"
-    assert receipt["stderr"] == "permission denied"
+    assert "unsafe" in receipt["error"]
+    assert calls == []
+
+
+def test_generated_reconstruction_runtime_recovery_oserror_returns_ambiguous_receipt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    slug = "runtime-recovery-oserror"
+    bundle_dir = _write_base_tour(tmp_path, slug)
+    calls: list[list[str]] = []
+
+    def _fake_run(command, **_kwargs):
+        calls.append(list(command))
+        if reconstruction_script._RUNTIME_PUBLISH_RECOVER_SCRIPT in command:
+            raise FileNotFoundError(2, "docker disappeared")
+        return subprocess.CompletedProcess(
+            command,
+            1,
+            stdout="",
+            stderr="phase=extraction error=RuntimeError:rejected",
+        )
+
+    monkeypatch.setattr(reconstruction_script.shutil, "which", lambda _name: "/usr/bin/docker")
+    monkeypatch.setattr(reconstruction_script.subprocess, "run", _fake_run)
+    monkeypatch.setattr(reconstruction_script, "_runtime_publish_token", lambda _slug: "3" * 32)
+
+    receipt = reconstruction_script._sync_bundle_to_runtime_container(bundle_dir, slug=slug)
+
+    assert receipt["status"] == "runtime_copy_failed"
+    assert receipt["recovery"]["state"] == "ambiguous"
+    assert receipt["recovery"]["cleanup"] == "failed"
+    assert "FileNotFoundError" in receipt["recovery"]["stderr"]
+    assert len(calls) == 2
+
+
+def test_generated_reconstruction_runtime_finalize_timeout_returns_receipt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    slug = "runtime-finalize-timeout"
+    bundle_dir = _write_base_tour(tmp_path, slug)
+    calls: list[list[str]] = []
+
+    def _fake_run(command, **kwargs):
+        calls.append(list(command))
+        if len(calls) == 1:
+            raise subprocess.TimeoutExpired(command, timeout=kwargs.get("timeout") or 0)
+        stdout = "state=not_committed\n" if reconstruction_script._RUNTIME_PUBLISH_RECOVER_SCRIPT in command else ""
+        return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(reconstruction_script.shutil, "which", lambda _name: "/usr/bin/docker")
+    monkeypatch.setattr(reconstruction_script.subprocess, "run", _fake_run)
+    publish_token = "4" * 32
+    monkeypatch.setattr(reconstruction_script, "_runtime_publish_token", lambda _slug: publish_token)
+
+    receipt = reconstruction_script._sync_bundle_to_runtime_container(bundle_dir, slug=slug)
+
+    assert receipt["status"] == "runtime_finalize_timeout"
+    assert receipt["remote_bundle"] == f"/data/public_property_tours/{slug}"
+    assert receipt["remote_staging"] == (
+        f"/data/public_property_tours/.publish..staging/{slug}-{publish_token}"
+    )
+    assert receipt["recovery"] == {"state": "not_committed", "cleanup": "complete"}
+    assert len(calls) == 2
+
+
+def test_generated_reconstruction_runtime_finalize_timeout_recovers_committed_marker(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    slug = "runtime-finalize-committed"
+    bundle_dir = _write_base_tour(tmp_path, slug)
+    calls: list[list[str]] = []
+
+    def _fake_run(command, **kwargs):
+        calls.append(list(command))
+        if len(calls) == 1:
+            raise subprocess.TimeoutExpired(command, timeout=kwargs.get("timeout") or 0)
+        stdout = "state=committed\n" if reconstruction_script._RUNTIME_PUBLISH_RECOVER_SCRIPT in command else ""
+        return subprocess.CompletedProcess(command, 0, stdout=stdout, stderr="")
+
+    monkeypatch.setattr(reconstruction_script.shutil, "which", lambda _name: "/usr/bin/docker")
+    monkeypatch.setattr(reconstruction_script.subprocess, "run", _fake_run)
+    monkeypatch.setattr(reconstruction_script, "_runtime_publish_token", lambda _slug: "5" * 32)
+
+    receipt = reconstruction_script._sync_bundle_to_runtime_container(bundle_dir, slug=slug)
+
+    assert receipt == {
+        "status": "updated",
+        "slug": slug,
+        "container": "propertyquarry-api",
+        "recovered_after_finalize_timeout": True,
+        "staging_cleanup": "complete",
+    }
+    assert len(calls) == 2
+
+
+def _runtime_publish_test_identity(public_root: Path) -> tuple[int, int, object | None]:
+    if os.geteuid() != 0:
+        return os.geteuid(), os.getegid(), None
+    nobody = pwd.getpwnam("nobody")
+    public_root.parent.chmod(0o755)
+    for current, directory_names, file_names in os.walk(public_root):
+        os.chown(current, nobody.pw_uid, nobody.pw_gid)
+        for name in [*directory_names, *file_names]:
+            os.chown(Path(current) / name, nobody.pw_uid, nobody.pw_gid, follow_symlinks=False)
+
+    def _demote() -> None:
+        os.setgid(nobody.pw_gid)
+        os.setuid(nobody.pw_uid)
+
+    return nobody.pw_uid, nobody.pw_gid, _demote
+
+
+def test_generated_reconstruction_runtime_finalize_promotes_normalized_stage_with_rollback_boundary(
+    tmp_path: Path,
+) -> None:
+    public_root = tmp_path / "public_tours"
+    live = public_root / "runtime-live"
+    stage = public_root / ".publish..staging" / "runtime-live-success"
+    backup = stage.with_name(f"{stage.name}.previous")
+    live.mkdir(parents=True)
+    (live / "tour.json").write_text('{"version": "old"}\n', encoding="utf-8")
+    source = tmp_path / "source-bundle"
+    (source / "generated-reconstruction").mkdir(parents=True)
+    (source / "tour.json").write_text(
+        '{"slug": "runtime-live", "version": "new"}\n',
+        encoding="utf-8",
+    )
+    viewer = source / "generated-reconstruction" / "viewer.html"
+    viewer.write_text("<!doctype html>new viewer", encoding="utf-8")
+    publish_token = "a" * 32
+    runtime_uid, _runtime_gid, demote = _runtime_publish_test_identity(public_root)
+    stop_reader = threading.Event()
+    reader_versions: list[str] = []
+    reader_errors: list[str] = []
+
+    def _read_live_bundle() -> None:
+        while not stop_reader.is_set():
+            try:
+                reader_versions.append(
+                    str(json.loads((live / "tour.json").read_text(encoding="utf-8"))["version"])
+                )
+            except Exception as exc:  # pragma: no cover - asserted below with exact details
+                reader_errors.append(f"{type(exc).__name__}:{exc}")
+
+    reader = threading.Thread(target=_read_live_bundle, daemon=True)
+    reader.start()
+    while not reader_versions:
+        time.sleep(0.001)
+
+    try:
+        with tempfile.TemporaryFile(mode="w+b") as archive_file:
+            archive_entries, logical_bytes, archive_bytes, archive_sha256 = (
+                reconstruction_script._write_runtime_publish_archive(source, archive_file)
+            )
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    reconstruction_script._RUNTIME_PUBLISH_FINALIZE_SCRIPT,
+                    str(stage),
+                    str(live),
+                    str(backup),
+                    str(runtime_uid),
+                    "10",
+                    publish_token,
+                    str(archive_entries),
+                    str(logical_bytes),
+                    str(archive_bytes),
+                    archive_sha256,
+                ],
+                check=False,
+                stdin=archive_file,
+                capture_output=True,
+                text=True,
+                timeout=15,
+                preexec_fn=demote,
+            )
+    finally:
+        stop_reader.set()
+        reader.join(timeout=2)
+
+    assert completed.returncode == 0, completed.stderr
+    assert reader_errors == []
+    assert set(reader_versions) <= {"old", "new"}
+    assert json.loads((live / "tour.json").read_text(encoding="utf-8"))["version"] == "new"
+    assert (live.stat().st_mode & 0o777) == 0o700
+    assert ((live / "tour.json").stat().st_mode & 0o777) == 0o600
+    assert ((live / "generated-reconstruction").stat().st_mode & 0o777) == 0o700
+    assert ((live / "generated-reconstruction" / "viewer.html").stat().st_mode & 0o777) == 0o600
+    assert json.loads((stage / "tour.json").read_text(encoding="utf-8"))["version"] == "old"
+    assert not backup.exists()
+
+    recovered = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            reconstruction_script._RUNTIME_PUBLISH_RECOVER_SCRIPT,
+            str(public_root),
+            str(stage),
+            str(live),
+            str(backup),
+            publish_token,
+            "10",
+            str(runtime_uid),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=15,
+        preexec_fn=demote,
+    )
+
+    assert recovered.returncode == 0, recovered.stderr
+    assert "state=committed" in recovered.stdout
+    assert not stage.exists()
+    assert not backup.exists()
+
+
+@pytest.mark.parametrize(
+    ("unsafe_member_type", "sparse_map"),
+    (
+        pytest.param(tarfile.SYMTYPE, None, id="symlink"),
+        pytest.param(tarfile.GNUTYPE_SPARSE, [(0, 0)], id="gnu-sparse"),
+    ),
+)
+def test_generated_reconstruction_runtime_finalize_rejects_special_archive_member_and_preserves_live(
+    tmp_path: Path,
+    unsafe_member_type: bytes,
+    sparse_map: list[tuple[int, int]] | None,
+) -> None:
+    public_root = tmp_path / "public_tours"
+    live = public_root / "runtime-live"
+    stage = public_root / ".publish..staging" / "runtime-live-failure"
+    backup = stage.with_name(f"{stage.name}.previous")
+    live.mkdir(parents=True)
+    (live / "tour.json").write_text('{"version": "old"}\n', encoding="utf-8")
+    runtime_uid, _runtime_gid, demote = _runtime_publish_test_identity(public_root)
+    tour_payload = b'{"version": "new"}\n'
+    with tempfile.TemporaryFile(mode="w+b") as archive_file:
+        with tarfile.open(fileobj=archive_file, mode="w") as archive:
+            manifest = tarfile.TarInfo("tour.json")
+            manifest.size = len(tour_payload)
+            manifest.mode = 0o600
+            archive.addfile(manifest, io.BytesIO(tour_payload))
+            malicious = tarfile.TarInfo("viewer-link.html")
+            malicious.type = unsafe_member_type
+            malicious.sparse = sparse_map
+            if unsafe_member_type == tarfile.SYMTYPE:
+                malicious.linkname = "/etc/passwd"
+            archive.addfile(malicious)
+        archive_file.seek(0, os.SEEK_END)
+        archive_bytes = archive_file.tell()
+        archive_file.seek(0)
+        archive_sha256 = reconstruction_script.hashlib.sha256(archive_file.read()).hexdigest()
+        archive_file.seek(0)
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                reconstruction_script._RUNTIME_PUBLISH_FINALIZE_SCRIPT,
+                str(stage),
+                str(live),
+                str(backup),
+                str(runtime_uid),
+                "10",
+                "b" * 32,
+                "2",
+                str(len(tour_payload)),
+                str(archive_bytes),
+                archive_sha256,
+            ],
+            check=False,
+            stdin=archive_file,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            preexec_fn=demote,
+        )
+
+    assert completed.returncode == 1
+    assert "phase=extraction" in completed.stderr
+    assert "archive_member_type_invalid" in completed.stderr
+    assert json.loads((live / "tour.json").read_text(encoding="utf-8"))["version"] == "old"
+    assert not stage.exists()
+    assert not backup.exists()
+
+
+def test_generated_reconstruction_runtime_finalize_rejects_staging_root_symlink(
+    tmp_path: Path,
+) -> None:
+    public_root = tmp_path / "public_tours"
+    live = public_root / "runtime-live"
+    stage = public_root / ".publish..staging" / "runtime-live-symlink"
+    backup = stage.with_name(f"{stage.name}.previous")
+    live.mkdir(parents=True)
+    (live / "tour.json").write_text('{"version": "old"}\n', encoding="utf-8")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    sentinel = outside / "sentinel.txt"
+    sentinel.write_text("untouched\n", encoding="utf-8")
+    stage.parent.symlink_to(outside, target_is_directory=True)
+    source = tmp_path / "source-bundle"
+    source.mkdir()
+    (source / "tour.json").write_text('{"version": "new"}\n', encoding="utf-8")
+    runtime_uid, _runtime_gid, demote = _runtime_publish_test_identity(public_root)
+
+    with tempfile.TemporaryFile(mode="w+b") as archive_file:
+        archive_entries, logical_bytes, archive_bytes, archive_sha256 = (
+            reconstruction_script._write_runtime_publish_archive(source, archive_file)
+        )
+        completed = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                reconstruction_script._RUNTIME_PUBLISH_FINALIZE_SCRIPT,
+                str(stage),
+                str(live),
+                str(backup),
+                str(runtime_uid),
+                "10",
+                "c" * 32,
+                str(archive_entries),
+                str(logical_bytes),
+                str(archive_bytes),
+                archive_sha256,
+            ],
+            check=False,
+            stdin=archive_file,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            preexec_fn=demote,
+        )
+
+    assert completed.returncode == 1
+    assert "phase=validation" in completed.stderr
+    assert "staging_root_invalid" in completed.stderr
+    assert sentinel.read_text(encoding="utf-8") == "untouched\n"
+    assert json.loads((live / "tour.json").read_text(encoding="utf-8"))["version"] == "old"
 
 
 def test_generated_reconstruction_required_runtime_publish_failure_exits_nonzero(

@@ -10,9 +10,12 @@ import json
 import math
 import os
 import re
+import secrets
 import shutil
+import stat
 import subprocess
 import sys
+import tarfile
 import tempfile
 import threading
 import time
@@ -1987,6 +1990,681 @@ def _runtime_publish_succeeded(receipt: dict[str, object]) -> bool:
     }
 
 
+def _runtime_publish_token(slug: str) -> str:
+    del slug
+    return secrets.token_hex(16)
+
+
+_RUNTIME_PUBLISH_FINALIZE_SCRIPT = r"""
+import ctypes
+import fcntl
+import hashlib
+import json
+import os
+import pwd
+import shutil
+import stat
+import sys
+import tarfile
+import tempfile
+import time
+
+stage, live, backup = sys.argv[1:4]
+phase = "validation"
+promoted = False
+stage_created = False
+
+def fsync_directory(path):
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags)
+    try:
+        directory_stat = os.fstat(descriptor)
+        if not stat.S_ISDIR(directory_stat.st_mode):
+            raise RuntimeError("fsync_directory_invalid")
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+try:
+    owner_ref = sys.argv[4]
+    if owner_ref.isdecimal():
+        target_uid = int(owner_ref)
+        target_gid = os.getegid()
+    else:
+        owner = pwd.getpwnam(owner_ref)
+        target_uid = owner.pw_uid
+        target_gid = owner.pw_gid
+    deadline = time.monotonic() + float(sys.argv[5])
+    publish_token = sys.argv[6]
+    expected_entries = int(sys.argv[7])
+    expected_bytes = int(sys.argv[8])
+    expected_archive_bytes = int(sys.argv[9])
+    expected_archive_sha256 = sys.argv[10]
+    if target_uid == 0 or os.geteuid() != target_uid or os.getegid() != target_gid:
+        raise RuntimeError("unprivileged_runtime_owner_required")
+    if len(publish_token) != 32 or any(character not in "0123456789abcdef" for character in publish_token):
+        raise RuntimeError("publish_token_invalid")
+    if len(expected_archive_sha256) != 64 or any(
+        character not in "0123456789abcdef" for character in expected_archive_sha256
+    ):
+        raise RuntimeError("archive_digest_invalid")
+    hard_max_entries = 100000
+    hard_max_logical_bytes = 8 * 1024**3
+    hard_max_file_bytes = 2 * 1024**3
+    hard_max_manifest_bytes = 4 * 1024**2
+    hard_max_archive_bytes = 9 * 1024**3
+    hard_max_path_bytes = 1024
+    hard_max_path_depth = 32
+    if (
+        expected_entries < 1
+        or expected_entries > hard_max_entries
+        or expected_bytes < 1
+        or expected_bytes > hard_max_logical_bytes
+        or expected_archive_bytes < 1
+        or expected_archive_bytes > hard_max_archive_bytes
+    ):
+        raise RuntimeError("archive_limits_invalid")
+    public_root = os.path.dirname(live)
+    staging_root = os.path.join(public_root, ".publish..staging")
+    if (
+        os.path.dirname(stage) != staging_root
+        or os.path.dirname(backup) != staging_root
+        or backup != f"{stage}.previous"
+    ):
+        raise RuntimeError("staging_path_invalid")
+    public_stat = os.lstat(public_root)
+    if (
+        stat.S_ISLNK(public_stat.st_mode)
+        or not stat.S_ISDIR(public_stat.st_mode)
+        or public_stat.st_uid != target_uid
+        or public_stat.st_gid != target_gid
+    ):
+        raise RuntimeError("public_root_invalid")
+    if os.path.lexists(staging_root):
+        staging_stat = os.lstat(staging_root)
+        if (
+            stat.S_ISLNK(staging_stat.st_mode)
+            or not stat.S_ISDIR(staging_stat.st_mode)
+            or staging_stat.st_uid != target_uid
+            or staging_stat.st_gid != target_gid
+            or stat.S_IMODE(staging_stat.st_mode) != 0o700
+        ):
+            raise RuntimeError("staging_root_invalid")
+    else:
+        os.mkdir(staging_root, mode=0o700)
+    lock_path = os.path.join(staging_root, f".{os.path.basename(live)}.lock")
+    lock_flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+    lock_descriptor = os.open(lock_path, lock_flags, 0o600)
+    os.fchmod(lock_descriptor, 0o600)
+    lock_stat = os.fstat(lock_descriptor)
+    if (
+        not stat.S_ISREG(lock_stat.st_mode)
+        or lock_stat.st_uid != target_uid
+        or lock_stat.st_gid != target_gid
+        or stat.S_IMODE(lock_stat.st_mode) != 0o600
+    ):
+        os.close(lock_descriptor)
+        raise RuntimeError("publish_lock_invalid")
+    while True:
+        try:
+            fcntl.flock(lock_descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                raise TimeoutError("publish_lock_deadline_exceeded")
+            time.sleep(0.02)
+
+    if os.path.lexists(stage):
+        raise RuntimeError("staging_collision")
+    if os.path.lexists(backup):
+        raise RuntimeError("publish_backup_collision")
+    os.mkdir(stage, mode=0o700)
+    os.chmod(stage, 0o700, follow_symlinks=False)
+    stage_created = True
+
+    phase = "transport"
+    archive_spool = tempfile.TemporaryFile(mode="w+b")
+    archive_digest = hashlib.sha256()
+    archive_remaining = expected_archive_bytes
+    while archive_remaining:
+        if time.monotonic() >= deadline:
+            raise TimeoutError("finalize_deadline_exceeded")
+        chunk = sys.stdin.buffer.read(min(1024 * 1024, archive_remaining))
+        if not chunk:
+            raise RuntimeError("archive_transport_truncated")
+        archive_spool.write(chunk)
+        archive_digest.update(chunk)
+        archive_remaining -= len(chunk)
+    if sys.stdin.buffer.read(1):
+        raise RuntimeError("archive_transport_trailing_data")
+    if archive_digest.hexdigest() != expected_archive_sha256:
+        raise RuntimeError("archive_digest_mismatch")
+    archive_spool.flush()
+    os.fsync(archive_spool.fileno())
+    archive_spool.seek(0)
+
+    phase = "extraction"
+    observed_entries = 0
+    observed_bytes = 0
+    observed_names = set()
+    observed_types = {}
+    required_manifest = False
+    archive = tarfile.open(fileobj=archive_spool, mode="r:")
+    for member in archive:
+        if time.monotonic() >= deadline:
+            raise TimeoutError("finalize_deadline_exceeded")
+        name = str(member.name or "")
+        parts = name.split("/")
+        encoded_name = name.encode("utf-8", "strict")
+        if (
+            not name
+            or name.startswith("/")
+            or any(part in {"", ".", ".."} for part in parts)
+            or any(ord(character) < 32 or ord(character) == 127 for character in name)
+            or len(encoded_name) > hard_max_path_bytes
+            or len(parts) > hard_max_path_depth
+            or name in observed_names
+            or any(part in {".propertyquarry-publish-token", ".publish..staging"} for part in parts)
+        ):
+            raise RuntimeError("archive_member_path_invalid")
+        if member.sparse is not None or member.type not in {tarfile.REGTYPE, tarfile.AREGTYPE, tarfile.DIRTYPE}:
+            raise RuntimeError("archive_member_type_invalid")
+        is_directory = member.type == tarfile.DIRTYPE
+        if any(
+            observed_types.get("/".join(parts[:index])) == "file"
+            for index in range(1, len(parts))
+        ) or (
+            not is_directory
+            and any(observed_name.startswith(f"{name}/") for observed_name in observed_names)
+        ):
+            raise RuntimeError("archive_member_prefix_conflict")
+        observed_names.add(name)
+        observed_types[name] = "directory" if is_directory else "file"
+        observed_entries += 1
+        observed_bytes += int(member.size or 0)
+        if (
+            int(member.size or 0) < 0
+            or int(member.size or 0) > hard_max_file_bytes
+            or observed_entries > expected_entries
+            or observed_bytes > expected_bytes
+        ):
+            raise RuntimeError("archive_limits_exceeded")
+        target = os.path.join(stage, *parts)
+        parent = stage
+        for part in parts[:-1]:
+            parent = os.path.join(parent, part)
+            if os.path.lexists(parent):
+                parent_stat = os.lstat(parent)
+                if stat.S_ISLNK(parent_stat.st_mode) or not stat.S_ISDIR(parent_stat.st_mode):
+                    raise RuntimeError("archive_parent_invalid")
+            else:
+                os.mkdir(parent, mode=0o700)
+        if is_directory:
+            if os.path.lexists(target):
+                target_stat = os.lstat(target)
+                if stat.S_ISLNK(target_stat.st_mode) or not stat.S_ISDIR(target_stat.st_mode):
+                    raise RuntimeError("archive_directory_invalid")
+            else:
+                os.mkdir(target, mode=0o700)
+            os.chmod(target, 0o700, follow_symlinks=False)
+            continue
+        if os.path.lexists(target):
+            raise RuntimeError("archive_file_collision")
+        source = archive.extractfile(member)
+        if source is None:
+            raise RuntimeError("archive_file_missing")
+        file_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(target, file_flags, 0o600)
+        remaining = int(member.size)
+        try:
+            while remaining:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("finalize_deadline_exceeded")
+                chunk = source.read(min(1024 * 1024, remaining))
+                if not chunk:
+                    raise RuntimeError("archive_file_truncated")
+                pending = memoryview(chunk)
+                while pending:
+                    written = os.write(descriptor, pending)
+                    if written <= 0:
+                        raise RuntimeError("archive_file_write_failed")
+                    pending = pending[written:]
+                remaining -= len(chunk)
+            os.fchmod(descriptor, 0o600)
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+            source.close()
+        os.chmod(target, 0o600, follow_symlinks=False)
+        required_manifest = required_manifest or name == "tour.json"
+    archive.close()
+    archive_end = int(archive.offset)
+    archive_spool.seek(archive_end)
+    while True:
+        padding = archive_spool.read(1024 * 1024)
+        if not padding:
+            break
+        if any(padding):
+            raise RuntimeError("archive_nonzero_trailing_data")
+    archive_spool.close()
+    if observed_entries != expected_entries or observed_bytes != expected_bytes:
+        raise RuntimeError("archive_totals_mismatch")
+    if not required_manifest:
+        raise RuntimeError("public_manifest_missing")
+    manifest_path = os.path.join(stage, "tour.json")
+    manifest_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    manifest_descriptor = os.open(manifest_path, manifest_flags)
+    try:
+        manifest_stat = os.fstat(manifest_descriptor)
+        if not stat.S_ISREG(manifest_stat.st_mode) or manifest_stat.st_size > hard_max_manifest_bytes:
+            raise RuntimeError("public_manifest_invalid")
+        manifest_payload = json.loads(
+            os.read(manifest_descriptor, int(manifest_stat.st_size) + 1).decode("utf-8", "strict")
+        )
+    finally:
+        os.close(manifest_descriptor)
+    if not isinstance(manifest_payload, dict) or str(manifest_payload.get("slug") or "") != os.path.basename(live):
+        raise RuntimeError("public_manifest_slug_mismatch")
+
+    phase = "verification"
+    stage_stat = os.lstat(stage)
+    if (
+        stat.S_ISLNK(stage_stat.st_mode)
+        or not stat.S_ISDIR(stage_stat.st_mode)
+        or stage_stat.st_uid != target_uid
+        or stage_stat.st_gid != target_gid
+        or stat.S_IMODE(stage_stat.st_mode) != 0o700
+    ):
+        raise RuntimeError("runtime_stage_mismatch")
+    for current, directories, filenames in os.walk(stage, topdown=True, followlinks=False):
+        if time.monotonic() >= deadline:
+            raise TimeoutError("finalize_deadline_exceeded")
+        for name, is_directory in [(name, True) for name in directories] + [(name, False) for name in filenames]:
+            path = os.path.join(current, name)
+            file_stat = os.lstat(path)
+            expected_mode = 0o700 if is_directory else 0o600
+            expected_type = stat.S_ISDIR if is_directory else stat.S_ISREG
+            if stat.S_ISLNK(file_stat.st_mode) or not expected_type(file_stat.st_mode):
+                raise RuntimeError("runtime_type_mismatch")
+            if file_stat.st_uid != target_uid or file_stat.st_gid != target_gid:
+                raise RuntimeError("runtime_owner_mismatch")
+            if stat.S_IMODE(file_stat.st_mode) != expected_mode:
+                raise RuntimeError("runtime_mode_mismatch")
+        for name in filenames:
+            path = os.path.join(current, name)
+            with open(path, "rb") as handle:
+                handle.read(1)
+
+    marker = os.path.join(stage, ".propertyquarry-publish-token")
+    with open(marker, "x", encoding="ascii") as handle:
+        handle.write(publish_token + "\n")
+        handle.flush()
+        os.fchmod(handle.fileno(), 0o600)
+        os.fsync(handle.fileno())
+    for current, _directories, _filenames in os.walk(stage, topdown=False, followlinks=False):
+        fsync_directory(current)
+    fsync_directory(staging_root)
+
+    phase = "promotion"
+    if time.monotonic() >= deadline:
+        raise TimeoutError("finalize_deadline_exceeded")
+    if os.path.lexists(live):
+        if os.path.islink(live) or not os.path.isdir(live):
+            raise RuntimeError("live_bundle_invalid")
+        libc = ctypes.CDLL(None, use_errno=True)
+        rename_exchange = getattr(libc, "renameat2", None)
+        if rename_exchange is None:
+            raise RuntimeError("atomic_exchange_unavailable")
+        rename_exchange.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+        rename_exchange.restype = ctypes.c_int
+        result = rename_exchange(-100, os.fsencode(stage), -100, os.fsencode(live), 2)
+        if result != 0:
+            error_number = ctypes.get_errno()
+            raise OSError(error_number, os.strerror(error_number), live)
+        promoted = True
+    else:
+        os.rename(stage, live)
+        promoted = True
+    fsync_directory(public_root)
+    fsync_directory(staging_root)
+    print("state=committed", flush=True)
+except Exception as exc:
+    if not promoted and stage_created and os.path.lexists(stage):
+        cleanup_stat = os.lstat(stage)
+        if stat.S_ISDIR(cleanup_stat.st_mode) and not stat.S_ISLNK(cleanup_stat.st_mode):
+            shutil.rmtree(stage, ignore_errors=True)
+    print(f"phase={phase} error={type(exc).__name__}:{exc}", file=sys.stderr)
+    raise SystemExit(1)
+""".strip()
+
+
+_RUNTIME_PUBLISH_RECOVER_SCRIPT = r"""
+import fcntl
+import os
+import pwd
+import shutil
+import stat
+import sys
+import time
+
+public_root, stage, live, backup, publish_token = sys.argv[1:6]
+deadline = time.monotonic() + float(sys.argv[6])
+owner_ref = sys.argv[7]
+if owner_ref.isdecimal():
+    target_uid = int(owner_ref)
+    target_gid = os.getegid()
+else:
+    owner = pwd.getpwnam(owner_ref)
+    target_uid = owner.pw_uid
+    target_gid = owner.pw_gid
+staging_root = os.path.dirname(stage)
+
+def marker_for(bundle):
+    if not os.path.lexists(bundle):
+        return "absent", ""
+    bundle_stat = os.lstat(bundle)
+    if stat.S_ISLNK(bundle_stat.st_mode) or not stat.S_ISDIR(bundle_stat.st_mode):
+        return "invalid", ""
+    marker = os.path.join(bundle, ".propertyquarry-publish-token")
+    if not os.path.lexists(marker):
+        return "absent", ""
+    marker_stat = os.lstat(marker)
+    if (
+        stat.S_ISLNK(marker_stat.st_mode)
+        or not stat.S_ISREG(marker_stat.st_mode)
+        or marker_stat.st_uid != target_uid
+        or marker_stat.st_gid != target_gid
+        or stat.S_IMODE(marker_stat.st_mode) != 0o600
+    ):
+        return "invalid", ""
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(marker, flags)
+    try:
+        value = os.read(descriptor, 64).decode("ascii", "strict").strip()
+    finally:
+        os.close(descriptor)
+    if len(value) != 32 or any(character not in "0123456789abcdef" for character in value):
+        return "invalid", ""
+    return "valid", value
+
+def remove_staged_tree(path):
+    if not os.path.lexists(path):
+        return
+    if os.path.dirname(path) != staging_root:
+        raise RuntimeError("cleanup_path_invalid")
+    path_stat = os.lstat(path)
+    if stat.S_ISLNK(path_stat.st_mode) or not stat.S_ISDIR(path_stat.st_mode):
+        raise RuntimeError("cleanup_target_invalid")
+    shutil.rmtree(path)
+
+try:
+    if target_uid == 0 or os.geteuid() != target_uid or os.getegid() != target_gid:
+        raise RuntimeError("unprivileged_runtime_owner_required")
+    if (
+        os.path.dirname(staging_root) != public_root
+        or os.path.basename(staging_root) != ".publish..staging"
+        or os.path.dirname(live) != public_root
+        or os.path.dirname(backup) != staging_root
+        or backup != f"{stage}.previous"
+    ):
+        raise RuntimeError("recovery_path_invalid")
+    public_stat = os.lstat(public_root)
+    if (
+        stat.S_ISLNK(public_stat.st_mode)
+        or not stat.S_ISDIR(public_stat.st_mode)
+        or public_stat.st_uid != target_uid
+        or public_stat.st_gid != target_gid
+    ):
+        raise RuntimeError("public_root_invalid")
+    if not os.path.lexists(staging_root):
+        marker_state, marker_value = marker_for(live)
+        if marker_state == "invalid":
+            raise RuntimeError("live_publish_marker_invalid")
+        state = "committed" if marker_value == publish_token else "superseded" if marker_state == "valid" else "not_committed"
+        print(f"state={state}", flush=True)
+        raise SystemExit(0)
+    staging_stat = os.lstat(staging_root)
+    if (
+        stat.S_ISLNK(staging_stat.st_mode)
+        or not stat.S_ISDIR(staging_stat.st_mode)
+        or staging_stat.st_uid != target_uid
+        or staging_stat.st_gid != target_gid
+        or stat.S_IMODE(staging_stat.st_mode) != 0o700
+    ):
+        raise RuntimeError("staging_root_invalid")
+    lock_path = os.path.join(staging_root, f".{os.path.basename(live)}.lock")
+    lock_flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+    lock_descriptor = os.open(lock_path, lock_flags, 0o600)
+    os.fchmod(lock_descriptor, 0o600)
+    lock_stat = os.fstat(lock_descriptor)
+    if (
+        not stat.S_ISREG(lock_stat.st_mode)
+        or lock_stat.st_uid != target_uid
+        or lock_stat.st_gid != target_gid
+        or stat.S_IMODE(lock_stat.st_mode) != 0o600
+    ):
+        os.close(lock_descriptor)
+        raise RuntimeError("publish_lock_invalid")
+    while True:
+        try:
+            fcntl.flock(lock_descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                raise TimeoutError("recovery_lock_deadline_exceeded")
+            time.sleep(0.02)
+
+    marker_state, marker_value = marker_for(live)
+    if marker_state == "invalid":
+        raise RuntimeError("live_publish_marker_invalid")
+    if marker_value == publish_token:
+        print("state=committed", flush=True)
+        remove_staged_tree(stage)
+        remove_staged_tree(backup)
+    elif marker_state == "valid":
+        print("state=superseded", flush=True)
+        remove_staged_tree(stage)
+        remove_staged_tree(backup)
+    else:
+        if not os.path.lexists(live) and os.path.lexists(backup):
+            backup_stat = os.lstat(backup)
+            if stat.S_ISLNK(backup_stat.st_mode) or not stat.S_ISDIR(backup_stat.st_mode):
+                raise RuntimeError("publish_backup_invalid")
+            os.rename(backup, live)
+        print("state=not_committed", flush=True)
+        remove_staged_tree(stage)
+        if os.path.lexists(live):
+            remove_staged_tree(backup)
+except SystemExit:
+    raise
+except Exception as exc:
+    print(f"state=ambiguous error={type(exc).__name__}:{exc}", file=sys.stderr, flush=True)
+    raise SystemExit(1)
+""".strip()
+
+
+def _write_runtime_publish_archive(bundle_dir: Path, archive_file: io.BufferedRandom) -> tuple[int, int, int, str]:
+    hard_max_entries = 100_000
+    hard_max_bytes = 8 * 1024**3
+    hard_max_file_bytes = 2 * 1024**3
+    hard_max_archive_bytes = 9 * 1024**3
+    hard_max_path_bytes = 1024
+    hard_max_path_depth = 32
+    try:
+        max_entries = min(
+            hard_max_entries,
+            max(
+                1,
+                int(str(os.getenv("PROPERTYQUARRY_RECONSTRUCTION_RUNTIME_MAX_ARCHIVE_ENTRIES") or "100000")),
+            ),
+        )
+    except Exception:
+        max_entries = hard_max_entries
+    try:
+        max_bytes = min(
+            hard_max_bytes,
+            max(
+                1,
+                int(str(os.getenv("PROPERTYQUARRY_RECONSTRUCTION_RUNTIME_MAX_LOGICAL_BYTES") or str(8 * 1024**3))),
+            ),
+        )
+    except Exception:
+        max_bytes = hard_max_bytes
+
+    directories: list[tuple[Path, str, os.stat_result]] = []
+    files: list[tuple[Path, str, os.stat_result]] = []
+    total_bytes = 0
+    for current, directory_names, file_names in os.walk(bundle_dir, topdown=True, followlinks=False):
+        current_path = Path(current)
+        directory_names.sort()
+        file_names.sort()
+        for name in directory_names:
+            path = current_path / name
+            file_stat = path.lstat()
+            if stat.S_ISLNK(file_stat.st_mode) or not stat.S_ISDIR(file_stat.st_mode):
+                raise ValueError(f"runtime archive directory is unsafe: {path}")
+            relpath = path.relative_to(bundle_dir).as_posix()
+            relpath_parts = PurePosixPath(relpath).parts
+            if (
+                any(part in {".propertyquarry-publish-token", ".publish..staging"} for part in relpath_parts)
+                or len(relpath.encode("utf-8")) > hard_max_path_bytes
+                or len(relpath_parts) > hard_max_path_depth
+                or any(ord(character) < 32 or ord(character) == 127 for character in relpath)
+            ):
+                raise ValueError("runtime archive contains reserved publish marker")
+            directories.append((path, relpath, file_stat))
+        for name in file_names:
+            path = current_path / name
+            file_stat = path.lstat()
+            if stat.S_ISLNK(file_stat.st_mode) or not stat.S_ISREG(file_stat.st_mode):
+                raise ValueError(f"runtime archive file is unsafe: {path}")
+            relpath = path.relative_to(bundle_dir).as_posix()
+            relpath_parts = PurePosixPath(relpath).parts
+            if (
+                any(part in {".propertyquarry-publish-token", ".publish..staging"} for part in relpath_parts)
+                or len(relpath.encode("utf-8")) > hard_max_path_bytes
+                or len(relpath_parts) > hard_max_path_depth
+                or any(ord(character) < 32 or ord(character) == 127 for character in relpath)
+            ):
+                raise ValueError("runtime archive contains reserved publish marker")
+            if int(file_stat.st_size) > hard_max_file_bytes:
+                raise ValueError("runtime archive file exceeds hard publication limit")
+            total_bytes += int(file_stat.st_size)
+            files.append((path, relpath, file_stat))
+    entry_count = len(directories) + len(files)
+    if entry_count > max_entries or total_bytes > max_bytes:
+        raise ValueError("runtime archive exceeds configured publication limits")
+    if not any(relpath == "tour.json" for _path, relpath, _file_stat in files):
+        raise ValueError("runtime archive is missing tour.json")
+
+    with tarfile.open(fileobj=archive_file, mode="w") as archive:
+        for _path, relpath, _file_stat in sorted(directories, key=lambda item: (item[1].count("/"), item[1])):
+            member = tarfile.TarInfo(relpath)
+            member.type = tarfile.DIRTYPE
+            member.mode = 0o700
+            member.mtime = 0
+            archive.addfile(member)
+        for path, relpath, expected_stat in files:
+            flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+            descriptor = os.open(path, flags)
+            try:
+                actual_stat = os.fstat(descriptor)
+                if (
+                    not stat.S_ISREG(actual_stat.st_mode)
+                    or actual_stat.st_dev != expected_stat.st_dev
+                    or actual_stat.st_ino != expected_stat.st_ino
+                    or actual_stat.st_size != expected_stat.st_size
+                ):
+                    raise ValueError(f"runtime archive file changed while publishing: {path}")
+                member = tarfile.TarInfo(relpath)
+                member.size = int(actual_stat.st_size)
+                member.mode = 0o600
+                member.mtime = 0
+                with os.fdopen(descriptor, "rb", closefd=False) as source:
+                    archive.addfile(member, source)
+            finally:
+                os.close(descriptor)
+    archive_file.flush()
+    archive_file.seek(0, os.SEEK_END)
+    archive_bytes = archive_file.tell()
+    if archive_bytes > hard_max_archive_bytes:
+        raise ValueError("runtime archive exceeds hard transport limit")
+    archive_file.seek(0)
+    archive_digest = hashlib.sha256()
+    while True:
+        chunk = archive_file.read(1024 * 1024)
+        if not chunk:
+            break
+        archive_digest.update(chunk)
+    archive_file.seek(0)
+    return entry_count, total_bytes, archive_bytes, archive_digest.hexdigest()
+
+
+def _recover_runtime_publish(
+    *,
+    docker_bin: str,
+    container: str,
+    public_root: str,
+    remote_staging: str,
+    remote_bundle: str,
+    remote_backup: str,
+    publish_token: str,
+    timeout_seconds: float,
+) -> dict[str, str]:
+    command = [
+        docker_bin,
+        "exec",
+        "--user",
+        "ea",
+        container,
+        "python",
+        "-c",
+        _RUNTIME_PUBLISH_RECOVER_SCRIPT,
+        public_root,
+        remote_staging,
+        remote_bundle,
+        remote_backup,
+        publish_token,
+        str(max(1.0, timeout_seconds - 0.5)),
+        "ea",
+    ]
+
+    def _text(value: object) -> str:
+        if isinstance(value, bytes):
+            return value.decode("utf-8", "replace")
+        return str(value or "")
+
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        output = _text(exc.stdout or exc.output)
+        state_match = re.search(r"state=(committed|not_committed|superseded)", output)
+        return {
+            "state": str(state_match.group(1) if state_match else "ambiguous"),
+            "cleanup": "timeout",
+        }
+    except Exception as exc:
+        return {
+            "state": "ambiguous",
+            "cleanup": "failed",
+            "stderr": f"{type(exc).__name__}:{exc}"[-400:],
+        }
+    output = _text(result.stdout)
+    state_match = re.search(r"state=(committed|not_committed|superseded)", output)
+    state = str(state_match.group(1) if state_match else "ambiguous")
+    return {
+        "state": state,
+        "cleanup": "complete" if result.returncode == 0 else "failed",
+        **({"stderr": _text(result.stderr).strip()[-400:]} if result.returncode != 0 else {}),
+    }
+
+
 def _sync_bundle_to_runtime_container(bundle_dir: Path, *, slug: str) -> dict[str, object]:
     docker_bin = shutil.which("docker")
     if not docker_bin:
@@ -1994,17 +2672,20 @@ def _sync_bundle_to_runtime_container(bundle_dir: Path, *, slug: str) -> dict[st
     container = str(os.getenv("PROPERTYQUARRY_RUNTIME_CONTAINER") or "propertyquarry-api").strip()
     if not container:
         return {"status": "runtime_container_missing", "slug": slug}
+    normalized_slug = str(slug or "").strip()
+    if (
+        not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,191}", normalized_slug)
+        or ".." in normalized_slug
+    ):
+        return {"status": "runtime_slug_invalid", "slug": normalized_slug}
     normalized_bundle = bundle_dir.expanduser().resolve()
     if not normalized_bundle.is_dir():
-        return {"status": "bundle_missing", "slug": slug, "bundle_dir": str(normalized_bundle)}
-    remote_bundle = f"/data/public_property_tours/{slug}"
-    try:
-        mkdir_timeout_seconds = max(
-            2.0,
-            float(str(os.getenv("PROPERTYQUARRY_RECONSTRUCTION_RUNTIME_MKDIR_TIMEOUT_SECONDS") or "8").strip() or "8"),
-        )
-    except Exception:
-        mkdir_timeout_seconds = 8.0
+        return {"status": "bundle_missing", "slug": normalized_slug, "bundle_dir": str(normalized_bundle)}
+    remote_root = "/data/public_property_tours"
+    remote_bundle = f"{remote_root}/{normalized_slug}"
+    publish_token = _runtime_publish_token(normalized_slug)
+    remote_staging = f"{remote_root}/.publish..staging/{normalized_slug}-{publish_token}"
+    remote_backup = f"{remote_staging}.previous"
     try:
         copy_timeout_seconds = max(
             5.0,
@@ -2023,75 +2704,148 @@ def _sync_bundle_to_runtime_container(bundle_dir: Path, *, slug: str) -> dict[st
     except Exception:
         permission_timeout_seconds = 8.0
     try:
-        mkdir_result = subprocess.run(
-            [docker_bin, "exec", container, "mkdir", "-p", remote_bundle],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=mkdir_timeout_seconds,
+        finalize_grace_seconds = max(
+            5.0,
+            float(
+                str(os.getenv("PROPERTYQUARRY_RECONSTRUCTION_RUNTIME_FINALIZE_GRACE_SECONDS") or "15").strip()
+                or "15"
+            ),
         )
-    except subprocess.TimeoutExpired as exc:
+    except Exception:
+        finalize_grace_seconds = 15.0
+
+    def _recovery() -> dict[str, str]:
+        return _recover_runtime_publish(
+            docker_bin=docker_bin,
+            container=container,
+            public_root=remote_root,
+            remote_staging=remote_staging,
+            remote_bundle=remote_bundle,
+            remote_backup=remote_backup,
+            publish_token=publish_token,
+            timeout_seconds=finalize_grace_seconds,
+        )
+
+    def _failure(status: str, **details: object) -> dict[str, object]:
         return {
-            "status": "runtime_mkdir_timeout",
-            "slug": slug,
+            "status": status,
+            "slug": normalized_slug,
             "container": container,
-            "timeout_seconds": exc.timeout,
+            "remote_staging": remote_staging,
+            "recovery": _recovery(),
+            **details,
         }
-    if mkdir_result.returncode != 0:
-        return {
-            "status": "runtime_mkdir_failed",
-            "slug": slug,
-            "container": container,
-            "stderr": (mkdir_result.stderr or "").strip()[-400:],
-        }
+
+    finalize_deadline_seconds = copy_timeout_seconds + permission_timeout_seconds
+    finalize_outer_timeout_seconds = finalize_deadline_seconds + finalize_grace_seconds
     try:
-        copy_result = subprocess.run(
-            [docker_bin, "cp", f"{normalized_bundle}/.", f"{container}:{remote_bundle}/"],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=copy_timeout_seconds,
-        )
-    except subprocess.TimeoutExpired as exc:
-        return {
-            "status": "runtime_copy_timeout",
-            "slug": slug,
-            "container": container,
-            "timeout_seconds": exc.timeout,
+        with tempfile.TemporaryFile(mode="w+b") as archive_file:
+            try:
+                archive_entries, logical_bytes, archive_bytes, archive_sha256 = _write_runtime_publish_archive(
+                    normalized_bundle,
+                    archive_file,
+                )
+            except Exception as exc:
+                return {
+                    "status": "runtime_archive_failed",
+                    "slug": normalized_slug,
+                    "container": container,
+                    "error": f"{type(exc).__name__}:{exc}"[-400:],
+                }
+            try:
+                finalize_result = subprocess.run(
+                    [
+                        docker_bin,
+                        "exec",
+                        "-i",
+                        "--user",
+                        "ea",
+                        container,
+                        "python",
+                        "-c",
+                        _RUNTIME_PUBLISH_FINALIZE_SCRIPT,
+                        remote_staging,
+                        remote_bundle,
+                        remote_backup,
+                        "ea",
+                        str(finalize_deadline_seconds),
+                        publish_token,
+                        str(archive_entries),
+                        str(logical_bytes),
+                        str(archive_bytes),
+                        archive_sha256,
+                    ],
+                    check=False,
+                    stdin=archive_file,
+                    capture_output=True,
+                    text=True,
+                    timeout=finalize_outer_timeout_seconds,
+                )
+            except subprocess.TimeoutExpired as exc:
+                recovery = _recovery()
+                if recovery.get("state") == "committed":
+                    return {
+                        "status": "updated",
+                        "slug": normalized_slug,
+                        "container": container,
+                        "recovered_after_finalize_timeout": True,
+                        "staging_cleanup": recovery.get("cleanup", ""),
+                    }
+                return {
+                    "status": "runtime_finalize_timeout",
+                    "slug": normalized_slug,
+                    "container": container,
+                    "remote_bundle": remote_bundle,
+                    "remote_staging": remote_staging,
+                    "timeout_seconds": exc.timeout,
+                    "recovery": recovery,
+                }
+    except OSError as exc:
+        return _failure("runtime_publish_io_failed", error=f"{type(exc).__name__}:{exc}"[-400:])
+    if finalize_result.returncode != 0:
+        stderr = (finalize_result.stderr or "").strip()[-400:]
+        phase_match = re.search(r"phase=([a-z_]+)", stderr)
+        phase = str(phase_match.group(1) if phase_match else "finalize")
+        status_by_phase = {
+            "extraction": "runtime_copy_failed",
+            "promotion": "runtime_promotion_failed",
+            "validation": "runtime_verification_failed",
+            "verification": "runtime_verification_failed",
         }
-    if copy_result.returncode != 0:
+        recovery = _recovery()
+        if recovery.get("state") == "committed":
+            return {
+                "status": "updated",
+                "slug": normalized_slug,
+                "container": container,
+                "recovered_after_finalize_failure": True,
+                "staging_cleanup": recovery.get("cleanup", ""),
+            }
         return {
-            "status": "runtime_copy_failed",
-            "slug": slug,
+            "status": status_by_phase.get(phase, "runtime_finalize_failed"),
+            "slug": normalized_slug,
             "container": container,
-            "stderr": (copy_result.stderr or "").strip()[-400:],
+            "remote_bundle": remote_bundle,
+            "remote_staging": remote_staging,
+            "stderr": stderr,
+            "recovery": recovery,
         }
-    public_manifest = f"{remote_bundle}/tour.json"
-    try:
-        permission_result = subprocess.run(
-            [docker_bin, "exec", "--user", "0", container, "chmod", "0644", public_manifest],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=permission_timeout_seconds,
-        )
-    except subprocess.TimeoutExpired as exc:
+    recovery = _recovery()
+    if recovery.get("state") != "committed":
         return {
-            "status": "runtime_permission_timeout",
-            "slug": slug,
+            "status": "runtime_recovery_failed",
+            "slug": normalized_slug,
             "container": container,
-            "public_manifest": public_manifest,
-            "timeout_seconds": exc.timeout,
+            "remote_bundle": remote_bundle,
+            "remote_staging": remote_staging,
+            "recovery": recovery,
         }
-    if permission_result.returncode != 0:
-        return {
-            "status": "runtime_permission_failed",
-            "slug": slug,
-            "container": container,
-            "public_manifest": public_manifest,
-            "stderr": (permission_result.stderr or "").strip()[-400:],
-        }
-    return {"status": "updated", "slug": slug, "container": container}
+    return {
+        "status": "updated",
+        "slug": normalized_slug,
+        "container": container,
+        **({"staging_cleanup": recovery.get("cleanup", "")} if recovery.get("cleanup") != "complete" else {}),
+    }
 
 
 def _safe_relpath(value: str) -> str:
@@ -6108,12 +6862,32 @@ def main() -> int:
             payload["video_sidecar_relpath"] = f"{base_relpath}/{walkthrough.get('sidecar_relpath')}"
     manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     runtime_publish_required = _runtime_publish_required()
-    if _bundle_uses_shared_runtime_root(bundle_dir):
-        runtime_publish = {"status": "skipped_shared_public_root", "slug": slug}
-    elif _runtime_publish_requested():
+    runtime_publish_requested = _runtime_publish_requested()
+    bundle_uses_shared_runtime_root = _bundle_uses_shared_runtime_root(bundle_dir)
+    if bundle_uses_shared_runtime_root:
+        planned_runtime_publish = {"status": "skipped_shared_public_root", "slug": slug}
+    elif runtime_publish_requested:
+        planned_runtime_publish = {
+            "status": "updated",
+            "slug": slug,
+            "container": str(os.getenv("PROPERTYQUARRY_RUNTIME_CONTAINER") or "propertyquarry-api").strip(),
+        }
+    else:
+        planned_runtime_publish = {"status": "skipped_not_requested", "slug": slug}
+    # The staged bundle carries the success receipt that becomes true only if
+    # the finalizer promotes it. A failed publish never replaces the old live
+    # bundle; the local receipt is then rewritten with the exact failure.
+    receipt["runtime_publish"] = planned_runtime_publish
+    receipt["runtime_publish_required"] = runtime_publish_required
+    receipt["runtime_publish_ok"] = _runtime_publish_succeeded(planned_runtime_publish)
+    (output_dir / "reconstruction.json").write_text(
+        json.dumps(receipt, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    if runtime_publish_requested and not bundle_uses_shared_runtime_root:
         runtime_publish = _sync_bundle_to_runtime_container(bundle_dir, slug=slug)
     else:
-        runtime_publish = {"status": "skipped_not_requested", "slug": slug}
+        runtime_publish = planned_runtime_publish
     runtime_publish_ok = _runtime_publish_succeeded(runtime_publish)
     receipt["runtime_publish"] = runtime_publish
     receipt["runtime_publish_required"] = runtime_publish_required

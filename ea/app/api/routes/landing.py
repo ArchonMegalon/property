@@ -1720,7 +1720,12 @@ def _propertyquarry_example_media_targets_scan(root: Path) -> dict[str, str]:
 @lru_cache(maxsize=32)
 def _propertyquarry_example_media_targets_cached(root_path: str, cache_bucket: int) -> tuple[tuple[str, str], ...]:
     del cache_bucket
-    targets = _propertyquarry_example_media_targets_scan(Path(root_path))
+    try:
+        targets = _propertyquarry_example_media_targets_scan(Path(root_path))
+    except OSError:
+        # Public-tour media is an optional enhancement. Cache the safe
+        # fallback for this short bucket so a bad bundle cannot amplify I/O.
+        targets = {}
     return tuple(
         sorted(
             (str(key or "").strip(), str(value or "").strip())

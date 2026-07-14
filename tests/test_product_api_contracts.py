@@ -30790,6 +30790,50 @@ def test_hosted_property_tour_generated_reconstruction_asset_url_rejects_stale_v
     ) == ""
 
 
+def test_hosted_property_tour_asset_probes_fail_closed_on_permission_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    bundle_dir = tmp_path / "permission-denied-tour"
+    output_dir = bundle_dir / "generated-reconstruction"
+    output_dir.mkdir(parents=True)
+    viewer_path = output_dir / "viewer.html"
+    viewer_path.write_text("<!doctype html><div>viewer</div>", encoding="utf-8")
+    publish_marker = bundle_dir / ".propertyquarry-publish-token"
+    publish_marker.write_text("0" * 32, encoding="ascii")
+    resolved_viewer = viewer_path.resolve()
+    original_is_file = Path.is_file
+
+    def _permission_denied_for_viewer(path: Path) -> bool:
+        if path == resolved_viewer:
+            raise PermissionError(13, "Permission denied", str(path))
+        return original_is_file(path)
+
+    monkeypatch.setattr(Path, "is_file", _permission_denied_for_viewer)
+
+    assert property_tour_hosting._generated_reconstruction_relpath_file(
+        bundle_dir,
+        "generated-reconstruction/viewer.html",
+    ) is None
+    assert property_tour_hosting._hosted_property_tour_asset_path(
+        bundle_dir,
+        "generated-reconstruction/viewer.html",
+    ) is None
+    assert not property_tour_hosting._hosted_property_tour_entry_has_marker(
+        bundle_dir,
+        "generated-reconstruction/viewer.html",
+        markers=("viewer",),
+    )
+    assert property_tour_hosting._hosted_property_tour_asset_path(
+        bundle_dir,
+        ".propertyquarry-publish-token",
+    ) is None
+    assert property_tour_hosting._generated_reconstruction_relpath_file(
+        bundle_dir,
+        ".propertyquarry-publish-token",
+    ) is None
+
+
 def test_hosted_property_tour_generated_reconstruction_bundle_ready_requires_viewer_receipt(
     monkeypatch,
     tmp_path: Path,
