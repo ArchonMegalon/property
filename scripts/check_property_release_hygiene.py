@@ -89,6 +89,11 @@ BEARER_LITERAL_RE = re.compile(
 )
 MANIFEST_RUNTIME_COMMIT_RE = re.compile(r"^\|\s*Runtime commit SHA\s*\|\s*`?([0-9a-f]{7,40})`?\s*\|", flags=re.MULTILINE)
 
+RELEASE_METADATA_DESCENDANT_PATHS = {
+    ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
+    "docs/PROPERTYQUARRY_RELEASE_MANIFEST.md",
+}
+
 
 def tracked_paths() -> list[str]:
     result = subprocess.run(
@@ -121,6 +126,54 @@ def git_head_parent_sha() -> str:
         text=True,
     )
     return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def git_commit_is_ancestor(commit_sha: str, head_sha: str) -> bool:
+    if not commit_sha or not head_sha:
+        return False
+    result = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", commit_sha, head_sha],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0
+
+
+def committed_paths_since(commit_sha: str, head_sha: str) -> list[str] | None:
+    if not commit_sha or not head_sha:
+        return None
+    result = subprocess.run(
+        ["git", "diff", "--name-only", f"{commit_sha}..{head_sha}"],
+        cwd=ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
+def manifest_release_binding(
+    manifest_sha: str,
+    head_sha: str,
+    parent_sha: str,
+) -> tuple[bool, list[str]]:
+    if (
+        head_sha.startswith(manifest_sha)
+        or manifest_sha.startswith(head_sha)
+        or (parent_sha and parent_sha.startswith(manifest_sha))
+        or (parent_sha and manifest_sha.startswith(parent_sha))
+    ):
+        return True, []
+    if not git_commit_is_ancestor(manifest_sha, head_sha):
+        return False, []
+    descendant_paths = committed_paths_since(manifest_sha, head_sha)
+    if descendant_paths is None:
+        return False, []
+    return all(path in RELEASE_METADATA_DESCENDANT_PATHS for path in descendant_paths), descendant_paths
 
 
 def _git_status_rows() -> list[str]:
@@ -175,17 +228,24 @@ def build_release_hygiene_receipt() -> dict[str, object]:
     manifest_sha = release_manifest_runtime_sha()
     head_sha = git_head_sha()
     parent_sha = git_head_parent_sha()
+    manifest_binding_ok = False
+    manifest_descendant_paths: list[str] = []
     if not manifest_sha:
         failures.append("release manifest runtime commit missing: docs/PROPERTYQUARRY_RELEASE_MANIFEST.md")
-    elif not (
-        head_sha.startswith(manifest_sha)
-        or manifest_sha.startswith(head_sha)
-        or (parent_sha and parent_sha.startswith(manifest_sha))
-        or (parent_sha and manifest_sha.startswith(parent_sha))
-    ):
+    else:
+        manifest_binding_ok, manifest_descendant_paths = manifest_release_binding(
+            manifest_sha,
+            head_sha,
+            parent_sha,
+        )
+    if manifest_sha and not manifest_binding_ok:
+        disallowed_descendants = [
+            path for path in manifest_descendant_paths if path not in RELEASE_METADATA_DESCENDANT_PATHS
+        ]
         failures.append(
-            "release manifest runtime commit does not match current HEAD or deployed parent: "
-            f"manifest={manifest_sha} head={head_sha} parent={parent_sha}"
+            "release manifest runtime commit is not HEAD, its parent, or a metadata-only ancestor: "
+            f"manifest={manifest_sha} head={head_sha} parent={parent_sha} "
+            f"disallowed_descendants={disallowed_descendants}"
         )
     tracked_dirty_paths: list[str] = []
     untracked_release_source_paths: list[str] = []
@@ -237,7 +297,7 @@ def build_release_hygiene_receipt() -> dict[str, object]:
         if BEARER_LITERAL_RE.search(text):
             failures.append(f"hardcoded bearer authorization forbidden in tracked file: {normalized}")
     required_checks = [
-        "release_manifest_runtime_commit_matches_head_or_parent",
+        "release_manifest_runtime_commit_matches_head_parent_or_metadata_only_ancestor",
         "tracked_worktree_clean",
         "no_untracked_release_source_files",
         "no_tracked_live_env_files",
@@ -257,6 +317,8 @@ def build_release_hygiene_receipt() -> dict[str, object]:
         "manifest_runtime_commit": manifest_sha,
         "head_commit": head_sha,
         "parent_commit": parent_sha,
+        "manifest_descendant_paths": manifest_descendant_paths,
+        "manifest_metadata_only_ancestor": bool(manifest_descendant_paths) and manifest_binding_ok,
         "tracked_dirty_path_count": len(tracked_dirty_paths),
         "untracked_release_source_count": len(untracked_release_source_paths),
         "note": "Repository hygiene and release-manifest authority gate for the tracked PropertyQuarry release plane.",

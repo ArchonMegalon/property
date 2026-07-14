@@ -44,3 +44,61 @@ def test_release_hygiene_flags_untracked_release_sources_but_ignores_runtime_art
         "untracked release source files forbidden before release: scripts/property_provider_matrix_stage_runner.py" in failure
         for failure in receipt["failures"]
     )
+
+
+def test_manifest_release_binding_accepts_only_named_metadata_descendants(monkeypatch) -> None:
+    monkeypatch.setattr(release_hygiene, "git_commit_is_ancestor", lambda manifest, head: True)
+    monkeypatch.setattr(
+        release_hygiene,
+        "committed_paths_since",
+        lambda manifest, head: [
+            "docs/PROPERTYQUARRY_RELEASE_MANIFEST.md",
+            ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
+        ],
+    )
+
+    accepted, descendant_paths = release_hygiene.manifest_release_binding(
+        "candidate-sha",
+        "metadata-closeout-sha",
+        "pulse-sha",
+    )
+
+    assert accepted is True
+    assert descendant_paths == [
+        "docs/PROPERTYQUARRY_RELEASE_MANIFEST.md",
+        ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
+    ]
+
+
+def test_manifest_release_binding_rejects_runtime_descendant(monkeypatch) -> None:
+    monkeypatch.setattr(release_hygiene, "git_commit_is_ancestor", lambda manifest, head: True)
+    monkeypatch.setattr(
+        release_hygiene,
+        "committed_paths_since",
+        lambda manifest, head: [
+            "docs/PROPERTYQUARRY_RELEASE_MANIFEST.md",
+            "ea/app/api/routes/landing.py",
+        ],
+    )
+
+    accepted, descendant_paths = release_hygiene.manifest_release_binding(
+        "candidate-sha",
+        "changed-runtime-sha",
+        "manifest-sha",
+    )
+
+    assert accepted is False
+    assert "ea/app/api/routes/landing.py" in descendant_paths
+
+
+def test_manifest_release_binding_rejects_non_ancestor(monkeypatch) -> None:
+    monkeypatch.setattr(release_hygiene, "git_commit_is_ancestor", lambda manifest, head: False)
+
+    accepted, descendant_paths = release_hygiene.manifest_release_binding(
+        "unknown-sha",
+        "current-sha",
+        "parent-sha",
+    )
+
+    assert accepted is False
+    assert descendant_paths == []
