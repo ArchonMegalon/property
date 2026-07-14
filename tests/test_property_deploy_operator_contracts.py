@@ -268,7 +268,8 @@ def test_smoke_runtime_bootstraps_clean_runner_dependencies_and_release_parent()
     postgres_smoke_job = _workflow_job(workflow, "smoke-runtime-postgres")
     postgres_contract_job = _workflow_job(workflow, "postgres-runtime-contracts")
 
-    assert "fetch-depth: 2" in security_job
+    assert "fetch-depth: 0" in security_job
+    assert "Release hygiene audits every commit between the manifest candidate and HEAD." in security_job
     assert "pytest==9.0.2" in api_job
     assert "httpx==0.28.1" in api_job
     assert "opencv-python-headless==4.13.0.92" in api_job
