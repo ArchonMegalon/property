@@ -18,6 +18,10 @@ from pathlib import Path, PurePosixPath
 from typing import Iterable
 
 try:
+    from scripts.property_tour_3dvista_provenance import (
+        safe_relpath as _safe_provenance_relpath,
+        validate_3dvista_target_provenance,
+    )
     from scripts.property_tour_runtime_paths import (
         best_tour_root as _best_tour_root,
         manifest_count as _manifest_count,
@@ -25,6 +29,10 @@ try:
         running_container_public_tour_dir as _running_container_public_tour_dir,
     )
 except ModuleNotFoundError:
+    from property_tour_3dvista_provenance import (  # type: ignore[no-redef]
+        safe_relpath as _safe_provenance_relpath,
+        validate_3dvista_target_provenance,
+    )
     from property_tour_runtime_paths import (  # type: ignore[no-redef]
         best_tour_root as _best_tour_root,
         manifest_count as _manifest_count,
@@ -53,7 +61,7 @@ PROVIDER_DELIVERY_REQUIREMENTS = {
     "3dvista": [
         "A verified non-trial 3DVista VT Pro export or allowlisted hosted 3dvista.com tour URL",
         "A PropertyQuarry import/control manifest with tdvplayer runtime evidence",
-        "Confirmation that the tour is a PropertyQuarry property tour, not a provider sample or Chummer demo",
+        "A private target-bound receipt covering authorization, exact export bytes, and human property/visual match",
     ],
     "pano2vr": [
         "A verified Pano2VR export containing index.html, pano.xml, and pano2vr_player.js",
@@ -75,7 +83,7 @@ PROVIDER_WHITE_LABEL_REQUIREMENTS = {
     "3dvista": [
         "A delivered 3DVista Private Viewer bundle for propertyquarry.com, or",
         "A verified non-trial VT Pro export/control URL with no trial branding and PropertyQuarry-owned tour metadata",
-        "A receipt that proves the viewer target is a PropertyQuarry property tour, not a Chummer RunSite/Horizon demo",
+        "A private target-bound receipt that proves the viewer is the exact authorized PropertyQuarry tour, not a provider sample or Chummer RunSite/Horizon demo",
     ],
     "matterport": [
         "A PropertyQuarry-hosted control route wrapping the allowlisted Matterport model",
@@ -332,6 +340,67 @@ def _three_d_vista_private_viewer_ready(payload: dict[str, object]) -> bool:
         and bool(evidence.get("trial_branding_checked"))
         and not _truthy(proof_payload.get("trial_branding_present"))
     )
+
+
+def _three_d_vista_target_provenance_errors(
+    bundle_dir: Path,
+    payload: dict[str, object],
+) -> list[str]:
+    raw_provenance = payload.get("three_d_vista_target_provenance")
+    if not isinstance(raw_provenance, dict):
+        return ["receipt_missing"]
+    slug = str(payload.get("slug") or bundle_dir.name).strip()
+    artifact = (
+        dict(raw_provenance.get("artifact") or {})
+        if isinstance(raw_provenance.get("artifact"), dict)
+        else {}
+    )
+    evidence_kind = str(artifact.get("kind") or "").strip().lower()
+    entry_relpath = _three_d_vista_entry_relpath(payload)
+    provider_url = ""
+    for key in ("three_d_vista_url", "threedvista_url", "3dvista_url", "source_virtual_tour_url", "crezlo_public_url"):
+        provider_url = _safe_http_url(payload.get(key), allowed_hosts=("3dvista.com",))
+        if provider_url:
+            break
+
+    export_dir: Path | None = None
+    expected_export_entry = ""
+    if evidence_kind == "local_export":
+        imported = (
+            dict(payload.get("three_d_vista_import") or {})
+            if isinstance(payload.get("three_d_vista_import"), dict)
+            else {}
+        )
+        entry_parts = PurePosixPath(entry_relpath).parts if entry_relpath else ()
+        target_subdir = _safe_provenance_relpath(
+            raw_provenance.get("target_subdir")
+            or imported.get("target_subdir")
+            or (entry_parts[0] if len(entry_parts) > 1 else "")
+        )
+        if not target_subdir:
+            return ["target_subdir_missing"]
+        candidate = (bundle_dir / target_subdir).resolve()
+        bundle_root = bundle_dir.resolve()
+        if bundle_root not in candidate.parents:
+            return ["target_subdir_invalid"]
+        export_dir = candidate
+        prefix = f"{target_subdir}/"
+        if not entry_relpath.startswith(prefix):
+            return ["entry_outside_target_subdir"]
+        expected_export_entry = entry_relpath[len(prefix) :]
+
+    _normalized, errors = validate_3dvista_target_provenance(
+        dict(raw_provenance),
+        target_slug=slug,
+        export_dir=export_dir,
+        entry_relpath=expected_export_entry,
+        provider_url=provider_url,
+    )
+    return errors
+
+
+def _three_d_vista_target_provenance_ready(bundle_dir: Path, payload: dict[str, object]) -> bool:
+    return not _three_d_vista_target_provenance_errors(bundle_dir, payload)
 
 
 def _three_d_vista_browser_render_ready(payload: dict[str, object]) -> bool:
@@ -719,6 +788,7 @@ def _load_provider_receipt(bundle_dir: Path) -> dict[str, object]:
         "source_virtual_tour_origin",
         "three_d_vista_browser_render_proof",
         "three_d_vista_import",
+        "three_d_vista_target_provenance",
         "three_d_vista_white_label_proof",
         "three_d_vista_url",
         "threedvista_url",
@@ -789,6 +859,17 @@ def _provider_missing_evidence(bundle_dir: Path, payload: dict[str, object]) -> 
             reason = "missing_3dvista_export"
             action = "run import_3dvista_export.py with a verified 3DVista export or add an allowlisted 3dvista.com URL"
         rows.append({"provider": "3dvista", "reason": reason, "action": action})
+    elif not _three_d_vista_target_provenance_ready(bundle_dir, payload):
+        rows.append(
+            {
+                "provider": "3dvista",
+                "reason": "3dvista_target_provenance_missing_or_invalid",
+                "action": (
+                    "attach a private propertyquarry.3dvista_target_provenance.v1 receipt that binds "
+                    "the exact slug and export bytes to approved reuse plus a dated property/visual match"
+                ),
+            }
+        )
     elif not _three_d_vista_private_viewer_ready(payload):
         rows.append(
             {
@@ -928,8 +1009,11 @@ def _control_candidates(*, slug: str, bundle_dir: Path, payload: dict[str, objec
         markers=THREE_D_VISTA_FORBIDDEN_PREMIUM_MARKERS,
     )
     three_d_vista_private_ready = _three_d_vista_private_viewer_ready(payload)
+    three_d_vista_target_ready = _three_d_vista_target_provenance_ready(bundle_dir, payload)
     three_d_vista_browser_ready = _three_d_vista_browser_render_ready(payload)
-    if three_d_vista_private_ready and (three_d_vista_url or (three_d_vista_entry_ready and not three_d_vista_trial_branded)):
+    if three_d_vista_private_ready and three_d_vista_target_ready and (
+        three_d_vista_url or (three_d_vista_entry_ready and not three_d_vista_trial_branded)
+    ):
         rows.append(
             {
                 "provider": "3dvista",

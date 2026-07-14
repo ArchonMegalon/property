@@ -142,6 +142,19 @@ def _run_import(row: dict[str, Any], *, env: dict[str, str]) -> dict[str, Any]:
         entry = str(row.get("entry") or "").strip()
         if entry:
             cmd.extend(["--entry", entry])
+        if provider == "3dvista":
+            provenance_root = export_dir if str(row.get("asset_dir") or row.get("export_dir") or "").strip() else export_zip.parent
+            provenance = _first_existing_file(
+                row.get("provenance_receipt"),
+                row.get("target_provenance_receipt"),
+                provenance_root / "3dvista-target-provenance.json",
+                provenance_root / "3dvista-provenance.json",
+                provenance_root / "provenance.json",
+            )
+            if provenance is None:
+                result["error"] = "3dvista_target_provenance_missing"
+                return result
+            cmd.extend(["--provenance-receipt", str(provenance.resolve())])
     elif provider == "krpano":
         panorama = _first_existing_file(row.get("panorama"), row.get("panorama_path")) or _discover_panorama(export_dir)
         cube_faces = [
@@ -223,6 +236,7 @@ def build_import_receipt(manifest_path: Path, *, public_tour_dir: Path | None = 
         "imports": rows,
         "notes": [
             "Each row delegates to the hardened single-export or asset importer for its provider.",
+            "3DVista rows require a private target-bound provenance receipt for the exact tour and export bytes.",
             "Receipts include slugs, provider keys, control URLs, and relative entry paths only; raw provider credentials and private listing data are not required.",
         ],
     }

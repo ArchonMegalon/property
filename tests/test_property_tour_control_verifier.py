@@ -11,6 +11,11 @@ from types import SimpleNamespace
 from PIL import Image
 
 from app.api.routes.public_tours import _tour_control_external_iframe_html
+from scripts.property_tour_3dvista_provenance import (
+    THREE_D_VISTA_TARGET_PROVENANCE_SCHEMA,
+    export_tree_sha256,
+    sha256_text,
+)
 from scripts.verify_property_tour_controls import (
     _best_tour_root,
     _load_cli_env_defaults,
@@ -34,6 +39,18 @@ def _write_tour(root: Path, slug: str, payload: dict[str, object], files: dict[s
             target.write_bytes(content)
         else:
             target.write_text(content, encoding="utf-8")
+    if "three_d_vista_white_label_proof" in body and "three_d_vista_target_provenance" not in body:
+        entry_relpath = str(body.get("three_d_vista_entry_relpath") or "").strip()
+        entry_parts = Path(entry_relpath).parts if entry_relpath else ()
+        if len(entry_parts) > 1 and (bundle / entry_relpath).is_file():
+            target_subdir = entry_parts[0]
+            body["three_d_vista_target_provenance"] = _clean_3dvista_target_provenance(
+                slug,
+                sha256=export_tree_sha256(bundle / target_subdir),
+                entry_relpath=Path(*entry_parts[1:]).as_posix(),
+                target_subdir=target_subdir,
+            )
+            (bundle / "tour.json").write_text(json.dumps(body), encoding="utf-8")
 
 
 def _write_playable_mp4(path: Path) -> None:
@@ -83,6 +100,38 @@ def _clean_3dvista_proof() -> dict[str, object]:
             "status": "pass",
             "rendered_viewer": True,
         },
+    }
+
+
+def _clean_3dvista_target_provenance(
+    slug: str,
+    *,
+    sha256: str,
+    entry_relpath: str = "",
+    target_subdir: str = "",
+    kind: str = "local_export",
+) -> dict[str, object]:
+    return {
+        "schema": THREE_D_VISTA_TARGET_PROVENANCE_SCHEMA,
+        "status": "pass",
+        "provider": "3dvista",
+        "target_slug": slug,
+        "artifact": {
+            "kind": kind,
+            "sha256": sha256,
+            "entry_relpath": entry_relpath,
+        },
+        "authorization": {
+            "status": "approved",
+            "reference": f"fixture-authorization:{slug}",
+        },
+        "review": {
+            "property_match": "pass",
+            "visual_match": "pass",
+            "reviewed_by": "propertyquarry-test-reviewer",
+            "reviewed_at": "2026-07-14T00:00:00+00:00",
+        },
+        "target_subdir": target_subdir,
     }
 
 
@@ -300,10 +349,21 @@ def test_property_tour_control_verifier_cli_loads_krpano_license_defaults(
 
 
 def test_property_tour_control_verifier_accepts_private_receipt_3dvista_without_url_leak(tmp_path: Path) -> None:
-    _write_tour(tmp_path, "private-3dvista", _clean_3dvista_proof())
+    slug = "private-3dvista"
+    provider_url = "https://example.3dvista.com/tours/PRIVATE3D/index.html"
+    _write_tour(tmp_path, slug, _clean_3dvista_proof())
     private_receipt = tmp_path / "private-3dvista" / "tour.private.json"
     private_receipt.write_text(
-        json.dumps({"three_d_vista_url": "https://example.3dvista.com/tours/PRIVATE3D/index.html"}),
+        json.dumps(
+            {
+                "three_d_vista_url": provider_url,
+                "three_d_vista_target_provenance": _clean_3dvista_target_provenance(
+                    slug,
+                    sha256=sha256_text(provider_url),
+                    kind="hosted_url",
+                ),
+            }
+        ),
         encoding="utf-8",
     )
 
