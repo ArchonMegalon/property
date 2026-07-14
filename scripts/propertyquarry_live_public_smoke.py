@@ -18,10 +18,10 @@ PUBLIC_DEMO_RUN_PATH = "/app/shortlist/run/public-demo-run"
 OPAQUE_PUBLIC_SAMPLE_RUN_PATH = "/app/shortlist/run/0a89ead9e0b048288cca22d1aac54fa7"
 PUBLIC_SAMPLE_RUN_PATHS = {PUBLIC_DEMO_RUN_PATH, OPAQUE_PUBLIC_SAMPLE_RUN_PATH}
 
-DEFAULT_ROUTES = (
+PUBLIC_SITEMAP_ROUTES = (
     "/",
-    "/security",
     "/pricing",
+    "/security",
     "/privacy",
     "/terms",
     "/support",
@@ -30,8 +30,15 @@ DEFAULT_ROUTES = (
     "/subprocessors",
     "/refunds",
     "/disclaimers",
-    "/register",
-    "/sign-in",
+    "/integrations",
+    "/docs",
+    "/guides/wohnung-kaufen-wien-checkliste",
+    "/markets/vienna",
+)
+PUBLIC_INFORMATION_ROUTES = (*PUBLIC_SITEMAP_ROUTES, "/register", "/sign-in")
+
+DEFAULT_ROUTES = (
+    *PUBLIC_INFORMATION_ROUTES,
     "/manifest.webmanifest",
     "/service-worker.js",
     "/robots.txt",
@@ -47,19 +54,7 @@ DEFAULT_BILLING_WORKER_ROUTES = (
 )
 
 PUBLIC_HTML_ROUTES = {
-    "/",
-    "/security",
-    "/pricing",
-    "/privacy",
-    "/terms",
-    "/support",
-    "/imprint",
-    "/cookies",
-    "/subprocessors",
-    "/refunds",
-    "/disclaimers",
-    "/register",
-    "/sign-in",
+    *PUBLIC_INFORMATION_ROUTES,
     "/app/properties",
     PUBLIC_DEMO_RUN_PATH,
     OPAQUE_PUBLIC_SAMPLE_RUN_PATH,
@@ -109,19 +104,7 @@ def _header_value(headers: dict[str, object], name: str) -> str:
 
 def _security_header_checks(*, path: str, final_url: str, headers: dict[str, object]) -> list[tuple[str, bool]]:
     html_like_paths = {
-        "/",
-        "/security",
-        "/pricing",
-        "/privacy",
-        "/terms",
-        "/support",
-        "/imprint",
-        "/cookies",
-        "/subprocessors",
-        "/refunds",
-        "/disclaimers",
-        "/register",
-        "/sign-in",
+        *PUBLIC_INFORMATION_ROUTES,
         "/app/properties",
         *PUBLIC_SAMPLE_RUN_PATHS,
     }
@@ -194,27 +177,18 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
     visible_text = _visible_text(text)
     lowered_visible = visible_text.lower()
     if path in PUBLIC_HTML_ROUTES:
+        route_forbidden_terms = tuple(
+            term
+            for term in FORBIDDEN_VISIBLE_INTERNAL_COPY
+            if not (path == "/integrations" and term == "verified")
+        )
         checks.append(
             (
                 "no_visible_internal_proof_copy",
-                not any(term in lowered_visible for term in FORBIDDEN_VISIBLE_INTERNAL_COPY),
+                not any(term in lowered_visible for term in route_forbidden_terms),
             )
         )
-    if path in {
-        "/",
-        "/security",
-        "/pricing",
-        "/privacy",
-        "/terms",
-        "/support",
-        "/imprint",
-        "/cookies",
-        "/subprocessors",
-        "/refunds",
-        "/disclaimers",
-        "/register",
-        "/sign-in",
-    }:
+    if path in PUBLIC_INFORMATION_ROUTES:
         checks.extend(
             (
                 ("contains_propertyquarry", "PropertyQuarry" in text),
@@ -244,9 +218,41 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
     elif path == "/pricing":
         checks.extend(
             (
-                ("pricing_minimal_copy", "Pricing" in text and "Start free" in text),
+                (
+                    "pricing_minimal_copy",
+                    "Pricing" in text
+                    and ("Start free" in text or ("Free" in visible_text and "Open search" in visible_text)),
+                ),
                 ("pricing_old_noise_removed", "Choose the lane that matches the real search workload" not in text),
                 ("pricing_subtitle_removed", "Choose by sources, shortlist size, and research depth." not in text),
+            )
+        )
+    elif path == "/integrations":
+        checks.extend(
+            (
+                ("integrations_page_substance", "Connect only what improves the property workflow." in text),
+                ("integrations_page_next_action", "View details" in visible_text),
+            )
+        )
+    elif path == "/docs":
+        checks.extend(
+            (
+                ("docs_page_substance", "Understand PropertyQuarry without reading the plumbing." in text),
+                ("docs_page_next_action", "Open" in visible_text),
+            )
+        )
+    elif path == "/guides/wohnung-kaufen-wien-checkliste":
+        checks.extend(
+            (
+                ("guide_page_substance", "Wohnung kaufen in Wien" in text and "The shortest useful checklist" in text),
+                ("guide_page_next_action", "Open PropertyQuarry" in visible_text),
+            )
+        )
+    elif path == "/markets/vienna":
+        checks.extend(
+            (
+                ("market_page_substance", "Vienna apartment search" in text and "What separates signal from noise" in text),
+                ("market_page_next_action", "Start a Vienna search" in visible_text),
             )
         )
     elif path == "/sign-in":
@@ -387,16 +393,13 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
     elif path == "/sitemap.xml":
         parsed_final = urllib.parse.urlparse(str(final_url or ""))
         sitemap_origin = f"{parsed_final.scheme}://{parsed_final.netloc}" if parsed_final.scheme and parsed_final.netloc else "https://propertyquarry.com"
-        checks.append(
-            (
-                "sitemap_core",
-                (f"<loc>{sitemap_origin}/</loc>" in text and f"<loc>{sitemap_origin}/pricing</loc>" in text)
-                or (
-                    "<loc>https://propertyquarry.com/</loc>" in text
-                    and "<loc>https://propertyquarry.com/pricing</loc>" in text
-                ),
-            )
-        )
+        observed_origins = (sitemap_origin, "https://propertyquarry.com")
+        missing_sitemap_routes = [
+            route
+            for route in PUBLIC_SITEMAP_ROUTES
+            if not any(f"<loc>{origin}{route}</loc>" in text for origin in observed_origins)
+        ]
+        checks.append(("sitemap_all_public_information_routes", not missing_sitemap_routes))
     elif path == "/app/properties":
         checks.extend(
             (
@@ -606,11 +609,17 @@ def build_live_public_smoke_receipt(
     fetcher: Callable[[str, float], dict[str, object]] | None = None,
 ) -> dict[str, object]:
     normalized_base = str(base_url or "").strip().rstrip("/") or "https://propertyquarry.com"
+    configured_routes = tuple("/" + str(route or "").strip().lstrip("/") for route in routes)
+    configured_route_paths = {route.split("?", 1)[0] for route in configured_routes}
+    require_all_public_information_routes = configured_routes == DEFAULT_ROUTES
+    missing_public_information_routes = [
+        route for route in PUBLIC_INFORMATION_ROUTES if route not in configured_route_paths
+    ]
     fetch = fetcher or (lambda url, timeout: fetch_url(url, timeout_seconds=timeout))
     redirect_fetch = fetcher or (lambda url, timeout: fetch_url(url, timeout_seconds=timeout, follow_redirects=False))
     checks: list[dict[str, object]] = []
     sign_in_text = ""
-    for raw_path in routes:
+    for raw_path in configured_routes:
         path = "/" + str(raw_path or "").strip().lstrip("/")
         url = f"{normalized_base}{path}"
         result = fetch(url, timeout_seconds)
@@ -659,13 +668,23 @@ def build_live_public_smoke_receipt(
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "base_url": normalized_base,
-        "status": "pass" if not failed else "fail",
+        "status": (
+            "pass"
+            if not failed and (not require_all_public_information_routes or not missing_public_information_routes)
+            else "fail"
+        ),
+        "configured_routes": list(configured_routes),
+        "required_public_information_routes": list(PUBLIC_INFORMATION_ROUTES),
+        "require_all_public_information_routes": require_all_public_information_routes,
+        "missing_public_information_routes": missing_public_information_routes,
         "route_count": len(checks),
-        "failed_count": len(failed),
+        "failed_count": len(failed) + (
+            1 if require_all_public_information_routes and missing_public_information_routes else 0
+        ),
         "checks": checks,
         "notes": [
             "This smoke is public and non-mutating.",
-            "It verifies Cloudflare/origin availability, PropertyQuarry public copy, PWA assets, SEO files, the app auth boundary, and the public billing worker handoff.",
+            "It verifies every sitemap/legal/support/docs/integrations/guide/market page, PropertyQuarry public copy, PWA assets, SEO files, the app auth boundary, and the public billing worker handoff.",
         ],
     }
 

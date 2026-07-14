@@ -105,20 +105,39 @@ def test_telegram_outbound_workflow_property_tour_sent(monkeypatch: pytest.Monke
     client.app.state.container.orchestrator.execute_task_artifact = _fake_execute_task_artifact
     bundle_dir = tmp_path / "brigittenau-apartment-a"
     bundle_dir.mkdir(parents=True)
+    three_d_vista_dir = bundle_dir / "3dvista"
+    three_d_vista_dir.mkdir()
+    (three_d_vista_dir / "index.htm").write_text(
+        "<!doctype html><html><body><div id='tourviewer'>3D tour ready</div>"
+        "<script>window.TDVPlayer = { ready: true };</script></body></html>",
+        encoding="utf-8",
+    )
     (bundle_dir / "tour.mp4").write_bytes(b"fake-video")
     (bundle_dir / "tour.json").write_text(
-        '{"slug":"brigittenau-apartment-a","video_relpath":"tour.mp4","scenes":[{"asset_relpath":"scene-01.jpg"}]}',
+        '{"slug":"brigittenau-apartment-a","video_relpath":"tour.mp4",'
+        '"three_d_vista_entry_relpath":"3dvista/index.htm",'
+        '"three_d_vista_import":{"source_project":"propertyquarry"},'
+        '"three_d_vista_white_label_proof":{"source_project":"propertyquarry",'
+        '"private_viewer_verified":true,"non_trial_export_verified":true,'
+        '"propertyquarry_tour_metadata":true,"trial_branding_checked":true,'
+        '"trial_branding_present":false},'
+        '"three_d_vista_browser_render_proof":{"provider":"3dvista","status":"pass",'
+        '"rendered_viewer":true},"scenes":[{"asset_relpath":"scene-01.jpg"}]}',
         encoding="utf-8",
     )
     (bundle_dir / "scene-01.jpg").write_bytes(b"scene")
 
     created = client.post(
         "/app/api/signals/willhaben/property-tour",
-        json={"property_url": packet["property_url"], "binding_id": "browseract-binding-1"},
+        json={
+            "property_url": packet["property_url"],
+            "binding_id": "browseract-binding-1",
+            "auto_deliver": True,
+        },
     )
     assert created.status_code == 200
     body = created.json()
-    assert body["status"] == "sent"
+    assert body["status"] == "ready"
     assert body["telegram_delivery_status"] == "sent"
     assert body["telegram_chat_ref"] == "1354554303"
     assert body["telegram_message_ids"] == ["tg-1"]

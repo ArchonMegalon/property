@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 
 from app.repositories.artifacts import InMemoryArtifactRepository
@@ -128,6 +129,31 @@ class ReadinessService:
                 with conn.cursor() as cur:
                     cur.execute("SELECT 1")
                     _ = cur.fetchone()
+                    from app.product.property_search_schema import (
+                        inspect_property_search_schema_cursor,
+                        property_search_schema_readiness_required,
+                    )
+
+                    if property_search_schema_readiness_required(
+                        runtime_mode=self._settings.runtime_mode,
+                        role=self._settings.role,
+                        explicit=str(
+                            os.environ.get(
+                                "PROPERTYQUARRY_SEARCH_SCHEMA_READINESS_REQUIRED"
+                            )
+                            or ""
+                        ),
+                    ):
+                        schema_status = inspect_property_search_schema_cursor(cur)
+                        if not schema_status.ready:
+                            return (
+                                False,
+                                f"property_search_schema_not_ready:{schema_status.reason}",
+                            )
+                        return (
+                            True,
+                            f"postgres_ready:property_search_schema_v{schema_status.current_version}",
+                        )
             return True, "postgres_ready"
         except Exception as exc:
             return False, f"postgres_unavailable:{exc.__class__.__name__}"

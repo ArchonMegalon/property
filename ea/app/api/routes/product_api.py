@@ -2118,18 +2118,20 @@ def list_structured_property_feedback(
     stakeholder_id: str = Query(default=""),
     publication_id: str = Query(default=""),
     category: str = Query(default=""),
+    limit: int = Query(default=50, ge=1, le=50),
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> dict[str, object]:
     service = build_fliplink_packet_service(container)
-    items = service.list_structured_feedback(
+    all_items = service.list_structured_feedback(
         principal_id=context.principal_id,
         property_ref=property_ref,
         stakeholder_id=stakeholder_id,
         publication_id=publication_id,
         category=category,
     )
-    return {"items": items, "total": len(items)}
+    items = list(all_items)[:limit]
+    return {"items": items, "total": len(all_items)}
 
 
 @router.post("/property-feedback/cluster")

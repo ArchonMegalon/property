@@ -13,39 +13,54 @@ RELEASE_CHECKLIST_PATH = ROOT / "RELEASE_CHECKLIST.md"
 PRODUCT_RELEASE_CHECKLIST_PATH = ROOT / "PRODUCT_RELEASE_CHECKLIST.md"
 README_PATH = ROOT / "README.md"
 RUNBOOK_PATH = ROOT / "RUNBOOK.md"
+CLOSEOUT_PLAN_PATH = ROOT / "FLAGSHIP_CLOSEOUT_PLAN.md"
+VERIFY_RELEASE_ASSETS_PATH = ROOT / "scripts" / "verify_release_assets.sh"
 
 
 def test_flagship_truth_plane_seed_points_at_browser_workflow_proof() -> None:
     gate = json.loads(GATE_PATH.read_text(encoding="utf-8"))
 
-    assert gate["product"] == "executive-assistant"
-    assert gate["surface"] == "flagship_release_control"
+    assert gate["product"] == "propertyquarry"
+    assert gate["surface"] == "propertyquarry_flagship_release_control"
     assert gate["truth_plane"]["source"] == ".codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md"
     assert gate["truth_plane"]["legacy_history"] == "MILESTONE.json"
 
     browser_proof = gate["browser_workflow_proof"]["evidence_sources"]
     evidence_index = {entry["file"]: set(entry["cases"]) for entry in browser_proof}
 
-    assert "tests/test_product_browser_journeys.py" in evidence_index
-    assert "tests/e2e/test_product_workflows.py" in evidence_index
-    assert "test_workspace_pages_render_seeded_product_objects" in evidence_index["tests/test_product_browser_journeys.py"]
-    assert "test_browser_action_routes_match_rendered_forms" in evidence_index["tests/test_product_browser_journeys.py"]
-    assert "test_activation_and_memo_flow_in_real_browser" in evidence_index["tests/e2e/test_product_workflows.py"]
-    assert "test_draft_and_commitment_workflows_in_real_browser" in evidence_index["tests/e2e/test_product_workflows.py"]
+    assert gate["browser_workflow_proof"]["proof_target"] == "propertyquarry"
+    assert "tests/test_propertyquarry_workspace_redesign.py" in evidence_index
+    assert "tests/e2e/test_propertyquarry_greenfield_browser.py" in evidence_index
+    assert (
+        "test_propertyquarry_workspace_routes_render_greenfield_surfaces"
+        in evidence_index["tests/test_propertyquarry_workspace_redesign.py"]
+    )
+    assert (
+        "test_propertyquarry_failed_run_stays_on_activity_surface"
+        in evidence_index["tests/test_propertyquarry_workspace_redesign.py"]
+    )
+    assert (
+        "test_propertyquarry_greenfield_workspace_in_real_browser"
+        in evidence_index["tests/e2e/test_propertyquarry_greenfield_browser.py"]
+    )
+    assert (
+        "test_propertyquarry_greenfield_workspace_is_mobile_usable"
+        in evidence_index["tests/e2e/test_propertyquarry_greenfield_browser.py"]
+    )
 
     conditions = gate["release_claim"]["required_conditions"]
     assert any("EA product surface canon exists" in condition for condition in conditions)
-    assert any("browser workflow proof" in condition for condition in conditions)
+    assert any("PropertyQuarry" in condition for condition in conditions)
     assert any("release asset verification" in condition for condition in conditions)
     assert any("MILESTONE green" in condition or "MILESTONE" in condition for condition in conditions)
     assert not any("parity-oracle" in condition for condition in conditions)
     assert not any("noise-auditor" in condition for condition in conditions)
 
     expected_signals = gate["browser_workflow_proof"]["expected_browser_signals"]
-    assert any("email-first workspace setup" in signal for signal in expected_signals)
-    assert any("Morning Memo" in signal for signal in expected_signals)
-    assert any("/app/queue" in signal for signal in expected_signals)
-    assert any("/app/people" in signal for signal in expected_signals)
+    assert any("/app/properties" in signal for signal in expected_signals)
+    assert any("ranked" in signal.lower() for signal in expected_signals)
+    assert any("/app/research/" in signal for signal in expected_signals)
+    assert any("mobile" in signal.lower() for signal in expected_signals)
 
     canon = gate["ea_product_canon"]
     assert canon["source_root"] == ".codex-design/ea"
@@ -64,6 +79,9 @@ def test_flagship_release_docs_cite_the_truth_plane_instead_of_milestone_as_orac
     runbook = RUNBOOK_PATH.read_text(encoding="utf-8")
 
     assert "EA_FLAGSHIP_TRUTH_PLANE.md" in truth_plane
+    assert "tests/test_propertyquarry_workspace_redesign.py" in truth_plane
+    assert "tests/e2e/test_propertyquarry_greenfield_browser.py" in truth_plane
+    assert "legacy assistant browser files are intentionally skipped" in truth_plane
     assert ".codex-design/ea/START_HERE.md" in truth_plane
     assert "MILESTONE.json" in truth_plane
     assert ".codex-design/ea/*" in implementation_scope
@@ -90,3 +108,23 @@ def test_flagship_release_docs_cite_the_truth_plane_instead_of_milestone_as_orac
 
 def test_flagship_release_receipt_is_materialized_or_expected_to_materialize() -> None:
     assert GENERATED_GATE_PATH.exists()
+
+
+def test_flagship_closeout_claim_is_scoped_to_the_proven_propertyquarry_surface() -> None:
+    closeout = CLOSEOUT_PLAN_PATH.read_text(encoding="utf-8")
+
+    assert "# Standalone PropertyQuarry Flagship Closeout Plan" in closeout
+    assert "cannot establish Executive Assistant core eligibility" in closeout
+    assert "tests/test_propertyquarry_workspace_redesign.py" in closeout
+    assert "tests/e2e/test_propertyquarry_greenfield_browser.py" in closeout
+    assert "Executive Assistant core is flagship-release eligible" not in closeout
+
+
+def test_release_asset_verifier_binds_generated_receipts_to_current_propertyquarry_seed() -> None:
+    verifier = VERIFY_RELEASE_ASSETS_PATH.read_text(encoding="utf-8")
+
+    assert 'assert gate["product"] == "propertyquarry"' in verifier
+    assert 'assert gate["surface"] == "propertyquarry_flagship_release_control"' in verifier
+    assert 'browser_receipt_pass_blockers(browser_receipt, gate)' in verifier
+    assert 'assert browser_receipt["product"] == gate["product"]' in verifier
+    assert 'assert flagship_receipt["product"] == gate["product"]' in verifier

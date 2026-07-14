@@ -5173,10 +5173,10 @@ def _build_provider_search_url(
         if location_path:
             base_search_url = f"{base_search_url.rstrip('/')}/{location_path}"
         query_items = {"isNavigation": "true"}
-        if keywords:
-            query_items["q"] = str(keywords or "").strip()
-        elif search_terms and not location_path:
+        if search_terms and not location_path:
             query_items["q"] = search_terms
+        elif keywords:
+            query_items["q"] = str(keywords or "").strip()
         if max_price_eur:
             query_items["PRICE_TO"] = str(max_price_eur)
         if min_area_m2:

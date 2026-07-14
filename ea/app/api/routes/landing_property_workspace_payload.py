@@ -282,15 +282,125 @@ _PROPERTY_WORKBENCH_CLIENT_FACT_KEYS = (
 )
 
 
+_PROPERTY_WORKBENCH_CLIENT_EVIDENCE_TEXT_KEYS = (
+    "source_label",
+    "title",
+    "freshness_label",
+    "summary",
+    "availability",
+    "verification_state",
+    "confidence",
+)
+
+
+def _property_workbench_client_evidence_text(value: object, *, max_chars: int = 240) -> str:
+    if not isinstance(value, (str, int, float, bool)):
+        return ""
+    text = " ".join(str(value or "").split()).strip()
+    return text[:max_chars]
+
+
+def _property_workbench_client_evidence_url(value: object) -> str:
+    url = str(value or "").strip()
+    if (
+        not url
+        or len(url) > 2048
+        or any(character.isspace() or ord(character) < 32 for character in url)
+    ):
+        return ""
+    try:
+        parsed = urllib.parse.urlparse(url)
+    except ValueError:
+        return ""
+    if (
+        parsed.scheme.lower() != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
+        return ""
+    return url
+
+
+def _property_workbench_client_evidence_rows(
+    value: object,
+    *,
+    max_rows: int,
+    categorized: bool,
+) -> list[dict[str, object]]:
+    source_rows: object = value
+    if isinstance(value, dict):
+        source_rows = next(
+            (
+                value.get(key)
+                for key in ("sources", "mentions", "articles", "items", "rows")
+                if isinstance(value.get(key), (list, tuple))
+            ),
+            (),
+        )
+    if not isinstance(source_rows, (list, tuple)):
+        return []
+    rows: list[dict[str, object]] = []
+    for item in source_rows:
+        if not isinstance(item, dict):
+            continue
+        raw = dict(item)
+        compact: dict[str, object] = {}
+        if categorized:
+            risk_key = _property_workbench_client_evidence_text(
+                raw.get("risk_key") or raw.get("key"),
+                max_chars=64,
+            ).lower()
+            if risk_key and re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", risk_key):
+                compact["risk_key"] = risk_key
+        else:
+            category = _property_workbench_client_evidence_text(raw.get("category"), max_chars=64)
+            if category:
+                compact["category"] = category
+        for key in _PROPERTY_WORKBENCH_CLIENT_EVIDENCE_TEXT_KEYS:
+            text = _property_workbench_client_evidence_text(raw.get(key))
+            if text:
+                compact[key] = text
+        url = _property_workbench_client_evidence_url(
+            raw.get("url")
+            or raw.get("source_url")
+            or raw.get("href")
+            or raw.get("original_url")
+            or raw.get("article_url")
+        )
+        if url:
+            compact["url"] = url
+        if compact:
+            rows.append(compact)
+        if len(rows) >= max_rows:
+            break
+    return rows
+
+
 def _property_workbench_client_facts(value: object) -> dict[str, object]:
     if not isinstance(value, dict):
         return {}
     facts = dict(value)
-    return {
+    compact = {
         key: facts.get(key)
         for key in _PROPERTY_WORKBENCH_CLIENT_FACT_KEYS
         if facts.get(key) not in (None, "", [], {})
     }
+    official_rows = _property_workbench_client_evidence_rows(
+        facts.get("official_risk_evidence"),
+        max_rows=12,
+        categorized=True,
+    )
+    if official_rows:
+        compact["official_risk_evidence"] = {"sources": official_rows}
+    media_rows = _property_workbench_client_evidence_rows(
+        facts.get("media_attention"),
+        max_rows=8,
+        categorized=False,
+    )
+    if media_rows:
+        compact["media_attention"] = media_rows
+    return compact
 
 
 def _property_workbench_client_tour_payload(value: object) -> dict[str, object]:
@@ -647,6 +757,12 @@ def _property_workbench_client_run_payload(run_payload: dict[str, object]) -> di
         for key in summary_keys
         if raw_summary.get(key) not in (None, "", [], {})
     }
+    safe_run_message = property_run_customer_safe_status_detail(
+        raw_run.get("status") or raw_summary.get("status"),
+        raw_run.get("message") or raw_summary.get("message") or "",
+        summary=raw_summary,
+        prefer_repair_step=True,
+    )
     compact_run = {
         key: raw_run.get(key)
         for key in (
@@ -654,7 +770,6 @@ def _property_workbench_client_run_payload(run_payload: dict[str, object]) -> di
             "status",
             "status_label",
             "progress",
-            "message",
             "status_url",
             "eta_label",
             "current_step",
@@ -667,6 +782,10 @@ def _property_workbench_client_run_payload(run_payload: dict[str, object]) -> di
         )
         if raw_run.get(key) not in (None, "", [], {})
     }
+    if safe_run_message:
+        compact_run["message"] = safe_run_message
+    elif raw_run.get("message") not in (None, "", [], {}):
+        compact_run["message"] = str(raw_run.get("message") or raw_summary.get("message") or "").strip()
     if compact_summary:
         compact_run["summary"] = compact_summary
     events = [dict(row) for row in list(raw_run.get("events") or []) if isinstance(row, dict)]
@@ -1152,6 +1271,7 @@ def property_workspace_payload(
 
     surface_scope = PropertySurfaceScope.for_section(section)
     normalized_section = surface_scope.section
+    workspace_principal_id = str(property_state.get("_principal_id") or "").strip()
     wants_recent_runs = surface_scope.wants_recent_runs
     wants_search_runs = surface_scope.wants_search_runs
     wants_agent_views = surface_scope.wants_agent_views
@@ -1379,8 +1499,15 @@ def property_workspace_payload(
     route_recovery = dict(property_state.get("route_recovery") or {})
     run_events = property_run_customer_visible_events(run_payload=run_payload)
     raw_run_summary = dict(run_payload.get("summary") or {})
-    raw_run_message = str(run_payload.get("message") or "").strip()
     run_summary = _property_customer_run_summary(raw_run_summary, preferences=property_preferences)
+    run_status_value = str(run_health.get("status") or run_payload.get("status") or "").strip().lower()
+    raw_run_message = str(run_health.get("message") or run_payload.get("message") or "").strip()
+    safe_run_message = property_run_customer_safe_status_detail(
+        run_status_value,
+        raw_run_message,
+        summary=run_summary,
+        prefer_repair_step=True,
+    )
     run_eta_label = property_run_public_eta_label(
         run_health.get("eta_label") or run_summary.get("eta_label") or run_payload.get("eta_label")
     )
@@ -1416,7 +1543,7 @@ def property_workspace_payload(
     run_payload = {
         **run_payload,
         "summary": run_summary,
-        "message": str(run_health.get("message") or run_payload.get("message") or "").strip(),
+        "message": str(run_health.get("status_note") or safe_run_message or run_health.get("message") or run_payload.get("message") or "").strip(),
         "eta_label": run_eta_label,
         "events": run_events,
     }
@@ -1885,10 +2012,22 @@ def property_workspace_payload(
     packet_ready_total = 0
     tour_ready_total = 0
 
-    run_message = str(run_health.get("message") or run_payload.get("message") or "").strip()
-    run_status_value = str(run_health.get("status") or run_payload.get("status") or "").strip().lower()
-    run_status_label = str(run_health.get("status_label") or "").strip() or "Queued"
     run_status_note = str(run_health.get("status_note") or "").strip()
+    run_message = str(run_status_note or safe_run_message or run_health.get("message") or run_payload.get("message") or "").strip()
+    run_status_label = str(run_health.get("status_label") or "").strip() or "Queued"
+    if isinstance(run_card, dict):
+        run_card_copy = dict(run_card)
+        raw_run_card_body = str(run_card_copy.get("body") or run_card_copy.get("detail") or "").strip()
+        if raw_run_card_body:
+            safe_run_card_body = property_run_customer_safe_status_detail(
+                run_status_value,
+                raw_run_card_body,
+                summary=run_summary,
+                prefer_repair_step=True,
+            )
+            if safe_run_card_body and safe_run_card_body != raw_run_card_body:
+                run_card_copy["body"] = safe_run_card_body
+                run_card = run_card_copy
     run_in_progress = bool(run_id and bool(run_health.get("in_progress")))
     progress_current_property = _property_progress_current_property_card(
         run_summary=run_summary,
@@ -1966,7 +2105,7 @@ def property_workspace_payload(
             run=PropertyDecisionWorkbenchRunContract(
                 run_id="",
                 status="not_started",
-                status_label="Ready",
+                status_label=str(dict(property_state.get("search_health") or {}).get("label") or "Unavailable"),
                 progress=0,
                 message="",
                 status_url="",
@@ -2711,6 +2850,7 @@ def property_workspace_payload(
                             or property_facts.get("listing_id")
                             or ""
                         ),
+                        principal_id=workspace_principal_id,
                     )
                     or ""
                 ).strip()
@@ -2730,12 +2870,16 @@ def property_workspace_payload(
         ready_tour_url = _property_visual_ready_tour_url(
             tour_url=tour_url,
             open_tour_url=runtime_tour_url,
+            principal_id=workspace_principal_id,
         )
         if ready_tour_url:
             try:
                 from app.product import property_tour_hosting
 
-                provider_key = property_tour_hosting._hosted_property_tour_verified_provider(tour_url or ready_tour_url)  # type: ignore[attr-defined]
+                provider_key = property_tour_hosting._hosted_property_tour_verified_provider(  # type: ignore[attr-defined]
+                    tour_url or ready_tour_url,
+                    principal_id=workspace_principal_id,
+                )
             except Exception:
                 provider_key = ""
             provider_label = _visual_provider_label(provider_key) if provider_key else "3D tour"
@@ -2762,8 +2906,14 @@ def property_workspace_payload(
             try:
                 from app.product import property_tour_hosting
 
-                verified_tour_url = property_tour_hosting._hosted_property_tour_first_party_open_url(tour_url)  # type: ignore[attr-defined]
-                provider_key = property_tour_hosting._hosted_property_tour_verified_provider(tour_url)  # type: ignore[attr-defined]
+                verified_tour_url = property_tour_hosting._hosted_property_tour_first_party_open_url(  # type: ignore[attr-defined]
+                    tour_url,
+                    principal_id=workspace_principal_id,
+                )
+                provider_key = property_tour_hosting._hosted_property_tour_verified_provider(  # type: ignore[attr-defined]
+                    tour_url,
+                    principal_id=workspace_principal_id,
+                )
             except Exception:
                 verified_tour_url = ""
                 provider_key = ""
@@ -5136,7 +5286,7 @@ def property_workspace_payload(
         {
             **run_payload_for_surface,
             "summary": run_summary_for_surface,
-            "message": run_status_note or run_message,
+            "message": run_message,
             "events": run_events[-10:],
             "route_previews": surface_progress_route_previews,
             "current_property": surface_progress_current_property,
@@ -5178,7 +5328,7 @@ def property_workspace_payload(
             status=run_status_value or "not_started",
             status_label=run_status_label,
             progress=int(run_health.get("progress") or run_payload.get("progress") or 0),
-            message=run_status_note or run_message,
+            message=run_message,
             status_url=str(run_health.get("status_url") or run_payload.get("status_url") or "").strip(),
             filtered_total=workbench_filtered_total,
             score_demoted_total=workbench_score_demoted_total,
@@ -5190,7 +5340,7 @@ def property_workspace_payload(
                 {
                     "status": run_status_value or "not_started",
                     "progress": int(run_health.get("progress") or run_payload.get("progress") or 0),
-                    "message": run_status_note or run_message,
+                    "message": run_message,
                     "eta_label": run_eta_label,
                     "summary": run_summary_for_surface,
                 },
@@ -5270,7 +5420,7 @@ def property_workspace_payload(
                 run_summary=run_summary,
                 run_sources=run_sources,
                 run_status_value=run_status_value,
-                run_message=raw_run_message or run_message,
+                run_message=run_message,
                 counterfactual_rows=counterfactual_rows,
                 suppression_rows=suppression_rows,
             )

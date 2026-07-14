@@ -1,0 +1,51 @@
+{
+  "schema_version": "propertyquarry.monitoring-topology.v1",
+  "service": "propertyquarry",
+  "mode": "protected_external",
+  "network_scope": "private_only",
+  "images": {
+    "prometheus": {
+      "repository": "quay.io/prometheus/prometheus",
+      "digest": "UNCONFIGURED"
+    },
+    "alertmanager": {
+      "repository": "quay.io/prometheus/alertmanager",
+      "digest": "UNCONFIGURED"
+    }
+  },
+  "endpoints": {
+    "prometheus_base_url": "UNCONFIGURED",
+    "alertmanager_base_url": "UNCONFIGURED",
+    "proof_receiver_base_url": "UNCONFIGURED",
+    "operator_gateway_base_url": "UNCONFIGURED"
+  },
+  "identities": {
+    "proof_receiver": {
+      "key_id": "propertyquarry-local-proof-cache-v1",
+      "audience": "propertyquarry-proof-cache",
+      "endpoint_origin": "UNCONFIGURED"
+    },
+    "operator_gateway": {
+      "key_id": "UNCONFIGURED",
+      "audience": "UNCONFIGURED",
+      "endpoint_origin": "UNCONFIGURED",
+      "tls_spki_sha256": "UNCONFIGURED"
+    }
+  },
+  "targets": {
+    "file_sd_path": "/etc/prometheus/propertyquarry_targets.json",
+    "expected_replica_ids": [
+      "UNCONFIGURED"
+    ]
+  },
+  "secrets": {
+    "metrics_token_file": "/run/secrets/propertyquarry_metrics_token",
+    "prometheus_api_token_file": "/run/secrets/propertyquarry_prometheus_api_token",
+    "alertmanager_api_token_file": "/run/secrets/propertyquarry_alertmanager_api_token",
+    "operator_webhook_url_file": "/run/secrets/propertyquarry_alert_webhook_url",
+    "proof_webhook_url_file": "/run/secrets/propertyquarry_alert_proof_webhook_url",
+    "operator_gateway_api_token_file": "/run/secrets/propertyquarry_operator_gateway_token",
+    "proof_receiver_token_file": "/run/secrets/propertyquarry_alert_proof_receiver_token",
+    "proof_receiver_instance_file": "/run/secrets/propertyquarry_alert_proof_receiver_instance"
+  }
+}

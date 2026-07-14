@@ -1,19 +1,19 @@
 {
   "contract_name": "ea.weekly_product_pulse",
   "contract_version": 1,
-  "generated_at": "2026-06-26T13:52:58Z",
-  "as_of": "2026-06-26",
+  "generated_at": "2026-07-14T03:55:09Z",
+  "as_of": "2026-07-14",
   "scorecard_source": ".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml",
   "release_truth_source": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
   "release_truth_provenance": {
     "source_path": "/docker/property/.codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
     "resolved_path": "/docker/property/.codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
     "present": true,
-    "size_bytes": 5843,
-    "mtime_utc": "2026-06-26T13:52:58Z",
-    "sha256": "bfe050a813ced75bcf5536d4220f8443d1857deb9cc4f3824d7735c00ed8231f",
+    "size_bytes": 6703,
+    "mtime_utc": "2026-07-14T03:55:06Z",
+    "sha256": "08560caa8b97eda46e1ea3a0386073a386383317a2545b6d7f7e9132fbad6212",
     "git_repo_root": "/docker/property",
-    "git_head": "4722737b4fa19bbdc595b8976a7180f77ee99751",
+    "git_head": "812e0b1132a18538f14978e887b049166c4cc3c7",
     "git_branch": "main",
     "repo_relative_path": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
   },
@@ -22,20 +22,20 @@
     "source_path": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
     "resolved_path": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
     "present": true,
-    "size_bytes": 78349,
-    "mtime_utc": "2026-06-23T07:49:49Z",
-    "sha256": "b8b6f9e2b972faf3b3bbda4edd8e785ce44496da7838e2e2896b548de442af96",
+    "size_bytes": 67288,
+    "mtime_utc": "2026-07-12T06:21:20Z",
+    "sha256": "e374b998d77ca70354d5f57df54a500c00f51c87d5d5fc041194d685ed94790d",
     "git_repo_root": "/docker/fleet",
     "git_head": "99f7fc42bac6a172d4ec2c02ed59807461d10038",
     "git_branch": "main",
     "repo_relative_path": ".codex-studio/published/JOURNEY_GATES.generated.json"
   },
-  "summary": "Executive Assistant is blocked on flagship release truth: the machine-readable flagship receipt is blocked, the fleet journey gate is blocked, and 4 journey(s) still block wider claims.",
-  "active_wave": "EA flagship receipt closeout",
+  "summary": "PropertyQuarry is blocked on flagship release truth: the machine-readable flagship receipt is blocked, the fleet journey gate is ready, and 0 journey(s) still block wider claims.",
+  "active_wave": "PropertyQuarry flagship receipt closeout",
   "active_wave_status": "active",
   "release_health": {
     "state": "blocked",
-    "reason": "The EA flagship receipt is blocked by the current browser workflow proof or release evidence.",
+    "reason": "The PropertyQuarry flagship receipt is blocked by the current browser workflow proof or release evidence.",
     "flagship_receipt_status": "blocked"
   },
   "flagship_readiness": {
@@ -43,24 +43,24 @@
     "reason": "Browser workflow proof is currently blocked, so the flagship receipt cannot support wider release claims."
   },
   "rule_environment_trust": {
-    "state": "watch",
-    "reason": "Install/update trust still depends on the blocked cross-host journey set."
+    "state": "monitor",
+    "reason": "Rule-environment trust is governed by the current release receipt."
   },
   "edition_authorship_and_import_confidence": {
     "state": "monitor",
-    "reason": "The weekly pulse now uses EA-local release truth rather than a Chummer mirror."
+    "reason": "The weekly pulse now uses local PropertyQuarry release truth rather than a Chummer mirror."
   },
   "journey_gate_health": {
-    "state": "blocked",
-    "reason": "Resolve the blocking golden-journey gaps before widening publish claims.",
-    "blocked_count": 4,
-    "warning_count": 2,
-    "recommended_action": "Resolve the blocking golden-journey gaps before widening publish claims."
+    "state": "ready",
+    "reason": "Journey proof is steady on current published evidence.",
+    "blocked_count": 0,
+    "warning_count": 0,
+    "recommended_action": "Journey proof is steady on current published evidence."
   },
   "top_support_or_feedback_clusters": [
     {
       "cluster_id": "ea_flagship_receipt_closeout",
-      "summary": "The weekly pulse now anchors to the EA flagship receipt generated from local truth surfaces, but browser execution proof is still pending.",
+      "summary": "The weekly pulse now anchors to the PropertyQuarry flagship receipt generated from local truth surfaces, but browser execution proof is still pending.",
       "source_paths": [
         ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
         "README.md",
@@ -69,7 +69,7 @@
     },
     {
       "cluster_id": "fleet_journey_coverage",
-      "summary": "Fleet journey gates still block the install/claim/restore/continue story on cross-host coverage, so wider publish claims should stay constrained.",
+      "summary": "Fleet journey gates are ready across the install/claim/restore/continue story, so wider publish claims can follow the current release truth.",
       "source_paths": [
         "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
         "scripts/verify_release_assets.sh"
@@ -92,14 +92,14 @@
     {
       "decision_id": "2026-04-10-focus-ea-flagship-receipt-closeout",
       "action": "focus_shift",
-      "reason": "Keep the weekly pulse anchored to the EA flagship receipt and fleet journey truth. The receipt is blocked, journey gates are blocked, and the ready share is 0%.",
+      "reason": "Keep the weekly pulse anchored to the PropertyQuarry flagship receipt and fleet journey truth. The receipt is blocked, journey gates are ready, and the ready share is 100%.",
       "cited_signals": [
         "flagship_receipt_status=blocked",
-        "journey_gate_state=blocked",
-        "journey_gate_blocked_count=4",
-        "journey_gate_ready_count=0",
+        "journey_gate_state=ready",
+        "journey_gate_blocked_count=0",
+        "journey_gate_ready_count=6",
         "journey_gate_total_count=6",
-        "ready_share=0"
+        "ready_share=100"
       ]
     },
     {
@@ -109,29 +109,29 @@
       "cited_signals": [
         "flagship_receipt_status=blocked",
         "browser_execution_receipt_present=True",
-        "journey_gate_blocked_count=4",
-        "cross_host_tuple_coverage=blocked"
+        "journey_gate_blocked_count=0",
+        "cross_host_tuple_coverage=ready"
       ]
     }
   ],
-  "next_checkpoint_question": "What is the smallest browser-execution receipt and cross-host coverage slice that can promote the EA flagship receipt from preview_only to pass?",
+  "next_checkpoint_question": "What is the smallest browser-execution receipt and cross-host coverage slice that can promote the PropertyQuarry flagship receipt from preview_only to pass?",
   "supporting_signals": {
-    "current_recommended_wave": "EA flagship receipt closeout",
-    "overall_progress_percent": 0,
+    "current_recommended_wave": "PropertyQuarry flagship receipt closeout",
+    "overall_progress_percent": 100,
     "phase_label": "Preview-only flagship closeout",
     "history_snapshot_count": 1,
     "longest_pole": "browser execution proof",
     "launch_readiness": "Hold launch expansion pending browser execution proof and cross-host journey coverage.",
     "provider_route_stewardship": {
-      "default_status": "EA routes are governed by local truth surfaces.",
+      "default_status": "PropertyQuarry routes are governed by local truth surfaces.",
       "canary_status": "Browser execution proof is still missing; cross-host journey coverage remains blocked.",
-      "review_due": "2026-07-03T13:52:58Z",
+      "review_due": "2026-07-21T03:55:09Z",
       "next_decision": "Publish browser execution proof, then re-materialize the weekly pulse and release receipt."
     },
     "journey_gate_source": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
     "journey_gate_git_head": "99f7fc42bac6a172d4ec2c02ed59807461d10038",
     "flagship_release_receipt_source": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
-    "flagship_release_receipt_git_head": "4722737b4fa19bbdc595b8976a7180f77ee99751",
+    "flagship_release_receipt_git_head": "812e0b1132a18538f14978e887b049166c4cc3c7",
     "scorecard_source": ".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml",
     "release_pipeline_source": ".codex-design/product/RELEASE_PIPELINE.md",
     "governor_loop_source": ".codex-design/product/PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md",
@@ -142,7 +142,7 @@
   "snapshot": {
     "release_health": {
       "state": "blocked",
-      "reason": "The EA flagship receipt is materialized, but it is still preview_only until browser execution proof is published.",
+      "reason": "The PropertyQuarry flagship receipt is materialized, but it is still preview_only until browser execution proof is published.",
       "flagship_receipt_status": "blocked"
     },
     "flagship_readiness": {
@@ -150,24 +150,24 @@
       "reason": "Browser execution proof is missing or incomplete, so the flagship receipt cannot yet claim pass status."
     },
     "rule_environment_trust": {
-      "state": "watch",
-      "reason": "Install/update trust still depends on the blocked cross-host journey set."
+      "state": "monitor",
+      "reason": "Rule-environment trust is governed by the current release receipt."
     },
     "edition_authorship_and_import_confidence": {
       "state": "monitor",
-      "reason": "The weekly pulse now uses EA-local release truth rather than a Chummer mirror."
+      "reason": "The weekly pulse now uses local PropertyQuarry release truth rather than a Chummer mirror."
     },
     "journey_gate_health": {
-      "state": "blocked",
-      "reason": "Resolve the blocking golden-journey gaps before widening publish claims.",
-      "blocked_count": 4,
-      "warning_count": 2,
-      "recommended_action": "Resolve the blocking golden-journey gaps before widening publish claims."
+      "state": "ready",
+      "reason": "Journey proof is steady on current published evidence.",
+      "blocked_count": 0,
+      "warning_count": 0,
+      "recommended_action": "Journey proof is steady on current published evidence."
     },
     "top_support_or_feedback_clusters": [
       {
         "cluster_id": "ea_flagship_receipt_closeout",
-        "summary": "The weekly pulse now anchors to the EA flagship receipt generated from local truth surfaces, but browser execution proof is still pending.",
+        "summary": "The weekly pulse now anchors to the PropertyQuarry flagship receipt generated from local truth surfaces, but browser execution proof is still pending.",
         "source_paths": [
           ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
           "README.md",
@@ -176,7 +176,7 @@
       },
       {
         "cluster_id": "fleet_journey_coverage",
-        "summary": "Fleet journey gates still block the install/claim/restore/continue story on cross-host coverage, so wider publish claims should stay constrained.",
+        "summary": "Fleet journey gates are ready across the install/claim/restore/continue story, so wider publish claims can follow the current release truth.",
         "source_paths": [
           "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
           "scripts/verify_release_assets.sh"
@@ -199,14 +199,14 @@
       {
         "decision_id": "2026-04-10-focus-ea-flagship-receipt-closeout",
         "action": "focus_shift",
-        "reason": "Keep the weekly pulse anchored to the EA flagship receipt and fleet journey truth. The receipt is blocked, journey gates are blocked, and the ready share is 0%.",
+        "reason": "Keep the weekly pulse anchored to the PropertyQuarry flagship receipt and fleet journey truth. The receipt is blocked, journey gates are ready, and the ready share is 100%.",
         "cited_signals": [
           "flagship_receipt_status=blocked",
-          "journey_gate_state=blocked",
-          "journey_gate_blocked_count=4",
-          "journey_gate_ready_count=0",
+          "journey_gate_state=ready",
+          "journey_gate_blocked_count=0",
+          "journey_gate_ready_count=6",
           "journey_gate_total_count=6",
-          "ready_share=0"
+          "ready_share=100"
         ]
       },
       {
@@ -216,15 +216,15 @@
         "cited_signals": [
           "flagship_receipt_status=blocked",
           "browser_execution_receipt_present=True",
-          "journey_gate_blocked_count=4",
-          "cross_host_tuple_coverage=blocked"
+          "journey_gate_blocked_count=0",
+          "cross_host_tuple_coverage=ready"
         ]
       }
     ],
-    "next_checkpoint_question": "What is the smallest browser-execution receipt and cross-host coverage slice that can promote the EA flagship receipt from preview_only to pass?"
+    "next_checkpoint_question": "What is the smallest browser-execution receipt and cross-host coverage slice that can promote the PropertyQuarry flagship receipt from preview_only to pass?"
   },
   "release_wave": {
-    "current_recommended_wave": "EA flagship receipt closeout",
+    "current_recommended_wave": "PropertyQuarry flagship receipt closeout",
     "active_wave_registry": ".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml"
   },
   "review_cadence": {

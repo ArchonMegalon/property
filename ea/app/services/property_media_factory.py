@@ -161,6 +161,13 @@ def route_property_media_task(
         )
 
     final_candidates = [provider for provider in candidates if provider.final_publisher]
+    if task == "walkthrough_video" and not preferred_provider_key:
+        final_provider_order = {
+            "magicfit": 0,
+            "omagic": 1,
+            "onemin_i2v": 2,
+        }
+        final_candidates.sort(key=lambda provider: final_provider_order.get(provider.provider_key, 99))
     selected = final_candidates[0] if final_candidates else candidates[0]
     if (
         requirement.require_final_publisher

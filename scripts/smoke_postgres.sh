@@ -14,10 +14,16 @@ for arg in "$@"; do
     --legacy-fixture)
       legacy_fixture=1
       ;;
+    --print-service-selection)
+      printf 'api=%s\nworker=%s\nscheduler=%s\ndb=%s\n' \
+        "${API_SERVICE}" "${WORKER_SERVICE}" "${SCHEDULER_SERVICE}" "${DB_SERVICE}"
+      exit 0
+      ;;
     --help|-h)
       cat <<'USAGE'
 Usage:
   bash scripts/smoke_postgres.sh [--legacy-fixture]
+  bash scripts/smoke_postgres.sh --print-service-selection
 
 Runs a Postgres-backed smoke path against an isolated smoke database:
   1) starts the compose Postgres service with docker compose
@@ -34,6 +40,8 @@ Options:
   --legacy-fixture          Seed a legacy UUID/approval schema fixture before
                             bootstrap and validate migration-upgrade behavior.
                             In this mode, API smoke is skipped.
+  --print-service-selection Print the resolved Compose service aliases and exit
+                            without reading files or invoking Docker.
 
 Environment:
   EA_HOST_PORT              Optional host port override (falls back to .env or 8090)
@@ -324,7 +332,9 @@ if [[ "${legacy_fixture}" == "1" ]]; then
 fi
 
 echo "== smoke-postgres: compose up (api + worker) =="
-"${DC[@]}" up -d --build --force-recreate "${API_SERVICE}" "${WORKER_SERVICE}"
+# With the default service alias, this is the override-safe equivalent of
+# `docker compose up -d --no-deps --build --force-recreate ea-api ea-worker`.
+"${DC[@]}" up -d --no-deps --build --force-recreate "${API_SERVICE}" "${WORKER_SERVICE}"
 
 API_CONTAINER="$(resolve_service_container "${API_SERVICE}")"
 if [[ -z "${API_CONTAINER}" ]]; then
@@ -460,7 +470,7 @@ set_env_value "EA_RUNTIME_MODE" "prod"
 set_env_value "EA_STORAGE_BACKEND" "auto"
 set_env_value "EA_API_TOKEN" "smoke-prod-token"
 set_env_value "DATABASE_URL" ""
-"${DC[@]}" up -d --build --force-recreate "${API_SERVICE}" >/dev/null
+"${DC[@]}" up -d --no-deps --build --force-recreate "${API_SERVICE}" >/dev/null
 prod_status=""
 for _ in $(seq 1 10); do
   prod_status="$(docker inspect -f '{{.State.Status}}' "${API_CONTAINER}" 2>/dev/null | tr -d '[:space:]' || true)"

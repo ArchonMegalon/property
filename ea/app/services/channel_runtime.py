@@ -62,6 +62,75 @@ class ChannelRuntimeService:
     def list_recent_observations(self, limit: int = 50, *, principal_id: str | None = None) -> list[ObservationEvent]:
         return self._observations.list_recent(limit=limit, principal_id=principal_id)
 
+    def recent_observation_exists(
+        self,
+        *,
+        principal_id: str | None = None,
+        channel: str,
+        event_type: str,
+        source_id: str = "",
+        external_id: str = "",
+        dedupe_key: str = "",
+        limit: int = 1000,
+    ) -> bool:
+        method = getattr(self._observations, "exists_recent", None)
+        if callable(method):
+            return bool(
+                method(
+                    principal_id=principal_id,
+                    channel=channel,
+                    event_type=event_type,
+                    source_id=source_id,
+                    external_id=external_id,
+                    dedupe_key=dedupe_key,
+                    limit=limit,
+                )
+            )
+        for row in self._observations.list_recent(limit=limit, principal_id=principal_id):
+            if row.channel != str(channel or "").strip() or row.event_type != str(event_type or "").strip():
+                continue
+            if source_id and row.source_id != str(source_id).strip():
+                continue
+            if external_id and row.external_id != str(external_id).strip():
+                continue
+            if dedupe_key and row.dedupe_key != str(dedupe_key).strip():
+                continue
+            return True
+        return False
+
+    def list_recent_observations_matching(
+        self,
+        limit: int = 50,
+        *,
+        principal_id: str | None = None,
+        channel: str = "",
+        event_types: tuple[str, ...] = (),
+    ) -> list[ObservationEvent]:
+        method = getattr(self._observations, "list_recent_matching", None)
+        if callable(method):
+            return list(
+                method(
+                    limit=limit,
+                    principal_id=principal_id,
+                    channel=channel,
+                    event_types=event_types,
+                )
+            )
+        wanted_channel = str(channel or "").strip()
+        wanted_types = {str(value or "").strip() for value in event_types if str(value or "").strip()}
+        return [
+            row
+            for row in self._observations.list_recent(limit=limit, principal_id=principal_id)
+            if (not wanted_channel or row.channel == wanted_channel)
+            and (not wanted_types or row.event_type in wanted_types)
+        ]
+
+    def list_observations_for_principal(self, principal_id: str, *, limit: int = 5000) -> list[ObservationEvent]:
+        method = getattr(self._observations, "list_for_principal", None)
+        if callable(method):
+            return list(method(str(principal_id or "").strip(), limit=limit))
+        return self._observations.list_recent(limit=limit, principal_id=str(principal_id or "").strip())
+
     def find_observation_by_dedupe(self, dedupe_key: str, *, principal_id: str | None = None) -> ObservationEvent | None:
         normalized = str(dedupe_key or "").strip()
         if not normalized:
@@ -110,11 +179,13 @@ class ChannelRuntimeService:
         *,
         principal_id: str,
         receipt_json: dict[str, object] | None = None,
+        lease_owner: str = "",
     ) -> DeliveryOutboxItem | None:
         return self._outbox.mark_sent(
             delivery_id=delivery_id,
             principal_id=str(principal_id or "").strip(),
             receipt_json=receipt_json,
+            lease_owner=str(lease_owner or "").strip(),
         )
 
     def mark_delivery_failed(
@@ -125,6 +196,7 @@ class ChannelRuntimeService:
         error: str,
         next_attempt_at: str | None = None,
         dead_letter: bool = False,
+        lease_owner: str = "",
     ) -> DeliveryOutboxItem | None:
         return self._outbox.mark_failed(
             delivery_id=delivery_id,
@@ -132,10 +204,64 @@ class ChannelRuntimeService:
             error=error,
             next_attempt_at=next_attempt_at,
             dead_letter=dead_letter,
+            lease_owner=str(lease_owner or "").strip(),
         )
 
     def list_pending_delivery(self, limit: int = 50, *, principal_id: str | None = None) -> list[DeliveryOutboxItem]:
         return self._outbox.list_pending(limit=limit, principal_id=principal_id)
+
+    def list_delivery_records(self, principal_id: str, *, limit: int = 5000) -> list[DeliveryOutboxItem]:
+        method = getattr(self._outbox, "list_for_principal", None)
+        if callable(method):
+            return list(method(str(principal_id or "").strip(), limit=limit))
+        return self._outbox.list_pending(limit=limit, principal_id=str(principal_id or "").strip())
+
+    def erase_principal_data(self, principal_id: str) -> dict[str, int]:
+        principal = str(principal_id or "").strip()
+        if not principal:
+            return {"observations": 0, "delivery_records": 0}
+        observation_eraser = getattr(self._observations, "erase_principal", None)
+        delivery_eraser = getattr(self._outbox, "erase_principal", None)
+        return {
+            "observations": int(observation_eraser(principal) or 0) if callable(observation_eraser) else 0,
+            "delivery_records": int(delivery_eraser(principal) or 0) if callable(delivery_eraser) else 0,
+        }
+
+    def get_delivery(self, delivery_id: str, *, principal_id: str = "") -> DeliveryOutboxItem | None:
+        return self._outbox.get(
+            str(delivery_id or "").strip(),
+            principal_id=str(principal_id or "").strip(),
+        )
+
+    def claim_delivery(
+        self,
+        delivery_id: str,
+        *,
+        lease_owner: str,
+        lease_seconds: int,
+        now: datetime | None = None,
+    ) -> DeliveryOutboxItem | None:
+        return self._outbox.claim(
+            str(delivery_id or "").strip(),
+            lease_owner=str(lease_owner or "").strip(),
+            lease_seconds=max(1, int(lease_seconds or 1)),
+            now=now,
+        )
+
+    def begin_delivery_attempt(
+        self,
+        delivery_id: str,
+        *,
+        principal_id: str,
+        lease_owner: str,
+        now: datetime | None = None,
+    ) -> DeliveryOutboxItem | None:
+        return self._outbox.begin_attempt(
+            str(delivery_id or "").strip(),
+            principal_id=str(principal_id or "").strip(),
+            lease_owner=str(lease_owner or "").strip(),
+            now=now,
+        )
 
     def _is_principal_originated(
         self,

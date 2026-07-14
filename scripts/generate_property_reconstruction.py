@@ -55,7 +55,7 @@ except ModuleNotFoundError:
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff"}
 VIEWER_VERSION = "propertyquarry_3d_tour_viewer_v3"
-DISCLOSURE = "Planning preview built from the floor plan and listing photos. Use it as a layout aid, not as a captured tour."
+DISCLOSURE = "Planning preview built from supplied source material. Use it as a layout aid, not as a captured tour."
 WALKTHROUGH_VIEWPORT_SIZE = (1280, 720)
 WALKTHROUGH_CARD_SIZE = (1440, 810)
 WALKTHROUGH_MAP_BOX = (988, 222, 1332, 452)
@@ -63,6 +63,19 @@ THREE_VENDOR_VERSION = "0.167.1"
 THREE_VENDOR_ROOT = ROOT / "vendor" / "three" / THREE_VENDOR_VERSION
 THREE_MODULE_SOURCE = THREE_VENDOR_ROOT / "three.module.js"
 ORBIT_CONTROLS_SOURCE = THREE_VENDOR_ROOT / "examples" / "jsm" / "controls" / "OrbitControls.js"
+THREE_LICENSE_SOURCE = THREE_VENDOR_ROOT / "LICENSE"
+THREE_UPSTREAM_GIT_HEAD = "42a2f6aac8cffebb29524d68eb7136a756f15960"
+THREE_UPSTREAM_DIST_INTEGRITY = "sha512-gYTLJA/UQip6J/tJvl91YYqlZF47+D/kxiWrbTon35ZHlXEN0VOo+Qke2walF1/x92v55H6enomymg4Dak52kw=="
+THREE_UPSTREAM_DIST_SHASUM = "3fe4ba2b0a03fd662afe4977a56803d955b61689"
+THREE_MODULE_SOURCE_SHA256 = "5289ca2dfde8572bd7715b9fa2ca929db12bae87e9a2cb53e431662df7039506"
+ORBIT_CONTROLS_SOURCE_SHA256 = "f260591ef315aa04888152e7f121865214e33fb54727145cf4e4445058db1297"
+THREE_LICENSE_SOURCE_SHA256 = "4c40a1ef62450b857c3b2aaf294936304cd552d965fbcd9d32d4c5bcf4ba4454"
+THREE_LICENSE_NOTICE_SHA256 = "0fc0f3407d472c50739a5339896a5b704dcb35b9d1fa6985cf8800ca6debba23"
+THREE_MODULE_EMITTED_SHA256 = "2fdbd590b5a285d9a9b1aa39dcba2d41fd8b7749361a84fcef1fc422696996ed"
+ORBIT_CONTROLS_TRANSFORMED_SHA256 = "f70d0bcb05e03d18b1ebd4e63599fc6c11957e9703c7310fcd02e8cf76aa6e6f"
+ORBIT_CONTROLS_EMITTED_SHA256 = "b15a310c930ed4ba3e26cae34931f145a9d3fb82741339563dcb623d1eedd18b"
+ORBIT_CONTROLS_BARE_IMPORT = "} from 'three';"
+ORBIT_CONTROLS_RELATIVE_IMPORT = "} from '../../../three.module.js';"
 _PREVIEW_FONT_PATHS = {
     ("sans", False): Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
     ("sans", True): Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
@@ -70,6 +83,11 @@ _PREVIEW_FONT_PATHS = {
     ("serif", True): Path("/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf"),
 }
 _PREVIEW_FONT_CACHE: dict[tuple[str, bool, int], ImageFont.ImageFont] = {}
+
+
+def _generated_reconstruction_disclosure(*, photo_count: int) -> str:
+    source_noun = "the floor plan and listing photos" if max(0, int(photo_count)) else "the floor plan"
+    return f"Planning preview built from {source_noun}. Use it as a layout aid, not as a captured tour."
 
 
 def _compact_route_label(value: object, *, fallback: str = "", limit: int = 80) -> str:
@@ -408,6 +426,78 @@ def _clamp_float(value: float, lower: float, upper: float) -> float:
     return max(lower, min(upper, value))
 
 
+def _floorplan_walkable_cells(wall_mask: list[list[int]]) -> list[tuple[int, int]]:
+    """Return deterministic open cells that are plausibly inside the floor-plan shell.
+
+    Floor plans commonly contain door gaps, so a plain edge flood fill can classify
+    the entire apartment as exterior.  Closed regions are always safe candidates;
+    the row/column wall-envelope intersection recovers rooms connected through door
+    gaps without admitting the large white canvas around an irregular plan.
+    """
+
+    rows = len(wall_mask)
+    cols = min((len(row) for row in wall_mask), default=0)
+    if rows < 3 or cols < 3:
+        return []
+
+    def _is_wall(row: int, col: int) -> bool:
+        return bool(wall_mask[row][col])
+
+    outside: set[tuple[int, int]] = set()
+    queue: list[tuple[int, int]] = []
+    for row in range(rows):
+        for col in (0, cols - 1):
+            if not _is_wall(row, col) and (row, col) not in outside:
+                outside.add((row, col))
+                queue.append((row, col))
+    for col in range(cols):
+        for row in (0, rows - 1):
+            if not _is_wall(row, col) and (row, col) not in outside:
+                outside.add((row, col))
+                queue.append((row, col))
+
+    queue_index = 0
+    while queue_index < len(queue):
+        row, col = queue[queue_index]
+        queue_index += 1
+        for near_row, near_col in ((row - 1, col), (row + 1, col), (row, col - 1), (row, col + 1)):
+            if not (0 <= near_row < rows and 0 <= near_col < cols):
+                continue
+            if _is_wall(near_row, near_col) or (near_row, near_col) in outside:
+                continue
+            outside.add((near_row, near_col))
+            queue.append((near_row, near_col))
+
+    enclosed = {
+        (row, col)
+        for row in range(1, rows - 1)
+        for col in range(1, cols - 1)
+        if not _is_wall(row, col) and (row, col) not in outside
+    }
+    row_wall_extents: dict[int, tuple[int, int]] = {}
+    for row in range(rows):
+        wall_columns = [col for col in range(cols) if _is_wall(row, col)]
+        if len(wall_columns) >= 2 and wall_columns[-1] - wall_columns[0] >= 2:
+            row_wall_extents[row] = (wall_columns[0], wall_columns[-1])
+    column_wall_extents: dict[int, tuple[int, int]] = {}
+    for col in range(cols):
+        wall_rows = [row for row in range(rows) if _is_wall(row, col)]
+        if len(wall_rows) >= 2 and wall_rows[-1] - wall_rows[0] >= 2:
+            column_wall_extents[col] = (wall_rows[0], wall_rows[-1])
+
+    envelope: set[tuple[int, int]] = set()
+    for row, (left_wall, right_wall) in row_wall_extents.items():
+        for col in range(left_wall + 1, right_wall):
+            column_extent = column_wall_extents.get(col)
+            if column_extent is None:
+                continue
+            top_wall, bottom_wall = column_extent
+            if top_wall < row < bottom_wall and not _is_wall(row, col):
+                envelope.add((row, col))
+
+    return sorted(enclosed | envelope)
+
+
 def _route_anchor_from_floorplan_mask(
     *,
     desired_x: float,
@@ -416,7 +506,7 @@ def _route_anchor_from_floorplan_mask(
     used_cells: set[tuple[int, int]],
 ) -> tuple[float, float] | None:
     rows = len(wall_mask)
-    cols = len(wall_mask[0]) if rows else 0
+    cols = min((len(row) for row in wall_mask), default=0)
     if not rows or not cols:
         return None
 
@@ -430,24 +520,29 @@ def _route_anchor_from_floorplan_mask(
                     open_neighbors += 1
         return open_neighbors
 
-    candidates: list[tuple[float, int, int]] = []
-    for row in range(rows):
-        for col in range(cols):
-            if wall_mask[row][col]:
-                continue
-            if (row, col) in used_cells:
-                continue
-            candidate_x = ((col + 0.5) / cols) - 0.5
-            candidate_z = ((row + 0.5) / rows) - 0.5
-            distance = math.dist((candidate_x, candidate_z), (desired_x, desired_z))
-            clearance_bonus = _open_neighbor_count(row, col) * 0.012
-            edge_penalty = 0.0
-            if row in {0, rows - 1} or col in {0, cols - 1}:
-                edge_penalty = 0.16
-            candidates.append((distance - clearance_bonus + edge_penalty, row, col))
+    candidates: list[tuple[float, float, int, int]] = []
+    for row, col in _floorplan_walkable_cells(wall_mask):
+        if (row, col) in used_cells:
+            continue
+        candidate_x = ((col + 0.5) / cols) - 0.5
+        candidate_z = ((row + 0.5) / rows) - 0.5
+        semantic_distance = math.dist((candidate_x, candidate_z), (desired_x, desired_z))
+        clearance_bonus = _open_neighbor_count(row, col) * 0.0015
+        if used_cells:
+            coverage_distance = min(
+                math.dist(
+                    (candidate_x, candidate_z),
+                    (((used_col + 0.5) / cols) - 0.5, ((used_row + 0.5) / rows) - 0.5),
+                )
+                for used_row, used_col in used_cells
+            )
+            score = -(coverage_distance * 1.0) + (semantic_distance * 0.02) - clearance_bonus
+        else:
+            score = semantic_distance - clearance_bonus
+        candidates.append((score, semantic_distance, row, col))
     if not candidates:
         return None
-    _, selected_row, selected_col = min(candidates, key=lambda item: item[0])
+    _, _, selected_row, selected_col = min(candidates)
     used_cells.add((selected_row, selected_col))
     return (((selected_col + 0.5) / cols) - 0.5, ((selected_row + 0.5) / rows) - 0.5)
 
@@ -467,8 +562,6 @@ def _reconstruction_walkable_scene(
     ]
     if not normalized_labels:
         normalized_labels = ["entry/hall"]
-    inner_width = max(1.2, width_m * 0.34)
-    inner_depth = max(1.2, depth_m * 0.34)
     semantic_anchors: dict[str, tuple[float, float]] = {
         "entry": (-0.28, 0.30),
         "stairs": (-0.08, 0.10),
@@ -496,6 +589,10 @@ def _reconstruction_walkable_scene(
         if isinstance(geometry, dict)
         else []
     )
+    floorplan_walkable_cells = _floorplan_walkable_cells(wall_mask)
+    has_floorplan_walkable_region = bool(floorplan_walkable_cells)
+    inner_width = max(1.2, width_m * (0.88 if has_floorplan_walkable_region else 0.34))
+    inner_depth = max(1.2, depth_m * (0.88 if has_floorplan_walkable_region else 0.34))
     stop_positions: list[tuple[float, float]] = []
     used_positions: list[tuple[float, float]] = []
     used_floorplan_cells: set[tuple[int, int]] = set()
@@ -559,6 +656,12 @@ def _reconstruction_walkable_scene(
         )
     return {
         "kind": "generated_reconstruction_layout",
+        "route_anchor_method": (
+            "coverage_aware_floorplan_open_cell_sampling"
+            if has_floorplan_walkable_region
+            else "semantic_layout_fallback"
+        ),
+        "route_label_binding": "operator_supplied_labels_without_pixel_semantic_inference",
         "bounds": {"width_m": round(width_m, 3), "depth_m": round(depth_m, 3), "height_m": round(height_m, 3)},
         "rooms": rooms,
         "route": route,
@@ -813,6 +916,68 @@ def _draw_text_chip(
     return box
 
 
+def _preview_rect_contains(
+    outer: tuple[int, int, int, int],
+    inner: tuple[int, int, int, int],
+    *,
+    padding: int = 0,
+) -> bool:
+    return bool(
+        inner[0] >= outer[0] + padding
+        and inner[1] >= outer[1] + padding
+        and inner[2] <= outer[2] - padding
+        and inner[3] <= outer[3] - padding
+    )
+
+
+def _preview_rects_overlap(
+    first: tuple[int, int, int, int],
+    second: tuple[int, int, int, int],
+) -> bool:
+    return not (
+        first[2] <= second[0]
+        or second[2] <= first[0]
+        or first[3] <= second[1]
+        or second[3] <= first[1]
+    )
+
+
+def _preview_wrapped_text_box(
+    origin: tuple[int, int],
+    text: object,
+    *,
+    font: ImageFont.ImageFont,
+    max_width: int,
+    line_gap: int = 4,
+) -> tuple[int, int, int, int]:
+    lines = _wrap_text(text, font=font, max_width=max_width)
+    x, y = origin
+    if not lines:
+        return (x, y, x, y)
+    width = int(math.ceil(max(_text_width(font, line) for line in lines)))
+    height = (len(lines) * _line_height(font)) + (max(0, len(lines) - 1) * line_gap)
+    return (x, y, x + width, y + height)
+
+
+def _preview_fit_text(text: object, *, font: ImageFont.ImageFont, max_width: int) -> str:
+    normalized = re.sub(r"\s+", " ", str(text or "").strip())
+    if not normalized or _text_width(font, normalized) <= max_width:
+        return normalized
+    ellipsis = "…"
+    if _text_width(font, ellipsis) > max_width:
+        return ""
+    low = 0
+    high = len(normalized)
+    while low < high:
+        midpoint = (low + high + 1) // 2
+        candidate = normalized[:midpoint].rstrip() + ellipsis
+        if _text_width(font, candidate) <= max_width:
+            low = midpoint
+        else:
+            high = midpoint - 1
+    return normalized[:low].rstrip() + ellipsis
+
+
 @contextmanager
 def _serve_directory(root: Path):
     class _QuietHandler(SimpleHTTPRequestHandler):
@@ -1062,31 +1227,37 @@ def _write_generated_reconstruction_diorama_preview(
 ) -> dict[str, object]:
     palette = _generated_reconstruction_diorama_palette(style_label)
     route_stops = [dict(stop) for stop in list(walkable_scene.get("route") or []) if isinstance(stop, dict)]
+    max_route_rows = 12
     route_labels = [
-        _compact_route_label(stop.get("label") or stop.get("room") or stop.get("name"), fallback=f"Stop {index + 1}", limit=22)
-        for index, stop in enumerate(route_stops[:4])
+        _compact_route_label(
+            stop.get("label") or stop.get("room") or stop.get("name"),
+            fallback=f"Stop {index + 1}",
+            limit=24,
+        )
+        for index, stop in enumerate(route_stops[:max_route_rows])
     ]
-    route_copy = "  •  ".join(label for label in route_labels if label)
     route_stop_count = max(1, len(route_stops))
     photo_count = len(photo_paths)
+    source_mode = "floorplan_and_listing_photos" if photo_count else "floorplan_only"
+    source_noun = "the floor plan and listing photos" if photo_count else "the floor plan"
+    source_disclosure = (
+        f"Generated from {source_noun}. Use it as a layout-first briefing image, not as a captured tour."
+    )
     preview_sources = list(photo_paths[:3]) or [floorplan_path]
     try:
         eyebrow_font = _preview_font(22, bold=True)
-        title_font = _preview_font(58, serif=True, bold=True)
-        body_font = _preview_font(22)
-        chip_font = _preview_font(20, bold=True)
+        title_font = _preview_font(52, serif=True, bold=True)
+        body_font = _preview_font(20)
+        chip_font = _preview_font(16, bold=True)
         rail_heading_font = _preview_font(24, bold=True)
-        rail_label_font = _preview_font(26, serif=True, bold=True)
-        rail_copy_font = _preview_font(18)
-        stat_value_font = _preview_font(28, serif=True, bold=True)
-        stat_label_font = _preview_font(15, bold=True)
-        footer_font = _preview_font(20)
-        route_strip_font = _preview_font(20, bold=True)
+        rail_label_font = _preview_font(17, bold=True)
+        rail_copy_font = _preview_font(16)
+        footer_font = _preview_font(18)
         hero_background = _generated_reconstruction_fit_cover(preview_sources[0], (1600, 1100))
         floorplan_stage_image = _generated_reconstruction_floorplan_with_route(
             floorplan_path,
             walkable_scene=walkable_scene,
-            size=(1160, 700),
+            size=(930, 560),
             palette=palette,
         )
         canvas = Image.new("RGBA", (1600, 1100), (*palette["wash"], 255))
@@ -1097,58 +1268,9 @@ def _write_generated_reconstruction_diorama_preview(
         draw.ellipse((62, 54, 612, 412), fill=(255, 255, 255, 42))
         draw.ellipse((980, 88, 1538, 468), fill=(255, 255, 255, 28))
 
-        title_box = (74, 70, 620, 268)
-        draw.rounded_rectangle(
-            title_box,
-            radius=34,
-            fill=(255, 252, 245, 218),
-            outline=(216, 202, 176, 255),
-            width=2,
-        )
-        draw.text((102, 98), "Generated diorama", font=eyebrow_font, fill=(96, 72, 38))
-        draw.text((102, 126), "Layout-first", font=title_font, fill=(42, 35, 26))
-        draw.text((102, 184), "room route", font=title_font, fill=(42, 35, 26))
-        body_bottom = _draw_wrapped_text(
-            draw,
-            (104, 246),
-            "Perspective staging from the floor plan and listing photos.",
-            font=body_font,
-            fill=(84, 66, 40),
-            max_width=468,
-        )
-        chip_y = max(220, body_bottom + 12)
-        first_chip = _draw_text_chip(
-            draw,
-            (102, chip_y),
-            f"{route_stop_count} route stops",
-            font=chip_font,
-            fill=(255, 248, 236, 228),
-            outline=(216, 202, 176, 255),
-            text_fill=(96, 72, 38),
-        )
-        second_chip = _draw_text_chip(
-            draw,
-            (first_chip[2] + 10, chip_y),
-            f"{photo_count} source photos",
-            font=chip_font,
-            fill=(255, 252, 245, 222),
-            outline=(216, 202, 176, 255),
-            text_fill=(96, 72, 38),
-        )
-        if style_label:
-            _draw_text_chip(
-                draw,
-                (second_chip[2] + 10, chip_y),
-                style_label,
-                font=chip_font,
-                fill=(*palette["accent_soft"], 236),
-                outline=palette["accent"],
-                text_fill=(96, 72, 38),
-            )
-
         stage_surface = Image.new(
             "RGBA",
-            (floorplan_stage_image.width + 64, floorplan_stage_image.height + 112),
+            (floorplan_stage_image.width + 64, floorplan_stage_image.height + 64),
             (*palette["matte"], 255),
         )
         stage_surface.paste(floorplan_stage_image, (32, 32))
@@ -1159,16 +1281,6 @@ def _write_generated_reconstruction_diorama_preview(
             outline=(216, 202, 176, 255),
             width=3,
         )
-        if route_copy:
-            strip_top = stage_surface.height - 64
-            stage_draw.rounded_rectangle(
-                (34, strip_top - 14, stage_surface.width - 34, stage_surface.height - 28),
-                radius=22,
-                fill=(255, 252, 245, 230),
-                outline=(216, 202, 176, 255),
-                width=2,
-            )
-            stage_draw.text((56, strip_top), route_copy, font=route_strip_font, fill=(78, 61, 36))
 
         stage_depth_fill = Image.blend(
             stage_surface.convert("RGB"),
@@ -1177,31 +1289,39 @@ def _write_generated_reconstruction_diorama_preview(
         ).convert("RGBA")
         stage_depth_draw = ImageDraw.Draw(stage_depth_fill)
         stage_depth_draw.rectangle(
-            (0, stage_surface.height - 18, stage_surface.width, stage_surface.height),
+            (0, stage_surface.height - 16, stage_surface.width, stage_surface.height),
             fill=(*palette["accent"], 235),
         )
         stage_shadow = Image.new(
             "RGBA",
-            (stage_surface.width + 160, stage_surface.height + 180),
+            (stage_surface.width + 96, stage_surface.height + 96),
             (0, 0, 0, 0),
         )
         stage_shadow.alpha_composite(
             Image.new("RGBA", stage_surface.size, (28, 24, 20, 72)),
-            (58, 92),
+            (32, 40),
         )
-        stage_shadow = stage_shadow.filter(ImageFilter.GaussianBlur(28))
+        stage_shadow = stage_shadow.filter(ImageFilter.GaussianBlur(24))
         stage_stack = Image.new("RGBA", stage_shadow.size, (0, 0, 0, 0))
         stage_stack.alpha_composite(stage_shadow)
-        stage_stack.alpha_composite(stage_depth_fill, (34, 54))
+        stage_stack.alpha_composite(stage_depth_fill, (20, 26))
         stage_stack.alpha_composite(stage_surface, (0, 0))
-        rotated_stage = stage_stack.rotate(-6.5, resample=Image.Resampling.BICUBIC, expand=True)
-        canvas.alpha_composite(rotated_stage, (92, 292))
+        rotated_stage = stage_stack.rotate(-5.5, resample=Image.Resampling.BICUBIC, expand=True)
+        stage_anchor = (94, min(268, max(220, canvas.height - rotated_stage.height - 8)))
+        canvas.alpha_composite(rotated_stage, stage_anchor)
+        stage_box = (
+            stage_anchor[0],
+            stage_anchor[1],
+            stage_anchor[0] + rotated_stage.width,
+            stage_anchor[1] + rotated_stage.height,
+        )
 
         panel_specs = [
-            {"size": (286, 198), "rotate": -7.0, "anchor": (148, 312)},
-            {"size": (420, 292), "rotate": 1.6, "anchor": (590, 74)},
-            {"size": (300, 210), "rotate": 6.4, "anchor": (1162, 176)},
+            {"size": (250, 172), "rotate": -7.0, "anchor": (146, 370)},
+            {"size": (330, 222), "rotate": 1.6, "anchor": (784, 86)},
+            {"size": (250, 172), "rotate": 6.4, "anchor": (1260, 190)},
         ]
+        panel_boxes: list[tuple[int, int, int, int]] = []
         for index, source_path in enumerate(preview_sources[: len(panel_specs)]):
             spec = panel_specs[index]
             panel_card = _generated_reconstruction_mount_card(
@@ -1213,85 +1333,204 @@ def _write_generated_reconstruction_diorama_preview(
                 shadow_alpha=92 if index == 1 else 78,
             )
             anchor_x, anchor_y = spec["anchor"]
+            anchor_x = min(int(anchor_x), canvas.width - panel_card.width - 24)
+            anchor_y = min(int(anchor_y), canvas.height - panel_card.height - 24)
             canvas.alpha_composite(panel_card, (anchor_x, anchor_y))
+            panel_boxes.append((anchor_x, anchor_y, anchor_x + panel_card.width, anchor_y + panel_card.height))
 
-        route_rail_box = (1162, 556, 1494, 930)
+        title_box = (70, 64, 752, 360)
+        draw.rounded_rectangle(
+            title_box,
+            radius=34,
+            fill=(255, 252, 245, 232),
+            outline=(216, 202, 176, 255),
+            width=2,
+        )
+        eyebrow_origin = (100, 91)
+        first_title_origin = (100, 121)
+        second_title_origin = (100, 172)
+        body_origin = (102, 234)
+        body_copy = f"Perspective staging from {source_noun}."
+        draw.text(eyebrow_origin, "Generated diorama", font=eyebrow_font, fill=(96, 72, 38))
+        draw.text(first_title_origin, "Layout-first", font=title_font, fill=(42, 35, 26))
+        draw.text(second_title_origin, "room route", font=title_font, fill=(42, 35, 26))
+        body_bottom = _draw_wrapped_text(
+            draw,
+            body_origin,
+            body_copy,
+            font=body_font,
+            fill=(84, 66, 40),
+            max_width=610,
+            line_gap=2,
+        )
+        chip_y = max(292, body_bottom + 10)
+        first_chip = _draw_text_chip(
+            draw,
+            (100, chip_y),
+            f"{route_stop_count} route stops",
+            font=chip_font,
+            fill=(255, 248, 236, 238),
+            outline=(216, 202, 176, 255),
+            text_fill=(96, 72, 38),
+            pad_x=12,
+            pad_y=6,
+        )
+        second_chip = _draw_text_chip(
+            draw,
+            (first_chip[2] + 8, chip_y),
+            f"{photo_count} source photos",
+            font=chip_font,
+            fill=(255, 252, 245, 236),
+            outline=(216, 202, 176, 255),
+            text_fill=(96, 72, 38),
+            pad_x=12,
+            pad_y=6,
+        )
+        title_content_boxes: list[tuple[int, int, int, int]] = [
+            draw.textbbox(eyebrow_origin, "Generated diorama", font=eyebrow_font),
+            draw.textbbox(first_title_origin, "Layout-first", font=title_font),
+            draw.textbbox(second_title_origin, "room route", font=title_font),
+            _preview_wrapped_text_box(body_origin, body_copy, font=body_font, max_width=610, line_gap=2),
+            first_chip,
+            second_chip,
+        ]
+        if style_label:
+            style_chip_label = str(style_label).rsplit("·", 1)[-1].strip() or str(style_label).strip()
+            style_chip = _draw_text_chip(
+                draw,
+                (second_chip[2] + 8, chip_y),
+                _compact_route_label(style_chip_label, limit=28),
+                font=chip_font,
+                fill=(*palette["accent_soft"], 242),
+                outline=palette["accent"],
+                text_fill=(96, 72, 38),
+                pad_x=12,
+                pad_y=6,
+            )
+            title_content_boxes.append(style_chip)
+
+        route_rail_box = (1138, 452, 1526, 992)
         draw.rounded_rectangle(
             route_rail_box,
             radius=34,
-            fill=(255, 252, 245, 224),
+            fill=(255, 252, 245, 236),
             outline=(216, 202, 176, 255),
             width=2,
         )
-        draw.text((1188, 584), "Route sequence", font=rail_heading_font, fill=(45, 38, 28))
-        draw.text((1188, 614), "The launch opens on a guided room route.", font=rail_copy_font, fill=(96, 72, 38))
-        route_row_top = 658
-        for index, label in enumerate(route_labels or ["Route overview"]):
-            row_top = route_row_top + (index * 58)
-            row_box = (1186, row_top, 1468, row_top + 48)
+        rail_heading_origin = (1164, 478)
+        rail_copy_origin = (1164, 510)
+        route_sequence_complete = len(route_labels) == len(route_stops)
+        rail_copy = (
+            f"Guided sequence · all {route_stop_count} stops"
+            if route_sequence_complete
+            else f"Guided sequence · first {len(route_labels)} of {route_stop_count}"
+        )
+        draw.text(rail_heading_origin, "Route sequence", font=rail_heading_font, fill=(45, 38, 28))
+        draw.text(rail_copy_origin, rail_copy, font=rail_copy_font, fill=(96, 72, 38))
+        displayed_route_labels = route_labels or ["Route overview"]
+        route_row_top = 548
+        route_row_gap = 6
+        route_rows_bottom = route_rail_box[3] - 24
+        route_row_height = min(
+            38,
+            max(
+                28,
+                int(
+                    (route_rows_bottom - route_row_top - (route_row_gap * (len(displayed_route_labels) - 1)))
+                    / max(1, len(displayed_route_labels))
+                ),
+            ),
+        )
+        route_row_boxes: list[tuple[int, int, int, int]] = []
+        route_label_boxes: list[tuple[int, int, int, int]] = []
+        fitted_route_labels: list[str] = []
+        for index, label in enumerate(displayed_route_labels):
+            row_top = route_row_top + (index * (route_row_height + route_row_gap))
+            row_box = (1162, row_top, 1502, row_top + route_row_height)
             draw.rounded_rectangle(
                 row_box,
-                radius=20,
-                fill=(255, 252, 245, 238 if index == 0 else 214),
+                radius=16,
+                fill=(255, 252, 245, 244 if index == 0 else 218),
                 outline=(216, 202, 176, 255),
                 width=2,
             )
-            badge_center = (1216, row_top + 24)
+            badge_center = (1184, row_top + (route_row_height // 2))
+            badge_radius = min(13, max(10, (route_row_height // 2) - 4))
             draw.ellipse(
-                (badge_center[0] - 16, badge_center[1] - 16, badge_center[0] + 16, badge_center[1] + 16),
+                (
+                    badge_center[0] - badge_radius,
+                    badge_center[1] - badge_radius,
+                    badge_center[0] + badge_radius,
+                    badge_center[1] + badge_radius,
+                ),
                 fill=(*palette["accent_soft"], 255),
                 outline=palette["accent"],
-                width=3,
-            )
-            _draw_centered_text(draw, badge_center, str(index + 1), font=chip_font, fill=(96, 72, 38))
-            draw.text((1244, row_top + 11), label, font=rail_label_font, fill=(45, 38, 28))
-
-        stats_top = 842
-        stats = [
-            (str(route_stop_count), "route stops"),
-            (str(photo_count), "source photos"),
-            ("1", "diorama hero"),
-        ]
-        for index, (value, label) in enumerate(stats):
-            card_left = 1186 + (index * 94)
-            card_right = min(route_rail_box[2] - 26, card_left + 86)
-            stat_box = (card_left, stats_top, card_right, stats_top + 68)
-            draw.rounded_rectangle(
-                stat_box,
-                radius=18,
-                fill=(*palette["accent_soft"], 228 if index == 0 else 212),
-                outline=(216, 202, 176, 255),
                 width=2,
             )
-            draw.text((card_left + 14, stats_top + 10), value, font=stat_value_font, fill=(45, 38, 28))
-            _draw_wrapped_text(
-                draw,
-                (card_left + 14, stats_top + 38),
-                label,
-                font=stat_label_font,
-                fill=(96, 72, 38),
-                max_width=card_right - card_left - 24,
-                line_gap=1,
-            )
+            _draw_centered_text(draw, badge_center, str(index + 1), font=chip_font, fill=(96, 72, 38))
+            fitted_label = _preview_fit_text(label, font=rail_label_font, max_width=row_box[2] - 1210 - 12)
+            label_bbox = draw.textbbox((0, 0), fitted_label, font=rail_label_font)
+            label_y = row_top + max(2, (route_row_height - (label_bbox[3] - label_bbox[1])) // 2 - label_bbox[1])
+            label_origin = (1210, label_y)
+            draw.text(label_origin, fitted_label, font=rail_label_font, fill=(45, 38, 28))
+            route_row_boxes.append(row_box)
+            route_label_boxes.append(draw.textbbox(label_origin, fitted_label, font=rail_label_font))
+            fitted_route_labels.append(fitted_label)
 
-        footer_box = (148, 1004, 1452, 1062)
+        footer_box = (148, 1016, 1452, 1076)
         draw.rounded_rectangle(
             footer_box,
             radius=24,
-            fill=(255, 252, 245, 222),
+            fill=(255, 252, 245, 238),
             outline=(216, 202, 176, 255),
             width=2,
         )
-        footer_copy = "Generated from the floor plan and listing photos. Use it as a layout-first briefing image, not as a captured tour."
+        footer_origin = (footer_box[0] + 24, footer_box[1] + 17)
         _draw_wrapped_text(
             draw,
-            (footer_box[0] + 24, footer_box[1] + 16),
-            footer_copy,
+            footer_origin,
+            source_disclosure,
             font=footer_font,
             fill=(84, 66, 40),
             max_width=(footer_box[2] - footer_box[0]) - 48,
             line_gap=2,
         )
+        footer_text_box = _preview_wrapped_text_box(
+            footer_origin,
+            source_disclosure,
+            font=footer_font,
+            max_width=(footer_box[2] - footer_box[0]) - 48,
+            line_gap=2,
+        )
+
+        canvas_box = (0, 0, canvas.width, canvas.height)
+        key_region_boxes = [title_box, route_rail_box, footer_box]
+        layout_checks = {
+            "stage_fits_canvas": _preview_rect_contains(canvas_box, stage_box),
+            "panels_fit_canvas": all(_preview_rect_contains(canvas_box, box) for box in panel_boxes),
+            "title_content_fits_card": all(
+                _preview_rect_contains(title_box, box, padding=12) for box in title_content_boxes
+            ),
+            "route_rows_fit_rail": all(_preview_rect_contains(route_rail_box, box, padding=12) for box in route_row_boxes),
+            "route_labels_fit_rows": all(
+                _preview_rect_contains(row_box, label_box, padding=6)
+                for row_box, label_box in zip(route_row_boxes, route_label_boxes)
+            ),
+            "route_rows_do_not_overlap": all(
+                not _preview_rects_overlap(first, second)
+                for first, second in zip(route_row_boxes, route_row_boxes[1:])
+            ),
+            "footer_copy_fits_card": _preview_rect_contains(footer_box, footer_text_box, padding=12),
+            "key_regions_fit_canvas": all(_preview_rect_contains(canvas_box, box) for box in key_region_boxes),
+            "key_regions_do_not_overlap": all(
+                not _preview_rects_overlap(first, second)
+                for index, first in enumerate(key_region_boxes)
+                for second in key_region_boxes[index + 1 :]
+            ),
+        }
+        failed_layout_checks = [name for name, passed in layout_checks.items() if not passed]
+        if failed_layout_checks:
+            raise RuntimeError(f"preview_layout_contract_failed:{','.join(failed_layout_checks)}")
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         canvas.convert("RGB").save(output_path, format="PNG", optimize=True)
@@ -1300,6 +1539,26 @@ def _write_generated_reconstruction_diorama_preview(
             "bundle_relpath": output_path.name,
             "sha256": _sha256(output_path),
             "size_bytes": output_path.stat().st_size,
+            "source_mode": source_mode,
+            "source_photo_count": photo_count,
+            "source_disclosure": source_disclosure,
+            "layout": {
+                "status": "pass",
+                "canvas_size_px": {"width": canvas.width, "height": canvas.height},
+                "checks": layout_checks,
+                "boxes": {
+                    "title": list(title_box),
+                    "stage": list(stage_box),
+                    "route_rail": list(route_rail_box),
+                    "route_rows": [list(box) for box in route_row_boxes],
+                    "route_labels": [list(box) for box in route_label_boxes],
+                    "footer": list(footer_box),
+                    "source_panels": [list(box) for box in panel_boxes],
+                },
+                "displayed_route_stop_count": len(route_labels),
+                "displayed_route_labels": fitted_route_labels,
+                "route_sequence_complete": route_sequence_complete,
+            },
         }
     except Exception as exc:
         return {"status": "failed", "reason": str(exc)}
@@ -1316,27 +1575,64 @@ def _write_generated_reconstruction_telegram_preview(
         with Image.open(source_path) as image:
             base = ImageOps.exif_transpose(image).convert("RGB")
             width, height = base.size
-            canvas_width = max(int(round(width * 1.62)), width + 220)
-            canvas_height = max(int(round(height * 1.62)), height + 220)
+            canvas_width = 1600
+            canvas_height = 1000
             background = ImageOps.fit(base, (canvas_width, canvas_height), Image.Resampling.LANCZOS)
-            background = background.filter(ImageFilter.GaussianBlur(18))
-            background = Image.blend(background, Image.new("RGB", background.size, palette["wash"]), 0.78)
-            scale = min((canvas_width * 0.52) / max(width, 1), (canvas_height * 0.52) / max(height, 1))
+            background = background.filter(ImageFilter.GaussianBlur(24))
+            background = Image.blend(background, Image.new("RGB", background.size, palette["wash"]), 0.72)
+            scale = min(1460 / max(width, 1), 900 / max(height, 1))
             scaled = base.resize(
                 (max(1, int(round(width * scale))), max(1, int(round(height * scale)))),
                 Image.Resampling.LANCZOS,
             )
-            canvas = background
+            canvas = background.convert("RGBA")
             offset_x = (canvas_width - scaled.size[0]) // 2
             offset_y = (canvas_height - scaled.size[1]) // 2
-            canvas.paste(scaled, (offset_x, offset_y))
+            image_box = (offset_x, offset_y, offset_x + scaled.width, offset_y + scaled.height)
+            frame_box = (image_box[0] - 12, image_box[1] - 12, image_box[2] + 12, image_box[3] + 12)
+            shadow = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+            shadow_draw = ImageDraw.Draw(shadow, "RGBA")
+            shadow_draw.rounded_rectangle(
+                (frame_box[0] + 14, frame_box[1] + 18, frame_box[2] + 14, frame_box[3] + 18),
+                radius=24,
+                fill=(28, 24, 20, 96),
+            )
+            shadow = shadow.filter(ImageFilter.GaussianBlur(22))
+            canvas.alpha_composite(shadow)
+            canvas_draw = ImageDraw.Draw(canvas, "RGBA")
+            canvas_draw.rounded_rectangle(
+                frame_box,
+                radius=20,
+                fill=(*palette["matte"], 255),
+                outline=(216, 202, 176, 255),
+                width=3,
+            )
+            canvas.alpha_composite(scaled.convert("RGBA"), (offset_x, offset_y))
+            canvas_box = (0, 0, canvas_width, canvas_height)
+            layout_checks = {
+                "frame_fits_canvas": _preview_rect_contains(canvas_box, frame_box),
+                "full_source_image_visible": _preview_rect_contains(frame_box, image_box),
+                "source_occupies_useful_height": (scaled.height / canvas_height) >= 0.84,
+                "source_aspect_ratio_preserved": abs((scaled.width / scaled.height) - (width / height)) <= 0.002,
+            }
+            failed_layout_checks = [name for name, passed in layout_checks.items() if not passed]
+            if failed_layout_checks:
+                raise RuntimeError(f"telegram_preview_layout_contract_failed:{','.join(failed_layout_checks)}")
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            canvas.save(output_path, format="PNG", optimize=True)
+            canvas.convert("RGB").save(output_path, format="PNG", optimize=True)
         return {
             "status": "generated",
             "bundle_relpath": output_path.name,
             "sha256": _sha256(output_path),
             "size_bytes": output_path.stat().st_size,
+            "source_sha256": _sha256(source_path),
+            "composition": "telegram_share_fit_full_diorama",
+            "layout": {
+                "status": "pass",
+                "canvas_size_px": {"width": canvas_width, "height": canvas_height},
+                "checks": layout_checks,
+                "boxes": {"frame": list(frame_box), "source_image": list(image_box)},
+            },
         }
     except Exception as exc:
         return {"status": "failed", "reason": str(exc)}
@@ -1852,27 +2148,33 @@ def _floorplan_content_bbox(path: Path) -> tuple[int, int, int, int]:
         width, height = normalized.size
         preview_width = min(240, max(120, width // 4))
         preview_height = max(120, int(round(height * preview_width / max(width, 1))))
-        preview = normalized.resize((preview_width, preview_height), Image.Resampling.LANCZOS)
+        preview = ImageOps.autocontrast(
+            normalized.resize((preview_width, preview_height), Image.Resampling.LANCZOS),
+            cutoff=1,
+        )
         preview_pixels = preview.load()
         binary = [
-            [1 if preview_pixels[col, row] < 225 else 0 for col in range(preview_width)]
+            [1 if preview_pixels[col, row] < 180 else 0 for col in range(preview_width)]
             for row in range(preview_height)
         ]
     components = [
         component
         for component in _connected_components(binary)
-        if not bool(component.get("touches_edge")) and int(component.get("area") or 0) >= 20
+        if int(component.get("area") or 0) >= 20
     ]
     if not components:
         return (0, 0, width, height)
     components.sort(key=lambda component: int(component.get("area") or 0), reverse=True)
     main_bbox = tuple(components[0]["bbox"])
+    main_area = int(components[0].get("area") or 0)
     kept = []
     for component in components:
         area = int(component.get("area") or 0)
         bbox = tuple(component.get("bbox") or main_bbox)
         gap_x, gap_y = _bbox_axis_gap(bbox, main_bbox)
-        if area >= 120 or (max(gap_x, gap_y) <= 6 and (gap_x == 0 or gap_y == 0)):
+        substantial = area >= max(20, int(round(main_area * 0.025)))
+        aligned_with_plan = max(gap_x, gap_y) <= 6 and (gap_x == 0 or gap_y == 0)
+        if bbox == main_bbox or (substantial and max(gap_x, gap_y) <= 12) or aligned_with_plan:
             kept.append(bbox)
     min_col = min(bbox[0] for bbox in kept)
     min_row = min(bbox[1] for bbox in kept)
@@ -1902,23 +2204,29 @@ def _extract_floorplan_geometry(
     crop_width, crop_height = cropped.size
     grid_width = max(96, min(max_grid_width, int(round(crop_width / 7.0))))
     grid_height = max(72, int(round(crop_height * grid_width / max(crop_width, 1))))
-    reduced = cropped.resize((grid_width, grid_height), Image.Resampling.LANCZOS)
-    reduced_pixels = reduced.load()
-    initial_mask = [
-        [1 if reduced_pixels[col, row] < 210 else 0 for col in range(grid_width)]
+    def _opened_geometry_mask(*, scale: int, threshold: int) -> Image.Image:
+        reduced = ImageOps.autocontrast(
+            cropped.resize((grid_width * scale, grid_height * scale), Image.Resampling.LANCZOS),
+            cutoff=1,
+        )
+        ink_mask = reduced.point(lambda value: 255 if value < threshold else 0)
+        opened = ink_mask.filter(ImageFilter.MinFilter(3)).filter(ImageFilter.MaxFilter(3))
+        return opened.resize((grid_width, grid_height), Image.Resampling.BOX)
+
+    # The broad 3x lane keeps heavy light-grey walls; the dark 6x lane recovers
+    # legitimate 6-8 px architectural strokes without retaining equally thin
+    # coloured room annotations. Fine labels and hatching fail both openings.
+    broad_structural_mask = _opened_geometry_mask(scale=3, threshold=140)
+    thin_dark_structural_mask = _opened_geometry_mask(scale=6, threshold=50)
+    broad_pixels = broad_structural_mask.load()
+    thin_dark_pixels = thin_dark_structural_mask.load()
+    filtered_mask = [
+        [
+            1 if max(broad_pixels[col, row], thin_dark_pixels[col, row]) >= 64 else 0
+            for col in range(grid_width)
+        ]
         for row in range(grid_height)
     ]
-    filtered_mask = [[0 for _ in range(grid_width)] for _ in range(grid_height)]
-    for row in range(grid_height):
-        for col in range(grid_width):
-            if not initial_mask[row][col]:
-                continue
-            neighbors = 0
-            for near_row in range(max(0, row - 1), min(grid_height, row + 2)):
-                for near_col in range(max(0, col - 1), min(grid_width, col + 2)):
-                    neighbors += initial_mask[near_row][near_col]
-            if neighbors >= 3:
-                filtered_mask[row][col] = 1
     for component in _connected_components(filtered_mask):
         area = int(component.get("area") or 0)
         min_col, min_row, max_col, max_row = tuple(component.get("bbox") or (0, 0, 0, 0))
@@ -1938,6 +2246,7 @@ def _extract_floorplan_geometry(
         },
         "content_size_px": {"width": int(crop_width), "height": int(crop_height)},
         "mask_size_cells": {"width": int(grid_width), "height": int(grid_height)},
+        "extraction_method": "autocontrast_geometry_mask_directional_segments_v1",
         "wall_mask": filtered_mask,
     }
 
@@ -1948,6 +2257,28 @@ def _room_dimensions(width: int, height: int, *, max_width_m: float) -> tuple[fl
     room_depth = max(3.0, min(18.0, room_width * ratio))
     room_height = 2.75
     return round(room_width, 3), round(room_depth, 3), room_height
+
+
+def _floorplan_texture_crop(
+    geometry: dict[str, object],
+    floorplan: dict[str, object],
+) -> dict[str, float]:
+    try:
+        source_width = max(1, int(floorplan.get("width") or 1))
+        source_height = max(1, int(floorplan.get("height") or 1))
+        bbox = dict(geometry.get("content_bbox_px") or {})
+        left = max(0, min(source_width - 1, int(bbox.get("left") or 0)))
+        top = max(0, min(source_height - 1, int(bbox.get("top") or 0)))
+        right = max(left + 1, min(source_width, int(bbox.get("right") or source_width)))
+        bottom = max(top + 1, min(source_height, int(bbox.get("bottom") or source_height)))
+    except Exception:
+        return {"offset_x": 0.0, "offset_y": 0.0, "repeat_x": 1.0, "repeat_y": 1.0}
+    return {
+        "offset_x": round(left / source_width, 8),
+        "offset_y": round(1.0 - (bottom / source_height), 8),
+        "repeat_x": round((right - left) / source_width, 8),
+        "repeat_y": round((bottom - top) / source_height, 8),
+    }
 
 
 def _write_inferred_floorplan(target: Path, *, photo_count: int) -> dict[str, object]:
@@ -1986,7 +2317,7 @@ def _write_inferred_floorplan(target: Path, *, photo_count: int) -> dict[str, ob
     }
 
 
-def _wall_rectangles_from_mask(
+def _axis_aligned_wall_rectangles_from_mask(
     wall_mask: list[list[int]],
     *,
     width_m: float,
@@ -2049,6 +2380,188 @@ def _wall_rectangles_from_mask(
     return rectangles
 
 
+def _directional_run_mask(
+    wall_mask: list[list[int]],
+    *,
+    axis: str,
+    minimum_run_cells: int = 5,
+) -> list[list[int]]:
+    rows = len(wall_mask)
+    cols = len(wall_mask[0]) if rows else 0
+    directional = [[0 for _ in range(cols)] for _ in range(rows)]
+    minimum_run = max(2, int(minimum_run_cells))
+    if axis == "horizontal":
+        for row_index, row in enumerate(wall_mask):
+            run_start: int | None = None
+            for col_index in range(cols + 1):
+                filled = col_index < cols and bool(row[col_index])
+                if filled and run_start is None:
+                    run_start = col_index
+                elif not filled and run_start is not None:
+                    if col_index - run_start >= minimum_run:
+                        for run_col in range(run_start, col_index):
+                            directional[row_index][run_col] = 1
+                    run_start = None
+        return directional
+    if axis != "vertical":
+        raise ValueError("invalid_directional_run_axis")
+    for col_index in range(cols):
+        run_start = None
+        for row_index in range(rows + 1):
+            filled = row_index < rows and bool(wall_mask[row_index][col_index])
+            if filled and run_start is None:
+                run_start = row_index
+            elif not filled and run_start is not None:
+                if row_index - run_start >= minimum_run:
+                    for run_row in range(run_start, row_index):
+                        directional[run_row][col_index] = 1
+                run_start = None
+    return directional
+
+
+def _oriented_wall_segment_from_component(
+    directional_mask: list[list[int]],
+    component: dict[str, object],
+    *,
+    width_m: float,
+    depth_m: float,
+) -> dict[str, object] | None:
+    rows = len(directional_mask)
+    cols = len(directional_mask[0]) if rows else 0
+    if not rows or not cols:
+        return None
+    min_col, min_row, max_col, max_row = tuple(component.get("bbox") or (0, 0, 0, 0))
+    cell_width = width_m / cols
+    cell_depth = depth_m / rows
+    half_width = width_m / 2
+    half_depth = depth_m / 2
+    points = [
+        (
+            -half_width + ((col + 0.5) * cell_width),
+            -half_depth + ((row + 0.5) * cell_depth),
+        )
+        for row in range(min_row, max_row + 1)
+        for col in range(min_col, max_col + 1)
+        if directional_mask[row][col]
+    ]
+    if len(points) < 5:
+        return None
+    mean_x = sum(point[0] for point in points) / len(points)
+    mean_z = sum(point[1] for point in points) / len(points)
+    covariance_xx = sum((point[0] - mean_x) ** 2 for point in points) / len(points)
+    covariance_xz = sum((point[0] - mean_x) * (point[1] - mean_z) for point in points) / len(points)
+    covariance_zz = sum((point[1] - mean_z) ** 2 for point in points) / len(points)
+    angle = 0.5 * math.atan2(2.0 * covariance_xz, covariance_xx - covariance_zz)
+    axis_x = math.cos(angle)
+    axis_z = math.sin(angle)
+    normal_x = -axis_z
+    normal_z = axis_x
+    along = [(point[0] * axis_x) + (point[1] * axis_z) for point in points]
+    across = [(point[0] * normal_x) + (point[1] * normal_z) for point in points]
+    cell_span = max(cell_width, cell_depth)
+    length = (max(along) - min(along)) + cell_span
+    measured_thickness = (max(across) - min(across)) + min(cell_width, cell_depth)
+    maximum_thickness = max(0.24, min(0.48, cell_span * 3.5))
+    thickness = max(min(cell_width, cell_depth) * 1.35, min(measured_thickness, maximum_thickness))
+    minimum_wall_length = max(0.9, cell_span * 6.0)
+    if length < minimum_wall_length or length / max(thickness, 0.001) < 1.45:
+        return None
+    center_along = (max(along) + min(along)) / 2
+    center_across = (max(across) + min(across)) / 2
+    center_x = (center_along * axis_x) + (center_across * normal_x)
+    center_z = (center_along * axis_z) + (center_across * normal_z)
+    span_cols = max_col - min_col + 1
+    span_rows = max_row - min_row + 1
+    return {
+        "center_x": round(center_x, 4),
+        "center_z": round(center_z, 4),
+        "width": round(length, 4),
+        "depth": round(thickness, 4),
+        # Three.js rotates local +X toward +Z with a negative Y angle.
+        "rotation_y": round(-angle, 6),
+        "_bbox_cells": (min_col, min_row, max_col, max_row),
+        "_length_cells": float(max(span_cols, span_rows)),
+    }
+
+
+def _wall_segment_networks(
+    segments: list[dict[str, object]],
+    *,
+    connection_gap_cells: int = 3,
+) -> list[list[int]]:
+    parents = list(range(len(segments)))
+
+    def find(index: int) -> int:
+        while parents[index] != index:
+            parents[index] = parents[parents[index]]
+            index = parents[index]
+        return index
+
+    def union(first: int, second: int) -> None:
+        first_root = find(first)
+        second_root = find(second)
+        if first_root != second_root:
+            parents[second_root] = first_root
+
+    for index, segment in enumerate(segments):
+        first_bbox = tuple(segment.get("_bbox_cells") or (0, 0, 0, 0))
+        for other_index in range(index + 1, len(segments)):
+            other_bbox = tuple(segments[other_index].get("_bbox_cells") or (0, 0, 0, 0))
+            gap_x, gap_y = _bbox_axis_gap(first_bbox, other_bbox)
+            if gap_x <= connection_gap_cells and gap_y <= connection_gap_cells:
+                union(index, other_index)
+    networks: dict[int, list[int]] = {}
+    for index in range(len(segments)):
+        networks.setdefault(find(index), []).append(index)
+    return list(networks.values())
+
+
+def _wall_rectangles_from_mask(
+    wall_mask: list[list[int]],
+    *,
+    width_m: float,
+    depth_m: float,
+) -> list[dict[str, float]]:
+    rows = len(wall_mask)
+    cols = len(wall_mask[0]) if rows else 0
+    if not rows or not cols:
+        return []
+    candidates: list[dict[str, object]] = []
+    for axis in ("horizontal", "vertical"):
+        directional_mask = _directional_run_mask(wall_mask, axis=axis)
+        for component in _connected_components(directional_mask):
+            segment = _oriented_wall_segment_from_component(
+                directional_mask,
+                component,
+                width_m=width_m,
+                depth_m=depth_m,
+            )
+            if segment is not None:
+                candidates.append(segment)
+    minimum_network_span = max(24.0, min(36.0, (rows + cols) * 0.13))
+    accepted_indexes = {
+        index
+        for network in _wall_segment_networks(candidates)
+        if sum(float(candidates[index].get("_length_cells") or 0.0) for index in network) >= minimum_network_span
+        for index in network
+    }
+    oriented = [
+        {
+            "center_x": float(segment["center_x"]),
+            "center_z": float(segment["center_z"]),
+            "width": float(segment["width"]),
+            "depth": float(segment["depth"]),
+            "rotation_y": float(segment["rotation_y"]),
+        }
+        for index, segment in enumerate(candidates)
+        if index in accepted_indexes
+    ]
+    oriented.sort(key=lambda row: (row["center_z"], row["center_x"], row["rotation_y"]))
+    if oriented:
+        return oriented
+    return _axis_aligned_wall_rectangles_from_mask(wall_mask, width_m=width_m, depth_m=depth_m)
+
+
 def _write_obj(
     target_dir: Path,
     *,
@@ -2066,24 +2579,40 @@ def _write_obj(
         vertices.extend(points)
         faces.append((material, group, (start_index, start_index + 1, start_index + 2, start_index + 3)))
 
-    def add_box(material: str, group: str, *, center_x: float, center_z: float, box_width: float, box_depth: float, box_height: float) -> None:
+    def add_box(
+        material: str,
+        group: str,
+        *,
+        center_x: float,
+        center_z: float,
+        box_width: float,
+        box_depth: float,
+        box_height: float,
+        rotation_y: float = 0.0,
+    ) -> None:
         half_box_width = box_width / 2
         half_box_depth = box_depth / 2
-        min_x = center_x - half_box_width
-        max_x = center_x + half_box_width
-        min_z = center_z - half_box_depth
-        max_z = center_z + half_box_depth
         min_y = 0.0
         max_y = box_height
+        rotation_cos = math.cos(rotation_y)
+        rotation_sin = math.sin(rotation_y)
+
+        def rotated_point(local_x: float, y: float, local_z: float) -> tuple[float, float, float]:
+            return (
+                center_x + (local_x * rotation_cos) + (local_z * rotation_sin),
+                y,
+                center_z - (local_x * rotation_sin) + (local_z * rotation_cos),
+            )
+
         points = [
-            (min_x, min_y, min_z),
-            (max_x, min_y, min_z),
-            (max_x, min_y, max_z),
-            (min_x, min_y, max_z),
-            (min_x, max_y, min_z),
-            (max_x, max_y, min_z),
-            (max_x, max_y, max_z),
-            (min_x, max_y, max_z),
+            rotated_point(-half_box_width, min_y, -half_box_depth),
+            rotated_point(half_box_width, min_y, -half_box_depth),
+            rotated_point(half_box_width, min_y, half_box_depth),
+            rotated_point(-half_box_width, min_y, half_box_depth),
+            rotated_point(-half_box_width, max_y, -half_box_depth),
+            rotated_point(half_box_width, max_y, -half_box_depth),
+            rotated_point(half_box_width, max_y, half_box_depth),
+            rotated_point(-half_box_width, max_y, half_box_depth),
         ]
         start_index = len(vertices) + 1
         vertices.extend(points)
@@ -2117,6 +2646,7 @@ def _write_obj(
             box_width=float(rectangle["width"]),
             box_depth=float(rectangle["depth"]),
             box_height=height_m,
+            rotation_y=float(rectangle.get("rotation_y") or 0.0),
         )
     for x, y, z in vertices:
         obj_lines.append(f"v {x:.4f} {y:.4f} {z:.4f}")
@@ -2148,18 +2678,126 @@ def _write_obj(
     )
 
 
-def _copy_viewer_vendor_assets(target_dir: Path) -> dict[str, str]:
-    if not THREE_MODULE_SOURCE.is_file() or not ORBIT_CONTROLS_SOURCE.is_file():
+def _copy_viewer_vendor_assets(target_dir: Path) -> dict[str, object]:
+    source_specs = (
+        ("three.module.js", THREE_MODULE_SOURCE, THREE_MODULE_SOURCE_SHA256),
+        ("OrbitControls.js", ORBIT_CONTROLS_SOURCE, ORBIT_CONTROLS_SOURCE_SHA256),
+        ("LICENSE", THREE_LICENSE_SOURCE, THREE_LICENSE_SOURCE_SHA256),
+    )
+    if any(not source_path.is_file() for _, source_path, _ in source_specs):
         raise FileNotFoundError("viewer_vendor_assets_missing")
+    source_hashes: dict[str, str] = {}
+    for source_name, source_path, expected_sha256 in source_specs:
+        actual_sha256 = _sha256(source_path)
+        source_hashes[source_name] = actual_sha256
+        if actual_sha256 != expected_sha256:
+            raise RuntimeError(
+                f"viewer_vendor_integrity_mismatch:{source_name}:expected={expected_sha256}:actual={actual_sha256}"
+            )
+
+    license_text = THREE_LICENSE_SOURCE.read_text(encoding="utf-8")
+    license_notice = f"/*!\n{license_text.rstrip()}\n*/\n"
+    license_notice_sha256 = hashlib.sha256(license_notice.encode("utf-8")).hexdigest()
+    if license_notice_sha256 != THREE_LICENSE_NOTICE_SHA256:
+        raise RuntimeError(
+            "viewer_vendor_integrity_mismatch:embedded_license_notice:"
+            f"expected={THREE_LICENSE_NOTICE_SHA256}:actual={license_notice_sha256}"
+        )
+
     vendor_dir = target_dir / "vendor"
     three_target = vendor_dir / "three.module.js"
     orbit_target = vendor_dir / "examples" / "jsm" / "controls" / "OrbitControls.js"
     orbit_target.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(THREE_MODULE_SOURCE, three_target)
-    shutil.copy2(ORBIT_CONTROLS_SOURCE, orbit_target)
+    three_source = THREE_MODULE_SOURCE.read_text(encoding="utf-8")
+    emitted_three_source = license_notice + three_source
+    emitted_three_sha256 = hashlib.sha256(emitted_three_source.encode("utf-8")).hexdigest()
+    if emitted_three_sha256 != THREE_MODULE_EMITTED_SHA256:
+        raise RuntimeError(
+            "viewer_vendor_integrity_mismatch:emitted_three.module.js:"
+            f"expected={THREE_MODULE_EMITTED_SHA256}:actual={emitted_three_sha256}"
+        )
+    orbit_source = ORBIT_CONTROLS_SOURCE.read_text(encoding="utf-8")
+    if orbit_source.count(ORBIT_CONTROLS_BARE_IMPORT) != 1:
+        raise RuntimeError("viewer_orbit_controls_bare_import_count_mismatch")
+    transformed_orbit_source = orbit_source.replace(
+        ORBIT_CONTROLS_BARE_IMPORT,
+        ORBIT_CONTROLS_RELATIVE_IMPORT,
+        1,
+    )
+    if transformed_orbit_source == orbit_source:
+        raise RuntimeError("viewer_orbit_controls_bare_import_missing")
+    transformed_orbit_sha256 = hashlib.sha256(transformed_orbit_source.encode("utf-8")).hexdigest()
+    if transformed_orbit_sha256 != ORBIT_CONTROLS_TRANSFORMED_SHA256:
+        raise RuntimeError(
+            "viewer_vendor_integrity_mismatch:transformed_OrbitControls.js:"
+            f"expected={ORBIT_CONTROLS_TRANSFORMED_SHA256}:actual={transformed_orbit_sha256}"
+        )
+    emitted_orbit_source = license_notice + transformed_orbit_source
+    emitted_orbit_sha256 = hashlib.sha256(emitted_orbit_source.encode("utf-8")).hexdigest()
+    if emitted_orbit_sha256 != ORBIT_CONTROLS_EMITTED_SHA256:
+        raise RuntimeError(
+            "viewer_vendor_integrity_mismatch:emitted_OrbitControls.js:"
+            f"expected={ORBIT_CONTROLS_EMITTED_SHA256}:actual={emitted_orbit_sha256}"
+        )
+
+    three_target.write_text(emitted_three_source, encoding="utf-8")
+    orbit_target.write_text(emitted_orbit_source, encoding="utf-8")
     return {
         "three_relpath": "vendor/three.module.js",
         "orbit_controls_relpath": "vendor/examples/jsm/controls/OrbitControls.js",
+        "provenance": {
+            "name": "three",
+            "package": "three",
+            "version": THREE_VENDOR_VERSION,
+            "license": "MIT",
+            "upstream_git_head": THREE_UPSTREAM_GIT_HEAD,
+            "upstream_dist_integrity": THREE_UPSTREAM_DIST_INTEGRITY,
+            "upstream_dist_shasum": THREE_UPSTREAM_DIST_SHASUM,
+            "source": {
+                "three_module_sha256": source_hashes["three.module.js"],
+                "orbit_controls_sha256": source_hashes["OrbitControls.js"],
+                "license_sha256": source_hashes["LICENSE"],
+            },
+            "license_notice": {
+                "spdx": "MIT",
+                "source_relpath": f"vendor/three/{THREE_VENDOR_VERSION}/LICENSE",
+                "source_sha256": source_hashes["LICENSE"],
+                "embedded_notice_sha256": license_notice_sha256,
+                "embedded_in_all_emitted_modules": True,
+            },
+            "sources": {
+                "three_module": {
+                    "source_relpath": f"vendor/three/{THREE_VENDOR_VERSION}/three.module.js",
+                    "source_sha256": source_hashes["three.module.js"],
+                },
+                "orbit_controls": {
+                    "source_relpath": f"vendor/three/{THREE_VENDOR_VERSION}/examples/jsm/controls/OrbitControls.js",
+                    "source_sha256": source_hashes["OrbitControls.js"],
+                },
+            },
+            "transform": {
+                "id": "orbit_controls_relative_import_v1",
+                "asset": "OrbitControls.js",
+                "operation": "single_exact_string_replacement",
+                "from": ORBIT_CONTROLS_BARE_IMPORT,
+                "to": ORBIT_CONTROLS_RELATIVE_IMPORT,
+                "replacement_count": 1,
+                "transformed_before_notice_sha256": transformed_orbit_sha256,
+                "derived_three_module_sha256": emitted_three_sha256,
+                "derived_orbit_controls_sha256": emitted_orbit_sha256,
+                "notice_embedding": "full_mit_in_each_emitted_module",
+            },
+            "emitted": {
+                "three_module": {
+                    "relpath": "vendor/three.module.js",
+                    "sha256": emitted_three_sha256,
+                },
+                "orbit_controls": {
+                    "relpath": "vendor/examples/jsm/controls/OrbitControls.js",
+                    "sha256": emitted_orbit_sha256,
+                },
+            },
+        },
     }
 
 
@@ -2280,6 +2918,11 @@ def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_contr
     photos = manifest.get("photos") if isinstance(manifest.get("photos"), list) else []
     geometry = dict(manifest.get("geometry") or {}) if isinstance(manifest.get("geometry"), dict) else {}
     wall_rectangles = geometry.get("wall_rectangles") if isinstance(geometry.get("wall_rectangles"), list) else []
+    floor_texture_crop = (
+        dict(geometry.get("floor_texture_crop") or {})
+        if isinstance(geometry.get("floor_texture_crop"), dict)
+        else {}
+    )
     walkable_scene = dict(manifest.get("walkable_scene") or {}) if isinstance(manifest.get("walkable_scene"), dict) else {}
     route_stops = list(walkable_scene.get("route") or []) if isinstance(walkable_scene.get("route"), list) else []
     photo_reference_panels = (
@@ -2290,6 +2933,7 @@ def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_contr
     style_label = str(manifest.get("style_label") or "").strip()
     escaped_style = html.escape(style_label)
     style_copy = f'<span>{escaped_style}</span>' if escaped_style else ""
+    source_description = "the floorplan and listing photos" if photos else "the floorplan"
     floorplan_relpath = html.escape(str(dict(manifest.get("floorplan") or {}).get("relpath") or "source-floorplan.jpg"))
     floorplan_stop_rows: list[dict[str, object]] = []
     for index, stop in enumerate(route_stops):
@@ -2387,7 +3031,7 @@ def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_contr
         else ""
     )
     return f"""<!doctype html>
-<html lang="en">
+<html lang="en" data-pq-preview-kind="approximate-layout" data-pq-verified-provider-capture="false">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -2468,12 +3112,12 @@ def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_contr
       background:rgba(255,255,255,.94);
       box-shadow:0 8px 20px rgba(23,32,28,.14);
     }}
-    .route-hotspot::after {{
-      content:attr(data-label);
+    .route-hotspot-label {{
       position:absolute;
       top:calc(50% + 20px);
       left:50%;
-      transform:translateX(-50%);
+      max-width:min(260px,calc(100vw - 24px));
+      transform:translateX(calc(-50% + var(--hotspot-label-shift-x,0px)));
       padding:5px 8px;
       border:1px solid var(--line);
       border-radius:4px;
@@ -2484,9 +3128,13 @@ def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_contr
       opacity:0;
       pointer-events:none;
     }}
-    .route-hotspot:hover::after,
-    .route-hotspot:focus-visible::after,
-    .route-hotspot[data-active="true"]::after {{ opacity:1; }}
+    .route-hotspot-label[data-placement="above"] {{
+      top:auto;
+      bottom:calc(50% + 20px);
+    }}
+    .route-hotspot:hover .route-hotspot-label,
+    .route-hotspot:focus-visible .route-hotspot-label,
+    .route-hotspot[data-active="true"] .route-hotspot-label {{ opacity:1; }}
     .route-hotspot[data-active="true"]::before {{
       border-color:var(--signal);
       background:#fff3ef;
@@ -2803,7 +3451,7 @@ def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_contr
         <p>Layout preview</p>
         <span>approx.</span>
       </div>
-      <p class="note">Built from the floorplan and listing photos. Use it for orientation; confirm dimensions at the viewing.</p>
+      <p class="note">Approximate planning preview. Built from {source_description}. Use it for orientation; confirm dimensions at the viewing.</p>
       {f'<span class="style-pill">{style_copy}</span>' if style_copy else ''}
     </section>
     <section class="panel facts" aria-label="Approximate room dimensions">
@@ -2827,15 +3475,8 @@ def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_contr
     {photo_section}
   </aside>
 </main>
-<script type="importmap">
-{{
-  "imports": {{
-    "three": "./{three_relpath}"
-  }}
-}}
-</script>
 <script type="module">
-import * as THREE from "three";
+import * as THREE from "./{three_relpath}";
 import {{ OrbitControls }} from "./{orbit_controls_relpath}";
 
 const viewport = document.getElementById("viewport");
@@ -2901,6 +3542,10 @@ const textureLoader = new THREE.TextureLoader();
 const floorTexture = textureLoader.load({json.dumps(str(dict(manifest.get("floorplan") or {}).get("relpath") or "source-floorplan.jpg"))});
 floorTexture.colorSpace = THREE.SRGBColorSpace;
 floorTexture.anisotropy = 8;
+const floorTextureCrop = {json.dumps(floor_texture_crop, ensure_ascii=False)};
+floorTexture.offset.set(Number(floorTextureCrop.offset_x || 0), Number(floorTextureCrop.offset_y || 0));
+floorTexture.repeat.set(Number(floorTextureCrop.repeat_x || 1), Number(floorTextureCrop.repeat_y || 1));
+floorTexture.needsUpdate = true;
 const floor = new THREE.Mesh(
   new THREE.PlaneGeometry(roomWidth, roomDepth),
   new THREE.MeshStandardMaterial({{
@@ -2937,14 +3582,22 @@ for (const wall of wallRectangles) {{
   const wallDepth = Number(wall.depth || 0);
   const centerX = Number(wall.center_x || 0);
   const centerZ = Number(wall.center_z || 0);
-  const touchesEastShell = centerX + (wallWidth * 0.5) >= (roomWidth * 0.5) - overviewCutawayBoundaryX;
-  const touchesSouthShell = centerZ + (wallDepth * 0.5) >= (roomDepth * 0.5) - overviewCutawayBoundaryZ;
+  const rotationY = Number(wall.rotation_y || 0);
+  const extentX = (Math.abs(Math.cos(rotationY)) * wallWidth * 0.5) + (Math.abs(Math.sin(rotationY)) * wallDepth * 0.5);
+  const extentZ = (Math.abs(Math.sin(rotationY)) * wallWidth * 0.5) + (Math.abs(Math.cos(rotationY)) * wallDepth * 0.5);
+  const lengthAxisRotation = rotationY + (wallDepth > wallWidth ? Math.PI * 0.5 : 0);
+  const runsMostlyEastWest = Math.abs(Math.cos(lengthAxisRotation)) >= Math.abs(Math.sin(lengthAxisRotation));
+  // A wall endpoint touching a boundary does not make the whole wall part of
+  // that shell. Cut away only walls whose thickness-normal sits on east/south.
+  const touchesEastShell = !runsMostlyEastWest && centerX + extentX >= (roomWidth * 0.5) - overviewCutawayBoundaryX;
+  const touchesSouthShell = runsMostlyEastWest && centerZ + extentZ >= (roomDepth * 0.5) - overviewCutawayBoundaryZ;
   const cutawayEligible = Boolean(touchesEastShell || touchesSouthShell);
   const mesh = new THREE.Mesh(
     new THREE.BoxGeometry(wall.width, roomHeight, wall.depth),
     wallMaterial,
   );
   mesh.position.set(centerX, roomHeight / 2, centerZ);
+  mesh.rotation.y = rotationY;
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   mesh.userData.baseCenterY = roomHeight / 2;
@@ -2953,6 +3606,7 @@ for (const wall of wallRectangles) {{
   scene.add(mesh);
   const edges = new THREE.LineSegments(new THREE.EdgesGeometry(mesh.geometry), wallEdgeMaterial);
   edges.position.copy(mesh.position);
+  edges.rotation.copy(mesh.rotation);
   edges.userData.baseCenterY = roomHeight / 2;
   edges.userData.cutawayEligible = cutawayEligible;
   wallEdgeMeshes.push(edges);
@@ -2991,10 +3645,15 @@ for (const stop of routeStops) {{
     button.dataset.label = hotspotLabel;
     button.setAttribute("aria-label", `Go to ${{hotspotLabel}}`);
     button.textContent = String(routeHotspots.length + 1);
+    const label = document.createElement("span");
+    label.className = "route-hotspot-label";
+    label.textContent = hotspotLabel;
+    button.appendChild(label);
     button.addEventListener("click", () => setRouteView(Number(button.dataset.routeIndex || 0)));
     hotspotLayer.appendChild(button);
     routeHotspots.push({{
       button,
+      label,
       focus: new THREE.Vector3(Number(focus.x || 0), Number(focus.y || roomHeight * 0.5), Number(focus.z || 0)),
     }});
   }}
@@ -3619,7 +4278,7 @@ function applyViewMode(mode) {{
   const cutawayActive = isOverview || isDollhouse;
   activeViewMode = normalizedMode;
   liveViewerState.viewMode = normalizedMode;
-  wallMaterial.opacity = isDollhouse ? 0.38 : isOverview ? 0.84 : 1.0;
+  wallMaterial.opacity = isDollhouse ? 0.3 : isOverview ? 0.66 : 1.0;
   wallMaterial.depthWrite = !cutawayActive;
   wallMaterial.needsUpdate = true;
   wallEdgeMaterial.opacity = isDollhouse ? 0.88 : isOverview ? 0.54 : 0.62;
@@ -3630,7 +4289,7 @@ function applyViewMode(mode) {{
   }}
   controls.minPolarAngle = isDollhouse ? Math.PI * 0.02 : isOverview ? Math.PI * 0.1 : Math.PI * 0.14;
   controls.maxPolarAngle = isDollhouse ? Math.PI * 0.34 : isOverview ? Math.PI * 0.42 : Math.PI * 0.49;
-  setWallHeightScale(isDollhouse ? 0.56 : isOverview ? 0.82 : 1.0);
+  setWallHeightScale(isDollhouse ? 0.42 : isOverview ? 0.62 : 1.0);
   applyCutawayWallVisibility(cutawayActive);
   setActiveViewChip(normalizedMode);
   syncCaptureRouteCard();
@@ -3736,9 +4395,49 @@ function syncRouteHotspots() {{
     entry.button.hidden = false;
     entry.button.style.left = `${{left.toFixed(1)}}px`;
     entry.button.style.top = `${{top.toFixed(1)}}px`;
+    entry.label.dataset.placement = "below";
+    entry.label.style.setProperty("--hotspot-label-shift-x", "0px");
+    const layerBounds = hotspotLayer.getBoundingClientRect();
+    let labelBounds = entry.label.getBoundingClientRect();
+    const inset = 8;
+    if (labelBounds.bottom > layerBounds.bottom - inset) {{
+      entry.label.dataset.placement = "above";
+      labelBounds = entry.label.getBoundingClientRect();
+    }}
+    let shiftX = 0;
+    if (labelBounds.left < layerBounds.left + inset) {{
+      shiftX += (layerBounds.left + inset) - labelBounds.left;
+    }}
+    if (labelBounds.right + shiftX > layerBounds.right - inset) {{
+      shiftX -= (labelBounds.right + shiftX) - (layerBounds.right - inset);
+    }}
+    entry.label.style.setProperty("--hotspot-label-shift-x", `${{shiftX.toFixed(1)}}px`);
     visibleCount += 1;
   }}
   return visibleCount;
+}}
+
+function getVisibleHotspotLabelBounds() {{
+  if (!hotspotLayer) return [];
+  const viewportBounds = hotspotLayer.getBoundingClientRect();
+  const inset = 7;
+  return routeHotspots
+    .filter((entry) => !entry.button.hidden && Number.parseFloat(getComputedStyle(entry.label).opacity || "0") > 0)
+    .map((entry) => {{
+      const bounds = entry.label.getBoundingClientRect();
+      return {{
+        label: String(entry.label.textContent || "").trim(),
+        left: Number(bounds.left.toFixed(2)),
+        top: Number(bounds.top.toFixed(2)),
+        right: Number(bounds.right.toFixed(2)),
+        bottom: Number(bounds.bottom.toFixed(2)),
+        insideViewport:
+          bounds.left >= viewportBounds.left + inset &&
+          bounds.right <= viewportBounds.right - inset &&
+          bounds.top >= viewportBounds.top + inset &&
+          bounds.bottom <= viewportBounds.bottom - inset,
+      }};
+    }});
 }}
 
 function renderCaptureFrame(payload = {{}}) {{
@@ -3973,6 +4672,7 @@ window.__pqReconstructionDebug = {{
   renderCaptureFrame,
   getLiveState: () => ({{ ...liveViewerState }}),
   getRenderMetrics,
+  getVisibleHotspotLabelBounds,
 }};
 
     function renderFrame(now = 0) {{
@@ -4716,6 +5416,7 @@ def main() -> int:
         height_m=height_m,
     )
     style_label = str(args.style_label or "").strip()
+    source_disclosure = _generated_reconstruction_disclosure(photo_count=len(photo_rows))
     diorama_preview = _write_generated_reconstruction_diorama_preview(
         bundle_dir / "diorama-preview.png",
         floorplan_path=floorplan_target,
@@ -4737,16 +5438,18 @@ def main() -> int:
         "provider": "propertyquarry_generated_reconstruction",
         "generated_at": generated_at,
         "slug": slug,
-        "disclosure": DISCLOSURE,
+        "disclosure": source_disclosure,
         "verified_provider_capture": False,
         "satisfies_verified_tour_gate": False,
         "style_label": style_label,
-        "method": "floorplan_aspect_room_volume_with_source_photo_reference_panels",
+        "method": "floorplan_directional_wall_segments_with_source_photo_reference_panels",
         "room_dimensions_m": {"width": width_m, "depth": depth_m, "height": height_m},
         "geometry": {
             "content_bbox_px": dict(geometry.get("content_bbox_px") or {}),
             "content_size_px": dict(geometry.get("content_size_px") or {}),
             "mask_size_cells": dict(geometry.get("mask_size_cells") or {}),
+            "extraction_method": str(geometry.get("extraction_method") or ""),
+            "floor_texture_crop": _floorplan_texture_crop(geometry, floorplan_meta),
             "wall_rectangles": wall_rectangles,
             "wall_rect_count": len(wall_rectangles),
         },
@@ -4779,6 +5482,7 @@ def main() -> int:
         receipt["model"]["glb_sha256"] = str(glb_export.get("glb_sha256") or "")
         receipt["model"]["glb_size_bytes"] = int(glb_export.get("glb_size_bytes") or 0)
     vendor_assets = _copy_viewer_vendor_assets(output_dir)
+    receipt["viewer"]["vendor"] = dict(vendor_assets.get("provenance") or {})
     viewer_path = output_dir / "viewer.html"
     viewer_path.write_text(
         _viewer_html(
@@ -4818,7 +5522,7 @@ def main() -> int:
         "glb_export_status": str(glb_export.get("status") or ""),
         "verified_provider_capture": False,
         "satisfies_verified_tour_gate": False,
-        "disclosure": DISCLOSURE,
+        "disclosure": source_disclosure,
         "route_labels": route_labels,
         "room_stop_count": len(route_labels),
         "walkthrough_route_labels": walkthrough_route_labels,

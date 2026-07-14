@@ -1,0 +1,27 @@
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+rule_files:
+  - propertyquarry_alert_rules.v1.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - propertyquarry-alertmanager:9093
+
+scrape_configs:
+  - job_name: propertyquarry
+    metrics_path: /internal/metrics
+    scheme: http
+    authorization:
+      type: Bearer
+      credentials_file: /run/secrets/propertyquarry_metrics_token
+    file_sd_configs:
+      - files:
+          - /etc/prometheus/propertyquarry_targets.json
+        refresh_interval: 30s
+    relabel_configs:
+      - target_label: service
+        replacement: propertyquarry

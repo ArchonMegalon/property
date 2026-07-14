@@ -144,22 +144,46 @@ import json
 import subprocess
 from pathlib import Path
 
+from scripts.materialize_ea_flagship_release_gate import browser_receipt_pass_blockers
+
 gate = json.loads(Path(".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json").read_text(encoding="utf-8"))
-assert gate["product"] == "executive-assistant"
-assert gate["surface"] == "flagship_release_control"
+assert gate["product"] == "propertyquarry"
+assert gate["surface"] == "propertyquarry_flagship_release_control"
 browser_sources = {entry["file"]: set(entry["cases"]) for entry in gate["browser_workflow_proof"]["evidence_sources"]}
-assert "tests/test_product_browser_journeys.py" in browser_sources
-assert "tests/e2e/test_product_workflows.py" in browser_sources
-assert "test_workspace_pages_render_seeded_product_objects" in browser_sources["tests/test_product_browser_journeys.py"]
-assert "test_activation_and_memo_flow_in_real_browser" in browser_sources["tests/e2e/test_product_workflows.py"]
+assert gate["browser_workflow_proof"]["proof_target"] == "propertyquarry"
+assert "tests/test_propertyquarry_workspace_redesign.py" in browser_sources
+assert "tests/e2e/test_propertyquarry_greenfield_browser.py" in browser_sources
+assert "test_propertyquarry_workspace_routes_render_greenfield_surfaces" in browser_sources["tests/test_propertyquarry_workspace_redesign.py"]
+assert "test_propertyquarry_failed_run_stays_on_activity_surface" in browser_sources["tests/test_propertyquarry_workspace_redesign.py"]
+assert "test_propertyquarry_greenfield_workspace_in_real_browser" in browser_sources["tests/e2e/test_propertyquarry_greenfield_browser.py"]
+assert "test_propertyquarry_greenfield_workspace_is_mobile_usable" in browser_sources["tests/e2e/test_propertyquarry_greenfield_browser.py"]
 assert "EA_FLAGSHIP_TRUTH_PLANE.md" == gate["truth_plane"]["source"].split("/")[-1]
 
 browser_receipt = json.loads(Path(".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json").read_text(encoding="utf-8"))
 assert browser_receipt["contract_name"] == "ea.browser_workflow_proof"
 assert browser_receipt["status"] in {"blocked", "preview_only", "pass"}
+assert browser_receipt["product"] == gate["product"]
+assert browser_receipt["proof_target"] == gate["browser_workflow_proof"]["proof_target"]
+if browser_receipt["status"] == "pass":
+    unsupported_pass_reasons = browser_receipt_pass_blockers(browser_receipt, gate)
+    assert not unsupported_pass_reasons, (
+        "browser workflow proof claims pass without completed required lanes: "
+        f"{unsupported_pass_reasons}"
+    )
 assert browser_receipt["expected_browser_signals"] == gate["browser_workflow_proof"]["expected_browser_signals"]
-assert browser_receipt["source_backed_journey_proof"]["test_file"] == "tests/test_product_browser_journeys.py"
-assert browser_receipt["real_browser_e2e_proof"]["test_file"] == "tests/e2e/test_product_workflows.py"
+assert browser_receipt["source_backed_journey_proof"]["test_file"] == "tests/test_propertyquarry_workspace_redesign.py"
+assert browser_receipt["real_browser_e2e_proof"]["test_file"] == "tests/e2e/test_propertyquarry_greenfield_browser.py"
+
+flagship_receipt = json.loads(Path(".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json").read_text(encoding="utf-8"))
+assert flagship_receipt["status"] in {"blocked", "preview_only", "pass"}
+assert flagship_receipt["product"] == gate["product"]
+assert flagship_receipt["surface"] == gate["surface"]
+assert flagship_receipt["browser_workflow_proof"]["proof_target"] == gate["browser_workflow_proof"]["proof_target"]
+if flagship_receipt["status"] == "pass":
+    assert browser_receipt["status"] == "pass", (
+        "flagship release receipt claims pass while browser workflow proof is "
+        f"{browser_receipt['status']}"
+    )
 
 pulse = json.loads(Path(".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json").read_text(encoding="utf-8"))
 assert pulse["contract_name"] == "ea.weekly_product_pulse"
@@ -248,9 +272,9 @@ if release_truth_head and current_head and release_truth_head != current_head:
     )
 PY
 then
-  echo "ok: EA flagship truth plane gate seed"
+  echo "ok: PropertyQuarry flagship truth plane gate seed"
 else
-  echo "missing: EA flagship truth plane gate seed, generated receipt, or weekly pulse" >&2
+  echo "missing: PropertyQuarry flagship truth plane gate seed, generated receipt, or weekly pulse" >&2
   missing=1
 fi
 
@@ -904,17 +928,17 @@ else
   missing=1
 fi
 
-if grep -Fq 'EA_FLAGSHIP_TRUTH_PLANE.md` as the release oracle for EA-specific flagship claims.' "FLAGSHIP_CLOSEOUT_PLAN.md"; then
-  echo "ok: FLAGSHIP_CLOSEOUT_PLAN EA truth oracle note"
+if grep -Fq 'cannot establish Executive Assistant core eligibility' "FLAGSHIP_CLOSEOUT_PLAN.md"; then
+  echo "ok: FLAGSHIP_CLOSEOUT_PLAN standalone PropertyQuarry claim boundary"
 else
-  echo "missing: FLAGSHIP_CLOSEOUT_PLAN EA truth oracle note" >&2
+  echo "missing: FLAGSHIP_CLOSEOUT_PLAN standalone PropertyQuarry claim boundary" >&2
   missing=1
 fi
 
-if grep -Fq 'EA_FLAGSHIP_TRUTH_PLANE.md` and `EA_FLAGSHIP_RELEASE_GATE.json` are green' "FLAGSHIP_CLOSEOUT_PLAN.md"; then
-  echo "ok: FLAGSHIP_CLOSEOUT_PLAN EA gate note"
+if grep -Fq 'the full PropertyQuarry source, security, recovery, live, and provenance gates pass' "FLAGSHIP_CLOSEOUT_PLAN.md"; then
+  echo "ok: FLAGSHIP_CLOSEOUT_PLAN full PropertyQuarry gate note"
 else
-  echo "missing: FLAGSHIP_CLOSEOUT_PLAN EA gate note" >&2
+  echo "missing: FLAGSHIP_CLOSEOUT_PLAN full PropertyQuarry gate note" >&2
   missing=1
 fi
 

@@ -49,6 +49,34 @@ Operator parity and release gate shortcuts:
 
 These hard-exit and LTD verifier scripts remain part of the operator contract even while this repo defaults to the PropertyQuarry product surface.
 
+Release preflight now keys off the EA flagship truth plane, gate seed, generated release receipt, and weekly pulse; `MILESTONE.json` remains supporting delivery history.
+The weekly pulse lives at `.codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json` and is refreshed with `scripts/materialize_weekly_product_pulse.py`.
+Release preflight checklist includes the EA flagship truth-plane contract in `RELEASE_CHECKLIST.md`.
+Recommended sequencing: run `make release-docs` before `make release-preflight`.
+`scripts/version_info.sh` still prints milestone capability-status counts and release tags from `MILESTONE.json` as delivery history, but EA flagship release claims now come from `EA_FLAGSHIP_TRUTH_PLANE.md`, `EA_FLAGSHIP_RELEASE_GATE.json`, and `EA_FLAGSHIP_RELEASE_GATE.generated.json`.
+
+The inherited operator command surface remains available for release and support parity:
+
+- `make operator-help` lists the supported operator scripts.
+- `bash scripts/smoke_help.sh --help` validates the help-contract entrypoint.
+- `make release-smoke` runs the release smoke bundle.
+- `make smoke-postgres-legacy` exercises the legacy Postgres migration fixture.
+- `make test-postgres-contracts` runs the focused Postgres contract matrix.
+- `make ci-gates-postgres-legacy` keeps local parity with the legacy Postgres CI job.
+- `make docs-verify` is the documentation-verification alias.
+- `make release-docs` runs the documentation and usage checks that precede release preflight.
+- `make all-local` is the lighter local readiness pass; `make release-preflight` is the source/local preflight and does not make a live-runtime or disaster-recovery claim.
+- `make propertyquarry-release-preflight` is the explicit full operator gate. It runs the source/local preflight and then the PropertyQuarry release gates, which require release-bound DR receipts and authenticated live-runtime inputs and write verification receipts under `_completion/`.
+- `bash scripts/operator_summary.sh --help` documents smoke, readiness, CI parity, release/support, and task-archive shortcuts.
+
+Endpoint/version/OpenAPI helper scripts also expose `--help`: `scripts/list_endpoints.sh`, `scripts/version_info.sh`, `scripts/export_openapi.sh`, `scripts/diff_openapi.sh`, and `scripts/prune_openapi.sh`.
+`EA_LEDGER_BACKEND` remains a temporary backward-compatible alias for the canonical `EA_STORAGE_BACKEND` setting.
+
+Policy and principal-scope contracts remain fail closed. A disallowed tool reports `policy_denied:tool_not_allowed`.
+Principal-scoped rewrite/session/artifact/receipt/run-cost, plan-compile, connector, human-task, and memory routes treat body/query `principal_id` as compatibility input only; mismatches against the request principal fail with `403 principal_scope_mismatch`.
+
+Support bundles include live `ea-db` mount inspection output unless disabled with `SUPPORT_INCLUDE_DB_VOLUME=0`.
+
 For a standalone PropertyQuarry runtime, you can extend the runtime-only hard-exit bundle with live product probes:
 
 ```bash
@@ -65,17 +93,30 @@ That optional branch runs the public runtime smoke plus the authenticated, seede
 ```bash
 cp .env.example .env
 # fill in the runtime credentials you actually use, including POSTGRES_PASSWORD,
-# EA_SIGNING_SECRET, and EA_API_TOKEN or Cloudflare Access settings
+# EA_SIGNING_SECRET, EA_API_TOKEN or Cloudflare Access settings, and a random
+# PROPERTYQUARRY_RECONSTRUCTION_RENDER_BRIDGE_TOKEN
 make deploy
 ```
 
-That topology starts only `propertyquarry-api`, `propertyquarry-scheduler`, and `propertyquarry-db`.
+The env template uses the literal non-secret sentinel
+`REVIEW_ONLY_NOT_A_SECRET_REPLACE_BEFORE_DEPLOY` for the render-bridge token so
+reviewers can render the Compose model with a disposable `POSTGRES_PASSWORD` and
+no production secret. Replace that sentinel before starting or deploying any
+service. `PROPERTYQUARRY_RENDER_STOP_GRACE_SECONDS=1860` keeps the container stop
+budget above the reconstruction generation ceiling; adjust both budgets together
+if that ceiling changes.
+
+That topology runs `propertyquarry-migrate` as an ephemeral deploy phase, then
+starts the steady-state `propertyquarry-api`, `propertyquarry-scheduler`,
+`propertyquarry-render-tools`, and `propertyquarry-db` services. The migration
+container must exit `0`; it is never counted as a running or healthy runtime
+service. See `docs/PROPERTYQUARRY_SCHEMA_MIGRATIONS.md`.
 The API and scheduler build `ea/Dockerfile.property-web`, a lightweight web runtime without Blender, COLMAP, MeshLab, or bundled Playwright browser payloads.
 Native 3D reconstruction and vendor tooling stay in the explicit `render-tools` profile, which builds `ea/Dockerfile.property`.
 Browser-backed PDF/render fallbacks must use MarkupGo or an explicit helper/render lane rather than adding Chromium to the request-serving image.
 Both images omit Docker CLI tooling and run the app process as the non-root `ea` user.
 
-`make deploy` uses `scripts/deploy_propertyquarry.sh`, which preflights the required prod credentials, checks `EA_HOST_PORT` before rebuilding, starts `docker-compose.property.yml`, waits for the API, scheduler, and DB containers, and probes readiness plus the authenticated app boundary.
+`make deploy` uses `scripts/deploy_propertyquarry.sh`, which preflights the required prod credentials, checks `EA_HOST_PORT` before rebuilding, starts the database, runs and verifies the governed schema migration, then starts the API, scheduler, and render bridge before probing readiness plus the authenticated app boundary.
 It also runs the public route smoke, authenticated route smoke, seeded all-surface mobile smoke with a live research-detail route, and the authenticated provider-catalog smoke against the deployed runtime before reporting success.
 Set `PROPERTYQUARRY_DEPLOY_PROVIDER_E2E=1` when the deploy itself should also run the full all-search-ready provider matrix with strict and soft-filter dispatch/readback checks.
 If `8090` is already occupied, set another host port before deploying:
@@ -242,6 +283,7 @@ Evidence, memory, and artifact envelopes:
 Human-task and queue operations:
 
 - `/v1/human/tasks` handles human task packets, `resume_session_on_return=true`, and `human_task_returned`.
+- `/v1/human/tasks/backlog` and `/v1/human/tasks/unassigned` expose the operator backlog and ownerless queue slices.
 - Human-review metadata includes `human_review_role`, `human_review_priority`, `human_review_sla_minutes`, `human_review_desired_output_json`, `human_review_authority_required`, `human_review_why_human`, `human_review_quality_rubric_json`, and `human_review_auto_assign_if_unique`.
 - Operator routing uses `/v1/human/tasks/operators`, `skill-tag`, `routing_hints_json`, `auto_assign_operator_id`, and `/v1/human/tasks/{human_task_id}/assign`; assignment rows track `assignment_source`, `assigned_at`, `assigned_by_actor_id`, and may omit `operator_id` when auto-assigned.
 - `/v1/human/tasks/{human_task_id}/assignment-history` and `human_task_assignment_history` expose task-scoped ownership transitions; assignment-history rows, inline human-task assignment-history rows, and inline human-task packet rows now carry originating task identity.

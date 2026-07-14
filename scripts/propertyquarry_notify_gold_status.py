@@ -6,9 +6,15 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+ROOT = Path(__file__).resolve().parents[1]
+EA_ROOT = ROOT / "ea"
+if str(EA_ROOT) not in sys.path:
+    sys.path.insert(0, str(EA_ROOT))
 
 from app.services.telegram_delivery import (
     _chunk_telegram_text,
@@ -20,7 +26,6 @@ from app.services.telegram_delivery import (
 )
 from app.services.tool_runtime import build_tool_runtime
 
-ROOT = Path(__file__).resolve().parents[1]
 _FALLBACK_ENV_PATHS = (
     ROOT / ".env",
     Path("/docker/EA/.env"),

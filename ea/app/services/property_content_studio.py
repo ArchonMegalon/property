@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from uuid import uuid4
 
 from app.domain.property.content_source_packet import canonical_json, now_utc_iso, sha256_json, source_packet_sha256
 from app.services.property_content_job_ledger import PropertyContentJobLedger
@@ -16,6 +17,14 @@ from app.services.subscribr_client import SubscribrClient, redacted_subscribr_er
 
 def script_markdown_sha256(markdown: str) -> str:
     return hashlib.sha256(str(markdown or "").encode("utf-8")).hexdigest()
+
+
+def property_content_job_lease_seconds() -> int:
+    try:
+        value = int(str(os.getenv("PROPERTYQUARRY_CONTENT_JOB_LEASE_SECONDS") or "900").strip() or "900")
+    except (TypeError, ValueError):
+        value = 900
+    return max(60, min(value, 3600))
 
 
 class PropertyContentStudio:
@@ -49,9 +58,19 @@ class PropertyContentStudio:
         )
 
     def request_subscribr_script(self, packet: dict[str, object], *, channel_id: str | int = "") -> dict[str, object]:
-        existing = self._ledger.get_job(str(packet.get("packet_id") or ""))
+        packet_id = str(packet.get("packet_id") or "").strip()
+        existing = self._ledger.get_job(packet_id)
         if existing and str(existing.get("provider_script_id") or ""):
             return {**existing, "idempotent": True}
+        if existing and (
+            str(existing.get("status") or "") == "PROVIDER_RECONCILIATION_REQUIRED"
+            or str(existing.get("provider_status") or "") == "outcome_unknown"
+        ):
+            return {
+                **existing,
+                "idempotent": True,
+                "claim_status": "manual_reconciliation_required",
+            }
         report = self.validate_source_packet(packet)
         if report["status"] != "pass":
             return self._ledger.upsert_job(
@@ -81,11 +100,77 @@ class PropertyContentStudio:
                     "provider_error": {"detail": "subscribr_token_not_configured"},
                 },
             )
+        queued = self._ledger.upsert_job(
+            packet,
+            status="PROVIDER_REQUEST_QUEUED",
+            extra={
+                "validation_status": "pass",
+                "validation_report": report,
+                "provider_status": "queued",
+            },
+        )
+        lease_owner = f"subscribr-request:{os.getpid()}:{uuid4().hex}"
+        claimed = self._ledger.claim_job(
+            packet_id,
+            lease_owner=lease_owner,
+            lease_seconds=property_content_job_lease_seconds(),
+        )
+        if claimed is None:
+            current = self._ledger.get_job(packet_id) or queued
+            return {**current, "idempotent": True, "claim_status": "owned_by_other_replica"}
+        if str(claimed.get("provider_script_id") or "").strip():
+            released = self._ledger.update_claimed_job(
+                packet_id,
+                lease_owner=lease_owner,
+                status=str(claimed.get("status") or "PROVIDER_JOB_CREATED"),
+                release=True,
+            )
+            return {**released, "idempotent": True}
+        if bool(claimed.get("claim_recovered")) and str(claimed.get("provider_dispatch_started_at") or "").strip():
+            reconciled = self._ledger.update_claimed_job(
+                packet_id,
+                lease_owner=lease_owner,
+                status="PROVIDER_RECONCILIATION_REQUIRED",
+                extra={
+                    "provider_status": "outcome_unknown",
+                    "provider_error": {"detail": "subscribr_dispatch_outcome_unknown_after_crash"},
+                },
+                release=True,
+            )
+            return {**reconciled, "idempotent": True, "claim_status": "recovered_without_resend"}
+        provider_idempotency_key = f"subscribr-property-content:{hashlib.sha256(packet_id.encode('utf-8')).hexdigest()}"
+        self._ledger.update_claimed_job(
+            packet_id,
+            lease_owner=lease_owner,
+            status="PROVIDER_DISPATCHING",
+            extra={
+                "provider_status": "dispatching",
+                "provider_dispatch_started_at": now_utc_iso(),
+                "provider_idempotency_key": provider_idempotency_key,
+            },
+            release=False,
+        )
+        idea_id = ""
+        script_id = ""
         try:
             idea = self._client.create_idea(
                 channel_id=channel_id or str(packet.get("subscribr_channel_key") or ""),
                 payload={"title": str(packet.get("title") or ""), "description": canonical_json(packet)[:8000]},
             )
+            idea_id = idea.get("id") or idea.get("idea_id") or dict(idea.get("idea") or {}).get("id")
+            self._ledger.update_claimed_job(
+                packet_id,
+                lease_owner=lease_owner,
+                status="PROVIDER_IDEA_CREATED",
+                extra={
+                    "provider_status": "dispatching",
+                    "provider_dispatch_stage": "create_script",
+                    "provider_idea_id": str(idea_id or ""),
+                },
+                release=False,
+            )
+            if not idea_id:
+                raise RuntimeError("subscribr_idea_id_missing")
             script = self._client.create_script(
                 channel_id=channel_id or str(packet.get("subscribr_channel_key") or ""),
                 payload={
@@ -95,26 +180,43 @@ class PropertyContentStudio:
                 },
             )
             script_id = script.get("id") or script.get("script_id") or dict(script.get("script") or {}).get("id")
-            idea_id = idea.get("id") or idea.get("idea_id") or dict(idea.get("idea") or {}).get("id")
-            if script_id:
-                self._client.generate_script(script_id=script_id, payload={"research": False})
-            job = self._ledger.upsert_job(
-                packet,
-                status="PROVIDER_GENERATING",
-                extra={"validation_status": "pass", "validation_report": report, "provider_status": "generating"},
+            self._ledger.update_claimed_job(
+                packet_id,
+                lease_owner=lease_owner,
+                status="PROVIDER_SCRIPT_CREATED",
+                extra={
+                    "provider_status": "dispatching",
+                    "provider_dispatch_stage": "generate_script",
+                    "provider_idea_id": str(idea_id or ""),
+                    "provider_script_id": str(script_id or ""),
+                },
+                release=False,
             )
+            if not script_id:
+                raise RuntimeError("subscribr_script_id_missing")
+            self._client.generate_script(script_id=script_id, payload={"research": False})
             return self._ledger.record_provider_ids(
-                packet_id=str(packet.get("packet_id") or ""),
+                packet_id=packet_id,
                 provider_channel_id=channel_id or str(packet.get("subscribr_channel_key") or ""),
                 provider_idea_id=idea_id,
                 provider_script_id=script_id,
-                status=str(job.get("status") or "PROVIDER_GENERATING"),
+                status="PROVIDER_GENERATING",
+                lease_owner=lease_owner,
             )
         except Exception as exc:
-            return self._ledger.upsert_job(
-                packet,
-                status="PROVIDER_FAILED",
-                extra={"validation_status": "pass", "validation_report": report, "provider_error": redacted_subscribr_error(exc)},
+            return self._ledger.update_claimed_job(
+                packet_id,
+                lease_owner=lease_owner,
+                status="PROVIDER_RECONCILIATION_REQUIRED",
+                extra={
+                    "validation_status": "pass",
+                    "validation_report": report,
+                    "provider_status": "outcome_unknown",
+                    "provider_idea_id": str(idea_id or ""),
+                    "provider_script_id": str(script_id or ""),
+                    "provider_error": redacted_subscribr_error(exc),
+                },
+                release=True,
             )
 
     def materialize_script_receipt(
@@ -171,15 +273,14 @@ class PropertyContentStudio:
         return {**receipt, "receipt_path": str(path)}
 
     def studio_snapshot(self) -> dict[str, object]:
-        data = self._ledger._load()
-        jobs = data.get("jobs") if isinstance(data.get("jobs"), dict) else {}
-        rows = sorted((dict(row) for row in jobs.values() if isinstance(row, dict)), key=lambda row: str(row.get("updated_at") or ""), reverse=True)
+        rows = self._ledger.list_jobs(limit=100)
         return {
             "enabled": subscribr_enabled(),
             "operator_ui_enabled": str(os.getenv("PROPERTYQUARRY_SUBSCRIBR_OPERATOR_UI_ENABLED") or "").strip().lower()
             in {"1", "true", "yes", "on"},
             "jobs": rows[:100],
             "ledger_path": str(self._ledger.path),
+            "ledger_backend": self._ledger.backend,
             "job_count": len(rows),
         }
 
@@ -191,4 +292,3 @@ class PropertyContentStudio:
             provider_idea_id=event_payload.get("idea_id") or event_payload.get("ideaId") or "",
             provider_script_id=event_payload.get("script_id") or event_payload.get("scriptId") or "",
         )
-

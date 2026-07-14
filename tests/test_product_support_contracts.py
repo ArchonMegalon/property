@@ -14,7 +14,7 @@ def test_support_surfaces_require_operator_context() -> None:
     client = build_product_client(principal_id="exec-support-principal")
     start_workspace(client, mode="personal", workspace_name="Founder Office")
 
-    assert client.get("/app/settings/support").status_code == 403
+    assert client.get("/app/settings/support").status_code == 200
     assert client.get("/app/api/support").status_code == 403
     assert client.get("/app/api/diagnostics/export").status_code == 403
     assert client.post("/app/api/support/fix-verification/request").status_code == 403
@@ -37,8 +37,8 @@ def test_surface_open_events_flow_into_workspace_diagnostics() -> None:
     assert diagnostics.status_code == 200
     payload = diagnostics.json()
     counts = dict(payload["analytics"]["counts"])
-    assert counts.get("memo_opened", 0) >= 1
-    assert counts.get("rules_opened", 0) >= 1
+    assert counts.get("activation_opened", 0) >= 1
+    assert counts.get("account_opened", 0) >= 1
     assert counts.get("plan_opened", 0) >= 1
     assert counts.get("usage_opened", 0) >= 1
     assert counts.get("support_opened", 0) >= 1

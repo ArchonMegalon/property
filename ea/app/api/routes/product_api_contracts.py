@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
-from typing import Literal
+import math
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from pydantic_core import PydanticCustomError
 
 from app.domain.models import ExecutionEvent
@@ -15,6 +16,60 @@ from app.domain.property_preference_events import (
     PROPERTY_PREFERENCE_DOMAIN,
 )
 from app.product.models import BriefItem, CommitmentCandidate, CommitmentItem, DeadlineItem, DecisionItem, DecisionQueueItem, DraftCandidate, EvidenceItem, EvidenceRef, HandoffNote, HistoryEntry, PersonDetail, PersonProfile, RuleItem, ThreadItem
+
+
+class StrictMutationIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+def _validate_bounded_json_value(
+    value: object,
+    *,
+    depth: int = 0,
+    max_depth: int = 6,
+    max_items: int = 128,
+    max_string_length: int = 20_000,
+) -> object:
+    if depth > max_depth:
+        raise ValueError("nested_payload_depth_exceeds_limit")
+    if value is None or isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        normalized = float(value)
+        if not math.isfinite(normalized) or abs(normalized) > 1_000_000_000_000:
+            raise ValueError("nested_numeric_value_exceeds_limit")
+        return value
+    if isinstance(value, str):
+        if len(value) > max_string_length:
+            raise ValueError("nested_string_value_exceeds_limit")
+        return value
+    if isinstance(value, list):
+        if len(value) > max_items:
+            raise ValueError("nested_list_items_exceed_limit")
+        for item in value:
+            _validate_bounded_json_value(
+                item,
+                depth=depth + 1,
+                max_depth=max_depth,
+                max_items=max_items,
+                max_string_length=max_string_length,
+            )
+        return value
+    if isinstance(value, dict):
+        if len(value) > max_items:
+            raise ValueError("nested_object_keys_exceed_limit")
+        for key, item in value.items():
+            if len(str(key or "")) > 160:
+                raise ValueError("nested_object_key_exceeds_limit")
+            _validate_bounded_json_value(
+                item,
+                depth=depth + 1,
+                max_depth=max_depth,
+                max_items=max_items,
+                max_string_length=max_string_length,
+            )
+        return value
+    raise ValueError("nested_payload_value_invalid")
 
 
 class EvidenceRefOut(BaseModel):
@@ -1303,14 +1358,26 @@ class PropertyFeedbackSuggestionSetOut(BaseModel):
     decision_consequences: list[str] = Field(default_factory=list)
 
 
-class PropertyDecisionCopilotIn(BaseModel):
+class PropertyDecisionCopilotIn(StrictMutationIn):
     property_ref: str = Field(min_length=1, max_length=500)
     property_title: str = Field(default="", max_length=240)
     property_url: str = Field(default="", max_length=2000)
     question: str = Field(min_length=1, max_length=500)
-    property_facts: dict[str, object] = Field(default_factory=dict)
-    assessment: dict[str, object] = Field(default_factory=dict)
-    investment_context: list[dict[str, object]] = Field(default_factory=list)
+    property_facts: dict[str, object] = Field(default_factory=dict, max_length=128)
+    assessment: dict[str, object] = Field(default_factory=dict, max_length=128)
+    investment_context: list[dict[str, object]] = Field(default_factory=list, max_length=24)
+
+    @field_validator("property_facts", "assessment")
+    @classmethod
+    def _bounded_mapping(cls, value: dict[str, object]) -> dict[str, object]:
+        _validate_bounded_json_value(value)
+        return value
+
+    @field_validator("investment_context")
+    @classmethod
+    def _bounded_investment_context(cls, value: list[dict[str, object]]) -> list[dict[str, object]]:
+        _validate_bounded_json_value(value, max_items=24)
+        return value
 
 
 class PropertyDecisionCopilotEvidenceOut(BaseModel):
@@ -1338,23 +1405,35 @@ class PropertyDecisionCopilotOut(BaseModel):
     actions: list[PropertyDecisionCopilotActionOut] = Field(default_factory=list)
 
 
-class PropertyMagicFitSceneCreateIn(BaseModel):
+class PropertyMagicFitSceneCreateIn(StrictMutationIn):
     property_ref: str = Field(min_length=1, max_length=500)
     property_title: str = Field(default="", max_length=240)
     property_url: str = Field(default="", max_length=2000)
     scene_type: str = Field(default="breakfast", max_length=80)
     room_hint: str = Field(default="", max_length=160)
     styling_hint: str = Field(default="", max_length=240)
-    property_facts: dict[str, object] = Field(default_factory=dict)
-    reference_urls: list[str] = Field(default_factory=list, max_length=6)
+    property_facts: dict[str, object] = Field(default_factory=dict, max_length=128)
+    reference_urls: list[Annotated[str, Field(min_length=1, max_length=2000)]] = Field(
+        default_factory=list,
+        max_length=6,
+    )
     google_photos_session_id: str = Field(default="", max_length=200)
     google_photos_account_email: str = Field(default="", max_length=200)
-    household_roles: list[str] = Field(default_factory=list, max_length=6)
+    household_roles: list[Annotated[str, Field(min_length=1, max_length=80)]] = Field(
+        default_factory=list,
+        max_length=6,
+    )
     include_child_reference: bool = False
     consent_personal_photos: bool = False
     guardian_confirmed_for_children: bool = False
     share_with_packet_pdf: bool = True
     note: str = Field(default="", max_length=500)
+
+    @field_validator("property_facts")
+    @classmethod
+    def _bounded_property_facts(cls, value: dict[str, object]) -> dict[str, object]:
+        _validate_bounded_json_value(value)
+        return value
 
     @field_validator("reference_urls")
     @classmethod
@@ -1396,13 +1475,13 @@ class PropertyMagicFitReferenceUploadOut(BaseModel):
     items: list[PropertyMagicFitReferenceAssetOut] = Field(default_factory=list)
 
 
-class PropertyMagicFitReferenceUploadItemIn(BaseModel):
+class PropertyMagicFitReferenceUploadItemIn(StrictMutationIn):
     file_name: str = Field(default="", max_length=240)
     mime_type: str = Field(default="", max_length=120)
     data_url: str = Field(min_length=1, max_length=12_000_000)
 
 
-class PropertyMagicFitReferenceUploadIn(BaseModel):
+class PropertyMagicFitReferenceUploadIn(StrictMutationIn):
     items: list[PropertyMagicFitReferenceUploadItemIn] = Field(default_factory=list, max_length=3)
 
 
@@ -1465,18 +1544,24 @@ class RuleSimulateIn(BaseModel):
     proposed_value: str = Field(min_length=1)
 
 
-class OfficeSignalIn(BaseModel):
-    signal_type: str = Field(min_length=1)
-    channel: str = "office_api"
-    title: str = ""
-    summary: str = ""
-    text: str = ""
-    source_ref: str = ""
-    external_id: str = ""
-    counterparty: str = ""
-    stakeholder_id: str = ""
-    due_at: str | None = None
-    payload: dict[str, object] = Field(default_factory=dict)
+class OfficeSignalIn(StrictMutationIn):
+    signal_type: str = Field(min_length=1, max_length=120)
+    channel: str = Field(default="office_api", max_length=120)
+    title: str = Field(default="", max_length=500)
+    summary: str = Field(default="", max_length=4_000)
+    text: str = Field(default="", max_length=50_000)
+    source_ref: str = Field(default="", max_length=2_000)
+    external_id: str = Field(default="", max_length=500)
+    counterparty: str = Field(default="", max_length=240)
+    stakeholder_id: str = Field(default="", max_length=240)
+    due_at: str | None = Field(default=None, max_length=80)
+    payload: dict[str, object] = Field(default_factory=dict, max_length=128)
+
+    @field_validator("payload")
+    @classmethod
+    def _bounded_payload(cls, value: dict[str, object]) -> dict[str, object]:
+        _validate_bounded_json_value(value)
+        return value
 
 
 class OfficeSignalResultOut(BaseModel):
@@ -1495,16 +1580,16 @@ class OfficeSignalResultOut(BaseModel):
     attachment_imports: list[dict[str, object]] = Field(default_factory=list)
 
 
-class WillhabenPropertyTourIn(BaseModel):
-    property_url: str = Field(min_length=1)
-    request_kind: str = "tour"
-    recipient_email: str = ""
-    variant_key: str = "layout_first"
-    binding_id: str = ""
-    source_ref: str = ""
-    external_id: str = ""
-    run_id: str = ""
-    candidate_ref: str = ""
+class WillhabenPropertyTourIn(StrictMutationIn):
+    property_url: str = Field(min_length=1, max_length=2_000)
+    request_kind: str = Field(default="tour", max_length=80)
+    recipient_email: str = Field(default="", max_length=320)
+    variant_key: str = Field(default="layout_first", max_length=120)
+    binding_id: str = Field(default="", max_length=240)
+    source_ref: str = Field(default="", max_length=500)
+    external_id: str = Field(default="", max_length=500)
+    run_id: str = Field(default="", max_length=160)
+    candidate_ref: str = Field(default="", max_length=500)
     auto_deliver: bool = False
     allow_floorplan_only: bool = False
     diorama_style_hint: str = Field(default="", max_length=240)
@@ -1576,9 +1661,9 @@ class SignalIngestEndpointOut(BaseModel):
     ingest_token: str = ""
 
 
-class PocketSignalImportIn(BaseModel):
-    path: str = Field(min_length=1)
-    counterparty: str = "Pocket"
+class PocketSignalImportIn(StrictMutationIn):
+    path: str = Field(min_length=1, max_length=4_096)
+    counterparty: str = Field(default="Pocket", max_length=240)
 
 
 class PocketSignalImportOut(BaseModel):
@@ -1593,8 +1678,8 @@ class PocketSignalImportOut(BaseModel):
     parsed_entry_total: int = 0
 
 
-class GoogleLocationHistoryImportIn(BaseModel):
-    path: str = Field(min_length=1)
+class GoogleLocationHistoryImportIn(StrictMutationIn):
+    path: str = Field(min_length=1, max_length=4_096)
 
 
 class GoogleLocationHistoryImportOut(BaseModel):
@@ -1640,9 +1725,9 @@ class GoogleLocationHistorySyncOut(BaseModel):
     updated_metadata_total: int = 0
 
 
-class NoneverbiaSignalImportIn(BaseModel):
-    path: str = Field(min_length=1)
-    counterparty: str = "Noneverbia"
+class NoneverbiaSignalImportIn(StrictMutationIn):
+    path: str = Field(min_length=1, max_length=4_096)
+    counterparty: str = Field(default="Noneverbia", max_length=240)
 
 
 class NoneverbiaSignalImportOut(BaseModel):
@@ -1879,12 +1964,57 @@ class PropertyScoutSyncOut(BaseModel):
     sources: list[PropertyScoutSourceOut] = Field(default_factory=list)
 
 
-class PropertySearchRunStartIn(BaseModel):
-    selected_platforms: list[str] = Field(default_factory=list)
-    property_preferences: dict[str, object] = Field(default_factory=dict)
+class PropertySearchRunStartIn(StrictMutationIn):
+    selected_platforms: list[Annotated[str, Field(min_length=1, max_length=80)]] = Field(
+        default_factory=list,
+        max_length=24,
+    )
+    property_preferences: dict[str, object] = Field(default_factory=dict, max_length=128)
     force_refresh: bool = False
-    max_results_per_source: int | None = None
+    max_results_per_source: int | None = Field(default=None, ge=1, le=200)
     dispatch_only: bool = False
+
+    @field_validator("selected_platforms")
+    @classmethod
+    def _normalize_platforms(cls, value: list[str]) -> list[str]:
+        normalized = [str(item or "").strip() for item in value]
+        if any(not item for item in normalized):
+            raise ValueError("selected_platform_invalid")
+        return normalized
+
+    @field_validator("property_preferences")
+    @classmethod
+    def _bounded_property_preferences(cls, value: dict[str, object]) -> dict[str, object]:
+        _validate_bounded_json_value(
+            value,
+            max_depth=5,
+            max_items=256,
+            max_string_length=2_000,
+        )
+        numeric_limits = {
+            "min_price_eur": (0.0, 1_000_000_000.0),
+            "max_price_eur": (0.0, 1_000_000_000.0),
+            "min_rooms": (0.0, 100.0),
+            "min_area_m2": (0.0, 100_000.0),
+            "available_within_years": (0.0, 100.0),
+            "max_commute_minutes_transit": (0.0, 1_440.0),
+            "max_commute_minutes_drive": (0.0, 1_440.0),
+            "max_commute_minutes_bike": (0.0, 1_440.0),
+            "max_commute_minutes_walk": (0.0, 1_440.0),
+        }
+        for key, (minimum, maximum) in numeric_limits.items():
+            raw = value.get(key)
+            if raw is None or raw == "":
+                continue
+            if isinstance(raw, bool):
+                raise ValueError(f"{key}_invalid")
+            try:
+                parsed = float(raw)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"{key}_invalid") from exc
+            if not math.isfinite(parsed) or parsed < minimum or parsed > maximum:
+                raise ValueError(f"{key}_out_of_range")
+        return value
 
 
 class PropertySearchResearchTaskUpdateIn(BaseModel):
@@ -1958,9 +2088,9 @@ class PropertyBillingCaptureOut(BaseModel):
     current_plan_key: str = "free"
 
 
-class GooglePhotosPickerSessionIn(BaseModel):
-    account_email: str = ""
-    binding_id: str = ""
+class GooglePhotosPickerSessionIn(StrictMutationIn):
+    account_email: str = Field(default="", max_length=320)
+    binding_id: str = Field(default="", max_length=240)
     max_item_count: int = Field(default=50, ge=1, le=2000)
     autoclose: bool = True
 
@@ -1978,10 +2108,10 @@ class GooglePhotosPickerSessionOut(BaseModel):
     media_items_set: bool = False
 
 
-class GooglePhotosSignalSyncIn(BaseModel):
-    session_id: str = Field(min_length=1)
-    account_email: str = ""
-    binding_id: str = ""
+class GooglePhotosSignalSyncIn(StrictMutationIn):
+    session_id: str = Field(min_length=1, max_length=500)
+    account_email: str = Field(default="", max_length=320)
+    binding_id: str = Field(default="", max_length=240)
     max_items: int = Field(default=50, ge=1, le=500)
     delete_session: bool = False
 

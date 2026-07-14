@@ -1,17 +1,16 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-import os
 
 import pytest
 from fastapi.testclient import TestClient
 
 
-def _client(*, principal_id: str) -> TestClient:
-    os.environ["EA_STORAGE_BACKEND"] = "memory"
-    os.environ.pop("EA_LEDGER_BACKEND", None)
-    os.environ.pop("EA_DEFAULT_PRINCIPAL_ID", None)
-    os.environ["EA_API_TOKEN"] = ""
+def _client(*, principal_id: str, monkeypatch: pytest.MonkeyPatch) -> TestClient:
+    monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
+    monkeypatch.delenv("EA_LEDGER_BACKEND", raising=False)
+    monkeypatch.delenv("EA_DEFAULT_PRINCIPAL_ID", raising=False)
+    monkeypatch.setenv("EA_API_TOKEN", "")
     from app.api.app import create_app
 
     client = TestClient(create_app())
@@ -19,8 +18,21 @@ def _client(*, principal_id: str) -> TestClient:
     return client
 
 
-def test_runtime_cognitive_load_and_proactive_horizon_visibility() -> None:
-    client = _client(principal_id="exec-1")
+def test_runtime_cognitive_load_and_proactive_horizon_visibility(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _client(principal_id="exec-1", monkeypatch=monkeypatch)
+
+    class _SuccessfulOrchestrator:
+        def __init__(self) -> None:
+            self.requests: list[object] = []
+
+        def execute_task_artifact(self, request: object) -> object:
+            self.requests.append(request)
+            return object()
+
+    orchestrator = _SuccessfulOrchestrator()
+    client.app.state.container.proactive_horizon._orchestrator = orchestrator
 
     budget = client.post(
         "/v1/memory/interruption-budgets",
@@ -94,10 +106,11 @@ def test_runtime_cognitive_load_and_proactive_horizon_visibility() -> None:
     launched_body = launched.json()
     assert launched_body["principal_id"] == "exec-1"
     assert launched_body["launched_count"] >= 1
+    assert len(orchestrator.requests) == launched_body["launched_count"]
 
 
 def test_runtime_lane_telemetry_endpoint_surfaces_codex_status(monkeypatch: pytest.MonkeyPatch) -> None:
-    client = _client(principal_id="exec-1")
+    client = _client(principal_id="exec-1", monkeypatch=monkeypatch)
     from app.api.routes import runtime as runtime_route
 
     monkeypatch.setattr(
@@ -123,11 +136,13 @@ def test_runtime_lane_telemetry_endpoint_surfaces_codex_status(monkeypatch: pyte
     assert body["avoided_credits"]["selected_window"]["easy_lane"]["avoided_credits"] == 300
 
 
-def test_database_restart_errors_return_service_unavailable_envelope() -> None:
-    os.environ["EA_STORAGE_BACKEND"] = "memory"
-    os.environ.pop("EA_LEDGER_BACKEND", None)
-    os.environ.pop("EA_DEFAULT_PRINCIPAL_ID", None)
-    os.environ["EA_API_TOKEN"] = ""
+def test_database_restart_errors_return_service_unavailable_envelope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
+    monkeypatch.delenv("EA_LEDGER_BACKEND", raising=False)
+    monkeypatch.delenv("EA_DEFAULT_PRINCIPAL_ID", raising=False)
+    monkeypatch.setenv("EA_API_TOKEN", "")
 
     from app.api.app import create_app
     from psycopg.errors import AdminShutdown

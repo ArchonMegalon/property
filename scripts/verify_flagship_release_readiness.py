@@ -6,11 +6,17 @@ import json
 from pathlib import Path
 from typing import Any
 
+if __package__:
+    from .materialize_ea_flagship_release_gate import browser_receipt_pass_blockers
+else:
+    from materialize_ea_flagship_release_gate import browser_receipt_pass_blockers
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PULSE = ROOT / ".codex-design" / "product" / "WEEKLY_PRODUCT_PULSE.generated.json"
 DEFAULT_FLAGSHIP_RECEIPT = ROOT / ".codex-design" / "product" / "EA_FLAGSHIP_RELEASE_GATE.generated.json"
 DEFAULT_BROWSER_PROOF = ROOT / ".codex-studio" / "published" / "EA_BROWSER_WORKFLOW_PROOF.generated.json"
+DEFAULT_FLAGSHIP_SEED = ROOT / ".codex-design" / "repo" / "EA_FLAGSHIP_RELEASE_GATE.json"
 DEFAULT_JOURNEY_GATES = Path("/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json")
 DEFAULT_IMPLEMENTATION_SCOPE = ROOT / ".codex-design" / "repo" / "IMPLEMENTATION_SCOPE.md"
 
@@ -86,6 +92,7 @@ def verify(
     flagship_receipt_path: Path,
     browser_proof_path: Path,
     journey_gates_path: Path,
+    flagship_seed_path: Path = DEFAULT_FLAGSHIP_SEED,
     implementation_scope_path: Path = DEFAULT_IMPLEMENTATION_SCOPE,
     required_contract_paths: tuple[Path, ...] = REQUIRED_RELEASE_CONTRACT_PATHS,
 ) -> list[str]:
@@ -93,6 +100,7 @@ def verify(
     pulse = _json(pulse_path)
     receipt = _json(flagship_receipt_path)
     browser = _json(browser_proof_path)
+    seed = _json(flagship_seed_path)
     journey_summary = _journey_summary(journey_gates_path, pulse=pulse)
     implementation_scope = _text(implementation_scope_path)
 
@@ -106,6 +114,8 @@ def verify(
         issues.append(f"flagship release receipt missing or invalid: {flagship_receipt_path}")
     if not browser:
         issues.append(f"browser workflow proof missing or invalid: {browser_proof_path}")
+    if not seed:
+        issues.append(f"flagship gate seed missing or invalid: {flagship_seed_path}")
     if not journey_summary:
         issues.append(f"journey gates summary missing or invalid: {journey_gates_path}")
 
@@ -129,6 +139,18 @@ def verify(
         issues.append(f"flagship release receipt is {receipt_status or 'missing'}, expected pass")
     if browser_status != "pass":
         issues.append(f"browser workflow proof is {browser_status or 'missing'}, expected pass")
+    elif browser:
+        issues.extend(
+            f"browser workflow proof is internally inconsistent: {reason}"
+            for reason in browser_receipt_pass_blockers(browser, seed)
+        )
+    expected_product = str(seed.get("product") or "").strip()
+    if expected_product != "propertyquarry":
+        issues.append(
+            f"flagship gate seed product is {expected_product or 'missing'}, expected standalone propertyquarry"
+        )
+    if str(receipt.get("product") or "").strip() != expected_product:
+        issues.append("flagship release receipt product does not match the current gate seed")
     if pulse_contract != "ea.weekly_product_pulse":
         issues.append(f"weekly product pulse contract is {pulse_contract or 'missing'}, expected ea.weekly_product_pulse")
     if release_truth_source != ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json":
@@ -157,6 +179,18 @@ def verify(
         issues.append("implementation scope no longer requires mirrored .codex-design/ea/* canon")
     if "EA product surface canon under `.codex-design/ea/*`" not in implementation_scope:
         issues.append("implementation scope no longer owns the EA product surface canon line")
+    scope_heading = next(
+        (line.strip() for line in implementation_scope.splitlines() if line.strip()),
+        "",
+    )
+    if (
+        expected_product == "propertyquarry"
+        and scope_heading.casefold().endswith("implementation scope")
+        and "propertyquarry" not in scope_heading.casefold()
+    ):
+        issues.append(
+            "implementation scope explicitly names a different product than the current propertyquarry gate seed"
+        )
 
     return issues
 
@@ -166,6 +200,7 @@ def main() -> int:
     parser.add_argument("--pulse", type=Path, default=DEFAULT_PULSE)
     parser.add_argument("--flagship-receipt", type=Path, default=DEFAULT_FLAGSHIP_RECEIPT)
     parser.add_argument("--browser-proof", type=Path, default=DEFAULT_BROWSER_PROOF)
+    parser.add_argument("--flagship-seed", type=Path, default=DEFAULT_FLAGSHIP_SEED)
     parser.add_argument("--journey-gates", type=Path, default=DEFAULT_JOURNEY_GATES)
     parser.add_argument("--implementation-scope", type=Path, default=DEFAULT_IMPLEMENTATION_SCOPE)
     args = parser.parse_args()
@@ -175,6 +210,7 @@ def main() -> int:
         flagship_receipt_path=args.flagship_receipt,
         browser_proof_path=args.browser_proof,
         journey_gates_path=args.journey_gates,
+        flagship_seed_path=args.flagship_seed,
         implementation_scope_path=args.implementation_scope,
     )
     if issues:

@@ -55,6 +55,12 @@ class PropertyPacketPublicationRepository(Protocol):
     ) -> list[dict[str, object]]:
         ...
 
+    def erase_principal(self, principal_id: str) -> dict[str, int]:
+        ...
+
+    def export_principal(self, principal_id: str) -> dict[str, list[dict[str, object]]]:
+        ...
+
 
 def _text(value: object) -> str:
     return str(value or "").strip()
@@ -238,6 +244,45 @@ class InMemoryPropertyPacketPublicationRepository:
             if len(rows) >= _limit(limit):
                 break
         return rows
+
+    def erase_principal(self, principal_id: str) -> dict[str, int]:
+        principal = _text(principal_id)
+        if not principal:
+            return {"publications": 0, "events": 0}
+        publication_ids = {
+            publication_id
+            for publication_id, row in self._publications.items()
+            if _text(row.get("principal_id")) == principal
+        }
+        event_ids = {
+            event_id
+            for event_id, row in self._events.items()
+            if _text(row.get("principal_id")) == principal
+        }
+        for publication_id in publication_ids:
+            self._publications.pop(publication_id, None)
+        for event_id in event_ids:
+            self._events.pop(event_id, None)
+        self._publication_order = [value for value in self._publication_order if value not in publication_ids]
+        self._event_order = [value for value in self._event_order if value not in event_ids]
+        return {"publications": len(publication_ids), "events": len(event_ids)}
+
+    def export_principal(self, principal_id: str) -> dict[str, list[dict[str, object]]]:
+        principal = _text(principal_id)
+        if not principal:
+            return {"publications": [], "events": []}
+        return {
+            "publications": [
+                copy.deepcopy(self._publications[key])
+                for key in reversed(self._publication_order)
+                if key in self._publications and _text(self._publications[key].get("principal_id")) == principal
+            ],
+            "events": [
+                copy.deepcopy(self._events[key])
+                for key in reversed(self._event_order)
+                if key in self._events and _text(self._events[key].get("principal_id")) == principal
+            ],
+        }
 
 
 _MEMORY_REPO = InMemoryPropertyPacketPublicationRepository()

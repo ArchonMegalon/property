@@ -853,6 +853,11 @@ class ToolExecutionService:
 
         def handler(request: ToolInvocationRequest, definition: ToolDefinition) -> ToolInvocationResult:
             payload = dict(request.payload_json or {})
+            request_principal_id = str(
+                dict(request.context_json or {}).get("principal_id")
+                or payload.get("principal_id")
+                or ""
+            ).strip()
             raw_provider_key = payload.get("provider_key") or payload.get("walkthrough_provider_key") or ""
             provider_key = _normalize_provider(raw_provider_key) if str(raw_provider_key or "").strip() else ""
             context_kind = str(
@@ -1162,6 +1167,7 @@ class ToolExecutionService:
                     diorama_style_hint=str(payload.get("diorama_style_hint") or "").strip(),
                     preferred_provider_key=effective_provider_key,
                     tour_context_json=tour_context_json,
+                    principal_id=request_principal_id,
                 )
                 delivery = _hosted_property_tour_video_delivery(tour_url)
                 video_url = str(delivery.get("video_url") or rendered.get("video_url") or "").strip()

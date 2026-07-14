@@ -269,6 +269,131 @@ class PostgresObservationEventRepository:
             ) in rows
         ]
 
+    def exists_recent(
+        self,
+        *,
+        principal_id: str | None = None,
+        channel: str,
+        event_type: str,
+        source_id: str = "",
+        external_id: str = "",
+        dedupe_key: str = "",
+        limit: int = 1000,
+    ) -> bool:
+        n = max(1, min(5000, int(limit or 1000)))
+        normalized_principal = str(principal_id or "").strip()
+        query = """
+            WITH recent AS (
+                SELECT channel, event_type, source_id, external_id, dedupe_key
+                FROM observation_events
+        """
+        params: list[Any] = []
+        if normalized_principal:
+            query += " WHERE principal_id = %s"
+            params.append(normalized_principal)
+        query += """
+                ORDER BY created_at DESC, observation_id DESC
+                LIMIT %s
+            )
+            SELECT EXISTS (
+                SELECT 1
+                FROM recent
+                WHERE channel = %s AND event_type = %s
+        """
+        params.extend((n, str(channel or "").strip(), str(event_type or "").strip()))
+        for column, value in (
+            ("source_id", source_id),
+            ("external_id", external_id),
+            ("dedupe_key", dedupe_key),
+        ):
+            normalized_value = str(value or "").strip()
+            if normalized_value:
+                query += f" AND {column} = %s"
+                params.append(normalized_value)
+        query += ")"
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(query, tuple(params))
+                row = cur.fetchone()
+        return bool(row and row[0])
+
+    def list_recent_matching(
+        self,
+        limit: int = 50,
+        *,
+        principal_id: str | None = None,
+        channel: str = "",
+        event_types: tuple[str, ...] = (),
+    ) -> list[ObservationEvent]:
+        n = max(1, min(5000, int(limit or 50)))
+        normalized_principal = str(principal_id or "").strip()
+        normalized_channel = str(channel or "").strip()
+        normalized_types = tuple(
+            dict.fromkeys(str(value or "").strip() for value in event_types if str(value or "").strip())
+        )
+        query = """
+            WITH recent AS (
+                SELECT observation_id
+                FROM observation_events
+        """
+        params: list[Any] = []
+        if normalized_principal:
+            query += " WHERE principal_id = %s"
+            params.append(normalized_principal)
+        query += """
+                ORDER BY created_at DESC, observation_id DESC
+                LIMIT %s
+            )
+            SELECT observation.observation_id, observation.principal_id,
+                   observation.channel, observation.event_type, observation.payload_json,
+                   observation.created_at, observation.source_id, observation.external_id,
+                   observation.dedupe_key, observation.auth_context_json,
+                   observation.raw_payload_uri
+            FROM observation_events AS observation
+            INNER JOIN recent USING (observation_id)
+            WHERE TRUE
+        """
+        params.append(n)
+        if normalized_channel:
+            query += " AND observation.channel = %s"
+            params.append(normalized_channel)
+        if normalized_types:
+            query += " AND observation.event_type = ANY(%s)"
+            params.append(list(normalized_types))
+        query += " ORDER BY observation.created_at DESC, observation.observation_id DESC"
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(query, tuple(params))
+                rows = cur.fetchall()
+        return [
+            ObservationEvent(
+                observation_id=str(observation_id),
+                principal_id=str(row_principal_id),
+                channel=str(row_channel),
+                event_type=str(row_event_type),
+                payload=dict(payload_json or {}),
+                created_at=_to_iso(created_at),
+                source_id=str(source_id or ""),
+                external_id=str(external_id or ""),
+                dedupe_key=str(dedupe_key or ""),
+                auth_context_json=dict(auth_context_json or {}),
+                raw_payload_uri=str(raw_payload_uri or ""),
+            )
+            for (
+                observation_id,
+                row_principal_id,
+                row_channel,
+                row_event_type,
+                payload_json,
+                created_at,
+                source_id,
+                external_id,
+                dedupe_key,
+                auth_context_json,
+                raw_payload_uri,
+            ) in rows
+        ]
+
     def get_by_dedupe(self, dedupe_key: str, *, principal_id: str | None = None) -> ObservationEvent | None:
         key = str(dedupe_key or "").strip()
         if not key:
@@ -336,3 +461,19 @@ class PostgresObservationEventRepository:
                 )
                 row = cur.fetchone()
         return int(row[0] or 0) if row else 0
+
+    def list_for_principal(self, principal_id: str, *, limit: int = 5000) -> list[ObservationEvent]:
+        principal = str(principal_id or "").strip()
+        n = max(1, min(50_000, int(limit or 5000)))
+        if not principal:
+            return []
+        return self.list_recent(limit=n, principal_id=principal)
+
+    def erase_principal(self, principal_id: str) -> int:
+        principal = str(principal_id or "").strip()
+        if not principal:
+            return 0
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM observation_events WHERE principal_id = %s", (principal,))
+                return int(cur.rowcount or 0)

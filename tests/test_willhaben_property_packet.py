@@ -179,29 +179,34 @@ def test_summarize_listing_promotes_external_virtual_tour_to_panorama_mode(monke
             return None
 
     monkeypatch.setattr(module.requests, "get", lambda *args, **kwargs: _Response(_jpeg_bytes(1600, 1200)))
+    advert = {
+        "id": "listing-360-link-1",
+        "uuid": "uuid-360-link-1",
+        "description": "Gersthof flat with live 360 tour",
+        "attributes": {
+            "attribute": [
+                {
+                    "name": "INFOLINK/URL",
+                    "values": [
+                        "https://360.kalandra.at/view/portal/id/VVSCT",
+                    ],
+                }
+            ]
+        },
+        "advertImageList": {
+            "advertImage": [
+                {"mainImageUrl": "https://cdn.example.com/flat.jpg", "description": "Wohnzimmer"},
+            ]
+        },
+    }
     monkeypatch.setattr(
         module,
-        "load_advert",
-        lambda url: {
-            "id": "listing-360-link-1",
-            "uuid": "uuid-360-link-1",
-            "description": "Gersthof flat with live 360 tour",
-            "attributes": {
-                "attribute": [
-                    {
-                        "name": "INFOLINK/URL",
-                        "values": [
-                            "https://360.kalandra.at/view/portal/id/VVSCT",
-                        ],
-                    }
-                ]
-            },
-            "advertImageList": {
-                "advertImage": [
-                    {"mainImageUrl": "https://cdn.example.com/flat.jpg", "description": "Wohnzimmer"},
-                ]
-            },
-        },
+        "fetch_html",
+        lambda url: (
+            '<script id="__NEXT_DATA__" type="application/json">'
+            + json.dumps({"props": {"pageProps": {"advertDetails": advert}}})
+            + "</script>"
+        ),
     )
 
     result = module.summarize_listing("https://www.willhaben.at/test-360-link")
@@ -342,38 +347,43 @@ def test_summarize_listing_includes_decision_summary(monkeypatch) -> None:
             "nearest_running_m": 780,
         },
     )
+    advert = {
+        "id": "listing-decision-1",
+        "uuid": "uuid-decision-1",
+        "description": "Bright 4-room apartment",
+        "attributes": {
+            "attribute": [
+                {"name": "NUMBER_OF_ROOMS", "values": ["4"]},
+                {"name": "ESTATE_SIZE/LIVING_AREA", "values": ["106 m²"]},
+                {"name": "RENTAL_PRICE/TOTAL_ENCUMBRANCE", "values": ["2490"]},
+                {"name": "HEIZUNGSART", "values": ["Gasheizung"]},
+                {"name": "AVAILABLE_NOW", "values": ["ab sofort"]},
+                {"name": "ESTATE_PREFERENCE", "values": ["Einbauküche", "Keller", "Garage", "Fahrstuhl"]},
+            ]
+        },
+        "advertImageList": {
+            "advertImage": [
+                {"mainImageUrl": "https://cdn.example.com/pano.jpg", "description": "Wohnzimmer 360 Panorama"},
+            ]
+        },
+        "advertAttachmentList": {
+            "advertAttachment": [
+                {"url": "https://cdn.example.com/grundriss.pdf", "description": "Grundriss"},
+            ]
+        },
+        "advertAddressDetails": {
+            "addressLines": ["Wien, 18. Bezirk, Waehring"],
+            "postalName": "Wien, 18. Bezirk, Waehring",
+        },
+    }
     monkeypatch.setattr(
         module,
-        "load_advert",
-        lambda url: {
-            "id": "listing-decision-1",
-            "uuid": "uuid-decision-1",
-            "description": "Bright 4-room apartment",
-            "attributes": {
-                "attribute": [
-                    {"name": "NUMBER_OF_ROOMS", "values": ["4"]},
-                    {"name": "ESTATE_SIZE/LIVING_AREA", "values": ["106 m²"]},
-                    {"name": "RENTAL_PRICE/TOTAL_ENCUMBRANCE", "values": ["2490"]},
-                    {"name": "HEIZUNGSART", "values": ["Gasheizung"]},
-                    {"name": "AVAILABLE_NOW", "values": ["ab sofort"]},
-                    {"name": "ESTATE_PREFERENCE", "values": ["Einbauküche", "Keller", "Garage", "Fahrstuhl"]},
-                ]
-            },
-            "advertImageList": {
-                "advertImage": [
-                    {"mainImageUrl": "https://cdn.example.com/pano.jpg", "description": "Wohnzimmer 360 Panorama"},
-                ]
-            },
-            "advertAttachmentList": {
-                "advertAttachment": [
-                    {"url": "https://cdn.example.com/grundriss.pdf", "description": "Grundriss"},
-                ]
-            },
-            "advertAddressDetails": {
-                "addressLines": ["Wien, 18. Bezirk, Waehring"],
-                "postalName": "Wien, 18. Bezirk, Waehring",
-            },
-        },
+        "fetch_html",
+        lambda url: (
+            '<script id="__NEXT_DATA__" type="application/json">'
+            + json.dumps({"props": {"pageProps": {"advertDetails": advert}}})
+            + "</script>"
+        ),
     )
 
     result = module.summarize_listing("https://www.willhaben.at/test-decision-summary")
@@ -419,10 +429,11 @@ def test_nearby_livability_snapshot_falls_back_when_overpass_is_unavailable(monk
 def test_nearby_livability_snapshot_uses_cache_when_available(monkeypatch, tmp_path: Path) -> None:
     module = _load_module()
     cache_file = tmp_path / "livability-cache.json"
+    cache_key = module._livability_cache_key(48.23245, 16.322895)
     cache_file.write_text(
         json.dumps(
             {
-                "48.23245,16.32289": {
+                cache_key: {
                     "cached_at": 9999999999,
                     "snapshot": {
                         "nearest_pharmacy_m": 111,
@@ -482,5 +493,5 @@ def test_store_livability_snapshot_merges_existing_cache(monkeypatch, tmp_path: 
     module._store_livability_snapshot(48.21001, 16.35555, {"nearest_supermarket_m": 222})
 
     payload = json.loads(cache_file.read_text())
-    assert "48.23245,16.32289" in payload
-    assert "48.21001,16.35555" in payload
+    assert module._livability_cache_key(48.23245, 16.322895) in payload
+    assert module._livability_cache_key(48.21001, 16.35555) in payload

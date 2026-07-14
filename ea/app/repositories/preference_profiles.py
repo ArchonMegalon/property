@@ -138,6 +138,12 @@ class PreferenceProfileRepository(Protocol):
     ) -> list[dict[str, object]]:
         ...
 
+    def erase_principal(self, principal_id: str) -> dict[str, int]:
+        ...
+
+    def export_principal(self, principal_id: str) -> dict[str, list[dict[str, object]]]:
+        ...
+
 
 def _normalize_profile_scope(value: str) -> str:
     raw = str(value or "").strip().lower()
@@ -496,3 +502,49 @@ class InMemoryPreferenceProfileRepository:
         rows = [self._corrections[key] for key in reversed(self._correction_order) if key in self._corrections]
         rows = [row for row in rows if row["principal_id"] == principal and row["person_id"] == person]
         return [copy.deepcopy(row) for row in rows[:n]]
+
+    def erase_principal(self, principal_id: str) -> dict[str, int]:
+        principal = str(principal_id or "").strip()
+        if not principal:
+            return {"profiles": 0, "nodes": 0, "evidence_events": 0, "assessments": 0, "corrections": 0}
+        profile_keys = {key for key in self._profiles if key[0] == principal}
+        node_keys = {key for key in self._nodes if key[0] == principal}
+        event_keys = {key for key in self._events if key[0] == principal}
+        assessment_keys = {key for key in self._assessments if key[0] == principal}
+        correction_keys = {key for key in self._corrections if key[0] == principal}
+        for key in profile_keys:
+            self._profiles.pop(key, None)
+        for key in node_keys:
+            self._nodes.pop(key, None)
+        for key in event_keys:
+            self._events.pop(key, None)
+        for key in assessment_keys:
+            self._assessments.pop(key, None)
+        for key in correction_keys:
+            self._corrections.pop(key, None)
+        self._node_order = [key for key in self._node_order if key not in node_keys]
+        self._event_order = [key for key in self._event_order if key not in event_keys]
+        self._assessment_order = [key for key in self._assessment_order if key not in assessment_keys]
+        self._correction_order = [key for key in self._correction_order if key not in correction_keys]
+        self._node_identity = {
+            identity: key for identity, key in self._node_identity.items() if key not in node_keys
+        }
+        return {
+            "profiles": len(profile_keys),
+            "nodes": len(node_keys),
+            "evidence_events": len(event_keys),
+            "assessments": len(assessment_keys),
+            "corrections": len(correction_keys),
+        }
+
+    def export_principal(self, principal_id: str) -> dict[str, list[dict[str, object]]]:
+        principal = str(principal_id or "").strip()
+        if not principal:
+            return {"profiles": [], "nodes": [], "evidence_events": [], "assessments": [], "corrections": []}
+        return {
+            "profiles": [copy.deepcopy(row) for key, row in self._profiles.items() if key[0] == principal],
+            "nodes": [copy.deepcopy(row) for key, row in self._nodes.items() if key[0] == principal],
+            "evidence_events": [copy.deepcopy(row) for key, row in self._events.items() if key[0] == principal],
+            "assessments": [copy.deepcopy(row) for key, row in self._assessments.items() if key[0] == principal],
+            "corrections": [copy.deepcopy(row) for key, row in self._corrections.items() if key[0] == principal],
+        }

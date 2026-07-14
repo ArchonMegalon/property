@@ -1,17 +1,271 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+from collections import deque
+from dataclasses import dataclass
+import hmac
+import ipaddress
 import json
+import math
 import os
+import re
+import signal
 import subprocess
 import sys
+import threading
+import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 
-DEFAULT_HOST = os.getenv("PROPERTYQUARRY_RECONSTRUCTION_RENDER_HOST", "0.0.0.0")
-DEFAULT_PORT = int(os.getenv("PROPERTYQUARRY_RECONSTRUCTION_RENDER_PORT") or "8091")
+DEFAULT_HOST = "127.0.0.1"
+DEFAULT_PORT = 8091
+DEFAULT_REQUEST_TIMEOUT_SECONDS = 30
+MIN_REQUEST_TIMEOUT_SECONDS = 1
+MAX_REQUEST_TIMEOUT_SECONDS = 300
+DEFAULT_MAX_GENERATION_SECONDS = 1_800
+MIN_MAX_GENERATION_SECONDS = 120
+MAX_MAX_GENERATION_SECONDS = 7_200
+PROCESS_CLOSE_MARGIN_SECONDS = 30
+
+
+def _required_container_stop_grace_seconds(
+    *,
+    max_generation_seconds: int,
+    request_timeout_seconds: int,
+) -> int:
+    return max_generation_seconds + request_timeout_seconds + PROCESS_CLOSE_MARGIN_SECONDS
+
+
+DEFAULT_CONTAINER_STOP_GRACE_SECONDS = _required_container_stop_grace_seconds(
+    max_generation_seconds=DEFAULT_MAX_GENERATION_SECONDS,
+    request_timeout_seconds=DEFAULT_REQUEST_TIMEOUT_SECONDS,
+)
+MIN_CONTAINER_STOP_GRACE_SECONDS = _required_container_stop_grace_seconds(
+    max_generation_seconds=MIN_MAX_GENERATION_SECONDS,
+    request_timeout_seconds=MIN_REQUEST_TIMEOUT_SECONDS,
+)
+MAX_CONTAINER_STOP_GRACE_SECONDS = _required_container_stop_grace_seconds(
+    max_generation_seconds=MAX_MAX_GENERATION_SECONDS,
+    request_timeout_seconds=MAX_REQUEST_TIMEOUT_SECONDS,
+)
+
+
+@dataclass(frozen=True)
+class BridgeConfig:
+    host: str = DEFAULT_HOST
+    port: int = DEFAULT_PORT
+    auth_token: str = ""
+    dev_mode: bool = False
+    max_body_bytes: int = 131_072
+    request_timeout_seconds: int = DEFAULT_REQUEST_TIMEOUT_SECONDS
+    max_concurrency: int = 1
+    rate_limit_requests: int = 12
+    rate_limit_window_seconds: int = 60
+    max_photo_count: int = 64
+    max_route_labels: int = 64
+    max_room_count: int = 64
+    max_source_bytes: int = 1_073_741_824
+    max_generation_seconds: int = DEFAULT_MAX_GENERATION_SECONDS
+    max_walkthrough_seconds_per_stop: float = 30.0
+    container_stop_grace_seconds: int = DEFAULT_CONTAINER_STOP_GRACE_SECONDS
+
+    @property
+    def shutdown_grace_seconds(self) -> int:
+        return self.container_stop_grace_seconds - PROCESS_CLOSE_MARGIN_SECONDS
+
+
+def _env_bool(name: str, *, default: bool = False) -> bool:
+    raw = str(os.getenv(name) or "").strip().lower()
+    if not raw:
+        return default
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    raise RuntimeError(f"{name.lower()}_invalid")
+
+
+def _env_int(name: str, *, default: int, minimum: int, maximum: int) -> int:
+    raw = str(os.getenv(name) or "").strip()
+    try:
+        parsed = int(raw or str(default))
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(f"{name.lower()}_invalid") from exc
+    if parsed < minimum or parsed > maximum:
+        raise RuntimeError(f"{name.lower()}_out_of_range")
+    return parsed
+
+
+def _env_float(name: str, *, default: float, minimum: float, maximum: float) -> float:
+    raw = str(os.getenv(name) or "").strip()
+    try:
+        parsed = float(raw or str(default))
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError(f"{name.lower()}_invalid") from exc
+    if parsed < minimum or parsed > maximum:
+        raise RuntimeError(f"{name.lower()}_out_of_range")
+    return parsed
+
+
+def _is_loopback_host(host: str) -> bool:
+    normalized = str(host or "").strip().lower().strip("[]")
+    if normalized == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(normalized).is_loopback
+    except ValueError:
+        return False
+
+
+def _load_bridge_config() -> BridgeConfig:
+    request_timeout_seconds = _env_int(
+        "PROPERTYQUARRY_RECONSTRUCTION_RENDER_REQUEST_TIMEOUT_SECONDS",
+        default=DEFAULT_REQUEST_TIMEOUT_SECONDS,
+        minimum=MIN_REQUEST_TIMEOUT_SECONDS,
+        maximum=MAX_REQUEST_TIMEOUT_SECONDS,
+    )
+    max_generation_seconds = _env_int(
+        "PROPERTYQUARRY_RECONSTRUCTION_RENDER_MAX_GENERATION_SECONDS",
+        default=DEFAULT_MAX_GENERATION_SECONDS,
+        minimum=MIN_MAX_GENERATION_SECONDS,
+        maximum=MAX_MAX_GENERATION_SECONDS,
+    )
+    return BridgeConfig(
+        host=str(os.getenv("PROPERTYQUARRY_RECONSTRUCTION_RENDER_HOST") or DEFAULT_HOST).strip() or DEFAULT_HOST,
+        port=_env_int(
+            "PROPERTYQUARRY_RECONSTRUCTION_RENDER_PORT",
+            default=DEFAULT_PORT,
+            minimum=1,
+            maximum=65_535,
+        ),
+        auth_token=_bridge_token(),
+        dev_mode=_env_bool("PROPERTYQUARRY_RECONSTRUCTION_RENDER_DEV_MODE"),
+        max_body_bytes=_env_int(
+            "PROPERTYQUARRY_RECONSTRUCTION_RENDER_MAX_BODY_BYTES",
+            default=131_072,
+            minimum=1_024,
+            maximum=16_777_216,
+        ),
+        request_timeout_seconds=request_timeout_seconds,
+        max_concurrency=_env_int(
+            "PROPERTYQUARRY_RECONSTRUCTION_RENDER_MAX_CONCURRENCY",
+            default=1,
+            minimum=1,
+            maximum=16,
+        ),
+        rate_limit_requests=_env_int(
+            "PROPERTYQUARRY_RECONSTRUCTION_RENDER_RATE_LIMIT_REQUESTS",
+            default=12,
+            minimum=1,
+            maximum=10_000,
+        ),
+        rate_limit_window_seconds=_env_int(
+            "PROPERTYQUARRY_RECONSTRUCTION_RENDER_RATE_LIMIT_WINDOW_SECONDS",
+            default=60,
+            minimum=1,
+            maximum=3_600,
+        ),
+        max_photo_count=_env_int(
+            "PROPERTYQUARRY_RECONSTRUCTION_RENDER_MAX_PHOTOS",
+            default=64,
+            minimum=1,
+            maximum=1_000,
+        ),
+        max_route_labels=_env_int(
+            "PROPERTYQUARRY_RECONSTRUCTION_RENDER_MAX_ROUTE_LABELS",
+            default=64,
+            minimum=1,
+            maximum=1_000,
+        ),
+        max_room_count=_env_int(
+            "PROPERTYQUARRY_RECONSTRUCTION_RENDER_MAX_ROOMS",
+            default=64,
+            minimum=1,
+            maximum=1_000,
+        ),
+        max_source_bytes=_env_int(
+            "PROPERTYQUARRY_RECONSTRUCTION_RENDER_MAX_SOURCE_BYTES",
+            default=1_073_741_824,
+            minimum=1_048_576,
+            maximum=1_099_511_627_776,
+        ),
+        max_generation_seconds=max_generation_seconds,
+        max_walkthrough_seconds_per_stop=_env_float(
+            "PROPERTYQUARRY_RECONSTRUCTION_RENDER_MAX_WALKTHROUGH_SECONDS_PER_STOP",
+            default=30.0,
+            minimum=1.0,
+            maximum=300.0,
+        ),
+        container_stop_grace_seconds=_env_int(
+            "PROPERTYQUARRY_RENDER_STOP_GRACE_SECONDS",
+            default=DEFAULT_CONTAINER_STOP_GRACE_SECONDS,
+            minimum=MIN_CONTAINER_STOP_GRACE_SECONDS,
+            maximum=MAX_CONTAINER_STOP_GRACE_SECONDS,
+        ),
+    )
+
+
+def _validate_bridge_config(config: BridgeConfig) -> None:
+    loopback = _is_loopback_host(config.host)
+    has_token = bool(str(config.auth_token or "").strip())
+    if config.dev_mode and not loopback:
+        raise RuntimeError("property_reconstruction_render_dev_mode_requires_loopback")
+    if not has_token and not (config.dev_mode and loopback):
+        raise RuntimeError("property_reconstruction_render_bridge_token_required")
+    if config.port < 0 or config.port > 65_535:
+        raise RuntimeError("property_reconstruction_render_port_out_of_range")
+    if min(
+        config.max_body_bytes,
+        config.request_timeout_seconds,
+        config.max_concurrency,
+        config.rate_limit_requests,
+        config.rate_limit_window_seconds,
+        config.max_photo_count,
+        config.max_route_labels,
+        config.max_room_count,
+        config.max_source_bytes,
+        config.max_generation_seconds,
+        config.max_walkthrough_seconds_per_stop,
+        config.container_stop_grace_seconds,
+    ) <= 0:
+        raise RuntimeError("property_reconstruction_render_limit_out_of_range")
+    minimum_container_stop_grace_seconds = _required_container_stop_grace_seconds(
+        max_generation_seconds=config.max_generation_seconds,
+        request_timeout_seconds=config.request_timeout_seconds,
+    )
+    if config.container_stop_grace_seconds < minimum_container_stop_grace_seconds:
+        raise RuntimeError("property_reconstruction_render_container_stop_grace_insufficient")
+
+
+class _SlidingWindowRateLimiter:
+    def __init__(self, *, limit: int, window_seconds: int, max_keys: int = 4_096) -> None:
+        self.limit = max(1, int(limit))
+        self.window_seconds = max(1, int(window_seconds))
+        self.max_keys = max(1, int(max_keys))
+        self._events: dict[str, deque[float]] = {}
+        self._lock = threading.Lock()
+
+    def allow(self, key: str, *, now: float | None = None) -> bool:
+        current = time.monotonic() if now is None else float(now)
+        cutoff = current - self.window_seconds
+        normalized_key = str(key or "unknown")
+        with self._lock:
+            if normalized_key not in self._events and len(self._events) >= self.max_keys:
+                stale_keys = [name for name, values in self._events.items() if not values or values[-1] <= cutoff]
+                for name in stale_keys:
+                    self._events.pop(name, None)
+                if len(self._events) >= self.max_keys:
+                    oldest_key = min(self._events, key=lambda name: self._events[name][-1])
+                    self._events.pop(oldest_key, None)
+            events = self._events.setdefault(normalized_key, deque())
+            while events and events[0] <= cutoff:
+                events.popleft()
+            if len(events) >= self.limit:
+                return False
+            events.append(current)
+            return True
 
 
 def _public_tour_dir() -> Path:
@@ -26,14 +280,14 @@ def _bridge_token() -> str:
     return str(os.getenv("PROPERTYQUARRY_RECONSTRUCTION_RENDER_BRIDGE_TOKEN") or "").strip()
 
 
-def _generation_timeout_seconds(raw_value: object = "") -> int:
+def _generation_timeout_seconds(raw_value: object = "", *, maximum: int = 1_800) -> int:
     requested_value = str(raw_value or "").strip()
     raw_value = str(os.getenv("PROPERTYQUARRY_RECONSTRUCTION_TIMEOUT_SECONDS") or "").strip()
     try:
         parsed = int(float(requested_value or raw_value or "420"))
     except Exception:
         parsed = 420
-    return min(max(parsed, 120), 1800)
+    return min(max(parsed, 120), max(120, int(maximum)))
 
 
 def _safe_shared_file(raw_path: object, *, root: Path) -> Path:
@@ -43,6 +297,125 @@ def _safe_shared_file(raw_path: object, *, root: Path) -> Path:
     if not candidate.is_file():
         raise ValueError("shared_input_missing")
     return candidate
+
+
+def _validate_generation_cost(payload: dict[str, object], *, config: BridgeConfig) -> None:
+    slug = str(payload.get("slug") or "").strip()
+    if not slug:
+        raise ValueError("slug_missing")
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", slug):
+        raise ValueError("slug_invalid")
+    if "skip_video" in payload and not isinstance(payload.get("skip_video"), bool):
+        raise ValueError("skip_video_invalid")
+
+    photo_paths = payload.get("photo_paths")
+    if photo_paths is not None and not isinstance(photo_paths, list):
+        raise ValueError("photo_paths_invalid")
+    normalized_photos = list(photo_paths or []) if isinstance(photo_paths, list) else []
+    if len(normalized_photos) > config.max_photo_count:
+        raise ValueError("photo_count_exceeds_limit")
+
+    route_labels = payload.get("route_labels")
+    if route_labels is not None and not isinstance(route_labels, list):
+        raise ValueError("route_labels_invalid")
+    normalized_labels = list(route_labels or []) if isinstance(route_labels, list) else []
+    if len(normalized_labels) > config.max_route_labels:
+        raise ValueError("route_label_count_exceeds_limit")
+    if any(len(str(label or "").strip()) > 160 for label in normalized_labels):
+        raise ValueError("route_label_too_long")
+
+    style_label = str(payload.get("style_label") or "").strip()
+    if len(style_label) > 160:
+        raise ValueError("style_label_too_long")
+    try:
+        room_count = int(payload.get("room_count") or 0)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("room_count_invalid") from exc
+    if room_count < 0:
+        raise ValueError("room_count_invalid")
+    if room_count > config.max_room_count:
+        raise ValueError("room_count_exceeds_limit")
+
+    requested_timeout = payload.get("timeout_seconds")
+    if requested_timeout is not None and requested_timeout != "":
+        try:
+            timeout_seconds = float(requested_timeout)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("timeout_seconds_invalid") from exc
+        if (
+            not math.isfinite(timeout_seconds)
+            or timeout_seconds < 1
+            or timeout_seconds > config.max_generation_seconds
+        ):
+            raise ValueError("timeout_seconds_exceeds_limit")
+
+    requested_walkthrough = payload.get("walkthrough_seconds_per_stop")
+    if requested_walkthrough is not None and requested_walkthrough != "":
+        try:
+            walkthrough_seconds = float(requested_walkthrough)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("walkthrough_seconds_per_stop_invalid") from exc
+        if (
+            not math.isfinite(walkthrough_seconds)
+            or walkthrough_seconds < 0
+            or walkthrough_seconds > config.max_walkthrough_seconds_per_stop
+        ):
+            raise ValueError("walkthrough_seconds_per_stop_exceeds_limit")
+
+    root = _public_tour_dir()
+    source_paths: list[object] = list(normalized_photos)
+    if str(payload.get("floorplan_path") or "").strip():
+        source_paths.append(payload.get("floorplan_path") or "")
+    source_bytes = 0
+    seen: set[Path] = set()
+    for raw_path in source_paths:
+        if len(str(raw_path or "")) > 4_096:
+            raise ValueError("source_path_too_long")
+        resolved = _safe_shared_file(raw_path, root=root)
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        source_bytes += resolved.stat().st_size
+        if source_bytes > config.max_source_bytes:
+            raise ValueError("source_bytes_exceed_limit")
+
+
+def _bridge_readiness(config: BridgeConfig, *, draining: bool = False) -> tuple[bool, dict[str, object]]:
+    try:
+        _validate_bridge_config(config)
+    except Exception as exc:
+        return False, {
+            "status": "not_ready",
+            "reason": "bridge_configuration_invalid",
+            "detail": type(exc).__name__,
+        }
+    script_path = _script_path()
+    public_tour_dir = _public_tour_dir()
+    script_ready = script_path.is_file() and os.access(script_path, os.R_OK)
+    storage_ready = (
+        public_tour_dir.is_dir()
+        and os.access(public_tour_dir, os.R_OK)
+        and os.access(public_tour_dir, os.W_OK)
+        and os.access(public_tour_dir, os.X_OK)
+    )
+    payload: dict[str, object] = {
+        "status": "ready" if script_ready and storage_ready and not draining else "not_ready",
+        "bridge": "property_reconstruction_render_bridge",
+        "script_ready": script_ready,
+        "storage_ready": storage_ready,
+        "security_mode": "loopback_dev" if config.dev_mode else "authenticated",
+        "accepting_requests": not draining,
+        "provider_readiness_claimed": False,
+    }
+    if draining:
+        payload["reason"] = "bridge_draining"
+    elif not script_ready:
+        payload["reason"] = "generator_script_unavailable"
+    elif not storage_ready:
+        payload["reason"] = "public_tour_storage_unavailable"
+    else:
+        payload["reason"] = "bridge_ready"
+    return bool(script_ready and storage_ready and not draining), payload
 
 
 def _build_generator_command(payload: dict[str, object]) -> list[str]:
@@ -81,9 +454,18 @@ def _build_generator_command(payload: dict[str, object]) -> list[str]:
     return command
 
 
-def run_generation_request(payload: dict[str, object]) -> dict[str, object]:
+def run_generation_request(
+    payload: dict[str, object],
+    *,
+    config: BridgeConfig | None = None,
+) -> dict[str, object]:
+    runtime_config = config or _load_bridge_config()
+    _validate_generation_cost(payload, config=runtime_config)
     command = _build_generator_command(payload)
-    timeout_seconds = _generation_timeout_seconds(payload.get("timeout_seconds"))
+    timeout_seconds = _generation_timeout_seconds(
+        payload.get("timeout_seconds"),
+        maximum=runtime_config.max_generation_seconds,
+    )
     env = {**os.environ, "EA_PUBLIC_TOUR_DIR": str(_public_tour_dir())}
     try:
         walkthrough_seconds_per_stop = float(payload.get("walkthrough_seconds_per_stop") or 0.0)
@@ -140,78 +522,269 @@ def run_generation_request(payload: dict[str, object]) -> dict[str, object]:
 
 
 class _Handler(BaseHTTPRequestHandler):
-    server_version = "PropertyReconstructionRenderBridge/1.0"
+    server_version = "PropertyReconstructionRenderBridge"
+    sys_version = ""
+
+    def version_string(self) -> str:
+        return self.server_version
+
+    def setup(self) -> None:
+        super().setup()
+        self.connection.settimeout(self._config.request_timeout_seconds)
+
+    @property
+    def _config(self) -> BridgeConfig:
+        return getattr(self.server, "bridge_config")
+
+    @property
+    def _rate_limiter(self) -> _SlidingWindowRateLimiter:
+        return getattr(self.server, "rate_limiter")
+
+    @property
+    def _generation_slots(self) -> threading.BoundedSemaphore:
+        return getattr(self.server, "generation_slots")
+
+    @property
+    def _bridge_server(self) -> "ReconstructionRenderBridgeServer":
+        return getattr(self.server, "bridge_server", self.server)
 
     def log_message(self, format: str, *args: object) -> None:  # noqa: A003
         return
 
     def _write_json(self, status_code: int, payload: dict[str, object]) -> None:
+        self.close_connection = True
         encoded = (json.dumps(payload, sort_keys=True) + "\n").encode("utf-8")
         self.send_response(status_code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(encoded)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Connection", "close")
         self.end_headers()
-        self.wfile.write(encoded)
+        try:
+            self.wfile.write(encoded)
+            self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            return
+
+    def _allow_rate_limited_request(self) -> bool:
+        client_key = str(self.client_address[0] if self.client_address else "unknown")
+        if self._rate_limiter.allow(client_key):
+            return True
+        self._write_json(429, {"status": "rejected", "reason": "request_rate_limit_exceeded"})
+        return False
 
     def _authorized(self) -> bool:
-        expected = _bridge_token()
+        expected = str(self._config.auth_token or "").strip()
         if not expected:
             return True
         header = str(self.headers.get("Authorization") or "").strip()
-        return header == f"Bearer {expected}"
+        provided = header[7:].strip() if header.lower().startswith("bearer ") else ""
+        return hmac.compare_digest(provided.encode("utf-8"), expected.encode("utf-8"))
+
+    def _read_payload(self) -> dict[str, object] | None:
+        if str(self.headers.get("Transfer-Encoding") or "").strip():
+            self._write_json(400, {"status": "rejected", "reason": "transfer_encoding_unsupported"})
+            return None
+        raw_content_length = str(self.headers.get("Content-Length") or "").strip()
+        if not raw_content_length:
+            self._write_json(411, {"status": "rejected", "reason": "content_length_required"})
+            return None
+        try:
+            content_length = int(raw_content_length)
+        except ValueError:
+            self._write_json(400, {"status": "rejected", "reason": "content_length_invalid"})
+            return None
+        if content_length < 1:
+            self._write_json(400, {"status": "rejected", "reason": "request_body_required"})
+            return None
+        if content_length > self._config.max_body_bytes:
+            self._write_json(413, {"status": "rejected", "reason": "request_body_too_large"})
+            return None
+        try:
+            raw_body = self.rfile.read(content_length)
+        except TimeoutError:
+            self._write_json(408, {"status": "rejected", "reason": "request_body_timeout"})
+            return None
+        if len(raw_body) != content_length:
+            self._write_json(400, {"status": "rejected", "reason": "request_body_incomplete"})
+            return None
+        try:
+            payload = json.loads(raw_body.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError, RecursionError):
+            self._write_json(400, {"status": "rejected", "reason": "invalid_json"})
+            return None
+        if not isinstance(payload, dict):
+            self._write_json(400, {"status": "rejected", "reason": "json_root_not_object"})
+            return None
+        return payload
 
     def do_GET(self) -> None:  # noqa: N802
-        if urllib.parse.urlparse(self.path).path != "/health":
+        path = urllib.parse.urlparse(self.path).path
+        if path == "/health/live":
+            draining = self._bridge_server.is_draining()
+            self._write_json(
+                200,
+                {
+                    "status": "draining" if draining else "live",
+                    "bridge": "property_reconstruction_render_bridge",
+                    "accepting_requests": not draining,
+                },
+            )
+            return
+        if path not in {"/health", "/health/ready"}:
             self._write_json(404, {"status": "not_found"})
             return
-        self._write_json(
-            200,
-            {
-                "status": "pass",
-                "bridge": "property_reconstruction_render_bridge",
-                "public_tour_dir": str(_public_tour_dir()),
-                "script_ready": _script_path().is_file(),
-            },
+        ready, payload = _bridge_readiness(
+            self._config,
+            draining=self._bridge_server.is_draining(),
         )
+        self._write_json(200 if ready else 503, payload)
 
     def do_POST(self) -> None:  # noqa: N802
         if urllib.parse.urlparse(self.path).path != "/generate-reconstruction":
             self._write_json(404, {"status": "not_found"})
             return
+        if self._bridge_server.is_draining():
+            self._write_json(503, {"status": "unavailable", "reason": "bridge_draining"})
+            return
+        if not self._allow_rate_limited_request():
+            return
         if not self._authorized():
-            self._write_json(403, {"status": "forbidden", "reason": "invalid_bridge_token"})
+            self._write_json(401, {"status": "forbidden", "reason": "invalid_bridge_token"})
+            return
+        payload = self._read_payload()
+        if payload is None:
             return
         try:
-            content_length = int(self.headers.get("Content-Length") or "0")
-        except Exception:
-            content_length = 0
-        raw_body = self.rfile.read(max(0, content_length)).decode("utf-8", errors="replace")
-        try:
-            payload = json.loads(raw_body or "{}")
-        except Exception:
-            self._write_json(400, {"status": "rejected", "reason": "invalid_json"})
-            return
-        if not isinstance(payload, dict):
-            self._write_json(400, {"status": "rejected", "reason": "json_root_not_object"})
-            return
-        try:
-            result = run_generation_request(payload)
+            _validate_generation_cost(payload, config=self._config)
         except ValueError as exc:
             self._write_json(422, {"status": "rejected", "reason": str(exc)})
             return
-        except Exception as exc:
-            self._write_json(500, {"status": "failed", "reason": type(exc).__name__, "detail": str(exc)[:500]})
+        if not self._generation_slots.acquire(blocking=False):
+            self._write_json(503, {"status": "busy", "reason": "generation_concurrency_limit"})
             return
+        try:
+            try:
+                result = run_generation_request(payload, config=self._config)
+            except ValueError as exc:
+                self._write_json(422, {"status": "rejected", "reason": str(exc)})
+                return
+            except Exception as exc:
+                self._write_json(500, {"status": "failed", "reason": type(exc).__name__, "detail": str(exc)[:500]})
+                return
+        finally:
+            self._generation_slots.release()
         status = str(result.get("status") or "").strip()
         self._write_json(200 if status == "generated" else 502, result)
 
 
+class ReconstructionRenderBridgeServer(ThreadingHTTPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+    def __init__(
+        self,
+        server_address: tuple[str, int],
+        handler_class: type[BaseHTTPRequestHandler],
+        *,
+        config: BridgeConfig,
+    ) -> None:
+        _validate_bridge_config(config)
+        self.bridge_config = config
+        self.rate_limiter = _SlidingWindowRateLimiter(
+            limit=config.rate_limit_requests,
+            window_seconds=config.rate_limit_window_seconds,
+        )
+        self.generation_slots = threading.BoundedSemaphore(config.max_concurrency)
+        self.bridge_server = self
+        self._drain_condition = threading.Condition()
+        self._draining = False
+        self._active_request_count = 0
+        super().__init__(server_address, handler_class)
+
+    def is_draining(self) -> bool:
+        with self._drain_condition:
+            return self._draining
+
+    @property
+    def active_request_count(self) -> int:
+        with self._drain_condition:
+            return self._active_request_count
+
+    def begin_draining(self) -> bool:
+        with self._drain_condition:
+            if self._draining:
+                return False
+            self._draining = True
+            self._drain_condition.notify_all()
+            return True
+
+    def wait_for_drain(self, timeout_seconds: float) -> bool:
+        deadline = time.monotonic() + max(0.0, float(timeout_seconds))
+        with self._drain_condition:
+            while self._active_request_count > 0:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0.0:
+                    return False
+                self._drain_condition.wait(timeout=remaining)
+            return True
+
+    def _request_started(self) -> None:
+        with self._drain_condition:
+            self._active_request_count += 1
+
+    def _request_finished(self) -> None:
+        with self._drain_condition:
+            self._active_request_count = max(0, self._active_request_count - 1)
+            self._drain_condition.notify_all()
+
+    def process_request(self, request: object, client_address: tuple[str, int]) -> None:
+        self._request_started()
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._request_finished()
+            raise
+
+    def process_request_thread(self, request: object, client_address: tuple[str, int]) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._request_finished()
+
+
+def _begin_graceful_shutdown(server: ReconstructionRenderBridgeServer) -> bool:
+    if not server.begin_draining():
+        return False
+    threading.Thread(
+        target=server.shutdown,
+        name="propertyquarry-render-bridge-shutdown",
+        daemon=True,
+    ).start()
+    return True
+
+
 def main() -> int:
-    server = ThreadingHTTPServer((DEFAULT_HOST, DEFAULT_PORT), _Handler)
+    config = _load_bridge_config()
+    _validate_bridge_config(config)
+    server = ReconstructionRenderBridgeServer((config.host, config.port), _Handler, config=config)
+    previous_signal_handlers: dict[int, object] = {}
+    if threading.current_thread() is threading.main_thread():
+        for signal_number in (signal.SIGTERM, signal.SIGINT):
+            previous_signal_handlers[signal_number] = signal.getsignal(signal_number)
+            signal.signal(signal_number, lambda _signum, _frame: _begin_graceful_shutdown(server))
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        return 0
+        server.begin_draining()
+    finally:
+        server.begin_draining()
+        server.wait_for_drain(config.shutdown_grace_seconds)
+        server.server_close()
+        for signal_number, previous_handler in previous_signal_handlers.items():
+            signal.signal(signal_number, previous_handler)
+    return 0
 
 
 if __name__ == "__main__":

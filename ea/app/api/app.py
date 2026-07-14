@@ -13,8 +13,11 @@ from starlette.types import Scope
 
 from app.api.dependencies import require_request_auth
 from app.api.errors import install_error_handlers
+from app.api.ingress import IngressAbuseMiddleware, IngressPolicy
+from app.api.principal_identity import PrincipalIdentityMiddleware, PrincipalIdentityPolicy
 from app.api.threadpool_compat import inline_sync_handlers_enabled, install_inline_threadpool_compat
 from app.container import build_container
+from app.observability import RuntimeMetrics
 from app.settings import get_settings, validate_startup_settings
 
 
@@ -160,33 +163,23 @@ def _include_legacy_authenticated_routes(
     app: FastAPI,
     *,
     auth_dependency: list,
-    channels_router: APIRouter,
     human_router: APIRouter,
-    memory_router: APIRouter,
     evidence_router: APIRouter,
     observations_router: APIRouter,
     delivery_router: APIRouter,
     connectors_router: APIRouter,
-    policy_router: APIRouter,
-    providers_router: APIRouter,
     ltd_runtime_router: APIRouter,
-    plans_router: APIRouter,
     skills_router: APIRouter,
     task_contracts_router: APIRouter,
     tools_router: APIRouter,
     responses_router: APIRouter,
 ) -> None:
-    app.include_router(channels_router, dependencies=auth_dependency)
     app.include_router(human_router, dependencies=auth_dependency)
-    app.include_router(memory_router, dependencies=auth_dependency)
     app.include_router(evidence_router, dependencies=auth_dependency)
     app.include_router(observations_router, dependencies=auth_dependency)
     app.include_router(delivery_router, dependencies=auth_dependency)
     app.include_router(connectors_router, dependencies=auth_dependency)
-    app.include_router(policy_router, dependencies=auth_dependency)
-    app.include_router(providers_router, dependencies=auth_dependency)
     app.include_router(ltd_runtime_router, dependencies=auth_dependency)
-    app.include_router(plans_router, dependencies=auth_dependency)
     app.include_router(skills_router, dependencies=auth_dependency)
     app.include_router(task_contracts_router, dependencies=auth_dependency)
     app.include_router(tools_router, dependencies=auth_dependency)
@@ -253,6 +246,7 @@ def create_app() -> FastAPI:
     if inline_sync_handlers_enabled():
         install_inline_threadpool_compat()
     from app.api.routes.channels import router as channels_router
+    from app.api.routes.metrics import router as metrics_router
 
     route_modules = _load_core_route_modules()
     fliplink_authenticated_router = route_modules["fliplink_integration"].authenticated_router
@@ -286,10 +280,23 @@ def create_app() -> FastAPI:
     rewrite_router = route_modules["rewrite"].router
     runtime_router = route_modules["runtime"].router
     app = FastAPI(title=s.app_name, version=s.app_version, docs_url="/api/docs", redoc_url="/api/redoc")
+    app.state.runtime_metrics = RuntimeMetrics()
     static_root = Path(__file__).resolve().parents[1] / "static"
     if static_root.exists():
         app.mount("/static", CachedStaticFiles(directory=static_root), name="static")
     app.add_middleware(GZipMiddleware, minimum_size=1024)
+    ingress_policy = IngressPolicy.from_environ(runtime_mode=s.runtime.mode)
+    app.add_middleware(
+        IngressAbuseMiddleware,
+        policy=ingress_policy,
+    )
+    app.add_middleware(
+        PrincipalIdentityMiddleware,
+        policy=PrincipalIdentityPolicy.from_environ(
+            runtime_mode=s.runtime.mode,
+            trusted_proxy_cidrs=ingress_policy.trusted_proxy_cidrs,
+        ),
+    )
     install_error_handlers(app)
     app.state.container = build_container(settings=s)
     is_memory_backend = str(s.storage_backend or "").strip().lower() == "memory"
@@ -321,6 +328,7 @@ def create_app() -> FastAPI:
         health_router=health_router,
         register_router=register_router,
     )
+    app.include_router(metrics_router)
     auth_dependency = [Depends(require_request_auth)]
     _include_authenticated_routes(
         app,
@@ -328,7 +336,17 @@ def create_app() -> FastAPI:
         onboarding_router=onboarding_router,
         images_router=images_router,
         google_oauth_router=google_oauth_router,
-        channels_router=_router_without_paths(channels_router, excluded_paths={"/v1/channels/telegram/ingest"}),
+        channels_router=(
+            channels_router
+            if s.legacy_runtime_surfaces_enabled
+            else _router_without_paths(
+                channels_router,
+                excluded_paths={
+                    "/v1/channels/telegram/ingest",
+                    "/v1/channels/telegram/ingest/{bot_key}",
+                },
+            )
+        ),
         memory_router=memory_router,
         product_api_delivery_router=_router_without_paths(
             product_api_delivery_router,
@@ -363,17 +381,12 @@ def create_app() -> FastAPI:
         _include_legacy_authenticated_routes(
             app,
             auth_dependency=auth_dependency,
-            channels_router=channels_router,
             human_router=human_router,
-            memory_router=memory_router,
             evidence_router=evidence_router,
             observations_router=observations_router,
             delivery_router=delivery_router,
             connectors_router=connectors_router,
-            policy_router=policy_router,
-            providers_router=providers_router,
             ltd_runtime_router=ltd_runtime_router,
-            plans_router=plans_router,
             skills_router=skills_router,
             task_contracts_router=task_contracts_router,
             tools_router=tools_router,

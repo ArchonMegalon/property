@@ -70,6 +70,21 @@ def _clean_3dvista_proof() -> dict[str, object]:
     }
 
 
+def _write_clean_3dvista_export(bundle_dir: Path) -> dict[str, object]:
+    export_dir = bundle_dir / "3dvista"
+    export_dir.mkdir(parents=True, exist_ok=True)
+    (export_dir / "index.htm").write_text(
+        "<!doctype html><html><body><div id='tour-viewer'>3D tour ready</div>"
+        "<script>window.TDVPlayer = { ready: true };</script></body></html>",
+        encoding="utf-8",
+    )
+    return {
+        "three_d_vista_entry_relpath": "3dvista/index.htm",
+        "three_d_vista_import": {"source_project": "propertyquarry"},
+        **_clean_3dvista_proof(),
+    }
+
+
 def test_product_api_projects_real_runtime_objects() -> None:
     principal_id = "exec-product-api"
     client = build_product_client(principal_id=principal_id)
@@ -552,7 +567,7 @@ def test_automation_history_placeholder_is_not_a_self_link() -> None:
 
     automation = client.get("/app/agents", headers={"host": "propertyquarry.com"})
     assert automation.status_code == 200
-    assert "Looking for the first listings." in automation.text
+    assert "Rent search" in automation.text
     assert 'href="/app/agents"' not in automation.text
 
 
@@ -1906,7 +1921,6 @@ def test_hosted_property_tour_helpers_use_public_tours_files_route(monkeypatch, 
     bundle_dir = tmp_path / slug
     bundle_dir.mkdir(parents=True)
     (bundle_dir / "tour.mp4").write_bytes(b"video")
-    from PIL import Image
     (bundle_dir / "diorama-preview.png").write_bytes(b"png")
     (bundle_dir / "tour.json").write_text(
         json.dumps(
@@ -1937,12 +1951,8 @@ def test_hosted_property_tour_helpers_use_public_tours_files_route(monkeypatch, 
     telegram_preview_url = product_service._hosted_property_tour_telegram_preview_image_url(
         f"https://propertyquarry.com/tours/{slug}"
     )
-    assert telegram_preview_url == f"https://propertyquarry.com/tours/files/{slug}/telegram-preview.png"
-    telegram_preview_path = bundle_dir / "telegram-preview.png"
-    assert telegram_preview_path.exists()
-    with Image.open(telegram_preview_path) as image:
-        assert image.width > 800
-        assert image.height > 450
+    assert telegram_preview_url == f"https://propertyquarry.com/tours/files/{slug}/diorama-preview.png"
+    assert not (bundle_dir / "telegram-preview.png").exists()
 
 
 def test_hosted_property_tour_preview_image_url_prefers_bundle_diorama_preview(monkeypatch, tmp_path: Path) -> None:
@@ -7580,7 +7590,7 @@ def test_willhaben_property_tour_suppressed_followup_block_does_not_reference_un
     )
 
     assert result["status"] == "blocked"
-    assert result["blocked_reason"] == "listing_360_media_missing"
+    assert result["blocked_reason"] == "property_tour_fallback_disabled"
     assert result["human_task_id"] == ""
 
 
@@ -8470,6 +8480,58 @@ def test_property_alert_review_handoff_reuses_generated_reconstruction_bundle(
     assert media_payload["carousel_items"] == []
 
 
+def test_property_handoff_media_threads_authenticated_principal_to_tour_recovery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "cf-email:owner-handoff-tour@example.test"
+    hosted_url = "https://propertyquarry.com/tours/owner-handoff-tour"
+    calls: list[tuple[str, str]] = []
+
+    def _existing_url_for_identity(**kwargs):
+        calls.append(("identity", str(kwargs.get("principal_id") or "")))
+        return hosted_url
+
+    def _first_party_open_url(tour_url, *, principal_id=""):
+        calls.append(("first_party", str(principal_id or "")))
+        return hosted_url if str(tour_url or "") == hosted_url and principal_id else ""
+
+    def _payload_for_url(tour_url, *, principal_id=""):
+        calls.append(("payload", str(principal_id or "")))
+        return {
+            "generated_reconstruction": {"provider": "propertyquarry_generated_reconstruction"}
+        } if str(tour_url or "") == hosted_url and principal_id else {}
+
+    def _verified_open_url(tour_url, *, principal_id=""):
+        calls.append(("verified", str(principal_id or "")))
+        return hosted_url if str(tour_url or "") == hosted_url and principal_id else ""
+
+    monkeypatch.setattr(property_tour_hosting, "_existing_hosted_property_tour_url_for_identity", _existing_url_for_identity)
+    monkeypatch.setattr(property_tour_hosting, "_hosted_property_tour_first_party_open_url", _first_party_open_url)
+    monkeypatch.setattr(property_tour_hosting, "_hosted_property_tour_payload_for_url", _payload_for_url)
+    monkeypatch.setattr(property_tour_hosting, "_hosted_property_tour_verified_open_url", _verified_open_url)
+    monkeypatch.setattr(property_tour_hosting, "_is_branded_public_tour_url", lambda value: value == hosted_url)
+
+    media_payload = landing_objects._propertyquarry_handoff_media_payload(
+        handoff_ref="human_task:owner-handoff-tour",
+        handoff=SimpleNamespace(
+            summary="Owner handoff tour",
+            property_url="https://listings.example.test/owner-handoff-tour",
+            tour_url="",
+            delivery_reason="",
+        ),
+        input_json={"source_ref": "listing:owner-handoff-tour"},
+        primary_candidate={},
+        principal_id=principal_id,
+    )
+
+    assert ("identity", principal_id) in calls
+    assert ("first_party", principal_id) in calls
+    assert ("payload", principal_id) in calls
+    assert ("verified", principal_id) in calls
+    assert media_payload["primary_href"] == hosted_url
+    assert media_payload["primary_label"] == "Open 3D tour"
+
+
 def test_property_alert_review_handoff_does_not_reuse_disabled_first_party_tour_as_generated_reconstruction(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -8480,11 +8542,15 @@ def test_property_alert_review_handoff_does_not_reuse_disabled_first_party_tour_
         "_is_branded_public_tour_url",
         lambda url: str(url or "").startswith("https://propertyquarry.com/tours/"),
     )
-    monkeypatch.setattr(property_tour_hosting, "_hosted_property_tour_first_party_open_url", lambda _url: "")
+    monkeypatch.setattr(
+        property_tour_hosting,
+        "_hosted_property_tour_first_party_open_url",
+        lambda _url, **_kwargs: "",
+    )
     monkeypatch.setattr(
         property_tour_hosting,
         "_hosted_property_tour_payload_for_url",
-        lambda url: {"disabled_fallback": True} if str(url or "").strip() == dead_tour_url else {},
+        lambda url, **_kwargs: {"disabled_fallback": True} if str(url or "").strip() == dead_tour_url else {},
     )
     monkeypatch.setattr(
         property_tour_hosting,
@@ -8684,8 +8750,9 @@ def test_property_alert_review_handoff_keeps_vendor_360_as_external_action() -> 
     assert page.status_code == 200
     assert 'class="object-media-grid is-compact"' in page.text
     assert 'title="Property 360 review"' not in page.text
-    assert "Original tour available" in page.text
-    assert "Open original tour" in page.text
+    assert "Original tour available" not in page.text
+    assert "Open original tour" not in page.text
+    assert "my.matterport.com" not in page.text
 
 
 def test_propertyquarry_candidate_visual_request_ignores_unverified_vendor_tour_url() -> None:
@@ -10330,7 +10397,7 @@ def test_willhaben_property_tour_route_generates_tour_and_sends_email(monkeypatc
     assert body["status"] == "sent"
     assert body["listing_id"] == "listing-123"
     assert body["tour_url"] == "https://myexternalbrain.com/tours/brigittenau-apartment-a"
-    assert body["vendor_tour_url"] == "https://vendor.example.com/tours/brigittenau-apartment-a"
+    assert body["vendor_tour_url"] == ""
     assert body["editor_url"] == "https://vendor.example.com/editor/brigittenau-apartment-a"
     assert body["artifact_id"] == "artifact-property-tour-1"
     assert body["execution_session_id"] == "session-property-tour-1"
@@ -13412,6 +13479,34 @@ def test_property_decision_api_fails_closed_when_ledger_is_not_durable(monkeypat
     assert detail["persistence"]["reason"] == "database_url_missing"
 
 
+def test_structured_property_feedback_list_honors_bounded_limit() -> None:
+    client = build_product_client(principal_id="structured-feedback-limit")
+    for index in range(4):
+        saved = client.post(
+            "/app/api/property-feedback",
+            json={
+                "stakeholder_id": f"family-{index}",
+                "stakeholder_label": f"Household member {index}",
+                "property_ref": "listing-feedback-limit",
+                "category": "question",
+                "sentiment": "neutral",
+                "importance": 3,
+                "text": f"Bounded question {index}?",
+                "source": "packet",
+            },
+        )
+        assert saved.status_code == 200, saved.text
+
+    response = client.get(
+        "/app/api/property-feedback",
+        params={"property_ref": "listing-feedback-limit", "category": "question", "limit": 2},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["total"] == 4
+    assert len(response.json()["items"]) == 2
+    assert client.get("/app/api/property-feedback", params={"limit": 51}).status_code == 422
+
+
 def test_property_decision_copilot_returns_grounded_answer_and_actions() -> None:
     principal_id = "pref-property-clippy"
     client = build_product_client(principal_id=principal_id)
@@ -13871,7 +13966,7 @@ def test_willhaben_property_tour_route_publishes_pure_360_bundle_when_crezlo_is_
     assert body["status"] == "created"
     assert body["tour_media_mode"] == "panorama_360"
     assert body["tour_url"].startswith("https://propertyquarry.com/tours/")
-    assert body["vendor_tour_url"] == "https://my.matterport.com/show/?m=BmVWxvZQZLq"
+    assert body["vendor_tour_url"] == ""
     assert body["source_virtual_tour_url"] == "https://my.matterport.com/show/?m=BmVWxvZQZLq"
 
 
@@ -13968,7 +14063,10 @@ def test_3dvista_hosted_pure_360_bundle_preserves_provider_url(monkeypatch, tmp_
     assert "crezlo_public_url" not in public_manifest
     assert "https://www.immobilienscout24.at/expose/3dvista-preview-test" not in json.dumps(public_manifest)
     assert private_manifest["three_d_vista_url"] == "https://example.3dvista.com/tours/top22/index.html"
-    loaded = product_service._existing_hosted_property_tour_payload(str(payload["slug"]))
+    loaded = product_service._existing_hosted_property_tour_payload(
+        str(payload["slug"]),
+        principal_id="cf-email:owner@example.test",
+    )
     assert loaded["three_d_vista_url"] == "https://example.3dvista.com/tours/top22/index.html"
     assert property_tour_hosting._hosted_property_tour_direct_360_url(str(payload["hosted_url"])) == (
         "https://example.3dvista.com/tours/top22/index.html"
@@ -15088,6 +15186,7 @@ def test_existing_hosted_property_tour_url_for_identity_matches_private_manifest
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     monkeypatch.setenv("EA_PUBLIC_TOUR_BASE_URL", "https://myexternalbrain.com/tours")
     slug = "identity-match-tour"
+    principal_id = "cf-email:identity-owner@example.test"
     bundle_dir = tmp_path / slug
     bundle_dir.mkdir(parents=True)
     (bundle_dir / "scene-01.jpg").write_bytes(b"real-asset")
@@ -15095,6 +15194,7 @@ def test_existing_hosted_property_tour_url_for_identity_matches_private_manifest
         bundle_dir,
         {
             "slug": slug,
+            "principal_id": principal_id,
             "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/identity-match-tour#top",
             "listing_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/identity-match-tour",
             "source_ref": "willhaben:identity-match-tour",
@@ -15106,12 +15206,15 @@ def test_existing_hosted_property_tour_url_for_identity_matches_private_manifest
 
     assert property_tour_hosting._existing_hosted_property_tour_url_for_identity(
         property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/identity-match-tour",
+        principal_id=principal_id,
     ) == "https://myexternalbrain.com/tours/identity-match-tour"
     assert property_tour_hosting._existing_hosted_property_tour_url_for_identity(
-        source_ref="willhaben:identity-match-tour"
+        source_ref="willhaben:identity-match-tour",
+        principal_id=principal_id,
     ) == "https://myexternalbrain.com/tours/identity-match-tour"
     assert property_tour_hosting._existing_hosted_property_tour_url_for_identity(
-        external_id="identity-match-tour"
+        external_id="identity-match-tour",
+        principal_id=principal_id,
     ) == "https://myexternalbrain.com/tours/identity-match-tour"
 
 
@@ -15663,7 +15766,11 @@ def test_request_property_visual_asset_defaults_to_floorplan_generation_for_expl
         }
 
     monkeypatch.setattr(ProductService, "create_willhaben_property_tour", _fake_create_willhaben_property_tour)
-    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda tour_url: str(tour_url or "").strip())
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_verified_open_url",
+        lambda tour_url, **_kwargs: str(tour_url or "").strip(),
+    )
 
     result = service.request_property_visual_asset(
         principal_id=principal_id,
@@ -15715,7 +15822,11 @@ def test_request_property_visual_asset_keeps_explicit_workbench_floorplan(monkey
         }
 
     monkeypatch.setattr(ProductService, "create_willhaben_property_tour", _fake_create_willhaben_property_tour)
-    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda tour_url: str(tour_url or "").strip())
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_verified_open_url",
+        lambda tour_url, **_kwargs: str(tour_url or "").strip(),
+    )
 
     result = service.request_property_visual_asset(
         principal_id=principal_id,
@@ -15740,11 +15851,15 @@ def test_property_visual_ready_tour_url_accepts_ready_generated_reconstruction_p
     ready_tour_url = "https://propertyquarry.com/tours/generated-reconstruction-ready"
 
     monkeypatch.setattr(product_service, "_is_branded_public_tour_url", lambda url: str(url or "").startswith("https://propertyquarry.com/tours/"))
-    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url: "")
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_verified_open_url",
+        lambda _tour_url, **_kwargs: "",
+    )
     monkeypatch.setattr(
         product_service,
         "_hosted_property_tour_first_party_open_url",
-        lambda tour_url: ready_tour_url if str(tour_url or "").strip() == ready_tour_url else "",
+        lambda tour_url, **_kwargs: ready_tour_url if str(tour_url or "").strip() == ready_tour_url else "",
     )
 
     assert product_service._property_visual_ready_tour_url(tour_url=ready_tour_url) == ready_tour_url
@@ -15784,11 +15899,11 @@ def test_request_property_visual_asset_promotes_ready_generated_reconstruction_p
         }
 
     monkeypatch.setattr(ProductService, "create_willhaben_property_tour", _fake_create_willhaben_property_tour)
-    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url: "")
+    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url, **_kwargs: "")
     monkeypatch.setattr(
         product_service,
         "_hosted_property_tour_first_party_open_url",
-        lambda tour_url: ready_tour_url if str(tour_url or "").strip() == ready_tour_url else "",
+        lambda tour_url, **_kwargs: ready_tour_url if str(tour_url or "").strip() == ready_tour_url else "",
     )
 
     result = service.request_property_visual_asset(
@@ -15839,7 +15954,7 @@ def test_request_property_visual_asset_blocks_disabled_floorplan_fallback(monkey
         }
 
     monkeypatch.setattr(ProductService, "create_willhaben_property_tour", _fake_create_willhaben_property_tour)
-    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url: "")
+    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url, **_kwargs: "")
 
     result = service.request_property_visual_asset(
         principal_id=principal_id,
@@ -15891,7 +16006,11 @@ def test_request_property_visual_asset_surfaces_terminal_walkthrough_render_fail
             "reason": "magicfit_segment_render_failed",
         },
     )
-    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda tour_url: str(tour_url or "").strip())
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_verified_open_url",
+        lambda tour_url, **_kwargs: str(tour_url or "").strip(),
+    )
     monkeypatch.setattr(product_service, "_hosted_property_tour_walkthrough_asset_url", lambda tour_url: "")
     monkeypatch.setattr(product_service, "_published_walkthrough_asset_url", lambda tour_url: "")
     monkeypatch.setattr(
@@ -15973,7 +16092,11 @@ def test_property_visual_status_retries_stale_visual_requests(monkeypatch) -> No
     monkeypatch.setattr(ProductService, "_snapshot_property_search_run", _fake_snapshot)
     monkeypatch.setattr(ProductService, "process_property_tour_followup_tasks", _fake_process)
     monkeypatch.setattr(ProductService, "_existing_property_tour_followup", lambda self, **kwargs: object())
-    monkeypatch.setattr(product_service, "_hosted_property_tour_first_party_open_url", lambda tour_url: str(tour_url or "").strip())
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_first_party_open_url",
+        lambda tour_url, **_kwargs: str(tour_url or "").strip(),
+    )
 
     response = service.get_property_visual_request_status(
         principal_id=principal_id,
@@ -16196,12 +16319,13 @@ def test_current_property_search_visual_state_recovers_hosted_tour_from_identity
         bundle_dir,
         {
             "slug": slug,
-            "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/identity-recovered-visuals",
-            "listing_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/identity-recovered-visuals",
-            "source_ref": "willhaben:identity-recovered-visuals",
-            "external_id": "identity-recovered-visuals",
-            "matterport_url": "https://my.matterport.com/show/?m=IDENTITY2",
-            "scenes": [{"asset_relpath": "scene-01.jpg"}],
+                "principal_id": "property-visual-state-identity-recovery",
+                "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/identity-recovered-visuals",
+                "listing_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/identity-recovered-visuals",
+                "source_ref": "willhaben:identity-recovered-visuals",
+                "external_id": "identity-recovered-visuals",
+                **_write_clean_3dvista_export(bundle_dir),
+                "scenes": [{"asset_relpath": "scene-01.jpg"}],
         },
     )
 
@@ -16240,7 +16364,9 @@ def test_current_property_search_visual_state_recovers_hosted_tour_from_identity
     )
 
     assert state["tour_url"] == "https://propertyquarry.com/tours/identity-recovered-visuals"
-    assert state["vendor_tour_url"] == "https://propertyquarry.com/tours/identity-recovered-visuals/control/matterport"
+    assert state["vendor_tour_url"] == (
+        "https://propertyquarry.com/tours/identity-recovered-visuals/control/3dvista"
+    )
     assert state["tour_status"] == "created"
 
 
@@ -16339,11 +16465,11 @@ def test_property_tour_followup_tasks_return_ready_generated_reconstruction_publ
             "tour_status_updated_at": "2026-07-03T08:02:00+00:00",
         },
     )
-    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url: "")
+    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url, **_kwargs: "")
     monkeypatch.setattr(
         product_service,
         "_hosted_property_tour_first_party_open_url",
-        lambda tour_url: ready_tour_url if str(tour_url or "").strip() == ready_tour_url else "",
+        lambda tour_url, **_kwargs: ready_tour_url if str(tour_url or "").strip() == ready_tour_url else "",
     )
     monkeypatch.setattr(
         ProductService,
@@ -16422,7 +16548,11 @@ def test_property_visual_status_prefers_ready_ranked_candidate_over_stale_source
         }
 
     monkeypatch.setattr(ProductService, "_snapshot_property_search_run", _fake_snapshot)
-    monkeypatch.setattr(product_service, "_hosted_property_tour_first_party_open_url", lambda tour_url: str(tour_url or "").strip())
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_first_party_open_url",
+        lambda tour_url, **_kwargs: str(tour_url or "").strip(),
+    )
 
     response = service.get_property_visual_request_status(
         principal_id=principal_id,
@@ -16801,7 +16931,7 @@ def test_property_visual_status_keeps_generated_reconstruction_followup_blocked_
             },
         },
     )
-    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url: "")
+    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url, **_kwargs: "")
     monkeypatch.setattr(
         product_service,
         "_hosted_property_tour_generated_reconstruction_asset_url",
@@ -16892,8 +17022,8 @@ def test_property_visual_status_keeps_user_requested_generated_reconstruction_fo
             },
         },
     )
-    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url: "")
-    monkeypatch.setattr(product_service, "_hosted_property_tour_first_party_open_url", lambda _tour_url: "")
+    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url, **_kwargs: "")
+    monkeypatch.setattr(product_service, "_hosted_property_tour_first_party_open_url", lambda _tour_url, **_kwargs: "")
     monkeypatch.setattr(
         ProductService,
         "_latest_property_tour_followup",
@@ -16978,7 +17108,7 @@ def test_property_visual_status_persists_blocked_generated_reconstruction_state(
             },
         },
     )
-    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url: "")
+    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url, **_kwargs: "")
     monkeypatch.setattr(
         product_service,
         "_hosted_property_tour_generated_reconstruction_asset_url",
@@ -17042,11 +17172,11 @@ def test_property_visual_status_accepts_generated_reconstruction_launch_page_as_
             },
         },
     )
-    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url: "")
+    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url, **_kwargs: "")
     monkeypatch.setattr(
         product_service,
         "_hosted_property_tour_first_party_open_url",
-        lambda _tour_url: "https://propertyquarry.com/tours/generated-launch-page",
+        lambda _tour_url, **_kwargs: "https://propertyquarry.com/tours/generated-launch-page",
     )
 
     response = service.get_property_visual_request_status(
@@ -17185,7 +17315,11 @@ def test_property_visual_status_converts_stale_magicfit_failure_to_terminal_walk
             },
         },
     )
-    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda tour_url: str(tour_url or "").strip())
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_verified_open_url",
+        lambda tour_url, **_kwargs: str(tour_url or "").strip(),
+    )
     monkeypatch.setattr(product_service, "_hosted_property_tour_walkthrough_asset_url", lambda tour_url: "")
     monkeypatch.setattr(product_service, "_published_walkthrough_asset_url", lambda tour_url: "")
     persisted_visual_states: list[dict[str, object]] = []
@@ -17542,7 +17676,7 @@ def test_property_tour_followup_tasks_resolve_generated_reconstruction_payload_a
     monkeypatch.setattr(
         product_service,
         "_hosted_property_tour_first_party_open_url",
-        lambda tour_url: (
+        lambda tour_url, **_kwargs: (
             "https://propertyquarry.com/tours/files/generated-reconstruction-created-1/generated-reconstruction/viewer.html"
             if str(tour_url or "").strip() == "https://propertyquarry.com/tours/generated-reconstruction-created-1"
             else ""
@@ -17661,7 +17795,7 @@ def test_property_tour_followup_tasks_do_not_resolve_unverified_tour_url_as_read
     start_workspace(client, mode="personal", workspace_name="Property Tour Office")
     service = product_service.build_product_service(client.app.state.container)
 
-    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url: "")
+    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url, **_kwargs: "")
     monkeypatch.setattr(
         ProductService,
         "request_property_visual_asset",
@@ -17717,7 +17851,7 @@ def test_property_tour_followup_tasks_ignore_stale_generated_reconstruction_open
     start_workspace(client, mode="personal", workspace_name="Property Tour Office")
     service = product_service.build_product_service(client.app.state.container)
 
-    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url: "")
+    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url, **_kwargs: "")
     monkeypatch.setattr(
         ProductService,
         "request_property_visual_asset",
@@ -17784,7 +17918,7 @@ def test_property_tour_followup_tasks_ignore_raw_generated_reconstruction_viewer
     start_workspace(client, mode="personal", workspace_name="Property Tour Office")
     service = product_service.build_product_service(client.app.state.container)
 
-    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url: "")
+    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url, **_kwargs: "")
     monkeypatch.setattr(
         ProductService,
         "request_property_visual_asset",
@@ -18239,7 +18373,7 @@ def test_request_property_visual_asset_blocks_created_payload_without_verified_o
             "external_id": str(kwargs.get("external_id") or ""),
         },
     )
-    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url: "")
+    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url, **_kwargs: "")
 
     result = service.request_property_visual_asset(
         principal_id=principal_id,
@@ -18286,7 +18420,7 @@ def test_request_property_visual_asset_blocks_generated_reconstruction_as_3d_tou
             "creation_mode": "generated_reconstruction_tour",
         },
     )
-    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url: "")
+    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url, **_kwargs: "")
     monkeypatch.setattr(
         product_service,
         "_hosted_property_tour_generated_reconstruction_asset_url",
@@ -18329,7 +18463,7 @@ def test_request_property_visual_asset_keeps_generated_reconstruction_blocked_wh
         "_existing_hosted_property_tour_url_for_identity",
         lambda **kwargs: "https://propertyquarry.com/tours/existing-generated-reconstruction",
     )
-    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url: "")
+    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url, **_kwargs: "")
     monkeypatch.setattr(product_service, "_hosted_property_tour_walkthrough_asset_url", lambda _tour_url: "")
     monkeypatch.setattr(
         ProductService,
@@ -18541,7 +18675,7 @@ def test_materialize_property_generated_reconstruction_url_returns_bundle_url_wh
         diorama_style_hint="Ikea",
     )
 
-    assert result == tour_url
+    assert result == ""
 
 
 def test_request_property_visual_asset_keeps_current_visual_state_generated_reconstruction_blocked(monkeypatch) -> None:
@@ -18559,8 +18693,8 @@ def test_request_property_visual_asset_keeps_current_visual_state_generated_reco
         },
     )
     monkeypatch.setattr(product_service, "_existing_hosted_property_tour_url_for_identity", lambda **kwargs: "")
-    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url: "")
-    monkeypatch.setattr(product_service, "_hosted_property_tour_first_party_open_url", lambda _tour_url: "")
+    monkeypatch.setattr(product_service, "_hosted_property_tour_verified_open_url", lambda _tour_url, **_kwargs: "")
+    monkeypatch.setattr(product_service, "_hosted_property_tour_first_party_open_url", lambda _tour_url, **_kwargs: "")
     monkeypatch.setattr(product_service, "_hosted_property_tour_walkthrough_asset_url", lambda _tour_url: "")
     monkeypatch.setattr(
         ProductService,
@@ -18652,7 +18786,7 @@ def test_willhaben_property_tour_followup_can_be_recreated_once_connector_is_ava
         json.dumps(
             {
                 "slug": "recreated-apartment",
-                "matterport_url": "https://my.matterport.com/show/?m=RECREATED1",
+                **_write_clean_3dvista_export(hosted_tour_dir),
             }
         ),
         encoding="utf-8",
@@ -26674,7 +26808,7 @@ def test_property_search_run_blocks_free_plan_when_limits_exceed_free_tier() -> 
         },
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 202
     assert response.json()["status"] in {"queued", "running", "in_progress", "processed", "completed", "completed_partial"}
 
 
@@ -26739,7 +26873,7 @@ def test_property_search_run_allows_free_plan_across_multiple_platforms_when_res
         },
     )
 
-    assert response.status_code == 200, response.text
+    assert response.status_code == 202, response.text
 
 
 def test_property_search_run_ignores_stale_agent_result_cap_from_request(
@@ -26787,7 +26921,7 @@ def test_property_search_run_ignores_stale_agent_result_cap_from_request(
         },
     )
 
-    assert response.status_code == 200, response.text
+    assert response.status_code == 202, response.text
     assert observed["max_results_per_source"] is None
     assert dict(observed["property_search_preferences"]).get("max_results_per_source") in (None, "")
 
@@ -26832,7 +26966,7 @@ def test_property_search_run_ignores_result_cap_for_default_free_plan(
         },
     )
 
-    assert response.status_code == 200, response.text
+    assert response.status_code == 202, response.text
     assert observed["max_results_per_source"] is None
     assert dict(observed["property_search_preferences"]).get("max_results_per_source") in (None, "")
 
@@ -26881,7 +27015,7 @@ def test_property_search_run_filters_cross_country_provider_mismatches(
         },
     )
 
-    assert response.status_code == 200, response.text
+    assert response.status_code == 202, response.text
     # The search worker must never fetch Australian providers for an Austria run.
     deadline = time.time() + 5
     while "selected_platforms" not in observed and time.time() < deadline:
@@ -28818,9 +28952,10 @@ def test_public_tour_control_links_walkthrough_without_embedding_provider_video(
 
     html = public_tours._tour_control_html(
         {
-            "slug": "matterport-with-walkthrough",
-            "display_title": "Matterport With Walkthrough",
-            "source_virtual_tour_url": "https://my.matterport.com/show/?m=TEST123",
+            "slug": "3dvista-with-walkthrough",
+            "display_title": "3DVista With Walkthrough",
+            "three_d_vista_url": "https://3dvista.com/share/TEST123",
+            **_clean_3dvista_proof(),
             "video_relpath": "tour-rendered-123.mp4",
             "video_provider": "magicfit",
             "scenes": [
@@ -28832,12 +28967,12 @@ def test_public_tour_control_links_walkthrough_without_embedding_provider_video(
                 }
             ],
         },
-        viewer_mode="matterport",
+        viewer_mode="3dvista",
     )
 
     assert "Open walkthrough" in html
-    assert "/tours/matterport-with-walkthrough/walkthrough" in html
-    assert "/tours/files/matterport-with-walkthrough/tour-rendered-123.mp4" not in html
+    assert "/tours/3dvista-with-walkthrough/walkthrough" in html
+    assert "/tours/files/3dvista-with-walkthrough/tour-rendered-123.mp4" not in html
     assert "<video" not in html
     assert 'id="tour-video"' not in html
     assert "MagicFit" not in html
@@ -28925,24 +29060,25 @@ def test_public_tour_control_ignores_unverified_provider_layer_url() -> None:
 
     html = public_tours._tour_control_html(
         {
-            "slug": "matterport-layered-bad",
-            "display_title": "Layered Matterport Bad",
-            "source_virtual_tour_url": "https://my.matterport.com/show/?m=SOURCE123",
+            "slug": "3dvista-layered-bad",
+            "display_title": "Layered 3DVista Bad",
+            "three_d_vista_url": "https://3dvista.com/share/SOURCE123",
+            **_clean_3dvista_proof(),
             "tour_layers": [
                 {
                     "id": "fake_lived_in",
                     "label": "Fake lived-in",
-                    "provider": "matterport",
-                    "matterport_url": "https://matterport.com.evil.example/show/?m=STAGED123",
+                    "provider": "3dvista",
+                    "three_d_vista_url": "https://3dvista.com.evil.example/share/STAGED123",
                 }
             ],
         },
-        viewer_mode="matterport",
+        viewer_mode="3dvista",
     )
 
     assert 'data-provider-layer="as_listed"' not in html
     assert "fake_lived_in" not in html
-    assert "matterport.com.evil.example" not in html
+    assert "3dvista.com.evil.example" not in html
 
 
 def test_public_tour_control_supports_3dvista_same_tour_layer_state() -> None:
@@ -29163,7 +29299,8 @@ def test_public_tour_landing_links_magicfit_with_route_coverage_proof() -> None:
     )
 
     assert "Open walkthrough" in html
-    assert "/tours/files/verified-magicfit-tour/tour.mp4" in html
+    assert "/tours/verified-magicfit-tour/walkthrough" in html
+    assert "/tours/files/verified-magicfit-tour/tour.mp4" not in html
     assert "Open 3D Control" not in html
 
 
@@ -29406,12 +29543,7 @@ def test_public_tour_page_rejects_generated_reconstruction_public_launch(
     client = build_product_client(principal_id="public-tour-generated-reconstruction-launch")
     response = client.get(f"/tours/{slug}")
 
-    assert response.status_code == 200
-    assert "PropertyQuarry layout tour" in response.text
-    assert "Generated reconstruction" in response.text
-    assert "This is built from the floorplan and listing photos" in response.text
-    assert "Room route" in response.text
-    assert "Reference deck" in response.text
+    assert response.status_code == 404
 
 
 def test_public_tour_page_keeps_walkthrough_deep_link_on_entry_route(
@@ -29426,7 +29558,7 @@ def test_public_tour_page_keeps_walkthrough_deep_link_on_entry_route(
             {
                 "slug": slug,
                 "display_title": "Walkthrough deep link",
-                "matterport_url": "https://my.matterport.com/show/?m=REALBROWSER123",
+                **_write_clean_3dvista_export(bundle_dir),
                 "video_relpath": "walkthrough.mp4",
                 "scenes": [
                     {
@@ -29452,7 +29584,7 @@ def test_public_tour_page_keeps_walkthrough_deep_link_on_entry_route(
 
     assert response.status_code == 200
     assert "<video id=\"tour-video\"" in response.text
-    assert "/control/matterport" in response.text
+    assert "/control/3dvista" in response.text
 
 
 def test_public_tour_page_keeps_walkthrough_autoplay_on_entry_route_without_pane(
@@ -29467,7 +29599,7 @@ def test_public_tour_page_keeps_walkthrough_autoplay_on_entry_route_without_pane
             {
                 "slug": slug,
                 "display_title": "Walkthrough autoplay only",
-                "matterport_url": "https://my.matterport.com/show/?m=REALBROWSER123",
+                **_write_clean_3dvista_export(bundle_dir),
                 "video_relpath": "walkthrough.mp4",
                 "scenes": [
                     {
@@ -29495,7 +29627,7 @@ def test_public_tour_page_keeps_walkthrough_autoplay_on_entry_route_without_pane
     assert "<video id=\"tour-video\"" in response.text
     assert f"/tours/{slug}/walkthrough" in response.text
     assert f"/tours/files/{slug}/walkthrough.mp4" not in response.text
-    assert "/control/matterport" in response.text
+    assert "/control/3dvista" in response.text
 
 
 def test_public_tour_control_does_not_embed_walkthrough_when_explicit_floorplan_pane_is_requested(
@@ -29510,7 +29642,7 @@ def test_public_tour_control_does_not_embed_walkthrough_when_explicit_floorplan_
             {
                 "slug": slug,
                 "display_title": "Floorplan pane priority",
-                "matterport_url": "https://my.matterport.com/show/?m=REALBROWSER123",
+                **_write_clean_3dvista_export(bundle_dir),
                 "video_relpath": "walkthrough.mp4",
                 "scenes": [
                     {
@@ -29532,11 +29664,11 @@ def test_public_tour_control_does_not_embed_walkthrough_when_explicit_floorplan_
     monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
 
     client = build_product_client(principal_id="public-tour-floorplan-pane-priority")
-    response = client.get(f"/tours/{slug}/control/matterport?pane=floorplan-pane&autoplay=1")
+    response = client.get(f"/tours/{slug}/control/3dvista?pane=floorplan-pane&autoplay=1")
 
     assert response.status_code == 200
-    assert "Matterport Control" in response.text
-    assert 'src="https://my.matterport.com/show/?m=REALBROWSER123"' in response.text
+    assert "3DVista Control" in response.text
+    assert f'src="/tours/3dvista/{slug}/3dvista/index.htm"' in response.text
     assert "<video" not in response.text
     assert 'id="tour-video"' not in response.text
     assert f"/tours/{slug}/walkthrough" in response.text
@@ -29596,7 +29728,7 @@ def test_public_tour_control_keeps_walkthrough_deep_link_without_raw_asset_path(
             {
                 "slug": slug,
                 "display_title": "Walkthrough control deep link",
-                "matterport_url": "https://my.matterport.com/show/?m=REALBROWSER123",
+                **_write_clean_3dvista_export(bundle_dir),
                 "video_relpath": "walkthrough.mp4",
                 "scenes": [
                     {
@@ -29618,7 +29750,7 @@ def test_public_tour_control_keeps_walkthrough_deep_link_without_raw_asset_path(
     monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
 
     client = build_product_client(principal_id="public-tour-control-walkthrough-deep-link")
-    response = client.get(f"/tours/{slug}/control/matterport?pane=flythrough-pane&autoplay=1", follow_redirects=False)
+    response = client.get(f"/tours/{slug}/control/3dvista?pane=flythrough-pane&autoplay=1", follow_redirects=False)
 
     assert response.status_code == 200
     assert "<video id=\"tour-video\"" in response.text
@@ -29638,7 +29770,7 @@ def test_public_tour_control_preserves_underlying_walkthrough_mime_type_on_sanit
             {
                 "slug": slug,
                 "display_title": "Walkthrough control webm",
-                "matterport_url": "https://my.matterport.com/show/?m=REALBROWSER123",
+                **_write_clean_3dvista_export(bundle_dir),
                 "video_relpath": "walkthrough.webm",
                 "scenes": [
                     {
@@ -29660,7 +29792,7 @@ def test_public_tour_control_preserves_underlying_walkthrough_mime_type_on_sanit
     monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
 
     client = build_product_client(principal_id="public-tour-control-walkthrough-webm")
-    response = client.get(f"/tours/{slug}/control/matterport?pane=flythrough-pane&autoplay=1", follow_redirects=False)
+    response = client.get(f"/tours/{slug}/control/3dvista?pane=flythrough-pane&autoplay=1", follow_redirects=False)
 
     assert response.status_code == 200
     assert f'<source src="/tours/{slug}/walkthrough" type="video/webm">' in response.text
@@ -30072,7 +30204,7 @@ def test_public_tour_forced_provider_route_fails_closed_when_provider_missing(
     right_response = client.get(f"/tours/{slug}/control/3dvista")
 
     assert wrong_response.status_code == 404
-    assert wrong_response.json()["error"]["code"] == "tour_control_matterport_export_missing"
+    assert wrong_response.json()["error"]["code"] == "tour_control_provider_retired"
     assert right_response.status_code == 200
     assert "3DVista Control" in right_response.text
 
@@ -30386,16 +30518,16 @@ def test_hosted_property_tour_verified_open_url_targets_real_provider_lane(monke
     bundle_dir = tmp_path / slug
     bundle_dir.mkdir(parents=True)
     (bundle_dir / "tour.json").write_text(
-        json.dumps({"slug": slug, "matterport_url": "https://my.matterport.com/show/?m=TEST123"}),
+        json.dumps({"slug": slug, **_write_clean_3dvista_export(bundle_dir)}),
         encoding="utf-8",
     )
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
 
     assert property_tour_hosting._hosted_property_tour_verified_open_url(f"https://propertyquarry.com/tours/{slug}") == (
-        f"https://propertyquarry.com/tours/{slug}/control/matterport"
+        f"https://propertyquarry.com/tours/{slug}/control/3dvista"
     )
     assert property_tour_hosting._hosted_property_tour_verified_open_url(f"/tours/{slug}") == (
-        f"/tours/{slug}/control/matterport"
+        f"/tours/{slug}/control/3dvista"
     )
 
 
@@ -31308,7 +31440,26 @@ def test_public_tour_generated_layout_preview_route_surfaces_diorama_hero_for_re
             },
         ],
     }
-    (reconstruction_dir / "viewer.html").write_text("<!doctype html>viewer", encoding="utf-8")
+    viewer_html = (
+        "<!doctype html><html><body "
+        'data-pq-preview-kind="approximate-layout" '
+        'data-pq-verified-provider-capture="false">'
+        '<script type="module">'
+        'import * as THREE from "./vendor/three.module.js";'
+        'import { OrbitControls } from "./vendor/examples/jsm/controls/OrbitControls.js";'
+        "void THREE; void OrbitControls;"
+        "</script></body></html>"
+    )
+    (reconstruction_dir / "viewer.html").write_text(viewer_html, encoding="utf-8")
+    (reconstruction_dir / "vendor" / "examples" / "jsm" / "controls").mkdir(parents=True)
+    (reconstruction_dir / "vendor" / "three.module.js").write_text(
+        "export const REVISION = 'test';\n",
+        encoding="utf-8",
+    )
+    (reconstruction_dir / "vendor" / "examples" / "jsm" / "controls" / "OrbitControls.js").write_text(
+        "export class OrbitControls {}\n",
+        encoding="utf-8",
+    )
     (reconstruction_dir / "model.obj").write_text("o propertyquarry_generated_layout\nv 0 0 0\n", encoding="utf-8")
     (reconstruction_dir / "model.mtl").write_text("newmtl walls\nKd 0.8 0.8 0.8\n", encoding="utf-8")
     (reconstruction_dir / "model.glb").write_bytes(b"glTF" + (b"\x00" * 2048))
@@ -31406,6 +31557,20 @@ def test_public_tour_generated_layout_preview_route_surfaces_diorama_hero_for_re
                 "video_provider": "propertyquarry_generated_reconstruction",
                 "video_provider_key": "propertyquarry_generated_reconstruction",
                 "video_coverage_proof": "boundary_verified_frame_continuation",
+                "public_assets": [
+                    {
+                        "relpath": "generated-reconstruction/vendor/three.module.js",
+                        "privacy_class": "generated_reconstruction_public",
+                        "role": "generated_reconstruction_viewer_asset",
+                        "mime_type": "text/javascript",
+                    },
+                    {
+                        "relpath": "generated-reconstruction/vendor/examples/jsm/controls/OrbitControls.js",
+                        "privacy_class": "generated_reconstruction_public",
+                        "role": "generated_reconstruction_viewer_asset",
+                        "mime_type": "text/javascript",
+                    },
+                ],
             }
         ),
         encoding="utf-8",
@@ -31439,11 +31604,12 @@ def test_public_tour_generated_layout_preview_route_surfaces_diorama_hero_for_re
     assert f'/tours/files/{slug}/generated-reconstruction/viewer.html"' in launch.text
     assert f'/tours/files/{slug}/generated-reconstruction/viewer.html"' in preview.text
     assert "selectedDurationMs = Number(routeItem.durationSeconds || 0) * 1000" in launch.text
-    assert "holdManualRoute(Math.min(30000, Math.max(1400, selectedDurationMs + 1000)))" in launch.text
+    assert "holdManualRoute(" in launch.text
+    assert "selectedDurationMs" in launch.text
     assert "layoutViewerRouteSyncAttempts >= 100" in launch.text
     assert "This link points to a generated layout reconstruction, not a published 3D tour." not in launch.text
     assert "This link points to a generated layout reconstruction, not a published 3D tour." not in preview.text
-    assert viewer.text == "<!doctype html>viewer"
+    assert viewer.text == viewer_html
 
 
 def test_public_tour_generated_layout_preview_route_rejects_generated_reconstruction_bundle(

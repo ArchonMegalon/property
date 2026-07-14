@@ -98,12 +98,13 @@ _WILLHABEN_HOST_MARKERS = ("willhaben.at",)
 
 
 def _is_willhaben_property_url(value: object) -> bool:
+    from .outbound_url_security import canonical_http_hostname, hostname_matches_allowlist
+
     normalized = str(value or "").strip()
     if not normalized:
         return False
-    parsed = urllib.parse.urlparse(normalized)
-    host = str(parsed.netloc or "").strip().lower()
-    return bool(host) and any(marker in host for marker in _WILLHABEN_HOST_MARKERS)
+    host = canonical_http_hostname(normalized)
+    return bool(host) and hostname_matches_allowlist(host, _WILLHABEN_HOST_MARKERS)
 
 
 _PROPERTY_HTML_FRAGMENT_HIDDEN_BLOCK_RE = re.compile(
@@ -214,11 +215,15 @@ def _extract_urls_from_text(value: object) -> tuple[str, ...]:
     return tuple(rows)
 
 def _property_scout_platform_from_url(url: str) -> str:
+    from .outbound_url_security import canonical_http_hostname, hostname_matches_allowlist
+
     parsed = urllib.parse.urlparse(urllib.parse.urldefrag(str(url or "").strip())[0])
-    host = str(parsed.netloc or "").lower()
+    host = canonical_http_hostname(urllib.parse.urlunparse(parsed))
+    if not host:
+        return ""
     for platform in property_platform_keys():
         provider = property_provider_for_platform(platform)
-        if provider is not None and any(marker in host for marker in provider.host_markers):
+        if provider is not None and hostname_matches_allowlist(host, provider.host_markers):
             return platform
     return ""
 
@@ -234,11 +239,15 @@ def _property_scout_clean_url(url: str) -> str:
     return urllib.parse.urlunparse(parsed._replace(query=urllib.parse.urlencode(cleaned_query, doseq=True)))
 
 def _property_scout_is_supported_listing_url(url: str) -> bool:
+    from .outbound_url_security import canonical_http_hostname, hostname_matches_allowlist
+
     normalized = _property_scout_clean_url(url)
     if not normalized:
         return False
     parsed = urllib.parse.urlparse(normalized)
-    host = parsed.netloc.lower()
+    host = canonical_http_hostname(normalized)
+    if not host:
+        return False
     path = parsed.path.lower()
     combined = f"{path}?{parsed.query.lower()}" if str(parsed.query or "").strip() else path
     if any(path.endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg", ".css", ".js", ".json")):
@@ -246,14 +255,14 @@ def _property_scout_is_supported_listing_url(url: str) -> bool:
     if _is_willhaben_property_url(normalized):
         query = urllib.parse.parse_qs(parsed.query)
         return "/iad/immobilien/d/" in path or (path == "/iad/object" and bool(query.get("adId") or query.get("adid")))
-    if "edikte.justiz.gv.at" in host or "edikte2.justiz.gv.at" in host:
+    if hostname_matches_allowlist(host, ("edikte.justiz.gv.at", "edikte2.justiz.gv.at")):
         return "/alldoc/" in path or "/0/" in path or path.endswith("!opendocument")
-    if "gesiba.at" in host:
+    if hostname_matches_allowlist(host, ("gesiba.at",)):
         query = urllib.parse.parse_qs(parsed.query)
         return path.startswith("/immobilien/wohnungen/objekt") and bool(query.get("objektnummer"))
-    if "findmyhome.at" in host:
+    if hostname_matches_allowlist(host, ("findmyhome.at",)):
         return bool(re.fullmatch(r"/\d+", path)) and str(parsed.query or "").strip().lower().startswith("tl=")
-    if not any(domain in host for domain in _PROPERTY_SCOUT_LISTING_HOSTS):
+    if not hostname_matches_allowlist(host, _PROPERTY_SCOUT_LISTING_HOSTS):
         return False
     for marker in provider_listing_markers_for_host(host):
         normalized_marker = str(marker or "").lower()

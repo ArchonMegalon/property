@@ -168,6 +168,32 @@ class PreferenceProfileService:
             "recent_corrections": self._repo.list_profile_corrections(principal_id=principal_id, person_id=person_id, limit=25),
         }
 
+    def erase_principal(self, principal_id: str) -> dict[str, int]:
+        method = getattr(self._repo, "erase_principal", None)
+        if not callable(method):
+            return {"profiles": 0, "nodes": 0, "evidence_events": 0, "assessments": 0, "corrections": 0}
+        return {
+            str(key): int(value or 0)
+            for key, value in dict(method(str(principal_id or "").strip()) or {}).items()
+        }
+
+    def export_principal(self, principal_id: str) -> dict[str, list[dict[str, object]]]:
+        method = getattr(self._repo, "export_principal", None)
+        if callable(method):
+            payload = dict(method(str(principal_id or "").strip()) or {})
+            return {
+                key: [copy.deepcopy(row) for row in list(payload.get(key) or []) if isinstance(row, dict)]
+                for key in ("profiles", "nodes", "evidence_events", "assessments", "corrections")
+            }
+        bundle = self.get_profile_bundle(principal_id=principal_id, person_id="self")
+        return {
+            "profiles": [dict(bundle.get("profile") or {})],
+            "nodes": [dict(row) for row in list(bundle.get("preference_nodes") or []) if isinstance(row, dict)],
+            "evidence_events": [dict(row) for row in list(bundle.get("recent_evidence_events") or []) if isinstance(row, dict)],
+            "assessments": [dict(row) for row in list(bundle.get("recent_decision_assessments") or []) if isinstance(row, dict)],
+            "corrections": [dict(row) for row in list(bundle.get("recent_corrections") or []) if isinstance(row, dict)],
+        }
+
     def upsert_preference_node(
         self,
         *,

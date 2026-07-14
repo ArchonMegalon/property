@@ -1,6 +1,7 @@
-.PHONY: deploy deploy-legacy-ea-stack deploy-memory deploy-bootstrap bootstrap db-status db-size db-retention smoke-api smoke-api-tibor smoke-postgres smoke-postgres-legacy smoke-help release-smoke release-preflight release-docs test-api test-all test-postgres-contracts test-telegram-bot openapi-export openapi-diff openapi-prune endpoints version-info operator-summary operator-help provider-readiness overlay-vision-check overlay-vision-pull support-bundle tasks-archive tasks-archive-prune tasks-archive-dry-run materialize-release-assets verify-generated-release-artifacts-clean ci-local ci-gates ci-gates-postgres ci-gates-postgres-legacy hard-exit-gates runtime-hard-exit-gates property-release-gates property-security-posture ltd-release-gates verify-release-assets verify-flagship-release-readiness verify-pocket-audio-archive verify-ltd-critical-entries verify-ltd-flagship-subset verify-design-mirror-bundle verify-design-full-mirror-parity repair-design-mirror-bundle docs-verify all-local
+.PHONY: deploy deploy-legacy-ea-stack deploy-memory deploy-bootstrap bootstrap db-status db-size db-retention smoke-api smoke-api-tibor smoke-postgres smoke-postgres-legacy smoke-help release-smoke release-preflight propertyquarry-release-preflight release-docs test-api test-all test-postgres-contracts test-telegram-bot openapi-export openapi-diff openapi-prune endpoints version-info operator-summary operator-help provider-readiness overlay-vision-check overlay-vision-pull support-bundle tasks-archive tasks-archive-prune tasks-archive-dry-run materialize-release-assets verify-generated-release-artifacts-clean ci-local ci-gates ci-gates-postgres ci-gates-postgres-legacy hard-exit-gates runtime-hard-exit-gates property-release-gates property-security-posture ltd-release-gates verify-release-assets verify-flagship-release-readiness verify-pocket-audio-archive verify-ltd-critical-entries verify-ltd-flagship-subset verify-design-mirror-bundle verify-design-full-mirror-parity repair-design-mirror-bundle docs-verify all-local
 
 PYTHON_BIN ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
+PYTEST_PYTHON_BIN ?= $(shell if [ -x .venv/bin/python ] && .venv/bin/python -c 'import pytest' >/dev/null 2>&1; then printf '%s' .venv/bin/python; elif command -v python3 >/dev/null 2>&1 && python3 -c 'import pytest' >/dev/null 2>&1; then command -v python3; else printf '%s' python3; fi)
 TEST_API_PYTEST_IGNORE ?= --ignore-glob=tests/test_chummer*.py --ignore-glob=tests/test_next90*.py --ignore=tests/test_design_mirror_bundle_contracts.py
 TEST_API_PYTEST_DESELECT ?= \
 	--deselect=tests/test_responses_api_contracts.py::test_tool_shim_direct_operator_unblock_hotspot_does_not_restart_from_new_shard_after_repo_diff \
@@ -18,7 +19,7 @@ TEST_API_PYTEST_DESELECT ?= \
 	--deselect=tests/test_responses_api_contracts.py::test_local_fleet_runtime_helpers_cover_output_token_and_command_selection
 
 deploy:
-	PROPERTYQUARRY_COMPOSE_FILE=docker-compose.property.yml bash scripts/deploy_propertyquarry.sh
+	./scripts/deploy_propertyquarry.sh
 
 deploy-legacy-ea-stack:
 	PROPERTYQUARRY_USE_LEGACY_STACK=1 bash scripts/deploy.sh
@@ -65,22 +66,26 @@ release-preflight:
 	$(MAKE) operator-help
 	$(MAKE) release-smoke
 
+propertyquarry-release-preflight:
+	$(MAKE) release-preflight
+	$(MAKE) property-release-gates
+
 release-docs:
 	$(MAKE) docs-verify
 	$(MAKE) operator-help
 
 test-api:
 	$(MAKE) materialize-release-assets
-	PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTHON_BIN) -m pytest -q tests $(TEST_API_PYTEST_IGNORE) $(TEST_API_PYTEST_DESELECT)
+	PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTEST_PYTHON_BIN) -m pytest -q tests $(TEST_API_PYTEST_IGNORE) $(TEST_API_PYTEST_DESELECT)
 
 test-all:
-	PYTHONPATH=ea $(PYTHON_BIN) -m pytest -q
+	PYTHONPATH=ea $(PYTEST_PYTHON_BIN) -m pytest -q
 
 test-postgres-contracts:
 	bash scripts/test_postgres_contracts.sh
 
 test-telegram-bot:
-	PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTHON_BIN) -m pytest -q tests/e2e/test_telegram_bot_workflows.py tests/e2e/test_telegram_bot_outbound_workflows.py
+	PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTEST_PYTHON_BIN) -m pytest -q tests/e2e/test_telegram_bot_workflows.py tests/e2e/test_telegram_bot_outbound_workflows.py
 
 openapi-export:
 	bash scripts/export_openapi.sh
@@ -107,6 +112,7 @@ operator-help:
 	@for s in scripts/deploy_propertyquarry.sh scripts/deploy.sh scripts/db_bootstrap.sh scripts/db_status.sh scripts/db_size.sh scripts/db_retention.sh scripts/smoke_api.sh scripts/smoke_help.sh scripts/smoke_postgres.sh scripts/test_postgres_contracts.sh scripts/hard_exit_gates.sh scripts/runtime_hard_exit_gates.sh scripts/property_release_gates.sh scripts/verify_ltd_critical_entries.py scripts/verify_ltd_flagship_subset.py scripts/list_endpoints.sh scripts/version_info.sh scripts/export_openapi.sh scripts/diff_openapi.sh scripts/prune_openapi.sh scripts/operator_summary.sh scripts/support_bundle.sh scripts/archive_tasks.sh scripts/bootstrap_payfunnels_propertyquarry.py scripts/bootstrap_emailit_propertyquarry.py scripts/verify_release_assets.sh scripts/chummer6_overlay_vision_readiness.py; do \
 	  echo "===== $$s --help ====="; \
 	  case "$$s" in \
+	    scripts/deploy_propertyquarry.sh) ./scripts/deploy_propertyquarry.sh --help ;; \
 	    *.py) $(PYTHON_BIN) $$s --help ;; \
 	    *) bash $$s --help ;; \
 	  esac; \

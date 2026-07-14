@@ -176,6 +176,55 @@
     });
   };
   renderFollowups(payload.followup_rows || []);
+  let followupsHydrated = Array.isArray(payload.followup_rows)
+    && payload.followup_rows.some((row) => String(row?.feedback_id || '').trim());
+  let followupsHydrationPromise = null;
+  const hydrateFollowups = () => {
+    if (followupsHydrated) return Promise.resolve();
+    if (followupsHydrationPromise) return followupsHydrationPromise;
+    const refs = [...new Set([payload.property_url, payload.property_slug]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean))];
+    if (!refs.length) {
+      followupsHydrated = true;
+      return Promise.resolve();
+    }
+    followupsHydrationPromise = (async () => {
+      if (followupStatus) followupStatus.textContent = 'Loading saved follow-up...';
+      for (const propertyRef of refs) {
+        const query = new URLSearchParams({
+          property_ref: propertyRef,
+          category: 'question',
+          limit: '12',
+        });
+        const response = await fetch(`${structuredFeedbackEndpoint}?${query.toString()}`, {
+          credentials: 'same-origin',
+        });
+        if (!response.ok) continue;
+        const body = await response.json().catch(() => ({}));
+        const rows = (Array.isArray(body.items) ? body.items : [])
+          .filter((row) => String(row?.category || '').trim() === 'question')
+          .slice(0, 12)
+          .map((row) => ({
+            feedback_id: String(row?.feedback_id || '').trim(),
+            title: String(row?.text || row?.category || 'Follow-up').trim(),
+            detail: String(row?.followup_note || row?.stakeholder_label || row?.stakeholder_id || '').trim(),
+            tag: String(row?.followup_status || 'suggested').replaceAll('_', ' ').replace(/\b\w/g, (match) => match.toUpperCase()),
+          }));
+        if (!rows.length) continue;
+        payload.followup_rows = rows;
+        renderFollowups(rows);
+        break;
+      }
+      followupsHydrated = true;
+      if (followupStatus) followupStatus.textContent = '';
+    })().catch(() => {
+      if (followupStatus) followupStatus.textContent = 'Saved follow-up could not be loaded right now.';
+    }).finally(() => {
+      followupsHydrationPromise = null;
+    });
+    return followupsHydrationPromise;
+  };
   const syncAdvancedToggleButtons = () => {
     const isOpen = advancedDetails instanceof HTMLDetailsElement && advancedDetails.open;
     advancedToggleButtons.forEach((button) => {
@@ -183,7 +232,10 @@
     });
   };
   if (advancedDetails instanceof HTMLDetailsElement) {
-    advancedDetails.addEventListener('toggle', syncAdvancedToggleButtons);
+    advancedDetails.addEventListener('toggle', () => {
+      syncAdvancedToggleButtons();
+      if (advancedDetails.open) void hydrateFollowups();
+    });
     syncAdvancedToggleButtons();
   }
   const recordDecisionState = async (decisionState) => {

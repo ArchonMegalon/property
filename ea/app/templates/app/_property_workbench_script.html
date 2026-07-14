@@ -12,6 +12,49 @@
     const metaNode = root.querySelector('[data-property-workspace-meta]');
     const data = JSON.parse(payloadNode?.textContent || '{}');
     const meta = JSON.parse(metaNode?.getAttribute('data-property-workspace-meta') || '{}');
+    const networkState = root.querySelector('[data-pq-network-state]');
+    const syncNetworkState = () => {
+      const offline = navigator.onLine === false;
+      root.dataset.pqNetwork = offline ? 'offline' : 'online';
+      if (networkState) networkState.hidden = !offline;
+      return offline;
+    };
+    window.addEventListener('offline', syncNetworkState);
+    window.addEventListener('online', syncNetworkState);
+    networkState?.querySelector('[data-pq-network-retry]')?.addEventListener('click', () => {
+      if (syncNetworkState()) return;
+      networkState.dispatchEvent(new CustomEvent('propertyquarry:network-restored', { bubbles: true }));
+    });
+    syncNetworkState();
+    const expiredSessionTarget = () => {
+      const returnTo = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+      return `/sign-in?session=expired&return_to=${encodeURIComponent(returnTo)}`;
+    };
+    const responseNeedsSignIn = (response) => {
+      if (!response) return false;
+      if (Number(response.status || 0) === 401) return true;
+      try {
+        return new URL(String(response.url || ''), window.location.origin).pathname === '/sign-in';
+      } catch (_error) {
+        return false;
+      }
+    };
+    const recoverExpiredSession = (response) => {
+      if (!responseNeedsSignIn(response)) return false;
+      window.location.assign(expiredSessionTarget());
+      return true;
+    };
+    const calmNetworkError = (error, fallback) => {
+      const detail = error instanceof Error ? String(error.message || '') : String(error || '');
+      if (
+        syncNetworkState()
+        || error instanceof TypeError
+        || /failed to fetch|networkerror|load failed|network request failed/i.test(detail)
+      ) {
+        return 'The connection dropped. Reconnect, then try again. Your saved work is unchanged.';
+      }
+      return detail || fallback;
+    };
     let candidates = Array.isArray(data.results) ? data.results.slice() : [];
     const terminalStates = new Set(['processed', 'completed_partial', 'failed', 'noop', 'cancelled', 'completed']);
     const themeStorageKey = 'propertyquarry.theme';
@@ -2453,9 +2496,11 @@
       let countedDone = 0;
       let active = 0;
       let failed = 0;
+      let explicitSourceStateTotal = 0;
       sourceRows.forEach((source) => {
         const status = String(source?.status || source?.state || '').trim().toLowerCase();
         const hasError = Boolean(source?.error);
+        if (status || hasError) explicitSourceStateTotal += 1;
         if (['completed', 'processed', 'done', 'success', 'repaired', 'skipped', 'failed', 'error'].includes(status) || hasError) {
           countedDone += 1;
         } else if (['running', 'processing', 'in_progress', 'working', 'starting', 'warming', 'repairing'].includes(status)) {
@@ -2464,10 +2509,13 @@
         if (['failed', 'error'].includes(status) || hasError) failed += 1;
       });
       const summaryDone = Math.max(0, Number(summary?.sources_completed || summary?.completed_sources || 0));
-      let done = Math.max(summaryDone, countedDone);
-      if (sourceTotal > 0) active = Math.min(active, Math.max(0, sourceTotal - done));
       const status = String(statusValue || summary?.status || '').trim().toLowerCase();
-      if (sourceTotal > 0 && ['processed', 'completed', 'completed_partial', 'noop', 'cancelled'].includes(status)) {
+      const terminal = ['processed', 'completed', 'completed_partial', 'noop', 'cancelled'].includes(status);
+      let done = explicitSourceStateTotal > 0 && !terminal
+        ? countedDone
+        : Math.max(summaryDone, countedDone);
+      if (sourceTotal > 0) active = Math.min(active, Math.max(0, sourceTotal - done));
+      if (sourceTotal > 0 && terminal) {
         done = sourceTotal;
         active = 0;
       }
@@ -3636,6 +3684,7 @@
           let body = {};
           try {
             response = await fetch(pollStatusUrl, { credentials: 'same-origin', cache: 'no-store' });
+            if (recoverExpiredSession(response)) return;
             body = await response.json().catch(() => ({}));
             if (!response.ok) throw new Error(String(body.detail || 'Search status is still updating.'));
             failedPolls = 0;
@@ -3690,6 +3739,7 @@
         inFlight = true;
         try {
           const response = await fetch(normalizedUrl, { credentials: 'same-origin', cache: 'no-store' });
+          if (recoverExpiredSession(response)) return;
           const payload = await response.json().catch(() => null);
           if (!response.ok || !payload || typeof payload !== 'object') return;
           const status = String(payload.status || payload.summary?.status || '').trim().toLowerCase();
@@ -5841,8 +5891,10 @@
       };
       const markManualGeographySelection = () => {
         form.dataset.propertyManualGeography = '1';
+        form.dataset.propertyUserInteraction = '1';
       };
       const geographyLocked = () => String(form.dataset.propertyManualGeography || '').trim() === '1';
+      const userInteractionStarted = () => String(form.dataset.propertyUserInteraction || '').trim() === '1';
       const resyncSearchFormState = () => {
         syncAreaScopeControls();
         syncListingModeControls();
@@ -5852,13 +5904,9 @@
         syncPropertyTypeDependentFilters(form);
         syncMarketAwareFields(form, meta);
       };
-      const applyPreferenceProfile = () => applyPreferenceProfileToForm(form, refreshRegionAndLocationChoices, syncAreaScopeControls, {
-        preserveGeography: geographyLocked(),
-      })
-        .then(() => {
-          savedWhatMattersSnapshot = captureWhatMattersSnapshot();
-        })
-        .finally(resyncSearchFormState);
+      const finalizeInitialFormState = () => {
+        if (!userInteractionStarted()) resyncSearchFormState();
+      };
       const refreshRegionAndLocationChoices = () => {
         const regionCatalog = meta.region_catalog_by_country || {};
         const locationCatalog = meta.location_catalog_by_country_region || {};
@@ -5888,7 +5936,7 @@
       };
       const applyBrowserAndIpDefaults = async () => {
         if (!shouldApplyBrowserDefaults(form)) return;
-        if (geographyLocked()) return;
+        if (geographyLocked() || userInteractionStarted()) return;
         const nextCountry = browserCountryCode();
         if (countryField && nextCountry && nextCountry !== String(countryField.value || '').trim()) {
           countryField.value = nextCountry;
@@ -5897,7 +5945,7 @@
           syncMarketAwareFields(form, meta);
         }
         const ipLocation = await locationFromIpAddress();
-        if (geographyLocked()) return;
+        if (geographyLocked() || userInteractionStarted()) return;
         const ipCountry = String(ipLocation?.country_code || '').trim().toUpperCase();
         const ipCity = String(ipLocation?.city || '').trim().toLowerCase();
         const ipPostal = String(ipLocation?.postal || '').trim();
@@ -6151,7 +6199,7 @@
       syncSchoolPreferenceDetailRows();
       syncWhatMattersSummary();
       syncSelectAllButtons(form, planPlatformCap);
-      applyBrowserAndIpDefaults().finally(applyPreferenceProfile);
+      applyBrowserAndIpDefaults().finally(finalizeInitialFormState);
     }
     const propertyInlineStatuses = () => [
       ...root.querySelectorAll('[data-property-inline-status], [data-property-launch-status]'),
@@ -6178,6 +6226,7 @@
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body.property_preferences),
       });
+      if (recoverExpiredSession(response)) throw new Error('Your session ended. Sign in again to continue.');
       if (!response.ok) throw new Error(await responseErrorMessage(response, 'Could not save the search.'));
       setPropertyInlineStatus('Saved.');
       return body;
@@ -6216,6 +6265,7 @@
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify(body),
         });
+        if (recoverExpiredSession(runResponse)) throw new Error('Your session ended. Sign in again to continue.');
         const runBody = await runResponse.json().catch(() => ({}));
         if (!runResponse.ok) throw new Error(readableErrorDetail(runBody.detail || runBody.error || runBody.message || runBody, 'Could not start property search.'));
         trackRybbitEvent('property_search_start', {
@@ -6239,7 +6289,7 @@
         }
         pollRun(String(runBody.status_url || ''));
       } catch (err) {
-        setPropertyInlineError(err.message || 'Could not start property search.');
+        setPropertyInlineError(calmNetworkError(err, 'Could not start property search.'));
         setPropertyInlineStatus('');
         searchLaunchInFlight = false;
         setSearchLaunchBusy(false);
@@ -6250,7 +6300,7 @@
         try {
           await savePreferences();
         } catch (err) {
-          root.querySelector('[data-property-inline-error]').textContent = err.message || 'Could not save the search.';
+          root.querySelector('[data-property-inline-error]').textContent = calmNetworkError(err, 'Could not save the search.');
         }
       });
     });
@@ -7350,16 +7400,49 @@
         queueRowTargetOpen();
       });
     });
+    const transitionTerminalSurfaceToLiveRun = (runPayload) => {
+      const terminalSurface = root.querySelector('[data-pqx-empty-results]');
+      if (!terminalSurface) return false;
+      const status = String(runPayload?.status || runPayload?.summary?.status || 'in_progress').trim().toLowerCase() || 'in_progress';
+      terminalSurface.outerHTML = `
+        <section class="pqx-stage pqx-running" data-pqx-reconciled-running>
+          <section class="pqx-panel pqx-command active" data-pqx-mobile-panel="property" data-pqx-screenfit-target="run-progress" role="status" aria-live="polite">
+            <div class="pqx-section-head">
+              <div>
+                <h2>Searching</h2>
+                <div class="pqx-note" data-pqx-run-summary>Checking the saved search.</div>
+              </div>
+            </div>
+            <div class="pqx-note" data-pqx-run-message>Checking the latest search status.</div>
+            <div class="pqx-progress-board" data-pqx-progress-board data-progress-state="${escapeHtml(status)}"></div>
+            <details class="pqx-card" data-pqx-running-details>
+              <summary><strong>Updates</strong></summary>
+              <div class="pqx-event-list" data-pqx-run-events></div>
+            </details>
+          </section>
+        </section>
+      `;
+      root.dataset.pqxState = 'running';
+      renderRun(runPayload);
+      return true;
+    };
     const hydrateTerminalRunOnce = async (statusUrl) => {
       const pollStatusUrl = compactRunStatusUrl(statusUrl);
       if (!pollStatusUrl) return;
       const currentTotal = Array.isArray(data.results) ? data.results.length : 0;
       const expectedTotal = rankedTotalFromSummary(data.run?.summary || {});
-      if (!expectedTotal || expectedTotal <= currentTotal) return;
       try {
         const response = await fetch(pollStatusUrl, { credentials: 'same-origin', cache: 'no-store' });
+        if (recoverExpiredSession(response)) return;
         const body = await response.json().catch(() => ({}));
         if (!response.ok || !body || typeof body !== 'object') return;
+        const authoritativeStatus = String(body.status || body.summary?.status || '').trim().toLowerCase();
+        if (authoritativeStatus && !terminalStates.has(authoritativeStatus)) {
+          transitionTerminalSurfaceToLiveRun(body);
+          pollRun(String(body.status_url || statusUrl));
+          return;
+        }
+        if (!expectedTotal || expectedTotal <= currentTotal) return;
         renderRun(body);
       } catch (_error) {
         return;

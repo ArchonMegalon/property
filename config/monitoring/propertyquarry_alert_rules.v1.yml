@@ -1,0 +1,278 @@
+groups:
+  - name: propertyquarry-slo-v1
+    interval: 30s
+    rules:
+      - record: propertyquarry:http_request_rate5m
+        expr: sum(rate(propertyquarry_http_requests_total[5m]))
+      - record: propertyquarry:http_5xx_rate5m
+        expr: sum(rate(propertyquarry_http_requests_total{status_class="5xx"}[5m]))
+      - record: propertyquarry:http_error_ratio5m
+        expr: propertyquarry:http_5xx_rate5m / clamp_min(propertyquarry:http_request_rate5m, 0.001)
+      - record: propertyquarry:http_latency_p95_seconds5m
+        expr: histogram_quantile(0.95, sum by (le) (rate(propertyquarry_http_request_duration_seconds_bucket[5m])))
+      - record: propertyquarry:http_latency_p99_seconds5m
+        expr: histogram_quantile(0.99, sum by (le) (rate(propertyquarry_http_request_duration_seconds_bucket[5m])))
+
+      - alert: PropertyQuarryMetricsMissing
+        expr: absent(up{job="propertyquarry"}) == 1 or max(up{job="propertyquarry"}) == 0
+        for: 2m
+        labels:
+          service: propertyquarry
+          severity: critical
+          slo: telemetry
+        annotations:
+          summary: PropertyQuarry metrics target is absent
+          runbook: docs/PROPERTYQUARRY_SLO_ALERT_RUNBOOK.md#metrics-missing
+
+      - alert: PropertyQuarryReplicaUnavailable
+        expr: up{job="propertyquarry"} == 0
+        for: 2m
+        labels:
+          service: propertyquarry
+          severity: critical
+          slo: telemetry
+        annotations:
+          summary: A discovered PropertyQuarry API replica is not scrapeable
+          runbook: docs/PROPERTYQUARRY_SLO_ALERT_RUNBOOK.md#replica-coverage
+
+      - alert: PropertyQuarryReplicaCoverageInsufficient
+        expr: sum by (job) (up{job="propertyquarry"}) < on (job) max by (job) (propertyquarry_expected_api_replicas)
+        for: 2m
+        labels:
+          service: propertyquarry
+          severity: critical
+          slo: telemetry
+        annotations:
+          summary: Fewer PropertyQuarry API replicas are scrapeable than the release expects
+          runbook: docs/PROPERTYQUARRY_SLO_ALERT_RUNBOOK.md#replica-coverage
+
+      - alert: PropertyQuarryExpectedReplicaMetricMissing
+        expr: up{job="propertyquarry"} == 1 unless on (job, instance) propertyquarry_expected_api_replicas{job="propertyquarry"}
+        for: 2m
+        labels:
+          service: propertyquarry
+          severity: critical
+          slo: telemetry
+        annotations:
+          summary: A scrapeable PropertyQuarry API replica omits the expected-replica gauge
+          runbook: docs/PROPERTYQUARRY_SLO_ALERT_RUNBOOK.md#replica-coverage
+
+      - alert: PropertyQuarryExpectedReplicaConfigurationDivergent
+        expr: count by (job) (count_values by (job) ("expected_replicas", propertyquarry_expected_api_replicas{job="propertyquarry"})) > 1
+        for: 2m
+        labels:
+          service: propertyquarry
+          severity: critical
+          slo: telemetry
+        annotations:
+          summary: PropertyQuarry API replicas disagree about the expected replica count
+          runbook: docs/PROPERTYQUARRY_SLO_ALERT_RUNBOOK.md#replica-coverage
+
+      - alert: PropertyQuarryExpectedReplicaConfigurationInvalid
+        expr: propertyquarry_expected_api_replicas < 1
+        for: 2m
+        labels:
+          service: propertyquarry
+          severity: critical
+          slo: telemetry
+        annotations:
+          summary: PropertyQuarry expected replica configuration is invalid
+          runbook: docs/PROPERTYQUARRY_SLO_ALERT_RUNBOOK.md#replica-coverage
+
+      - alert: PropertyQuarryAvailabilitySLOBurn
+        expr: propertyquarry:http_error_ratio5m > 0.01
+        for: 10m
+        labels:
+          service: propertyquarry
+          severity: critical
+          slo: availability
+        annotations:
+          summary: PropertyQuarry is burning the availability error budget rapidly
+          runbook: docs/PROPERTYQUARRY_SLO_ALERT_RUNBOOK.md#availability-error-rate
+
+      - alert: PropertyQuarryHighErrorRate
+        expr: propertyquarry:http_error_ratio5m > 0.001
+        for: 30m
+        labels:
+          service: propertyquarry
+          severity: warning
+          slo: error_rate
+        annotations:
+          summary: PropertyQuarry 5xx error ratio exceeds its objective
+          runbook: docs/PROPERTYQUARRY_SLO_ALERT_RUNBOOK.md#availability-error-rate
+
+      - alert: PropertyQuarryP95LatencyHigh
+        expr: propertyquarry:http_latency_p95_seconds5m > 1
+        for: 15m
+        labels:
+          service: propertyquarry
+          severity: warning
+          slo: latency_p95
+        annotations:
+          summary: PropertyQuarry p95 latency exceeds one second
+          runbook: docs/PROPERTYQUARRY_SLO_ALERT_RUNBOOK.md#latency
+
+      - alert: PropertyQuarryP99LatencyHigh
+        expr: propertyquarry:http_latency_p99_seconds5m > 2.5
+        for: 10m
+        labels:
+          service: propertyquarry
+          severity: critical
+          slo: latency_p99
+        annotations:
+          summary: PropertyQuarry p99 latency exceeds 2.5 seconds
+          runbook: docs/PROPERTYQUARRY_SLO_ALERT_RUNBOOK.md#latency
+
+      - alert: PropertyQuarryReadinessFailed
+        expr: propertyquarry_readiness == 0
+        for: 2m
+        labels:
+          service: propertyquarry
+          severity: critical
+          slo: readiness
+        annotations:
+          summary: PropertyQuarry readiness is failing
+          runbook: docs/PROPERTYQUARRY_SLO_ALERT_RUNBOOK.md#readiness
+
+      - alert: PropertyQuarryRuntimeHeartbeatMissing
+        expr: (propertyquarry_runtime_heartbeat_present == 0) and on (role) (propertyquarry_runtime_heartbeat_required == 1)
+        for: 2m
+        labels:
+          service: propertyquarry
+          severity: critical
+          slo: runtime_heartbeat
+        annotations:
+          summary: A required PropertyQuarry runtime heartbeat is missing
+          runbook: docs/PROPERTYQUARRY_SLO_ALERT_RUNBOOK.md#runtime-heartbeats
+
+      - alert: PropertyQuarryRuntimeHeartbeatStale
+        expr: (propertyquarry_runtime_heartbeat_stale == 1) and on (role) (propertyquarry_runtime_heartbeat_required == 1)
+        for: 2m
+        labels:
+          service: propertyquarry
+          severity: critical
+          slo: runtime_heartbeat
+        annotations:
+          summary: A required PropertyQuarry runtime heartbeat is stale or invalid
+          runbook: docs/PROPERTYQUARRY_SLO_ALERT_RUNBOOK.md#runtime-heartbeats
+
+      - alert: PropertyQuarryDatabasePoolSaturation
+        expr: propertyquarry_db_pool_in_use / clamp_min(propertyquarry_db_pool_capacity, 1) > 0.85
+        for: 10m
+        labels:
+          service: propertyquarry
+          severity: warning
+          slo: database_saturation
+        annotations:
+          summary: PropertyQuarry database pool utilization exceeds 85 percent
+          runbook: docs/PROPERTYQUARRY_SLO_ALERT_RUNBOOK.md#database-saturation
+
+      - alert: PropertyQuarryDatabasePoolExhaustion
+        expr: propertyquarry_db_pool_in_use / clamp_min(propertyquarry_db_pool_capacity, 1) > 0.95
+        for: 5m
+        labels:
+          service: propertyquarry
+          severity: critical
+          slo: database_saturation
+        annotations:
+          summary: PropertyQuarry database pool utilization exceeds 95 percent
+          runbook: docs/PROPERTYQUARRY_SLO_ALERT_RUNBOOK.md#database-saturation
+
+      - alert: PropertyQuarryQueueDepthHigh
+        expr: propertyquarry_queue_depth > 100
+        for: 10m
+        labels:
+          service: propertyquarry
+          severity: warning
+          slo: queue_backlog
+        annotations:
+          summary: PropertyQuarry queue depth exceeds the launch threshold
+          runbook: docs/PROPERTYQUARRY_SLO_ALERT_RUNBOOK.md#queue-backlog
+
+      - alert: PropertyQuarryQueueOldestItemStale
+        expr: propertyquarry_queue_oldest_item_age_seconds > 300
+        for: 10m
+        labels:
+          service: propertyquarry
+          severity: critical
+          slo: queue_backlog
+        annotations:
+          summary: The oldest PropertyQuarry queue item exceeds five minutes
+          runbook: docs/PROPERTYQUARRY_SLO_ALERT_RUNBOOK.md#queue-backlog
+
+      - alert: PropertyQuarryProviderOrQuotaFailures
+        expr: sum(rate(propertyquarry_http_request_errors_total{route=~".*(provider|quota|balance).*"}[5m])) > 0
+        for: 5m
+        labels:
+          service: propertyquarry
+          severity: critical
+          slo: provider_quota
+        annotations:
+          summary: PropertyQuarry provider or quota routes are returning failures
+          runbook: docs/PROPERTYQUARRY_SLO_ALERT_RUNBOOK.md#provider-and-quota-failures
+
+      - alert: PropertyQuarryDeliveryOutboxDeadLettered
+        expr: increase(propertyquarry_scheduler_delivery_outbox_events_total{outcome="dead_lettered"}[5m]) > 0
+        for: 1m
+        labels:
+          service: propertyquarry
+          severity: critical
+          slo: delivery_integrity
+        annotations:
+          summary: PropertyQuarry delivery outbox moved work to dead letter
+          runbook: docs/PROPERTYQUARRY_SLO_ALERT_RUNBOOK.md#delivery-outbox-integrity
+
+      - alert: PropertyQuarryDeliveryOutboxFailed
+        expr: increase(propertyquarry_scheduler_delivery_outbox_events_total{outcome="failed"}[5m]) > 0
+        for: 1m
+        labels:
+          service: propertyquarry
+          severity: critical
+          slo: delivery_integrity
+        annotations:
+          summary: PropertyQuarry delivery outbox recorded a terminal failure
+          runbook: docs/PROPERTYQUARRY_SLO_ALERT_RUNBOOK.md#delivery-outbox-integrity
+
+      - alert: PropertyQuarryDeliveryOutboxClaimConflicts
+        expr: increase(propertyquarry_scheduler_delivery_outbox_events_total{outcome="claim_conflicts"}[5m]) > 0
+        for: 5m
+        labels:
+          service: propertyquarry
+          severity: warning
+          slo: delivery_integrity
+        annotations:
+          summary: PropertyQuarry delivery outbox claims are conflicting
+          runbook: docs/PROPERTYQUARRY_SLO_ALERT_RUNBOOK.md#delivery-outbox-integrity
+
+      - alert: PropertyQuarryContentLedgerReplayConflict
+        expr: increase(propertyquarry_content_ledger_events_total{outcome="replay_conflict"}[5m]) > 0
+        for: 1m
+        labels:
+          service: propertyquarry
+          severity: critical
+          slo: content_integrity
+        annotations:
+          summary: PropertyQuarry content ledger rejected a conflicting replay
+          runbook: docs/PROPERTYQUARRY_SLO_ALERT_RUNBOOK.md#content-ledger-integrity
+
+      - alert: PropertyQuarryContentLedgerFailed
+        expr: increase(propertyquarry_content_ledger_events_total{outcome="failed"}[5m]) > 0
+        for: 1m
+        labels:
+          service: propertyquarry
+          severity: critical
+          slo: content_integrity
+        annotations:
+          summary: PropertyQuarry content ledger recorded a failed operation
+          runbook: docs/PROPERTYQUARRY_SLO_ALERT_RUNBOOK.md#content-ledger-integrity
+
+      - alert: PropertyQuarryContentLedgerCorruption
+        expr: increase(propertyquarry_content_ledger_events_total{outcome="corruption"}[5m]) > 0
+        for: 0m
+        labels:
+          service: propertyquarry
+          severity: critical
+          slo: content_integrity
+        annotations:
+          summary: PropertyQuarry content ledger detected corruption
+          runbook: docs/PROPERTYQUARRY_SLO_ALERT_RUNBOOK.md#content-ledger-integrity

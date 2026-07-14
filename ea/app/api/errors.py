@@ -1,14 +1,21 @@
 from __future__ import annotations
 
+import html
 import logging
+import re
+import time
 import urllib.parse
 import uuid
 from typing import Any
 
 from fastapi.encoders import jsonable_encoder
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
+
+from app.logging_utils import exception_log_fields, log_event
+from app.observability import get_runtime_metrics, route_template
 
 try:
     from psycopg import InterfaceError as PsycopgInterfaceError
@@ -23,6 +30,7 @@ _LOG = logging.getLogger(__name__)
 _BROWSER_MUTATION_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 _BROWSER_MUTATION_PATH_PREFIXES = ("/app/", "/admin/")
 _PROPERTYQUARRY_RAW_API_DOC_PATHS = {"/openapi.json", "/api/docs", "/api/redoc"}
+_CORRELATION_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 
 _DEFAULT_BROWSER_SECURITY_HEADERS = {
     "Content-Security-Policy": (
@@ -49,6 +57,13 @@ _DEFAULT_BROWSER_SECURITY_HEADERS = {
 
 def _correlation_id(request: Request) -> str:
     return str(getattr(request.state, "correlation_id", "") or uuid.uuid4())
+
+
+def _request_correlation_id(request: Request) -> str:
+    candidate = str(request.headers.get("x-correlation-id") or "").strip()
+    if _CORRELATION_ID_RE.fullmatch(candidate):
+        return candidate
+    return str(uuid.uuid4())
 
 
 def _error_payload(
@@ -115,8 +130,110 @@ def _browser_auth_redirect(request: Request, *, code: str) -> RedirectResponse |
         return None
     query = str(request.url.query or "").strip()
     return_to = f"{path}?{query}" if query else path
-    target = "/sign-in?" + urllib.parse.urlencode({"return_to": return_to})
+    params = {"return_to": return_to}
+    referer = str(request.headers.get("referer") or "").strip()
+    try:
+        parsed_referer = urllib.parse.urlsplit(referer)
+    except ValueError:
+        parsed_referer = urllib.parse.SplitResult("", "", "", "", "")
+    if (
+        parsed_referer.path.startswith("/app")
+        and _normalize_origin(referer, default_scheme=str(request.url.scheme or "https")) == _request_origin(request)
+    ):
+        params["session"] = "expired"
+    target = "/sign-in?" + urllib.parse.urlencode(params)
     response = RedirectResponse(target, status_code=303)
+    response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
+    return response
+
+
+def _propertyquarry_browser_document_request(request: Request) -> bool:
+    if str(request.method or "").upper() not in {"GET", "HEAD"}:
+        return False
+    if not _request_is_propertyquarry_host(request):
+        return False
+    path = str(request.url.path or "").strip()
+    if path.startswith(("/api/", "/v1/", "/app/api/", "/admin/api/")):
+        return False
+    accept = str(request.headers.get("accept") or "").lower()
+    sec_fetch_dest = str(request.headers.get("sec-fetch-dest") or "").lower()
+    return "text/html" in accept or sec_fetch_dest == "document"
+
+
+def _propertyquarry_browser_failure_response(
+    request: Request,
+    *,
+    status_code: int,
+) -> HTMLResponse | None:
+    if not _propertyquarry_browser_document_request(request):
+        return None
+    failure_states = {
+        404: {
+            "state": "not_found",
+            "kicker": "Page not found",
+            "title": "We couldn\u2019t find that page.",
+            "detail": "The link may have moved. Your saved searches and shortlist are unchanged.",
+            "action_href": "/",
+            "action_label": "Go to PropertyQuarry",
+        },
+        500: {
+            "state": "internal_error",
+            "kicker": "Temporary interruption",
+            "title": "Something went wrong on our side.",
+            "detail": "Your saved work is still safe. Try this page again, or open support if it keeps happening.",
+            "action_href": str(request.url.path or "/"),
+            "action_label": "Try again",
+        },
+        503: {
+            "state": "service_unavailable",
+            "kicker": "Temporary interruption",
+            "title": "PropertyQuarry is taking a short pause.",
+            "detail": "Your saved work is still safe. Try again in a moment.",
+            "action_href": str(request.url.path or "/"),
+            "action_label": "Try again",
+        },
+    }
+    state = failure_states.get(int(status_code))
+    if state is None:
+        return None
+    safe = {key: html.escape(str(value or ""), quote=True) for key, value in state.items()}
+    document = f"""<!doctype html>
+<html lang=\"en\">
+<head>
+  <meta charset=\"utf-8\">
+  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">
+  <meta name=\"robots\" content=\"noindex,nofollow,noarchive,nosnippet\">
+  <title>{safe['title']} | PropertyQuarry</title>
+  <style>
+    :root {{ color-scheme: light dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }}
+    * {{ box-sizing: border-box; }}
+    body {{ margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; background: #f4f1eb; color: #211f1b; }}
+    main {{ width: min(100%, 680px); padding: clamp(24px, 6vw, 52px); border: 1px solid #d7d0c5; border-radius: 20px; background: #fffdf9; box-shadow: 0 20px 60px rgba(42,36,28,.08); }}
+    .mark {{ display: inline-grid; place-items: center; width: 42px; height: 42px; border-radius: 12px; background: #223f37; color: #fff; font-weight: 800; }}
+    .kicker {{ margin-top: 24px; color: #52645d; font-size: .78rem; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }}
+    h1 {{ margin: 8px 0 12px; max-width: 18ch; font-size: clamp(2rem, 7vw, 3.75rem); line-height: 1; letter-spacing: -.04em; }}
+    p {{ max-width: 55ch; color: #5e5a52; line-height: 1.6; }}
+    nav {{ display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }}
+    a {{ min-height: 44px; display: inline-flex; align-items: center; padding: 0 18px; border: 1px solid #b9b0a2; border-radius: 999px; color: inherit; font-weight: 750; text-decoration: none; }}
+    a.primary {{ background: #223f37; border-color: #223f37; color: #fff; }}
+    a:focus-visible {{ outline: 3px solid #d68f35; outline-offset: 3px; }}
+    @media (prefers-color-scheme: dark) {{ body {{ background: #151714; color: #f3efe7; }} main {{ background: #1d211d; border-color: #3b413a; }} p, .kicker {{ color: #bdc6bd; }} a {{ border-color: #636a62; }} }}
+  </style>
+</head>
+<body>
+  <main data-pq-failure-state=\"{safe['state']}\" role=\"alert\" aria-labelledby=\"pq-failure-title\">
+    <span class=\"mark\" aria-hidden=\"true\">PQ</span>
+    <div class=\"kicker\">{safe['kicker']}</div>
+    <h1 id=\"pq-failure-title\">{safe['title']}</h1>
+    <p>{safe['detail']}</p>
+    <nav aria-label=\"Recovery actions\">
+      <a class=\"primary\" data-pq-next-action href=\"{safe['action_href']}\">{safe['action_label']}</a>
+      <a href=\"/support\">Open support</a>
+    </nav>
+  </main>
+</body>
+</html>"""
+    response = HTMLResponse(document, status_code=status_code)
     response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
     return response
 
@@ -222,41 +339,67 @@ def _apply_default_browser_security_headers(request: Request, response: Any) -> 
 def install_error_handlers(app: FastAPI) -> None:
     @app.middleware("http")
     async def correlation_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
-        request.state.correlation_id = request.headers.get("x-correlation-id") or str(uuid.uuid4())
-        if _propertyquarry_raw_api_docs_request(request):
-            response = _error_payload(
-                request=request,
-                status_code=404,
-                code="propertyquarry_api_schema_not_public",
-                message="raw runtime API schema is not public on the PropertyQuarry customer surface",
-                details="Use the public docs and support pages for customer-facing product information.",
-            )
+        request.state.correlation_id = _request_correlation_id(request)
+        started_at = time.perf_counter()
+        response = None
+        status_code = 500
+        try:
+            if _propertyquarry_raw_api_docs_request(request):
+                response = _error_payload(
+                    request=request,
+                    status_code=404,
+                    code="propertyquarry_api_schema_not_public",
+                    message="raw runtime API schema is not public on the PropertyQuarry customer surface",
+                    details="Use the public docs and support pages for customer-facing product information.",
+                )
+                response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
+            elif _browser_mutation_request_is_cross_site(request):
+                response = _error_payload(
+                    request=request,
+                    status_code=403,
+                    code="cross_site_browser_mutation",
+                    message="cross-site browser mutation blocked",
+                    details="unsafe browser requests must originate from the same site",
+                )
+            else:
+                response = await call_next(request)
+            status_code = int(response.status_code)
             response.headers["x-correlation-id"] = _correlation_id(request)
-            response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
             _apply_default_browser_security_headers(request, response)
             return response
-        if _browser_mutation_request_is_cross_site(request):
-            response = _error_payload(
-                request=request,
-                status_code=403,
-                code="cross_site_browser_mutation",
-                message="cross-site browser mutation blocked",
-                details="unsafe browser requests must originate from the same site",
+        finally:
+            duration_seconds = max(0.0, time.perf_counter() - started_at)
+            route = route_template(request)
+            get_runtime_metrics(request.app).record_request(
+                method=request.method,
+                route=route,
+                status_code=status_code,
+                duration_seconds=duration_seconds,
             )
-            response.headers["x-correlation-id"] = _correlation_id(request)
-            _apply_default_browser_security_headers(request, response)
-            return response
-        response = await call_next(request)
-        response.headers["x-correlation-id"] = _correlation_id(request)
-        _apply_default_browser_security_headers(request, response)
-        return response
+            log_event(
+                _LOG,
+                logging.INFO,
+                "http_request_completed",
+                correlation_id=_correlation_id(request),
+                method=request.method,
+                route=route,
+                status_code=status_code,
+                status_class=f"{status_code // 100}xx",
+                duration_seconds=round(duration_seconds, 6),
+            )
 
-    @app.exception_handler(HTTPException)
-    async def http_exception_handler(request: Request, exc: HTTPException):  # type: ignore[no-untyped-def]
+    @app.exception_handler(StarletteHTTPException)
+    async def http_exception_handler(request: Request, exc: StarletteHTTPException):  # type: ignore[no-untyped-def]
         code = _code_from_http(exc.status_code, exc.detail)
         redirect = _browser_auth_redirect(request, code=code)
         if redirect is not None:
             return redirect
+        browser_failure = _propertyquarry_browser_failure_response(
+            request,
+            status_code=exc.status_code,
+        )
+        if browser_failure is not None:
+            return browser_failure
         message = str(exc.detail or code)
         return _error_payload(
             request=request,
@@ -289,19 +432,23 @@ def install_error_handlers(app: FastAPI) -> None:
 
     async def _database_unavailable_handler(request: Request, exc: Exception):  # type: ignore[no-untyped-def]
         correlation_id = _correlation_id(request)
-        _LOG.warning(
-            "database_unavailable correlation_id=%s error_type=%s detail=%s",
-            correlation_id,
-            exc.__class__.__name__,
-            str(exc or "").strip(),
+        log_event(
+            _LOG,
+            logging.WARNING,
+            "database_unavailable",
+            correlation_id=correlation_id,
+            error_type=exc.__class__.__name__,
+            error_detail=str(exc or "").strip(),
         )
-        response = _error_payload(
-            request=request,
-            status_code=503,
-            code="database_unavailable",
-            message="temporary service interruption",
-            details="database_temporarily_unavailable",
-        )
+        response = _propertyquarry_browser_failure_response(request, status_code=503)
+        if response is None:
+            response = _error_payload(
+                request=request,
+                status_code=503,
+                code="database_unavailable",
+                message="temporary service interruption",
+                details="database_temporarily_unavailable",
+            )
         response.headers["Retry-After"] = "5"
         return response
 
@@ -312,10 +459,25 @@ def install_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception):  # type: ignore[no-untyped-def]
-        return _error_payload(
-            request=request,
-            status_code=500,
-            code="internal_error",
-            message="internal server error",
-            details=exc.__class__.__name__,
+        log_event(
+            _LOG,
+            logging.ERROR,
+            "unhandled_exception",
+            correlation_id=_correlation_id(request),
+            method=request.method,
+            route=route_template(request),
+            error_type=exc.__class__.__name__,
+            **exception_log_fields(exc),
         )
+        response = _propertyquarry_browser_failure_response(request, status_code=500)
+        if response is None:
+            response = _error_payload(
+                request=request,
+                status_code=500,
+                code="internal_error",
+                message="internal server error",
+                details=exc.__class__.__name__,
+            )
+        response.headers["x-correlation-id"] = _correlation_id(request)
+        _apply_default_browser_security_headers(request, response)
+        return response

@@ -80,7 +80,15 @@ class Variant:
 
 
 def fetch_html(url: str) -> str:
-    response = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=60)
+    from app.product.outbound_url_security import request_get_with_guarded_redirects
+
+    response = request_get_with_guarded_redirects(
+        requests.get,
+        url,
+        allowed_hosts=("willhaben.at",),
+        headers={"User-Agent": USER_AGENT},
+        timeout=60,
+    )
     response.raise_for_status()
     return response.text
 
@@ -682,7 +690,12 @@ def inspect_panorama_signal(url: str, description: str) -> dict[str, object]:
                     low_saturation_pixels = 0
                     dark_pixels = 0
                     colorful_pixels = 0
-                    for r, g, b in probe.getdata():
+                    pixels = (
+                        probe.get_flattened_data()
+                        if hasattr(probe, "get_flattened_data")
+                        else probe.getdata()
+                    )
+                    for r, g, b in pixels:
                         pixel_count += 1
                         if r >= 232 and g >= 232 and b >= 232:
                             white_pixels += 1

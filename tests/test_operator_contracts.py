@@ -29,6 +29,17 @@ def _assert_valid_dotenv_template(template_path: Path) -> None:
         assert "=" in raw_line, f"{template_path.name}:{line_number} is not valid dotenv syntax"
 
 
+def _dotenv_template_values(template_path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for raw_line in template_path.read_text(encoding="utf-8").splitlines():
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        key, value = raw_line.split("=", 1)
+        values[key] = value
+    return values
+
+
 def _smoke_runtime_text() -> str:
     parts: list[str] = []
     for path in sorted((ROOT / "tests").glob("smoke_runtime_api*.py")):
@@ -152,13 +163,77 @@ def test_responses_provider_health_credit_debug_contract_is_documented() -> None
         assert "TASKS_WORK_LOG.md is no longer tracked" in changelog
 
 
-def test_makefile_prefers_repo_python_for_local_api_tests() -> None:
+def test_makefile_selects_a_pytest_capable_python_for_local_tests() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
 
     assert "PYTHON_BIN ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)" in makefile
-    assert "PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTHON_BIN) -m pytest -q tests" in makefile
+    assert "PYTEST_PYTHON_BIN ?= $(shell if" in makefile
+    assert ".venv/bin/python -c 'import pytest'" in makefile
+    assert "python3 -c 'import pytest'" in makefile
+    assert "PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTEST_PYTHON_BIN) -m pytest -q tests" in makefile
+    planned = subprocess.run(
+        ["make", "--no-print-directory", "-n", "test-all"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    tokens = planned.split()
+    pytest_module_index = tokens.index("-m")
+    selected_python = tokens[pytest_module_index - 1]
+    subprocess.run(
+        [selected_python, "-c", "import pytest"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
     assert "$(PYTHON_BIN) -m compileall -q ea/app" in makefile
     assert "$(PYTHON_BIN) -m compileall -q tests" in makefile
+
+
+def test_release_preflight_names_local_and_full_operator_contracts_truthfully() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    local_body = makefile.split("release-preflight:\n", 1)[1].split("\n\n", 1)[0]
+    full_body = makefile.split("propertyquarry-release-preflight:\n", 1)[1].split("\n\n", 1)[0]
+
+    assert "property-release-gates" not in local_body
+    assert "$(MAKE) release-preflight" in full_body
+    assert "$(MAKE) property-release-gates" in full_body
+    assert "source/local preflight" in readme
+    assert "does not make a live-runtime or disaster-recovery claim" in readme
+    assert "explicit full operator gate" in readme
+
+
+def test_property_compose_review_template_uses_nonsecret_render_placeholders() -> None:
+    env_values = _dotenv_template_values(ROOT / ".env.example")
+    compose = yaml.safe_load((ROOT / "docker-compose.property.yml").read_text(encoding="utf-8"))
+    api_environment = compose["services"]["propertyquarry-api"]["environment"]
+    render = compose["services"]["propertyquarry-render-tools"]
+    render_environment = render["environment"]
+
+    assert env_values["PROPERTYQUARRY_RECONSTRUCTION_RENDER_BRIDGE_TOKEN"] == (
+        "REVIEW_ONLY_NOT_A_SECRET_REPLACE_BEFORE_DEPLOY"
+    )
+    grace_seconds = int(env_values["PROPERTYQUARRY_RENDER_STOP_GRACE_SECONDS"])
+    max_generation_match = re.fullmatch(
+        r"\$\{PROPERTYQUARRY_RECONSTRUCTION_RENDER_MAX_GENERATION_SECONDS:-(\d+)\}",
+        render_environment["PROPERTYQUARRY_RECONSTRUCTION_RENDER_MAX_GENERATION_SECONDS"],
+    )
+    assert max_generation_match is not None
+    assert grace_seconds > int(max_generation_match.group(1))
+    assert api_environment["PROPERTYQUARRY_RECONSTRUCTION_RENDER_BRIDGE_TOKEN"].startswith(
+        "${PROPERTYQUARRY_RECONSTRUCTION_RENDER_BRIDGE_TOKEN:?"
+    )
+    assert render_environment["PROPERTYQUARRY_RECONSTRUCTION_RENDER_BRIDGE_TOKEN"].startswith(
+        "${PROPERTYQUARRY_RECONSTRUCTION_RENDER_BRIDGE_TOKEN:?"
+    )
+    assert render_environment["PROPERTYQUARRY_RENDER_STOP_GRACE_SECONDS"] == (
+        "${PROPERTYQUARRY_RENDER_STOP_GRACE_SECONDS:-1860}"
+    )
+    assert render["stop_grace_period"] == "${PROPERTYQUARRY_RENDER_STOP_GRACE_SECONDS:-1860}s"
 
 
 def test_env_templates_use_only_valid_dotenv_lines() -> None:
@@ -309,6 +384,9 @@ def test_role_aware_healthcheck_contract_covers_api_and_worker_roles() -> None:
     assert "EA_ROLE=worker" in compose
     assert "EA_ROLE=scheduler" in compose
     assert "ea-responses-proxy" in compose
+    assert "EA_RESPONSES_PROXY_HOST=0.0.0.0" in compose
+    assert "EA_RESPONSES_PROXY_AUTH_TOKEN=${EA_API_TOKEN:?" in compose
+    assert '"${EA_RESPONSES_PROXY_PUBLISH_HOST:-127.0.0.1}:${EA_RESPONSES_PROXY_HOST_PORT:-8092}:8091"' in compose
     assert "http://127.0.0.1:8091/health/ready" in compose
 
 
@@ -328,14 +406,17 @@ def test_cloudflared_tunnel_is_only_available_via_override() -> None:
     assert "docker-compose.cloudflared.yml" in readme
 
 
-def test_deploy_propertyquarry_script_supports_dedicated_cloudflared_overlay() -> None:
+def test_deploy_propertyquarry_delegates_immutable_cloudflared_plan() -> None:
     deploy = (ROOT / "scripts" / "deploy_propertyquarry.sh").read_text(encoding="utf-8")
+    overlay = (ROOT / "docker-compose.cloudflared.yml").read_text(encoding="utf-8")
 
-    assert "PROPERTYQUARRY_ENABLE_CLOUDFLARED" in deploy
-    assert "PROPERTYQUARRY_CF_TUNNEL_TOKEN" in deploy
-    assert 'cloudflared_compose_file="docker-compose.cloudflared.yml"' in deploy
-    assert 'DC+=(-f "${cloudflared_compose_file}")' in deploy
-    assert "dedicated PropertyQuarry tunnel" in deploy
+    assert "--canonical-compose-plan" in deploy
+    assert "--require-cloudflared-immutable-digest-and-config-binding" in deploy
+    assert "--forbid-caller-compose" in deploy
+    assert "PROPERTYQUARRY_ENABLE_CLOUDFLARED" not in deploy
+    assert "docker-compose.cloudflared.yml" not in deploy
+    assert "cloudflare/cloudflared@sha256:" in overlay
+    assert "cloudflare/cloudflared:latest" not in overlay
 
 
 def test_propertyquarry_cloudflared_bootstrap_script_help_and_contract() -> None:
@@ -795,7 +876,7 @@ def test_postgres_smoke_exports_openapi_dependency_examples() -> None:
 
     assert "exports OpenAPI and verifies paused session-step dependency examples" in smoke
     assert 'API_SERVICE="${PROPERTYQUARRY_API_SERVICE:-${EA_API_SERVICE:-ea-api}}"' in smoke
-    assert '"${DC[@]}" up -d --build --force-recreate "${API_SERVICE}"' in smoke
+    assert '"${DC[@]}" up -d --no-deps --build --force-recreate "${API_SERVICE}"' in smoke
     assert "bash scripts/export_openapi.sh" in smoke
     assert "step-artifact-save-waiting-approval" in smoke
     assert "step-artifact-save-blocked-human" in smoke

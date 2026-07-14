@@ -1,0 +1,114 @@
+{
+  "contract_name": "propertyquarry.governed_spatial_media_retention_policy.v1",
+  "contract_version": "1.0.0",
+  "state": "candidate_pending_independent_review",
+  "policy_id": "propertyquarry-spatial-media-retention-v1",
+  "policy_owner": "propertyquarry.app.api.routes.landing",
+  "product_bridge_owner": "propertyquarry.app.product.property_tour_hosting",
+  "proposed_at": "2026-07-11T00:00:00Z",
+  "expires_at": "2027-07-11T00:00:00Z",
+  "retention": {
+    "raw_provider_bodies_days": 7,
+    "raw_provider_secret_or_prohibited_content_hours": 24,
+    "failed_rejected_cancelled_inputs_hours": 72,
+    "failed_input_secret_or_prohibited_content_hours": 24,
+    "accepted_source_and_normalized_packet_days": 30,
+    "rejected_superseded_disqualified_unpublished_preview_days": 14,
+    "private_execution_receipt_days": 400,
+    "private_or_never_published_manifest_days": 400,
+    "all_deletion_tombstones_days": 548,
+    "published_artifact_lease_days": 365,
+    "public_manifest_revocation_and_deletion_history_days": 548,
+    "private_render_and_source_cache_hours": 24,
+    "derived_telemetry_cache_hours": 24,
+    "derived_telemetry_deletion_receipt_days": 180,
+    "synthetic_compose_fixture_hours": 1,
+    "signed_artifact_url_minutes": 15,
+    "private_access_audit_log_days": 180,
+    "encrypted_backup_days": 35
+  },
+  "lifecycle_contract_projection": {
+    "source_retention_days": 30,
+    "receipt_retention_days": 400,
+    "tombstone_retention_days": 548
+  },
+  "retention_scope_rules": {
+    "all_deletion_tombstones_days": "applies_to_every_privacy_retention_takedown_and_provider_deletion_tombstone_regardless_of_publication_state",
+    "private_or_never_published_manifest_days": "applies_only_to_private_or_never_published_manifests_and_excludes_tombstones_revocation_history_and_deletion_history",
+    "public_manifest_revocation_and_deletion_history_days": "applies_to_public_manifest_revocation_and_deletion_history_and_does_not_replace_the_all_tombstone_rule",
+    "tombstone_precedence": "a_parent_manifest_or_receipt_expiry_never_shortens_all_deletion_tombstones_days",
+    "state_transition_rule": "when_a_manifest_enters_tombstoned_state_manifest_retention_stops_governing_the_tombstone_and_all_deletion_tombstones_days_governs"
+  },
+  "deadlines": {
+    "takedown_acknowledgement_hours": 4,
+    "serving_suppression_hours": 4,
+    "cache_purge_minutes": 15,
+    "provider_deletion_request_hours": 24,
+    "hot_deletion_hours": 72,
+    "provider_deletion_evidence_or_blocked_failure_days": 7,
+    "user_closeout_days": 7,
+    "backup_aging_days": 35
+  },
+  "deadline_clock_rules": {
+    "duration_semantics": "fixed_elapsed_seconds_minute_60_hour_3600_day_86400",
+    "boundary_semantics": "completion_at_or_before_deadline_is_timely_completion_after_deadline_is_late",
+    "takedown_acknowledgement_deadline": "requested_at_plus_14400_seconds",
+    "serving_suppression_deadline": "requested_at_plus_14400_seconds",
+    "cache_purge_deadline": "minimum_of_requested_at_plus_15300_seconds_and_serving_suppressed_at_plus_900_seconds",
+    "provider_deletion_request_deadline": "requested_at_plus_86400_seconds",
+    "hot_deletion_deadline": "requested_at_plus_259200_seconds",
+    "provider_deletion_evidence_or_blocked_failure_deadline": "requested_at_plus_604800_seconds",
+    "user_closeout_deadline": "requested_at_plus_604800_seconds",
+    "backup_aging_deadline": "tombstoned_at_plus_3024000_seconds",
+    "shorter_deadline_rule": "the_earliest_of_the_policy_deadline_policy_expiry_and_any_rights_consent_takedown_or_privacy_deadline_wins",
+    "clock_normalization": "all_anchors_are_offset_aware_instants_compared_after_utc_normalization_and_are_immutable_for_the_deletion_scope"
+  },
+  "legal_hold": {
+    "maximum_authorization_days": 90,
+    "review_cadence_days": 30,
+    "explicit_scope_required": true,
+    "named_privacy_owner_required": true,
+    "named_legal_owner_required": true,
+    "issued_at_required": true,
+    "expires_at_required": true,
+    "silent_renewal_allowed": false,
+    "serving_preserved": false,
+    "publication_preserved": false
+  },
+  "security": {
+    "minimum_transport": "tls_1_2",
+    "private_material_at_rest": "aes_256_gcm",
+    "maximum_key_rotation_days": 90,
+    "environment_scoped_keys_required": true,
+    "least_privilege_required": true,
+    "audited_access_required": true
+  },
+  "deletion": {
+    "tombstone_before_ciphertext_unlink": true,
+    "cascade_targets": [
+      "source",
+      "output",
+      "preview",
+      "derivative",
+      "index",
+      "cache",
+      "signed_url",
+      "provider_copy",
+      "backup_tombstone",
+      "publication_access",
+      "private_access"
+    ],
+    "restore_applies_tombstones_first": true,
+    "restore_reenables_serving": false,
+    "silent_restore_allowed": false
+  },
+  "clock_rules": {
+    "source_anchor": "earlier_of_source_packet_created_at_or_compose_acceptance_at",
+    "build_restarts_source_clock": false,
+    "replay_restarts_source_clock": false,
+    "retry_restarts_source_clock": false,
+    "key_rotation_restarts_source_clock": false,
+    "provider_attempt_restarts_source_clock": false,
+    "shorter_verified_policy_deadline_wins": true
+  }
+}

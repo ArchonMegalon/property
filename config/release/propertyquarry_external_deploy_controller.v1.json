@@ -1,0 +1,9 @@
+{
+  "schema": "propertyquarry.external-deploy-controller.v1",
+  "status": "UNCONFIGURED",
+  "controller_path": "/usr/libexec/propertyquarry-release-control/propertyquarry-deploy-controller",
+  "controller_sha256": "UNCONFIGURED",
+  "protocol_version": 1,
+  "monotonic_authority_id": "UNCONFIGURED",
+  "minimum_monotonic_generation": 0
+}

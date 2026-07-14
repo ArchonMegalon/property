@@ -406,13 +406,58 @@ def property_search_run_progress_projection(
 
     previous_progress = max(0, min(99, int(state.get("progress") or 0)))
     raw_progress = int((max(0, steps_completed) * 100) / max(1, stages_total))
-    sources_total = max(0, int(summary.get("sources_total") or 0))
-    source_rows = list(summary.get("sources") or [])
-    source_completed = _monotonic_summary_counter(
-        summary,
-        "sources_completed",
-        len([row for row in source_rows if isinstance(row, dict)]),
+    source_rows = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
+    sources_total = max(
+        0,
+        int(summary.get("source_variant_total") or 0),
+        int(summary.get("sources_total") or 0),
+        len(source_rows),
     )
+    reported_source_completed = max(
+        0,
+        int(summary.get("sources_completed") or summary.get("completed_sources") or 0),
+    )
+    terminal_source_statuses = {
+        "completed",
+        "processed",
+        "done",
+        "success",
+        "repaired",
+        "skipped",
+        "failed",
+        "error",
+    }
+    explicit_source_state_total = 0
+    completed_source_row_total = 0
+    for row in source_rows:
+        row_status = str(row.get("status") or row.get("state") or "").strip().lower()
+        has_error = bool(str(row.get("error") or "").strip())
+        if row_status or has_error:
+            explicit_source_state_total += 1
+        if row_status in terminal_source_statuses or has_error:
+            completed_source_row_total += 1
+
+    repaired_source_overcount = bool(
+        explicit_source_state_total
+        and reported_source_completed > completed_source_row_total
+    )
+    if explicit_source_state_total:
+        # Source rows are materialized as queued before work starts. Their mere
+        # presence must not count as completion. Prefer their explicit state so
+        # a preseeded 42-row matrix cannot render as 42/42 while work continues.
+        source_completed = min(sources_total, completed_source_row_total)
+        summary["sources_completed"] = source_completed
+    else:
+        # Older/compact snapshots can omit row states. Keep their explicit
+        # aggregate counter as the only available completion evidence.
+        source_completed = min(
+            sources_total,
+            _monotonic_summary_counter(summary, "sources_completed", reported_source_completed),
+        )
+    if repaired_source_overcount:
+        # A prior projection may already have inflated progress from the same
+        # preseeded-row bug. Rebase once to the truthful source-state fraction.
+        previous_progress = 0
     normalized_step = str(step or "").strip().lower()
 
     bootstrap_without_output = (

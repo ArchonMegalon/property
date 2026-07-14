@@ -58,6 +58,7 @@
       {% endif %}
       <div class="pqx-note pqx-results-summary-row">
         <a class="pqx-results-summary-link" href="#results-list"><b>{{ full_results_total }}</b> {{ results_label }}</a>
+        <a class="pqx-results-summary-link" href="/how-it-works/score?language={{ (brief.get('language_code') or 'en')|urlencode }}&country={{ (brief.get('country_code') or 'AT')|urlencode }}">Open score guide</a>
         {% if filtered_total %}
         <a class="pqx-results-summary-link pqx-results-filter-link" href="#pqx-filtered-breakdown" data-pqx-filtered-open aria-label="{{ filtered_total }} homes are not shown yet">
           {{ filtered_total }} not shown yet

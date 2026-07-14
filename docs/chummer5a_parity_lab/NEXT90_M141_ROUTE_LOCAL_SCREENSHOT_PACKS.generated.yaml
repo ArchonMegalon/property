@@ -1,5 +1,5 @@
 contract_name: ea.next90_m141_route_local_screenshot_packs
-generated_at: '2026-06-02T05:04:10Z'
+generated_at: '2026-07-13T08:30:17Z'
 package_id: next90-m141-ea-compile-route-local-screenshot-packs-and-compare-packets-for-translator-x
 title: Compile route-local screenshot packs and compare packets for translator, XML
   amendment, Hero Lab, and import-oracle proof without inventing parity.
@@ -20,7 +20,7 @@ summary:
   family_count: 2
   family_pass_count: 2
   fleet_gate_status: pass
-  desktop_client_status: ready
+  desktop_client_status: missing
   queue_ready_to_mark_complete: false
 source_inputs:
   ea_compare_packs:
@@ -28,13 +28,13 @@ source_inputs:
     generated_at: '2026-04-19T12:09:26Z'
   fleet_capture_pack:
     path: /docker/fleet/docs/chummer5a-oracle/parity_lab_capture_pack.yaml
-    generated_at: '2026-05-05T19:51:57Z'
+    generated_at: '2026-06-19T02:49:31Z'
   fleet_veteran_workflow_pack:
     path: /docker/fleet/docs/chummer5a-oracle/veteran_workflow_packs.yaml
-    generated_at: '2026-05-05 23:16:04+00:00'
+    generated_at: '2026-06-19T01:09:18Z'
   next90_guide:
     path: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_PRODUCT_ADVANCE_GUIDE.md
-    generated_at: '2026-05-30T09:55:17Z'
+    generated_at: '2026-06-14T07:34:47Z'
   design_queue:
     path: /docker/chummercomplete/chummer-design/products/chummer/NEXT_90_DAY_QUEUE_STAGING.generated.yaml
     match_count: 1
@@ -92,41 +92,41 @@ source_inputs:
     row_fingerprint: bdb133de7739dd71eec0b07f1a8d970b1bb6300c72b9f0ff7bcd90cdf43361cb
   parity_audit:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_UI_ELEMENT_PARITY_AUDIT.generated.json
-    generated_at: '2026-06-02T05:02:05.205881Z'
+    generated_at: '2026-06-29T13:23:17.304567Z'
   ui_flagship_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/UI_FLAGSHIP_RELEASE_GATE.generated.json
-    generated_at: '2026-06-02T05:02:05.246755Z'
+    generated_at: '2026-06-27T18:41:13.333000Z'
   desktop_visual_familiarity_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_VISUAL_FAMILIARITY_EXIT_GATE.generated.json
-    generated_at: '2026-06-02T05:02:05.448216Z'
+    generated_at: '2026-07-13T03:51:29.190961Z'
   desktop_workflow_execution_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/DESKTOP_WORKFLOW_EXECUTION_GATE.generated.json
-    generated_at: '2026-06-02T05:02:07.908406Z'
+    generated_at: '2026-07-13T04:39:22.679304Z'
   veteran_task_time_gate:
     path: /docker/chummercomplete/chummer-presentation/.codex-studio/published/VETERAN_TASK_TIME_EVIDENCE_GATE.generated.json
-    generated_at: '2026-06-02T05:02:10.132330Z'
+    generated_at: '2026-06-27T18:41:18.951468Z'
   ui_direct_import_route_proof:
     path: /docker/chummercomplete/chummer6-ui/.codex-studio/published/NEXT90_M141_UI_DIRECT_IMPORT_ROUTE_PROOF.generated.json
-    generated_at: '2026-06-02T05:02:07Z'
+    generated_at: '2026-07-13T04:39:07Z'
   import_parity_certification:
     path: /docker/chummercomplete/chummer6-core/.codex-studio/published/IMPORT_PARITY_CERTIFICATION.generated.json
-    generated_at: '2026-06-01T20:05:28Z'
+    generated_at: '2026-06-20T22:37:11Z'
   import_receipts_doc:
     path: /docker/chummercomplete/chummer-core-engine/docs/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.md
-    generated_at: '2026-05-06T19:55:29Z'
+    generated_at: '2026-06-26T23:13:33Z'
   import_receipts_json:
     path: /docker/chummercomplete/chummer-core-engine/.codex-studio/published/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.generated.json
-    generated_at: '2026-06-01T20:04:04Z'
+    generated_at: '2026-06-20T22:35:50Z'
   fleet_m141_gate:
     path: /docker/fleet/.codex-studio/published/NEXT90_M141_FLEET_IMPORT_ROUTE_CLOSEOUT_GATES.generated.json
     generated_at: '2026-05-06T04:08:53Z'
   flagship_readiness:
     path: /docker/fleet/.codex-studio/published/FLAGSHIP_PRODUCT_READINESS.generated.json
     coverage_key: desktop_client
-    status: ready
-    summary: Desktop install, release-channel, and flagship workbench proof are current.
-    reason_count: 0
-    row_fingerprint: 7480732248f3c21223a733576fe9307e6f88dfca43d658b67829337a3acdb75b
+    status: missing
+    summary: Desktop flagship proof is still incomplete.
+    reason_count: 1
+    row_fingerprint: 1de79b48d646c891228b29aaadfc76e4773fc60cecd515dcea171050cda34e77
 canonical_monitors:
   guide_markers:
     wave: true
@@ -171,10 +171,11 @@ canonical_monitors:
     runtime_blocker_count: 0
 desktop_client_readiness:
   coverage_key: desktop_client
-  status: ready
-  summary: Desktop install, release-channel, and flagship workbench proof are current.
-  reason_count: 0
-  reasons: []
+  status: missing
+  summary: Desktop flagship proof is still incomplete.
+  reason_count: 1
+  reasons:
+  - Executable desktop exit gate receipt is stale (92391s old; max 86400s).
 route_local_screenshot_packs:
 - route_id: menu:translator
   label: Translator route
@@ -456,6 +457,8 @@ route_local_screenshot_packs:
     - /docker/chummercomplete/chummer-presentation/.codex-studio/published/VETERAN_TASK_TIME_EVIDENCE_GATE.generated.json
     - /docker/chummercomplete/chummer6-core/.codex-studio/published/IMPORT_PARITY_CERTIFICATION.generated.json
     - /docker/chummercomplete/chummer-core-engine/docs/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.md
+    - /docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_MUSCLE_MEMORY_INVENTORY.generated.json
+    - /docker/chummercomplete/chummer-presentation/.codex-studio/published/UI_FLAGSHIP_RELEASE_GATE.generated.json
   fleet_gate_row:
     behavioral_parity: 'yes'
     evidence:
@@ -686,6 +689,8 @@ family_compare_packets:
     - /docker/chummercomplete/chummer-presentation/.codex-studio/published/VETERAN_TASK_TIME_EVIDENCE_GATE.generated.json
     - /docker/chummercomplete/chummer6-core/.codex-studio/published/IMPORT_PARITY_CERTIFICATION.generated.json
     - /docker/chummercomplete/chummer-core-engine/docs/NEXT90_M141_IMPORT_ROUTE_RECEIPTS.md
+    - /docker/chummercomplete/chummer-presentation/.codex-studio/published/CHUMMER5A_MUSCLE_MEMORY_INVENTORY.generated.json
+    - /docker/chummercomplete/chummer-presentation/.codex-studio/published/UI_FLAGSHIP_RELEASE_GATE.generated.json
   fleet_gate_row:
     behavioral_parity: 'yes'
     evidence:

@@ -205,7 +205,7 @@ def test_prod_allows_registration_sender_domain_allowlist() -> None:
     assert profile.storage_backend == "postgres"
 
 
-def test_prod_runtime_profile_requires_authenticated_header_principal() -> None:
+def test_prod_runtime_profile_requires_verified_identity_principal() -> None:
     _clear_env()
     os.environ["EA_RUNTIME_MODE"] = "prod"
     os.environ["EA_API_TOKEN"] = "secret-token"
@@ -214,8 +214,9 @@ def test_prod_runtime_profile_requires_authenticated_header_principal() -> None:
     settings = get_settings()
     profile = resolve_runtime_profile(settings)
     assert profile.auth_mode == "token"
-    assert profile.principal_source == "authenticated_header"
-    assert profile.caller_principal_header_allowed is True
+    assert profile.principal_source == "verified_identity"
+    assert profile.caller_principal_header_allowed is False
+    assert profile.default_principal_fallback_allowed is False
 
 
 def test_runtime_profile_non_prod_token_auth_matches_request_context_contract() -> None:
@@ -271,7 +272,7 @@ def test_loopback_no_auth_preserves_token_auth_principal_contract() -> None:
     assert loopback_context.authenticated is True
 
 
-def test_runtime_profile_prod_authenticated_header_matches_request_context_contract() -> None:
+def test_runtime_profile_prod_rejects_authenticated_header_principal_contract() -> None:
     _clear_env()
     os.environ["EA_RUNTIME_MODE"] = "prod"
     os.environ["EA_API_TOKEN"] = "secret-token"
@@ -285,7 +286,16 @@ def test_runtime_profile_prod_authenticated_header_matches_request_context_contr
             container=container,
         )
 
-    assert profile.principal_source == "authenticated_header"
+    assert profile.principal_source == "verified_identity"
+    with pytest.raises(HTTPException, match="principal_required"):
+        get_request_context(
+            _request(headers={"Authorization": "Bearer secret-token", "X-EA-Principal-ID": "ops-1"}),
+            container=container,
+        )
+
+    os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
+    container, profile = _container_for_current_settings()
+    assert profile.principal_source == "verified_identity"
     with pytest.raises(HTTPException, match="principal_required"):
         get_request_context(
             _request(headers={"Authorization": "Bearer secret-token", "X-EA-Principal-ID": "ops-1"}),

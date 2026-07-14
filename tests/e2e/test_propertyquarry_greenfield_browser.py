@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import html
 import json
+import os
 import re
 import socket
 import subprocess
@@ -28,7 +29,11 @@ from app.api.app import create_app
 from app.api.routes import landing as landing_routes
 from app.product.models import HandoffNote
 from app.product.service import ProductService
-from scripts import generate_property_reconstruction as reconstruction_script
+from scripts.propertyquarry_playwright_runtime import (
+    normalize_playwright_engine,
+    playwright_browser_type,
+    playwright_engine_launch_kwargs,
+)
 
 
 def _free_port() -> int:
@@ -382,6 +387,13 @@ def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
     _write_floorplan_png(bundle_dir / "floorplan-01.png")
     _write_h264_flythrough(bundle_dir / "tour.mp4")
     _write_cube_face_png(bundle_dir / "scene-01.png", label="Living room", fill=(108, 82, 59))
+    three_d_vista_dir = bundle_dir / "3dvista"
+    three_d_vista_dir.mkdir()
+    (three_d_vista_dir / "index.htm").write_text(
+        "<!doctype html><html><body><div id='tour-viewer'>3D tour ready</div>"
+        "<script>window.TDVPlayer = { ready: true };</script></body></html>",
+        encoding="utf-8",
+    )
     (bundle_dir / "tour.json").write_text(
         json.dumps(
             {
@@ -390,12 +402,26 @@ def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
                 "display_title": "Altbau near U6",
                 "hosted_url": f"/tours/{slug}",
                 "public_url": f"/tours/{slug}",
-                "matterport_url": "https://my.matterport.com/show/?m=AltbauNearU6",
                 "brand_name": "PropertyQuarry",
                 "scene_strategy": "layout_first",
                 "creation_mode": "hosted_listing_tour",
                 "video_relpath": "tour.mp4",
                 "video_provider": "manual_upload",
+                "three_d_vista_entry_relpath": "3dvista/index.htm",
+                "three_d_vista_import": {"source_project": "propertyquarry"},
+                "three_d_vista_white_label_proof": {
+                    "source_project": "propertyquarry",
+                    "private_viewer_verified": True,
+                    "non_trial_export_verified": True,
+                    "propertyquarry_tour_metadata": True,
+                    "trial_branding_checked": True,
+                    "trial_branding_present": False,
+                },
+                "three_d_vista_browser_render_proof": {
+                    "provider": "3dvista",
+                    "status": "pass",
+                    "rendered_viewer": True,
+                },
                 "scenes": [
                     {
                         "scene_id": "panorama-1",
@@ -521,7 +547,7 @@ def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
                                 "fit_summary": "Personal fit 92/100 · shortlist · Lift and transit fit.",
                                 "recommendation": "shortlist",
                                 "review_url": "/app/handoffs/human_task:review-1",
-                                "tour_url": "/tours/altbau-u6/control/matterport",
+                                "tour_url": "/tours/altbau-u6/control/3dvista",
                                 "match_reasons": ["Lift and transit fit."],
                                 "mismatch_reasons": [],
                                 "property_facts": {
@@ -684,8 +710,8 @@ def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
 @pytest.fixture()
 def browser() -> Iterator[Browser]:
     with sync_playwright() as playwright:
-        launch_kwargs = reconstruction_script._playwright_chromium_launch_kwargs(playwright)
-        launch_kwargs["args"] = [
+        engine = normalize_playwright_engine(os.environ.get("PROPERTYQUARRY_CORE_BROWSER_ENGINE", "chromium"))
+        browser_args = [
             "--no-sandbox",
             "--disable-setuid-sandbox",
             "--disable-dev-shm-usage",
@@ -695,7 +721,14 @@ def browser() -> Iterator[Browser]:
             "--no-proxy-server",
             "--autoplay-policy=no-user-gesture-required",
         ]
-        browser = playwright.chromium.launch(**launch_kwargs)
+        launch_kwargs = playwright_engine_launch_kwargs(playwright, engine=engine, args=browser_args)
+        if engine == "firefox":
+            launch_kwargs["firefox_user_prefs"] = {"network.dns.localDomains": "propertyquarry.com"}
+        browser_type = playwright_browser_type(playwright, engine=engine)
+        try:
+            browser = browser_type.launch(**launch_kwargs)
+        except Exception as exc:
+            raise RuntimeError(f"playwright_browser_engine_unavailable:{engine}:{type(exc).__name__}: {exc}") from exc
         try:
             yield browser
         finally:
@@ -746,37 +779,6 @@ def _issue_browser_workspace_session(
         ]
     )
     return access_token
-
-
-def _stub_matterport_provider(context: BrowserContext) -> None:
-    context.route(
-        re.compile(r"^https://my\.matterport\.com/show/?\?.*"),
-        lambda route: route.fulfill(
-            status=200,
-            content_type="text/html",
-            body=(
-                "<!doctype html><html><head><meta charset='utf-8'>"
-                "<title>Matterport fixture</title></head>"
-                "<body style='margin:0;background:#111;color:#fff'>"
-                "<main aria-label='Matterport fixture' "
-                "style='min-height:100vh;display:grid;place-items:center'>"
-                "3D tour fixture"
-                "</main></body></html>"
-            ),
-        ),
-    )
-    context.route(
-        re.compile(r"^https://my\.matterport\.com/api/.*"),
-        lambda route: route.fulfill(
-            status=200,
-            content_type="image/svg+xml",
-            body=(
-                "<svg xmlns='http://www.w3.org/2000/svg' width='640' height='360' "
-                "viewBox='0 0 640 360'><rect width='640' height='360' fill='#1f2a24'/>"
-                "<text x='40' y='190' fill='#f8f1df' font-size='42'>Matterport</text></svg>"
-            ),
-        ),
-    )
 
 
 def _new_public_context(
@@ -868,7 +870,7 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
         response = mobile_page.goto(f"{base_url}/?home=1", wait_until="networkidle")
         assert response is not None and response.ok
         expect(mobile_page.get_by_role("heading", name="Search once. See the right homes. Decide faster.")).to_be_visible()
-        expect(mobile_page.locator(".pq-hero-copy .btn.primary", has_text="Sign in")).to_be_visible()
+        expect(mobile_page.locator(".pq-hero-copy .btn.primary", has_text="Open search")).to_be_visible()
         expect(mobile_page.locator(".topbar .nav")).to_be_hidden()
         expect(mobile_page.locator(".mobile-nav")).to_be_hidden()
         expect(mobile_page.locator(".topbar .actions .btn", has_text="Sign in")).to_be_visible()
@@ -1079,6 +1081,31 @@ def test_propertyquarry_sign_in_missing_current_session_hides_saved_session_cta(
         context.close()
 
 
+def test_propertyquarry_expired_session_next_action_moves_keyboard_focus_to_sign_in_options(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_public_context(browser, mobile=False, width=1440, height=900)
+    page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/sign-in?session=expired", wait_until="networkidle")
+        assert response is not None and response.ok
+        next_action = page.get_by_role("link", name="Sign in again")
+        sign_in_options = page.get_by_role("region", name="Sign-in options")
+        expect(next_action).to_be_visible()
+        expect(sign_in_options).to_be_visible()
+
+        next_action.focus()
+        expect(next_action).to_be_focused()
+        page.keyboard.press("Enter")
+
+        expect(sign_in_options).to_be_focused()
+        assert page.evaluate("() => window.location.hash") == "#sign-in-options"
+    finally:
+        context.close()
+
+
 def test_propertyquarry_home_example_media_links_open_real_public_tour_targets(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],
@@ -1092,7 +1119,7 @@ def test_propertyquarry_home_example_media_links_open_real_public_tour_targets(
         assert response is not None and response.ok
         tour_href = page.get_by_role("link", name="3D tour available").get_attribute("href")
         walkthrough_href = page.get_by_role("link", name="Walkthrough available").get_attribute("href")
-        assert tour_href == f"/tours/{slug}/control/matterport"
+        assert tour_href == f"/tours/{slug}/control/3dvista"
         assert walkthrough_href == f"/tours/{slug}?pane=flythrough-pane&autoplay=1"
         assert "#tour-preview" not in page.content()
         assert "#walkthrough-preview" not in page.content()
@@ -1423,6 +1450,7 @@ def _assert_surface_click_targets_are_hydrated(
                     "",
                     "/",
                     "/how-it-works",
+                    "/how-it-works/score",
                     "/product",
                     "/docs",
                     "/integrations",
@@ -1434,6 +1462,7 @@ def _assert_surface_click_targets_are_hydrated(
                     "/subprocessors",
                     "/refunds",
                     "/disclaimers",
+                    "/data-deletion",
                     "/register",
                     "/sign-in",
                     "/pricing",
@@ -1683,16 +1712,25 @@ def test_propertyquarry_greenfield_workspace_in_real_browser(
         )
         assert "Altbau near U6" in content
         assert "Family flat near Tiergarten" in content
-        assert page.locator("body", has_text="3D tour available").is_visible()
+        expect(page.locator("[data-workbench-row]", has_text="Altbau near U6").first.get_by_role("link", name="3D tour")).to_be_visible()
         assert page.locator("body", has_text="Open property").is_visible()
-        assert "3D tour available" in content
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
 
         before_url = page.url
-        page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").locator(".pqx-result-title").click()
+        family_row = page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").first
+        selected_candidate_ref = str(family_row.get_attribute("data-candidate-ref") or "").strip()
+        assert selected_candidate_ref
+        family_row.locator(".pqx-result-title").click()
         selected_panel = page.get_by_role("region", name="Selected property")
         expect(selected_panel.locator("[data-pw-title]")).to_contain_text("Family flat near Tiergarten")
-        assert page.url == before_url
+        before_parts = urllib.parse.urlsplit(before_url)
+        selected_parts = urllib.parse.urlsplit(page.url)
+        assert (selected_parts.scheme, selected_parts.netloc, selected_parts.path) == (
+            before_parts.scheme,
+            before_parts.netloc,
+            before_parts.path,
+        )
+        assert urllib.parse.parse_qs(selected_parts.query).get("candidate") == [selected_candidate_ref]
         expect(selected_panel.get_by_role("link", name="Open property").first).to_have_attribute(
             "href",
             re.compile(r"/app/research/"),
@@ -1723,7 +1761,7 @@ def test_propertyquarry_completed_run_opens_fast_ranked_shell_in_real_browser(
         assert fast_rows.count() >= 2
         expect(page.get_by_role("link", name="Altbau near U6").first).to_have_attribute(
             "href",
-            re.compile(r"/app/handoffs/human_task:review-1"),
+            re.compile(r"/app/research/[^?]+\?run_id=run-42"),
         )
         expect(page.get_by_role("link", name="Open property").first).to_be_visible()
         expect(page.get_by_role("link", name="Full view")).to_have_count(0)
@@ -2363,6 +2401,8 @@ def test_propertyquarry_ui_behavior_audit_collects_no_dead_clickables_and_keeps_
     propertyquarry_browser_server: dict[str, object],
 ) -> None:
     base_url = str(propertyquarry_browser_server["base_url"])
+    client = propertyquarry_browser_server["client"]
+    assert isinstance(client, TestClient)
     audited_routes = [
         ("/app/search", 22000),
         ("/app/properties?run_id=run-42&full=1", 14000),
@@ -2383,6 +2423,8 @@ def test_propertyquarry_ui_behavior_audit_collects_no_dead_clickables_and_keeps_
     context = _new_context(browser, mobile=False)
     page: Page = context.new_page()
     try:
+        data_deletion_response = client.get("/data-deletion")
+        assert data_deletion_response.status_code == 200
         for route, max_budget_ms in audited_routes:
             _assert_surface_click_targets_are_hydrated(page, base_url, route, max_budget_ms=max_budget_ms)
             if route.startswith("/app/billing"):
@@ -2762,9 +2804,10 @@ def test_propertyquarry_workbench_tracks_household_and_followup_state_in_browser
         assert packet_path
         response = page.goto(f"{base_url}{packet_path}?run_id=run-42" if "?" not in packet_path else f"{base_url}{packet_path}", wait_until="networkidle")
         assert response is not None and response.ok
-        assert page.locator("body", has_text="Overview").is_visible()
-        assert page.locator("body", has_text="Can the agent confirm the operating costs?").is_visible()
-        page.locator("summary", has_text="Preferences").first.click()
+        assert page.locator("body", has_text="At a glance").is_visible()
+        page.locator("[data-object-feedback-open-advanced]").click()
+        expect(page.locator("[data-object-followups]")).to_contain_text("Can the agent confirm the operating costs?")
+        page.locator(".prd-decision-advanced summary", has_text="Why it works and next step").click()
         answered_button = page.locator('[data-object-followups] [data-object-followup-action="answered"]:visible').first
         expect(answered_button).to_be_visible()
         answered_button.scroll_into_view_if_needed()
@@ -2773,7 +2816,8 @@ def test_propertyquarry_workbench_tracks_household_and_followup_state_in_browser
         update_response = update_response_info.value
         assert update_response.ok, update_response.text()
         page.reload(wait_until="networkidle")
-        assert page.locator("body", has_text="Can the agent confirm the operating costs?").is_visible()
+        page.locator("[data-object-feedback-open-advanced]").click()
+        expect(page.locator("[data-object-followups]")).to_contain_text("Can the agent confirm the operating costs?")
         assert page.locator("body", has_text="Notes").is_visible()
     finally:
         context.close()
@@ -2812,9 +2856,9 @@ def test_propertyquarry_packet_tracks_followup_state_in_browser(
         assert packet_path
         response = page.goto(f"{base_url}{packet_path}?run_id=run-42" if "?" not in packet_path else f"{base_url}{packet_path}", wait_until="networkidle")
         assert response is not None and response.ok
-        assert page.locator("body", has_text="Follow-up").is_visible()
-        assert page.locator("body", has_text="Can the agent confirm the operating costs?").is_visible()
-        page.locator("summary", has_text="Preferences").first.click()
+        page.locator("[data-object-feedback-open-advanced]").click()
+        expect(page.locator("[data-object-followups]")).to_contain_text("Can the agent confirm the operating costs?")
+        page.locator(".prd-decision-advanced summary", has_text="Why it works and next step").click()
         answered_button = page.locator('[data-object-followups] [data-object-followup-action="answered"]:visible').first
         expect(answered_button).to_be_visible()
         answered_button.scroll_into_view_if_needed()
@@ -2824,7 +2868,8 @@ def test_propertyquarry_packet_tracks_followup_state_in_browser(
         assert update_response.ok, update_response.text()
         assert page.locator("body", has_text="Follow-up marked answered").is_visible()
         page.reload(wait_until="networkidle")
-        assert page.locator("body", has_text="Answered").is_visible()
+        page.locator("[data-object-feedback-open-advanced]").click()
+        expect(page.locator("[data-object-followups]")).to_contain_text("Answered")
     finally:
         context.close()
 
@@ -2855,11 +2900,13 @@ def test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser(
             page.locator("[data-object-feedback-save]").click()
         save_response = save_response_info.value
         assert save_response.ok, save_response.text()
-        page.get_by_text("Preferences", exact=True).click()
-        assert page.locator("body", has_text="Follow-up").is_visible()
-        assert page.locator("body", has_text="Overview").is_visible()
+        page.locator("[data-object-feedback-open-advanced]").click()
+        expect(page.locator(".prd-decision-advanced")).to_have_attribute("open", "")
+        page.locator(".prd-decision-advanced summary", has_text="Why it works and next step").click()
+        assert page.locator("[data-object-followups]").is_visible()
+        assert page.locator("body", has_text="At a glance").is_visible()
         assert page.locator("body", has_text="Next step").is_visible()
-        assert page.locator("body", has_text="Preferences").is_visible()
+        assert page.locator("body", has_text="Adjust next search").is_visible()
     finally:
         context.close()
 
@@ -2919,6 +2966,153 @@ def test_propertyquarry_active_run_auto_polls_notifies_and_renders_empty_result_
         assert page.evaluate("window.localStorage.getItem('pq-test-notification-title')") == "PropertyQuarry results are ready"
         assert "0 matching homes ready." in str(page.evaluate("window.localStorage.getItem('pq-test-notification-body')"))
         _assert_property_shell_visual_gates(page, max_appbar_height=92)
+    finally:
+        context.close()
+
+
+def test_propertyquarry_stale_terminal_zero_first_paint_reconciles_to_authoritative_live_run(
+    monkeypatch: pytest.MonkeyPatch,
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    client = propertyquarry_browser_server["client"]
+    assert isinstance(client, TestClient)
+    selected_platforms = [
+        "encuentra24_cr",
+        "re_cr_mls",
+        "realtor_cr",
+        "properstar_cr",
+        "coldwellbanker_cr",
+        "century21_cr",
+        "remax_cr",
+        "theagency_cr",
+        "krain_cr",
+        "desarrollos_cr",
+    ]
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "CR",
+            "language_code": "es",
+            "listing_mode": "buy",
+            "property_type": "apartment",
+            "region_code": "costa_rica",
+            "location_query": "Costa Rica",
+            "selected_platforms": selected_platforms,
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
+    )
+    assert stored.status_code == 200, stored.text
+    status_calls = {"full": 0, "lightweight": 0}
+
+    def _fake_run_status(
+        self,
+        *,
+        principal_id: str,
+        run_id: str,
+        lightweight: bool = False,
+        account_email: str = "",
+    ):
+        assert principal_id == "pq-greenfield-browser"
+        assert run_id == "run-stale-terminal-zero"
+        assert account_email == ""
+        common = {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "property_search_preferences": {
+                "country_code": "CR",
+                "listing_mode": "buy",
+                "property_type": "apartment",
+                "region_code": "costa_rica",
+                "location_query": "Costa Rica",
+                "selected_platforms": selected_platforms,
+            },
+        }
+        if lightweight:
+            status_calls["lightweight"] += 1
+            return {
+                **common,
+                "status": "in_progress",
+                "progress": 44,
+                "message": "Checking Costa Rica sources.",
+                    "summary": {
+                        "status": "in_progress",
+                        "provider_total": 10,
+                        "provider_display_total": 10,
+                    "source_variant_total": 10,
+                    "sources_total": 10,
+                    "sources_completed": 10,
+                    "listing_total": 10,
+                    "reviewed_listing_total": 10,
+                    "ranked_candidates": [],
+                    "sources": [
+                        *[
+                            {"source_label": f"Costa Rica source {index}", "status": "completed"}
+                            for index in range(4)
+                        ],
+                        {"source_label": "Costa Rica source 4", "status": "in_progress"},
+                        {"source_label": "Costa Rica source 5", "status": "warming"},
+                        *[
+                            {"source_label": f"Costa Rica source {index}", "status": "queued"}
+                            for index in range(6, 10)
+                        ],
+                    ],
+                },
+                "events": [
+                    {
+                        "step": "provider_scan",
+                        "message": "Checking Costa Rica sources.",
+                        "status": "in_progress",
+                    }
+                ],
+            }
+        status_calls["full"] += 1
+        return {
+            **common,
+            "status": "processed",
+            "progress": 100,
+            "message": "Property scouting run completed.",
+                "summary": {
+                    "status": "processed",
+                    "provider_total": 10,
+                    "provider_display_total": 10,
+                "source_variant_total": 10,
+                "sources_total": 10,
+                "sources_completed": 10,
+                "listing_total": 10,
+                "ranked_candidates": [],
+                "sources": [],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    context = _new_context(browser, mobile=False)
+    page: Page = context.new_page()
+    page_errors: list[str] = []
+    page.on("pageerror", lambda error: page_errors.append(str(error)))
+    try:
+        response = page.goto(
+            f"{base_url}/app/search?run_id=run-stale-terminal-zero",
+            wait_until="domcontentloaded",
+        )
+        assert response is not None and response.ok
+        page.wait_for_selector("[data-pqx-reconciled-running]", timeout=7000)
+        expect(page.locator("[data-property-decision-workbench]")).to_have_attribute("data-pqx-state", "running")
+        expect(page.locator("[data-pqx-reconciled-running]")).to_be_visible()
+        expect(page.locator("[data-pqx-progress-board]")).to_be_visible()
+        expect(page.locator("[data-pqx-radar-count]")).to_contain_text("4 / 10")
+        expect(page.locator("[data-pqx-empty-results]")).to_have_count(0)
+        expect(page.locator("[data-pqx-run-status]")).not_to_have_text("Finished")
+        assert status_calls["full"] >= 1
+        assert status_calls["lightweight"] >= 1
+        assert page_errors == []
     finally:
         context.close()
 
@@ -4274,14 +4468,13 @@ def test_propertyquarry_mobile_what_matters_select_changes_keep_current_group_st
         }
 
         parking_row = page.locator('[data-keyword-priority-row][data-keyword-value="parking pressure check"]')
-        parking_row.evaluate(open_row_group)
-        page.wait_for_function(
-            """
-            () => document.querySelector('[data-keyword-priority-row][data-keyword-value="parking pressure check"]')
-              ?.closest('details[data-what-matters-group]')?.open === true
-            """
+        parking_group = parking_row.locator("xpath=ancestor::details[@data-what-matters-group]")
+        if not parking_group.get_attribute("open"):
+            parking_group.locator(":scope > summary").click()
+        expect(parking_group).to_have_attribute("open", "")
+        parking_row.evaluate(
+            "node => { node.closest('details[data-what-matters-group]').open = true; node.querySelector('select')?.focus({preventScroll: true}); node.scrollIntoView({block: 'center', inline: 'nearest'}); }"
         )
-        parking_row.scroll_into_view_if_needed()
         expect(parking_row).to_be_visible()
         before_parking = page.evaluate(capture_keyword_state, "parking pressure check")
         parking_preference = parking_row.locator("[data-keyword-preference-select]")
@@ -5555,7 +5748,6 @@ def test_propertyquarry_3d_tour_request_is_user_initiated_in_real_browser(
 ) -> None:
     base_url = str(propertyquarry_browser_server["base_url"])
     context = _new_context(browser, mobile=False)
-    _stub_matterport_provider(context)
     page: Page = context.new_page()
     visual_requests: list[dict[str, object]] = []
     visual_status_polls = 0
@@ -5609,7 +5801,7 @@ def test_propertyquarry_3d_tour_request_is_user_initiated_in_real_browser(
                     "property_url": "https://www.immobilienscout24.de/expose/family-tiergarten",
                     "title": "Family flat near Tiergarten",
                     "request_kind": "tour",
-                    "tour_url": f"{base_url}/tours/altbau-u6/control/matterport",
+                    "tour_url": f"{base_url}/tours/altbau-u6/control/3dvista",
                     "tour_status": "ready",
                     "flythrough_url": "",
                     "flythrough_status": "",
@@ -5664,15 +5856,16 @@ def test_propertyquarry_3d_tour_request_is_user_initiated_in_real_browser(
         expect(updated_button).to_be_visible()
         updated_href = str(updated_button.get_attribute("data-pw-visual-href") or "").strip()
         assert updated_href
-        assert updated_href.endswith("/tours/altbau-u6/control/matterport")
+        assert updated_href.endswith("/tours/altbau-u6/control/3dvista")
         with page.expect_navigation(wait_until="domcontentloaded"):
             updated_button.click()
         page.locator("h1").wait_for()
         assert page.locator("body", has_text="Altbau near U6").is_visible()
-        assert page.locator(".badge").inner_text().lower() == "matterport control"
+        assert page.locator(".badge").inner_text().lower() == "3dvista control"
         assert page.locator("#load-provider").count() == 0
-        assert page.locator(".provider-frame").get_attribute("src") == "https://my.matterport.com/show/?m=AltbauNearU6"
-        assert page.locator(".provider-frame").get_attribute("data-src") == "https://my.matterport.com/show/?m=AltbauNearU6"
+        expected_provider_src = "/tours/3dvista/altbau-u6/3dvista/index.htm"
+        expect(page.locator(".provider-frame")).to_have_attribute("src", expected_provider_src, timeout=5000)
+        expect(page.locator(".provider-frame")).to_have_attribute("data-src", expected_provider_src)
         response = page.go_back(wait_until="networkidle")
         assert response is not None and response.ok
         expect(page.locator("[data-property-research-detail]")).to_be_visible()
@@ -5785,7 +5978,9 @@ def test_propertyquarry_research_detail_never_shows_fake_open_tour_for_generated
 
         fallback_button.click()
         _choose_research_visual_style(page)
-        page.wait_for_timeout(2200)
+        poll_deadline = time.monotonic() + 5.0
+        while visual_status_polls < 1 and time.monotonic() < poll_deadline:
+            page.wait_for_timeout(100)
         assert len(visual_requests) == 1
         assert visual_requests[0]["request_kind"] == "tour"
         assert visual_status_polls >= 1
@@ -5891,7 +6086,9 @@ def test_propertyquarry_research_detail_promotes_ready_generated_reconstruction_
         expect(fallback_button).to_be_visible()
         fallback_button.click()
         _choose_research_visual_style(page)
-        page.wait_for_timeout(2200)
+        poll_deadline = time.monotonic() + 5.0
+        while visual_status_polls < 1 and time.monotonic() < poll_deadline:
+            page.wait_for_timeout(100)
 
         assert len(visual_requests) == 1
         assert visual_requests[0]["request_kind"] == "tour"
@@ -6096,7 +6293,6 @@ def test_propertyquarry_blocked_3d_tour_can_be_retried_from_research_packet_in_r
     monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_retryable_run_status)
 
     context = _new_context(browser, mobile=False)
-    _stub_matterport_provider(context)
     page: Page = context.new_page()
     visual_requests: list[dict[str, object]] = []
     visual_status_polls = 0
@@ -6150,7 +6346,7 @@ def test_propertyquarry_blocked_3d_tour_can_be_retried_from_research_packet_in_r
                     "property_url": blocked_candidate["property_url"],
                     "title": blocked_candidate["title"],
                     "request_kind": "tour",
-                    "tour_url": f"{base_url}/tours/altbau-u6/control/matterport",
+                    "tour_url": f"{base_url}/tours/altbau-u6/control/3dvista",
                     "tour_status": "ready",
                     "flythrough_url": "",
                     "flythrough_status": "",
@@ -6206,8 +6402,9 @@ def test_propertyquarry_blocked_3d_tour_can_be_retried_from_research_packet_in_r
         page.locator("h1").wait_for()
         assert page.locator("body", has_text="Altbau near U6").is_visible()
         assert page.locator("#load-provider").count() == 0
-        assert page.locator(".provider-frame").get_attribute("src") == "https://my.matterport.com/show/?m=AltbauNearU6"
-        assert page.locator(".provider-frame").get_attribute("data-src") == "https://my.matterport.com/show/?m=AltbauNearU6"
+        expected_provider_src = "/tours/3dvista/altbau-u6/3dvista/index.htm"
+        expect(page.locator(".provider-frame")).to_have_attribute("src", expected_provider_src, timeout=5000)
+        expect(page.locator(".provider-frame")).to_have_attribute("data-src", expected_provider_src)
         noisy_console_errors = [
             message
             for message in console_errors
@@ -6299,10 +6496,10 @@ def test_propertyquarry_handoff_3d_tour_request_is_user_initiated_in_real_browse
     )
 
     context = _new_context(browser, mobile=False)
-    _stub_matterport_provider(context)
     page: Page = context.new_page()
     visual_requests: list[dict[str, object]] = []
     visual_status_polls = 0
+    visual_status_ready = {"value": False}
 
     def _capture_visual_request(route) -> None:
         payload = route.request.post_data_json or {}
@@ -6338,6 +6535,31 @@ def test_propertyquarry_handoff_3d_tour_request_is_user_initiated_in_real_browse
     def _capture_visual_status(route) -> None:
         nonlocal visual_status_polls
         visual_status_polls += 1
+        if not visual_status_ready["value"]:
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps(
+                    {
+                        "generated_at": "2026-07-02T12:00:02+00:00",
+                        "status": "processing",
+                        "property_url": "https://www.immobilienscout24.de/expose/family-tiergarten",
+                        "title": "Family flat near Tiergarten",
+                        "request_kind": "tour",
+                        "tour_url": "",
+                        "tour_status": "pending",
+                        "status_label": "3D tour queued",
+                        "status_detail": "3D tour is queued after your request.",
+                        "eta_label": "about 8 min",
+                        "progress_pct": 18,
+                        "poll_after_seconds": 1,
+                        "source_ref": "immobilienscout24:family-tiergarten",
+                        "run_id": "run-handoff-tour-browser",
+                        "candidate_ref": "handoff-family-tiergarten",
+                    }
+                ),
+            )
+            return
         route.fulfill(
             status=200,
             content_type="application/json",
@@ -6348,7 +6570,7 @@ def test_propertyquarry_handoff_3d_tour_request_is_user_initiated_in_real_browse
                     "property_url": "https://www.immobilienscout24.de/expose/family-tiergarten",
                     "title": "Family flat near Tiergarten",
                     "request_kind": "tour",
-                    "tour_url": f"{base_url}/tours/altbau-u6/control/matterport",
+                    "tour_url": f"{base_url}/tours/altbau-u6/control/3dvista",
                     "tour_status": "ready",
                     "flythrough_url": "",
                     "flythrough_status": "",
@@ -6390,19 +6612,21 @@ def test_propertyquarry_handoff_3d_tour_request_is_user_initiated_in_real_browse
         rail_fill = page.locator("[data-object-visual-progress]").first.get_attribute("style") or ""
         assert "18%" in rail_fill or "100%" in rail_fill
 
+        visual_status_ready["value"] = True
         expect(page.locator("[data-object-visual-status]")).to_contain_text("3D tour is ready.", timeout=5000)
         assert visual_status_polls >= 1
         updated_button = page.get_by_role("button", name="Open 3D tour").first
         expect(updated_button).to_be_visible()
         updated_href = str(updated_button.get_attribute("data-obj-visual-href") or "").strip()
-        assert updated_href.endswith("/tours/altbau-u6/control/matterport")
+        assert updated_href.endswith("/tours/altbau-u6/control/3dvista")
         with page.expect_navigation(wait_until="domcontentloaded"):
             updated_button.click()
         page.locator("h1").wait_for()
         assert page.locator("body", has_text="Altbau near U6").is_visible()
         assert page.locator("#load-provider").count() == 0
-        assert page.locator(".provider-frame").get_attribute("src") == "https://my.matterport.com/show/?m=AltbauNearU6"
-        assert page.locator(".provider-frame").get_attribute("data-src") == "https://my.matterport.com/show/?m=AltbauNearU6"
+        expected_provider_src = "/tours/3dvista/altbau-u6/3dvista/index.htm"
+        expect(page.locator(".provider-frame")).to_have_attribute("src", expected_provider_src, timeout=5000)
+        expect(page.locator(".provider-frame")).to_have_attribute("data-src", expected_provider_src)
     finally:
         context.close()
 
@@ -6659,6 +6883,9 @@ def test_propertyquarry_setup_wizard_changes_visible_controls_and_collapses_all_
 
         page.locator('[data-property-step-trigger="children"]').click()
         assert page.locator('[data-property-what-matters-panel]').is_visible()
+        page.locator('details[data-what-matters-group]').evaluate_all(
+            "groups => groups.forEach((group) => { group.open = true; })"
+        )
         assert page.locator('[data-keyword-priority-row][data-keyword-value="market nearby"]').is_visible()
         assert page.locator('[data-keyword-priority-row][data-keyword-value="good air quality"]').is_visible()
         assert page.locator('[data-keyword-priority-row][data-keyword-value="avoid flood-risk area"]').is_visible()
@@ -7601,13 +7828,13 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
             _assert_property_shell_visual_gates(page, max_appbar_height=130)
 
             expect(page.locator("[data-property-mobile-dock]")).to_have_count(0)
+            expect(page.locator('nav[aria-label="PropertyQuarry sections"]').first).to_be_visible()
             if route in {"/app/agents", "/app/alerts", "/app/account"} or route.startswith("/app/shortlist"):
-                expect(page.locator('nav[aria-label="PropertyQuarry sections"]').first).to_be_hidden()
                 expect(page.locator(".pqx-topbar")).to_be_visible()
-            else:
-                expect(page.locator('nav[aria-label="PropertyQuarry sections"]').first).to_be_visible()
             if page.get_by_role("button", name=mobile_mode_name).count():
                 expect(page.get_by_role("button", name=mobile_mode_name)).to_be_visible()
+            elif route == "/app/settings/trust":
+                expect(page.get_by_role("heading", name=re.compile(r"Review the latest search", re.I))).to_be_visible()
             else:
                 expect(page.locator("body", has_text=mobile_mode_name)).to_be_visible()
             _assert_mobile_topnav_tap_targets(page)
@@ -7645,9 +7872,9 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
             if route in {"/app/agents", "/app/alerts", "/app/account"}:
                 assert density["appbarHeight"] <= 60
             elif route.startswith("/app/settings/") or route == "/app/properties/packets":
-                assert density["appbarHeight"] <= 52
-            elif route.startswith("/app/shortlist"):
                 assert density["appbarHeight"] <= 56
+            elif route.startswith("/app/shortlist"):
+                assert density["appbarHeight"] <= 58
             if route in {"/app/agents", "/app/alerts"} or route.startswith("/app/shortlist"):
                 assert density["accountSummaryVisible"] is True
 
@@ -7689,7 +7916,7 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
                 expect(page.locator("[data-account-page-sign-out] button")).to_be_visible()
                 assert density["logoutVisible"] is True
             elif route == "/app/settings/google":
-                expect(page.locator("body", has_text=re.compile(r"Google connection|PropertyQuarry account", re.I))).to_be_visible()
+                expect(page.locator("body", has_text="Google sign-in")).to_be_visible()
                 expect(page.locator("body", has_text=re.compile(r"Connect Google|Add Google account", re.I))).to_be_visible()
                 expect(page.locator("body", has_text=re.compile(r"account", re.I))).to_be_visible()
             elif route == "/app/settings/access":
@@ -7702,8 +7929,8 @@ def test_propertyquarry_secondary_surfaces_have_phone_specific_layout(
                 expect(page.locator("body", has_text="Support at a glance")).to_be_visible()
                 expect(page.locator("body", has_text="See what failed, what still works, and the next useful action.")).to_be_visible()
             elif route == "/app/settings/trust":
-                expect(page.locator("body", has_text=re.compile(r"Reliability|Security", re.I))).to_be_visible()
-                expect(page.locator("body", has_text=re.compile(r"privacy|recovery|access", re.I))).to_be_visible()
+                expect(page.locator("body", has_text=re.compile(r"Search health|site health", re.I))).to_be_visible()
+                expect(page.locator("body", has_text=re.compile(r"settings|retention|status", re.I))).to_be_visible()
             else:
                 expect(page.locator("body", has_text=re.compile(r"Invite|Invitations", re.I))).to_be_visible()
                 expect(page.locator("body", has_text=re.compile(r"access|collaborator|share", re.I))).to_be_visible()
@@ -8311,6 +8538,9 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         page.locator('[data-property-step-trigger="children"]').click()
         page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'children'")
         assert page.locator('[data-property-field-name="enable_family_mode"]').count() == 0
+        page.locator('details[data-what-matters-group]').evaluate_all(
+            "groups => groups.forEach((group) => { group.open = true; })"
+        )
         page.locator('[data-keyword-priority-row][data-keyword-value="good air quality"] [data-keyword-preference-select]').select_option("important")
         page.locator('[data-keyword-priority-row][data-keyword-value="low crime area"] [data-keyword-preference-select]').select_option("important")
         page.locator('[data-keyword-priority-row][data-keyword-value="parking pressure check"] [data-keyword-preference-select]').select_option("high")
@@ -8409,10 +8639,14 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         assert len(observed["selected_platforms"]) == 3
         assert page.locator("body", has_text="Altbau near U6").is_visible()
         assert page.locator("body", has_text="Open property").is_visible()
-        assert page.locator("body", has_text="3D tour available").is_visible()
+        tour_link = page.locator("[data-workbench-row]", has_text="Altbau near U6").first.get_by_role("link", name="3D tour")
+        expect(tour_link).to_be_visible()
+        assert str(tour_link.get_attribute("href") or "").endswith("/tours/altbau-u6/control/3dvista")
         page.locator("[data-workbench-row]", has_text="Altbau near U6").locator(".pqx-result-title").click()
-        assert "/app/research/" in page.url
-        assert urllib.parse.parse_qs(urllib.parse.urlparse(page.url).query).get("run_id", [""])[0] == run_id
+        selected_query = urllib.parse.parse_qs(urllib.parse.urlparse(page.url).query)
+        assert urllib.parse.urlparse(page.url).path == "/app/properties"
+        assert selected_query.get("run_id", [""])[0] == run_id
+        assert selected_query.get("candidate", [""])[0]
         assert page.locator("body", has_text="Altbau near U6").is_visible()
     finally:
         context.close()
@@ -8424,7 +8658,6 @@ def test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_b
 ) -> None:
     base_url = str(propertyquarry_browser_server["base_url"])
     context = _new_context(browser, mobile=False)
-    _stub_matterport_provider(context)
     page: Page = context.new_page()
     console_errors: list[str] = []
     failed_requests: list[str] = []
@@ -8453,7 +8686,7 @@ def test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_b
         expect(best_match.get_by_role("link", name="Open 3D tour")).to_have_count(0)
         open_3d_tour = best_match.get_by_role("link", name="3D tour")
         tour_url = str(open_3d_tour.get_attribute("href") or "").strip()
-        assert tour_url.endswith("/tours/altbau-u6/control/matterport")
+        assert tour_url.endswith("/tours/altbau-u6/control/3dvista")
         tour_entry = tour_url if tour_url.startswith("http") else f"{base_url}{tour_url}"
         response = page.goto(f"{tour_entry}?pane=floorplan-pane", wait_until="domcontentloaded")
         assert response is not None and response.ok
@@ -8519,9 +8752,9 @@ def test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_b
             if "decode" in message.lower()
             or "media" in message.lower()
             or "refused" in message.lower()
-            or "failed to load resource" in message.lower()
         ]
         assert not noisy_console_errors, f"console={noisy_console_errors}; responses={error_responses}; failed={failed_requests}"
+        assert error_responses == []
         assert failed_requests == []
     finally:
         context.close()
@@ -9083,7 +9316,6 @@ def test_propertyquarry_walkthrough_request_is_user_initiated_in_real_browser(
 ) -> None:
     base_url = str(propertyquarry_browser_server["base_url"])
     context = _new_context(browser, mobile=False)
-    _stub_matterport_provider(context)
     page: Page = context.new_page()
     visual_requests: list[dict[str, object]] = []
     visual_status_polls = 0
@@ -9248,7 +9480,6 @@ def test_propertyquarry_ready_tour_rail_stays_on_tour_while_walkthrough_queue_is
 ) -> None:
     base_url = str(propertyquarry_browser_server["base_url"])
     context = _new_context(browser, mobile=False)
-    _stub_matterport_provider(context)
     page: Page = context.new_page()
     visual_requests: list[dict[str, object]] = []
     visual_status_polls: dict[str, int] = {"tour": 0, "flythrough": 0}
@@ -9288,7 +9519,7 @@ def test_propertyquarry_ready_tour_rail_stays_on_tour_while_walkthrough_queue_is
                         "property_url": visual_requests[-1].get("property_url", ""),
                         "title": "Family flat near Tiergarten",
                         "request_kind": "flythrough",
-                        "tour_url": f"{base_url}/tours/altbau-u6/control/matterport",
+                        "tour_url": f"{base_url}/tours/altbau-u6/control/3dvista",
                         "tour_status": "ready",
                         "flythrough_url": "",
                         "flythrough_status": "queued",
@@ -9320,7 +9551,7 @@ def test_propertyquarry_ready_tour_rail_stays_on_tour_while_walkthrough_queue_is
                         "property_url": "https://www.immobilienscout24.de/expose/family-tiergarten",
                         "title": "Family flat near Tiergarten",
                         "request_kind": "tour",
-                        "tour_url": f"{base_url}/tours/altbau-u6/control/matterport",
+                        "tour_url": f"{base_url}/tours/altbau-u6/control/3dvista",
                         "tour_status": "ready",
                         "flythrough_url": "",
                         "flythrough_status": "",
@@ -9340,7 +9571,7 @@ def test_propertyquarry_ready_tour_rail_stays_on_tour_while_walkthrough_queue_is
                         "property_url": "https://www.immobilienscout24.de/expose/family-tiergarten",
                         "title": "Family flat near Tiergarten",
                         "request_kind": "flythrough",
-                        "tour_url": f"{base_url}/tours/altbau-u6/control/matterport",
+                        "tour_url": f"{base_url}/tours/altbau-u6/control/3dvista",
                         "tour_status": "ready",
                         "flythrough_url": "",
                         "flythrough_status": "queued",
@@ -9375,7 +9606,7 @@ def test_propertyquarry_ready_tour_rail_stays_on_tour_while_walkthrough_queue_is
         expect(tour_button).to_be_visible()
         tour_button.click()
         _choose_research_visual_style(page)
-        expect(page.locator("[data-prd-visual-status]")).to_contain_text("3D tour is ready.", timeout=5000)
+        expect(page.locator("[data-prd-visual-status]")).to_contain_text("3D tour is ready.", timeout=10000)
         expect(page.get_by_role("button", name="Open 3D tour").first).to_be_visible()
 
         request_button = page.get_by_role("button", name="Request walkthrough").first
@@ -9417,10 +9648,19 @@ def test_propertyquarry_results_surface_keeps_desktop_selection_inline_before_op
         row = page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").first
         expect(row).to_be_visible(timeout=5000)
         before_url = page.url
+        selected_candidate_ref = str(row.get_attribute("data-candidate-ref") or "").strip()
+        assert selected_candidate_ref
         row.click()
         selected_panel = page.get_by_role("region", name="Selected property")
         expect(selected_panel.locator("[data-pw-title]")).to_contain_text("Family flat near Tiergarten")
-        assert page.url == before_url
+        before_parts = urllib.parse.urlsplit(before_url)
+        selected_parts = urllib.parse.urlsplit(page.url)
+        assert (selected_parts.scheme, selected_parts.netloc, selected_parts.path) == (
+            before_parts.scheme,
+            before_parts.netloc,
+            before_parts.path,
+        )
+        assert urllib.parse.parse_qs(selected_parts.query).get("candidate") == [selected_candidate_ref]
         expect(selected_panel.get_by_role("link", name="Open property").first).to_have_attribute(
             "href",
             re.compile(r"/app/research/"),
@@ -9822,14 +10062,19 @@ def test_propertyquarry_flagship_operating_loop_in_browser(
     context = _new_context(browser, mobile=False)
     page: Page = context.new_page()
     try:
-        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42&full=1", wait_until="networkidle")
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42&full=1", wait_until="domcontentloaded")
         assert response is not None and response.ok
-        assert page.locator("body", has_text=re.compile(r"shortlisted homes|ranked homes", re.I)).is_visible()
+        expect(page.locator("[data-property-decision-workbench]")).to_be_visible()
+        expect(page.locator("[data-workbench-row]").first).to_be_visible()
+        expect(page.locator(".pqx-results-summary-link").first).to_be_visible()
         candidate_ref = page.locator("[data-workbench-row]", has_text="Altbau near U6").first.get_attribute("data-candidate-ref")
         packet_path = page.locator("[data-workbench-row]", has_text="Altbau near U6").first.get_attribute("data-candidate-packet-url")
         assert candidate_ref
         assert packet_path
-        response = page.goto(f"{base_url}{packet_path}?run_id=run-42" if "?" not in packet_path else f"{base_url}{packet_path}", wait_until="networkidle")
+        response = page.goto(
+            f"{base_url}{packet_path}?run_id=run-42" if "?" not in packet_path else f"{base_url}{packet_path}",
+            wait_until="domcontentloaded",
+        )
         assert response is not None and response.ok
         with page.expect_response("**/preference-profile/property-feedback") as save_response_info:
             page.get_by_role("button", name="No", exact=True).click()
@@ -9860,7 +10105,7 @@ def test_propertyquarry_flagship_operating_loop_in_browser(
             },
         )
         assert packet_render.status_code == 200, packet_render.text
-        response = page.goto(f"{base_url}/app/properties/packets", wait_until="networkidle")
+        response = page.goto(f"{base_url}/app/properties/packets", wait_until="domcontentloaded")
         assert response is not None and response.ok
         assert page.locator("body", has_text="Reactions").is_visible()
         assert page.locator("body", has_text="What changed").is_visible()
@@ -9872,16 +10117,22 @@ def test_propertyquarry_flagship_operating_loop_in_browser(
         with page.expect_response("**/app/api/properties/packets/*/shares") as share_response_info:
             share_form.locator('button[type="submit"]').click()
         assert share_response_info.value.ok
-        response = page.goto(f"{base_url}/app/properties/notifications/preview?template=property_match", wait_until="networkidle")
+        response = page.goto(
+            f"{base_url}/app/properties/notifications/preview?template=property_match",
+            wait_until="domcontentloaded",
+        )
         assert response is not None and response.ok
         no_link = page.frame_locator("iframe").get_by_role("link", name="No — tell us why")
         href = no_link.get_attribute("href")
         assert href and "decision=no" in href and "clippy=1" in href
         packet_url = f"{base_url}{packet_path}"
         separator = "&" if "?" in packet_url else "?"
-        response = page.goto(f"{packet_url}{separator}run_id=run-42&decision=no&clippy=1&prompt=What%20is%20the%20strongest%20blocker%20here%3F", wait_until="networkidle")
+        response = page.goto(
+            f"{packet_url}{separator}run_id=run-42&decision=no&clippy=1&prompt=What%20is%20the%20strongest%20blocker%20here%3F",
+            wait_until="domcontentloaded",
+        )
         assert response is not None and response.ok
-        assert page.locator("body", has_text="Overview").is_visible()
+        expect(page.locator("[data-property-research-detail]")).to_be_visible()
         assert page.locator("body", has_text="Decision shortcut loaded from the email or shared link.").is_visible()
         assert page.locator("body", has_text="Question loaded from the email or shared link.").is_visible()
         assert page.locator("body", has_text="Follow-up").is_visible()

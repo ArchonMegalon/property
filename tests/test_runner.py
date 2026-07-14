@@ -13,6 +13,68 @@ from types import SimpleNamespace
 import pytest
 
 from app.domain.models import ConnectorBinding
+from app.repositories.delivery_outbox import InMemoryDeliveryOutboxRepository
+
+
+class _DeliveryOutboxMixin:
+    def _init_delivery_outbox(self) -> None:
+        self._delivery_outbox = InMemoryDeliveryOutboxRepository()
+
+    def queue_delivery(self, channel, recipient, content, metadata=None, *, principal_id="", idempotency_key=""):
+        return self._delivery_outbox.enqueue(
+            channel,
+            recipient,
+            content,
+            metadata,
+            principal_id=principal_id,
+            idempotency_key=idempotency_key,
+        )
+
+    def get_delivery(self, delivery_id, *, principal_id=""):
+        return self._delivery_outbox.get(delivery_id, principal_id=principal_id)
+
+    def claim_delivery(self, delivery_id, *, lease_owner, lease_seconds, now=None):
+        return self._delivery_outbox.claim(
+            delivery_id,
+            lease_owner=lease_owner,
+            lease_seconds=lease_seconds,
+            now=now,
+        )
+
+    def begin_delivery_attempt(self, delivery_id, *, principal_id, lease_owner, now=None):
+        return self._delivery_outbox.begin_attempt(
+            delivery_id,
+            principal_id=principal_id,
+            lease_owner=lease_owner,
+            now=now,
+        )
+
+    def mark_delivery_sent(self, delivery_id, *, principal_id, receipt_json=None, lease_owner=""):
+        return self._delivery_outbox.mark_sent(
+            delivery_id,
+            principal_id=principal_id,
+            receipt_json=receipt_json,
+            lease_owner=lease_owner,
+        )
+
+    def mark_delivery_failed(
+        self,
+        delivery_id,
+        *,
+        principal_id,
+        error,
+        next_attempt_at=None,
+        dead_letter=False,
+        lease_owner="",
+    ):
+        return self._delivery_outbox.mark_failed(
+            delivery_id,
+            principal_id=principal_id,
+            error=error,
+            next_attempt_at=next_attempt_at,
+            dead_letter=dead_letter,
+            lease_owner=lease_owner,
+        )
 
 
 def _load_runner_module(monkeypatch: pytest.MonkeyPatch):
@@ -40,6 +102,54 @@ def test_scheduler_heartbeat_file_is_healthchecked(monkeypatch: pytest.MonkeyPat
 
     heartbeat_path.write_text(json.dumps({"epoch": time.time() - 120, "role": "scheduler"}), encoding="utf-8")
     assert scheduler_healthcheck.main() == 1
+
+
+def test_worker_heartbeat_is_role_aware_and_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    runner = _load_runner_module(monkeypatch)
+    from app import scheduler_healthcheck
+
+    heartbeat_path = tmp_path / "worker-heartbeat.json"
+    monkeypatch.setenv("EA_ROLE", "worker")
+    monkeypatch.setenv("EA_WORKER_HEARTBEAT_PATH", str(heartbeat_path))
+    monkeypatch.setenv("EA_WORKER_HEARTBEAT_MAX_AGE_SECONDS", "60")
+
+    runner._write_scheduler_heartbeat(role="worker", status="loop")
+
+    payload = json.loads(heartbeat_path.read_text(encoding="utf-8"))
+    assert payload["role"] == "worker"
+    assert payload["status"] == "loop"
+    assert payload["profile"] == ""
+    assert int(payload["pid"]) > 0
+    assert scheduler_healthcheck.main() == 0
+
+    heartbeat_path.write_text(
+        json.dumps({**payload, "role": "scheduler"}),
+        encoding="utf-8",
+    )
+    assert scheduler_healthcheck.main() == 1
+
+    heartbeat_path.write_text(
+        json.dumps({**payload, "pid": 2**31 - 1}),
+        encoding="utf-8",
+    )
+    assert scheduler_healthcheck.main() == 1
+
+
+def test_execution_worker_refreshes_heartbeat_before_role_work(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = _load_runner_module(monkeypatch)
+
+    source = inspect.getsource(runner._run_execution_worker)
+    loop = source.index('while not stop["flag"]:')
+    heartbeat = source.index('_write_scheduler_heartbeat(role=role, status="loop")', loop)
+    scheduler_branch = source.index('if role == "scheduler":', loop)
+    queue_execution = source.index("container.orchestrator.run_next_queue_item", loop)
+
+    assert loop < heartbeat < scheduler_branch < queue_execution
 
 
 def test_scheduler_step_watchdog_keeps_heartbeat_and_avoids_duplicate_launches(
@@ -788,7 +898,10 @@ def test_scheduler_morning_memo_delivery_sends_once_when_due(monkeypatch: pytest
     ingested_events: list[tuple[str, str]] = []
     dedupe_index: dict[str, SimpleNamespace] = {}
 
-    class _FakeChannelRuntime:
+    class _FakeChannelRuntime(_DeliveryOutboxMixin):
+        def __init__(self) -> None:
+            self._init_delivery_outbox()
+
         def find_observation_by_dedupe(self, dedupe_key: str, *, principal_id: str | None = None):
             return dedupe_index.get(dedupe_key)
 
@@ -834,7 +947,9 @@ def test_scheduler_morning_memo_delivery_sends_once_when_due(monkeypatch: pytest
             delivery_channel: str = "email",
             expires_in_hours: int = 72,
             base_url: str = "",
+            idempotency_key: str = "",
         ):
+            assert idempotency_key.startswith("propertyquarry-morning-memo:")
             service_calls.append((principal_id, digest_key, recipient_email))
             return {
                 "delivery_id": "digest-1",
@@ -879,6 +994,11 @@ def test_scheduler_morning_memo_delivery_sends_once_when_due(monkeypatch: pytest
         "failed": 0,
         "skipped": 0,
         "errors": 0,
+        "queued": 1,
+        "claimed": 1,
+        "claim_conflicts": 0,
+        "retried": 0,
+        "dead_lettered": 0,
     }
     assert service_calls == [("principal-memo-1", "memo", "exec@example.com")]
     assert ingested_events == [
@@ -931,11 +1051,6 @@ def test_scheduler_morning_memo_delivery_respects_retry_backoff(monkeypatch: pyt
         },
         status="active",
     )
-    recent_failure = SimpleNamespace(
-        event_type="scheduled_morning_memo_delivery_failed",
-        payload={"schedule_key": "pref-memo-2", "local_day": "2026-03-30"},
-        created_at="2026-03-30T07:40:00+00:00",
-    )
     service_calls: list[str] = []
 
     class _FakeService:
@@ -944,7 +1059,20 @@ def test_scheduler_morning_memo_delivery_respects_retry_backoff(monkeypatch: pyt
 
         def issue_channel_digest_delivery(self, **kwargs):
             service_calls.append("called")
-            return {"delivery_id": "digest-2", "digest_key": "memo", "email_delivery_status": "sent"}
+            return {"delivery_id": "digest-2", "digest_key": "memo", "email_delivery_status": "failed"}
+
+    class _FakeChannelRuntime(_DeliveryOutboxMixin):
+        def __init__(self) -> None:
+            self._init_delivery_outbox()
+
+        def find_observation_by_dedupe(self, dedupe_key, principal_id=None):
+            return None
+
+        def list_recent_observations(self, limit=50, principal_id=None):
+            return []
+
+        def ingest_observation(self, *args, **kwargs):
+            return None
 
     container = SimpleNamespace(
         tool_runtime=SimpleNamespace(
@@ -953,11 +1081,7 @@ def test_scheduler_morning_memo_delivery_respects_retry_backoff(monkeypatch: pyt
         memory_runtime=SimpleNamespace(
             list_delivery_preferences=lambda principal_id, limit=50, status=None: [preference]
         ),
-        channel_runtime=SimpleNamespace(
-            find_observation_by_dedupe=lambda dedupe_key, principal_id=None: None,
-            list_recent_observations=lambda limit=50, principal_id=None: [recent_failure],
-            ingest_observation=lambda *args, **kwargs: None,
-        ),
+        channel_runtime=_FakeChannelRuntime(),
     )
 
     monkeypatch.setitem(
@@ -983,12 +1107,26 @@ def test_scheduler_morning_memo_delivery_respects_retry_backoff(monkeypatch: pyt
         "configured": 1,
         "due": 1,
         "sent": 0,
-        "blocked": 1,
-        "failed": 0,
+        "blocked": 0,
+        "failed": 1,
         "skipped": 0,
         "errors": 0,
+        "queued": 1,
+        "claimed": 1,
+        "claim_conflicts": 0,
+        "retried": 1,
+        "dead_lettered": 0,
     }
-    assert service_calls == []
+    assert service_calls == ["called"]
+
+    deferred = runner._run_scheduler_morning_memo_delivery(
+        container,
+        logging.getLogger("test.runner"),
+        now_utc=now_utc,
+    )
+    assert deferred["blocked"] == 1
+    assert deferred["sent"] == 0
+    assert service_calls == ["called"]
 
 
 def test_scheduler_actionable_nudge_delivery_sends_telegram_when_due(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1033,7 +1171,10 @@ def test_scheduler_actionable_nudge_delivery_sends_telegram_when_due(monkeypatch
     ingested_events: list[tuple[str, str]] = []
     dedupe_index: dict[str, SimpleNamespace] = {}
 
-    class _FakeChannelRuntime:
+    class _FakeChannelRuntime(_DeliveryOutboxMixin):
+        def __init__(self) -> None:
+            self._init_delivery_outbox()
+
         def find_observation_by_dedupe(self, dedupe_key: str, *, principal_id: str | None = None):
             return dedupe_index.get(dedupe_key)
 
@@ -1081,7 +1222,9 @@ def test_scheduler_actionable_nudge_delivery_sends_telegram_when_due(monkeypatch
             delivery_channel: str = "email",
             expires_in_hours: int = 72,
             base_url: str = "",
+            idempotency_key: str = "",
         ):
+            assert idempotency_key.startswith("propertyquarry-morning-memo:")
             service_calls.append((principal_id, digest_key, recipient_email, delivery_channel))
             return {
                 "delivery_id": "digest-nudge-1",
@@ -1133,6 +1276,11 @@ def test_scheduler_actionable_nudge_delivery_sends_telegram_when_due(monkeypatch
         "failed": 0,
         "skipped": 0,
         "errors": 0,
+        "queued": 1,
+        "claimed": 1,
+        "claim_conflicts": 0,
+        "retried": 0,
+        "dead_lettered": 0,
     }
     assert service_calls == [("principal-nudge-1", "assistant_nudge", "principal-nudge-1", "telegram")]
     assert ingested_events == [

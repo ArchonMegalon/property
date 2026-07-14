@@ -18,6 +18,7 @@ SURFACE_TEMPLATES = (
     "ea/app/templates/integrations_page.html",
     "ea/app/templates/data_deletion.html",
     "ea/app/templates/base_public.html",
+    "ea/app/templates/base_console.html",
     "ea/app/templates/app/property_decision_workbench.html",
     "ea/app/templates/app/property_research_detail.html",
     "ea/app/templates/app/property_packets.html",
@@ -75,7 +76,8 @@ FORBIDDEN_CUSTOMER_NOISE = (
     "operator center",
 )
 
-ALLOWED_HASH_TARGETS = {"#results-list", "#pqx-filtered-breakdown"}
+ALLOWED_HASH_TARGETS = {"#results-list", "#pqx-filtered-breakdown", "#sign-in-options"}
+FOCUSABLE_HASH_TARGETS = {"#sign-in-options"}
 
 ACCESSIBILITY_PRIMITIVE_TEMPLATES = (
     "ea/app/templates/base_public.html",
@@ -208,8 +210,23 @@ def _check_links(path: Path, text: str, failures: list[str]) -> None:
             failures.append(f"{path}:{line} anchor href must not be empty or #")
         if normalized.lower().startswith("javascript:"):
             failures.append(f"{path}:{line} anchor must not use javascript: href")
-        if normalized.startswith("#") and normalized not in ALLOWED_HASH_TARGETS:
-            failures.append(f"{path}:{line} hash link must target an approved in-page action")
+        if normalized.startswith("#"):
+            if normalized not in ALLOWED_HASH_TARGETS:
+                failures.append(f"{path}:{line} hash link must target an approved in-page action")
+                continue
+            if normalized in FOCUSABLE_HASH_TARGETS:
+                target_id = normalized[1:]
+                target_match = re.search(
+                    rf"<(?P<tag>[a-zA-Z][a-zA-Z0-9:-]*)\b(?P<attrs>[^>]*\bid\s*=\s*(['\"]){re.escape(target_id)}\3[^>]*)>",
+                    text,
+                    flags=re.IGNORECASE | re.DOTALL,
+                )
+                if target_match is None:
+                    failures.append(f"{path}:{line} approved hash link target must exist in the same surface")
+                    continue
+                target_tag = target_match.group(0)
+                if (_attr(target_tag, "tabindex") or "").strip() not in {"-1", "0"}:
+                    failures.append(f"{path}:{line} approved hash link target must accept keyboard focus")
 
 
 def _check_images(path: Path, text: str, failures: list[str]) -> None:

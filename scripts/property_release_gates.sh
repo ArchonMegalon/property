@@ -30,6 +30,8 @@ Runs the focused PropertyQuarry release bundle:
   - cached evidence-overlay contracts for unavailable/stale/verified states and no inline source indexing
   - offline ranking benchmark for hard filters, soft scoring, ordering, and scout thresholds
   - property search storage schema guard
+  - fresh authenticated private SLO metrics evidence bound to the exact release image and API replica set
+  - release-bound encrypted off-host Postgres backup, exact-version provider retrieval, and disposable restore-drill evidence
   - saved search-agent management contracts
   - property market catalog contracts
   - PayFunnels checkout, webhook, refund, mismatch, and billing-surface contracts
@@ -59,6 +61,71 @@ EOF
 fi
 
 cd "${EA_ROOT}"
+dr_backup_receipt="${PROPERTYQUARRY_DR_BACKUP_RECEIPT:-}"
+dr_restore_receipt="${PROPERTYQUARRY_DR_RESTORE_RECEIPT:-}"
+dr_release_commit_sha="${PROPERTYQUARRY_RELEASE_COMMIT_SHA:-}"
+dr_release_image_digest="${PROPERTYQUARRY_RELEASE_IMAGE_DIGEST:-}"
+dr_release_max_age_seconds="${PROPERTYQUARRY_DR_RELEASE_MAX_AGE_SECONDS:-86400}"
+slo_metrics_snapshot="${PROPERTYQUARRY_SLO_METRICS_SNAPSHOT:-}"
+slo_metrics_probe_receipt="${PROPERTYQUARRY_SLO_METRICS_PROBE_RECEIPT:-}"
+slo_evidence_receipt="${PROPERTYQUARRY_SLO_EVIDENCE_RECEIPT:-_completion/propertyquarry_slo_evidence/release-gate.json}"
+monitoring_runtime_receipt="${PROPERTYQUARRY_MONITORING_RUNTIME_RECEIPT:-}"
+prometheus_range_receipt="${PROPERTYQUARRY_PROMETHEUS_RANGE_RECEIPT:-}"
+prometheus_range_response="${PROPERTYQUARRY_PROMETHEUS_RANGE_RESPONSE:-}"
+alert_delivery_receipt="${PROPERTYQUARRY_ALERT_DELIVERY_RECEIPT:-}"
+if [[ -z "${dr_backup_receipt}" || -z "${dr_restore_receipt}" ]]; then
+  echo "error: PROPERTYQUARRY_DR_BACKUP_RECEIPT and PROPERTYQUARRY_DR_RESTORE_RECEIPT are required." >&2
+  exit 2
+fi
+if [[ -z "${dr_release_commit_sha}" || -z "${dr_release_image_digest}" ]]; then
+  echo "error: PROPERTYQUARRY_RELEASE_COMMIT_SHA and PROPERTYQUARRY_RELEASE_IMAGE_DIGEST are required for DR binding." >&2
+  exit 2
+fi
+if [[ -z "${slo_metrics_snapshot}" || -z "${slo_metrics_probe_receipt}" ]]; then
+  echo "error: PROPERTYQUARRY_SLO_METRICS_SNAPSHOT and PROPERTYQUARRY_SLO_METRICS_PROBE_RECEIPT are required." >&2
+  echo "Capture them from the authenticated private /internal/metrics route with scripts/propertyquarry_slo_capture.py." >&2
+  exit 2
+fi
+if [[ -z "${monitoring_runtime_receipt}" || -z "${prometheus_range_receipt}" || \
+  -z "${prometheus_range_response}" || -z "${alert_delivery_receipt}" ]]; then
+  echo "error: PROPERTYQUARRY_MONITORING_RUNTIME_RECEIPT, PROPERTYQUARRY_PROMETHEUS_RANGE_RECEIPT," >&2
+  echo "PROPERTYQUARRY_PROMETHEUS_RANGE_RESPONSE, and PROPERTYQUARRY_ALERT_DELIVERY_RECEIPT are required." >&2
+  exit 2
+fi
+mkdir -p _completion/disaster_recovery
+PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_postgres_dr.py release-gate \
+  --backup-receipt "${dr_backup_receipt}" \
+  --restore-receipt "${dr_restore_receipt}" \
+  --release-commit-sha "${dr_release_commit_sha}" \
+  --image-digest "${dr_release_image_digest}" \
+  --max-age-seconds "${dr_release_max_age_seconds}" \
+  --receipt _completion/disaster_recovery/release-gate.json \
+  > /dev/null
+mkdir -p "$(dirname "${slo_evidence_receipt}")"
+PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_slo_evidence.py \
+  --flagship \
+  --release-sha "${dr_release_commit_sha}" \
+  --image-digest "${dr_release_image_digest}" \
+  --metrics-snapshot "${slo_metrics_snapshot}" \
+  --metrics-probe "${slo_metrics_probe_receipt}" \
+  --prometheus-range "${prometheus_range_response}" \
+  --prometheus-range-receipt "${prometheus_range_receipt}" \
+  --receipt "${slo_evidence_receipt}" \
+  --overwrite-receipt \
+  > /dev/null
+mkdir -p _completion/propertyquarry_observability
+PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_observability_receipts.py verify \
+  --release-sha "${dr_release_commit_sha}" \
+  --image-digest "${dr_release_image_digest}" \
+  --monitoring-receipt "${monitoring_runtime_receipt}" \
+  --prometheus-range-receipt "${prometheus_range_receipt}" \
+  --prometheus-range-response "${prometheus_range_response}" \
+  --alert-delivery-receipt "${alert_delivery_receipt}" \
+  --metrics-snapshot "${slo_metrics_snapshot}" \
+  --metrics-probe "${slo_metrics_probe_receipt}" \
+  --output _completion/propertyquarry_observability/release-gate.json \
+  --overwrite \
+  > /dev/null
 scene_video_shared_env_file="${PROPERTYQUARRY_SCENE_VIDEO_SHARED_ENV_FILE:-state/runtime/property_scene_video_shared.env}"
 scene_video_shared_env_runtime_file="${PROPERTYQUARRY_SCENE_VIDEO_SHARED_ENV_RUNTIME_FILE:-/home/ea/property_scene_video_shared.env}"
 python3 scripts/property_scene_video_shared_env.py --output "${scene_video_shared_env_file}" >/dev/null
@@ -219,6 +286,13 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_authenticated_performance_s
   --write _completion/smoke/property-auth-performance-release-gate.json >/dev/null
 live_mobile_base_url="${PROPERTYQUARRY_LIVE_MOBILE_BASE_URL:-${PROPERTYQUARRY_LIVE_SMOKE_BASE_URL:-}}"
 PYTHON_BIN="${PYTHON_BIN}" bash scripts/propertyquarry_live_release_gates.sh
+PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_map_preview_flagship_gate.py \
+  --base-url "${live_mobile_base_url}" \
+  --host-header "${PROPERTYQUARRY_LIVE_HOST_HEADER:-propertyquarry.com}" \
+  --principal-id "${PROPERTYQUARRY_LIVE_PRINCIPAL_ID:-}" \
+  --no-canonical-fallback \
+  --write _completion/smoke/property-live-map-preview-flagship-release-gate.json \
+  > /dev/null
 runtime_reconstruction_container="${PROPERTYQUARRY_RUNTIME_RECONSTRUCTION_CONTAINER:-${property_render_container}}"
 runtime_reconstruction_slug="${PROPERTYQUARRY_RUNTIME_RECONSTRUCTION_SMOKE_SLUG:-runtime-reconstruction-release-gate-$(date +%Y%m%d%H%M%S)}"
 service_generated_reconstruction_slug="${PROPERTYQUARRY_SERVICE_GENERATED_RECONSTRUCTION_SMOKE_SLUG:-service-generated-reconstruction-release-gate-$(date +%Y%m%d%H%M%S)}"
@@ -353,6 +427,16 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_gold_status.py \
   --scene-video-runtime-status-receipt _completion/scene_video_readiness/runtime-status.json \
   --scene-video-provider-refresh-packet _completion/scene_video_readiness/provider-refresh-packet.json \
   --scene-video-provider-refresh-packet-verifier-receipt _completion/scene_video_readiness/provider-refresh-packet-verifier.json \
+  --slo-evidence-receipt "${slo_evidence_receipt}" \
+  --slo-metrics-snapshot "${slo_metrics_snapshot}" \
+  --slo-metrics-probe "${slo_metrics_probe_receipt}" \
+  --monitoring-runtime-receipt "${monitoring_runtime_receipt}" \
+  --prometheus-range-receipt "${prometheus_range_receipt}" \
+  --prometheus-range-response "${prometheus_range_response}" \
+  --alert-delivery-receipt "${alert_delivery_receipt}" \
+  --require-launch-evidence \
+  --expected-release-sha "${dr_release_commit_sha}" \
+  --expected-image-digest "${dr_release_image_digest}" \
   --write _completion/property_gold_status/release-gate.json \
   --fail-on-blocked
 gold_notification_principal_id="${PROPERTYQUARRY_GOLD_NOTIFICATION_PRINCIPAL_ID:-${EA_PRINCIPAL_ID:-propertyquarry-operator}}"
@@ -380,9 +464,22 @@ case "${gold_notification_enabled,,}" in
 esac
 PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_property_deploy_operator_contracts.py \
+  tests/test_propertyquarry_slo_capture.py \
+  tests/test_propertyquarry_slo_evidence.py \
+  tests/test_propertyquarry_slo_release_integration.py \
+  tests/test_propertyquarry_deploy_drain_receipt.py \
+  tests/test_propertyquarry_deploy_controller_guard.py \
+  tests/test_propertyquarry_deploy_drain_keyring.py \
+  tests/test_propertyquarry_deploy_monotonic_state.py \
+  tests/test_propertyquarry_deploy_writer_topology.py \
+  tests/test_propertyquarry_deploy_journal.py \
+  tests/test_propertyquarry_deploy_promotion.py \
+  tests/test_propertyquarry_host_recovery.py \
+  tests/test_propertyquarry_rollback.py \
   tests/test_property_live_http_security.py \
   tests/test_property_live_presentation_security.py \
   tests/test_property_live_release_provenance.py \
+  tests/test_propertyquarry_postgres_dr.py \
   tests/test_property_public_tour_provider_retirement.py \
   tests/test_property_live_mobile_surface_smoke.py \
   tests/test_property_worker_queues.py \

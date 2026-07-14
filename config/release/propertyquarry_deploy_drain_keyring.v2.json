@@ -1,0 +1,9 @@
+{
+  "schema": "propertyquarry.deploy-drain-keyring.v2",
+  "authority": "propertyquarry-release-control",
+  "algorithm": "Ed25519",
+  "status": "UNCONFIGURED",
+  "rotation_epoch": 0,
+  "minimum_accepted_epoch": 0,
+  "keys": []
+}

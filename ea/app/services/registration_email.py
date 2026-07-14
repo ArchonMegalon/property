@@ -575,6 +575,7 @@ def _send_emailit_email(
     meta: dict[str, object] | None = None,
     sender_email: str = "",
     sender_name: str = "",
+    idempotency_key: str = "",
 ) -> RegistrationEmailReceipt:
     api_key = str(os.environ.get("EMAILIT_API_KEY") or "").strip()
     if not api_key:
@@ -603,7 +604,12 @@ def _send_emailit_email(
         sort_keys=True,
         separators=(",", ":"),
     )
-    idempotency_key = f"ea-mail-{hashlib.sha256(idempotency_seed.encode('utf-8')).hexdigest()[:24]}"
+    requested_idempotency_key = str(idempotency_key or "").strip()
+    resolved_idempotency_key = (
+        f"ea-mail-{hashlib.sha256(requested_idempotency_key.encode('utf-8')).hexdigest()[:32]}"
+        if requested_idempotency_key
+        else f"ea-mail-{hashlib.sha256(idempotency_seed.encode('utf-8')).hexdigest()[:24]}"
+    )
     def _request_for_payload(active_payload: dict[str, object], active_idempotency_key: str):
         return urllib.request.Request(
             EMAILIT_API_BASE,
@@ -616,7 +622,7 @@ def _send_emailit_email(
             method="POST",
         )
 
-    request = _request_for_payload(payload, idempotency_key)
+    request = _request_for_payload(payload, resolved_idempotency_key)
     last_error = ""
     used_fallback_sender = False
     for _ in range(7):
@@ -660,9 +666,14 @@ def _send_emailit_email(
                         sort_keys=True,
                         separators=(",", ":"),
                     )
+                    fallback_key_seed = (
+                        f"{requested_idempotency_key}:fallback:{fallback_email.lower()}"
+                        if requested_idempotency_key
+                        else fallback_seed
+                    )
                     request = _request_for_payload(
                         payload,
-                        f"ea-mail-{hashlib.sha256(fallback_seed.encode('utf-8')).hexdigest()[:24]}",
+                        f"ea-mail-{hashlib.sha256(fallback_key_seed.encode('utf-8')).hexdigest()[:32]}",
                     )
                     used_fallback_sender = True
                     continue
@@ -1533,6 +1544,7 @@ def send_channel_digest_email(
     delivery_url: str,
     plain_text: str,
     expires_at: str = "",
+    idempotency_key: str = "",
 ) -> RegistrationEmailReceipt:
     minutes = _minutes_until(expires_at_iso=expires_at)
     label = str(headline or "PropertyQuarry update").strip() or "PropertyQuarry update"
@@ -1559,6 +1571,7 @@ def send_channel_digest_email(
         text="\n".join(body).strip() + "\n",
         kind="ea_channel_digest_delivery",
         meta={"digest_key": str(digest_key or "").strip().lower(), "delivery_ref": _meta_ref(delivery_url)},
+        idempotency_key=idempotency_key,
     )
 
 

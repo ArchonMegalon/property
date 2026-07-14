@@ -4,8 +4,9 @@ import re
 import urllib.parse
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
+from pydantic import BaseModel, Field
 
 from app.api.dependencies import RequestContext, get_container, get_request_context, require_operator_context
 from app.api.routes.product_api_contracts import (
@@ -22,6 +23,13 @@ from app.api.routes.product_api_contracts import (
 )
 from app.container import AppContainer
 from app.product.property_canonical_graph import build_property_passport_snapshot
+from app.product.privacy_lifecycle import (
+    PrivacyCursorError,
+    PrivacyLifecycleConflict,
+    build_property_account_export_page,
+    build_property_account_privacy_lifecycle,
+    redact_privacy_export,
+)
 from app.product.property_tour_hosting import revoke_hosted_property_tour_bundle
 from app.product.service import build_product_service
 from app.services.onboarding import (
@@ -33,6 +41,28 @@ from app.services.onboarding import (
 
 router = APIRouter(prefix="/app/api", tags=["product"])
 _PROPERTY_NOTIFICATION_PRIMARY_CHANNEL = "telegram"
+
+
+class PropertyAccountErasureRequestIn(BaseModel):
+    idempotency_key: str = Field(default="", max_length=200)
+
+
+class PropertyAccountErasureConfirmIn(BaseModel):
+    confirmation_phrase: str = Field(min_length=1, max_length=40)
+
+
+def _privacy_response(payload: dict[str, object], *, status_code: int = 200) -> JSONResponse:
+    return JSONResponse(
+        content=payload,
+        status_code=status_code,
+        headers={
+            "Cache-Control": "no-store",
+            "Pragma": "no-cache",
+            "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet",
+            "X-Content-Type-Options": "nosniff",
+            "Referrer-Policy": "no-referrer",
+        },
+    )
 
 
 def _property_notification_explicit_primary(preferences: dict[str, object] | None) -> str:
@@ -199,56 +229,50 @@ def update_workspace_morning_memo_settings(
 @router.get("/property/account/export")
 def export_property_account_data(
     download: bool = Query(False),
+    cursor: str = Query(default="", max_length=4000),
+    limit: int = Query(default=100, ge=1, le=500),
     container: AppContainer = Depends(get_container),
     context: RequestContext = Depends(get_request_context),
 ) -> JSONResponse:
     service = build_product_service(container)
     actor = str(context.operator_id or context.access_email or context.principal_id or "browser").strip()
-    service.record_surface_event(
-        principal_id=context.principal_id,
-        event_type="property_account_export_downloaded" if download else "property_account_export_opened",
-        surface="property_account_export",
-        actor=actor,
-    )
-    status = container.onboarding.status(principal_id=context.principal_id)
-    workspace = dict(status.get("workspace") or {}) if isinstance(status.get("workspace"), dict) else {}
-    try:
-        recent_run_rows = service.list_property_search_runs(
+    if not cursor:
+        service.record_surface_event(
             principal_id=context.principal_id,
-            limit=100,
-            account_email=str(context.access_email or "").strip(),
+            event_type="property_account_export_downloaded" if download else "property_account_export_opened",
+            surface="property_account_export",
+            actor=actor,
         )
-    except TypeError:
-        recent_run_rows = service.list_property_search_runs(principal_id=context.principal_id, limit=100)
-    raw_recent_runs = [dict(row) for row in recent_run_rows if isinstance(row, dict)]
-    recent_runs = [_property_account_export_run(row) for row in raw_recent_runs]
+    try:
+        bundle = build_property_account_export_page(
+            container=container,
+            principal_id=context.principal_id,
+            account_email=str(context.access_email or "").strip(),
+            cursor=cursor,
+            limit=50_000 if download and not cursor else limit,
+        )
+    except PrivacyCursorError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    status = container.onboarding.status(principal_id=context.principal_id)
+    raw_state = container.onboarding._ensure_state(context.principal_id)  # noqa: SLF001
+    raw_property_notifications = dict(dict(raw_state.channel_preferences_json or {}).get("property_notifications") or {})
+    sanitized_delivery = redact_privacy_export(
+        _sanitized_property_delivery_preferences(
+            status,
+            raw_property_notifications=raw_property_notifications,
+        )
+    )
+    bundle["delivery_preferences"] = dict(sanitized_delivery) if isinstance(sanitized_delivery, dict) else {}
+    raw_recent_runs = [
+        dict(row)
+        for row in list(bundle.get("recent_property_search_runs") or [])
+        if isinstance(row, dict)
+    ]
     property_passport = build_property_passport_snapshot(
         principal_id=context.principal_id,
         runs=raw_recent_runs,
     ).as_public_dict()
-    access_sessions = [
-        _property_account_export_session(dict(row))
-        for row in service.list_workspace_access_sessions(principal_id=context.principal_id, status="", limit=100)
-        if isinstance(row, dict)
-    ]
-    raw_state = container.onboarding._ensure_state(context.principal_id)  # noqa: SLF001
-    raw_property_notifications = dict(dict(raw_state.channel_preferences_json or {}).get("property_notifications") or {})
-    bundle: dict[str, object] = {
-        "export_type": "propertyquarry_account_data",
-        "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
-        "principal_id": str(context.principal_id or "").strip(),
-        "workspace": workspace,
-        "selected_channels": list(status.get("selected_channels") or []),
-        "privacy": dict(status.get("privacy") or {}) if isinstance(status.get("privacy"), dict) else {},
-        "delivery_preferences": _sanitized_property_delivery_preferences(
-            status,
-            raw_property_notifications=raw_property_notifications,
-        ),
-        "property_search_preferences": dict(status.get("property_search_preferences") or {}) if isinstance(status.get("property_search_preferences"), dict) else {},
-        "recent_property_search_runs": recent_runs,
-        "property_passport_summary": property_passport,
-        "workspace_access_sessions": access_sessions,
-    }
+    bundle["property_passport_summary"] = property_passport
     headers = {
         "Cache-Control": "no-store",
         "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet",
@@ -256,6 +280,114 @@ def export_property_account_data(
     if download:
         headers["Content-Disposition"] = f'attachment; filename="{_property_account_export_filename(bundle)}"'
     return JSONResponse(content=bundle, headers=headers)
+
+
+@router.get("/property/account/privacy")
+def get_property_account_privacy_status(
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> JSONResponse:
+    lifecycle = build_property_account_privacy_lifecycle(container)
+    return _privacy_response({"request": lifecycle.latest(principal_id=context.principal_id)})
+
+
+@router.post("/property/account/erasure-requests")
+def request_property_account_erasure(
+    body: PropertyAccountErasureRequestIn,
+    request: Request,
+    idempotency_key: str = Header(default="", alias="Idempotency-Key", max_length=200),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> JSONResponse:
+    lifecycle = build_property_account_privacy_lifecycle(container)
+    resolved_key = str(idempotency_key or body.idempotency_key or "").strip()
+    if not resolved_key:
+        resolved_key = f"browser:{context.principal_id}:active-request"
+    payload = lifecycle.request_erasure(
+        principal_id=context.principal_id,
+        idempotency_key=resolved_key,
+        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+    )
+    return _privacy_response({"request": payload}, status_code=201)
+
+
+@router.get("/property/account/erasure-requests/{request_id}")
+def get_property_account_erasure(
+    request_id: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> JSONResponse:
+    lifecycle = build_property_account_privacy_lifecycle(container)
+    payload = lifecycle.get(principal_id=context.principal_id, request_id=request_id)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="privacy_erasure_request_not_found")
+    return _privacy_response({"request": payload})
+
+
+@router.post("/property/account/erasure-requests/{request_id}/confirm")
+def confirm_property_account_erasure(
+    request_id: str,
+    body: PropertyAccountErasureConfirmIn,
+    deletion_intent: str = Header(default="", alias="X-PropertyQuarry-Deletion-Intent", max_length=80),
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> JSONResponse:
+    if deletion_intent != "confirm-account-erasure":
+        raise HTTPException(status_code=400, detail="privacy_erasure_intent_header_required")
+    lifecycle = build_property_account_privacy_lifecycle(container)
+    try:
+        payload = lifecycle.confirm_and_erase(
+            principal_id=context.principal_id,
+            request_id=request_id,
+            confirmation_phrase=body.confirmation_phrase,
+            actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+            account_email=str(context.access_email or "").strip(),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc).strip("'")) from exc
+    except PrivacyLifecycleConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return _privacy_response({"request": payload})
+
+
+@router.post("/property/account/erasure-requests/{request_id}/cancel")
+def cancel_property_account_erasure(
+    request_id: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> JSONResponse:
+    lifecycle = build_property_account_privacy_lifecycle(container)
+    try:
+        payload = lifecycle.cancel(
+            principal_id=context.principal_id,
+            request_id=request_id,
+            actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc).strip("'")) from exc
+    except PrivacyLifecycleConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return _privacy_response({"request": payload})
+
+
+@router.post("/property/account/erasure-requests/{request_id}/retry-providers")
+def retry_property_account_provider_erasure(
+    request_id: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> JSONResponse:
+    lifecycle = build_property_account_privacy_lifecycle(container)
+    try:
+        payload = lifecycle.retry_provider_deletions(
+            principal_id=context.principal_id,
+            request_id=request_id,
+            actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc).strip("'")) from exc
+    except PrivacyLifecycleConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return _privacy_response({"request": payload})
 
 
 @router.post("/property/account/notifications")

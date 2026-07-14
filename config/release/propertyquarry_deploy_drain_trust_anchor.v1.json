@@ -1,0 +1,10 @@
+{
+  "schema": "propertyquarry.deploy-drain-trust-anchor.v1",
+  "authority": "propertyquarry-release-control",
+  "algorithm": "Ed25519",
+  "rotation_epoch": 0,
+  "key_id": "UNCONFIGURED",
+  "public_key": "UNCONFIGURED",
+  "public_key_sha256": "UNCONFIGURED",
+  "status": "UNCONFIGURED"
+}

@@ -403,3 +403,47 @@ class PostgresPropertyPacketPublicationRepository:
                 cur.execute(query, params)
                 rows = cur.fetchall()
         return [self._event_row(row) for row in rows]
+
+    def erase_principal(self, principal_id: str) -> dict[str, int]:
+        principal = str(principal_id or "").strip()
+        if not principal:
+            return {"publications": 0, "events": 0}
+        with self._connect() as conn:
+            with conn.transaction():
+                with conn.cursor() as cur:
+                    cur.execute("DELETE FROM property_packet_publication_events WHERE principal_id = %s", (principal,))
+                    event_count = int(cur.rowcount or 0)
+                    cur.execute("DELETE FROM property_packet_publications WHERE principal_id = %s", (principal,))
+                    publication_count = int(cur.rowcount or 0)
+        return {"publications": publication_count, "events": event_count}
+
+    def export_principal(self, principal_id: str) -> dict[str, list[dict[str, object]]]:
+        principal = str(principal_id or "").strip()
+        if not principal:
+            return {"publications": [], "events": []}
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT *
+                    FROM property_packet_publications
+                    WHERE principal_id = %s
+                    ORDER BY updated_at DESC, publication_id DESC
+                    """,
+                    (principal,),
+                )
+                publication_rows = cur.fetchall()
+                cur.execute(
+                    """
+                    SELECT event_id, publication_id, principal_id, event_type, actor, payload_json, created_at
+                    FROM property_packet_publication_events
+                    WHERE principal_id = %s
+                    ORDER BY created_at DESC, event_id DESC
+                    """,
+                    (principal,),
+                )
+                event_rows = cur.fetchall()
+        return {
+            "publications": [self._row(row) for row in publication_rows],
+            "events": [self._event_row(row) for row in event_rows],
+        }

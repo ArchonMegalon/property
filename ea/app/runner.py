@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 import logging
 import os
@@ -12,6 +13,7 @@ import signal
 import threading
 import time
 import urllib.error
+from uuid import uuid4
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import uvicorn
@@ -36,9 +38,36 @@ _SCHEDULER_TELEGRAM_ASYNC_RECOVERY_INTERVAL_SECONDS = 5.0
 _SCHEDULER_TELEGRAM_ASYNC_RECOVERY_MIN_AGE_SECONDS = 0.0
 _SCHEDULER_MORNING_MEMO_DELIVERY_WINDOW_MINUTES = 120
 _SCHEDULER_MORNING_MEMO_RETRY_AFTER_MINUTES = 60
+_SCHEDULER_MORNING_MEMO_LEASE_SECONDS = 900
+_SCHEDULER_MORNING_MEMO_MAX_ATTEMPTS = 3
 _SCHEDULER_GOOGLE_SIGNAL_SYNC_FORBIDDEN_COOLDOWNS: dict[str, float] = {}
 _SCHEDULER_STEP_LOCK = threading.Lock()
 _SCHEDULER_STEP_THREADS: dict[str, dict[str, object]] = {}
+_EXECUTION_INSTANCE_ID = uuid4().hex
+_SCHEDULER_DELIVERY_METRICS_LOCK = threading.Lock()
+_SCHEDULER_DELIVERY_METRICS = {
+    key: 0
+    for key in (
+        "queued",
+        "claimed",
+        "claim_conflicts",
+        "sent",
+        "retried",
+        "dead_lettered",
+        "failed",
+    )
+}
+
+
+def _record_scheduler_delivery_metrics(summary: dict[str, object]) -> None:
+    with _SCHEDULER_DELIVERY_METRICS_LOCK:
+        for key in tuple(_SCHEDULER_DELIVERY_METRICS):
+            _SCHEDULER_DELIVERY_METRICS[key] += max(0, int(summary.get(key) or 0))
+
+
+def _scheduler_delivery_metrics_snapshot() -> dict[str, int]:
+    with _SCHEDULER_DELIVERY_METRICS_LOCK:
+        return dict(_SCHEDULER_DELIVERY_METRICS)
 
 
 def _scheduler_heartbeat_path() -> Path:
@@ -50,28 +79,47 @@ def _scheduler_heartbeat_path() -> Path:
     )
 
 
+def _execution_role_heartbeat_path(role: str) -> Path | None:
+    normalized_role = str(role or "").strip().lower()
+    if normalized_role == "scheduler":
+        return _scheduler_heartbeat_path()
+    if normalized_role == "worker":
+        return Path(
+            str(
+                os.environ.get("EA_WORKER_HEARTBEAT_PATH")
+                or "/data/artifacts/propertyquarry-worker-heartbeat.json"
+            ).strip()
+        )
+    return None
+
+
 def _write_scheduler_heartbeat(*, role: str, status: str) -> None:
-    if role != "scheduler":
-        return
-    path = _scheduler_heartbeat_path()
-    if not str(path):
+    normalized_role = str(role or "").strip().lower()
+    path = _execution_role_heartbeat_path(normalized_role)
+    if path is None:
         return
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         now = time.time()
         payload = {
-            "role": role,
+            "role": normalized_role,
             "status": str(status or "loop").strip() or "loop",
             "epoch": now,
             "observed_at": datetime.fromtimestamp(now, timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
             "pid": os.getpid(),
-            "profile": _propertyquarry_scheduler_profile(),
+            "profile": _propertyquarry_scheduler_profile() if normalized_role == "scheduler" else "",
         }
+        if normalized_role == "scheduler":
+            payload["delivery_outbox"] = _scheduler_delivery_metrics_snapshot()
         tmp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
         tmp_path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
         tmp_path.replace(path)
     except Exception:
-        logging.getLogger("ea.runner").debug("scheduler heartbeat write failed", exc_info=True)
+        logging.getLogger("ea.runner").debug(
+            "execution role heartbeat write failed role=%s",
+            normalized_role,
+            exc_info=True,
+        )
 
 
 def _run_scheduler_step_with_heartbeat(
@@ -290,6 +338,27 @@ def _scheduler_morning_memo_interval_seconds() -> float:
 
 def _scheduler_morning_memo_enabled() -> bool:
     return _env_bool("EA_SCHEDULER_MORNING_MEMO_ENABLED", True)
+
+
+def _scheduler_morning_memo_lease_seconds() -> int:
+    return max(
+        60,
+        _env_int(
+            "EA_SCHEDULER_MORNING_MEMO_LEASE_SECONDS",
+            _SCHEDULER_MORNING_MEMO_LEASE_SECONDS,
+        ),
+    )
+
+
+def _scheduler_morning_memo_max_attempts(value: object = None) -> int:
+    try:
+        configured = int(value) if value is not None else _env_int(
+            "EA_SCHEDULER_MORNING_MEMO_MAX_ATTEMPTS",
+            _SCHEDULER_MORNING_MEMO_MAX_ATTEMPTS,
+        )
+    except (TypeError, ValueError):
+        configured = _SCHEDULER_MORNING_MEMO_MAX_ATTEMPTS
+    return max(1, min(configured, 10))
 
 
 def _scheduler_telegram_async_recovery_interval_seconds() -> float:
@@ -1209,6 +1278,244 @@ def _run_scheduler_pocket_signal_sync(container, log: logging.Logger) -> dict[st
         return {"ran": True, "attempted": 1, "synced": 0, "errors": 1, "principal_id": principal_id}
 
 
+def _scheduled_morning_memo_idempotency_keys(
+    *,
+    principal_id: str,
+    schedule_key: str,
+    local_day: str,
+    delivery_channel: str,
+    digest_key: str,
+) -> tuple[str, str]:
+    canonical = "\0".join(
+        (
+            str(principal_id or "").strip(),
+            str(schedule_key or "").strip(),
+            str(local_day or "").strip(),
+        )
+    )
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+    return (f"scheduled-morning-memo:{digest}", f"propertyquarry-morning-memo:{digest}")
+
+
+def _scheduler_delivery_lease_owner() -> str:
+    host = str(os.environ.get("HOSTNAME") or "local").strip() or "local"
+    return f"scheduler:{host}:{os.getpid()}:{_EXECUTION_INSTANCE_ID}"
+
+
+def _dispatch_scheduled_morning_memo(
+    *,
+    container,
+    service,
+    observed_at: datetime,
+    principal_id: str,
+    schedule_key: str,
+    local_day: str,
+    digest_key: str,
+    recipient_email: str,
+    role: str,
+    display_name: str,
+    delivery_channel: str,
+    retry_after_minutes: int,
+    max_attempts: int,
+) -> dict[str, object]:  # type: ignore[no-untyped-def]
+    outbox_key, provider_key = _scheduled_morning_memo_idempotency_keys(
+        principal_id=principal_id,
+        schedule_key=schedule_key,
+        local_day=local_day,
+        delivery_channel=delivery_channel,
+        digest_key=digest_key,
+    )
+    provider_idempotency_supported = delivery_channel == "email"
+    request_payload = {
+        "delivery_kind": "scheduled_morning_memo",
+        "schedule_key": schedule_key,
+        "local_day": local_day,
+        "digest_key": digest_key,
+        "role": role,
+        "display_name": display_name,
+        "delivery_channel": delivery_channel,
+    }
+    row = container.channel_runtime.queue_delivery(
+        channel=delivery_channel,
+        recipient=recipient_email,
+        content=json.dumps(request_payload, sort_keys=True, separators=(",", ":")),
+        metadata={
+            **request_payload,
+            "principal_id": principal_id,
+            "provider_idempotency_key": provider_key,
+            "provider_idempotency_supported": provider_idempotency_supported,
+            "max_attempts": max_attempts,
+            "retry_after_minutes": retry_after_minutes,
+            "defer_if_focus": False,
+        },
+        principal_id=principal_id,
+        idempotency_key=outbox_key,
+    )
+    persisted_request = dict(row.metadata or {})
+    delivery_channel = (
+        str(persisted_request.get("delivery_channel") or row.channel or delivery_channel).strip().lower()
+        or delivery_channel
+    )
+    digest_key = str(persisted_request.get("digest_key") or digest_key).strip().lower() or digest_key
+    recipient_email = str(row.recipient or recipient_email).strip() or recipient_email
+    role = str(persisted_request.get("role") or role).strip().lower() or role
+    display_name = str(persisted_request.get("display_name") or display_name).strip() or display_name
+    provider_key = str(persisted_request.get("provider_idempotency_key") or provider_key).strip() or provider_key
+    provider_idempotency_supported = bool(
+        persisted_request.get("provider_idempotency_supported") is True
+        or str(persisted_request.get("provider_idempotency_supported") or "").strip().lower()
+        in {"1", "true", "yes", "on"}
+    )
+    try:
+        max_attempts = max(1, int(persisted_request.get("max_attempts") or max_attempts))
+    except (TypeError, ValueError):
+        max_attempts = max(1, int(max_attempts))
+    try:
+        retry_after_minutes = max(
+            5,
+            int(persisted_request.get("retry_after_minutes") or retry_after_minutes),
+        )
+    except (TypeError, ValueError):
+        retry_after_minutes = max(5, int(retry_after_minutes))
+    result: dict[str, object] = {
+        "outcome": "queued",
+        "outbox": row,
+        "payload": {},
+        "delivery_channel": delivery_channel,
+        "queued": 1
+        if str(row.status or "").strip().lower() == "queued" and int(row.attempt_count or 0) == 0
+        else 0,
+        "claimed": 0,
+        "claim_conflicts": 0,
+        "retried": 0,
+        "dead_lettered": 0,
+    }
+    if str(row.status or "").strip().lower() == "sent":
+        result["outcome"] = "already_sent"
+        result["queued"] = 0
+        return result
+    if str(row.status or "").strip().lower() == "dead_lettered":
+        result["outcome"] = "dead_lettered"
+        result["queued"] = 0
+        result["dead_lettered"] = 1
+        return result
+
+    lease_owner = _scheduler_delivery_lease_owner()
+    claimed = container.channel_runtime.claim_delivery(
+        row.delivery_id,
+        lease_owner=lease_owner,
+        lease_seconds=_scheduler_morning_memo_lease_seconds(),
+        now=observed_at,
+    )
+    if claimed is None:
+        current = container.channel_runtime.get_delivery(
+            row.delivery_id,
+            principal_id=principal_id,
+        )
+        current_status = str(getattr(current, "status", "") or "").strip().lower()
+        if current_status == "dead_lettered":
+            result["outcome"] = "dead_lettered"
+            result["dead_lettered"] = 1
+        elif current_status == "sent":
+            result["outcome"] = "already_sent"
+        elif current_status == "retry":
+            result["outcome"] = "retry_deferred"
+        else:
+            result["outcome"] = "claim_conflict"
+            result["claim_conflicts"] = 1
+        result["outbox"] = current or row
+        return result
+
+    result["claimed"] = 1
+    attempt = container.channel_runtime.begin_delivery_attempt(
+        claimed.delivery_id,
+        principal_id=principal_id,
+        lease_owner=lease_owner,
+        now=observed_at,
+    )
+    if attempt is None:
+        result["outcome"] = "claim_conflict"
+        result["claim_conflicts"] = 1
+        return result
+    result["outbox"] = attempt
+
+    try:
+        payload = service.issue_channel_digest_delivery(
+            principal_id=principal_id,
+            digest_key=digest_key,
+            recipient_email=recipient_email,
+            role=role,
+            display_name=display_name,
+            operator_id="",
+            delivery_channel=delivery_channel,
+            expires_in_hours=72,
+            base_url=_scheduler_public_base_url(),
+            idempotency_key=provider_key,
+        )
+    except Exception as exc:
+        dead_letter = (not provider_idempotency_supported) or attempt.attempt_count >= max_attempts
+        failed_row = container.channel_runtime.mark_delivery_failed(
+            attempt.delivery_id,
+            principal_id=principal_id,
+            error=f"delivery_dispatch_failed:{exc.__class__.__name__}",
+            next_attempt_at=(observed_at + timedelta(minutes=retry_after_minutes)).isoformat(),
+            dead_letter=dead_letter,
+            lease_owner=lease_owner,
+        )
+        if failed_row is None:
+            result["outcome"] = "completion_ownership_lost"
+            return result
+        result["outbox"] = failed_row
+        result["outcome"] = "dead_lettered" if dead_letter else "retry"
+        result["dead_lettered" if dead_letter else "retried"] = 1
+        return result
+
+    normalized_payload = dict(payload or {})
+    result["payload"] = normalized_payload
+    delivery_status = str(
+        normalized_payload.get("telegram_delivery_status")
+        if delivery_channel == "telegram"
+        else normalized_payload.get("email_delivery_status") or ""
+    ).strip().lower()
+    if delivery_status == "sent":
+        sent_row = container.channel_runtime.mark_delivery_sent(
+            attempt.delivery_id,
+            principal_id=principal_id,
+            receipt_json={
+                "provider": str(normalized_payload.get("email_provider") or delivery_channel).strip(),
+                "provider_message_id": str(normalized_payload.get("email_message_id") or "").strip(),
+                "telegram_message_ids": list(normalized_payload.get("telegram_message_ids") or []),
+                "delivery_id": str(normalized_payload.get("delivery_id") or "").strip(),
+            },
+            lease_owner=lease_owner,
+        )
+        if sent_row is None:
+            # Preserve dispatching state. A later email claim repeats the same
+            # provider key; a later Telegram claim dead-letters as ambiguous.
+            result["outcome"] = "completion_ownership_lost"
+            return result
+        result["outbox"] = sent_row
+        result["outcome"] = "sent"
+        return result
+
+    dead_letter = (not provider_idempotency_supported) or attempt.attempt_count >= max_attempts
+    failed_row = container.channel_runtime.mark_delivery_failed(
+        attempt.delivery_id,
+        principal_id=principal_id,
+        error=f"{delivery_channel}_delivery_{delivery_status or 'failed'}",
+        next_attempt_at=(observed_at + timedelta(minutes=retry_after_minutes)).isoformat(),
+        dead_letter=dead_letter,
+        lease_owner=lease_owner,
+    )
+    if failed_row is None:
+        result["outcome"] = "completion_ownership_lost"
+        return result
+    result["outbox"] = failed_row
+    result["outcome"] = "dead_lettered" if dead_letter else "retry"
+    result["dead_lettered" if dead_letter else "retried"] = 1
+    return result
+
+
 def _run_scheduler_morning_memo_delivery(
     container,
     log: logging.Logger,
@@ -1252,6 +1559,11 @@ def _run_scheduler_morning_memo_delivery(
     failed = 0
     skipped = 0
     error_count = 0
+    queued = 0
+    claimed = 0
+    claim_conflicts = 0
+    retried = 0
+    dead_lettered = 0
 
     for principal_id in sorted(principals):
         try:
@@ -1308,9 +1620,6 @@ def _run_scheduler_morning_memo_delivery(
             local_day = local_now.date().isoformat()
             schedule_key = str(preference.preference_id or f"morning-memo:{principal_id}").strip()
             sent_dedupe = f"{principal_id}|scheduled-morning-memo|{schedule_key}|{local_day}|sent"
-            if container.channel_runtime.find_observation_by_dedupe(sent_dedupe, principal_id=principal_id):
-                skipped += 1
-                continue
             if _is_local_time_within_quiet_hours(local_now, quiet_start=quiet_start, quiet_end=quiet_end):
                 blocked += 1
                 container.channel_runtime.ingest_observation(
@@ -1331,17 +1640,6 @@ def _run_scheduler_morning_memo_delivery(
                 int(format_json.get("retry_after_minutes") or _SCHEDULER_MORNING_MEMO_RETRY_AFTER_MINUTES),
                 5,
             )
-            recent_failure = _recent_morning_memo_failure_within_retry(
-                container.channel_runtime,
-                principal_id=principal_id,
-                schedule_key=schedule_key,
-                local_day=local_day,
-                observed_at=observed_at,
-                retry_after_minutes=retry_after_minutes,
-            )
-            if recent_failure is not None:
-                blocked += 1
-                continue
             delivery_channel = str(format_json.get("delivery_channel") or preference.channel or "email").strip().lower() or "email"
             if delivery_channel not in {"email", "telegram"}:
                 blocked += 1
@@ -1417,36 +1715,37 @@ def _run_scheduler_morning_memo_delivery(
                     dedupe_key=f"{principal_id}|scheduled-morning-memo|{schedule_key}|{local_day}|email-not-configured",
                 )
                 continue
-            payload = service.issue_channel_digest_delivery(
+            dispatch = _dispatch_scheduled_morning_memo(
+                container=container,
+                service=service,
+                observed_at=observed_at,
                 principal_id=principal_id,
+                schedule_key=schedule_key,
+                local_day=local_day,
                 digest_key=digest_key,
                 recipient_email=recipient_email,
                 role=str(format_json.get("role") or "principal").strip().lower() or "principal",
                 display_name=str(format_json.get("display_name") or recipient_email or "Workspace Principal").strip(),
-                operator_id="",
                 delivery_channel=delivery_channel,
-                expires_in_hours=72,
-                base_url=_scheduler_public_base_url(),
+                retry_after_minutes=retry_after_minutes,
+                max_attempts=_scheduler_morning_memo_max_attempts(
+                    format_json.get("max_delivery_attempts")
+                ),
             )
-            if payload is None:
-                failed += 1
-                container.channel_runtime.ingest_observation(
-                    principal_id=principal_id,
-                    channel="product",
-                    event_type="scheduled_morning_memo_delivery_failed",
-                    payload={
-                        "schedule_key": schedule_key,
-                        "local_day": local_day,
-                        "reason": "digest_not_available",
-                    },
-                    source_id=schedule_key,
-                    dedupe_key=f"{principal_id}|scheduled-morning-memo|{schedule_key}|{local_day}|digest-missing",
-                )
-                continue
-            delivery_status = str(
-                payload.get("telegram_delivery_status") if delivery_channel == "telegram" else payload.get("email_delivery_status") or ""
-            ).strip().lower()
-            if delivery_status == "sent":
+            queued += int(dispatch.get("queued") or 0)
+            claimed += int(dispatch.get("claimed") or 0)
+            claim_conflicts += int(dispatch.get("claim_conflicts") or 0)
+            retried += int(dispatch.get("retried") or 0)
+            dead_lettered += int(dispatch.get("dead_lettered") or 0)
+            outcome = str(dispatch.get("outcome") or "failed").strip().lower()
+            delivery_channel = str(
+                dispatch.get("delivery_channel") or delivery_channel
+            ).strip().lower() or delivery_channel
+            payload = dict(dispatch.get("payload") or {})
+            outbox_row = dispatch.get("outbox")
+            outbox_id = str(getattr(outbox_row, "delivery_id", "") or "").strip()
+            attempt_count = max(0, int(getattr(outbox_row, "attempt_count", 0) or 0))
+            if outcome == "sent":
                 sent += 1
                 container.channel_runtime.ingest_observation(
                     principal_id=principal_id,
@@ -1456,29 +1755,21 @@ def _run_scheduler_morning_memo_delivery(
                         "schedule_key": schedule_key,
                         "local_day": local_day,
                         "delivery_id": str(payload.get("delivery_id") or "").strip(),
+                        "outbox_delivery_id": outbox_id,
                         "recipient_email": recipient_email,
                         "digest_key": str(payload.get("digest_key") or "memo").strip(),
                         "delivery_channel": delivery_channel,
+                        "attempt_count": attempt_count,
                     },
-                    source_id=str(payload.get("delivery_id") or schedule_key).strip() or schedule_key,
+                    source_id=outbox_id or str(payload.get("delivery_id") or schedule_key).strip() or schedule_key,
                     dedupe_key=sent_dedupe,
                 )
                 continue
-            if delivery_status == "not_configured":
+            if outcome in {"already_sent", "claim_conflict"}:
+                skipped += 1
+                continue
+            if outcome == "retry_deferred":
                 blocked += 1
-                container.channel_runtime.ingest_observation(
-                    principal_id=principal_id,
-                    channel="product",
-                    event_type="scheduled_morning_memo_delivery_blocked",
-                    payload={
-                        "schedule_key": schedule_key,
-                        "local_day": local_day,
-                        "reason": f"{delivery_channel}_delivery_not_configured",
-                        "recipient_email": recipient_email,
-                    },
-                    source_id=str(payload.get("delivery_id") or schedule_key).strip() or schedule_key,
-                    dedupe_key=f"{principal_id}|scheduled-morning-memo|{schedule_key}|{local_day}|{delivery_channel}-not-configured",
-                )
                 continue
             failed += 1
             failure_bucket = int(observed_at.timestamp()) // max(retry_after_minutes * 60, 60)
@@ -1490,21 +1781,22 @@ def _run_scheduler_morning_memo_delivery(
                     "schedule_key": schedule_key,
                     "local_day": local_day,
                     "delivery_id": str(payload.get("delivery_id") or "").strip(),
+                    "outbox_delivery_id": outbox_id,
                     "recipient_email": recipient_email,
                     "digest_key": str(payload.get("digest_key") or digest_key).strip(),
                     "delivery_channel": delivery_channel,
+                    "outcome": outcome,
+                    "attempt_count": attempt_count,
                     "email_delivery_status": str(payload.get("email_delivery_status") or "").strip(),
-                    "email_delivery_error": str(payload.get("email_delivery_error") or "").strip(),
                     "telegram_delivery_status": str(payload.get("telegram_delivery_status") or "").strip(),
-                    "telegram_delivery_error": str(payload.get("telegram_delivery_error") or "").strip(),
                 },
-                source_id=str(payload.get("delivery_id") or schedule_key).strip() or schedule_key,
-                dedupe_key=f"{principal_id}|scheduled-morning-memo|{schedule_key}|{local_day}|failed|{failure_bucket}",
+                source_id=outbox_id or str(payload.get("delivery_id") or schedule_key).strip() or schedule_key,
+                dedupe_key=f"{principal_id}|scheduled-morning-memo|{schedule_key}|{local_day}|failed|{failure_bucket}|{attempt_count}",
             )
         except Exception:
             error_count += 1
             log.exception("scheduler morning memo delivery failed principal=%s", principal_id)
-    return {
+    summary = {
         "ran": True,
         "configured": configured,
         "due": due,
@@ -1513,7 +1805,14 @@ def _run_scheduler_morning_memo_delivery(
         "failed": failed,
         "skipped": skipped,
         "errors": error_count,
+        "queued": queued,
+        "claimed": claimed,
+        "claim_conflicts": claim_conflicts,
+        "retried": retried,
+        "dead_lettered": dead_lettered,
     }
+    _record_scheduler_delivery_metrics(summary)
+    return summary
 
 
 def _parse_runner_isoish_datetime(value: object) -> datetime | None:
@@ -1619,6 +1918,7 @@ def _run_api() -> None:
         host=s.host,
         port=s.port,
         log_level=s.log_level.lower(),
+        log_config=None,
         ws_ping_interval=None,
         ws_ping_timeout=None,
     )
@@ -1637,9 +1937,106 @@ def _run_openvoice() -> None:
         host=host,
         port=port,
         log_level=log_level,
+        log_config=None,
         ws_ping_interval=None,
         ws_ping_timeout=None,
     )
+
+
+def _run_property_search_work_once(container, *, role: str, log: logging.Logger) -> dict[str, object]:  # type: ignore[no-untyped-def]
+    database_url = str(os.environ.get("DATABASE_URL") or "").strip()
+    if not database_url:
+        return {"claimed": False, "reason": "database_url_missing"}
+
+    from app.product.property_search_work_queue import (
+        PostgresPropertySearchWorkQueue,
+        property_search_work_heartbeat_seconds,
+        property_search_work_lease_seconds,
+    )
+    from app.product.service import build_product_service
+
+    repository = PostgresPropertySearchWorkQueue(database_url)
+    lease_seconds = property_search_work_lease_seconds()
+    instance_host = str(os.environ.get("HOSTNAME") or "local").strip() or "local"
+    lease_owner = (
+        f"{str(role or 'worker').strip() or 'worker'}:{instance_host}:{os.getpid()}:{_EXECUTION_INSTANCE_ID}"
+    )
+    job = repository.claim(lease_owner=lease_owner, lease_seconds=lease_seconds)
+    if job is None:
+        return {"claimed": False}
+
+    stop_heartbeat = threading.Event()
+    lease_lost = threading.Event()
+
+    def _heartbeat() -> None:
+        interval = float(property_search_work_heartbeat_seconds())
+        while not stop_heartbeat.wait(interval):
+            try:
+                if not repository.heartbeat(
+                    job_id=job.job_id,
+                    lease_owner=lease_owner,
+                    lease_seconds=lease_seconds,
+                ):
+                    lease_lost.set()
+                    return
+            except Exception:
+                log.exception("role=%s property search work heartbeat failed job=%s", role, job.job_id)
+
+    heartbeat_thread = threading.Thread(
+        target=_heartbeat,
+        name=f"property-search-heartbeat-{job.job_id[:8]}",
+        daemon=False,
+    )
+    heartbeat_thread.start()
+    try:
+        service = build_product_service(container)
+        result = service.execute_property_search_work_job(job)
+    except Exception as exc:
+        stop_heartbeat.set()
+        heartbeat_thread.join(timeout=max(1.0, float(property_search_work_heartbeat_seconds()) + 1.0))
+        failed = repository.fail(
+            job_id=job.job_id,
+            lease_owner=lease_owner,
+            error=str(exc or "property search work failed"),
+        )
+        log.exception(
+            "role=%s property search work failed job=%s run=%s attempt=%s terminal=%s",
+            role,
+            job.job_id,
+            job.run_id,
+            job.attempt_count,
+            bool(failed and failed.status == "failed"),
+        )
+        return {
+            "claimed": True,
+            "completed": False,
+            "job_id": job.job_id,
+            "run_id": job.run_id,
+            "status": str(failed.status if failed is not None else "lease_lost"),
+            "attempt_count": job.attempt_count,
+        }
+    stop_heartbeat.set()
+    heartbeat_thread.join(timeout=max(1.0, float(property_search_work_heartbeat_seconds()) + 1.0))
+    completed = None if lease_lost.is_set() else repository.complete(job_id=job.job_id, lease_owner=lease_owner)
+    if completed is None:
+        log.error("role=%s property search work completion lost lease job=%s run=%s", role, job.job_id, job.run_id)
+        return {
+            "claimed": True,
+            "completed": False,
+            "job_id": job.job_id,
+            "run_id": job.run_id,
+            "status": "lease_lost",
+            "attempt_count": job.attempt_count,
+        }
+    return {
+        "claimed": True,
+        "completed": True,
+        "job_id": job.job_id,
+        "run_id": job.run_id,
+        "status": completed.status,
+        "attempt_count": completed.attempt_count,
+        "result_status": str(result.get("status") or "completed"),
+    }
 
 
 def _run_execution_worker(role: str) -> None:
@@ -1669,9 +2066,9 @@ def _run_execution_worker(role: str) -> None:
     log.info("role=%s started worker loop", role)
     _write_scheduler_heartbeat(role=role, status="started")
     while not stop["flag"]:
+        _write_scheduler_heartbeat(role=role, status="loop")
         if role == "scheduler":
             now = time.time()
-            _write_scheduler_heartbeat(role=role, status="loop")
             if now - last_property_search_recovery_at >= _scheduler_property_search_recovery_interval_seconds():
                 try:
                     recovery_summary = _run_scheduler_step_with_heartbeat(
@@ -1875,11 +2272,16 @@ def _run_execution_worker(role: str) -> None:
                     memo_summary = _run_scheduler_morning_memo_delivery(container, log)
                     last_morning_memo_at = now
                     log.info(
-                        "role=%s scheduler morning memo configured=%s due=%s sent=%s blocked=%s failed=%s skipped=%s errors=%s",
+                        "role=%s scheduler morning memo configured=%s due=%s queued=%s claimed=%s sent=%s retried=%s dead_lettered=%s claim_conflicts=%s blocked=%s failed=%s skipped=%s errors=%s",
                         role,
                         memo_summary.get("configured"),
                         memo_summary.get("due"),
+                        memo_summary.get("queued"),
+                        memo_summary.get("claimed"),
                         memo_summary.get("sent"),
+                        memo_summary.get("retried"),
+                        memo_summary.get("dead_lettered"),
+                        memo_summary.get("claim_conflicts"),
                         memo_summary.get("blocked"),
                         memo_summary.get("failed"),
                         memo_summary.get("skipped"),
@@ -1910,6 +2312,24 @@ def _run_execution_worker(role: str) -> None:
                 _write_scheduler_heartbeat(role=role, status="idle")
                 time.sleep(idle_backoff_seconds)
                 idle_backoff_seconds = min(idle_backoff_seconds * 2.0, _IDLE_BACKOFF_MAX_SECONDS)
+                continue
+        if role == "worker":
+            try:
+                property_work = _run_property_search_work_once(container, role=role, log=log)
+            except Exception:
+                log.exception("role=%s property search work queue failed; retrying in %.1fs", role, _ERROR_BACKOFF_SECONDS)
+                time.sleep(_ERROR_BACKOFF_SECONDS)
+                continue
+            if bool(property_work.get("claimed")):
+                idle_backoff_seconds = _IDLE_BACKOFF_START_SECONDS
+                log.info(
+                    "role=%s property search work job=%s run=%s status=%s attempt=%s",
+                    role,
+                    property_work.get("job_id"),
+                    property_work.get("run_id"),
+                    property_work.get("status"),
+                    property_work.get("attempt_count"),
+                )
                 continue
         if property_only_worker:
             log.debug("role=%s property-only worker skips inherited generic queue; sleeping %.1fs", role, idle_backoff_seconds)

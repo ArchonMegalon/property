@@ -93,6 +93,15 @@ def test_live_authenticated_smoke_passes_paid_customer_surfaces_without_network(
 
     assert receipt["status"] == "pass"
     assert receipt["failed_count"] == 0
+    assert receipt["billing_readiness"] == {
+        "state": "unavailable",
+        "available": False,
+        "paid_persona": True,
+        "required_for_paid_persona": True,
+        "compatibility_ok": True,
+        "flagship_ok": False,
+        "reason": "fail_closed_recovery_only",
+    }
 
 
 def test_live_authenticated_smoke_default_live_routes_cover_shared_fast_run_without_network() -> None:
@@ -263,6 +272,8 @@ def test_live_authenticated_smoke_accepts_external_billing_redirect_without_netw
     assert any(check["name"] == "billing_external_handoff" and check["ok"] is True for check in billing_row["checks"])
     assert any(check["name"] == "billing_external_handoff_resolves" and check["ok"] is True for check in billing_row["checks"])
     assert any(check["name"] == "billing_external_handoff_usable" and check["ok"] is True for check in billing_row["checks"])
+    assert receipt["billing_readiness"]["state"] == "available"
+    assert receipt["billing_readiness"]["flagship_ok"] is True
 
 
 def test_live_authenticated_smoke_accepts_internal_account_fallback_billing_redirect_without_network() -> None:
@@ -295,6 +306,9 @@ def test_live_authenticated_smoke_accepts_internal_account_fallback_billing_redi
     assert any(check["name"] == "billing_internal_account_fallback" and check["ok"] is True for check in billing_row["checks"])
     assert billing_row.get("billing_handoff_probe") == {}
     assert billing_row.get("billing_handoff_resolution") == {}
+    assert receipt["billing_readiness"]["state"] == "degraded"
+    assert receipt["billing_readiness"]["compatibility_ok"] is True
+    assert receipt["billing_readiness"]["flagship_ok"] is False
 
 
 def test_live_authenticated_smoke_accepts_local_bridge_launch_then_external_billing_redirect_without_network() -> None:
@@ -907,6 +921,9 @@ def test_live_authenticated_smoke_accepts_fail_closed_billing_recovery_without_n
     assert receipt["status"] == "pass"
     billing_row = next(row for row in receipt["checks"] if row["path"] == "/app/billing")
     assert any(check["name"] == "billing_fail_closed_recovery" and check["ok"] is True for check in billing_row["checks"])
+    assert receipt["billing_readiness"]["state"] == "unavailable"
+    assert receipt["billing_readiness"]["compatibility_ok"] is True
+    assert receipt["billing_readiness"]["flagship_ok"] is False
 
 
 def test_live_authenticated_smoke_passes_free_customer_surfaces_when_free_is_expected() -> None:

@@ -21,6 +21,7 @@ if str(ROOT) not in sys.path:
 
 from scripts.propertyquarry_billing_handoff_probe import (
     NoRedirectHandler as _NoRedirectHandler,
+    PROPERTYQUARRY_BILLING_HANDOFF_ALLOWED_HOSTS,
     header_value as _header_value,
     https_handoff_url_usable as _shared_https_handoff_url_usable,
     https_redirect_host_resolves as _https_redirect_host_resolves,
@@ -153,6 +154,7 @@ def _https_handoff_url_usable(
         location,
         timeout_seconds=timeout_seconds,
         visited_urls=_visited_urls,
+        allowed_hosts=PROPERTYQUARRY_BILLING_HANDOFF_ALLOWED_HOSTS,
     )
 
 
@@ -416,6 +418,50 @@ def _route_checks(*, path: str, text: str, expected_plan_label: str) -> list[tup
     return checks
 
 
+def _billing_readiness_from_route_row(
+    route_row: dict[str, object],
+    *,
+    expected_plan_label: str,
+) -> dict[str, object]:
+    passed_checks = {
+        str(check.get("name") or "")
+        for check in list(route_row.get("checks") or [])
+        if isinstance(check, dict) and check.get("ok") is True
+    }
+    available_checks = {
+        "billing_external_handoff",
+        "billing_external_handoff_resolves",
+        "billing_external_handoff_usable",
+        "billing_no_second_login",
+    }
+    if available_checks.issubset(passed_checks):
+        state = "available"
+        reason = "no_second_login_handoff_verified"
+    elif passed_checks & {"billing_internal_account_fallback", "billing_bridge_guided_login_assist"}:
+        state = "degraded"
+        reason = "account_fallback_or_second_login_required"
+    elif "billing_fail_closed_recovery" in passed_checks:
+        state = "unavailable"
+        reason = "fail_closed_recovery_only"
+    elif "billing_external_handoff" in passed_checks:
+        state = "degraded"
+        reason = "external_handoff_not_proven_usable"
+    else:
+        state = "unavailable"
+        reason = "billing_route_not_available"
+    normalized_plan = str(expected_plan_label or "").strip().lower()
+    paid_persona = bool(normalized_plan and normalized_plan != "free")
+    return {
+        "state": state,
+        "available": state == "available",
+        "paid_persona": paid_persona,
+        "required_for_paid_persona": paid_persona,
+        "compatibility_ok": route_row.get("ok") is True,
+        "flagship_ok": state == "available",
+        "reason": reason,
+    }
+
+
 def build_live_authenticated_smoke_receipt(
     *,
     base_url: str,
@@ -596,8 +642,7 @@ def build_live_authenticated_smoke_receipt(
         ok = all(passed for _, passed in route_checks) and not result.get("error")
         if not ok:
             failures += 1
-        checks.append(
-            {
+        route_row: dict[str, object] = {
                 "path": path,
                 "status_code": status_code,
                 "ok": ok,
@@ -618,7 +663,21 @@ def build_live_authenticated_smoke_receipt(
                     else {}
                 ),
             }
-        )
+        checks.append(route_row)
+    billing_route_row = next(
+        (
+            row
+            for row in checks
+            if isinstance(row, dict) and str(row.get("path") or "").strip() == "/app/billing"
+        ),
+        {},
+    )
+    billing_readiness = _billing_readiness_from_route_row(
+        billing_route_row,
+        expected_plan_label=expected_plan_label,
+    )
+    if billing_route_row:
+        billing_route_row["billing_readiness"] = dict(billing_readiness)
     return _json_safe(
         {
         "base_url": base_url,
@@ -629,6 +688,7 @@ def build_live_authenticated_smoke_receipt(
         "route_count": len(routes),
         "failed_count": failures,
         "status": "pass" if failures == 0 else "fail",
+        "billing_readiness": billing_readiness,
         "checks": checks,
         "notes": [
             "This smoke is authenticated and read-only.",

@@ -424,9 +424,11 @@ def build_export_manifest(
             for control in controls
             if str(control.get("status") or "").strip().lower() == "ready"
         }
-        if "krpano" in requested_providers and "krpano" not in ready_control_providers:
-            supplemental_missing_by_tour.setdefault(slug, set()).add("krpano")
-            supplemental_missing_providers.add("krpano")
+        for provider in requested_providers:
+            if provider in ready_control_providers:
+                continue
+            supplemental_missing_by_tour.setdefault(slug, set()).add(provider)
+            supplemental_missing_providers.add(provider)
     for tour in list(receipt.get("tours") or []):
         if not isinstance(tour, dict):
             continue
@@ -518,4 +520,60 @@ def prepare_export_drop_dirs(manifest: dict[str, Any]) -> list[dict[str, Any]]:
             readme_path.write_text(readme_body, encoding="utf-8")
         except OSError as exc:
             readme_write_error = f"{type(exc).__name__}: {exc}"
-            artifact_readme_path, artifact_readme_write_error = _wr
+            artifact_readme_path, artifact_readme_write_error = _write_first_available_fallback_readme(
+                slug=slug,
+                provider=provider,
+                body=readme_body,
+            )
+            active_readme_path = artifact_readme_path
+        prepared.append(
+            {
+                **row,
+                "readme": str(active_readme_path),
+                "artifact_readme": str(artifact_readme_path if readme_write_error else active_readme_path),
+                "readme_write_error": readme_write_error,
+                "artifact_readme_write_error": artifact_readme_write_error,
+                "drop_status": drop_status,
+            }
+        )
+    return prepared
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Materialize PropertyQuarry provider export import targets.")
+    parser.add_argument("--tour-root", type=Path, help="Public tour bundle root.")
+    parser.add_argument("--incoming-root", type=Path, help="Root where provider exports will be dropped.")
+    parser.add_argument(
+        "--provider",
+        action="append",
+        choices=IMPORTABLE_PROVIDERS,
+        dest="providers",
+        help="Limit the manifest to one or more importable providers.",
+    )
+    parser.add_argument("--limit-per-provider", type=int, default=1)
+    parser.add_argument("--prepare-dirs", action="store_true", help="Create drop folders and operator README files.")
+    parser.add_argument("--write", type=Path, help="Optional manifest receipt path.")
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    manifest = build_export_manifest(
+        tour_root=args.tour_root,
+        incoming_root=args.incoming_root,
+        providers=set(args.providers) if args.providers else None,
+        limit_per_provider=max(1, int(args.limit_per_provider or 1)),
+    )
+    if args.prepare_dirs:
+        manifest["prepared_drop_dirs"] = prepare_export_drop_dirs(manifest)
+    body = json.dumps(manifest, ensure_ascii=True, indent=2, sort_keys=True)
+    if args.write:
+        output = args.write.expanduser().resolve()
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(body + "\n", encoding="utf-8")
+    sys.stdout.write(body + "\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

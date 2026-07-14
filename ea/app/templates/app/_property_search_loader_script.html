@@ -124,6 +124,31 @@
     });
   };
 
+  const installCriticalInteractionGuard = () => {
+    const form = root.querySelector('[data-console-form-variant="property_search"]');
+    if (!(form instanceof HTMLFormElement) || form.dataset.pqLoaderInteractionGuard === 'ready') return;
+    form.dataset.pqLoaderInteractionGuard = 'ready';
+    const markInteraction = () => {
+      if (root.dataset.pqWorkbenchController === 'loaded') return;
+      form.dataset.propertyUserInteraction = '1';
+    };
+    const markManualGeography = (event) => {
+      if (root.dataset.pqWorkbenchController === 'loaded') return;
+      if (!event.target?.matches?.('[name="country_code"], [name="region_code"], [name="custom_location_query"], input[name="location_query"]')) return;
+      form.dataset.propertyManualGeography = '1';
+    };
+    form.addEventListener('pointerdown', markInteraction, { passive: true, capture: true });
+    form.addEventListener('keydown', markInteraction, { passive: true, capture: true });
+    form.addEventListener('input', (event) => {
+      markInteraction();
+      markManualGeography(event);
+    }, { passive: true, capture: true });
+    form.addEventListener('change', (event) => {
+      markInteraction();
+      markManualGeography(event);
+    }, { passive: true, capture: true });
+  };
+
   const installCriticalLocationMap = () => {
     const form = root.querySelector('[data-console-form-variant="property_search"]');
     const locationField = form?.querySelector('[data-property-field-name="location_query"]');
@@ -523,7 +548,12 @@
     });
     form.addEventListener('change', (event) => {
       if (root.dataset.pqWorkbenchController === 'loaded') return;
-      if (event.target?.matches?.('input[name="location_query"], [name="country_code"], [name="region_code"]')) renderMap();
+      const target = event.target;
+      if (target?.matches?.('input[name="location_query"], [name="country_code"], [name="region_code"]')) renderMap();
+      if (!target?.matches?.('[name="country_code"], [name="region_code"]')) return;
+      loadWorkbench().then(() => {
+        target.dispatchEvent(new Event('change', { bubbles: true }));
+      }).catch(() => {});
     });
     renderMap();
   };
@@ -594,6 +624,7 @@
     });
   };
 
+  installCriticalInteractionGuard();
   installCriticalWhatMattersAccordion();
   installCriticalLocationMap();
   installCriticalScopeLightbox();

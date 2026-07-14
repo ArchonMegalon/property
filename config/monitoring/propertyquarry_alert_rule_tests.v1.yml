@@ -1,0 +1,193 @@
+rule_files:
+  - propertyquarry_alert_rules.v1.yml
+evaluation_interval: 1m
+tests:
+  - name: required-alerts-fire-from-synthetic-launch-failures
+    interval: 1m
+    input_series:
+      - series: 'up{job="propertyquarry",instance="api-a:8090"}'
+        values: '1+0x40'
+      - series: 'up{job="propertyquarry",instance="api-b:8090"}'
+        values: '0+0x40'
+      - series: 'propertyquarry_expected_api_replicas{job="propertyquarry",instance="api-a:8090"}'
+        values: '3+0x40'
+      - series: 'propertyquarry_http_requests_total{status_class="2xx"}'
+        values: '0+100x40'
+      - series: 'propertyquarry_http_requests_total{status_class="5xx"}'
+        values: '0+2x40'
+      - series: 'propertyquarry_http_request_duration_seconds_bucket{le="1"}'
+        values: '0+1x40'
+      - series: 'propertyquarry_http_request_duration_seconds_bucket{le="2.5"}'
+        values: '0+5x40'
+      - series: 'propertyquarry_http_request_duration_seconds_bucket{le="5"}'
+        values: '0+100x40'
+      - series: 'propertyquarry_http_request_duration_seconds_bucket{le="+Inf"}'
+        values: '0+100x40'
+      - series: 'propertyquarry_readiness'
+        values: '0+0x40'
+      - series: 'propertyquarry_runtime_heartbeat_required{role="worker"}'
+        values: '1+0x40'
+      - series: 'propertyquarry_runtime_heartbeat_required{role="scheduler"}'
+        values: '1+0x40'
+      - series: 'propertyquarry_runtime_heartbeat_present{role="worker"}'
+        values: '0+0x40'
+      - series: 'propertyquarry_runtime_heartbeat_present{role="scheduler"}'
+        values: '1+0x40'
+      - series: 'propertyquarry_runtime_heartbeat_stale{role="worker"}'
+        values: '1+0x40'
+      - series: 'propertyquarry_runtime_heartbeat_stale{role="scheduler"}'
+        values: '1+0x40'
+      - series: 'propertyquarry_db_pool_in_use'
+        values: '99+0x40'
+      - series: 'propertyquarry_db_pool_capacity'
+        values: '100+0x40'
+      - series: 'propertyquarry_queue_depth'
+        values: '600+0x40'
+      - series: 'propertyquarry_queue_oldest_item_age_seconds'
+        values: '1000+0x40'
+      - series: 'propertyquarry_http_request_errors_total{route="/providers/quota",status_class="5xx"}'
+        values: '0+1x40'
+      - series: 'propertyquarry_scheduler_delivery_outbox_events_total{outcome="dead_lettered"}'
+        values: '0+1x40'
+      - series: 'propertyquarry_scheduler_delivery_outbox_events_total{outcome="failed"}'
+        values: '0+1x40'
+      - series: 'propertyquarry_scheduler_delivery_outbox_events_total{outcome="claim_conflicts"}'
+        values: '0+1x40'
+      - series: 'propertyquarry_content_ledger_events_total{outcome="replay_conflict"}'
+        values: '0+1x40'
+      - series: 'propertyquarry_content_ledger_events_total{outcome="failed"}'
+        values: '0+1x40'
+      - series: 'propertyquarry_content_ledger_events_total{outcome="corruption"}'
+        values: '0+1x40'
+    alert_rule_test:
+      - eval_time: 35m
+        alertname: PropertyQuarryReplicaUnavailable
+        exp_alerts:
+          - exp_labels: {instance: "api-b:8090", job: propertyquarry, service: propertyquarry, severity: critical, slo: telemetry}
+      - eval_time: 35m
+        alertname: PropertyQuarryReplicaCoverageInsufficient
+        exp_alerts:
+          - exp_labels: {job: propertyquarry, service: propertyquarry, severity: critical, slo: telemetry}
+      - eval_time: 35m
+        alertname: PropertyQuarryAvailabilitySLOBurn
+        exp_alerts:
+          - exp_labels: {service: propertyquarry, severity: critical, slo: availability}
+      - eval_time: 35m
+        alertname: PropertyQuarryHighErrorRate
+        exp_alerts:
+          - exp_labels: {service: propertyquarry, severity: warning, slo: error_rate}
+      - eval_time: 35m
+        alertname: PropertyQuarryP95LatencyHigh
+        exp_alerts:
+          - exp_labels: {service: propertyquarry, severity: warning, slo: latency_p95}
+      - eval_time: 35m
+        alertname: PropertyQuarryP99LatencyHigh
+        exp_alerts:
+          - exp_labels: {service: propertyquarry, severity: critical, slo: latency_p99}
+      - eval_time: 35m
+        alertname: PropertyQuarryReadinessFailed
+        exp_alerts:
+          - exp_labels: {service: propertyquarry, severity: critical, slo: readiness}
+      - eval_time: 35m
+        alertname: PropertyQuarryRuntimeHeartbeatMissing
+        exp_alerts:
+          - exp_labels: {role: worker, service: propertyquarry, severity: critical, slo: runtime_heartbeat}
+      - eval_time: 35m
+        alertname: PropertyQuarryRuntimeHeartbeatStale
+        exp_alerts:
+          - exp_labels: {role: scheduler, service: propertyquarry, severity: critical, slo: runtime_heartbeat}
+          - exp_labels: {role: worker, service: propertyquarry, severity: critical, slo: runtime_heartbeat}
+      - eval_time: 35m
+        alertname: PropertyQuarryDatabasePoolSaturation
+        exp_alerts:
+          - exp_labels: {service: propertyquarry, severity: warning, slo: database_saturation}
+      - eval_time: 35m
+        alertname: PropertyQuarryDatabasePoolExhaustion
+        exp_alerts:
+          - exp_labels: {service: propertyquarry, severity: critical, slo: database_saturation}
+      - eval_time: 35m
+        alertname: PropertyQuarryQueueDepthHigh
+        exp_alerts:
+          - exp_labels: {service: propertyquarry, severity: warning, slo: queue_backlog}
+      - eval_time: 35m
+        alertname: PropertyQuarryQueueOldestItemStale
+        exp_alerts:
+          - exp_labels: {service: propertyquarry, severity: critical, slo: queue_backlog}
+      - eval_time: 35m
+        alertname: PropertyQuarryProviderOrQuotaFailures
+        exp_alerts:
+          - exp_labels: {service: propertyquarry, severity: critical, slo: provider_quota}
+      - eval_time: 35m
+        alertname: PropertyQuarryDeliveryOutboxDeadLettered
+        exp_alerts:
+          - exp_labels: {service: propertyquarry, severity: critical, slo: delivery_integrity}
+      - eval_time: 35m
+        alertname: PropertyQuarryDeliveryOutboxFailed
+        exp_alerts:
+          - exp_labels: {service: propertyquarry, severity: critical, slo: delivery_integrity}
+      - eval_time: 35m
+        alertname: PropertyQuarryDeliveryOutboxClaimConflicts
+        exp_alerts:
+          - exp_labels: {service: propertyquarry, severity: warning, slo: delivery_integrity}
+      - eval_time: 35m
+        alertname: PropertyQuarryContentLedgerReplayConflict
+        exp_alerts:
+          - exp_labels: {service: propertyquarry, severity: critical, slo: content_integrity}
+      - eval_time: 35m
+        alertname: PropertyQuarryContentLedgerFailed
+        exp_alerts:
+          - exp_labels: {service: propertyquarry, severity: critical, slo: content_integrity}
+      - eval_time: 35m
+        alertname: PropertyQuarryContentLedgerCorruption
+        exp_alerts:
+          - exp_labels: {service: propertyquarry, severity: critical, slo: content_integrity}
+
+  - name: missing-metrics-alert-is-injectable
+    interval: 1m
+    input_series: []
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: PropertyQuarryMetricsMissing
+        exp_alerts:
+          - exp_labels: {service: propertyquarry, severity: critical, slo: telemetry}
+
+  - name: invalid-expected-replica-configuration-is-injectable
+    interval: 1m
+    input_series:
+      - series: 'up{job="propertyquarry",instance="api-a:8090"}'
+        values: '1+0x10'
+      - series: 'propertyquarry_expected_api_replicas{job="propertyquarry",instance="api-a:8090"}'
+        values: '0+0x10'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: PropertyQuarryExpectedReplicaConfigurationInvalid
+        exp_alerts:
+          - exp_labels: {instance: "api-a:8090", job: propertyquarry, service: propertyquarry, severity: critical, slo: telemetry}
+
+  - name: missing-expected-replica-gauge-is-injectable
+    interval: 1m
+    input_series:
+      - series: 'up{job="propertyquarry",instance="api-a:8090"}'
+        values: '1+0x10'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: PropertyQuarryExpectedReplicaMetricMissing
+        exp_alerts:
+          - exp_labels: {instance: "api-a:8090", job: propertyquarry, service: propertyquarry, severity: critical, slo: telemetry}
+
+  - name: divergent-expected-replica-configuration-is-injectable
+    interval: 1m
+    input_series:
+      - series: 'up{job="propertyquarry",instance="api-a:8090"}'
+        values: '1+0x10'
+      - series: 'up{job="propertyquarry",instance="api-b:8090"}'
+        values: '1+0x10'
+      - series: 'propertyquarry_expected_api_replicas{job="propertyquarry",instance="api-a:8090"}'
+        values: '2+0x10'
+      - series: 'propertyquarry_expected_api_replicas{job="propertyquarry",instance="api-b:8090"}'
+        values: '3+0x10'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: PropertyQuarryExpectedReplicaConfigurationDivergent
+        exp_alerts:
+          - exp_labels: {job: propertyquarry, service: propertyquarry, severity: critical, slo: telemetry}

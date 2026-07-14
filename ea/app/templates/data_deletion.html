@@ -1,73 +1,73 @@
 {% extends "base_public.html" %}
 {% block content %}
 <style>
-  .deletion-hero,
-  .deletion-card {
-    padding: 18px;
-  }
-  .deletion-grid {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 14px;
-  }
-  .deletion-card {
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    background: rgba(255,255,255,0.02);
-  }
-  .deletion-card strong {
-    display: block;
-    margin-bottom: 6px;
-    color: var(--text);
-  }
-  .deletion-list {
-    margin: 0;
-    padding-left: 18px;
-  }
-  .deletion-list li + li {
-    margin-top: 8px;
-  }
-  @media (max-width: 1080px) {
-    .deletion-grid {
-      grid-template-columns: 1fr;
-    }
-  }
+  .deletion-hero,.deletion-card,.deletion-status{padding:18px}.deletion-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.deletion-card,.deletion-status{border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.02)}.deletion-card strong,.deletion-status strong{display:block;margin-bottom:6px;color:var(--text)}.deletion-list{margin:0;padding-left:18px}.deletion-list li+li{margin-top:8px}.deletion-actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:14px}.deletion-actions input{min-width:min(100%,260px);padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--surface,#111827);color:var(--text)}.deletion-button{border:1px solid var(--line);border-radius:9px;padding:10px 14px;background:transparent;color:var(--text);cursor:pointer}.deletion-button.danger{border-color:#b45353;color:#ffd0d0}.deletion-status[data-state="failed"]{border-color:#b45353}.deletion-status[data-state="completed"],.deletion-status[data-state="completed_with_provider_followup"]{border-color:#3f8067}.deletion-phase-list{display:grid;gap:8px;margin-top:14px}.deletion-phase{padding-top:8px;border-top:1px solid var(--line)}.deletion-phase span{color:var(--muted)}[data-privacy-message][data-tone="error"]{color:#ffb4b4}@media(max-width:1080px){.deletion-grid{grid-template-columns:1fr}}
 </style>
 
 <section class="section panel deletion-hero">
-  <div class="kicker">Data deletion</div>
-  <h1>Request deletion of your PropertyQuarry data.</h1>
-  <p class="lead">PropertyQuarry keeps account and property-search data only for the features you enable. You can ask us to delete account records, saved searches, connected-channel data, and generated property files tied to your account.</p>
+  <div class="kicker">Account privacy</div>
+  <h1>Export or delete your PropertyQuarry data.</h1>
+  <p class="lead">Request deletion of your PropertyQuarry data. Download your data first if you want a copy. Deletion revokes access and public tours first, then removes primary-storage records. Connected-provider deletion stays visible until a provider receipt arrives.</p>
+  <div class="deletion-actions">
+    {% if privacy_authenticated %}
+    <a class="button" href="{{ account_export_href }}" download>Download complete export</a>
+    <a class="button ghost" href="{{ account_href }}">Back to account</a>
+    {% else %}
+    <a class="button" href="/sign-in?return_to=%2Fdata-deletion">Sign in to manage deletion</a>
+    {% endif %}
+  </div>
 </section>
 
+{% if privacy_authenticated %}
+{% set request_state = privacy_request.get('status') or 'not_requested' %}
+<section class="section deletion-status" data-privacy-lifecycle data-state="{{ request_state }}" data-request-id="{{ privacy_request.get('request_id') or '' }}" aria-live="polite">
+  <div class="kicker">Deletion status</div>
+  <h2 data-privacy-status-label>{{ privacy_request.get('status_label') or 'No deletion request' }}</h2>
+  <p data-privacy-status-detail>{{ privacy_request.get('detail') or 'Your account remains active.' }}</p>
+  <p class="muted" data-privacy-message>
+    {% if request_state == 'awaiting_confirmation' %}Nothing has been deleted. Cancel, or type DELETE to start irreversible removal.
+    {% elif request_state == 'completed_with_provider_followup' %}Local deletion is complete. Provider work is queued without invoking providers from this page.
+    {% elif request_state in ['completed','processing'] %}Recovery is unavailable after confirmation; completed steps are not reversed.
+    {% elif request_state == 'failed' %}Retry resumes unfinished steps and never restores completed steps.
+    {% else %}Starting a request does not delete anything until you explicitly confirm it.{% endif %}
+  </p>
+  <div class="deletion-phase-list" data-privacy-phases>
+    {% for phase in privacy_request.get('phases') or [] %}
+    <div class="deletion-phase"><strong>{{ phase.get('name')|replace('_',' ')|title }} · {{ phase.get('state')|replace('_',' ') }}</strong><span>{{ phase.get('detail') }}</span></div>
+    {% endfor %}
+  </div>
+  <div class="deletion-actions">
+    <button class="deletion-button danger" type="button" data-privacy-request{% if request_state not in ['not_requested','cancelled','expired'] %} hidden{% endif %}>Start deletion request</button>
+    <input type="text" autocomplete="off" spellcheck="false" placeholder="Type DELETE" aria-label="Type DELETE to confirm account erasure" data-privacy-confirm-input{% if not privacy_request.get('can_confirm') %} hidden{% endif %}>
+    <button class="deletion-button danger" type="button" data-privacy-confirm{% if not privacy_request.get('can_confirm') %} hidden{% endif %}>Delete account data</button>
+    <button class="deletion-button" type="button" data-privacy-cancel{% if not privacy_request.get('can_cancel') %} hidden{% endif %}>Cancel request</button>
+    <button class="deletion-button" type="button" data-privacy-retry{% if not privacy_request.get('can_retry') %} hidden{% endif %}>Retry pending work</button>
+  </div>
+</section>
+{% endif %}
+
 <section class="section deletion-grid">
-  <section class="deletion-card">
-    <strong>1. Send the request</strong>
-    Email <a href="mailto:{{ contact_email }}">{{ contact_email }}</a> with the subject line "Data deletion request" and the email address or phone number used for the account.
-  </section>
-  <section class="deletion-card">
-    <strong>2. We verify ownership</strong>
-    We may ask you to confirm the request from the same email, sign-in channel, or secure account link before deleting records.
-  </section>
-  <section class="deletion-card">
-    <strong>3. We remove retained data</strong>
-    After confirmation, we delete or anonymize account, search, channel-connection, and generated property records unless retention is legally required.
-  </section>
+  <section class="deletion-card"><strong>1. Export first</strong>The download covers searches, shortlist, preferences, owned tours and private receipts, artifacts, events, provider bindings, delivery logs, and privacy requests. Credentials and signed tokens are redacted.</section>
+  <section class="deletion-card"><strong>2. Confirm ownership</strong>A signed-in owner starts the request, then explicitly types DELETE. Before confirmation, the request can be cancelled and no records are removed.</section>
+  <section class="deletion-card"><strong>3. Track closeout</strong>Sessions and tours are revoked first. CDN purge and provider deletion remain receipt-driven follow-up states; PropertyQuarry does not silently claim completion.</section>
 </section>
 
 <section class="section">
-  <div class="section-head">
-    <div>
-      <div class="kicker">Scope</div>
-      <h2>What the request covers</h2>
-    </div>
-    <p>Deletion applies to data controlled by PropertyQuarry. Data held by connected providers must be managed with those providers directly.</p>
-  </div>
+  <div class="section-head"><div><div class="kicker">Retention and recovery</div><h2>What remains after confirmation</h2></div><p>A digest-only erasure tombstone prevents a rolling backup from restoring deleted data as an active account.</p></div>
   <ul class="muted-list deletion-list">
-    <li>Account identity records, sign-in metadata, saved search preferences, and saved review settings.</li>
-    <li>Connected-channel metadata and authorization records stored by PropertyQuarry.</li>
-    <li>Generated recommendations, shortlist records, tours, property pages, and review files tied to your account.</li>
-    <li>Backups and logs are removed or aged out according to operational retention windows unless legal obligations require longer retention.</li>
+    <li>Primary account, search, shortlist, preference, packet, artifact, event, and delivery records are removed.</li>
+    <li>Sessions are revoked immediately; revoked tour routes fail closed while cache purge is queued.</li>
+    <li>Provider bindings are removed locally. Provider-side deletion remains pending until a provider receipt arrives.</li>
+    <li>Backups expire by the lifecycle deadline. A restore must reapply the tombstone before services start.</li>
+    <li>A legal hold must appear explicitly in the receipt; none is assumed by default.</li>
   </ul>
 </section>
+
+<noscript><section class="section deletion-card"><strong>JavaScript is required for two-step confirmation.</strong>Email <a href="mailto:{{ contact_email }}">{{ contact_email }}</a> from your account email with subject “Data deletion request”.</section></noscript>
+
+{% if privacy_authenticated %}
+<script>
+(()=>{const root=document.querySelector('[data-privacy-lifecycle]');if(!(root instanceof HTMLElement))return;const q=(s)=>root.querySelector(s);const message=q('[data-privacy-message]');const buttons=()=>root.querySelectorAll('button');const setBusy=(v)=>buttons().forEach((b)=>{b.disabled=v});const note=(text,tone='')=>{if(message){message.textContent=text;message.dataset.tone=tone}};const render=(payload)=>{const r=payload?.request||{};root.dataset.state=String(r.status||'not_requested');root.dataset.requestId=String(r.request_id||'');q('[data-privacy-status-label]').textContent=String(r.status_label||'Deletion status');q('[data-privacy-status-detail]').textContent=String(r.detail||'Check request status.');const states={request:['not_requested','cancelled','expired'].includes(String(r.status||'')),confirm:Boolean(r.can_confirm),cancel:Boolean(r.can_cancel),retry:Boolean(r.can_retry)};for(const [key,show]of Object.entries(states)){const el=q(`[data-privacy-${key}]`);if(el)el.hidden=!show}const input=q('[data-privacy-confirm-input]');if(input)input.hidden=!r.can_confirm;const phases=q('[data-privacy-phases]');if(phases)phases.replaceChildren(...(r.phases||[]).map((p)=>{const row=document.createElement('div');row.className='deletion-phase';const strong=document.createElement('strong');strong.textContent=`${String(p.name||'').replaceAll('_',' ')} · ${p.state||''}`;const span=document.createElement('span');span.textContent=String(p.detail||'');row.append(strong,span);return row}))};const api=async(path,options={})=>{setBusy(true);try{const response=await fetch(path,{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json',...(options.headers||{})},body:JSON.stringify(options.body||{})});const payload=await response.json().catch(()=>({}));if(!response.ok)throw new Error(payload.detail||'The privacy request could not be updated.');render(payload);return payload}finally{setBusy(false)}};q('[data-privacy-request]')?.addEventListener('click',async()=>{try{const p=await api('/app/api/property/account/erasure-requests');note(p.request.detail)}catch(e){note(e.message,'error')}});q('[data-privacy-confirm]')?.addEventListener('click',async()=>{const input=q('[data-privacy-confirm-input]');const phrase=input instanceof HTMLInputElement?input.value:'';if(phrase!=='DELETE'){note('Type DELETE exactly before confirming.','error');input?.focus();return}if(!window.confirm('Delete this account data now? This cannot be undone.'))return;try{const id=encodeURIComponent(root.dataset.requestId||'');const p=await api(`/app/api/property/account/erasure-requests/${id}/confirm`,{headers:{'X-PropertyQuarry-Deletion-Intent':'confirm-account-erasure'},body:{confirmation_phrase:phrase}});note(p.request.detail)}catch(e){note(e.message,'error')}});q('[data-privacy-cancel]')?.addEventListener('click',async()=>{try{const id=encodeURIComponent(root.dataset.requestId||'');const p=await api(`/app/api/property/account/erasure-requests/${id}/cancel`);note(p.request.detail)}catch(e){note(e.message,'error')}});q('[data-privacy-retry]')?.addEventListener('click',async()=>{try{const id=encodeURIComponent(root.dataset.requestId||'');const providers=root.dataset.state==='completed_with_provider_followup';const path=`/app/api/property/account/erasure-requests/${id}/${providers?'retry-providers':'confirm'}`;const options=providers?{}:{headers:{'X-PropertyQuarry-Deletion-Intent':'confirm-account-erasure'},body:{confirmation_phrase:'DELETE'}};const p=await api(path,options);note(p.request.detail)}catch(e){note(e.message,'error')}})})();
+</script>
+{% endif %}
 {% endblock %}

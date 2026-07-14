@@ -1,0 +1,36 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: propertyquarry-operator
+  group_by:
+    - service
+    - alertname
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - receiver: propertyquarry-operator
+      matchers:
+        - service="propertyquarry"
+        - proof="propertyquarry-release"
+      group_by:
+        - proof_nonce
+      group_wait: 0s
+      group_interval: 1m
+      repeat_interval: 1h
+      continue: false
+    - receiver: propertyquarry-operator
+      matchers:
+        - service="propertyquarry"
+      continue: false
+
+receivers:
+  - name: propertyquarry-operator
+    webhook_configs:
+      - url_file: /run/secrets/propertyquarry_alert_webhook_url
+        send_resolved: true
+        http_config:
+          authorization:
+            type: Bearer
+            credentials_file: /run/secrets/propertyquarry_operator_gateway_token

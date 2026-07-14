@@ -1170,7 +1170,7 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
                     "max_results_per_source": int(brief.get("max_results_per_source") or 2),
                 },
             )
-            assert started.status_code == 200, started.text
+            assert started.status_code == 202, started.text
             started_body = started.json()
             run_id = str(started_body.get("run_id") or "").strip()
             assert run_id, f"{case.title}: run_id missing from start response"

@@ -1,0 +1,55 @@
+{
+  "schema": "propertyquarry.database-fence-policy.v1",
+  "status": "UNCONFIGURED",
+  "authority": "propertyquarry-release-control",
+  "target": {
+    "database_name": "UNCONFIGURED",
+    "durable_target_uuid": "UNCONFIGURED",
+    "require_primary": true,
+    "forbidden_database_names": [
+      "postgres",
+      "template0",
+      "template1"
+    ]
+  },
+  "roles": {
+    "controller_role": "UNCONFIGURED",
+    "owner_nologin_role": "UNCONFIGURED",
+    "migrator_role": "UNCONFIGURED",
+    "api_runtime_epoch_prefix": "UNCONFIGURED",
+    "scheduler_runtime_epoch_prefix": "UNCONFIGURED",
+    "require_non_superuser": true,
+    "forbid_createrole": true,
+    "forbid_replication": true,
+    "forbid_bypassrls": true,
+    "forbid_runtime_object_ownership": true,
+    "forbid_runtime_membership_in_privileged_roles": true
+  },
+  "fence": {
+    "revoke_public_connect": true,
+    "runtime_roles_nologin_during_maintenance": true,
+    "terminate_all_target_database_backends": true,
+    "require_stable_zero_backends": true,
+    "max_prepared_transactions": 0,
+    "reject_logical_and_unapproved_background_writers": true,
+    "require_durable_fence_row": true,
+    "migration_and_result_binding_single_transaction": true
+  },
+  "runtime": {
+    "restart_policy": "controller-only",
+    "activate_new_role_epoch_after_sealed_result": true,
+    "forbid_old_epoch_reconnect": true
+  },
+  "secrets": {
+    "application_allowed_credentials": [
+      "api_runtime_epoch",
+      "scheduler_runtime_epoch"
+    ],
+    "application_forbidden_credentials": [
+      "postgres_superuser",
+      "controller",
+      "owner",
+      "migrator"
+    ]
+  }
+}

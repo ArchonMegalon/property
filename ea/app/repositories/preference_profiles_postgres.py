@@ -691,3 +691,83 @@ class PostgresPreferenceProfileRepository:
                 )
                 rows = cur.fetchall()
         return [self._correction_from_row(row) for row in rows]
+
+    def erase_principal(self, principal_id: str) -> dict[str, int]:
+        principal = str(principal_id or "").strip()
+        if not principal:
+            return {"profiles": 0, "nodes": 0, "evidence_events": 0, "assessments": 0, "corrections": 0}
+        tables = (
+            ("preference_profile_corrections", "corrections"),
+            ("preference_decision_assessments", "assessments"),
+            ("preference_evidence_events", "evidence_events"),
+            ("preference_nodes", "nodes"),
+            ("person_profiles", "profiles"),
+        )
+        counts: dict[str, int] = {}
+        with self._connect() as conn:
+            with conn.transaction():
+                with conn.cursor() as cur:
+                    for table, label in tables:
+                        cur.execute(f"DELETE FROM {table} WHERE principal_id = %s", (principal,))
+                        counts[label] = int(cur.rowcount or 0)
+        return counts
+
+    def export_principal(self, principal_id: str) -> dict[str, list[dict[str, object]]]:
+        principal = str(principal_id or "").strip()
+        if not principal:
+            return {"profiles": [], "nodes": [], "evidence_events": [], "assessments": [], "corrections": []}
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT principal_id, person_id, display_name, profile_scope, consent_mode,
+                           learning_enabled, high_stakes_domains_enabled, created_at, updated_at
+                    FROM person_profiles WHERE principal_id = %s ORDER BY person_id
+                    """,
+                    (principal,),
+                )
+                profile_rows = cur.fetchall()
+                cur.execute(
+                    """
+                    SELECT principal_id, person_id, node_id, domain, category, key, value_json, strength, confidence,
+                           source_mode, status, decay_policy, last_confirmed_at, last_observed_at, created_at, updated_at
+                    FROM preference_nodes WHERE principal_id = %s ORDER BY updated_at DESC, node_id DESC
+                    """,
+                    (principal,),
+                )
+                node_rows = cur.fetchall()
+                cur.execute(
+                    """
+                    SELECT principal_id, person_id, event_id, domain, event_type, object_type, object_id, source_ref,
+                           raw_signal_json, interpreted_signal_json, signal_strength, reversible, recorded_at
+                    FROM preference_evidence_events WHERE principal_id = %s ORDER BY recorded_at DESC, event_id DESC
+                    """,
+                    (principal,),
+                )
+                evidence_rows = cur.fetchall()
+                cur.execute(
+                    """
+                    SELECT principal_id, person_id, assessment_id, domain, object_type, object_id, fit_score, confidence,
+                           predicted_reaction, recommendation, match_reasons_json, mismatch_reasons_json, unknowns_json,
+                           blocking_constraints_json, assessment_json, generated_at
+                    FROM preference_decision_assessments WHERE principal_id = %s ORDER BY generated_at DESC, assessment_id DESC
+                    """,
+                    (principal,),
+                )
+                assessment_rows = cur.fetchall()
+                cur.execute(
+                    """
+                    SELECT principal_id, person_id, correction_id, target_type, target_id, old_value_json,
+                           new_value_json, reason, corrected_by, corrected_at
+                    FROM preference_profile_corrections WHERE principal_id = %s ORDER BY corrected_at DESC, correction_id DESC
+                    """,
+                    (principal,),
+                )
+                correction_rows = cur.fetchall()
+        return {
+            "profiles": [self._profile_from_row(row) for row in profile_rows],
+            "nodes": [self._node_from_row(row) for row in node_rows],
+            "evidence_events": [self._event_from_row(row) for row in evidence_rows],
+            "assessments": [self._assessment_from_row(row) for row in assessment_rows],
+            "corrections": [self._correction_from_row(row) for row in correction_rows],
+        }

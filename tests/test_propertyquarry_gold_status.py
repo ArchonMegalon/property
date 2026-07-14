@@ -17,6 +17,883 @@ def _write_json(path: Path, payload: dict[str, object]) -> Path:
     return path
 
 
+def _minimal_gold_receipt_args(tmp_path: Path, *, generated_at: str) -> dict[str, object]:
+    performance_payload = _performance_payload()
+    performance_payload["generated_at"] = generated_at
+    provider_matrix_payload = _provider_matrix_payload()
+    provider_matrix_payload["generated_at"] = generated_at
+    return {
+        "performance_receipt_path": _write_json(tmp_path / "performance.json", performance_payload),
+        "tour_control_receipt_path": _write_json(
+            tmp_path / "tour-controls.json",
+            {
+                "generated_at": generated_at,
+                "status": "pass",
+                "ready_provider_modes": ["matterport", "3dvista", "magicfit"],
+                "missing_provider_modes": [],
+            },
+        ),
+        "export_discovery_receipt_path": _write_json(
+            tmp_path / "discovery.json",
+            {"generated_at": generated_at, "status": "ready", "import_count": 1, "rejected_count": 0},
+        ),
+        "repair_canary_receipt_path": _write_json(
+            tmp_path / "repair.json",
+            {
+                "generated_at": generated_at,
+                "status": "pass",
+                "run_status": "completed_partial",
+                "source_repair_status": "returned",
+                "receipt_resolution": "provider_quarantined_retry_budget_exhausted",
+            },
+        ),
+        "provider_matrix_receipt_path": _write_json(
+            tmp_path / "provider-matrix.json",
+            provider_matrix_payload,
+        ),
+    }
+
+
+def _flagship_customer_ux_receipt_args(tmp_path: Path, *, generated_at: str) -> dict[str, object]:
+    configured_live_routes = (
+        *gold_status.REQUIRED_LIVE_MOBILE_ROUTES,
+        "/app/research/current-result?run_id=run-flagship",
+    )
+    live_routes = []
+    for browser_engine in gold_status.DEFAULT_REQUIRED_FLAGSHIP_BROWSER_ENGINES:
+        for route in configured_live_routes:
+            for width, height in gold_status.REQUIRED_FLAGSHIP_MOBILE_VIEWPORTS:
+                route_checks = [
+                    {"name": name, "ok": True}
+                    for name in gold_status.REQUIRED_FLAGSHIP_BROWSER_CHECKS
+                ]
+                if route == "/app/billing":
+                    route_checks.extend(
+                        {"name": name, "ok": True}
+                        for name in gold_status.REQUIRED_FLAGSHIP_BILLING_HANDOFF_CHECKS
+                    )
+                live_routes.append(
+                    {
+                        "route": route,
+                        "browser_engine": browser_engine,
+                        "status_code": 200,
+                        "ok": True,
+                        "viewport": {"width": width, "height": height},
+                        "proof_mode": "playwright",
+                        "checks": route_checks,
+                        "metrics": {
+                            "status_code": 200,
+                            "browser_engine": browser_engine,
+                            "viewport_width": width,
+                            "viewport_height": height,
+                            "body_width": width,
+                            "min_action_height": 48,
+                            "proof_mode": "playwright",
+                            "browser_probe": True,
+                            "navigation_committed": True,
+                            "touch_capable": True,
+                            "focus_navigation_ok": True,
+                            **(
+                                {"billing_readiness_state": "available"}
+                                if route == "/app/billing"
+                                else {}
+                            ),
+                        },
+                    }
+                )
+    live_mobile = {
+        "generated_at": generated_at,
+        "status": "pass",
+        "failed_count": 0,
+        "route_count": len(live_routes),
+        "configured_route_count": len(configured_live_routes),
+        "proof_mode": "playwright_browser_all",
+        "browser_engine": "matrix",
+        "browser_engines": list(gold_status.DEFAULT_REQUIRED_FLAGSHIP_BROWSER_ENGINES),
+        "required_browser_engines": list(gold_status.DEFAULT_REQUIRED_FLAGSHIP_BROWSER_ENGINES),
+        "supported_viewports": [
+            {"width": width, "height": height}
+            for width, height in gold_status.REQUIRED_FLAGSHIP_MOBILE_VIEWPORTS
+        ],
+        "browser_proof": {
+            "mode": "playwright_browser_all",
+            "ready": True,
+            "required_browser_engines": list(gold_status.DEFAULT_REQUIRED_FLAGSHIP_BROWSER_ENGINES),
+            "observed_browser_engines": list(gold_status.DEFAULT_REQUIRED_FLAGSHIP_BROWSER_ENGINES),
+            "missing_browser_engines": [],
+            "configured_route_count": len(configured_live_routes),
+            "expected_sample_count": len(live_routes),
+            "proven_sample_count": len(live_routes),
+            "missing_samples": [],
+            "static_fallbacks": [],
+        },
+        "viewport": {"width": 390, "height": 844},
+        "routes": live_routes,
+        "coverage_checks": [
+            {"name": "research_detail_route_configured", "ok": True},
+            {"name": "registry_mobile_customer_surfaces_covered", "ok": True},
+        ],
+    }
+    accessibility_routes = (
+        *gold_status.REQUIRED_FLAGSHIP_ACCESSIBILITY_ROUTES,
+        "/app/research/current-result?run_id=run-flagship",
+    )
+    accessibility_rows = [
+        {
+            "route": route,
+            "browser_engine": browser_engine,
+            "ok": True,
+            "checks": [
+                {"name": name, "ok": True}
+                for name in gold_status.REQUIRED_FLAGSHIP_ACCESSIBILITY_CHECKS
+            ],
+            "metrics": {
+                "browser_engine": browser_engine,
+                "axe_core_version": gold_status.REQUIRED_AXE_CORE_VERSION,
+                "axe_serious_critical_count": 0,
+            },
+        }
+        for browser_engine in gold_status.DEFAULT_REQUIRED_FLAGSHIP_BROWSER_ENGINES
+        for route in accessibility_routes
+    ]
+    accessibility = {
+        "generated_at": generated_at,
+        "status": "pass",
+        "failed_count": 0,
+        "route_count": len(accessibility_rows),
+        "axe_core_version": gold_status.REQUIRED_AXE_CORE_VERSION,
+        "required_browser_engines": list(gold_status.DEFAULT_REQUIRED_FLAGSHIP_BROWSER_ENGINES),
+        "configured_routes": list(accessibility_routes),
+        "checks": [
+            {"name": "axe_core_pinned_input", "ok": True},
+            {"name": "accessibility_route_engine_matrix_complete", "ok": True},
+            {"name": "public_information_route_matrix_configured", "ok": True},
+            {"name": "research_detail_route_configured", "ok": True},
+            {"name": "dialog_focus_interaction_sampled", "ok": True},
+        ],
+        "routes": accessibility_rows,
+    }
+    failure_state_rows = [
+        {
+            "state": state,
+            "browser_engine": browser_engine,
+            "ok": True,
+            "checks": [
+                {"name": name, "ok": True}
+                for name in gold_status.REQUIRED_FLAGSHIP_FAILURE_STATE_CHECKS
+            ],
+        }
+        for browser_engine in gold_status.DEFAULT_REQUIRED_FLAGSHIP_BROWSER_ENGINES
+        for state in gold_status.REQUIRED_FLAGSHIP_FAILURE_STATES
+    ]
+    failure_states = {
+        "generated_at": generated_at,
+        "status": "pass",
+        "failed_count": 0,
+        "proof_mode": "playwright_browser_all",
+        "required_browser_engines": list(gold_status.DEFAULT_REQUIRED_FLAGSHIP_BROWSER_ENGINES),
+        "required_failure_states": list(gold_status.REQUIRED_FLAGSHIP_FAILURE_STATES),
+        "checks": [
+            {"name": "required_failure_scenarios_configured", "ok": True},
+            {"name": "browser_state_engine_matrix_complete", "ok": True},
+            {"name": "no_provider_response_mocking", "ok": True},
+        ],
+        "rows": failure_state_rows,
+    }
+    activation_steps = []
+    for name in gold_status.REQUIRED_ACTIVATION_TO_VALUE_STEPS:
+        step: dict[str, object] = {"name": name, "ok": True}
+        if name == "account_create_or_reopen":
+            step["outcome"] = "reopened"
+        elif name == "real_provider_results":
+            step.update({"provider_count": 2, "result_count": 3})
+        elif name == "walkthrough_request_or_reuse":
+            step["mode"] = "reused_ready"
+        elif name == "safe_cleanup":
+            step["session_cleared"] = True
+        activation_steps.append(step)
+    activation_to_value = {
+        "generated_at": generated_at,
+        "status": "pass",
+        "failed_count": 0,
+        "auth_mode": "google",
+        "browser_engine": "chromium",
+        "proof_mode": "deployed_playwright",
+        "persona_digest": "flagship-persona-digest",
+        "run_key": "flagship-activation-20260713-01",
+        "live_contract": {
+            "explicit_persona": True,
+            "principal_headers_forbidden": True,
+            "session_injection_forbidden": True,
+            "provider_response_mocking_forbidden": True,
+            "local_execution_forbidden": True,
+            "deployed_playwright_runner": True,
+        },
+        "checks": [
+            {"name": "protected_live_configuration", "ok": True},
+            {"name": "idempotent_run_reservation", "ok": True},
+            {"name": "activation_step_matrix_complete", "ok": True},
+            {"name": "safe_cleanup_complete", "ok": True},
+        ],
+        "steps": activation_steps,
+    }
+    public_smoke = {
+        "generated_at": generated_at,
+        "status": "pass",
+        "failed_count": 0,
+        "route_count": 1,
+        "checks": [
+            {
+                "path": "/sign-in",
+                "status_code": 200,
+                "ok": True,
+                "checks": [
+                    {"name": name, "ok": True}
+                    for name in gold_status.REQUIRED_PUBLIC_AUTH_CHECKS
+                ],
+            }
+        ],
+    }
+    authenticated_smoke = {
+        "generated_at": generated_at,
+        "status": "pass",
+        "failed_count": 0,
+        "route_count": 2,
+        "checks": [
+            {
+                "path": "/app/billing",
+                "status_code": 303,
+                "ok": True,
+                "checks": [
+                    {"name": "billing_local_board_deleted", "ok": True},
+                    {"name": "billing_external_handoff", "ok": True},
+                    {"name": "billing_external_handoff_resolves", "ok": True},
+                    {"name": "billing_external_handoff_usable", "ok": True},
+                    {"name": "billing_no_second_login", "ok": True},
+                ],
+            },
+            {
+                "path": "/app/account",
+                "status_code": 200,
+                "ok": True,
+                "checks": [
+                    {"name": name, "ok": True}
+                    for name in gold_status.REQUIRED_ACCOUNT_NOTIFICATION_CHECKS
+                ],
+            },
+        ],
+    }
+    billing = {
+        "generated_at": generated_at,
+        "status": "pass",
+        "billing_handoff": {
+            "configured": True,
+            "host": "billing.propertyquarry.com",
+            "host_resolves": True,
+            "account_handoff_usable": True,
+            "url": "https://billing.propertyquarry.com/account",
+            "pricing_surface_probe": {"placeholder": False},
+        },
+    }
+    browser_3d = _browser_3d_gate_payload()
+    browser_3d["generated_at"] = generated_at
+    walkthrough_quality = _walkthrough_quality_gate_payload()
+    walkthrough_quality["generated_at"] = generated_at
+    map_preview = {
+        "generated_at": generated_at,
+        "status": "pass",
+        "failed_count": 0,
+        "preview_count": 1,
+        "checks": [{"name": "flagship_map_preview", "ok": True}],
+        "preview_results": [{"status": "pass", "placeholder": False}],
+    }
+    release_sha = "a" * 40
+    image_digest = "sha256:" + "b" * 64
+    probe_window_end = datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
+    probe_window_start = probe_window_end - timedelta(seconds=60)
+    range_window_start = probe_window_end - timedelta(days=30)
+    replica_ids = ["propertyquarry-api-1"]
+    slo_evidence = {
+        "schema": "propertyquarry.slo_evidence_receipt.v2",
+        "generated_at": generated_at,
+        "mode": "flagship",
+        "status": "pass",
+        "gate_passed": True,
+        "release_commit_sha": release_sha,
+        "release_image_digest": image_digest,
+        "live_monitoring_contacted": False,
+        "probe": {
+            "schema": "propertyquarry.metrics_snapshot_bundle.v2",
+            "probe_schema": "propertyquarry.metrics_probe_bundle.v2",
+            "release_commit_sha": release_sha,
+            "release_image_digest": image_digest,
+            "window_start": probe_window_start.isoformat(),
+            "window_end": probe_window_end.isoformat(),
+            "window_seconds": 60.0,
+            "replica_count": 1,
+            "replica_ids": replica_ids,
+            "snapshot_bundle_sha256": "c" * 64,
+            "probe_bundle_sha256": "d" * 64,
+            "credential_persisted": False,
+        },
+        "prometheus_range": {
+            "schema": "propertyquarry.prometheus-range-receipt.v1",
+            "producer": "propertyquarry-prometheus-range-capture",
+            "window_start": range_window_start.isoformat(),
+            "window_end": probe_window_end.isoformat(),
+            "window_seconds": 30 * 24 * 60 * 60,
+            "authenticated": True,
+            "tls_verified": True,
+            "credential_persisted": False,
+            "replica_ids": replica_ids,
+            "range_response_sha256": "e" * 64,
+            "receipt_sha256": "f" * 64,
+            "slo": {"status": "pass"},
+        },
+        "promtool": {
+            "available": True,
+            "version_pinned": True,
+            "rule_check_passed": True,
+            "config_check_passed": True,
+            "injection_test_passed": True,
+        },
+        "amtool": {
+            "available": True,
+            "version_pinned": True,
+            "routing_check_passed": True,
+        },
+    }
+    return {
+        "live_mobile_receipt_path": _write_json(tmp_path / "live-mobile.json", live_mobile),
+        "accessibility_receipt_path": _write_json(tmp_path / "accessibility.json", accessibility),
+        "failure_state_receipt_path": _write_json(tmp_path / "failure-states.json", failure_states),
+        "activation_to_value_receipt_path": _write_json(
+            tmp_path / "activation-to-value.json",
+            activation_to_value,
+        ),
+        "public_smoke_receipt_path": _write_json(tmp_path / "public-smoke.json", public_smoke),
+        "authenticated_smoke_receipt_path": _write_json(
+            tmp_path / "authenticated-smoke.json",
+            authenticated_smoke,
+        ),
+        "billing_receipt_path": _write_json(tmp_path / "billing.json", billing),
+        "browser_3d_gate_receipt_path": _write_json(tmp_path / "browser-3d.json", browser_3d),
+        "map_preview_flagship_receipt_path": _write_json(tmp_path / "map-preview.json", map_preview),
+        "walkthrough_quality_receipt_path": _write_json(
+            tmp_path / "walkthrough-quality.json",
+            walkthrough_quality,
+        ),
+        "slo_evidence_receipt_path": _write_json(
+            tmp_path / "slo-evidence.json",
+            slo_evidence,
+        ),
+        "expected_release_commit_sha": release_sha,
+        "expected_release_image_digest": image_digest,
+    }
+
+
+def test_gold_status_standard_profile_keeps_customer_ux_receipts_optional(tmp_path: Path) -> None:
+    receipt = build_gold_status_receipt(**_minimal_gold_receipt_args(tmp_path, generated_at="2026-07-13T10:00:00+00:00"))
+
+    assert receipt["status"] == "pass"
+    assert receipt["readiness_profile"] == "standard"
+    assert receipt["flagship_customer_ux_evidence"] == {
+        "required": False,
+        "ready": None,
+        "required_receipts": list(gold_status.FLAGSHIP_CUSTOMER_UX_RECEIPT_AREAS),
+        "missing_receipts": [],
+        "research_detail_required": False,
+        "browser_all_mobile_proof_required": False,
+        "browser_all_mobile_proof_ready": None,
+        "accessibility_proof_required": False,
+        "accessibility_proof_ready": None,
+        "activation_to_value_proof_required": False,
+        "activation_to_value_proof_ready": None,
+        "required_browser_engines": [],
+        "live_mobile_billing_available": None,
+        "authenticated_billing_available": None,
+        "max_receipt_age_hours": None,
+    }
+
+
+def test_gold_status_standard_profile_does_not_gate_on_optional_accessibility_receipt(tmp_path: Path) -> None:
+    generated_at = "2026-07-13T10:00:00+00:00"
+    accessibility_path = _write_json(
+        tmp_path / "accessibility-fail.json",
+        {"generated_at": generated_at, "status": "fail", "failed_count": 4, "routes": []},
+    )
+
+    receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(tmp_path, generated_at=generated_at),
+        accessibility_receipt_path=accessibility_path,
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["accessibility"]["status"] == "fail"
+    assert receipt["accessibility"]["flagship_proof_ok"] is None
+
+
+def test_gold_status_standard_profile_does_not_gate_on_optional_activation_receipt(tmp_path: Path) -> None:
+    generated_at = "2026-07-13T10:00:00+00:00"
+    activation_path = _write_json(
+        tmp_path / "activation-fail.json",
+        {"generated_at": generated_at, "status": "fail", "failed_count": 1, "steps": []},
+    )
+
+    receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(tmp_path, generated_at=generated_at),
+        activation_to_value_receipt_path=activation_path,
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["activation_to_value"]["status"] == "fail"
+    assert receipt["activation_to_value"]["flagship_proof_ok"] is None
+
+
+def test_gold_status_standard_profile_does_not_gate_on_optional_failure_state_receipt(tmp_path: Path) -> None:
+    generated_at = "2026-07-13T10:00:00+00:00"
+    failure_path = _write_json(
+        tmp_path / "failure-states-fail.json",
+        {"generated_at": generated_at, "status": "fail", "failed_count": 2, "rows": []},
+    )
+
+    receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(tmp_path, generated_at=generated_at),
+        failure_state_receipt_path=failure_path,
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["failure_states"]["status"] == "fail"
+    assert receipt["failure_states"]["flagship_proof_ok"] is None
+
+
+def test_gold_status_standard_profile_keeps_safe_billing_recovery_compatible_but_not_available(tmp_path: Path) -> None:
+    generated_at = "2026-07-13T10:00:00+00:00"
+    authenticated_smoke = _authenticated_smoke_payload(
+        billing_external=False,
+        billing_fail_closed=True,
+    )
+    authenticated_smoke["generated_at"] = generated_at
+
+    receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(tmp_path, generated_at=generated_at),
+        authenticated_smoke_receipt_path=_write_json(
+            tmp_path / "authenticated-smoke.json",
+            authenticated_smoke,
+        ),
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["authenticated_customer_surfaces"]["billing_checks_ok"] is True
+    assert receipt["authenticated_customer_surfaces"]["billing_availability"]["state"] == "unavailable"
+    assert receipt["billing_handoff"]["status"] == "not_checked_compatible"
+    assert receipt["billing_handoff"]["compatibility_ok"] is True
+    assert receipt["billing_handoff"]["ready"] is False
+
+
+def test_gold_status_flagship_requires_live_no_second_login_billing_not_recovery_or_account_fallback(tmp_path: Path) -> None:
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    generated_at = (now - timedelta(minutes=5)).isoformat()
+    cases = {
+        "fail_closed": _authenticated_smoke_payload(
+            billing_external=False,
+            billing_fail_closed=True,
+        ),
+        "account_fallback": _authenticated_smoke_payload(
+            billing_external=False,
+            billing_fail_closed=False,
+            billing_bridge_launch=True,
+            billing_internal_account_fallback=True,
+        ),
+    }
+    for case_name, authenticated_smoke in cases.items():
+        case_dir = tmp_path / case_name
+        authenticated_smoke["generated_at"] = generated_at
+        flagship_args = _flagship_customer_ux_receipt_args(case_dir, generated_at=generated_at)
+        flagship_args["authenticated_smoke_receipt_path"] = _write_json(
+            case_dir / "authenticated-smoke-recovery.json",
+            authenticated_smoke,
+        )
+
+        receipt = build_gold_status_receipt(
+            **_minimal_gold_receipt_args(case_dir, generated_at=generated_at),
+            **flagship_args,
+            readiness_profile="flagship",
+            max_receipt_age_hours=1,
+            now=now,
+        )
+
+        assert receipt["status"] == "blocked"
+        assert receipt["authenticated_customer_surfaces"]["billing_availability"]["available"] is False
+        assert "billing_available_no_second_login_handoff" in receipt["authenticated_customer_surfaces"]["missing_billing_checks"]
+        assert receipt["billing_handoff"]["strict_live_proof_required"] is True
+        assert receipt["billing_handoff"]["ready"] is False
+        assert any(row["area"] == "authenticated_customer_surfaces" for row in receipt["blockers"])
+        assert any(row["area"] == "billing_handoff" for row in receipt["blockers"])
+
+
+def test_gold_status_treats_intentionally_disabled_billing_as_named_launch_blocker(tmp_path: Path) -> None:
+    generated_at = "2026-07-13T10:00:00+00:00"
+    billing_payload = _billing_payload(host_resolves=True, status="disabled")
+    billing_payload["billing_handoff"]["account_handoff_usable"] = True
+    billing_payload["billing_handoff"]["pricing_surface_probe"] = {"placeholder": False}
+
+    receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(tmp_path, generated_at=generated_at),
+        billing_receipt_path=_write_json(tmp_path / "billing-disabled.json", billing_payload),
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["billing_handoff"]["status"] == "disabled"
+    assert receipt["billing_handoff"]["provider_disabled"] is True
+    assert receipt["billing_handoff"]["ready"] is False
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "billing_handoff")
+    assert blocker["launch_blocker_reason"] == "billing_intentionally_disabled"
+    assert "enable billing" in blocker["action"]
+
+
+def test_gold_status_flagship_profile_blocks_missing_customer_ux_receipts(tmp_path: Path) -> None:
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(tmp_path, generated_at=(now - timedelta(minutes=5)).isoformat()),
+        readiness_profile="launch",
+        now=now,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["readiness_profile"] == "flagship"
+    assert receipt["flagship_customer_ux_evidence"]["ready"] is False
+    assert receipt["flagship_customer_ux_evidence"]["missing_receipts"] == list(
+        gold_status.FLAGSHIP_CUSTOMER_UX_RECEIPT_AREAS
+    )
+    assert receipt["flagship_customer_ux_evidence"]["max_receipt_age_hours"] == 24.0
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "flagship_customer_ux_evidence")
+    assert blocker["status"] == "missing_required_receipts"
+    assert blocker["missing_receipts"] == list(gold_status.FLAGSHIP_CUSTOMER_UX_RECEIPT_AREAS)
+
+
+def test_gold_status_flagship_profile_passes_with_fresh_customer_ux_evidence(tmp_path: Path) -> None:
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    generated_at = (now - timedelta(minutes=5)).isoformat()
+    receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(tmp_path, generated_at=generated_at),
+        **_flagship_customer_ux_receipt_args(tmp_path, generated_at=generated_at),
+        readiness_profile="flagship",
+        max_receipt_age_hours=1,
+        now=now,
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["readiness_profile"] == "flagship"
+    assert receipt["flagship_customer_ux_evidence"]["ready"] is True
+    assert receipt["flagship_customer_ux_evidence"]["missing_receipts"] == []
+    assert receipt["flagship_customer_ux_evidence"]["browser_all_mobile_proof_ready"] is True
+    assert receipt["flagship_customer_ux_evidence"]["accessibility_proof_ready"] is True
+    assert receipt["flagship_customer_ux_evidence"]["activation_to_value_proof_ready"] is True
+    assert receipt["accessibility"]["flagship_proof_ok"] is True
+    assert receipt["activation_to_value"]["flagship_proof_ok"] is True
+    assert receipt["live_mobile_surfaces"]["missing_detail_routes"] == []
+    assert receipt["slo_evidence"]["status"] == "pass"
+    assert receipt["slo_evidence"]["required"] is True
+    assert receipt["slo_evidence"]["age_seconds"] == 300.0
+    assert any(row["area"] == "slo_evidence" for row in receipt["pass_areas"])
+    assert receipt["live_mobile_surfaces"]["flagship_browser_proof_ok"] is True
+    assert receipt["authenticated_customer_surfaces"]["billing_checks_ok"] is True
+    assert receipt["billing_handoff"]["ready"] is True
+    assert receipt["browser_rendered_3d"]["ready"] is True
+    assert receipt["map_preview_flagship"]["ready"] is True
+    assert receipt["walkthrough_quality"]["ready"] is True
+
+
+def test_gold_status_blocks_slo_evidence_older_than_fifteen_minutes_even_with_looser_input(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    generated_at = (now - timedelta(minutes=16)).isoformat()
+    receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(tmp_path, generated_at=generated_at),
+        **_flagship_customer_ux_receipt_args(tmp_path, generated_at=generated_at),
+        readiness_profile="flagship",
+        max_receipt_age_hours=1,
+        slo_evidence_max_age_seconds=3600,
+        now=now,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["slo_evidence"]["max_age_seconds"] == 900
+    assert "probe_stale" in receipt["slo_evidence"]["errors"]
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "slo_evidence")
+    assert blocker["age_seconds"] == 960.0
+
+
+def test_gold_status_blocks_slo_evidence_bound_to_another_image(tmp_path: Path) -> None:
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    generated_at = (now - timedelta(minutes=5)).isoformat()
+    flagship_args = _flagship_customer_ux_receipt_args(
+        tmp_path,
+        generated_at=generated_at,
+    )
+    flagship_args["expected_release_image_digest"] = "sha256:" + "c" * 64
+
+    receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(tmp_path, generated_at=generated_at),
+        **flagship_args,
+        readiness_profile="flagship",
+        max_receipt_age_hours=1,
+        now=now,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert "release_image_digest_mismatch" in receipt["slo_evidence"]["errors"]
+    assert any(row["area"] == "slo_evidence" for row in receipt["blockers"])
+
+
+def test_gold_status_flagship_rejects_incomplete_accessibility_engine_evidence(tmp_path: Path) -> None:
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    generated_at = (now - timedelta(minutes=5)).isoformat()
+    flagship_args = _flagship_customer_ux_receipt_args(tmp_path, generated_at=generated_at)
+    accessibility_path = Path(flagship_args["accessibility_receipt_path"])
+    accessibility = json.loads(accessibility_path.read_text(encoding="utf-8"))
+    accessibility["routes"] = [
+        row for row in accessibility["routes"]
+        if row["browser_engine"] != "webkit"
+    ]
+    accessibility["route_count"] = len(accessibility["routes"])
+    _write_json(accessibility_path, accessibility)
+
+    receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(tmp_path, generated_at=generated_at),
+        **flagship_args,
+        readiness_profile="flagship",
+        max_receipt_age_hours=1,
+        now=now,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["flagship_customer_ux_evidence"]["accessibility_proof_ready"] is False
+    assert receipt["accessibility"]["flagship_proof"]["missing_browser_engines"] == ["webkit"]
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "accessibility")
+    assert blocker["proof"]["missing_samples"]
+
+
+def test_gold_status_flagship_rejects_stale_accessibility_evidence(tmp_path: Path) -> None:
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    generated_at = (now - timedelta(minutes=5)).isoformat()
+    flagship_args = _flagship_customer_ux_receipt_args(tmp_path, generated_at=generated_at)
+    accessibility_path = Path(flagship_args["accessibility_receipt_path"])
+    accessibility = json.loads(accessibility_path.read_text(encoding="utf-8"))
+    accessibility["generated_at"] = (now - timedelta(hours=2)).isoformat()
+    _write_json(accessibility_path, accessibility)
+
+    receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(tmp_path, generated_at=generated_at),
+        **flagship_args,
+        readiness_profile="flagship",
+        max_receipt_age_hours=1,
+        now=now,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert any(
+        row["area"] == "accessibility" and row["status"] == "stale"
+        for row in receipt["receipt_freshness"]["stale_receipts"]
+    )
+
+
+def test_gold_status_flagship_rejects_mock_boundary_activation_evidence(tmp_path: Path) -> None:
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    generated_at = (now - timedelta(minutes=5)).isoformat()
+    flagship_args = _flagship_customer_ux_receipt_args(tmp_path, generated_at=generated_at)
+    activation_path = Path(flagship_args["activation_to_value_receipt_path"])
+    activation = json.loads(activation_path.read_text(encoding="utf-8"))
+    activation["live_contract"]["provider_response_mocking_forbidden"] = False
+    _write_json(activation_path, activation)
+
+    receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(tmp_path, generated_at=generated_at),
+        **flagship_args,
+        readiness_profile="flagship",
+        max_receipt_age_hours=1,
+        now=now,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["flagship_customer_ux_evidence"]["activation_to_value_proof_ready"] is False
+    assert receipt["activation_to_value"]["flagship_proof"]["missing_live_contract"] == [
+        "provider_response_mocking_forbidden"
+    ]
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "activation_to_value")
+    assert blocker["proof"]["missing_live_contract"] == ["provider_response_mocking_forbidden"]
+
+
+def test_gold_status_flagship_rejects_contract_mock_activation_proof_mode(tmp_path: Path) -> None:
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    generated_at = (now - timedelta(minutes=5)).isoformat()
+    flagship_args = _flagship_customer_ux_receipt_args(tmp_path, generated_at=generated_at)
+    activation_path = Path(flagship_args["activation_to_value_receipt_path"])
+    activation = json.loads(activation_path.read_text(encoding="utf-8"))
+    activation["proof_mode"] = "contract_mock"
+    _write_json(activation_path, activation)
+
+    receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(tmp_path, generated_at=generated_at),
+        **flagship_args,
+        readiness_profile="flagship",
+        max_receipt_age_hours=1,
+        now=now,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["activation_to_value"]["flagship_proof_ok"] is False
+    assert receipt["activation_to_value"]["flagship_proof"]["proof_mode"] == "contract_mock"
+
+
+def test_gold_status_flagship_rejects_contract_mock_failure_state_evidence(tmp_path: Path) -> None:
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    generated_at = (now - timedelta(minutes=5)).isoformat()
+    flagship_args = _flagship_customer_ux_receipt_args(tmp_path, generated_at=generated_at)
+    failure_path = Path(flagship_args["failure_state_receipt_path"])
+    failure_states = json.loads(failure_path.read_text(encoding="utf-8"))
+    failure_states["proof_mode"] = "contract_mock"
+    failure_states["checks"][2]["ok"] = False
+    _write_json(failure_path, failure_states)
+
+    receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(tmp_path, generated_at=generated_at),
+        **flagship_args,
+        readiness_profile="flagship",
+        max_receipt_age_hours=1,
+        now=now,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["failure_states"]["flagship_proof_ok"] is False
+    assert receipt["failure_states"]["flagship_proof"]["proof_mode"] == "contract_mock"
+    assert any(row["area"] == "failure_states" for row in receipt["blockers"])
+
+
+def test_gold_status_flagship_rejects_stale_activation_evidence(tmp_path: Path) -> None:
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    generated_at = (now - timedelta(minutes=5)).isoformat()
+    flagship_args = _flagship_customer_ux_receipt_args(tmp_path, generated_at=generated_at)
+    activation_path = Path(flagship_args["activation_to_value_receipt_path"])
+    activation = json.loads(activation_path.read_text(encoding="utf-8"))
+    activation["generated_at"] = (now - timedelta(hours=2)).isoformat()
+    _write_json(activation_path, activation)
+
+    receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(tmp_path, generated_at=generated_at),
+        **flagship_args,
+        readiness_profile="flagship",
+        max_receipt_age_hours=1,
+        now=now,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert any(
+        row["area"] == "activation_to_value" and row["status"] == "stale"
+        for row in receipt["receipt_freshness"]["stale_receipts"]
+    )
+
+
+def test_gold_status_flagship_rejects_chromium_only_proof_unless_explicitly_configured(tmp_path: Path) -> None:
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    generated_at = (now - timedelta(minutes=5)).isoformat()
+    flagship_args = _flagship_customer_ux_receipt_args(tmp_path, generated_at=generated_at)
+    live_mobile_path = Path(flagship_args["live_mobile_receipt_path"])
+    live_mobile = json.loads(live_mobile_path.read_text(encoding="utf-8"))
+    live_mobile["routes"] = [
+        row for row in live_mobile["routes"]
+        if row["browser_engine"] == "chromium"
+    ]
+    live_mobile["route_count"] = len(live_mobile["routes"])
+    live_mobile["browser_engine"] = "chromium"
+    live_mobile["browser_engines"] = ["chromium"]
+    live_mobile["required_browser_engines"] = ["chromium"]
+    live_mobile["browser_proof"]["required_browser_engines"] = ["chromium"]
+    live_mobile["browser_proof"]["observed_browser_engines"] = ["chromium"]
+    live_mobile["browser_proof"]["expected_sample_count"] = len(live_mobile["routes"])
+    live_mobile["browser_proof"]["proven_sample_count"] = len(live_mobile["routes"])
+    _write_json(live_mobile_path, live_mobile)
+
+    default_receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(tmp_path, generated_at=generated_at),
+        **flagship_args,
+        readiness_profile="flagship",
+        max_receipt_age_hours=1,
+        now=now,
+    )
+
+    assert default_receipt["status"] == "blocked"
+    proof = default_receipt["live_mobile_surfaces"]["flagship_browser_proof"]
+    assert proof["missing_browser_engines"] == ["firefox", "webkit"]
+    assert {row["browser_engine"] for row in proof["missing_samples"]} == {"firefox", "webkit"}
+
+    chromium_compatibility_receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(tmp_path, generated_at=generated_at),
+        **flagship_args,
+        readiness_profile="flagship",
+        required_browser_engines=("chromium",),
+        max_receipt_age_hours=1,
+        now=now,
+    )
+    assert chromium_compatibility_receipt["status"] == "pass"
+    assert chromium_compatibility_receipt["flagship_customer_ux_evidence"]["required_browser_engines"] == [
+        "chromium"
+    ]
+
+
+def test_gold_status_flagship_profile_rejects_static_or_synthetic_mobile_evidence(tmp_path: Path) -> None:
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    generated_at = (now - timedelta(minutes=5)).isoformat()
+    flagship_args = _flagship_customer_ux_receipt_args(tmp_path, generated_at=generated_at)
+    live_mobile_path = Path(flagship_args["live_mobile_receipt_path"])
+    live_mobile = json.loads(live_mobile_path.read_text(encoding="utf-8"))
+    live_mobile["routes"][0]["proof_mode"] = "static_html"
+    live_mobile["routes"][0]["metrics"]["proof_mode"] = "static_html"
+    live_mobile["routes"][0]["metrics"]["static_html_probe"] = True
+    _write_json(live_mobile_path, live_mobile)
+
+    receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(tmp_path, generated_at=generated_at),
+        **flagship_args,
+        readiness_profile="flagship",
+        max_receipt_age_hours=1,
+        now=now,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["flagship_customer_ux_evidence"]["browser_all_mobile_proof_ready"] is False
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "live_mobile_surfaces")
+    assert blocker["flagship_browser_proof"]["static_or_synthetic_rows"][0]["proof_mode"] == "static_html"
+
+
+def test_gold_status_flagship_profile_blocks_stale_customer_ux_evidence(tmp_path: Path) -> None:
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    fresh_at = (now - timedelta(minutes=5)).isoformat()
+    flagship_args = _flagship_customer_ux_receipt_args(tmp_path, generated_at=fresh_at)
+    public_smoke_path = Path(flagship_args["public_smoke_receipt_path"])
+    public_smoke = json.loads(public_smoke_path.read_text(encoding="utf-8"))
+    public_smoke["generated_at"] = (now - timedelta(hours=2)).isoformat()
+    _write_json(public_smoke_path, public_smoke)
+
+    receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(tmp_path, generated_at=fresh_at),
+        **flagship_args,
+        readiness_profile="flagship",
+        max_receipt_age_hours=1,
+        now=now,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["flagship_customer_ux_evidence"]["ready"] is False
+    assert receipt["receipt_freshness"]["status"] == "fail"
+    assert any(
+        row["area"] == "public_auth_surfaces" and row["status"] == "stale"
+        for row in receipt["receipt_freshness"]["stale_receipts"]
+    )
+
+
 def test_gold_status_cli_keeps_live_container_tour_receipt_as_fallback() -> None:
     source = (ROOT / "scripts/propertyquarry_gold_status.py").read_text(encoding="utf-8")
 

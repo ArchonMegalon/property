@@ -672,7 +672,7 @@ def _start_synthetic_run(client: TestClient) -> str:
                 "max_results_per_source": 1,
             },
         )
-        if response.status_code != 200:
+        if response.status_code != 202:
             raise RuntimeError(f"synthetic_run_start_failed:{response.status_code}:{response.text[:280]}")
         run_id = str(response.json().get("run_id") or "").strip()
         if not run_id:

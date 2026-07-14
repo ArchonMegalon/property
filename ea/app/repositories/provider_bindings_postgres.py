@@ -172,7 +172,7 @@ class PostgresProviderBindingRepository:
         normalized_principal = str(principal_id or "").strip()
         if not normalized_principal:
             return []
-        bounded_limit = max(1, min(500, int(limit or 100)))
+        bounded_limit = max(1, min(50_000, int(limit or 100)))
         with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(

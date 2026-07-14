@@ -1255,6 +1255,10 @@ class DeliveryOutboxItem:
     last_error: str = ""
     receipt_json: dict[str, Any] = field(default_factory=dict)
     dead_lettered_at: str | None = None
+    lease_owner: str = ""
+    lease_expires_at: str | None = None
+    claimed_at: str | None = None
+    dispatch_started_at: str | None = None
 
 
 def now_utc_iso() -> str:

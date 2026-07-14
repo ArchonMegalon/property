@@ -247,3 +247,12 @@ class PostgresOnboardingStateRepository:
                 )
                 rows = cur.fetchall() or []
         return tuple(self._from_row(row) for row in rows)
+
+    def erase_principal(self, principal_id: str) -> bool:
+        principal = str(principal_id or "").strip()
+        if not principal:
+            return False
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM onboarding_states WHERE principal_id = %s", (principal,))
+                return bool(cur.rowcount)

@@ -25,10 +25,39 @@ class ObservationEventRepository(Protocol):
     def list_recent(self, limit: int = 50, *, principal_id: str | None = None) -> list[ObservationEvent]:
         ...
 
+    def exists_recent(
+        self,
+        *,
+        principal_id: str | None = None,
+        channel: str,
+        event_type: str,
+        source_id: str = "",
+        external_id: str = "",
+        dedupe_key: str = "",
+        limit: int = 1000,
+    ) -> bool:
+        ...
+
+    def list_recent_matching(
+        self,
+        limit: int = 50,
+        *,
+        principal_id: str | None = None,
+        channel: str = "",
+        event_types: tuple[str, ...] = (),
+    ) -> list[ObservationEvent]:
+        ...
+
     def get_by_dedupe(self, dedupe_key: str, *, principal_id: str | None = None) -> ObservationEvent | None:
         ...
 
     def count_recent_for_principal(self, principal_id: str, *, since: str) -> int:
+        ...
+
+    def list_for_principal(self, principal_id: str, *, limit: int = 5000) -> list[ObservationEvent]:
+        ...
+
+    def erase_principal(self, principal_id: str) -> int:
         ...
 
 
@@ -82,6 +111,51 @@ class InMemoryObservationEventRepository:
         ids = list(reversed(self._order[-n:]))
         return [self._rows[i] for i in ids if i in self._rows and (not principal or self._rows[i].principal_id == principal)]
 
+    def exists_recent(
+        self,
+        *,
+        principal_id: str | None = None,
+        channel: str,
+        event_type: str,
+        source_id: str = "",
+        external_id: str = "",
+        dedupe_key: str = "",
+        limit: int = 1000,
+    ) -> bool:
+        wanted_channel = str(channel or "").strip()
+        wanted_type = str(event_type or "").strip()
+        wanted_source = str(source_id or "").strip()
+        wanted_external = str(external_id or "").strip()
+        wanted_dedupe = str(dedupe_key or "").strip()
+        for row in self.list_recent(limit=limit, principal_id=principal_id):
+            if row.channel != wanted_channel or row.event_type != wanted_type:
+                continue
+            if wanted_source and row.source_id != wanted_source:
+                continue
+            if wanted_external and row.external_id != wanted_external:
+                continue
+            if wanted_dedupe and row.dedupe_key != wanted_dedupe:
+                continue
+            return True
+        return False
+
+    def list_recent_matching(
+        self,
+        limit: int = 50,
+        *,
+        principal_id: str | None = None,
+        channel: str = "",
+        event_types: tuple[str, ...] = (),
+    ) -> list[ObservationEvent]:
+        wanted_channel = str(channel or "").strip()
+        wanted_types = {str(value or "").strip() for value in event_types if str(value or "").strip()}
+        return [
+            row
+            for row in self.list_recent(limit=limit, principal_id=principal_id)
+            if (not wanted_channel or row.channel == wanted_channel)
+            and (not wanted_types or row.event_type in wanted_types)
+        ]
+
     def get_by_dedupe(self, dedupe_key: str, *, principal_id: str | None = None) -> ObservationEvent | None:
         key = str(dedupe_key or "").strip()
         if not key:
@@ -111,3 +185,34 @@ class InMemoryObservationEventRepository:
             and self._rows[observation_id].principal_id == principal
             and str(self._rows[observation_id].created_at or "") >= cutoff
         )
+
+    def list_for_principal(self, principal_id: str, *, limit: int = 5000) -> list[ObservationEvent]:
+        principal = str(principal_id or "").strip()
+        n = max(1, min(50_000, int(limit or 5000)))
+        if not principal:
+            return []
+        rows = [
+            self._rows[observation_id]
+            for observation_id in reversed(self._order)
+            if observation_id in self._rows and self._rows[observation_id].principal_id == principal
+        ]
+        return rows[:n]
+
+    def erase_principal(self, principal_id: str) -> int:
+        principal = str(principal_id or "").strip()
+        if not principal:
+            return 0
+        removed_ids = {
+            observation_id
+            for observation_id, row in self._rows.items()
+            if row.principal_id == principal
+        }
+        for observation_id in removed_ids:
+            self._rows.pop(observation_id, None)
+        self._order = [observation_id for observation_id in self._order if observation_id not in removed_ids]
+        self._dedupe_to_id = {
+            key: observation_id
+            for key, observation_id in self._dedupe_to_id.items()
+            if observation_id not in removed_ids
+        }
+        return len(removed_ids)

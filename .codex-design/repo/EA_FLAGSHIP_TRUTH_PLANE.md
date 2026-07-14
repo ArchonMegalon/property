@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Executive Assistant needs its own release truth so flagship claims do not depend on the all-released `MILESTONE.json` plus checklist completion alone.
+The EA repository needs its own release truth so flagship claims do not depend on the all-released `MILESTONE.json` plus checklist completion alone. The current standalone proof target is PropertyQuarry; it does not reuse the intentionally skipped legacy Executive Assistant office-loop tests.
 
 This plane is EA-owned release evidence that sits alongside the EA product canon in `.codex-design/ea/*`.
 It sits below `IMPLEMENTATION_SCOPE.md` and above the release checklists.
@@ -12,7 +12,7 @@ It sits below `IMPLEMENTATION_SCOPE.md` and above the release checklists.
 
 ## What counts as truth
 
-A flagship claim for Executive Assistant must be supported by:
+A flagship claim for the current standalone PropertyQuarry surface must be supported by:
 
 1. the EA product canon in `.codex-design/ea/START_HERE.md` and its linked navigation, journey, copy, and LTD maps
 2. the browser workflow proof that exercises seeded product objects and real workspace actions
@@ -29,20 +29,20 @@ A flagship claim for Executive Assistant must be supported by:
 
 ## Evidence base
 
-Use the existing browser proof as the release evidence base:
+Use the standalone PropertyQuarry browser proof as the release evidence base:
 
-- `tests/test_product_browser_journeys.py`
-- `tests/e2e/test_product_workflows.py`
+- `tests/test_propertyquarry_workspace_redesign.py`
+- `tests/e2e/test_propertyquarry_greenfield_browser.py`
 
-Those tests prove the workspace renders seeded objects, actions change live state, and the browser can follow the core executive-office loop.
+Those tests prove the PropertyQuarry workspace renders seeded search and research state, opens ranked candidate packets in a real browser, and remains usable on desktop and mobile. The legacy assistant browser files are intentionally skipped in standalone PropertyQuarry mode and therefore do not count as release proof.
 
 ## Release claim rule
 
-EA is flagship-grade only when the shipped workspace behaves like a real executive-office work system described by the EA canon and the browser proof, gate seed, and release verification agree.
+The standalone PropertyQuarry surface is flagship-grade only when the shipped workspace behaves like the property decision system described by the current proof target and the browser proof, gate seed, and release verification agree.
 
 If those three disagree, the safe answer is not flagship.
 
 ## Operating rule
 
 Treat `MILESTONE.json` as supporting delivery history.
-Treat this plane as the release truth for EA-specific flagship claims.
+Treat this plane as the release truth for the explicitly named standalone proof target; it is not evidence for intentionally skipped legacy surfaces.

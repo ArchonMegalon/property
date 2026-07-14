@@ -34,6 +34,11 @@
     gap: 10px;
     align-content: start;
   }
+  .access-entry:focus-visible {
+    outline: var(--focus-ring);
+    outline-offset: 6px;
+    border-radius: 12px;
+  }
   .access-entry-block {
     display: grid;
     gap: 8px;
@@ -324,7 +329,7 @@
         <h1>{% if brand.key == 'propertyquarry' %}Sign in to continue your property search.{% else %}Sign in if you already have account access.{% endif %}</h1>
         <p class="lead">Use email or one of the sign-in options below. First sign-in creates the account automatically.</p>
       </div>
-        <div class="access-entry">
+        <div class="access-entry" id="sign-in-options" role="region" aria-label="Sign-in options" tabindex="-1">
         <div class="access-entry-block access-entry-block-cta">
           <div class="cta-row">
             {% if public_signed_in %}
@@ -398,6 +403,15 @@
         </div>
       </div>
     </div>
+    {% if sign_in_session_expired %}
+    <div class="access-feedback" data-pq-failure-state="expired_session" role="status" aria-live="polite">
+      <strong>Your session ended.</strong>
+      <p class="copy">Your search is still saved. Sign in again to continue where you left off.</p>
+      <div class="cta-row">
+        <a class="btn primary" data-pq-next-action href="#sign-in-options">Sign in again</a>
+      </div>
+    </div>
+    {% endif %}
     {% if sign_in_connected_provider %}
     <div class="access-feedback" data-sign-in-provider-connected>
       <strong>{{ sign_in_connected_provider }} returned to PropertyQuarry.</strong>

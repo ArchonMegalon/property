@@ -24,7 +24,7 @@ def test_founder_fixture_supports_first_value_loop() -> None:
 
     today = client.get("/app/today")
     assert today.status_code == 200
-    assert "Morning Memo" in today.text
+    assert "Search brief" in today.text
 
 
 def test_executive_operator_fixture_supports_admin_and_handoff_loop() -> None:
@@ -44,7 +44,7 @@ def test_executive_operator_fixture_supports_admin_and_handoff_loop() -> None:
 
     bundle = client.get("/app/api/diagnostics/export")
     assert bundle.status_code == 200
-    assert bundle.json()["billing"]["renewal_owner_role"] == "operator_lead"
+    assert bundle.json()["billing"]["renewal_owner_role"] == "account_lead"
 
 
 def test_team_fixture_supports_shared_operator_shape() -> None:

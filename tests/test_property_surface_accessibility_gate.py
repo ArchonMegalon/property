@@ -19,12 +19,47 @@ def test_property_surface_accessibility_gate_passes() -> None:
     assert "ok: property surface accessibility" in result.stdout
 
 
+def test_property_surface_accessibility_gate_scans_console_base() -> None:
+    relative_path = "ea/app/templates/base_console.html"
+
+    assert relative_path in gate.SURFACE_TEMPLATES
+    path = gate.ROOT / relative_path
+    failures: list[str] = []
+    gate._check_accessibility_primitives(path, path.read_text(encoding="utf-8"), failures)
+
+    assert failures == []
+
+
 def test_property_surface_accessibility_gate_rejects_unnamed_dialog() -> None:
     failures: list[str] = []
 
     gate._check_dialogs(Path("sample.html"), "<dialog><button type=\"button\">Close</button></dialog>", failures)
 
     assert any("dialog needs aria-label or aria-labelledby" in failure for failure in failures)
+
+
+def test_property_surface_accessibility_gate_requires_focusable_sign_in_hash_target() -> None:
+    failures: list[str] = []
+
+    gate._check_links(
+        Path("sample.html"),
+        '<div id="sign-in-options"></div><a href="#sign-in-options">Sign in again</a>',
+        failures,
+    )
+
+    assert any("hash link target must accept keyboard focus" in failure for failure in failures)
+
+
+def test_property_surface_accessibility_gate_accepts_focusable_sign_in_hash_target() -> None:
+    failures: list[str] = []
+
+    gate._check_links(
+        Path("sample.html"),
+        '<div id="sign-in-options" tabindex="-1"></div><a href="#sign-in-options">Sign in again</a>',
+        failures,
+    )
+
+    assert failures == []
 
 
 def test_property_surface_accessibility_gate_requires_motion_and_focus_primitives() -> None:

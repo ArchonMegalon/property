@@ -4,6 +4,8 @@ import io
 import urllib.error
 from email.message import Message
 
+import pytest
+
 from scripts import propertyquarry_billing_handoff_probe as probe
 
 
@@ -98,6 +100,166 @@ def test_billing_handoff_accepts_member_token_redirect_into_account_page(monkeyp
 
     assert result["ok"] is True
     assert result["status_code"] == 200
+    assert result["redirect_chain"] == [login_url]
+
+
+def test_billing_handoff_rejects_cross_host_redirect_even_when_redirect_status_is_usable(monkeypatch) -> None:
+    handoff_url = "https://billing.propertyquarry.com/account"
+    rejected_url = "https://evil.example/account"
+
+    class _Opener:
+        def open(self, request, timeout: float = 0):  # noqa: ANN001
+            assert request.full_url == handoff_url
+            raise urllib.error.HTTPError(
+                request.full_url,
+                302,
+                "redirect",
+                {"Location": rejected_url},
+                io.BytesIO(b""),
+            )
+
+    monkeypatch.setattr(probe, "no_proxy_opener", lambda *handlers: _Opener())
+
+    result = probe.https_handoff_url_usable(handoff_url)
+
+    assert result["ok"] is False
+    assert result["error"] == "handoff_url_redirect_not_allowed"
+    assert result["redirect_chain"] == [rejected_url]
+
+
+def test_billing_handoff_rejects_redirect_status_without_location(monkeypatch) -> None:
+    handoff_url = "https://billing.propertyquarry.com/account"
+
+    class _Opener:
+        def open(self, request, timeout: float = 0):  # noqa: ANN001
+            assert request.full_url == handoff_url
+            raise urllib.error.HTTPError(
+                request.full_url,
+                302,
+                "redirect",
+                {},
+                io.BytesIO(b""),
+            )
+
+    monkeypatch.setattr(probe, "no_proxy_opener", lambda *handlers: _Opener())
+
+    result = probe.https_handoff_url_usable(handoff_url)
+
+    assert result["ok"] is False
+    assert result["error"] == "handoff_url_http_302"
+
+
+def test_billing_handoff_allows_explicit_cross_host_member_redirect_without_leaking_host_cookie(monkeypatch) -> None:
+    handoff_url = "https://billing.propertyquarry.com/start"
+    account_url = "https://accounts.propertyquarry.com/login?login_direct_url=account%2Faccount"
+
+    class _Opener:
+        def open(self, request, timeout: float = 0):  # noqa: ANN001
+            if request.full_url == handoff_url:
+                assert "caller_secret=initial-only" in str(request.get_header("Cookie") or "")
+                headers = Message()
+                headers.add_header("Location", account_url)
+                headers.add_header("Set-Cookie", "origin_secret=do-not-leak; Path=/; Secure; HttpOnly")
+                headers.add_header("Set-Cookie", "token=ready; Domain=propertyquarry.com; Path=/; Secure; HttpOnly")
+                headers.add_header("Set-Cookie", "loggedin=1; Domain=propertyquarry.com; Path=/; Secure; HttpOnly")
+                raise urllib.error.HTTPError(
+                    request.full_url,
+                    302,
+                    "redirect",
+                    headers,
+                    io.BytesIO(b""),
+                )
+            if request.full_url == account_url:
+                cookie_header = str(request.get_header("Cookie") or "")
+                assert "token=ready" in cookie_header
+                assert "loggedin=1" in cookie_header
+                assert "origin_secret" not in cookie_header
+                assert "caller_secret" not in cookie_header
+                return _BodyResponse(
+                    b'<html><body><a href="/account/home">My Account</a><a href="/account/logout">Log out</a></body></html>',
+                    status=200,
+                    url=account_url,
+                )
+            raise AssertionError(request.full_url)
+
+    monkeypatch.setattr(probe, "no_proxy_opener", lambda *handlers: _Opener())
+
+    result = probe.https_handoff_url_usable(
+        handoff_url,
+        allowed_hosts=("https://accounts.propertyquarry.com:443",),
+        cookie_header="caller_secret=initial-only",
+    )
+
+    assert result["ok"] is True
+    assert result["status_code"] == 200
+    assert result["redirect_chain"] == [account_url]
+
+
+@pytest.mark.parametrize(
+    "cookie_attributes",
+    (
+        "Domain=evil.example; Path=/; Secure",
+        "Path=/never; Secure",
+        "Path=/; Max-Age=0; Secure",
+        "Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure",
+    ),
+)
+def test_billing_handoff_does_not_accept_member_cookies_a_browser_would_not_send(
+    monkeypatch,
+    cookie_attributes: str,
+) -> None:
+    handoff_url = "https://billing.propertyquarry.com/start"
+    login_url = "https://billing.propertyquarry.com/login?login_direct_url=account%2Faccount"
+
+    class _Opener:
+        def open(self, request, timeout: float = 0):  # noqa: ANN001
+            assert request.full_url == handoff_url
+            headers = Message()
+            headers.add_header("Location", login_url)
+            headers.add_header("Set-Cookie", f"token=ready; {cookie_attributes}")
+            headers.add_header("Set-Cookie", f"loggedin=1; {cookie_attributes}")
+            raise urllib.error.HTTPError(
+                request.full_url,
+                302,
+                "redirect",
+                headers,
+                io.BytesIO(b""),
+            )
+
+    monkeypatch.setattr(probe, "no_proxy_opener", lambda *handlers: _Opener())
+
+    result = probe.https_handoff_url_usable(handoff_url)
+
+    assert result["ok"] is False
+    assert result["error"] == "handoff_url_requires_separate_login"
+    assert result["redirect_chain"] == [login_url]
+
+
+def test_billing_handoff_ignores_malformed_set_cookie_without_crashing(monkeypatch) -> None:
+    handoff_url = "https://billing.propertyquarry.com/start"
+    login_url = "https://billing.propertyquarry.com/login?login_direct_url=account%2Faccount"
+
+    class _Opener:
+        def open(self, request, timeout: float = 0):  # noqa: ANN001
+            assert request.full_url == handoff_url
+            headers = Message()
+            headers.add_header("Location", login_url)
+            headers.add_header("Set-Cookie", 'token="unterminated; Path=/; Secure')
+            headers.add_header("Set-Cookie", "loggedin=1; Path=/; Secure")
+            raise urllib.error.HTTPError(
+                request.full_url,
+                302,
+                "redirect",
+                headers,
+                io.BytesIO(b""),
+            )
+
+    monkeypatch.setattr(probe, "no_proxy_opener", lambda *handlers: _Opener())
+
+    result = probe.https_handoff_url_usable(handoff_url)
+
+    assert result["ok"] is False
+    assert result["error"] == "handoff_url_requires_separate_login"
     assert result["redirect_chain"] == [login_url]
 
 

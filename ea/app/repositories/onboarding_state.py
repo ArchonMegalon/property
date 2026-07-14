@@ -32,6 +32,9 @@ class OnboardingStateRepository(Protocol):
     def list_states(self, *, limit: int = 1000) -> tuple[OnboardingState, ...]:
         ...
 
+    def erase_principal(self, principal_id: str) -> bool:
+        ...
+
 
 def _normalize_status(value: str) -> str:
     raw = str(value or "").strip().lower()
@@ -117,3 +120,9 @@ class InMemoryOnboardingStateRepository:
             reverse=True,
         )
         return tuple(rows[: max(int(limit or 0), 1)])
+
+    def erase_principal(self, principal_id: str) -> bool:
+        principal = str(principal_id or "").strip()
+        if not principal:
+            return False
+        return self._rows_by_principal.pop(principal, None) is not None

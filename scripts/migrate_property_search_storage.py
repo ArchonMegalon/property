@@ -11,14 +11,28 @@ def main() -> int:
         print("DATABASE_URL is not set; cannot migrate property search storage schema.", file=sys.stderr)
         return 1
 
-    from app.product.property_search_storage import (
-        _ensure_property_search_run_schema,
-        _ensure_property_source_listing_cache_schema,
-    )
+    from app.product.property_search_schema import migrate_property_search_schema
 
-    _ensure_property_search_run_schema()
-    _ensure_property_source_listing_cache_schema()
-    print("property search storage schema ensured")
+    try:
+        result = migrate_property_search_schema(
+            database_url,
+            applied_by=(
+                str(os.environ.get("PROPERTYQUARRY_RELEASE_COMMIT_SHA") or "").strip()
+                or str(os.environ.get("EA_ROLE") or "deploy").strip()
+                or "deploy"
+            ),
+        )
+    except Exception as exc:
+        print(
+            f"property search storage migration failed: {exc.__class__.__name__}",
+            file=sys.stderr,
+        )
+        return 2
+    print(
+        "property search storage schema migrated "
+        f"from v{result.previous_version} to v{result.current_version}; "
+        f"applied={','.join(str(item) for item in result.applied_versions) or 'none'}"
+    )
     return 0
 
 

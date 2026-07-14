@@ -1,0 +1,118 @@
+{
+  "schema": "propertyquarry.slo.v1",
+  "service": "propertyquarry",
+  "version": 1,
+  "window": "30d",
+  "probe_max_age_seconds": 900,
+  "monitoring_toolchain": {
+    "promtool_version": "3.5.0",
+    "amtool_version": "0.28.1"
+  },
+  "objectives": [
+    {
+      "id": "availability",
+      "target": 0.999,
+      "indicator": "1 - propertyquarry:http_error_ratio5m",
+      "error_budget": 0.001,
+      "runbook_anchor": "availability-error-rate"
+    },
+    {
+      "id": "error_rate",
+      "target_maximum": 0.001,
+      "indicator": "propertyquarry:http_error_ratio5m",
+      "runbook_anchor": "availability-error-rate"
+    },
+    {
+      "id": "latency_p95_seconds",
+      "target_maximum": 1.0,
+      "indicator": "propertyquarry:http_latency_p95_seconds5m",
+      "runbook_anchor": "latency"
+    },
+    {
+      "id": "latency_p99_seconds",
+      "target_maximum": 2.5,
+      "indicator": "propertyquarry:http_latency_p99_seconds5m",
+      "runbook_anchor": "latency"
+    },
+    {
+      "id": "readiness",
+      "target": 1.0,
+      "indicator": "propertyquarry_readiness",
+      "runbook_anchor": "readiness"
+    },
+    {
+      "id": "runtime_heartbeats",
+      "target_stale": 0,
+      "indicator": "propertyquarry_runtime_heartbeat_stale",
+      "baseline_required_roles": ["scheduler"],
+      "conditional_roles_from_metric": "propertyquarry_runtime_heartbeat_required",
+      "runbook_anchor": "runtime-heartbeats"
+    },
+    {
+      "id": "provider_quota_failures",
+      "target_rate": 0,
+      "indicator": "propertyquarry_http_request_errors_total on bounded provider/quota/balance route templates",
+      "runbook_anchor": "provider-and-quota-failures"
+    }
+  ],
+  "required_metric_families": [
+    "propertyquarry_http_requests_total",
+    "propertyquarry_http_request_errors_total",
+    "propertyquarry_http_request_duration_seconds",
+    "propertyquarry_readiness",
+    "propertyquarry_expected_api_replicas",
+    "propertyquarry_runtime_heartbeat_required",
+    "propertyquarry_runtime_heartbeat_age_seconds",
+    "propertyquarry_runtime_heartbeat_present",
+    "propertyquarry_runtime_heartbeat_stale",
+    "propertyquarry_scheduler_delivery_outbox_events_total",
+    "propertyquarry_content_ledger_events_total"
+  ],
+  "conditional_capabilities": {
+    "database_pool_saturation": {
+      "metric_families": [
+        "propertyquarry_db_pool_in_use",
+        "propertyquarry_db_pool_capacity"
+      ],
+      "warning_ratio": 0.85,
+      "critical_ratio": 0.95,
+      "runbook_anchor": "database-saturation"
+    },
+    "queue_backlog": {
+      "metric_families": [
+        "propertyquarry_queue_depth",
+        "propertyquarry_queue_oldest_item_age_seconds"
+      ],
+      "warning_depth": 100,
+      "critical_depth": 500,
+      "maximum_oldest_age_seconds": 300,
+      "runbook_anchor": "queue-backlog"
+    }
+  },
+  "required_alerts": [
+    "PropertyQuarryMetricsMissing",
+    "PropertyQuarryReplicaUnavailable",
+    "PropertyQuarryReplicaCoverageInsufficient",
+    "PropertyQuarryExpectedReplicaMetricMissing",
+    "PropertyQuarryExpectedReplicaConfigurationDivergent",
+    "PropertyQuarryExpectedReplicaConfigurationInvalid",
+    "PropertyQuarryAvailabilitySLOBurn",
+    "PropertyQuarryHighErrorRate",
+    "PropertyQuarryP95LatencyHigh",
+    "PropertyQuarryP99LatencyHigh",
+    "PropertyQuarryReadinessFailed",
+    "PropertyQuarryRuntimeHeartbeatMissing",
+    "PropertyQuarryRuntimeHeartbeatStale",
+    "PropertyQuarryDatabasePoolSaturation",
+    "PropertyQuarryDatabasePoolExhaustion",
+    "PropertyQuarryQueueDepthHigh",
+    "PropertyQuarryQueueOldestItemStale",
+    "PropertyQuarryProviderOrQuotaFailures",
+    "PropertyQuarryDeliveryOutboxDeadLettered",
+    "PropertyQuarryDeliveryOutboxFailed",
+    "PropertyQuarryDeliveryOutboxClaimConflicts",
+    "PropertyQuarryContentLedgerReplayConflict",
+    "PropertyQuarryContentLedgerFailed",
+    "PropertyQuarryContentLedgerCorruption"
+  ]
+}

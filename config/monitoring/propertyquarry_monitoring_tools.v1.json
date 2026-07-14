@@ -1,0 +1,15 @@
+{
+  "schema_version": "propertyquarry.monitoring-tools.v1",
+  "tools": {
+    "promtool": {
+      "path": "/opt/propertyquarry-monitoring/bin/promtool",
+      "version": "3.5.0",
+      "sha256": "UNCONFIGURED"
+    },
+    "amtool": {
+      "path": "/opt/propertyquarry-monitoring/bin/amtool",
+      "version": "0.28.1",
+      "sha256": "UNCONFIGURED"
+    }
+  }
+}

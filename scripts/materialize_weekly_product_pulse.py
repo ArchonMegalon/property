@@ -208,6 +208,20 @@ def _compact(value: object, *, fallback: str = "", limit: int = 220) -> str:
     return text
 
 
+def _receipt_product_label(receipt: dict[str, Any]) -> str:
+    explicit_label = _compact(receipt.get("product_label") or receipt.get("product_name") or "")
+    if explicit_label:
+        return explicit_label
+
+    product = _compact(receipt.get("product") or "", fallback="Current product")
+    normalized = product.casefold().replace("_", "-").replace(" ", "-")
+    return {
+        "executive-assistant": "Executive Assistant",
+        "property-quarry": "PropertyQuarry",
+        "propertyquarry": "PropertyQuarry",
+    }.get(normalized, product)
+
+
 def _existing_cited_signal_int(existing: dict[str, Any], signal_name: str, *, fallback: int = 0) -> int:
     prefix = f"{signal_name}="
     signal_sources = [
@@ -377,6 +391,7 @@ def _flagship_receipt_source(root: Path, receipt_path: Path) -> dict[str, Any]:
     browser = dict(receipt.get("browser_workflow_proof") or {})
     return {
         "receipt": receipt,
+        "product_label": _receipt_product_label(receipt),
         "path": receipt_path,
         "status": status,
         "truth_plane": truth_plane,
@@ -409,6 +424,7 @@ def build_pulse(
 
     scorecard_metrics = list(scorecard.get("scorecards") or [])
     scorecard_metric_count = sum(len(list(dict(row).get("metrics") or [])) for row in scorecard_metrics if isinstance(row, dict))
+    product_label = str(receipt_info["product_label"])
     release_truth_state = receipt_info["status"]
     journey_state = journey_info["state"]
     blocked_count = int(journey_info["blocked"])
@@ -419,22 +435,22 @@ def build_pulse(
 
     if release_truth_state == "pass" and journey_state == "blocked":
         summary = (
-            "Executive Assistant has a green flagship receipt, but the fleet journey gate is "
+            f"{product_label} has a green flagship receipt, but the fleet journey gate is "
             f"{journey_state}, and {blocked_count} journey(s) still block wider claims."
         )
     elif release_truth_state == "pass":
         summary = (
-            "Executive Assistant has a green flagship receipt, the fleet journey gate is "
+            f"{product_label} has a green flagship receipt, the fleet journey gate is "
             f"{journey_state}, and no journeys block wider release claims."
         )
     elif release_truth_state == "preview_only":
         summary = (
-            "Executive Assistant remains in preview-only flagship posture: the machine-readable flagship receipt is "
+            f"{product_label} remains in preview-only flagship posture: the machine-readable flagship receipt is "
             f"{release_truth_state}, the fleet journey gate is {journey_state}, and {blocked_count} journey(s) still block wider claims."
         )
     else:
         summary = (
-            "Executive Assistant is blocked on flagship release truth: the machine-readable flagship receipt is "
+            f"{product_label} is blocked on flagship release truth: the machine-readable flagship receipt is "
             f"{release_truth_state}, the fleet journey gate is {journey_state}, and {blocked_count} journey(s) still block wider claims."
         )
 
@@ -460,7 +476,7 @@ def build_pulse(
         else "Re-materialize the weekly pulse after the next meaningful release or journey-truth change."
     )
     provider_route_stewardship = {
-        "default_status": "EA routes are governed by local truth surfaces.",
+        "default_status": f"{product_label} routes are governed by local truth surfaces.",
         "canary_status": canary_status,
         "review_due": review_due,
         "next_decision": next_decision,
@@ -471,7 +487,7 @@ def build_pulse(
             "decision_id": "2026-04-10-focus-ea-flagship-receipt-closeout",
             "action": "focus_shift",
             "reason": (
-                "Keep the weekly pulse anchored to the EA flagship receipt and fleet journey truth. "
+                f"Keep the weekly pulse anchored to the {product_label} flagship receipt and fleet journey truth. "
                 f"The receipt is {release_truth_state}, journey gates are {journey_state}, and the ready share is {readiness_share}%."
             ),
             "cited_signals": [
@@ -530,16 +546,16 @@ def build_pulse(
         "journey_gate_source": journey_source_path.as_posix(),
         "journey_gate_provenance": journey_info["provenance"],
         "summary": summary,
-        "active_wave": "EA flagship receipt closeout",
+        "active_wave": f"{product_label} flagship receipt closeout",
         "active_wave_status": "active",
         "release_health": {
             "state": release_health_state,
             "reason": (
-                "The EA flagship receipt is published and current."
+                f"The {product_label} flagship receipt is published and current."
                 if release_truth_state == "pass"
-                else "The EA flagship receipt is materialized, but it is still preview_only until browser execution proof is published."
+                else f"The {product_label} flagship receipt is materialized, but it is still preview_only until browser execution proof is published."
                 if release_truth_state == "preview_only"
-                else "The EA flagship receipt is blocked by the current browser workflow proof or release evidence."
+                else f"The {product_label} flagship receipt is blocked by the current browser workflow proof or release evidence."
             ),
             "flagship_receipt_status": release_truth_state,
         },
@@ -561,7 +577,7 @@ def build_pulse(
         },
         "edition_authorship_and_import_confidence": {
             "state": "monitor",
-            "reason": "The weekly pulse now uses EA-local release truth rather than a Chummer mirror.",
+            "reason": f"The weekly pulse now uses local {product_label} release truth rather than a Chummer mirror.",
         },
         "journey_gate_health": {
             "state": journey_state,
@@ -574,7 +590,7 @@ def build_pulse(
             {
                 "cluster_id": "ea_flagship_receipt_closeout",
                 "summary": (
-                    "The weekly pulse now anchors to the EA flagship receipt generated from local truth surfaces, "
+                    f"The weekly pulse now anchors to the {product_label} flagship receipt generated from local truth surfaces, "
                     + (
                         "and the browser execution proof is published."
                         if release_truth_state == "pass"
@@ -615,10 +631,10 @@ def build_pulse(
         "next_checkpoint_question": (
             "What is the smallest cross-host coverage slice that can clear the remaining blocked journey tuples?"
             if release_truth_state == "pass"
-            else "What is the smallest browser-execution receipt and cross-host coverage slice that can promote the EA flagship receipt from preview_only to pass?"
+            else f"What is the smallest browser-execution receipt and cross-host coverage slice that can promote the {product_label} flagship receipt from preview_only to pass?"
         ),
         "supporting_signals": {
-            "current_recommended_wave": "EA flagship receipt closeout",
+            "current_recommended_wave": f"{product_label} flagship receipt closeout",
             "overall_progress_percent": readiness_share,
             "phase_label": "Journey coverage closeout" if release_truth_state == "pass" else "Preview-only flagship closeout",
             "history_snapshot_count": 1,
@@ -640,9 +656,9 @@ def build_pulse(
             "release_health": {
                 "state": release_health_state,
                 "reason": (
-                    "The EA flagship receipt is materialized, but it is still preview_only until browser execution proof is published."
+                    f"The {product_label} flagship receipt is materialized, but it is still preview_only until browser execution proof is published."
                     if release_truth_state != "pass"
-                    else "The EA flagship receipt is published and current."
+                    else f"The {product_label} flagship receipt is published and current."
                 ),
                 "flagship_receipt_status": release_truth_state,
             },
@@ -662,7 +678,7 @@ def build_pulse(
             },
             "edition_authorship_and_import_confidence": {
                 "state": "monitor",
-                "reason": "The weekly pulse now uses EA-local release truth rather than a Chummer mirror.",
+                "reason": f"The weekly pulse now uses local {product_label} release truth rather than a Chummer mirror.",
             },
             "journey_gate_health": {
                 "state": journey_state,
@@ -675,7 +691,7 @@ def build_pulse(
                 {
                     "cluster_id": "ea_flagship_receipt_closeout",
                     "summary": (
-                        "The weekly pulse now anchors to the EA flagship receipt generated from local truth surfaces, "
+                        f"The weekly pulse now anchors to the {product_label} flagship receipt generated from local truth surfaces, "
                         + (
                             "and the browser execution proof is published."
                             if release_truth_state == "pass"
@@ -718,11 +734,11 @@ def build_pulse(
                 if release_truth_state == "pass" and journey_state != "blocked"
                 else "What is the smallest cross-host coverage slice that can clear the remaining blocked journey tuples?"
                 if release_truth_state == "pass"
-                else "What is the smallest browser-execution receipt and cross-host coverage slice that can promote the EA flagship receipt from preview_only to pass?"
+                else f"What is the smallest browser-execution receipt and cross-host coverage slice that can promote the {product_label} flagship receipt from preview_only to pass?"
             ),
         },
         "release_wave": {
-            "current_recommended_wave": "EA flagship receipt closeout",
+            "current_recommended_wave": f"{product_label} flagship receipt closeout",
             "active_wave_registry": scorecard_path.as_posix(),
         },
         "review_cadence": {

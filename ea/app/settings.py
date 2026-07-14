@@ -272,7 +272,7 @@ def resolve_runtime_profile(settings: Settings) -> RuntimeProfile:
             storage_backend="postgres",
             durability="durable",
             auth_mode=auth_mode,
-            principal_source="authenticated_header" if auth_mode in {"token", "token_or_access"} else "access_identity",
+            principal_source="verified_identity",
             database_required=True,
             database_configured=bool(database_url),
             source_backend=source_backend,

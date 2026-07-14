@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timedelta, timezone
 import pytest
 
@@ -617,6 +618,15 @@ def test_provider_registry_exposes_hub_owner_projection_from_principal_overrides
 def test_provider_registry_read_model_exposes_lane_backend_capacity(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.services import responses_upstream as upstream
 
+    for env_name in tuple(os.environ):
+        if env_name.startswith("ONEMIN_AI_API_KEY") or env_name in {
+            "EA_RESPONSES_ONEMIN_API_KEY",
+            "ONEMIN_DIRECT_API_KEYS_JSON",
+            "ONEMIN_DIRECT_API_KEYS_JSON_FILE",
+        }:
+            monkeypatch.delenv(env_name, raising=False)
+    monkeypatch.setattr(upstream, "_DOTENV_CACHE", {})
+    monkeypatch.setattr(upstream, "_dotenv_candidate_paths", lambda: ())
     upstream._test_reset_onemin_states()
     monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "sh")
     monkeypatch.setenv("GOOGLE_API_KEY_FALLBACK_1", "vertex-fallback")
@@ -638,7 +648,10 @@ def test_provider_registry_read_model_exposes_lane_backend_capacity(monkeypatch:
     groundwork = next(item for item in payload["lanes"] if item["profile"] == "groundwork")
     assert groundwork["backend"] == "gemini_vortex"
     assert groundwork["health_provider_key"] == "gemini_vortex"
-    assert groundwork["providers"][0]["provider_key"] == "gemini_vortex"
+    groundwork_gemini = next(
+        provider for provider in groundwork["providers"] if provider["provider_key"] == "gemini_vortex"
+    )
+    assert groundwork_gemini["state"] == "ready"
     assert groundwork["capacity_summary"]["configured_slots"] == 2
     assert groundwork["capacity_summary"]["slot_owners"] == ["fleet-primary", "fleet-shadow"]
 

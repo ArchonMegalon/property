@@ -6,6 +6,17 @@ on:
       - main
   pull_request:
   workflow_dispatch:
+    inputs:
+      run_activation_journey:
+        description: Run the protected deployed activation-to-value journey after environment approval
+        required: false
+        type: boolean
+        default: false
+      activation_run_key:
+        description: Unique non-PII idempotency key for this activation journey
+        required: false
+        type: string
+        default: ""
 
 jobs:
   property-security-posture:
@@ -32,6 +43,43 @@ jobs:
           PYTHONPATH=ea python scripts/check_property_release_hygiene.py
           PYTHONPATH=ea python scripts/check_property_repo_isolation.py
 
+  propertyquarry-flagship-security:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+    environment:
+      name: propertyquarry-production
+    permissions:
+      contents: read
+    runs-on: [self-hosted, propertyquarry-security]
+    env:
+      PROPERTYQUARRY_RELEASE_COMMIT_SHA: ${{ github.sha }}
+      PROPERTYQUARRY_WEB_IMAGE: ${{ vars.PROPERTYQUARRY_WEB_IMAGE }}
+      PROPERTYQUARRY_RENDER_IMAGE: ${{ vars.PROPERTYQUARRY_RENDER_IMAGE }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Gate PropertyQuarry dependencies, images, and SBOMs
+        run: |
+          set -euo pipefail
+          output_root="_completion/propertyquarry_release_security/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          python3 scripts/propertyquarry_release_security_gate.py \
+            --flagship \
+            --release-sha "${PROPERTYQUARRY_RELEASE_COMMIT_SHA}" \
+            --web-image "${PROPERTYQUARRY_WEB_IMAGE}" \
+            --render-image "${PROPERTYQUARRY_RENDER_IMAGE}" \
+            --severity-threshold HIGH \
+            --waivers config/propertyquarry_security_waivers.json \
+            --artifacts-dir "${output_root}/artifacts" \
+            --receipt "${output_root}/receipt.json"
+      - name: Preserve PropertyQuarry security evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: propertyquarry-release-security-${{ github.run_id }}-${{ github.run_attempt }}
+          path: _completion/propertyquarry_release_security/${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: error
+          retention-days: 30
+
   smoke-runtime-api:
     runs-on: ubuntu-latest
     steps:
@@ -45,6 +93,11 @@ jobs:
           sudo apt-get install --yes ffmpeg
           python -m pip install -r ea/requirements.txt -c ea/requirements.lock httpx==0.28.1 opencv-python-headless==4.13.0.92 pytest==9.0.2
           python -m playwright install --with-deps chromium
+      - name: Prepare canonical repository path
+        run: |
+          sudo mkdir -p /docker
+          sudo chown "$USER":"$USER" /docker
+          ln -sfn "$GITHUB_WORKSPACE" /docker/property
       - name: Run core CI gates
         run: make ci-gates
 
@@ -65,13 +118,120 @@ jobs:
           sudo apt-get install --yes ffmpeg
           python -m pip install -r ea/requirements.txt -c ea/requirements.lock httpx==0.28.1 pytest==9.0.2
           python -m playwright install --with-deps chromium
+      - name: Prepare canonical repository path
+        run: |
+          sudo mkdir -p /docker
+          sudo chown "$USER":"$USER" /docker
+          ln -sfn "$GITHUB_WORKSPACE" /docker/property
       - name: Run local PropertyQuarry browser contracts
         run: |
           PYTHONPATH=ea EA_STORAGE_BACKEND=memory python -m pytest -q \
             tests/e2e/test_propertyquarry_greenfield_browser.py \
             tests/e2e/test_propertyquarry_public_tour_browser.py
 
+  product-browser-e2e:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        browser-engine: [chromium, firefox, webkit]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ${{ matrix.browser-engine }} core-journey dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ffmpeg
+          python -m pip install -r ea/requirements.txt -c ea/requirements.lock httpx==0.28.1 pytest==9.0.2
+          python -m playwright install --with-deps "${{ matrix.browser-engine }}"
+      - name: Prepare canonical repository path and branded host
+        run: |
+          sudo mkdir -p /docker
+          sudo chown "$USER":"$USER" /docker
+          ln -sfn "$GITHUB_WORKSPACE" /docker/property
+          echo "127.0.0.1 propertyquarry.com" | sudo tee -a /etc/hosts >/dev/null
+      - name: Run flagship operating loop in ${{ matrix.browser-engine }}
+        env:
+          PROPERTYQUARRY_CORE_BROWSER_ENGINE: ${{ matrix.browser-engine }}
+        run: |
+          PYTHONPATH=ea EA_STORAGE_BACKEND=memory python -m pytest -q \
+            tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_flagship_operating_loop_in_browser
+
+  propertyquarry-accessibility-contracts:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install accessibility contract dependencies
+        run: python -m pip install -r ea/requirements.txt -c ea/requirements.lock pytest==9.0.2
+      - name: Run accessibility receipt and flagship-gold contracts
+        run: |
+          PYTHONPATH=ea python -m pytest -q \
+            tests/test_propertyquarry_accessibility_gate.py \
+            tests/test_propertyquarry_gold_status.py::test_gold_status_standard_profile_does_not_gate_on_optional_accessibility_receipt \
+            tests/test_propertyquarry_gold_status.py::test_gold_status_flagship_profile_passes_with_fresh_customer_ux_evidence \
+            tests/test_propertyquarry_gold_status.py::test_gold_status_flagship_rejects_incomplete_accessibility_engine_evidence \
+            tests/test_propertyquarry_gold_status.py::test_gold_status_flagship_rejects_stale_accessibility_evidence
+
+  propertyquarry-failure-state-contracts:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install failure-state contract dependencies
+        run: python -m pip install -r ea/requirements.txt -c ea/requirements.lock pytest==9.0.2
+      - name: Run mock-boundary failure and public-route contracts
+        run: |
+          PYTHONPATH=ea python -m pytest -q \
+            tests/test_propertyquarry_failure_state_gate.py \
+            tests/test_propertyquarry_accessibility_gate.py \
+            tests/test_propertyquarry_gold_status.py::test_gold_status_standard_profile_does_not_gate_on_optional_failure_state_receipt \
+            tests/test_propertyquarry_gold_status.py::test_gold_status_flagship_profile_passes_with_fresh_customer_ux_evidence \
+            tests/test_propertyquarry_gold_status.py::test_gold_status_flagship_rejects_contract_mock_failure_state_evidence
+
+  propertyquarry-activation-contracts:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install activation contract dependencies
+        run: python -m pip install pytest==9.0.2
+      - name: Run mock-boundary and flagship activation contracts
+        run: |
+          PYTHONPATH=ea python -m pytest -q \
+            tests/test_propertyquarry_activation_to_value_live.py \
+            tests/test_propertyquarry_gold_status.py::test_gold_status_standard_profile_does_not_gate_on_optional_activation_receipt \
+            tests/test_propertyquarry_gold_status.py::test_gold_status_flagship_profile_passes_with_fresh_customer_ux_evidence \
+            tests/test_propertyquarry_gold_status.py::test_gold_status_flagship_rejects_mock_boundary_activation_evidence \
+            tests/test_propertyquarry_gold_status.py::test_gold_status_flagship_rejects_contract_mock_activation_proof_mode \
+            tests/test_propertyquarry_gold_status.py::test_gold_status_flagship_rejects_stale_activation_evidence
+
   propertyquarry-live-release-gates:
+    needs: propertyquarry-flagship-security
     if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
     environment:
       name: propertyquarry-production
@@ -87,10 +247,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
       - name: Install release gate dependencies
         run: |
           python -m pip install -r ea/requirements.txt -c ea/requirements.lock
-          python -m playwright install --with-deps chromium
+          python -m playwright install --with-deps chromium firefox webkit
+          npm install --no-save --ignore-scripts axe-core@4.10.2
       - name: Require protected live release inputs
         shell: bash
         run: |
@@ -103,7 +267,106 @@ jobs:
           PROPERTYQUARRY_LIVE_PRINCIPAL_ID: ${{ secrets.PROPERTYQUARRY_LIVE_PRINCIPAL_ID }}
           PROPERTYQUARRY_EXPECTED_RELEASE_COMMIT_SHA: ${{ github.sha }}
           PROPERTYQUARRY_EXPECTED_RELEASE_BRANCH: main
+          PROPERTYQUARRY_LIVE_MOBILE_REQUIRED_BROWSER_ENGINES: chromium,firefox,webkit
+          PROPERTYQUARRY_AXE_CORE_PATH: node_modules/axe-core/axe.min.js
         run: bash scripts/propertyquarry_live_release_gates.sh
+
+  propertyquarry-live-activation-to-value:
+    needs: propertyquarry-flagship-security
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.run_activation_journey == true }}
+    concurrency:
+      group: propertyquarry-live-activation-${{ inputs.activation_run_key }}
+      cancel-in-progress: false
+    environment:
+      name: propertyquarry-production
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    env:
+      PROPERTYQUARRY_ACTIVATION_LIVE_RUN: "1"
+      PROPERTYQUARRY_ACTIVATION_BASE_URL: ${{ vars.PROPERTYQUARRY_ACTIVATION_BASE_URL || vars.PROPERTYQUARRY_LIVE_MOBILE_BASE_URL }}
+      PROPERTYQUARRY_ACTIVATION_ALLOWED_HOST_SUFFIXES: ${{ vars.PROPERTYQUARRY_ACTIVATION_ALLOWED_HOST_SUFFIXES }}
+      PROPERTYQUARRY_ACTIVATION_PERSONA_ID: ${{ secrets.PROPERTYQUARRY_ACTIVATION_PERSONA_ID }}
+      PROPERTYQUARRY_ACTIVATION_PERSONA_EMAIL: ${{ secrets.PROPERTYQUARRY_ACTIVATION_PERSONA_EMAIL }}
+      PROPERTYQUARRY_ACTIVATION_RUN_KEY: ${{ inputs.activation_run_key }}
+      PROPERTYQUARRY_ACTIVATION_AUTH_MODE: ${{ vars.PROPERTYQUARRY_ACTIVATION_AUTH_MODE }}
+      PROPERTYQUARRY_ACTIVATION_BROWSER_ENGINE: chromium
+      PROPERTYQUARRY_ACTIVATION_EXPECTED_ACCOUNT_STATE: existing
+      PROPERTYQUARRY_ACTIVATION_ALLOW_ACCOUNT_CREATE: "0"
+      PROPERTYQUARRY_ACTIVATION_ALLOW_WALKTHROUGH_REQUEST: ${{ vars.PROPERTYQUARRY_ACTIVATION_ALLOW_WALKTHROUGH_REQUEST }}
+      PROPERTYQUARRY_ACTIVATION_SEARCH_COUNTRY_CODE: ${{ vars.PROPERTYQUARRY_ACTIVATION_SEARCH_COUNTRY_CODE }}
+      PROPERTYQUARRY_ACTIVATION_SEARCH_REGION_CODE: ${{ vars.PROPERTYQUARRY_ACTIVATION_SEARCH_REGION_CODE }}
+      PROPERTYQUARRY_ACTIVATION_SEARCH_LOCATION: ${{ vars.PROPERTYQUARRY_ACTIVATION_SEARCH_LOCATION }}
+      PROPERTYQUARRY_ACTIVATION_VISUAL_STYLE: ${{ vars.PROPERTYQUARRY_ACTIVATION_VISUAL_STYLE }}
+      PROPERTYQUARRY_ACTIVATION_PROVIDER_PASSWORD: ${{ secrets.PROPERTYQUARRY_ACTIVATION_PROVIDER_PASSWORD }}
+      PROPERTYQUARRY_ACTIVATION_IMAP_HOST: ${{ vars.PROPERTYQUARRY_ACTIVATION_IMAP_HOST }}
+      PROPERTYQUARRY_ACTIVATION_IMAP_PORT: ${{ vars.PROPERTYQUARRY_ACTIVATION_IMAP_PORT }}
+      PROPERTYQUARRY_ACTIVATION_IMAP_USERNAME: ${{ secrets.PROPERTYQUARRY_ACTIVATION_IMAP_USERNAME }}
+      PROPERTYQUARRY_ACTIVATION_IMAP_PASSWORD: ${{ secrets.PROPERTYQUARRY_ACTIVATION_IMAP_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Require protected activation inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${PROPERTYQUARRY_ACTIVATION_BASE_URL:?Missing protected activation base URL}"
+          : "${PROPERTYQUARRY_ACTIVATION_PERSONA_ID:?Missing protected activation persona ID}"
+          : "${PROPERTYQUARRY_ACTIVATION_PERSONA_EMAIL:?Missing protected activation persona email}"
+          : "${PROPERTYQUARRY_ACTIVATION_RUN_KEY:?Missing unique activation run key}"
+          : "${PROPERTYQUARRY_ACTIVATION_AUTH_MODE:?Missing protected activation auth mode}"
+          if [[ ! "${PROPERTYQUARRY_ACTIVATION_RUN_KEY}" =~ ^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$ ]]; then
+            echo "Activation run key must be 8-128 non-PII characters from A-Z, a-z, 0-9, dot, underscore, colon, or hyphen." >&2
+            exit 2
+          fi
+          case "${PROPERTYQUARRY_ACTIVATION_AUTH_MODE}" in
+            google)
+              : "${PROPERTYQUARRY_ACTIVATION_PROVIDER_PASSWORD:?Missing protected Google persona password}"
+              ;;
+            email_link)
+              : "${PROPERTYQUARRY_ACTIVATION_IMAP_HOST:?Missing protected IMAP host}"
+              : "${PROPERTYQUARRY_ACTIVATION_IMAP_USERNAME:?Missing protected IMAP username}"
+              : "${PROPERTYQUARRY_ACTIVATION_IMAP_PASSWORD:?Missing protected IMAP password}"
+              ;;
+            *)
+              echo "Activation auth mode must be google or email_link." >&2
+              exit 2
+              ;;
+          esac
+      - name: Restore activation idempotency marker
+        id: activation-state
+        uses: actions/cache/restore@v4
+        with:
+          path: _completion/activation_to_value/run-state.json
+          key: propertyquarry-activation-${{ inputs.activation_run_key }}
+      - name: Install protected activation journey dependencies
+        run: |
+          python -m pip install -r ea/requirements.txt -c ea/requirements.lock
+          python -m playwright install --with-deps chromium
+      - name: Run deployed activation-to-value journey
+        run: |
+          python scripts/propertyquarry_activation_to_value_live.py \
+            --confirm-live \
+            --state-path _completion/activation_to_value/run-state.json \
+            --write "_completion/smoke/property-live-activation-to-value-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+      - name: Preserve activation idempotency marker
+        if: ${{ always() && steps.activation-state.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: _completion/activation_to_value/run-state.json
+          key: propertyquarry-activation-${{ inputs.activation_run_key }}
+      - name: Preserve protected activation receipt
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: propertyquarry-live-activation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: _completion/smoke/property-live-activation-to-value-*.json
+          if-no-files-found: error
+          retention-days: 30
 
   smoke-runtime-postgres:
     runs-on: ubuntu-latest

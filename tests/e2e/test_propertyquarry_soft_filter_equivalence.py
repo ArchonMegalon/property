@@ -221,7 +221,7 @@ def test_propertyquarry_e2e_soft_preferences_preserve_search_hits(monkeypatch) -
             "max_results_per_source": 5,
         },
     )
-    assert plain_started.status_code == 200, plain_started.text
+    assert plain_started.status_code == 202, plain_started.text
     soft_started = client.post(
         "/app/api/property/search-runs",
         json={
@@ -231,7 +231,7 @@ def test_propertyquarry_e2e_soft_preferences_preserve_search_hits(monkeypatch) -
             "max_results_per_source": 5,
         },
     )
-    assert soft_started.status_code == 200, soft_started.text
+    assert soft_started.status_code == 202, soft_started.text
 
     plain_status = _poll_search_run(client, plain_started.json()["run_id"])
     soft_status = _poll_search_run(client, soft_started.json()["run_id"])
@@ -404,7 +404,7 @@ def test_propertyquarry_e2e_targeted_listing_survives_strict_and_soft_runs(monke
                 "max_results_per_source": 5,
             },
         )
-        assert started.status_code == 200, started.text
+        assert started.status_code == 202, started.text
         run_statuses[label] = _poll_search_run(client, started.json()["run_id"])
 
     strict_status = run_statuses["strict"]
@@ -422,7 +422,8 @@ def test_propertyquarry_e2e_targeted_listing_survives_strict_and_soft_runs(monke
     assert off_scope_url not in soft_urls
     assert any(
         str(row.get("property_url") or "") == target_url
-        and dict(row.get("property_facts") or {}).get("score_demoted_by_match_threshold") is True
+        and float(row.get("assessment_fit_score") or 0.0) < float(strict_preferences["min_match_score"])
+        and str(row.get("flythrough_reason") or "") == "fit_below_threshold"
         for row in _candidate_fact_rows(strict_status)
     )
     assert any(
@@ -568,7 +569,7 @@ def test_propertyquarry_e2e_exact_district_selection_remains_a_hard_filter(monke
             "max_results_per_source": 5,
         },
     )
-    assert started.status_code == 200, started.text
+    assert started.status_code == 202, started.text
 
     status = _poll_search_run(client, started.json()["run_id"])
 
@@ -693,7 +694,7 @@ def test_propertyquarry_e2e_adjacent_districts_enabled_for_fuzzy_search(monkeypa
             "max_results_per_source": 5,
         },
     )
-    assert strict_started.status_code == 200, strict_started.text
+    assert strict_started.status_code == 202, strict_started.text
     strict_status = _poll_search_run(client, strict_started.json()["run_id"])
 
     assert strict_status["status"] == "processed"
@@ -726,7 +727,7 @@ def test_propertyquarry_e2e_adjacent_districts_enabled_for_fuzzy_search(monkeypa
             "max_results_per_source": 5,
         },
     )
-    assert fuzzy_started.status_code == 200, fuzzy_started.text
+    assert fuzzy_started.status_code == 202, fuzzy_started.text
     fuzzy_status = _poll_search_run(client, fuzzy_started.json()["run_id"])
 
     assert fuzzy_status["status"] == "processed"

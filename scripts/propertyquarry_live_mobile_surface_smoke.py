@@ -26,10 +26,16 @@ if str(EA_ROOT) not in sys.path:
     sys.path.insert(0, str(EA_ROOT))
 
 from scripts.propertyquarry_billing_handoff_probe import (
+    PROPERTYQUARRY_BILLING_HANDOFF_ALLOWED_HOSTS,
     https_handoff_url_usable,
     https_redirect_host_resolves,
 )
-from scripts.propertyquarry_playwright_runtime import playwright_chromium_launch_kwargs
+from scripts.propertyquarry_playwright_runtime import (
+    SUPPORTED_PLAYWRIGHT_ENGINES,
+    normalize_playwright_engine,
+    playwright_browser_type,
+    playwright_engine_launch_kwargs,
+)
 from scripts.propertyquarry_live_http_security import (
     SENSITIVE_REQUEST_HEADERS,
     headers_for_authorized_origin,
@@ -57,6 +63,11 @@ DEFAULT_ROUTES = (
     "/app/research",
     "/app/properties/packets",
 )
+FLAGSHIP_BROWSER_VIEWPORTS = ((390, 844), (412, 915))
+FLAGSHIP_BROWSER_ENGINES = SUPPORTED_PLAYWRIGHT_ENGINES
+DEFAULT_BROWSER_ENGINE = "chromium"
+STANDARD_PROOF_MODE = "hybrid_browser_static"
+FLAGSHIP_PROOF_MODE = "playwright_browser_all"
 SEEDED_RESEARCH_DETAIL_ROUTE = "/app/research/perf-candidate-1020?run_id=run-gold-mobile"
 SEED_FIXTURE_USER_AGENT = "PropertyQuarry-live-mobile-surface-smoke/1.0"
 SEED_FIXTURE_TIMEOUT_SECONDS = max(
@@ -332,20 +343,36 @@ def _playwright_route_metrics_worker(
     viewport_width: int,
     viewport_height: int,
     route_timeout_ms: int,
+    browser_engine: str = DEFAULT_BROWSER_ENGINE,
 ) -> None:
+    normalized_engine = normalize_playwright_engine(browser_engine)
     try:
         from playwright.sync_api import sync_playwright
 
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(
-                **playwright_chromium_launch_kwargs(playwright, args=browser_args)
-            )
+            browser_type = playwright_browser_type(playwright, engine=normalized_engine)
             try:
+                browser = browser_type.launch(
+                    **playwright_engine_launch_kwargs(
+                        playwright,
+                        engine=normalized_engine,
+                        args=browser_args,
+                    )
+                )
+            except BaseException as exc:
+                raise RuntimeError(
+                    f"playwright_browser_engine_unavailable:{normalized_engine}:{type(exc).__name__}: {exc}"
+                ) from exc
+            try:
+                context_options: dict[str, object] = {
+                    "viewport": {"width": viewport_width, "height": viewport_height},
+                    "has_touch": True,
+                    "service_workers": "block",
+                }
+                if normalized_engine != "firefox":
+                    context_options["is_mobile"] = True
                 context = browser.new_context(
-                    viewport={"width": viewport_width, "height": viewport_height},
-                    is_mobile=True,
-                    has_touch=True,
-                    service_workers="block",
+                    **context_options,
                 )
                 try:
                     context.route(
@@ -367,6 +394,18 @@ def _playwright_route_metrics_worker(
                     page.wait_for_timeout(1200)
                     status = int(response.status) if response is not None else 0
                     metrics = dict(page.evaluate(_collect_metrics_script()) or {})
+                    metrics.update(
+                        {
+                            "browser_probe": True,
+                            "browser_engine": normalized_engine,
+                            "proof_mode": "playwright",
+                            "navigation_committed": response is not None,
+                            "requested_url": url,
+                            "final_url": str(page.url or ""),
+                            "viewport_width": viewport_width,
+                            "viewport_height": viewport_height,
+                        }
+                    )
                     queue.put({"ok": True, "status_code": status, "metrics": metrics})
                 finally:
                     try:
@@ -383,6 +422,88 @@ def _playwright_route_metrics_worker(
             queue.put({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
         except Exception:
             pass
+
+
+def collect_playwright_route_metrics(
+    *,
+    route: str,
+    url: str,
+    headers: dict[str, str],
+    authorized_origin: str,
+    browser_args: list[str],
+    viewport_width: int,
+    viewport_height: int,
+    route_timeout_ms: int,
+    route_deadline_seconds: int,
+    browser_engine: str = DEFAULT_BROWSER_ENGINE,
+) -> tuple[int, dict[str, Any]]:
+    """Run one real-browser probe behind a mockable process boundary."""
+    start_method = "spawn" if "spawn" in multiprocessing.get_all_start_methods() else "fork"
+    context_factory = multiprocessing.get_context(start_method)
+    queue: Any = context_factory.Queue(maxsize=1)
+    process = context_factory.Process(
+        target=_playwright_route_metrics_worker,
+        kwargs={
+            "queue": queue,
+            "url": url,
+            "headers": headers,
+            "authorized_origin": authorized_origin,
+            "browser_args": browser_args,
+            "viewport_width": viewport_width,
+            "viewport_height": viewport_height,
+            "route_timeout_ms": route_timeout_ms,
+            "browser_engine": normalize_playwright_engine(browser_engine),
+        },
+    )
+    process.start()
+    route_log_label = _route_log_label(route)
+    process.join(route_deadline_seconds + 3)
+    if process.is_alive():
+        process.terminate()
+        process.join(2)
+        if process.is_alive() and hasattr(process, "kill"):
+            process.kill()
+            process.join(1)
+        return 0, {
+            "status_code": 0,
+            "viewport_width": viewport_width,
+            "viewport_height": viewport_height,
+            "body_width": 0,
+            "topbar_height": 0,
+            "min_action_height": 0,
+            "proof_mode": "playwright_failed",
+            "browser_engine": normalize_playwright_engine(browser_engine),
+            "error": f"route_timeout:{route_log_label}",
+        }
+    if queue.empty():
+        return 0, {
+            "status_code": 0,
+            "viewport_width": viewport_width,
+            "viewport_height": viewport_height,
+            "body_width": 0,
+            "topbar_height": 0,
+            "min_action_height": 0,
+            "proof_mode": "playwright_failed",
+            "browser_engine": normalize_playwright_engine(browser_engine),
+            "error": f"route_worker_no_receipt:{route_log_label}:exitcode={process.exitcode}",
+        }
+    payload = dict(queue.get() or {})
+    if not bool(payload.get("ok")):
+        return 0, {
+            "status_code": 0,
+            "viewport_width": viewport_width,
+            "viewport_height": viewport_height,
+            "body_width": 0,
+            "topbar_height": 0,
+            "min_action_height": 0,
+            "proof_mode": "playwright_failed",
+            "browser_engine": normalize_playwright_engine(browser_engine),
+            "error": str(payload.get("error") or f"route_worker_failed:{route_log_label}"),
+        }
+    metrics = dict(payload.get("metrics") or {})
+    status_code = int(payload.get("status_code") or 0)
+    metrics["status_code"] = status_code
+    return status_code, metrics
 
 
 def _continue_playwright_route_with_origin_scoped_headers(
@@ -421,6 +542,15 @@ def _env_flag(name: str, *, default: bool = False) -> bool:
     if not raw:
         return default
     return raw in {"1", "true", "yes", "on"}
+
+
+def normalize_mobile_proof_mode(value: str) -> str:
+    normalized = str(value or "standard").strip().lower().replace("_", "-")
+    if normalized in {"", "standard", "hybrid", "hybrid-browser-static", "default"}:
+        return STANDARD_PROOF_MODE
+    if normalized in {"flagship", "launch", "browser-all", "playwright-browser-all"}:
+        return FLAGSHIP_PROOF_MODE
+    raise ValueError(f"unsupported_mobile_proof_mode:{normalized}")
 
 
 def route_is_research_detail(route: str) -> bool:
@@ -713,14 +843,99 @@ def _route_expectations(route: str) -> dict[str, Any]:
     return {}
 
 
-def evaluate_mobile_metrics(route: str, metrics: dict[str, Any]) -> list[dict[str, Any]]:
+def browser_mobile_proof_checks(metrics: dict[str, Any]) -> list[dict[str, Any]]:
+    if not bool(metrics.get("require_browser_proof")):
+        return []
+    viewport_width = int(metrics.get("viewport_width") or 0)
+    body_width = int(metrics.get("body_width") or 0)
+    min_action_height = float(metrics.get("measured_touch_target_height") or 0)
+    return [
+        {"name": "browser_navigation_committed", "ok": bool(metrics.get("navigation_committed"))},
+        {"name": "browser_touch_context", "ok": bool(metrics.get("touch_capable"))},
+        {"name": "browser_focus_navigation", "ok": bool(metrics.get("focus_navigation_ok"))},
+        {"name": "no_horizontal_overflow", "ok": bool(viewport_width) and body_width <= viewport_width + 1},
+        {"name": "primary_touch_targets", "ok": min_action_height >= 44},
+    ]
+
+
+def mobile_billing_readiness_from_metrics(metrics: dict[str, Any]) -> dict[str, object]:
+    status_code = int(metrics.get("status_code") or 0)
+    redirect_location = str(metrics.get("redirect_location") or "").strip()
+    if status_code in {303, 307} and redirect_location.startswith("/app/account"):
+        state = "degraded"
+        reason = "internal_account_fallback"
+    elif status_code in {303, 307} and redirect_location.startswith("https://"):
+        if bool(metrics.get("billing_handoff_host_resolves")) and bool(metrics.get("billing_handoff_usable")):
+            state = "available"
+            reason = "no_second_login_handoff_verified"
+        else:
+            state = "degraded"
+            reason = "external_handoff_not_proven_usable"
+    elif status_code == 503:
+        state = "unavailable"
+        reason = "fail_closed_recovery_only"
+    else:
+        state = "unavailable"
+        reason = "billing_route_not_available"
+    return {
+        "state": state,
+        "available": state == "available",
+        "compatibility_ok": state in {"available", "degraded", "unavailable"},
+        "flagship_ok": state == "available",
+        "reason": reason,
+    }
+
+
+def mobile_billing_readiness_summary(
+    rows: list[dict[str, Any]],
+    *,
+    strict_required: bool,
+) -> dict[str, object]:
+    billing_rows = [
+        row
+        for row in rows
+        if str(row.get("route") or "").split("?", 1)[0].strip() == "/app/billing"
+    ]
+    states = [
+        str(dict(row.get("metrics") or {}).get("billing_readiness_state") or "unavailable")
+        for row in billing_rows
+    ]
+    state = (
+        "available"
+        if states and all(value == "available" for value in states)
+        else "degraded"
+        if any(value == "degraded" for value in states)
+        else "unavailable"
+    )
+    return {
+        "state": state,
+        "available": state == "available",
+        "compatibility_ok": bool(billing_rows) and all(row.get("ok") is True for row in billing_rows),
+        "flagship_ok": state == "available",
+        "strict_required": strict_required,
+        "sample_count": len(billing_rows),
+    }
+
+
+def evaluate_mobile_metrics(
+    route: str,
+    metrics: dict[str, Any],
+    *,
+    require_billing_available: bool = False,
+) -> list[dict[str, Any]]:
     if str(route or "").split("?", 1)[0].strip() == "/app/billing" and int(metrics.get("status_code") or 0) in {303, 307}:
         redirect_location = str(metrics.get("redirect_location") or "").strip()
+        billing_readiness = mobile_billing_readiness_from_metrics(metrics)
+        metrics["billing_readiness_state"] = billing_readiness["state"]
+        metrics["billing_readiness_reason"] = billing_readiness["reason"]
         if redirect_location.startswith("/app/account"):
-            return [
+            checks = [
                 {"name": "billing_internal_account_fallback", "ok": True},
                 {"name": "billing_local_page_deleted", "ok": True},
             ]
+            if require_billing_available:
+                checks.append({"name": "billing_flagship_no_second_login_handoff", "ok": False})
+            return checks + browser_mobile_proof_checks(metrics)
         handoff_host_resolves = bool(metrics.get("billing_handoff_host_resolves"))
         handoff_usable = bool(metrics.get("billing_handoff_usable"))
         bridge_assist_probe = dict(metrics.get("billing_bridge_login_assist_probe") or {})
@@ -730,13 +945,25 @@ def evaluate_mobile_metrics(route: str, metrics: dict[str, Any]) -> list[dict[st
             {"name": "billing_external_handoff_resolves", "ok": handoff_host_resolves},
             {"name": "billing_external_handoff_usable", "ok": handoff_usable or bridge_assist_ok},
         ]
+        if handoff_usable:
+            checks.append({"name": "billing_no_second_login", "ok": True})
         if str(urllib.parse.urlparse(redirect_location).path or "").strip().startswith("/sso/propertyquarry") or bridge_assist_probe:
             checks.append({"name": "billing_bridge_guided_login_assist", "ok": True if handoff_usable else bridge_assist_ok})
+        if require_billing_available:
+            checks.append(
+                {
+                    "name": "billing_flagship_no_second_login_handoff",
+                    "ok": billing_readiness["available"] is True,
+                }
+            )
         checks.append({"name": "billing_local_page_deleted", "ok": True})
-        return checks
+        return checks + browser_mobile_proof_checks(metrics)
     if str(route or "").split("?", 1)[0].strip() == "/app/billing" and int(metrics.get("status_code") or 0) == 503:
         billing_text = str(metrics.get("billing_visible_text") or "").strip().lower()
-        return [
+        billing_readiness = mobile_billing_readiness_from_metrics(metrics)
+        metrics["billing_readiness_state"] = billing_readiness["state"]
+        metrics["billing_readiness_reason"] = billing_readiness["reason"]
+        checks = [
             {
                 "name": "billing_fail_closed_recovery",
                 "ok": all(marker in billing_text for marker in BILLING_FAIL_CLOSED_MARKERS)
@@ -744,6 +971,9 @@ def evaluate_mobile_metrics(route: str, metrics: dict[str, Any]) -> list[dict[st
             },
             {"name": "billing_local_page_deleted", "ok": not any(marker in billing_text for marker in ("open pricing", "view plans", "compare plans", "plus checkout", "billing history"))},
         ]
+        if require_billing_available:
+            checks.append({"name": "billing_flagship_no_second_login_handoff", "ok": False})
+        return checks + browser_mobile_proof_checks(metrics)
     expectations = _route_expectations(route)
     viewport_width = int(metrics.get("viewport_width") or 0)
     body_width = int(metrics.get("body_width") or 0)
@@ -803,6 +1033,7 @@ def evaluate_mobile_metrics(route: str, metrics: dict[str, Any]) -> list[dict[st
                 {"name": "research_detail_mobile_secondary_collapsed", "ok": bool(metrics.get("research_detail_mobile_secondary_collapsed"))},
             )
         )
+    checks.extend(browser_mobile_proof_checks(metrics))
     return checks
 
 
@@ -839,6 +1070,7 @@ def static_mobile_route_metrics_from_html(
         "heavy_shadow_count": min(heavy_shadow_count, 2),
         "mobile_fold_single_open": True,
         "static_html_probe": True,
+        "proof_mode": "static_html",
     }
 
 
@@ -860,6 +1092,14 @@ def _collect_metrics_script() -> str:
       const mobileNavMenu = document.querySelector('[data-pqx-mobile-nav-menu] > summary, .pq-appbar-mobile-nav');
       const actionNodes = visibleNodes('main button, main a.pqx-button, main a.pqx-link-button, main a.pq-pack-button, main .console-action, .pqx-account-logout-strip button, .pqx-account-logout-strip a');
       const actionHeights = actionNodes.map((node) => node.getBoundingClientRect().height).filter((height) => height > 0);
+      const browserInteractionNodes = visibleNodes('main button, main a[href], header a[href], nav a[href], details > summary, .pqx-account-logout-strip button, .pqx-account-logout-strip a');
+      const browserInteractionHeights = browserInteractionNodes.map((node) => node.getBoundingClientRect().height).filter((height) => height > 0);
+      const focusTarget = browserInteractionNodes.find((node) => !node.hasAttribute('disabled')) || null;
+      if (focusTarget && typeof focusTarget.focus === 'function') {
+        focusTarget.focus();
+        await waitFrame();
+      }
+      const focusNavigationOk = Boolean(focusTarget && document.activeElement === focusTarget);
       const cardNodes = visibleNodes('.pqx-card, .pqx-panel, .pqx-result, .pqx-account-action-card, .pqx-billing-card, .pqx-billing-summary-card, .pqx-automation-card, .prd-panel, .prd-band');
       const heavyShadowNodes = cardNodes.filter((node) => window.getComputedStyle(node).boxShadow !== 'none');
       const locationField = document.querySelector('[data-property-field-name="location_query"]');
@@ -1073,6 +1313,10 @@ def _collect_metrics_script() -> str:
         topbar_height: topbar ? Math.round(topbar.getBoundingClientRect().height) : 0,
         topnav_visible: visible(topnav) || visible(mobileNavMenu),
         min_action_height: actionHeights.length ? Math.min(...actionHeights) : 44,
+        measured_touch_target_height: browserInteractionHeights.length ? Math.min(...browserInteractionHeights) : 0,
+        touch_capable: Boolean(('ontouchstart' in window) || Number(navigator.maxTouchPoints || 0) > 0),
+        focusable_action_count: browserInteractionNodes.length,
+        focus_navigation_ok: focusNavigationOk,
         visible_card_count: cardNodes.length,
         heavy_shadow_count: heavyShadowNodes.length,
         district_picker_available: Boolean(locationField),
@@ -1110,6 +1354,116 @@ def _collect_metrics_script() -> str:
     """
 
 
+def _normalized_viewports(
+    viewports: tuple[tuple[int, int], ...] | None,
+    *,
+    fallback_width: int,
+    fallback_height: int,
+) -> tuple[tuple[int, int], ...]:
+    normalized: list[tuple[int, int]] = []
+    for width, height in viewports or ((fallback_width, fallback_height),):
+        candidate = (max(1, int(width)), max(1, int(height)))
+        if candidate not in normalized:
+            normalized.append(candidate)
+    return tuple(normalized)
+
+
+def normalized_browser_engines(
+    engines: tuple[str, ...] | list[str] | None,
+    *,
+    fallback_engine: str = DEFAULT_BROWSER_ENGINE,
+) -> tuple[str, ...]:
+    normalized: list[str] = []
+    for raw_engine in engines or (fallback_engine,):
+        engine = normalize_playwright_engine(raw_engine)
+        if engine not in normalized:
+            normalized.append(engine)
+    return tuple(normalized)
+
+
+def _route_row_viewport(row: dict[str, Any]) -> tuple[int, int]:
+    viewport = dict(row.get("viewport") or {})
+    metrics = dict(row.get("metrics") or {})
+    return (
+        int(viewport.get("width") or metrics.get("viewport_width") or 0),
+        int(viewport.get("height") or metrics.get("viewport_height") or 0),
+    )
+
+
+def build_browser_all_proof_summary(
+    *,
+    routes: tuple[str, ...],
+    rows: list[dict[str, Any]],
+    viewports: tuple[tuple[int, int], ...],
+    required_browser_engines: tuple[str, ...] = (DEFAULT_BROWSER_ENGINE,),
+) -> dict[str, Any]:
+    def proof_route_key(route: object) -> str:
+        normalized = str(route or "").strip()
+        return "/app/research/[detail]" if route_is_research_detail(normalized) else normalized
+
+    normalized_engines = normalized_browser_engines(required_browser_engines)
+    expected_samples = {
+        (engine, proof_route_key(route), int(width), int(height))
+        for engine in normalized_engines
+        for route in routes
+        for width, height in viewports
+    }
+    proven_samples: set[tuple[str, str, int, int]] = set()
+    static_routes: list[dict[str, Any]] = []
+    failed_browser_routes: list[dict[str, Any]] = []
+    for row in rows:
+        route = str(row.get("route") or "").strip()
+        route_key = proof_route_key(route)
+        width, height = _route_row_viewport(row)
+        metrics = dict(row.get("metrics") or {})
+        browser_engine = normalize_playwright_engine(
+            row.get("browser_engine") or metrics.get("browser_engine") or DEFAULT_BROWSER_ENGINE
+        )
+        proof_mode = str(row.get("proof_mode") or metrics.get("proof_mode") or "").strip()
+        sample = (browser_engine, route_key, width, height)
+        if proof_mode == "static_html" or metrics.get("static_html_probe") is True:
+            static_routes.append({"browser_engine": browser_engine, "route": route, "viewport": {"width": width, "height": height}})
+        if proof_mode == "playwright" and metrics.get("browser_probe") is True and row.get("ok") is True:
+            proven_samples.add(sample)
+        elif sample in expected_samples:
+            failed_browser_routes.append(
+                {
+                    "route": route,
+                    "browser_engine": browser_engine,
+                    "viewport": {"width": width, "height": height},
+                    "proof_mode": proof_mode or "missing",
+                    "error": str(metrics.get("error") or ""),
+                }
+            )
+    missing_samples = sorted(expected_samples - proven_samples)
+    research_detail_routes = sorted({route for route in routes if route_is_research_detail(route)})
+    return {
+        "mode": FLAGSHIP_PROOF_MODE,
+        "ready": bool(expected_samples)
+        and not missing_samples
+        and not static_routes
+        and not failed_browser_routes
+        and bool(research_detail_routes),
+        "supported_viewports": [
+            {"width": width, "height": height}
+            for width, height in viewports
+        ],
+        "required_browser_engines": list(normalized_engines),
+        "observed_browser_engines": sorted({engine for engine, _, _, _ in proven_samples}),
+        "missing_browser_engines": sorted(set(normalized_engines) - {engine for engine, _, _, _ in proven_samples}),
+        "configured_route_count": len(routes),
+        "expected_sample_count": len(expected_samples),
+        "proven_sample_count": len(proven_samples),
+        "research_detail_routes": research_detail_routes,
+        "missing_samples": [
+            {"browser_engine": engine, "route": route, "viewport": {"width": width, "height": height}}
+            for engine, route, width, height in missing_samples
+        ],
+        "static_fallbacks": static_routes,
+        "failed_browser_routes": failed_browser_routes,
+    }
+
+
 def build_live_mobile_surface_receipt(
     *,
     base_url: str,
@@ -1121,7 +1475,105 @@ def build_live_mobile_surface_receipt(
     viewport_width: int = 390,
     viewport_height: int = 844,
     timeout_ms: int = 60_000,
+    proof_mode: str = "standard",
+    supported_viewports: tuple[tuple[int, int], ...] | None = None,
+    browser_engine: str = DEFAULT_BROWSER_ENGINE,
+    required_browser_engines: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
+    normalized_proof_mode = normalize_mobile_proof_mode(proof_mode)
+    browser_all = normalized_proof_mode == FLAGSHIP_PROOF_MODE
+    selected_browser_engine = normalize_playwright_engine(browser_engine)
+    normalized_required_engines = normalized_browser_engines(
+        required_browser_engines
+        if required_browser_engines is not None
+        else (FLAGSHIP_BROWSER_ENGINES if browser_all else (selected_browser_engine,)),
+        fallback_engine=selected_browser_engine,
+    )
+    probe_viewports = _normalized_viewports(
+        supported_viewports if supported_viewports is not None else (FLAGSHIP_BROWSER_VIEWPORTS if browser_all else None),
+        fallback_width=viewport_width,
+        fallback_height=viewport_height,
+    )
+    if browser_all and (len(probe_viewports) > 1 or len(normalized_required_engines) > 1):
+        child_receipts = [
+            build_live_mobile_surface_receipt(
+                base_url=base_url,
+                api_token=api_token,
+                principal_id=principal_id,
+                host_header=host_header,
+                routes=routes,
+                require_research_detail=True,
+                viewport_width=width,
+                viewport_height=height,
+                timeout_ms=timeout_ms,
+                proof_mode=FLAGSHIP_PROOF_MODE,
+                supported_viewports=((width, height),),
+                browser_engine=engine,
+                required_browser_engines=(engine,),
+            )
+            for engine in normalized_required_engines
+            for width, height in probe_viewports
+        ]
+        rows = [
+            dict(row)
+            for receipt in child_receipts
+            for row in list(receipt.get("routes") or [])
+            if isinstance(row, dict)
+        ]
+        coverage_checks = list(child_receipts[0].get("coverage_checks") or []) if child_receipts else []
+        coverage_checks = [
+            row
+            for row in coverage_checks
+            if isinstance(row, dict) and str(row.get("name") or "") != "flagship_browser_all_playwright_proof"
+        ]
+        browser_proof = build_browser_all_proof_summary(
+            routes=routes,
+            rows=rows,
+            viewports=probe_viewports,
+            required_browser_engines=normalized_required_engines,
+        )
+        coverage_checks.append(
+            {
+                "name": "flagship_browser_all_playwright_proof",
+                "ok": browser_proof["ready"],
+                "reason": "Flagship mobile evidence must use real Playwright measurement for every configured customer route, required browser engine, and supported viewport, including a concrete research detail.",
+                "missing_samples": browser_proof["missing_samples"],
+                "static_fallbacks": browser_proof["static_fallbacks"],
+            }
+        )
+        failed_rows = [row for row in rows if row.get("ok") is not True]
+        failed_coverage = [row for row in coverage_checks if row.get("ok") is not True]
+        blocked = any(str(receipt.get("status") or "") == "blocked" for receipt in child_receipts)
+        billing_readiness = mobile_billing_readiness_summary(rows, strict_required=True)
+        receipt = {
+            "status": "blocked" if blocked else ("pass" if not failed_rows and not failed_coverage else "fail"),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "base_url": base_url,
+            "host_header": host_header,
+            "navigation_base_url": str(child_receipts[0].get("navigation_base_url") or base_url) if child_receipts else base_url,
+            "principal_id": principal_id,
+            "proof_mode": FLAGSHIP_PROOF_MODE,
+            "browser_engine": "matrix" if len(normalized_required_engines) > 1 else normalized_required_engines[0],
+            "browser_engines": list(normalized_required_engines),
+            "required_browser_engines": list(normalized_required_engines),
+            "browser_proof": browser_proof,
+            "viewport": {"width": probe_viewports[0][0], "height": probe_viewports[0][1]},
+            "supported_viewports": browser_proof["supported_viewports"],
+            "route_count": len(rows),
+            "configured_route_count": len(routes),
+            "failed_count": len(failed_rows) + len(failed_coverage),
+            "billing_readiness": billing_readiness,
+            "coverage_checks": coverage_checks,
+            "routes": rows,
+            "notes": [
+                "Flagship browser-all smoke measures every configured customer route in every required Playwright browser engine at every supported viewport.",
+                "API token values are never written to this receipt.",
+            ],
+        }
+        return _redact_sensitive_receipt_value(
+            _redact_concrete_secret_values(receipt, secrets=(api_token,))
+        )
+    viewport_width, viewport_height = probe_viewports[0]
     try:
         validated_base_origin = validated_live_base_origin(base_url)
     except ValueError as exc:
@@ -1132,6 +1584,11 @@ def build_live_mobile_surface_receipt(
             "host_header": host_header,
             "navigation_base_url": base_url,
             "principal_id": principal_id,
+            "proof_mode": normalized_proof_mode,
+            "browser_engine": selected_browser_engine,
+            "browser_engines": [selected_browser_engine],
+            "required_browser_engines": list(normalized_required_engines),
+            "browser_proof": None,
             "viewport": {"width": viewport_width, "height": viewport_height},
             "route_count": 0,
             "failed_count": 1,
@@ -1147,6 +1604,11 @@ def build_live_mobile_surface_receipt(
             "host_header": host_header,
             "navigation_base_url": base_url,
             "principal_id": principal_id,
+            "proof_mode": normalized_proof_mode,
+            "browser_engine": selected_browser_engine,
+            "browser_engines": [selected_browser_engine],
+            "required_browser_engines": list(normalized_required_engines),
+            "browser_proof": None,
             "viewport": {"width": viewport_width, "height": viewport_height},
             "route_count": 0,
             "failed_count": 1,
@@ -1208,63 +1670,20 @@ def build_live_mobile_surface_receipt(
             signal.signal(signal.SIGALRM, previous_handler)
 
     def _collect_route_metrics_in_worker(route: str, url: str) -> tuple[int, dict[str, Any]]:
-        # Playwright's sync driver does not survive fork reliably once the
-        # parent has started its own dispatcher for billing probes.
-        start_method = "spawn" if "spawn" in multiprocessing.get_all_start_methods() else "fork"
-        context_factory = multiprocessing.get_context(start_method)
-        queue: Any = context_factory.Queue(maxsize=1)
-        process = context_factory.Process(
-            target=_playwright_route_metrics_worker,
-            kwargs={
-                "queue": queue,
-                "url": url,
-                "headers": headers,
-                "authorized_origin": browser_authorized_origin,
-                "browser_args": browser_args,
-                "viewport_width": viewport_width,
-                "viewport_height": viewport_height,
-                "route_timeout_ms": route_timeout_ms,
-            },
+        status_code, metrics = collect_playwright_route_metrics(
+            route=route,
+            url=url,
+            headers=headers,
+            authorized_origin=browser_authorized_origin,
+            browser_args=browser_args,
+            viewport_width=viewport_width,
+            viewport_height=viewport_height,
+            route_timeout_ms=route_timeout_ms,
+            route_deadline_seconds=route_deadline_seconds,
+            browser_engine=selected_browser_engine,
         )
-        process.start()
-        route_log_label = _route_log_label(route)
-        process.join(route_deadline_seconds + 3)
-        if process.is_alive():
-            process.terminate()
-            process.join(2)
-            if process.is_alive() and hasattr(process, "kill"):
-                process.kill()
-                process.join(1)
-            return 0, {
-                "status_code": 0,
-                "viewport_width": viewport_width,
-                "body_width": 0,
-                "topbar_height": 0,
-                "min_action_height": 0,
-                "error": f"route_timeout:{route_log_label}",
-            }
-        if queue.empty():
-            return 0, {
-                "status_code": 0,
-                "viewport_width": viewport_width,
-                "body_width": 0,
-                "topbar_height": 0,
-                "min_action_height": 0,
-                "error": f"route_worker_no_receipt:{route_log_label}:exitcode={process.exitcode}",
-            }
-        payload = dict(queue.get() or {})
-        if not bool(payload.get("ok")):
-            return 0, {
-                "status_code": 0,
-                "viewport_width": viewport_width,
-                "body_width": 0,
-                "topbar_height": 0,
-                "min_action_height": 0,
-                "error": str(payload.get("error") or f"route_worker_failed:{route_log_label}"),
-            }
-        metrics = dict(payload.get("metrics") or {})
-        status_code = int(payload.get("status_code") or 0)
-        metrics["status_code"] = status_code
+        if browser_all:
+            metrics["require_browser_proof"] = True
         return status_code, metrics
 
     for route in routes:
@@ -1315,6 +1734,7 @@ def build_live_mobile_surface_receipt(
                     billing_handoff_probe = https_handoff_url_usable(
                         external_location,
                         timeout_seconds=min(8.0, max(3.0, route_timeout_ms / 1000.0)),
+                        allowed_hosts=PROPERTYQUARRY_BILLING_HANDOFF_ALLOWED_HOSTS,
                     )
                     if (
                         billing_handoff_probe.get("ok") is not True
@@ -1326,6 +1746,7 @@ def build_live_mobile_surface_receipt(
                             timeout_ms=route_timeout_ms,
                         )
                 metrics = {
+                    "browser_engine": selected_browser_engine,
                     "status_code": status_code,
                     "viewport_width": viewport_width,
                     "body_width": viewport_width,
@@ -1342,11 +1763,32 @@ def build_live_mobile_surface_receipt(
                     "billing_bridge_login_assist_probe": billing_bridge_login_assist_probe,
                     "billing_visible_text": billing_text,
                 }
-                checks = evaluate_mobile_metrics(route, metrics)
+                row_proof_mode = "http_navigation_contract"
+                if browser_all:
+                    browser_status_code, browser_metrics, _browser_checks = collect_browser_route_metrics_with_retries(
+                        route=route,
+                        url=url,
+                        collect_once=_collect_route_metrics_in_worker,
+                    )
+                    for key, value in browser_metrics.items():
+                        if key != "status_code":
+                            metrics[key] = value
+                    metrics["browser_status_code"] = browser_status_code
+                    metrics["browser_engine"] = selected_browser_engine
+                    metrics["status_code"] = status_code
+                    row_proof_mode = str(browser_metrics.get("proof_mode") or "playwright_failed")
+                checks = evaluate_mobile_metrics(
+                    route,
+                    metrics,
+                    require_billing_available=browser_all,
+                )
                 rows.append(
                     {
                         "route": route,
+                        "browser_engine": selected_browser_engine,
                         "url": url,
+                        "viewport": {"width": viewport_width, "height": viewport_height},
+                        "proof_mode": row_proof_mode,
                         "status_code": status_code,
                         "ok": all(bool(check.get("ok")) for check in checks),
                         "checks": checks,
@@ -1356,6 +1798,7 @@ def build_live_mobile_surface_receipt(
                 _log_smoke_progress(f"checked {route_log_label}: {status_code}")
             except Exception as exc:
                 metrics = {
+                    "browser_engine": selected_browser_engine,
                     "status_code": 0,
                     "viewport_width": viewport_width,
                     "body_width": 0,
@@ -1363,11 +1806,20 @@ def build_live_mobile_surface_receipt(
                     "min_action_height": 0,
                     "error": f"{type(exc).__name__}: {exc}",
                 }
-                checks = evaluate_mobile_metrics(route, metrics)
+                if browser_all:
+                    metrics["proof_mode"] = "playwright_failed"
+                checks = evaluate_mobile_metrics(
+                    route,
+                    metrics,
+                    require_billing_available=browser_all,
+                )
                 rows.append(
                     {
                         "route": route,
+                        "browser_engine": selected_browser_engine,
                         "url": url,
+                        "viewport": {"width": viewport_width, "height": viewport_height},
+                        "proof_mode": "playwright_failed" if browser_all else "http_navigation_contract",
                         "status_code": 0,
                         "ok": False,
                         "checks": checks,
@@ -1376,7 +1828,7 @@ def build_live_mobile_surface_receipt(
                 )
                 _log_smoke_progress(f"failed {route_log_label}: {type(exc).__name__}: {exc}")
             continue
-        if not route_requires_browser_mobile_probe(route):
+        if not browser_all and not route_requires_browser_mobile_probe(route):
             request_url = base_url.rstrip("/") + "/" + route.lstrip("/")
             request_headers = dict(headers)
             if normalized_host_header:
@@ -1414,11 +1866,15 @@ def build_live_mobile_surface_receipt(
                     status_code=status_code,
                     viewport_width=viewport_width,
                 )
+                metrics["browser_engine"] = selected_browser_engine
                 checks = evaluate_mobile_metrics(route, metrics)
                 rows.append(
                     {
                         "route": route,
+                        "browser_engine": selected_browser_engine,
                         "url": url,
+                        "viewport": {"width": viewport_width, "height": viewport_height},
+                        "proof_mode": "static_html",
                         "status_code": status_code,
                         "ok": all(bool(check.get("ok")) for check in checks),
                         "checks": checks,
@@ -1428,6 +1884,7 @@ def build_live_mobile_surface_receipt(
                 _log_smoke_progress(f"checked {route_log_label}: {status_code}")
             except Exception as exc:
                 metrics = {
+                    "browser_engine": selected_browser_engine,
                     "status_code": 0,
                     "viewport_width": viewport_width,
                     "body_width": 0,
@@ -1440,7 +1897,10 @@ def build_live_mobile_surface_receipt(
                 rows.append(
                     {
                         "route": route,
+                        "browser_engine": selected_browser_engine,
                         "url": url,
+                        "viewport": {"width": viewport_width, "height": viewport_height},
+                        "proof_mode": "static_html",
                         "status_code": 0,
                         "ok": False,
                         "checks": checks,
@@ -1457,10 +1917,14 @@ def build_live_mobile_surface_receipt(
             )
             if not checks:
                 checks = evaluate_mobile_metrics(route, metrics)
+            metrics["browser_engine"] = selected_browser_engine
             rows.append(
                 {
                     "route": route,
+                    "browser_engine": selected_browser_engine,
                     "url": url,
+                    "viewport": {"width": viewport_width, "height": viewport_height},
+                    "proof_mode": str(metrics.get("proof_mode") or "playwright_failed"),
                     "status_code": status_code,
                     "ok": all(bool(check.get("ok")) for check in checks),
                     "checks": checks,
@@ -1470,6 +1934,7 @@ def build_live_mobile_surface_receipt(
             _log_smoke_progress(f"checked {route_log_label}: {status_code}")
         except Exception as exc:
             metrics = {
+                "browser_engine": selected_browser_engine,
                 "status_code": 0,
                 "viewport_width": viewport_width,
                 "body_width": 0,
@@ -1481,7 +1946,10 @@ def build_live_mobile_surface_receipt(
             rows.append(
                 {
                     "route": route,
+                    "browser_engine": selected_browser_engine,
                     "url": url,
+                    "viewport": {"width": viewport_width, "height": viewport_height},
+                    "proof_mode": "playwright_failed",
                     "status_code": 0,
                     "ok": False,
                     "checks": checks,
@@ -1491,7 +1959,25 @@ def build_live_mobile_surface_receipt(
             _log_smoke_progress(f"failed {route_log_label}: {type(exc).__name__}: {exc}")
     failed = [row for row in rows if not row.get("ok")]
     coverage_checks = build_mobile_coverage_checks(routes, require_research_detail=require_research_detail)
+    browser_proof: dict[str, Any] = {}
+    if browser_all:
+        browser_proof = build_browser_all_proof_summary(
+            routes=routes,
+            rows=rows,
+            viewports=probe_viewports,
+            required_browser_engines=normalized_required_engines,
+        )
+        coverage_checks.append(
+            {
+                "name": "flagship_browser_all_playwright_proof",
+                "ok": browser_proof["ready"],
+                "reason": "Flagship mobile evidence must use real Playwright measurement for every configured customer route, required browser engine, and supported viewport, including a concrete research detail.",
+                "missing_samples": browser_proof["missing_samples"],
+                "static_fallbacks": browser_proof["static_fallbacks"],
+            }
+        )
     failed_coverage = [row for row in coverage_checks if not row.get("ok")]
+    billing_readiness = mobile_billing_readiness_summary(rows, strict_required=browser_all)
     receipt = _redact_sensitive_receipt_value({
         "status": "pass" if not failed and not failed_coverage else "fail",
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -1499,13 +1985,28 @@ def build_live_mobile_surface_receipt(
         "host_header": host_header,
         "navigation_base_url": navigation_base_url,
         "principal_id": principal_id,
+        "proof_mode": normalized_proof_mode,
+        "browser_engine": selected_browser_engine,
+        "browser_engines": [selected_browser_engine],
+        "required_browser_engines": list(normalized_required_engines),
+        "browser_proof": browser_proof if browser_all else None,
         "viewport": {"width": viewport_width, "height": viewport_height},
+        "supported_viewports": [
+            {"width": width, "height": height}
+            for width, height in probe_viewports
+        ],
         "route_count": len(rows),
+        "configured_route_count": len(routes),
         "failed_count": len(failed) + len(failed_coverage),
+        "billing_readiness": billing_readiness,
         "coverage_checks": coverage_checks,
         "routes": rows,
         "notes": [
-            "Live mobile smoke checks deployed HTML geometry only; it does not call listing providers.",
+            (
+                "Flagship browser-all smoke measures every configured customer route in every required Playwright browser engine at every supported viewport."
+                if browser_all
+                else "Standard live mobile smoke uses real browsers for interactive routes and static HTML checks for simple routes."
+            ),
             "API token values are never written to this receipt.",
         ],
     })
@@ -1523,7 +2024,18 @@ def build_seed_fixture_blocked_receipt(
     viewport_height: int,
     error: str,
     api_token: str = "",
+    proof_mode: str = "standard",
+    browser_engine: str = DEFAULT_BROWSER_ENGINE,
+    required_browser_engines: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
+    normalized_proof_mode = normalize_mobile_proof_mode(proof_mode)
+    selected_browser_engine = normalize_playwright_engine(browser_engine)
+    normalized_required_engines = normalized_browser_engines(
+        required_browser_engines
+        if required_browser_engines is not None
+        else (FLAGSHIP_BROWSER_ENGINES if normalized_proof_mode == FLAGSHIP_PROOF_MODE else (selected_browser_engine,)),
+        fallback_engine=selected_browser_engine,
+    )
     receipt = _redact_sensitive_receipt_value({
         "status": "blocked",
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -1531,6 +2043,11 @@ def build_seed_fixture_blocked_receipt(
         "host_header": host_header,
         "navigation_base_url": base_url,
         "principal_id": principal_id,
+        "proof_mode": normalized_proof_mode,
+        "browser_engine": selected_browser_engine,
+        "browser_engines": [selected_browser_engine],
+        "required_browser_engines": list(normalized_required_engines),
+        "browser_proof": None,
         "viewport": {"width": viewport_width, "height": viewport_height},
         "route_count": 0,
         "failed_count": 1,
@@ -1576,7 +2093,36 @@ def main() -> int:
         default=_env_flag("PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_SEED_FIXTURE"),
         help="Seed a deterministic saved research-detail candidate for the smoke principal and include it in the route set.",
     )
+    parser.add_argument(
+        "--proof-mode",
+        choices=("standard", "flagship", "browser-all"),
+        default=_env("PROPERTYQUARRY_LIVE_MOBILE_PROOF_MODE", "standard"),
+        help="Use flagship/browser-all to require Playwright proof for every route and supported viewport.",
+    )
+    parser.add_argument(
+        "--browser-engine",
+        type=normalize_playwright_engine,
+        choices=FLAGSHIP_BROWSER_ENGINES,
+        default=_env("PROPERTYQUARRY_LIVE_MOBILE_BROWSER_ENGINE", DEFAULT_BROWSER_ENGINE),
+        help="Playwright engine used by standard mode; Chromium remains the compatibility default.",
+    )
+    parser.add_argument(
+        "--required-browser-engines",
+        default=_env(
+            "PROPERTYQUARRY_LIVE_MOBILE_REQUIRED_BROWSER_ENGINES",
+            ",".join(FLAGSHIP_BROWSER_ENGINES),
+        ),
+        help="Comma-separated Playwright engines required by flagship/browser-all proof.",
+    )
     parser.add_argument("--viewport", default="390x844")
+    parser.add_argument(
+        "--viewports",
+        default=_env(
+            "PROPERTYQUARRY_LIVE_MOBILE_FLAGSHIP_VIEWPORTS",
+            ",".join(f"{width}x{height}" for width, height in FLAGSHIP_BROWSER_VIEWPORTS),
+        ),
+        help="Comma-separated viewport matrix used by flagship/browser-all mode.",
+    )
     parser.add_argument("--timeout-ms", type=int, default=int(_env("PROPERTYQUARRY_LIVE_MOBILE_TIMEOUT_MS", "60000") or 60000))
     parser.add_argument("--write", default="_completion/smoke/property-live-mobile-surface-latest.json")
     args = parser.parse_args()
@@ -1585,6 +2131,30 @@ def main() -> int:
     width = int(width_text or 390)
     height = int(height_text or 844)
     routes_list = [route.strip() for route in str(args.routes or "").split(",") if route.strip()]
+    normalized_proof_mode = normalize_mobile_proof_mode(args.proof_mode)
+    selected_browser_engine = normalize_playwright_engine(args.browser_engine)
+    configured_required_engines = normalized_browser_engines(
+        tuple(engine.strip() for engine in str(args.required_browser_engines or "").split(",") if engine.strip()),
+        fallback_engine=selected_browser_engine,
+    )
+    required_browser_engines = (
+        configured_required_engines
+        if normalized_proof_mode == FLAGSHIP_PROOF_MODE
+        else (selected_browser_engine,)
+    )
+    if normalized_proof_mode == FLAGSHIP_PROOF_MODE:
+        args.require_research_detail = True
+        if not any(route_is_research_detail(route) for route in routes_list):
+            args.seed_research_detail_fixture = True
+    flagship_viewports: list[tuple[int, int]] = []
+    for raw_viewport in str(args.viewports or "").split(","):
+        viewport_text = raw_viewport.strip().lower()
+        if not viewport_text:
+            continue
+        item_width, separator, item_height = viewport_text.partition("x")
+        if not separator:
+            parser.error(f"invalid viewport {raw_viewport!r}; expected WIDTHxHEIGHT")
+        flagship_viewports.append((int(item_width), int(item_height)))
     seeded_route = ""
     if args.seed_research_detail_fixture:
         try:
@@ -1606,6 +2176,9 @@ def main() -> int:
                 viewport_height=height,
                 error=f"seed_research_detail_fixture_failed:{type(exc).__name__}: {exc}",
                 api_token=str(args.api_token or "").strip(),
+                proof_mode=normalized_proof_mode,
+                browser_engine=selected_browser_engine,
+                required_browser_engines=required_browser_engines,
             )
             output = json.dumps(receipt, indent=2, sort_keys=True)
             if args.write:
@@ -1628,6 +2201,14 @@ def main() -> int:
         viewport_width=width,
         viewport_height=height,
         timeout_ms=max(1, int(args.timeout_ms or 60000)),
+        proof_mode=normalized_proof_mode,
+        browser_engine=selected_browser_engine,
+        required_browser_engines=required_browser_engines,
+        supported_viewports=(
+            tuple(flagship_viewports) or FLAGSHIP_BROWSER_VIEWPORTS
+            if normalized_proof_mode == FLAGSHIP_PROOF_MODE
+            else None
+        ),
     )
     if seeded_route:
         receipt["seeded_research_detail_route"] = seeded_route

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import ast
 import inspect
 import sys
 from pathlib import Path
@@ -37,6 +38,35 @@ LEGACY_PREVIEW_BYPASS_PREFIXES = (
     "diorama-preview",
     "magicfit-still",
 )
+
+
+def _named_calls(source: str, function_name: str) -> list[ast.Call]:
+    tree = ast.parse(source)
+    return [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == function_name
+    ]
+
+
+def _is_name(node: ast.expr | None, expected: str) -> bool:
+    return isinstance(node, ast.Name) and node.id == expected
+
+
+def _control_render_call_threads_request_context(call: ast.Call) -> bool:
+    if not call.args or not _is_name(call.args[0], "rendered_payload"):
+        return False
+    keywords = {keyword.arg: keyword.value for keyword in call.keywords if keyword.arg is not None}
+    return all(
+        _is_name(keywords.get(keyword), expected)
+        for keyword, expected in (
+            ("viewer_mode", "viewer_mode"),
+            ("fullscreen", "fullscreen"),
+            ("nonce", "nonce"),
+        )
+    )
 
 
 def main() -> int:
@@ -91,9 +121,15 @@ def main() -> int:
         failures.append("PropertyQuarry example media targets must not infer ready controls directly from public manifest keys")
 
     control_viewer_source = inspect.getsource(public_tours.public_tour_control_viewer)
-    if "_tour_control_html(rendered_payload, viewer_mode=viewer_mode)" not in control_viewer_source:
-        failures.append("forced public tour provider routes must render the requested provider control or fail closed")
-    if "_tour_html(rendered_payload" in control_viewer_source:
+    control_render_calls = _named_calls(control_viewer_source, "_tour_control_html")
+    if not control_render_calls or not all(
+        _control_render_call_threads_request_context(call) for call in control_render_calls
+    ):
+        failures.append(
+            "forced public tour provider routes must render the requested provider control "
+            "with viewer mode, fullscreen state, and CSP nonce or fail closed"
+        )
+    if _named_calls(control_viewer_source, "_tour_html"):
         failures.append("forced public tour provider routes must not fall back to the generic tour shell")
 
     if failures:

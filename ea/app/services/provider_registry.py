@@ -841,7 +841,7 @@ class ProviderRegistryService:
         principal = self._normalize_principal_id(principal_id)
         if not principal:
             return ()
-        bounded_limit = max(1, min(500, int(limit or 100)))
+        bounded_limit = max(1, min(50_000, int(limit or 100)))
         return tuple(self._provider_binding_repo.list_for_principal(principal, limit=bounded_limit))
 
     def get_persisted_binding_record(

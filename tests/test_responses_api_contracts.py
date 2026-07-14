@@ -4660,9 +4660,21 @@ def test_response_retrieval_endpoints(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_codex_core_easy_repair_groundwork_review_light_and_audit_endpoints_force_profiles(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "sh")
     client = _client(principal_id="codex-profile")
     from app.api.routes import responses
 
+    monkeypatch.setattr(
+        responses,
+        "_provider_health_report",
+        lambda **_: {
+            "providers": {
+                "gemini_vortex": {"state": "ready"},
+                "magixai": {"state": "degraded"},
+                "onemin": {"state": "unavailable"},
+            }
+        },
+    )
     calls: list[str] = []
 
     def fake_generate(
@@ -5355,8 +5367,21 @@ def test_codex_core_batch_endpoint_returns_in_progress_then_completed(monkeypatc
 def test_codex_repair_endpoint_keeps_explicit_repair_lane_for_coding_prompt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "sh")
     client = _client(principal_id="codex-repair-coding")
     from app.api.routes import responses
+
+    monkeypatch.setattr(
+        responses,
+        "_provider_health_report",
+        lambda **_: {
+            "providers": {
+                "gemini_vortex": {"state": "ready"},
+                "magixai": {"state": "degraded"},
+                "onemin": {"state": "unavailable"},
+            }
+        },
+    )
 
     def fake_generate(
         *,

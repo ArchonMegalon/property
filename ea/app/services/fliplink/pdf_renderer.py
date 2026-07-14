@@ -551,7 +551,12 @@ def _white_ratio(image: Image.Image) -> float:
         return 0.0
     total = width * height
     white = 0
-    for r, g, b in rgb.getdata():
+    pixels = (
+        rgb.get_flattened_data()
+        if hasattr(rgb, "get_flattened_data")
+        else rgb.getdata()
+    )
+    for r, g, b in pixels:
         if r >= 236 and g >= 236 and b >= 236:
             white += 1
     return white / float(total)

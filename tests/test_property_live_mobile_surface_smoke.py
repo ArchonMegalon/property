@@ -53,6 +53,7 @@ def _base_metrics() -> dict[str, object]:
         "topbar_height": 72,
         "topnav_visible": True,
         "min_action_height": 46,
+        "measured_touch_target_height": 46,
         "visible_card_count": 12,
         "heavy_shadow_count": 0,
         "district_picker_available": True,
@@ -87,8 +88,21 @@ def _base_metrics() -> dict[str, object]:
     }
 
 
-def _failed_names(route: str, metrics: dict[str, object]) -> set[str]:
-    return {str(row["name"]) for row in evaluate_mobile_metrics(route, metrics) if not row["ok"]}
+def _failed_names(
+    route: str,
+    metrics: dict[str, object],
+    *,
+    require_billing_available: bool = False,
+) -> set[str]:
+    return {
+        str(row["name"])
+        for row in evaluate_mobile_metrics(
+            route,
+            metrics,
+            require_billing_available=require_billing_available,
+        )
+        if not row["ok"]
+    }
 
 
 def test_live_mobile_smoke_accepts_compact_search_surface_metrics() -> None:
@@ -165,7 +179,7 @@ def test_live_mobile_smoke_browser_probe_keeps_best_attempt_after_transient_time
     assert [check["name"] for check in checks if not check["ok"]] == []
 
 
-def test_live_mobile_smoke_browser_worker_uses_shared_chromium_runtime(monkeypatch) -> None:
+def test_live_mobile_smoke_browser_worker_uses_selected_shared_engine_runtime(monkeypatch) -> None:
     from types import SimpleNamespace
 
     from playwright import sync_api
@@ -174,6 +188,8 @@ def test_live_mobile_smoke_browser_worker_uses_shared_chromium_runtime(monkeypat
     observed: dict[str, object] = {}
 
     class Page:
+        url = "https://propertyquarry.test/app/search"
+
         def set_default_timeout(self, _timeout: int) -> None:
             pass
 
@@ -211,14 +227,14 @@ def test_live_mobile_smoke_browser_worker_uses_shared_chromium_runtime(monkeypat
         def close(self) -> None:
             pass
 
-    class Chromium:
+    class BrowserType:
         def launch(self, **kwargs):
             observed["launch"] = kwargs
             return Browser()
 
     class PlaywrightContext:
         def __enter__(self):
-            return SimpleNamespace(chromium=Chromium())
+            return SimpleNamespace(webkit=BrowserType())
 
         def __exit__(self, *_args) -> None:
             pass
@@ -230,11 +246,10 @@ def test_live_mobile_smoke_browser_worker_uses_shared_chromium_runtime(monkeypat
     monkeypatch.setattr(sync_api, "sync_playwright", lambda: PlaywrightContext())
     monkeypatch.setattr(
         smoke,
-        "playwright_chromium_launch_kwargs",
-        lambda _playwright, *, args: {
+        "playwright_engine_launch_kwargs",
+        lambda _playwright, *, engine, args: {
             "headless": True,
-            "executable_path": "/configured/chromium",
-            "args": args,
+            "executable_path": f"/configured/{engine}",
         },
     )
 
@@ -247,19 +262,28 @@ def test_live_mobile_smoke_browser_worker_uses_shared_chromium_runtime(monkeypat
         viewport_width=390,
         viewport_height=844,
         route_timeout_ms=5_000,
+        browser_engine="webkit",
     )
 
     assert observed["launch"] == {
         "headless": True,
-        "executable_path": "/configured/chromium",
-        "args": ["--no-sandbox"],
+        "executable_path": "/configured/webkit",
     }
     assert observed["context"].get("extra_http_headers") is None
     assert observed["route_pattern"] == "**/*"
     assert observed["payload"] == {
         "ok": True,
         "status_code": 200,
-        "metrics": {"viewport_width": 390},
+        "metrics": {
+            "viewport_width": 390,
+            "viewport_height": 844,
+            "browser_probe": True,
+            "browser_engine": "webkit",
+            "proof_mode": "playwright",
+            "navigation_committed": True,
+            "requested_url": "https://propertyquarry.test/app/search",
+            "final_url": "https://propertyquarry.test/app/search",
+        },
     }
 
 
@@ -272,6 +296,139 @@ def test_live_mobile_smoke_accepts_static_html_probe_for_simple_routes() -> None
 
     assert _failed_names("/app/properties", metrics) == set()
     assert metrics["static_html_probe"] is True
+
+
+def test_live_mobile_smoke_standard_mode_keeps_simple_routes_on_static_probe(monkeypatch) -> None:
+    monkeypatch.setattr(
+        mobile_smoke,
+        "_http_get_for_smoke",
+        lambda *_args, **_kwargs: {
+            "status_code": 200,
+            "headers": {},
+            "url": "http://localhost:8097/app/properties",
+            "text": '<nav aria-label="PropertyQuarry sections"></nav><main><a class="pqx-button">Open</a></main>',
+        },
+    )
+    monkeypatch.setattr(
+        mobile_smoke,
+        "collect_playwright_route_metrics",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("standard simple route must not launch Playwright")),
+    )
+    monkeypatch.setattr(
+        mobile_smoke,
+        "_registry_mobile_surface_coverage_checks",
+        lambda **_kwargs: [{"name": "registry_mobile_customer_surfaces_covered", "ok": True}],
+    )
+
+    receipt = build_live_mobile_surface_receipt(
+        base_url="http://localhost:8097",
+        api_token="secret-token",
+        principal_id="pq-mobile-test",
+        routes=("/app/properties",),
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["proof_mode"] == mobile_smoke.STANDARD_PROOF_MODE
+    assert receipt["routes"][0]["proof_mode"] == "static_html"
+
+
+def test_live_mobile_smoke_flagship_browser_all_probes_every_route_and_viewport(monkeypatch) -> None:
+    calls: list[tuple[str, str, int, int]] = []
+
+    def fake_browser_probe(**kwargs):
+        calls.append((kwargs["browser_engine"], kwargs["route"], kwargs["viewport_width"], kwargs["viewport_height"]))
+        metrics = _base_metrics()
+        metrics.update(
+            {
+                "viewport_width": kwargs["viewport_width"],
+                "viewport_height": kwargs["viewport_height"],
+                "body_width": kwargs["viewport_width"],
+                "browser_probe": True,
+                "browser_engine": kwargs["browser_engine"],
+                "proof_mode": "playwright",
+                "navigation_committed": True,
+                "touch_capable": True,
+                "focus_navigation_ok": True,
+                "requested_url": kwargs["url"],
+                "final_url": kwargs["url"],
+            }
+        )
+        return 200, metrics
+
+    monkeypatch.setattr(mobile_smoke, "collect_playwright_route_metrics", fake_browser_probe)
+    monkeypatch.setattr(
+        mobile_smoke,
+        "_registry_mobile_surface_coverage_checks",
+        lambda **_kwargs: [{"name": "registry_mobile_customer_surfaces_covered", "ok": True}],
+    )
+    routes = (
+        "/app/properties",
+        "/app/settings/access",
+        "/app/research/current-result?run_id=run-flagship",
+    )
+
+    receipt = build_live_mobile_surface_receipt(
+        base_url="http://localhost:8097",
+        api_token="secret-token",
+        principal_id="pq-mobile-test",
+        routes=routes,
+        proof_mode="browser-all",
+        supported_viewports=((390, 844), (412, 915)),
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["proof_mode"] == mobile_smoke.FLAGSHIP_PROOF_MODE
+    assert receipt["browser_proof"]["ready"] is True
+    assert receipt["browser_proof"]["proven_sample_count"] == 18
+    assert receipt["required_browser_engines"] == ["chromium", "firefox", "webkit"]
+    assert receipt["browser_proof"]["missing_browser_engines"] == []
+    assert set(calls) == {
+        (engine, route, width, height)
+        for engine in mobile_smoke.FLAGSHIP_BROWSER_ENGINES
+        for route in routes
+        for width, height in ((390, 844), (412, 915))
+    }
+    assert all(row["proof_mode"] == "playwright" for row in receipt["routes"])
+
+
+def test_live_mobile_smoke_flagship_browser_all_rejects_static_probe_fallback(monkeypatch) -> None:
+    def fake_static_fallback(**kwargs):
+        metrics = _base_metrics()
+        metrics.update(
+            {
+                "viewport_width": kwargs["viewport_width"],
+                "viewport_height": kwargs["viewport_height"],
+                "body_width": kwargs["viewport_width"],
+                "proof_mode": "static_html",
+                "static_html_probe": True,
+            }
+        )
+        return 200, metrics
+
+    monkeypatch.setattr(mobile_smoke, "collect_playwright_route_metrics", fake_static_fallback)
+    monkeypatch.setattr(
+        mobile_smoke,
+        "_registry_mobile_surface_coverage_checks",
+        lambda **_kwargs: [{"name": "registry_mobile_customer_surfaces_covered", "ok": True}],
+    )
+
+    receipt = build_live_mobile_surface_receipt(
+        base_url="http://localhost:8097",
+        api_token="secret-token",
+        principal_id="pq-mobile-test",
+        routes=("/app/properties", "/app/research/current-result?run_id=run-flagship"),
+        proof_mode="flagship",
+        supported_viewports=((390, 844),),
+    )
+
+    assert receipt["status"] == "fail"
+    assert receipt["browser_proof"]["ready"] is False
+    assert receipt["browser_proof"]["static_fallbacks"]
+    proof_check = next(
+        row for row in receipt["coverage_checks"]
+        if row["name"] == "flagship_browser_all_playwright_proof"
+    )
+    assert proof_check["ok"] is False
 
 
 def test_live_mobile_smoke_accepts_empty_shortlist_with_top_navigation_only() -> None:
@@ -292,6 +449,8 @@ def test_live_mobile_smoke_accepts_external_billing_handoff() -> None:
     )
 
     assert _failed_names("/app/billing", metrics) == set()
+    assert metrics["billing_readiness_state"] == "available"
+    assert _failed_names("/app/billing", metrics, require_billing_available=True) == set()
 
 
 def test_live_mobile_smoke_accepts_fail_closed_billing_recovery() -> None:
@@ -304,6 +463,10 @@ def test_live_mobile_smoke_accepts_fail_closed_billing_recovery() -> None:
     )
 
     assert _failed_names("/app/billing", metrics) == set()
+    assert metrics["billing_readiness_state"] == "unavailable"
+    assert _failed_names("/app/billing", metrics, require_billing_available=True) == {
+        "billing_flagship_no_second_login_handoff"
+    }
 
 
 def test_live_mobile_smoke_accepts_internal_account_fallback_redirect() -> None:
@@ -316,6 +479,10 @@ def test_live_mobile_smoke_accepts_internal_account_fallback_redirect() -> None:
     )
 
     assert _failed_names("/app/billing", metrics) == set()
+    assert metrics["billing_readiness_state"] == "degraded"
+    assert _failed_names("/app/billing", metrics, require_billing_available=True) == {
+        "billing_flagship_no_second_login_handoff"
+    }
 
 
 def test_live_mobile_smoke_accepts_login_required_fail_closed_billing_recovery() -> None:

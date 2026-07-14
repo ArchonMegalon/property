@@ -10,7 +10,7 @@ from app.services.property_media_factory import (
 )
 
 
-def test_walkthrough_with_start_frame_continuity_routes_to_omagic() -> None:
+def test_walkthrough_with_start_frame_continuity_routes_to_magicfit() -> None:
     route = route_property_media_task(
         MediaRequirement(
             task="walkthrough_video",
@@ -20,8 +20,8 @@ def test_walkthrough_with_start_frame_continuity_routes_to_omagic() -> None:
     )
 
     assert route.ok
-    assert route.provider_key == "omagic"
-    assert route.role == "model_upload_walkthrough"
+    assert route.provider_key == "magicfit"
+    assert route.role == "photoreal_walkthrough_segment_chain"
 
 
 def test_poppy_ai_is_only_a_research_board_lane_until_verified() -> None:
@@ -36,7 +36,7 @@ def test_poppy_ai_is_only_a_research_board_lane_until_verified() -> None:
     assert permissive_route.role == "research_board"
 
 
-def test_omagic_is_default_final_continuity_publisher() -> None:
+def test_magicfit_is_default_final_continuity_publisher() -> None:
     still_route = route_property_media_task(MediaRequirement(task="interior_still"))
     final_route = route_property_media_task(
         MediaRequirement(task="walkthrough_video", first_frame_continuity=True, constant_speed=True)
@@ -44,7 +44,7 @@ def test_omagic_is_default_final_continuity_publisher() -> None:
 
     assert still_route.provider_key == "magicfit"
     assert final_route.ok
-    assert final_route.provider_key == "omagic"
+    assert final_route.provider_key == "magicfit"
 
 
 def test_omagic_aliases_select_omagic_lane() -> None:

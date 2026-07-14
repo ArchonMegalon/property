@@ -89,7 +89,7 @@ class InMemoryProviderBindingRepository:
         normalized_principal = str(principal_id or "").strip()
         if not normalized_principal:
             return []
-        limit_n = max(1, min(500, int(limit or 100)))
+        limit_n = max(1, min(50_000, int(limit or 100)))
         rows: List[ProviderBindingRecord] = []
         for key in reversed(self._order):
             row = self._rows.get(key)

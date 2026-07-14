@@ -251,7 +251,7 @@ def test_sign_in_page_shows_google_when_oauth_is_configured(monkeypatch: pytest.
     assert 'href="/sign-in/google"' in response.text
     assert "Google unavailable" not in response.text
     assert "same account" in response.text.lower()
-    assert "Provider sign-in opens the same account and creates it if needed." in response.text
+    assert "Each sign-in option opens the same account and creates it if needed." in response.text
 
 
 @pytest.mark.parametrize(
@@ -921,7 +921,8 @@ def test_sign_in_page_shows_friendly_identity_only_google_error(monkeypatch: pyt
     response = client.get("/sign-in?google_error=Google+Identity-only.")
 
     assert response.status_code == 200
-    assert "Google returned identity-only access." in response.text
+    assert "Retry Google, or use a secure email link for the same account." in response.text
+    assert "Google Identity-only." not in response.text
     assert "Retry Google sign-in" in response.text
     assert 'href="/sign-in/google"' in response.text
     assert "data-submitting-label=\"Opening Google...\"" in response.text

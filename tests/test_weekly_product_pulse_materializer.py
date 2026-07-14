@@ -31,7 +31,7 @@ def _seed_truth_sources(root: Path) -> None:
     (root / FLAGSHIP_RECEIPT_PATH).parent.mkdir(parents=True, exist_ok=True)
 
     scorecard = {
-        "product": "executive-assistant",
+        "product": "propertyquarry",
         "version": 1,
         "cadence": {"review": "weekly", "snapshot_owner": "product_governor", "publication": "internal_canon_first"},
         "scorecards": [
@@ -52,7 +52,7 @@ def _seed_truth_sources(root: Path) -> None:
     (root / SCORECARD_PATH).write_text(yaml.safe_dump(scorecard, sort_keys=False), encoding="utf-8")
 
     receipt = {
-        "product": "executive-assistant",
+        "product": "PropertyQuarry",
         "surface": "flagship_release_control",
         "version": 1,
         "truth_plane": {
@@ -90,7 +90,7 @@ def _seed_truth_sources(root: Path) -> None:
     Path(JOURNEY_GATES_PATH).write_text(json.dumps(journey_gates, indent=2) + "\n", encoding="utf-8")
 
 
-def test_weekly_product_pulse_materializer_writes_ea_native_pulse(tmp_path: Path) -> None:
+def test_weekly_product_pulse_materializer_uses_current_receipt_product_label(tmp_path: Path) -> None:
     _seed_truth_sources(tmp_path)
 
     subprocess.run(
@@ -117,8 +117,10 @@ def test_weekly_product_pulse_materializer_writes_ea_native_pulse(tmp_path: Path
     pulse = json.loads((tmp_path / PULSE_PATH).read_text(encoding="utf-8"))
 
     assert pulse["contract_name"] == "ea.weekly_product_pulse"
-    assert pulse["summary"].startswith("Executive Assistant remains in preview-only flagship posture:")
-    assert pulse["active_wave"] == "EA flagship receipt closeout"
+    assert pulse["summary"].startswith("PropertyQuarry remains in preview-only flagship posture:")
+    assert pulse["active_wave"] == "PropertyQuarry flagship receipt closeout"
+    assert pulse["release_health"]["reason"].startswith("The PropertyQuarry flagship receipt")
+    assert "Executive Assistant" not in json.dumps(pulse)
     assert pulse["active_wave_status"] == "active"
     assert pulse["release_truth_source"] == FLAGSHIP_RECEIPT_PATH.as_posix()
     assert pulse["journey_gate_source"] == str(JOURNEY_GATES_PATH)
@@ -280,7 +282,7 @@ def test_weekly_product_pulse_claims_ready_when_pass_receipt_and_journey_gate_re
     pulse = json.loads((tmp_path / PULSE_PATH).read_text(encoding="utf-8"))
 
     assert pulse["summary"] == (
-        "Executive Assistant has a green flagship receipt, the fleet journey gate is ready, "
+        "PropertyQuarry has a green flagship receipt, the fleet journey gate is ready, "
         "and no journeys block wider release claims."
     )
     assert pulse["release_health"]["state"] == "clear"

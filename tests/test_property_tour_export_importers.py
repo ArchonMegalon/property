@@ -1413,8 +1413,13 @@ def test_krpano_control_rejects_16_9_stills_as_fake_panorama(tmp_path: Path, mon
     receipt = build_property_tour_control_receipt(tour_root=tmp_path / "public_tours")
 
     assert receipt["provider_counts"]["krpano"] == 0
-    missing = receipt["tours"][0]["missing_evidence"]
-    assert any(row["provider"] == "krpano" and row["reason"] == "walkable_scene_asset_missing_or_not_360" for row in missing)
+    assert all(row["provider"] != "krpano" for row in receipt["tours"][0]["missing_evidence"])
+    optional_missing = receipt["tours"][0]["optional_missing_evidence"]
+    assert any(
+        row["provider"] == "krpano" and row["reason"] == "walkable_scene_asset_missing_or_not_360"
+        for row in optional_missing
+    )
+    assert receipt["provider_blockers"]["krpano"]["reasons"][0]["reason"] == "walkable_scene_asset_missing_or_not_360"
 
 
 def test_tour_export_discovery_emits_manifest_for_verified_drop_folders(tmp_path: Path) -> None:

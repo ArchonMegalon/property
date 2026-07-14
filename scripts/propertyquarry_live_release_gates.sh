@@ -40,6 +40,7 @@ fi
 
 mkdir -p _completion/smoke
 export PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE="${research_detail_route}"
+export PROPERTYQUARRY_ACCESSIBILITY_RESEARCH_DETAIL_ROUTE="${research_detail_route}"
 
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_live_release_provenance.py \
   --base-url "${live_base_url}" \
@@ -51,8 +52,17 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_live_release_provenance.py 
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_live_mobile_surface_smoke.py \
   --base-url "${live_base_url}" \
   --principal-id "${live_principal_id}" \
+  --proof-mode browser-all \
+  --required-browser-engines "${PROPERTYQUARRY_LIVE_MOBILE_REQUIRED_BROWSER_ENGINES:-chromium,firefox,webkit}" \
   --require-research-detail \
   --write _completion/smoke/property-live-mobile-release-gate.json \
+  > /dev/null
+PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_accessibility_gate.py \
+  --base-url "${live_base_url}" \
+  --browser-engines "${PROPERTYQUARRY_LIVE_MOBILE_REQUIRED_BROWSER_ENGINES:-chromium,firefox,webkit}" \
+  --axe-core-path "${PROPERTYQUARRY_AXE_CORE_PATH:-node_modules/axe-core/axe.min.js}" \
+  --principal-id "${live_principal_id}" \
+  --write _completion/smoke/property-live-accessibility-release-gate.json \
   > /dev/null
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_map_preview_flagship_gate.py \
   --base-url "${live_base_url}" \

@@ -581,12 +581,32 @@ def test_telegram_bot_property_pdf_upload_e2e_returns_rendered_pdf(
     combined_pdf.write_bytes(b"%PDF-1.4\n% combined property pdf e2e\n")
     tour_dir = tmp_path / "pdf-upload-tour"
     tour_dir.mkdir(parents=True)
+    three_d_vista_dir = tour_dir / "3dvista"
+    three_d_vista_dir.mkdir()
+    (three_d_vista_dir / "index.htm").write_text(
+        "<!doctype html><html><body><div id='tourviewer'>3D tour ready</div>"
+        "<script>window.TDVPlayer = { ready: true };</script></body></html>",
+        encoding="utf-8",
+    )
     (tour_dir / "tour.json").write_text(
         json.dumps(
             {
                 "slug": "pdf-upload-tour",
-                "matterport_url": "https://my.matterport.com/show/?m=E2EPDF",
                 "three_d_vista_entry_relpath": "3dvista/index.htm",
+                "three_d_vista_import": {"source_project": "propertyquarry"},
+                "three_d_vista_white_label_proof": {
+                    "source_project": "propertyquarry",
+                    "private_viewer_verified": True,
+                    "non_trial_export_verified": True,
+                    "propertyquarry_tour_metadata": True,
+                    "trial_branding_checked": True,
+                    "trial_branding_present": False,
+                },
+                "three_d_vista_browser_render_proof": {
+                    "provider": "3dvista",
+                    "status": "pass",
+                    "rendered_viewer": True,
+                },
             }
         ),
         encoding="utf-8",
@@ -677,14 +697,13 @@ def test_telegram_bot_property_pdf_upload_e2e_returns_rendered_pdf(
     assert render_calls[-1]["appendix_mode"] == "telegram_pdf_appendix"
     assert sent_documents
     assert viewer_gate_calls[-1] == {
-        "matterport": "https://propertyquarry.com/tours/pdf-upload-tour/control/matterport",
+        "3dvista": "https://propertyquarry.com/tours/pdf-upload-tour/control/3dvista",
     }
     assert sent_documents[-1]["principal_id"] == "exec-telegram-e2e-property-pdf"
     assert sent_documents[-1]["document_ref"] == str(combined_pdf)
     assert "Original PDF first" in str(sent_documents[-1]["caption"])
     buttons = [button for row in list(sent_documents[-1]["url_buttons"] or []) for button in row]
-    assert ("Open 3D tour", "https://propertyquarry.com/tours/pdf-upload-tour/control/matterport") in buttons
-    assert ("Open 3D tour", "https://propertyquarry.com/tours/pdf-upload-tour/control/3dvista") not in buttons
+    assert ("Open 3D tour", "https://propertyquarry.com/tours/pdf-upload-tour/control/3dvista") in buttons
     assert not any(label in {"Open Matterport", "Open 3DVista"} for label, _url in buttons)
     assert ("Open walkthrough", "https://propertyquarry.com/tours/files/pdf-upload-tour/tour.mp4") in buttons
     observations = list(client.app.state.container.channel_runtime.list_recent_observations(limit=20, principal_id="exec-telegram-e2e-property-pdf"))

@@ -128,12 +128,14 @@ services:
       - .env
     environment:
       - EA_ROLE=api
+      - EA_RESPONSES_PROXY_HOST=0.0.0.0
       - EA_RESPONSES_PROXY_PORT=8091
+      - EA_RESPONSES_PROXY_AUTH_TOKEN=${EA_API_TOKEN:?Set EA_API_TOKEN for the responses proxy}
       - HOME=/home/ea
       - PYTHONPATH=/app
       - TZ=Europe/Vienna
     ports:
-      - "${EA_RESPONSES_PROXY_HOST_PORT:-8092}:8091"
+      - "${EA_RESPONSES_PROXY_PUBLISH_HOST:-127.0.0.1}:${EA_RESPONSES_PROXY_HOST_PORT:-8092}:8091"
     volumes:
       - ./config:/config:ro
       - ./config:/app/config:ro

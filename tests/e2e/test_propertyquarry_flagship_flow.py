@@ -30,7 +30,6 @@ _assert_no_horizontal_overflow = _GREENFIELD_MODULE._assert_no_horizontal_overfl
 _choose_research_visual_style = _GREENFIELD_MODULE._choose_research_visual_style
 _issue_browser_workspace_session = _GREENFIELD_MODULE._issue_browser_workspace_session
 _new_context = _GREENFIELD_MODULE._new_context
-_stub_matterport_provider = _GREENFIELD_MODULE._stub_matterport_provider
 _video_frame_brightness = _GREENFIELD_MODULE._video_frame_brightness
 
 
@@ -158,7 +157,6 @@ def test_propertyquarry_mobile_flagship_flow_runs_search_opens_research_map_and_
     assert isinstance(client, TestClient)
 
     context = _new_context(browser, mobile=True, width=390, height=844)
-    _stub_matterport_provider(context)
     page = context.new_page()
     visual_requests: list[dict[str, object]] = []
     visual_status_polls = 0
@@ -316,7 +314,7 @@ def test_propertyquarry_mobile_flagship_flow_runs_search_opens_research_map_and_
         expect(best_match).to_be_visible()
         expect(best_match.get_by_role("link", name="3D tour")).to_be_visible()
         tour_href = str(best_match.get_by_role("link", name="3D tour").get_attribute("href") or "").strip()
-        assert tour_href.endswith("/tours/altbau-u6/control/matterport")
+        assert tour_href.endswith("/tours/altbau-u6/control/3dvista")
         _assert_no_horizontal_overflow(page)
 
         tour_page = context.new_page()

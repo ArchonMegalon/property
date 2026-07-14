@@ -12,10 +12,11 @@ import re
 import threading
 import time
 import urllib.parse
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
@@ -51,6 +52,7 @@ from app.api.routes.landing_content import (
     TRUST_CARDS,
 )
 from app.api.routes.landing_property_surface_contracts import PropertySurfaceScope
+from app.api.routes.landing_property_search_health import build_property_search_health_snapshot
 from app.api.routes.landing_property_workspace_payload import (
     _property_workbench_client_candidate_payload,
 )
@@ -112,6 +114,7 @@ from app.api.routes.workspace_view_models import workspace_section_payload as _w
 from app.container import AppContainer
 from app.product.commercial import workspace_plan_for_mode
 from app.product import property_tour_hosting
+from app.product.privacy_lifecycle import build_property_account_privacy_lifecycle
 from app.product.property_surface_state import (
     build_property_billing_truth_snapshot,
     build_property_research_packet_snapshot,
@@ -142,6 +145,7 @@ from app.services.cloudflare_access import CloudflareAccessIdentity
 from app.services import google_oauth as google_oauth_service
 from app.services.google_oauth import complete_google_oauth_callback
 from app.services.property_billing import payfunnels_configured, property_commercial_snapshot
+from app.services.property_curated_diorama import build_curated_diorama_preview_index
 from app.services.property_market_catalog import (
     country_label as property_country_label,
     country_options as property_country_options,
@@ -210,6 +214,8 @@ _PROPERTY_BILLING_DIRECT_VERIFICATION_CACHE: dict[str, object] = {
     "future": None,
 }
 _PROPERTYQUARRY_EXAMPLE_SHORTLIST_DIORAMA_VERSION = "20260707d1"
+_PROPERTY_CURATED_DIORAMA_MANIFEST_PATH = Path(__file__).resolve().parents[2] / "data" / "property_diorama_previews.json"
+_PROPERTY_CURATED_DIORAMA_STATIC_ROOT = Path(__file__).resolve().parents[2] / "static"
 
 
 def _property_first_paint_timeout_seconds() -> float:
@@ -237,6 +243,273 @@ def _property_first_paint_value(loader: Callable[[], Any], fallback: Any) -> Any
 
 router = APIRouter(tags=["landing"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[2] / "templates"))
+
+
+@dataclass(frozen=True, slots=True)
+class GovernedPropertyTourBridgeRuntime:
+    lifecycle_store: property_tour_hosting.GovernedPropertyTourLifecycleStore
+    source_authority_verifier: Callable[
+        [Mapping[str, object], str],
+        property_tour_hosting.VerifiedPropertyTourSourceAuthority,
+    ]
+    retention_policy_verifier: Callable[
+        [Mapping[str, object], str],
+        property_tour_hosting.GovernedPropertyTourRetentionPolicy,
+    ] | None
+    compose_audit: Callable[[Mapping[str, object]], Mapping[str, object]]
+    publication_authority_verifier: Callable[
+        [Mapping[str, object], Mapping[str, object], Mapping[str, object], str, str],
+        property_tour_hosting.VerifiedGovernedPropertyTourPublication | None,
+    ] | None = None
+    now: Callable[[], datetime] = lambda: datetime.now(timezone.utc)
+
+
+def get_governed_property_tour_runtime(request: Request) -> GovernedPropertyTourBridgeRuntime:
+    factory = getattr(request.app.state, "governed_property_tour_runtime_factory", None)
+    if not callable(factory):
+        raise HTTPException(status_code=503, detail="governed_property_tour_runtime_unconfigured")
+    runtime = factory()
+    if not isinstance(runtime, GovernedPropertyTourBridgeRuntime):
+        raise HTTPException(status_code=503, detail="governed_property_tour_runtime_invalid")
+    return runtime
+
+
+def require_governed_property_tour_authenticated_context(
+    context: RequestContext = Depends(get_request_context),
+) -> RequestContext:
+    principal_id = str(context.principal_id or "").strip()
+    auth_source = str(context.auth_source or "").strip().lower()
+    if (
+        not principal_id
+        or context.authenticated is not True
+        or auth_source in {"", "anonymous", "loopback_no_auth"}
+    ):
+        raise HTTPException(status_code=401, detail="authentication_required")
+    return context
+
+
+def _governed_property_route_reason(error: Exception) -> str:
+    reason = str(error).split(":", 1)[0].strip().lower()
+    return reason if re.fullmatch(r"[a-z0-9_]{1,128}", reason) else "governed_property_tour_rejected"
+
+
+async def _governed_property_raw_body(
+    request: Request,
+    *,
+    allowed_fields: frozenset[str],
+) -> dict[str, object]:
+    try:
+        payload = property_tour_hosting.parse_governed_property_tour_raw_json(await request.body())
+    except property_tour_hosting.GovernedPropertyTourContractError as exc:
+        raise HTTPException(status_code=422, detail=_governed_property_route_reason(exc)) from exc
+    if set(payload).difference(allowed_fields):
+        raise HTTPException(status_code=422, detail="unexpected_fields")
+    return payload
+
+
+def _governed_property_safe_status(
+    lifecycle: Mapping[str, object],
+    *,
+    composition_digest: str = "",
+    bridge_digest: str = "",
+) -> dict[str, object]:
+    raw_status = str(lifecycle.get("status") or "blocked")
+    status = raw_status if raw_status in {"active", "active_private", "blocked", "deleted", "revoked", "withdrawn"} else "blocked"
+    reason = str(lifecycle.get("reason") or "")
+    if reason and not re.fullmatch(r"[a-z0-9_]{1,128}", reason):
+        reason = "governed_property_tour_blocked"
+    receipt_digest = str(lifecycle.get("integrity_digest") or lifecycle.get("lifecycle_receipt_digest") or "")
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", receipt_digest):
+        receipt_digest = ""
+    return {
+        "contract_name": "propertyquarry.governed_spatial_lifecycle_projection.v1",
+        "status": status,
+        "reason": reason,
+        "composition_digest": composition_digest if re.fullmatch(r"sha256:[0-9a-f]{64}", composition_digest) else "",
+        "bridge_digest": bridge_digest if re.fullmatch(r"sha256:[0-9a-f]{64}", bridge_digest) else "",
+        "lifecycle_receipt_digest": receipt_digest,
+        "deleted": lifecycle.get("deleted") is True,
+        "revoked": lifecycle.get("revoked") is True,
+        "public_ready": False,
+        "serving_allowed": False,
+        "provider_details_exposed": False,
+        "artifact_ref": "",
+    }
+
+
+@router.post("/app/api/property/governed-spatial/tours/{slug}/intake", include_in_schema=False)
+async def governed_property_tour_intake(
+    slug: str,
+    request: Request,
+    context: RequestContext = Depends(require_governed_property_tour_authenticated_context),
+    runtime: GovernedPropertyTourBridgeRuntime = Depends(get_governed_property_tour_runtime),
+) -> JSONResponse:
+    payload = await _governed_property_raw_body(
+        request,
+        allowed_fields=frozenset(
+            {
+                "contract_name",
+                "property_packet",
+                "request_id",
+                "idempotency_key",
+                "style_pack_id",
+                "product_event_ref",
+                "retention_policy",
+            }
+        ),
+    )
+    if payload.get("contract_name") != "propertyquarry.governed_spatial_lifecycle_intake.v1":
+        raise HTTPException(status_code=422, detail="intake_contract_invalid")
+    property_packet = payload.get("property_packet")
+    retention_policy = payload.get("retention_policy")
+    if not isinstance(property_packet, Mapping) or not isinstance(retention_policy, Mapping):
+        raise HTTPException(status_code=422, detail="property_packet_and_retention_policy_required")
+    observed = runtime.now()
+    if not callable(runtime.retention_policy_verifier):
+        raise HTTPException(status_code=503, detail="retention_policy_authority_unconfigured")
+    try:
+        approved_policy = runtime.retention_policy_verifier(retention_policy, context.principal_id)
+    except property_tour_hosting.GovernedPropertyTourContractError as exc:
+        raise HTTPException(status_code=422, detail="retention_policy_not_approved") from exc
+    if not isinstance(approved_policy, property_tour_hosting.GovernedPropertyTourRetentionPolicy):
+        raise HTTPException(status_code=503, detail="retention_policy_authority_invalid")
+    approved_policy_payload = approved_policy.as_payload()
+    try:
+        revalidated_policy = property_tour_hosting.GovernedPropertyTourRetentionPolicy.from_payload(
+            approved_policy_payload,
+            observed_at=observed,
+        )
+    except property_tour_hosting.GovernedPropertyTourContractError as exc:
+        raise HTTPException(status_code=422, detail="retention_policy_not_current") from exc
+    if revalidated_policy != approved_policy or dict(retention_policy) != approved_policy_payload:
+        raise HTTPException(status_code=422, detail="retention_policy_binding_mismatch")
+    try:
+        source_authority = runtime.source_authority_verifier(property_packet, context.principal_id)
+        bridge = property_tour_hosting.build_governed_property_tour_request(
+            property_packet=property_packet,
+            request_id=str(payload.get("request_id") or ""),
+            idempotency_key=str(payload.get("idempotency_key") or ""),
+            style_pack_id=str(payload.get("style_pack_id") or ""),
+            product_event_ref=str(payload.get("product_event_ref") or ""),
+            verified_source_authority=source_authority,
+            observed_at=observed,
+        )
+    except property_tour_hosting.GovernedPropertyTourContractError as exc:
+        raise HTTPException(status_code=422, detail=_governed_property_route_reason(exc)) from exc
+    try:
+        composition = runtime.compose_audit(bridge)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail="compose_audit_rejected") from exc
+    if not isinstance(composition, Mapping):
+        raise HTTPException(status_code=409, detail="compose_audit_projection_invalid")
+    composition_digest = str(composition.get("composition_digest") or "")
+    composition_receipt_digest = str(composition.get("composition_receipt_digest") or "")
+    zero_burn = (
+        composition.get("status") == "accepted"
+        and composition.get("audit_only") is True
+        and composition.get("quota_mutated") is False
+        and composition.get("provider_job_enqueued") is False
+        and composition.get("executable") is False
+        and re.fullmatch(r"sha256:[0-9a-f]{64}", composition_digest)
+        and re.fullmatch(r"sha256:[0-9a-f]{64}", composition_receipt_digest)
+    )
+    if not zero_burn:
+        raise HTTPException(status_code=409, detail="compose_audit_zero_burn_contract_invalid")
+    publication_authority = (
+        runtime.publication_authority_verifier(
+            bridge,
+            composition,
+            approved_policy_payload,
+            context.principal_id,
+            slug,
+        )
+        if runtime.publication_authority_verifier is not None
+        else None
+    )
+    try:
+        lifecycle = runtime.lifecycle_store.intake(
+            slug=slug,
+            policy_payload=approved_policy_payload,
+            observed_at=observed,
+            bridge_digest=str(bridge["bridge_digest"]),
+            composition_digest=composition_digest,
+            composition_receipt_digest=composition_receipt_digest,
+            publication_authority=publication_authority,
+            owner_principal_ref=context.principal_id,
+            tenant_ref=str(property_packet.get("tenant_ref") or ""),
+            subject_ref=str(property_packet.get("subject_ref") or ""),
+        )
+    except property_tour_hosting.GovernedPropertyTourContractError as exc:
+        raise HTTPException(status_code=409, detail=_governed_property_route_reason(exc)) from exc
+    except property_tour_hosting.GovernedPropertyTourIntegrityError as exc:
+        raise HTTPException(status_code=503, detail="governed_property_lifecycle_integrity_blocked") from exc
+    return JSONResponse(
+        _governed_property_safe_status(
+            lifecycle,
+            composition_digest=composition_digest,
+            bridge_digest=str(bridge["bridge_digest"]),
+        )
+    )
+
+
+@router.get("/app/api/property/governed-spatial/tours/{slug}/status", include_in_schema=False)
+def governed_property_tour_status(
+    slug: str,
+    context: RequestContext = Depends(require_governed_property_tour_authenticated_context),
+    runtime: GovernedPropertyTourBridgeRuntime = Depends(get_governed_property_tour_runtime),
+) -> JSONResponse:
+    try:
+        runtime.lifecycle_store.require_owner(slug=slug, owner_principal_ref=context.principal_id)
+        lifecycle = runtime.lifecycle_store.enforce_retention(slug=slug, observed_at=runtime.now())
+    except property_tour_hosting.GovernedPropertyTourContractError as exc:
+        reason = _governed_property_route_reason(exc)
+        if reason in {"governed_tour_scope_not_found", "governed_tour_scope_owner_mismatch"}:
+            raise HTTPException(status_code=404, detail="governed_property_tour_not_found") from exc
+        raise HTTPException(status_code=422, detail=reason) from exc
+    except property_tour_hosting.GovernedPropertyTourIntegrityError as exc:
+        raise HTTPException(status_code=503, detail="governed_property_lifecycle_integrity_blocked") from exc
+    return JSONResponse(_governed_property_safe_status(lifecycle))
+
+
+@router.post("/app/api/property/governed-spatial/tours/{slug}/privacy-closeout", include_in_schema=False)
+async def governed_property_tour_privacy_closeout(
+    slug: str,
+    request: Request,
+    context: RequestContext = Depends(require_governed_property_tour_authenticated_context),
+    runtime: GovernedPropertyTourBridgeRuntime = Depends(get_governed_property_tour_runtime),
+) -> JSONResponse:
+    try:
+        runtime.lifecycle_store.require_owner(slug=slug, owner_principal_ref=context.principal_id)
+    except property_tour_hosting.GovernedPropertyTourContractError as exc:
+        raise HTTPException(status_code=404, detail="governed_property_tour_not_found") from exc
+    payload = await _governed_property_raw_body(
+        request,
+        allowed_fields=frozenset(
+            {"contract_name", "action", "reason_digest", "cascade_evidence_digests", "legal_hold"}
+        ),
+    )
+    if payload.get("contract_name") != "propertyquarry.governed_spatial_privacy_closeout.v1":
+        raise HTTPException(status_code=422, detail="privacy_closeout_contract_invalid")
+    evidence = payload.get("cascade_evidence_digests")
+    if not isinstance(evidence, list):
+        raise HTTPException(status_code=422, detail="cascade_evidence_digests_list_required")
+    legal_hold = payload.get("legal_hold")
+    if legal_hold is not None and not isinstance(legal_hold, Mapping):
+        raise HTTPException(status_code=422, detail="legal_hold_object_required")
+    try:
+        lifecycle = runtime.lifecycle_store.closeout(
+            slug=slug,
+            action=str(payload.get("action") or ""),
+            reason_digest=str(payload.get("reason_digest") or ""),
+            observed_at=runtime.now(),
+            cascade_evidence_digests=[str(value) for value in evidence],
+            legal_hold=legal_hold,
+        )
+    except property_tour_hosting.GovernedPropertyTourContractError as exc:
+        raise HTTPException(status_code=422, detail=_governed_property_route_reason(exc)) from exc
+    except property_tour_hosting.GovernedPropertyTourIntegrityError as exc:
+        raise HTTPException(status_code=503, detail="governed_property_lifecycle_integrity_blocked") from exc
+    return JSONResponse(_governed_property_safe_status(lifecycle))
 
 
 @lru_cache(maxsize=1)
@@ -1735,6 +2008,38 @@ def _propertyquarry_home_property_href(candidate: dict[str, object], *, run_id: 
     return str(candidate.get("property_url") or "").strip() or _propertyquarry_fast_ranked_run_href(run_id)
 
 
+@lru_cache(maxsize=1)
+def _property_curated_diorama_preview_index() -> dict[str, str]:
+    try:
+        payload = json.loads(_PROPERTY_CURATED_DIORAMA_MANIFEST_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return build_curated_diorama_preview_index(
+        payload,
+        static_root=_PROPERTY_CURATED_DIORAMA_STATIC_ROOT,
+    )
+
+
+def _property_curated_diorama_preview_image(candidate: dict[str, object]) -> str:
+    index = _property_curated_diorama_preview_index()
+    candidate_ref = str(candidate.get("candidate_ref") or _property_candidate_ref(candidate) or "").strip().lower()
+    listing_id = str(candidate.get("listing_id") or "").strip().lower()
+    property_url = str(
+        candidate.get("property_url")
+        or candidate.get("listing_url")
+        or candidate.get("source_url")
+        or ""
+    ).strip()
+    if not listing_id and property_url:
+        listing_match = re.search(r"-(\d{6,})(?:/)?(?:[?#].*)?$", property_url)
+        if listing_match:
+            listing_id = listing_match.group(1)
+    for lookup_key in (f"candidate:{candidate_ref}", f"listing:{listing_id}"):
+        if lookup_key.rsplit(":", 1)[-1] and lookup_key in index:
+            return index[lookup_key]
+    return ""
+
+
 def _property_candidate_diorama_preview_image(candidate: dict[str, object]) -> str:
     direct_preview = (
         str(candidate.get("diorama_preview_url") or "").strip()
@@ -1749,6 +2054,9 @@ def _property_candidate_diorama_preview_image(candidate: dict[str, object]) -> s
     )
     if direct_preview:
         return direct_preview
+    curated_preview = _property_curated_diorama_preview_image(candidate)
+    if curated_preview:
+        return curated_preview
     style_hint = str(candidate.get("diorama_style_hint") or "").strip()
     for raw_tour_url in (
         candidate.get("generated_reconstruction_url"),
@@ -3958,16 +4266,17 @@ def _property_access_link_snapshot(
     product: Any,
     principal_id: str,
 ) -> dict[str, object]:
+    sessions = [
+        dict(item)
+        for item in product.list_workspace_access_sessions(principal_id=principal_id, status="", limit=1000)
+        if isinstance(item, dict)
+    ]
     active_sessions = [
-        dict(item)
-        for item in product.list_workspace_access_sessions(principal_id=principal_id, status="active", limit=50)
-        if isinstance(item, dict)
-    ]
+        item for item in sessions if str(item.get("status") or "").strip().lower() == "active"
+    ][:50]
     revoked_sessions = [
-        dict(item)
-        for item in product.list_workspace_access_sessions(principal_id=principal_id, status="revoked", limit=20)
-        if isinstance(item, dict)
-    ]
+        item for item in sessions if str(item.get("status") or "").strip().lower() == "revoked"
+    ][:20]
     return {
         "active_total": len(active_sessions),
         "revoked_total": len(revoked_sessions),
@@ -4716,9 +5025,24 @@ def _property_console_context(
         billing_enabled_plans=billing_enabled_plans,
         billing_order_endpoints_by_plan=billing_order_endpoints_by_plan,
     )
+    search_health = build_property_search_health_snapshot({})
+    if surface_scope.section == "search":
+        diagnostics = _property_first_paint_value(
+            lambda: product.workspace_diagnostics(principal_id=principal_id),
+            {},
+        )
+        if isinstance(diagnostics, dict) and diagnostics:
+            diagnostics = dict(diagnostics)
+            if not isinstance(diagnostics.get("billing"), dict) or not diagnostics.get("billing"):
+                diagnostics["billing"] = dict(billing_truth)
+            search_health = build_property_search_health_snapshot(
+                diagnostics,
+                observed_at=datetime.now(timezone.utc).isoformat(),
+            )
     country_catalog_snapshot = _property_country_catalog_snapshot()
 
     return {
+        "_principal_id": str(principal_id or "").strip(),
         "platform_options": country_provider_options,
         "platform_catalog_by_country": dict(country_catalog_snapshot.get("platform_catalog_by_country") or {}),
         "platform_defaults_by_country_mode": dict(country_catalog_snapshot.get("platform_defaults_by_country_mode") or {}),
@@ -4761,6 +5085,7 @@ def _property_console_context(
         "billing_order_endpoint": str(billing_truth.get("order_endpoint") or ""),
         "billing_order_endpoints_by_plan": dict(billing_truth.get("order_endpoints_by_plan") or {}),
         "billing_truth": billing_truth,
+        "search_health": search_health,
     }
 
 
@@ -5409,8 +5734,16 @@ def data_deletion_page(
     request: Request,
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+    context: RequestContext = Depends(get_request_context_if_available),
 ) -> HTMLResponse:
     principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
+    authenticated_principal = str(context.principal_id or "").strip()
+    privacy_request: dict[str, object] = {}
+    if authenticated_principal:
+        with contextlib.suppress(Exception):
+            privacy_request = build_property_account_privacy_lifecycle(container).latest(
+                principal_id=authenticated_principal,
+            )
     return _render_public_template(
         request,
         "data_deletion.html",
@@ -5423,6 +5756,10 @@ def data_deletion_page(
             access_identity=access_identity,
             extra={
                 "contact_email": "property@propertyquarry.com",
+                "privacy_authenticated": bool(authenticated_principal),
+                "privacy_request": privacy_request,
+                "account_export_href": "/app/api/property/account/export?download=1",
+                "account_href": "/app/account#data-export",
                 "meta_description": "How to request deletion of account, search, connected-channel, and generated property data held by PropertyQuarry.",
             },
         ),
@@ -5434,8 +5771,14 @@ def user_data_deletion_page(
     request: Request,
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+    context: RequestContext = Depends(get_request_context_if_available),
 ) -> HTMLResponse:
-    return data_deletion_page(request=request, container=container, access_identity=access_identity)
+    return data_deletion_page(
+        request=request,
+        container=container,
+        access_identity=access_identity,
+        context=context,
+    )
 
 
 @router.get("/pricing", response_class=HTMLResponse)
@@ -5829,6 +6172,7 @@ def sign_in_page(
     google_prefill_email = str(request.query_params.get("google_prefill_email") or "").strip()
     facebook_error = str(request.query_params.get("facebook_error") or "").strip()
     id_austria_error = str(request.query_params.get("id_austria_error") or "").strip()
+    session_expired = str(request.query_params.get("session") or "").strip().lower() == "expired"
     connected_provider = ""
     if str(request.query_params.get("google_connected") or "").strip() == "1":
         connected_provider = "Google"
@@ -5866,6 +6210,7 @@ def sign_in_page(
                 "sign_in_id_austria_country_allowed": id_austria_country_allowed,
                 "sign_in_id_austria_visible": id_austria_visible,
                 "sign_in_id_austria_enabled": id_austria_configured and id_austria_country_allowed,
+                "sign_in_session_expired": session_expired,
                 "robots_directive": "noindex, nofollow, noarchive, nosnippet",
             },
         ),
@@ -8066,6 +8411,7 @@ def app_shell(
                     console_form=dict(payload.get("console_form") or {}),
                 ),
                 **payload,
+                "search_health": dict((property_context or {}).get("search_health") or {}),
                 "facebook_sign_in_enabled": _facebook_sign_in_enabled(),
                 "id_austria_sign_in_enabled": _id_austria_sign_in_enabled_for_request(request),
             },

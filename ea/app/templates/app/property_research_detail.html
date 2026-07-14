@@ -634,8 +634,8 @@
   .prd-media-frame {
     position: relative;
     overflow: hidden;
-    min-height: clamp(280px, 40vh, 420px);
-    max-height: 480px;
+    min-height: clamp(280px, 36vh, 380px);
+    max-height: 380px;
     padding: 0;
     background: var(--panel-2);
     border: 1px solid var(--prd-gold-line);
@@ -643,11 +643,12 @@
     box-shadow: 0 24px 60px color-mix(in srgb, var(--prd-gold) 10%, transparent);
   }
   .prd-media-frame.prd-media-frame-live {
-    min-height: clamp(320px, 44vh, 500px);
-    max-height: 560px;
+    min-height: clamp(320px, 44vh, 380px);
+    max-height: 380px;
   }
   .prd-media-frame.prd-media-frame-diorama {
-    min-height: clamp(300px, 46vh, 440px);
+    min-height: clamp(300px, 46vh, 380px);
+    max-height: 380px;
     background: color-mix(in srgb, var(--panel-2) 88%, #dfe5df);
   }
   @media (min-width: 1081px) {

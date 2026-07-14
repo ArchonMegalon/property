@@ -355,7 +355,7 @@ def list_workspace_access_session_records(
 ) -> tuple[dict[str, object], ...]:
     normalized_principal = str(principal_id or "").strip()
     wanted_status = str(status or "").strip().lower()
-    bounded_limit = max(1, min(int(limit or 100), 1000))
+    bounded_limit = max(1, min(int(limit or 100), 50_000))
     if not normalized_principal:
         return ()
     if str(database_url or "").strip():

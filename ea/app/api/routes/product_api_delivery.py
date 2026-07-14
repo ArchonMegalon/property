@@ -818,20 +818,38 @@ def _start_property_search_run_payload(
         selected_platforms=sanitized_platforms,
         max_results_per_source=None,
     )
-    return service.start_property_search_run(
-        principal_id=context.principal_id,
-        actor=actor,
-        selected_platforms=sanitized_platforms,
-        property_search_preferences=merged_preferences,
-        force_refresh=bool(body.force_refresh),
-        max_results_per_source=None,
-        dispatch_only=bool(body.dispatch_only),
-        dispatch_probe_ack_only=(
+    start_kwargs: dict[str, object] = {
+        "principal_id": context.principal_id,
+        "actor": actor,
+        "selected_platforms": sanitized_platforms,
+        "property_search_preferences": merged_preferences,
+        "force_refresh": bool(body.force_refresh),
+        "max_results_per_source": None,
+        "dispatch_only": bool(body.dispatch_only),
+        "dispatch_probe_ack_only": (
             bool(body.dispatch_only)
             and str(request.headers.get("X-PropertyQuarry-Dispatch-Probe") or "").strip().lower()
             in {"1", "true", "yes", "on"}
         ),
+    }
+    requested_idempotency_key = str(request.headers.get("Idempotency-Key") or "").strip()
+    if requested_idempotency_key:
+        start_kwargs["idempotency_key"] = requested_idempotency_key[:240]
+    return service.start_property_search_run(
+        **start_kwargs,
     )
+
+
+def _property_search_start_runtime_http_status(exc: RuntimeError) -> int:
+    detail = str(exc or "").strip()
+    if detail in {
+        "property_search_work_database_url_required",
+        "property_search_work_enqueue_failed",
+        "property_search_work_idempotency_state_missing",
+        "property_search_run_persistence_failed",
+    }:
+        return 503
+    return 409
 
 
 def _property_search_run_status_payload(
@@ -1578,7 +1596,7 @@ def sync_direct_property_scout(
     return PropertyScoutSyncOut(**payload)
 
 
-@router.post("/signals/property/search/run", response_model=PropertySearchRunStartOut)
+@router.post("/signals/property/search/run", response_model=PropertySearchRunStartOut, status_code=202)
 def start_property_search_run(
     body: PropertySearchRunStartIn,
     request: Request,
@@ -1595,11 +1613,11 @@ def start_property_search_run(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=_property_search_start_runtime_http_status(exc), detail=str(exc)) from exc
     return PropertySearchRunStartOut(**_property_search_payload_with_status_url(dict(payload), canonical=False))
 
 
-@router.post("/property/search-runs", response_model=PropertySearchRunStartOut)
+@router.post("/property/search-runs", response_model=PropertySearchRunStartOut, status_code=202)
 def start_property_search_run_v2(
     body: PropertySearchRunStartIn,
     request: Request,
@@ -1616,7 +1634,7 @@ def start_property_search_run_v2(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=_property_search_start_runtime_http_status(exc), detail=str(exc)) from exc
     return PropertySearchRunStartOut(**_property_search_payload_with_status_url(dict(payload), canonical=True))
 
 

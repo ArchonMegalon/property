@@ -269,6 +269,17 @@ EA_STATUS_URL="$(normalize_ea_base_url "${CODEXEA_STATUS_URL:-${EA_BASE_URL%/}/v
 EA_PROFILES_URL="$(normalize_ea_base_url "${CODEXEA_PROFILES_URL:-${EA_BASE_URL%/}/v1/codex/profiles}")"
 ROUTE_HELPER="${CODEXEA_ROUTE_HELPER:-/docker/fleet/scripts/codexea_route.py}"
 
+route_helper_is_usable() {
+  [ -f "${ROUTE_HELPER}" ] || return 1
+  python3 - "${ROUTE_HELPER}" <<'PY' >/dev/null 2>&1
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+compile(path.read_text(encoding="utf-8"), str(path), "exec")
+PY
+}
+
 require_http_url "EA_BASE_URL" "${EA_BASE_URL}"
 require_http_url "EA_STATUS_URL" "${EA_STATUS_URL}"
 require_http_url "EA_PROFILES_URL" "${EA_PROFILES_URL}"
@@ -293,6 +304,13 @@ fi
 
 export EA_PRINCIPAL_ID="${EA_PRINCIPAL_ID:-$(id -un)-codex-ea}"
 export EA_MCP_PRINCIPAL_ID="${EA_MCP_PRINCIPAL_ID:-${EA_PRINCIPAL_ID}}"
+# Validate every value that can become an HTTP header before dispatching to a
+# route helper. This keeps malformed environment input from reaching Python,
+# telemetry, probes, or provider configuration first.
+EA_AUTH_TOKEN="${EA_API_TOKEN:-${EA_MCP_API_TOKEN:-}}"
+require_safe_scalar "EA_PRINCIPAL_ID" "${EA_PRINCIPAL_ID}"
+require_safe_scalar "EA_MCP_PRINCIPAL_ID" "${EA_MCP_PRINCIPAL_ID}"
+require_safe_scalar "EA_AUTH_TOKEN" "${EA_AUTH_TOKEN}"
 export CODEX_WRAPPER_DISABLE_BOOTSTRAP=1
 export CODEX_WRAPPER_SKIP_PROVIDER_DEFAULT=1
 
@@ -1140,7 +1158,7 @@ case "${1:-}" in
     ;;
   credits|onemin)
     shift
-    if [ -f "${ROUTE_HELPER}" ]; then
+    if route_helper_is_usable; then
       ROUTE_ARGS=(--onemin-aggregate)
       if [ "${CODEXEA_CREDITS_PROBE_ALL:-1}" != "0" ]; then
         ROUTE_ARGS+=(--probe-all)
@@ -1164,7 +1182,7 @@ if { [ "$#" -eq 0 ] || args_request_interactive_session "$@"; } && [ "${CODEXEA_
   WANT_STARTUP_STATUS=1
 fi
 
-if [ "$#" -gt 0 ] && [ -f "${ROUTE_HELPER}" ] && ! args_request_interactive_session "$@"; then
+if [ "$#" -gt 0 ] && route_helper_is_usable && ! args_request_interactive_session "$@"; then
   TELEMETRY_ARGS=("$@")
   if [ "${LANE_WAS_EXPLICIT}" -eq 1 ]; then
     TELEMETRY_ARGS=("${REQUESTED_LANE}" "${TELEMETRY_ARGS[@]}")

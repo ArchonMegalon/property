@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import subprocess
 from pathlib import Path
 
 
@@ -104,9 +106,56 @@ def test_legacy_migration_regression_smoke_contract_is_wired() -> None:
     assert "wait_for_postgres_sql 90" in smoke
     assert "consecutive=$((consecutive + 1))" in smoke
     assert "compose up (api + worker)" in smoke
-    assert '"${API_SERVICE}" "${WORKER_SERVICE}"' in smoke
+    assert '"${DC[@]}" up -d --no-deps --build --force-recreate "${API_SERVICE}" "${WORKER_SERVICE}"' in smoke
     assert "bash scripts/smoke_postgres.sh --legacy-fixture" in workflow
     assert "python -m playwright install --with-deps chromium" in workflow
+
+
+def test_postgres_smoke_resolves_default_and_propertyquarry_service_aliases() -> None:
+    base_env = os.environ.copy()
+    for key in (
+        "PROPERTYQUARRY_API_SERVICE",
+        "PROPERTYQUARRY_WORKER_SERVICE",
+        "PROPERTYQUARRY_SCHEDULER_SERVICE",
+        "PROPERTYQUARRY_DB_SERVICE",
+        "EA_API_SERVICE",
+        "EA_WORKER_SERVICE",
+        "EA_SCHEDULER_SERVICE",
+        "EA_DB_SERVICE",
+    ):
+        base_env.pop(key, None)
+
+    def resolved(extra_env: dict[str, str] | None = None) -> dict[str, str]:
+        env = base_env | (extra_env or {})
+        result = subprocess.run(
+            ["bash", "scripts/smoke_postgres.sh", "--print-service-selection"],
+            cwd=ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return dict(line.split("=", 1) for line in result.stdout.splitlines())
+
+    assert resolved() == {
+        "api": "ea-api",
+        "worker": "ea-worker",
+        "scheduler": "ea-scheduler",
+        "db": "ea-db",
+    }
+    assert resolved(
+        {
+            "PROPERTYQUARRY_API_SERVICE": "propertyquarry-api-candidate",
+            "PROPERTYQUARRY_WORKER_SERVICE": "propertyquarry-worker-candidate",
+            "PROPERTYQUARRY_SCHEDULER_SERVICE": "propertyquarry-scheduler-candidate",
+            "PROPERTYQUARRY_DB_SERVICE": "propertyquarry-db-candidate",
+        }
+    ) == {
+        "api": "propertyquarry-api-candidate",
+        "worker": "propertyquarry-worker-candidate",
+        "scheduler": "propertyquarry-scheduler-candidate",
+        "db": "propertyquarry-db-candidate",
+    }
 
 
 def test_legacy_compatibility_migrations_encode_uuid_and_approval_upgrades() -> None:

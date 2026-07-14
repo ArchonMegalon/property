@@ -108,11 +108,16 @@ def test_property_release_workflow_runs_the_gold_gate_bundle() -> None:
         "workflow_dispatch:",
         "property-security-posture:",
         "security-static:",
+        "propertyquarry-browser-contracts:",
         "product-browser-e2e:",
+        "browser-engine: [chromium, firefox, webkit]",
+        "test_propertyquarry_flagship_operating_loop_in_browser",
+        "propertyquarry-live-release-gates:",
+        "PROPERTYQUARRY_LIVE_MOBILE_REQUIRED_BROWSER_ENGINES: chromium,firefox,webkit",
+        "bash scripts/propertyquarry_live_release_gates.sh",
         "smoke-runtime-api:",
         "smoke-runtime-postgres:",
         "postgres-runtime-contracts:",
-        "make property-release-gates",
     ):
         assert required in workflow
     for required in (

@@ -215,9 +215,17 @@ def _telegram_caption(text: str) -> str:
     return f"{normalized[: _TELEGRAM_CAPTION_LIMIT - 3].rstrip()}..."
 
 
-def _telegram_send_json(*, token: str, method: str, payload: dict[str, object], timeout: int = 30) -> dict[str, object]:
+def _telegram_send_json(
+    *,
+    token: str,
+    method: str,
+    payload: dict[str, object],
+    timeout: int = 30,
+    max_attempts: int | None = None,
+) -> dict[str, object]:
     last_error: Exception | None = None
-    for attempt in range(1, _telegram_max_attempts() + 1):
+    attempt_limit = max(1, int(max_attempts or _telegram_max_attempts()))
+    for attempt in range(1, attempt_limit + 1):
         try:
             request = urllib.request.Request(
                 f"https://api.telegram.org/bot{token}/{method}",
@@ -232,7 +240,7 @@ def _telegram_send_json(*, token: str, method: str, payload: dict[str, object], 
             return dict(body.get("result") or {})
         except Exception as exc:
             last_error = exc
-            if attempt >= _telegram_max_attempts():
+            if attempt >= attempt_limit:
                 break
             time.sleep(_telegram_retry_backoff_seconds() * attempt)
     raise RuntimeError(f"telegram_{method.lower()}_failed") from last_error
@@ -516,6 +524,7 @@ def send_telegram_message_for_principal(
     text: str,
     inline_buttons: list[list[tuple[str, str]]] | None = None,
     url_buttons: list[list[tuple[str, str]]] | None = None,
+    provider_max_attempts: int | None = None,
 ) -> TelegramDeliveryReceipt:
     binding = resolve_primary_telegram_binding(tool_runtime, principal_id=principal_id)
     if binding is None:
@@ -559,6 +568,7 @@ def send_telegram_message_for_principal(
             token=token,
             method="sendMessage",
             payload=payload,
+            max_attempts=provider_max_attempts,
         )
         message_ids.append(str(result.get("message_id") or ""))
     return TelegramDeliveryReceipt(

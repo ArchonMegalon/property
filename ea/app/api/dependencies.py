@@ -14,6 +14,10 @@ from fastapi import Depends, HTTPException, Request
 from fastapi.params import Depends as DependsMarker
 
 from app.container import AppContainer
+from app.api.principal_identity import (
+    VERIFIED_PRINCIPAL_ASSERTION_STATE_KEY,
+    VerifiedPrincipalAssertion,
+)
 from app.product.workspace_access_storage import (
     get_workspace_access_session_record,
     update_workspace_access_session_record,
@@ -335,7 +339,7 @@ def _runtime_profile(container: AppContainer):
     mode = str(getattr(getattr(settings, "runtime", None), "mode", "dev") or "dev").strip().lower() or "dev"
     api_token = str(getattr(getattr(settings, "auth", None), "api_token", "") or "").strip()
     auth_mode = "token" if mode == "prod" or api_token else "anonymous_dev"
-    principal_source = "authenticated_header" if mode == "prod" else (
+    principal_source = "verified_identity" if mode == "prod" else (
         "authenticated_header_or_default" if auth_mode == "token" else "caller_header_or_default"
     )
     return RuntimeProfile(
@@ -360,6 +364,10 @@ def _resolved_principal_id(
     profile = _runtime_profile(container)
     if access_identity is not None:
         return access_identity.principal_id
+    if str(profile.mode or "").strip().lower() == "prod":
+        # Production caller-controlled headers are never an identity source.
+        # Verified Access/session/edge assertions are handled before this path.
+        return ""
     principal_id = str(request.headers.get("x-ea-principal-id") or "").strip()
     fallback_principal = str(container.settings.auth.default_principal_id or "").strip()
     if principal_id:
@@ -510,6 +518,15 @@ def get_request_context(
         )
         setattr(request.state, "ea_request_context", context)
         return context
+    edge_assertion = getattr(request.state, VERIFIED_PRINCIPAL_ASSERTION_STATE_KEY, None)
+    if isinstance(edge_assertion, VerifiedPrincipalAssertion):
+        context = RequestContext(
+            principal_id=edge_assertion.principal_id,
+            authenticated=True,
+            auth_source=edge_assertion.auth_source,
+        )
+        setattr(request.state, "ea_request_context", context)
+        return context
     loopback_no_auth_allowed = _loopback_no_auth_allowed(request, container)
     token_authenticated_on_loopback = False
     if loopback_no_auth_allowed:
@@ -553,7 +570,11 @@ def get_request_context(
         principal_id=principal_id,
         authenticated=authenticated,
         auth_source="api_token" if authenticated else "anonymous",
-        operator_id=_requested_operator_id(request) if authenticated else "",
+        operator_id=(
+            _requested_operator_id(request)
+            if authenticated and str(profile.mode or "").strip().lower() != "prod"
+            else ""
+        ),
     )
     setattr(request.state, "ea_request_context", context)
     return context
@@ -572,6 +593,36 @@ def get_request_context_if_available(
         context = RequestContext(principal_id="", authenticated=False, auth_source="anonymous")
         setattr(request.state, "ea_request_context", context)
         return context
+
+
+def require_runtime_metrics_auth(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
+) -> None:
+    """Metrics require system-token auth or an allowlisted Access operator."""
+
+    expected = _configured_api_token(container)
+    provided = _extract_token(request)
+    if expected and hmac.compare_digest(provided, expected):
+        # A shared system token can read process metrics without acquiring a
+        # tenant identity or consulting any caller-controlled principal header.
+        return None
+    try:
+        context = get_request_context(
+            request=request,
+            container=container,
+            access_identity=access_identity,
+        )
+    except HTTPException as exc:
+        if int(exc.status_code or 0) == 401:
+            raise HTTPException(status_code=401, detail="metrics_auth_required") from exc
+        raise
+    if context.auth_source == "cloudflare_access" and is_operator_context(context):
+        return None
+    if not context.authenticated:
+        raise HTTPException(status_code=401, detail="metrics_auth_required")
+    raise HTTPException(status_code=403, detail="metrics_operator_scope_required")
 
 
 def require_operator_context(context: RequestContext = Depends(get_request_context)) -> None:

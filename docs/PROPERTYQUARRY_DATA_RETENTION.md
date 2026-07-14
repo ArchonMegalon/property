@@ -57,6 +57,29 @@ document intake records carry privacy class and redaction state
 
 Revocation must remove customer access and make stale artifacts undiscoverable. For public packets, tours, and generated media this means the source record and the static file or manifest both leave the public route. Hiding a link in the account UI is not enough.
 
+Public-tour revocation is fail-closed at the origin. The owner-scoped revocation receipt is written before the bundle is removed, revoked slugs return `410`, and public responses use revalidation-safe cache headers. A durable CDN purge outbox records the affected tour page, manifest, asset paths, and surrogate key. Queuing is not completion: the receipt stays `queued` with `provider_invoked: false` until a CDN worker attaches its purge receipt.
+
+## Account Export and Erasure Lifecycle
+
+Account exports are subject-scoped snapshots with signed cursors. Every page carries the same snapshot time, stable collection counts, a next cursor, and an explicit `complete` flag. The downloadable form requests the complete snapshot. It includes searches, shortlists, saved and learned preferences, owned tours and their private owner receipts, artifacts, packet events, connected-provider bindings, delivery logs, account events, and access-session status. Access tokens, provider credentials, authorization headers, signed-link tokens, secrets, and cookies are always redacted.
+
+Account erasure is a durable, idempotent workflow:
+
+```text
+request -> awaiting explicit DELETE confirmation -> revoke sessions -> revoke tours
+-> queue CDN purge receipts -> remove local provider bindings
+-> queue provider deletion receipts -> remove searches/shortlists/preferences
+-> remove packets/artifacts/events/delivery logs -> seal digest-only tombstone
+```
+
+Before confirmation, cancellation is a real recovery path and no data is deleted. After confirmation, completed phases are irreversible; a failed retry resumes only incomplete phases. Provider retry only re-queues receipt work and must never be reported as provider deletion until a provider-issued receipt is attached.
+
+## Backup Tombstone Policy
+
+The primary-store closeout writes an erasure tombstone containing a keyed subject digest, phase receipts, the backup expiry deadline, and legal-hold state. It must not retain the raw principal identifier, access token, provider credential, or confirmation phrase.
+
+Rolling backups expire by `backup_delete_by` (35 days by default, configurable for an approved infrastructure policy). Any disaster recovery restore must load erasure tombstones before customer services start and reapply each deletion before routes, search workers, delivery workers, or provider workers can see the restored rows. A legal hold is never inferred: it must be explicit, scoped, time-bounded, and visible in the lifecycle receipt. The digest-only tombstone may outlive source data solely to prevent reactivation and prove closeout.
+
 ## Aggregated Learning
 
 Cross-customer learning can only use normalized reason keys after consent, minimum cohort thresholds, and removal of raw notes, exact locations, personal identifiers, agent accusations, and protected-attribute proxies. Owner-private feedback remains private by default.

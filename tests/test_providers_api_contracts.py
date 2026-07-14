@@ -22,6 +22,7 @@ def _client(*, principal_id: str, operator: bool = False) -> TestClient:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ.pop("EA_LEDGER_BACKEND", None)
     os.environ.pop("EA_DEFAULT_PRINCIPAL_ID", None)
+    os.environ["PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES"] = "1"
     if operator:
         os.environ["EA_API_TOKEN"] = "test-token"
         os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
@@ -52,17 +53,19 @@ def _internal_links(html: str) -> list[str]:
     return [ref for ref in refs if ref.startswith("/") and not ref.startswith("//")]
 
 
-def test_public_tour_security_headers_allow_rybbit_assets() -> None:
+def test_public_tour_security_headers_exclude_marketing_analytics_and_broad_sources() -> None:
     from app.api.routes.public_tours import _public_tour_security_headers
 
     headers = _public_tour_security_headers()
     csp = headers["Content-Security-Policy"]
 
-    assert "https://app.rybbit.io" in csp
-    assert "https://js.clickrank.ai" in csp
-    assert "'wasm-unsafe-eval'" in csp
-    assert "media-src 'self' data: blob: https:" in csp
-    assert "connect-src 'self' data: blob:" in csp
+    assert "https://app.rybbit.io" not in csp
+    assert "https://js.clickrank.ai" not in csp
+    assert "'wasm-unsafe-eval'" not in csp
+    assert "media-src 'self' data: blob: https:;" not in csp
+    assert "connect-src 'self' data: blob:" not in csp
+    assert "script-src-attr 'none'" in csp
+    assert "style-src-attr 'none'" in csp
     assert "worker-src 'self' blob:" in csp
 
 
@@ -4195,9 +4198,10 @@ def test_telegram_ingest_falls_back_when_real_ea_reply_times_out(monkeypatch: py
         raise RuntimeError("should_have_timed_out_first")
 
     monkeypatch.setattr(channels_route.responses_route, "_generate_upstream_text", _slow_run_response)
+    container = _client(principal_id="exec-telegram-timeout", operator=False).app.state.container
     started = time.monotonic()
     reply = channels_route._telegram_real_ea_reply_text(
-        container=_client(principal_id="exec-telegram-timeout", operator=False).app.state.container,
+        container=container,
         principal_id="exec-telegram-timeout",
         text="Tell me something slow",
         current_message_id="22",
@@ -4347,7 +4351,7 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     assert sign_in.status_code == 200
     _assert_no_product_drift(sign_in.text)
     assert "Use email or one of the sign-in options below." in sign_in.text
-    assert "Provider sign-in opens the same account and creates it if needed." in sign_in.text
+    assert "Each sign-in option opens the same account and creates it if needed." in sign_in.text
     assert "Identity only" not in sign_in.text
     assert 'href="/app/search"' in sign_in.text
     assert 'action="/app/actions/sign-out"' in sign_in.text
@@ -8225,9 +8229,9 @@ def test_authenticated_public_tour_revocation_removes_served_manifest_and_assets
     assert receipt["principal_id_sha256"]
     assert "private.example.test" not in json.dumps(receipt)
 
-    assert owner.get(f"/tours/{slug}").status_code == 404
-    assert owner.get(f"/tours/{slug}.json").status_code == 404
-    assert owner.get(f"/tours/files/{slug}/scene-01.jpg").status_code == 404
+    assert owner.get(f"/tours/{slug}").status_code == 410
+    assert owner.get(f"/tours/{slug}.json").status_code == 410
+    assert owner.get(f"/tours/files/{slug}/scene-01.jpg").status_code == 410
     assert owner.get(f"/tours/.revocations").status_code == 404
 
 
@@ -8367,7 +8371,7 @@ def test_public_tour_routes_render_pdf_floorplan_scenes(
     assert f"/tours/files/{slug}/floorplan-01.pdf" in page.text
     assert 'id="stage-frame"' in page.text
     assert "thumb-doc" in page.text
-    assert '"mime_type": "application/pdf"' in page.text
+    assert '"mime_type":"application/pdf"' in page.text
     payload = client.get(f"/tours/{slug}.json")
     assert payload.status_code == 200
     assert payload.json()["public_assets"] == [
@@ -8547,7 +8551,7 @@ def test_public_tour_routes_embed_live_360_source_when_present(
     assert ">Source<" not in page.text
 
 
-def test_public_tour_routes_keep_matterport_thumb_but_retire_interactive_control(
+def test_public_tour_routes_retire_matterport_media_and_interactive_control(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -8594,7 +8598,8 @@ def test_public_tour_routes_keep_matterport_thumb_but_retire_interactive_control
     assert entry.status_code == 200
     assert page.status_code == 200
     assert "Matterport Live 360" in page.text
-    assert 'src="https://my.matterport.com/api/v2/player/models/BmVWxvZQZLq/thumb/"' in page.text
+    assert 'src="https://my.matterport.com/api/v2/player/models/BmVWxvZQZLq/thumb/"' not in page.text
+    assert "my.matterport.com" not in page.text
     assert 'src="https://my.matterport.com/show/?m=BmVWxvZQZLq"' not in page.text
     assert f"/tours/{slug}/control/matterport" not in page.text
     assert "Open 3D tour" not in page.text
@@ -10058,7 +10063,7 @@ def test_public_memorial_routes_render_original_voice_without_voice_clone(
     assert "Sprich mit der Erinnerung" in page.text
     assert "voice clone" not in page.text.lower()
     assert f"/memorials/files/{slug}/audio/hanusch-enhanced.mp3" in page.text
-    assert "https://js.clickrank.ai/seo/33ff8f39-6213-4903-99d7-81048b5b3e1f/script?" in page.text
+    assert "clickrank.ai" not in page.text
 
     payload = client.get(f"/memorials/{slug}.json")
     assert payload.status_code == 200
@@ -10520,17 +10525,17 @@ def test_public_side_surfaces_can_be_disabled(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setenv("EA_ENABLE_PUBLIC_MEMORIALS", "0")
     client = _client(principal_id="exec-public-disabled")
 
-    tour = client.get("/tours/example-tour")
-    assert tour.status_code == 404
-    assert tour.json() == {"detail": "Not Found"}
-
-    result_page = client.get("/results/example-result")
-    assert result_page.status_code == 404
-    assert result_page.json() == {"detail": "Not Found"}
-
-    memorial_page = client.get("/memorials/example-person")
-    assert memorial_page.status_code == 404
-    assert memorial_page.json() == {"detail": "Not Found"}
+    for response in (
+        client.get("/tours/example-tour"),
+        client.get("/results/example-result"),
+        client.get("/memorials/example-person"),
+    ):
+        assert response.status_code == 404
+        error = response.json()["error"]
+        assert error["code"] == "Not Found"
+        assert error["message"] == "Not Found"
+        assert error["details"] == "Not Found"
+        assert error["correlation_id"]
 
 
 def test_public_results_and_tours_can_be_enabled_independently(

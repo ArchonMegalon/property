@@ -3,12 +3,51 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import hashlib
 import json
+import math
 import os
+import stat
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+if __package__:
+    from scripts import propertyquarry_evidence_contract as evidence_contract
+    from scripts.propertyquarry_observability_receipts import (
+        ReceiptValidationError as ObservabilityReceiptValidationError,
+        atomic_write_json as write_observability_verification,
+        verify_receipt_bundle,
+    )
+    from scripts.propertyquarry_slo_evidence import (
+        DEFAULT_ALERTMANAGER_CONFIG_PATH,
+        DEFAULT_PROMETHEUS_CONFIG_PATH,
+        DEFAULT_RULES_PATH,
+        DEFAULT_RULE_TESTS_PATH,
+        DEFAULT_SLO_PATH,
+        EvidenceConfig,
+        RANGE_RECEIPT_SCHEMA,
+        run_evidence_gate,
+    )
+else:
+    import propertyquarry_evidence_contract as evidence_contract
+    from propertyquarry_observability_receipts import (
+        ReceiptValidationError as ObservabilityReceiptValidationError,
+        atomic_write_json as write_observability_verification,
+        verify_receipt_bundle,
+    )
+    from propertyquarry_slo_evidence import (
+        DEFAULT_ALERTMANAGER_CONFIG_PATH,
+        DEFAULT_PROMETHEUS_CONFIG_PATH,
+        DEFAULT_RULES_PATH,
+        DEFAULT_RULE_TESTS_PATH,
+        DEFAULT_SLO_PATH,
+        EvidenceConfig,
+        RANGE_RECEIPT_SCHEMA,
+        run_evidence_gate,
+    )
 
 
 REQUIRED_TOUR_PROVIDER_MODES = ("matterport", "3dvista", "magicfit")
@@ -61,6 +100,16 @@ REQUIRED_LIVE_MOBILE_COVERAGE_CHECKS = (
     "research_detail_route_configured",
     "registry_mobile_customer_surfaces_covered",
 )
+REQUIRED_FLAGSHIP_MOBILE_VIEWPORTS = ((390, 844), (412, 915))
+SUPPORTED_FLAGSHIP_BROWSER_ENGINES = ("chromium", "firefox", "webkit")
+DEFAULT_REQUIRED_FLAGSHIP_BROWSER_ENGINES = SUPPORTED_FLAGSHIP_BROWSER_ENGINES
+REQUIRED_FLAGSHIP_BROWSER_CHECKS = (
+    "no_horizontal_overflow",
+    "primary_touch_targets",
+    "browser_navigation_committed",
+    "browser_touch_context",
+    "browser_focus_navigation",
+)
 REQUIRED_PUBLIC_AUTH_CHECKS = (
     "sign_in_minimal_copy",
     "sign_in_connected_identity_creates_account",
@@ -68,8 +117,33 @@ REQUIRED_PUBLIC_AUTH_CHECKS = (
     "sign_in_google_state",
     "sign_in_google_feedback",
 )
+REQUIRED_PUBLIC_INFORMATION_ROUTES = (
+    "/",
+    "/pricing",
+    "/security",
+    "/privacy",
+    "/terms",
+    "/support",
+    "/imprint",
+    "/cookies",
+    "/subprocessors",
+    "/refunds",
+    "/disclaimers",
+    "/integrations",
+    "/docs",
+    "/guides/wohnung-kaufen-wien-checkliste",
+    "/markets/vienna",
+    "/register",
+    "/sign-in",
+)
 REQUIRED_BILLING_SURFACE_CHECKS = (
     "billing_local_board_deleted",
+)
+REQUIRED_FLAGSHIP_BILLING_HANDOFF_CHECKS = (
+    "billing_external_handoff",
+    "billing_external_handoff_resolves",
+    "billing_external_handoff_usable",
+    "billing_no_second_login",
 )
 REQUIRED_ACCOUNT_NOTIFICATION_CHECKS = (
     "account_notifications",
@@ -80,6 +154,72 @@ REQUIRED_ACCOUNT_NOTIFICATION_CHECKS = (
     "account_notification_primary_route",
     "account_notification_whatsapp_phone",
     "account_notification_save_action",
+)
+FLAGSHIP_CUSTOMER_UX_RECEIPT_AREAS = (
+    "public_auth_surfaces",
+    "authenticated_customer_surfaces",
+    "live_mobile_surfaces",
+    "accessibility",
+    "failure_states",
+    "activation_to_value",
+    "billing_handoff",
+    "browser_rendered_3d",
+    "map_preview_flagship",
+    "walkthrough_quality",
+)
+DEFAULT_FLAGSHIP_MAX_RECEIPT_AGE_HOURS = 24.0
+DEFAULT_SLO_EVIDENCE_MAX_AGE_SECONDS = 900
+SLO_EVIDENCE_RECEIPT_SCHEMA = "propertyquarry.slo_evidence_receipt.v2"
+REQUIRED_FLAGSHIP_ACCESSIBILITY_ROUTES = (
+    *REQUIRED_PUBLIC_INFORMATION_ROUTES,
+    *(route for route in REQUIRED_LIVE_MOBILE_ROUTES if route != "/app/billing"),
+)
+REQUIRED_FLAGSHIP_ACCESSIBILITY_CHECKS = (
+    "route_document_loaded",
+    "axe_core_version_pinned",
+    "axe_no_serious_or_critical_violations",
+    "keyboard_only_navigation",
+    "visible_keyboard_focus",
+    "dialog_focus_contract",
+    "semantic_error_states",
+    "semantic_live_progress_states",
+    "zoom_200_reflow",
+    "contrast_signals_clear",
+    "reduced_motion_honored",
+)
+REQUIRED_AXE_CORE_VERSION = "4.10.2"
+REQUIRED_FLAGSHIP_FAILURE_STATES = (
+    "not_found",
+    "internal_error",
+    "offline",
+    "expired_session",
+    "empty",
+    "partial",
+    "provider_blocked",
+    "stale",
+    "missing_packet",
+)
+REQUIRED_FLAGSHIP_FAILURE_STATE_CHECKS = (
+    "state_marker_visible",
+    "calm_customer_copy",
+    "useful_next_action",
+    "semantic_status_contract",
+    "raw_diagnostics_hidden",
+    "scenario_transition_proven",
+)
+REQUIRED_ACTIVATION_TO_VALUE_STEPS = (
+    "landing",
+    "real_authentication",
+    "account_create_or_reopen",
+    "first_real_search",
+    "real_provider_results",
+    "shortlist",
+    "research",
+    "walkthrough_request_or_reuse",
+    "walkthrough_ready",
+    "logout",
+    "relogin",
+    "safe_cleanup",
 )
 BILLING_MEMBER_TOKEN_REQUIRED_ENV = (
     "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY",
@@ -140,6 +280,9 @@ DEFAULT_RECEIPT_PATTERNS = {
         "state/receipts/property_live_authenticated*.json",
         "_completion/smoke/property-live-authenticated*.json",
     ),
+    "accessibility": ("_completion/smoke/property-live-accessibility*.json",),
+    "failure_states": ("_completion/smoke/property-live-failure-states*.json",),
+    "activation_to_value": ("_completion/smoke/property-live-activation-to-value*.json",),
     "tour_control": (
         "_completion/property_tour_controls/*.json",
         "_completion/tours/property-tour-controls*.json",
@@ -200,6 +343,9 @@ DEFAULT_RECEIPT_FALLBACKS = {
     "live_mobile": "_completion/smoke/property-live-mobile-surface-latest.json",
     "public_smoke": "_completion/smoke/property-live-public-latest.json",
     "authenticated_smoke": "_completion/smoke/property-live-authenticated-latest.json",
+    "accessibility": "_completion/smoke/property-live-accessibility-latest.json",
+    "failure_states": "_completion/smoke/property-live-failure-states-latest.json",
+    "activation_to_value": "_completion/smoke/property-live-activation-to-value-latest.json",
     "tour_control": "_completion/tours/property-tour-controls-live-container-current.json",
     "export_discovery": "_completion/tours/property-tour-export-discovery-full-current.json",
     "import_manifest": "_completion/property_tour_exports/import-manifest-current.json",
@@ -611,16 +757,36 @@ def _canonical_gold_status_alias_targets(output_path: Path) -> list[Path]:
 
 def _write_gold_status_output(output_path: Path, output: str) -> list[str]:
     resolved_output = output_path.expanduser().resolve()
-    resolved_output.parent.mkdir(parents=True, exist_ok=True)
     rendered = output if output.endswith("\n") else f"{output}\n"
-    resolved_output.write_text(rendered, encoding="utf-8")
+    _atomic_write_private_text(resolved_output, rendered)
 
     synced: list[str] = []
     for alias_path in _canonical_gold_status_alias_targets(resolved_output):
-        alias_path.parent.mkdir(parents=True, exist_ok=True)
-        alias_path.write_text(rendered, encoding="utf-8")
+        _atomic_write_private_text(alias_path, rendered)
         synced.append(str(alias_path))
     return synced
+
+
+def _atomic_write_private_text(path: Path, rendered: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    fd, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = Path(temporary_name)
+    try:
+        os.fchmod(fd, stat.S_IRUSR | stat.S_IWUSR)
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(rendered.encode("utf-8"))
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+        directory_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            temporary.unlink()
 
 
 def _parse_receipt_datetime(value: object) -> datetime | None:
@@ -689,6 +855,220 @@ def _receipt_freshness_status(
                 }
             )
     return not rows, rows
+
+
+def _slo_evidence_status(
+    payload: dict[str, Any],
+    *,
+    receipt_present: bool,
+    expected_release_commit_sha: str,
+    expected_release_image_digest: str,
+    now: datetime | None,
+    max_age_seconds: int,
+) -> tuple[bool, dict[str, Any]]:
+    configured_max_age = min(
+        DEFAULT_SLO_EVIDENCE_MAX_AGE_SECONDS,
+        max(1, int(max_age_seconds or DEFAULT_SLO_EVIDENCE_MAX_AGE_SECONDS)),
+    )
+    probe = dict(payload.get("probe") or {}) if isinstance(payload.get("probe"), dict) else {}
+    promtool = (
+        dict(payload.get("promtool") or {})
+        if isinstance(payload.get("promtool"), dict)
+        else {}
+    )
+    amtool = (
+        dict(payload.get("amtool") or {})
+        if isinstance(payload.get("amtool"), dict)
+        else {}
+    )
+    prometheus_range = (
+        dict(payload.get("prometheus_range") or {})
+        if isinstance(payload.get("prometheus_range"), dict)
+        else {}
+    )
+    expected_sha = str(expected_release_commit_sha or "").strip().lower()
+    expected_digest = str(expected_release_image_digest or "").strip().lower()
+    observed_sha = str(payload.get("release_commit_sha") or "").strip().lower()
+    observed_digest = str(payload.get("release_image_digest") or "").strip().lower()
+    window_start = _parse_receipt_datetime(probe.get("window_start"))
+    captured_at = _parse_receipt_datetime(probe.get("window_end"))
+    current_time = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    age_seconds = (
+        (current_time - captured_at).total_seconds()
+        if captured_at is not None
+        else None
+    )
+    replica_ids = (
+        [str(value or "").strip() for value in probe.get("replica_ids", [])]
+        if isinstance(probe.get("replica_ids"), list)
+        else []
+    )
+    try:
+        replica_count = int(probe.get("replica_count") or 0)
+    except (TypeError, ValueError):
+        replica_count = 0
+    try:
+        window_seconds = float(probe.get("window_seconds"))
+    except (TypeError, ValueError):
+        window_seconds = math.nan
+
+    def valid_sha256(value: object) -> bool:
+        normalized = str(value or "").strip().lower()
+        return len(normalized) == 64 and all(
+            character in "0123456789abcdef" for character in normalized
+        )
+
+    errors: list[str] = []
+    if not receipt_present:
+        errors.append("receipt_missing")
+    if payload.get("schema") != SLO_EVIDENCE_RECEIPT_SCHEMA:
+        errors.append("receipt_schema_invalid")
+    if payload.get("status") != "pass" or payload.get("gate_passed") is not True:
+        errors.append("offline_slo_gate_not_passed")
+    if payload.get("mode") != "flagship":
+        errors.append("flagship_mode_not_proven")
+    if payload.get("live_monitoring_contacted") is not False:
+        errors.append("offline_evidence_boundary_invalid")
+    if len(expected_sha) != 40 or any(character not in "0123456789abcdef" for character in expected_sha):
+        errors.append("expected_release_commit_sha_invalid")
+    elif observed_sha != expected_sha:
+        errors.append("release_commit_sha_mismatch")
+    if (
+        not expected_digest.startswith("sha256:")
+        or len(expected_digest) != 71
+        or any(character not in "0123456789abcdef" for character in expected_digest[7:])
+    ):
+        errors.append("expected_release_image_digest_invalid")
+    elif observed_digest != expected_digest:
+        errors.append("release_image_digest_mismatch")
+    if str(probe.get("release_commit_sha") or "").strip().lower() != observed_sha:
+        errors.append("probe_release_commit_sha_mismatch")
+    if str(probe.get("release_image_digest") or "").strip().lower() != observed_digest:
+        errors.append("probe_release_image_digest_mismatch")
+    if probe.get("schema") != "propertyquarry.metrics_snapshot_bundle.v2":
+        errors.append("probe_snapshot_bundle_schema_invalid")
+    if probe.get("probe_schema") != "propertyquarry.metrics_probe_bundle.v2":
+        errors.append("probe_bundle_schema_invalid")
+    if window_start is None or captured_at is None or captured_at <= window_start:
+        errors.append("probe_window_invalid")
+    elif not math.isfinite(window_seconds) or abs(
+        window_seconds - (captured_at - window_start).total_seconds()
+    ) > 0.001:
+        errors.append("probe_window_seconds_invalid")
+    elif window_seconds < 1:
+        errors.append("probe_window_too_short")
+    if captured_at is None:
+        errors.append("probe_window_end_invalid")
+    elif age_seconds is not None and age_seconds < -60:
+        errors.append("probe_window_end_in_future")
+    elif age_seconds is not None and age_seconds > configured_max_age:
+        errors.append("probe_stale")
+    if probe.get("credential_persisted") is not False:
+        errors.append("probe_credential_boundary_invalid")
+    if (
+        replica_count <= 0
+        or len(replica_ids) != replica_count
+        or replica_ids != sorted(set(replica_ids))
+        or any(not value or len(value) > 128 for value in replica_ids)
+    ):
+        errors.append("probe_replica_coverage_invalid")
+    if not valid_sha256(probe.get("snapshot_bundle_sha256")):
+        errors.append("probe_snapshot_bundle_sha256_invalid")
+    if not valid_sha256(probe.get("probe_bundle_sha256")):
+        errors.append("probe_bundle_sha256_invalid")
+
+    range_start = _parse_receipt_datetime(prometheus_range.get("window_start"))
+    range_end = _parse_receipt_datetime(prometheus_range.get("window_end"))
+    try:
+        range_window_seconds = float(prometheus_range.get("window_seconds"))
+    except (TypeError, ValueError):
+        range_window_seconds = math.nan
+    range_replica_ids = (
+        [str(value or "").strip() for value in prometheus_range.get("replica_ids", [])]
+        if isinstance(prometheus_range.get("replica_ids"), list)
+        else []
+    )
+    range_slo = (
+        dict(prometheus_range.get("slo") or {})
+        if isinstance(prometheus_range.get("slo"), dict)
+        else {}
+    )
+    if prometheus_range.get("schema") != RANGE_RECEIPT_SCHEMA:
+        errors.append("prometheus_range_schema_invalid")
+    if prometheus_range.get("producer") != "propertyquarry-prometheus-range-capture":
+        errors.append("prometheus_range_producer_invalid")
+    if (
+        prometheus_range.get("authenticated") is not True
+        or prometheus_range.get("tls_verified") is not True
+        or prometheus_range.get("credential_persisted") is not False
+    ):
+        errors.append("prometheus_range_transport_invalid")
+    if (
+        range_start is None
+        or range_end is None
+        or range_end <= range_start
+        or not math.isfinite(range_window_seconds)
+        or abs(range_window_seconds - (range_end - range_start).total_seconds()) > 0.001
+        or range_window_seconds < 30 * 24 * 60 * 60
+    ):
+        errors.append("prometheus_range_window_invalid")
+    if range_replica_ids != replica_ids:
+        errors.append("prometheus_range_replica_coverage_mismatch")
+    if not valid_sha256(prometheus_range.get("range_response_sha256")):
+        errors.append("prometheus_range_response_sha256_invalid")
+    if not valid_sha256(prometheus_range.get("receipt_sha256")):
+        errors.append("prometheus_range_receipt_sha256_invalid")
+    if range_slo.get("status") != "pass":
+        errors.append("prometheus_range_slo_not_passed")
+    if (
+        promtool.get("available") is not True
+        or promtool.get("version_pinned") is not True
+        or promtool.get("rule_check_passed") is not True
+        or promtool.get("config_check_passed") is not True
+        or promtool.get("injection_test_passed") is not True
+    ):
+        errors.append("promtool_evidence_incomplete")
+    if (
+        amtool.get("available") is not True
+        or amtool.get("version_pinned") is not True
+        or amtool.get("routing_check_passed") is not True
+    ):
+        errors.append("amtool_evidence_incomplete")
+    return not errors, {
+        "status": "pass" if not errors else "blocked",
+        "errors": errors,
+        "release_commit_sha": observed_sha,
+        "release_image_digest": observed_digest,
+        "captured_at": str(probe.get("window_end") or ""),
+        "window_start": str(probe.get("window_start") or ""),
+        "window_end": str(probe.get("window_end") or ""),
+        "window_seconds": window_seconds if math.isfinite(window_seconds) else None,
+        "age_seconds": round(max(0.0, age_seconds), 3) if age_seconds is not None else None,
+        "max_age_seconds": configured_max_age,
+        "authenticated": prometheus_range.get("authenticated") is True,
+        "private_route": not errors,
+        "no_store": not errors,
+        "credential_persisted": probe.get("credential_persisted"),
+        "replica_id": replica_ids[0] if len(replica_ids) == 1 else "",
+        "replica_ids": replica_ids,
+        "replica_count": replica_count,
+        "prometheus_range_window_seconds": (
+            range_window_seconds if math.isfinite(range_window_seconds) else None
+        ),
+        "promtool_rule_check_passed": promtool.get("rule_check_passed") is True,
+        "promtool_config_check_passed": promtool.get("config_check_passed") is True,
+        "promtool_injection_test_passed": promtool.get("injection_test_passed") is True,
+        "amtool_routing_check_passed": amtool.get("routing_check_passed") is True,
+    }
+
+
+def _normalize_readiness_profile(value: str) -> str:
+    normalized = str(value or "standard").strip().lower().replace("-", "_")
+    if normalized in {"", "standard", "development", "default"}:
+        return "standard"
+    if normalized in {"flagship", "launch"}:
+        return "flagship"
+    raise ValueError(f"unsupported_propertyquarry_readiness_profile:{normalized}")
 
 
 def _missing_provider_modes(tour_receipt: dict[str, Any]) -> list[str]:
@@ -949,6 +1329,415 @@ def _failed_live_mobile_coverage_checks(live_mobile: dict[str, Any]) -> list[dic
     return failed
 
 
+def _normalize_required_browser_engines(engines: tuple[str, ...] | list[str] | None) -> tuple[str, ...]:
+    normalized: list[str] = []
+    for raw_engine in engines or DEFAULT_REQUIRED_FLAGSHIP_BROWSER_ENGINES:
+        engine = str(raw_engine or "").strip().lower()
+        if engine not in SUPPORTED_FLAGSHIP_BROWSER_ENGINES:
+            raise ValueError(f"unsupported_flagship_browser_engine:{engine or 'missing'}")
+        if engine not in normalized:
+            normalized.append(engine)
+    return tuple(normalized or DEFAULT_REQUIRED_FLAGSHIP_BROWSER_ENGINES)
+
+
+def _live_mobile_flagship_browser_proof(
+    live_mobile: dict[str, Any],
+    *,
+    required_browser_engines: tuple[str, ...] = DEFAULT_REQUIRED_FLAGSHIP_BROWSER_ENGINES,
+) -> tuple[bool, dict[str, Any]]:
+    normalized_required_engines = _normalize_required_browser_engines(required_browser_engines)
+    required_engine_set = set(normalized_required_engines)
+    browser_proof = dict(live_mobile.get("browser_proof") or {})
+    rows = [row for row in list(live_mobile.get("routes") or []) if isinstance(row, dict)]
+    required_viewports = set(REQUIRED_FLAGSHIP_MOBILE_VIEWPORTS)
+    declared_viewports = {
+        (int(row.get("width") or 0), int(row.get("height") or 0))
+        for row in list(live_mobile.get("supported_viewports") or browser_proof.get("supported_viewports") or [])
+        if isinstance(row, dict)
+    }
+    receipt_declared_engines = {
+        str(engine or "").strip().lower()
+        for engine in list(live_mobile.get("required_browser_engines") or [])
+        if str(engine or "").strip()
+    }
+    proof_declared_engines = {
+        str(engine or "").strip().lower()
+        for engine in list(browser_proof.get("required_browser_engines") or [])
+        if str(engine or "").strip()
+    }
+    observed_samples: set[tuple[str, str, int, int]] = set()
+    failed_rows: list[dict[str, Any]] = []
+    static_or_synthetic_rows: list[dict[str, Any]] = []
+    for row in rows:
+        route = str(row.get("route") or "").strip()
+        route_path = route.split("?", 1)[0]
+        viewport = dict(row.get("viewport") or {})
+        metrics = dict(row.get("metrics") or {})
+        browser_engine = str(row.get("browser_engine") or metrics.get("browser_engine") or "").strip().lower()
+        width = int(viewport.get("width") or metrics.get("viewport_width") or 0)
+        height = int(viewport.get("height") or metrics.get("viewport_height") or 0)
+        proof_mode = str(row.get("proof_mode") or metrics.get("proof_mode") or "").strip()
+        passed_checks = {
+            str(check.get("name") or "")
+            for check in list(row.get("checks") or [])
+            if isinstance(check, dict) and check.get("ok") is True
+        }
+        missing_checks = [name for name in REQUIRED_FLAGSHIP_BROWSER_CHECKS if name not in passed_checks]
+        row_is_playwright = (
+            proof_mode == "playwright"
+            and metrics.get("proof_mode") == "playwright"
+            and metrics.get("browser_probe") is True
+            and metrics.get("static_html_probe") is not True
+        )
+        row_ok = row.get("ok") is True and not missing_checks and row_is_playwright
+        if row_ok:
+            observed_samples.add((browser_engine, route_path, width, height))
+        else:
+            failed_rows.append(
+                {
+                    "browser_engine": browser_engine or "missing",
+                    "route": route_path,
+                    "viewport": {"width": width, "height": height},
+                    "proof_mode": proof_mode or "missing",
+                    "missing_checks": missing_checks,
+                }
+            )
+        if not row_is_playwright:
+            static_or_synthetic_rows.append(
+                {
+                    "browser_engine": browser_engine or "missing",
+                    "route": route_path,
+                    "viewport": {"width": width, "height": height},
+                    "proof_mode": proof_mode or "missing",
+                }
+            )
+    missing_samples = [
+        {"browser_engine": engine, "route": route, "viewport": {"width": width, "height": height}}
+        for engine in normalized_required_engines
+        for route in REQUIRED_LIVE_MOBILE_ROUTES
+        for width, height in REQUIRED_FLAGSHIP_MOBILE_VIEWPORTS
+        if (engine, route, width, height) not in observed_samples
+    ]
+    research_detail_samples = {
+        (engine, width, height)
+        for engine, route, width, height in observed_samples
+        if route.startswith("/app/research/") and route != "/app/research"
+    }
+    missing_research_detail_viewports = [
+        {"browser_engine": engine, "width": width, "height": height}
+        for engine in normalized_required_engines
+        for width, height in REQUIRED_FLAGSHIP_MOBILE_VIEWPORTS
+        if (engine, width, height) not in research_detail_samples
+    ]
+    observed_engines = {engine for engine, _, _, _ in observed_samples if engine}
+    missing_browser_engines = sorted(required_engine_set - observed_engines)
+    top_level_contract_ok = (
+        live_mobile.get("proof_mode") == "playwright_browser_all"
+        and browser_proof.get("mode") == "playwright_browser_all"
+        and browser_proof.get("ready") is True
+        and required_viewports.issubset(declared_viewports)
+        and required_engine_set.issubset(receipt_declared_engines)
+        and required_engine_set.issubset(proof_declared_engines)
+    )
+    details = {
+        "required_mode": "playwright_browser_all",
+        "reported_mode": str(live_mobile.get("proof_mode") or ""),
+        "browser_proof_ready": browser_proof.get("ready") is True,
+        "required_browser_engines": list(normalized_required_engines),
+        "receipt_declared_browser_engines": sorted(receipt_declared_engines),
+        "browser_proof_declared_browser_engines": sorted(proof_declared_engines),
+        "observed_browser_engines": sorted(observed_engines),
+        "missing_browser_engines": missing_browser_engines,
+        "required_viewports": [
+            {"width": width, "height": height}
+            for width, height in REQUIRED_FLAGSHIP_MOBILE_VIEWPORTS
+        ],
+        "declared_viewports": [
+            {"width": width, "height": height}
+            for width, height in sorted(declared_viewports)
+        ],
+        "missing_samples": missing_samples,
+        "missing_research_detail_viewports": missing_research_detail_viewports,
+        "static_or_synthetic_rows": static_or_synthetic_rows,
+        "failed_browser_rows": failed_rows,
+    }
+    return (
+        top_level_contract_ok
+        and not missing_browser_engines
+        and not missing_samples
+        and not missing_research_detail_viewports
+        and not static_or_synthetic_rows
+        and not failed_rows,
+        details,
+    )
+
+
+def _flagship_accessibility_proof(
+    accessibility: dict[str, Any],
+    *,
+    required_browser_engines: tuple[str, ...] = DEFAULT_REQUIRED_FLAGSHIP_BROWSER_ENGINES,
+) -> tuple[bool, dict[str, Any]]:
+    engines = _normalize_required_browser_engines(required_browser_engines)
+    engine_set = set(engines)
+    declared_engines = {
+        str(engine or "").strip().lower()
+        for engine in list(accessibility.get("required_browser_engines") or [])
+        if str(engine or "").strip()
+    }
+    configured_routes = [str(route or "").strip() for route in list(accessibility.get("configured_routes") or [])]
+    detail_routes = [
+        route
+        for route in configured_routes
+        if route.split("?", 1)[0].rstrip("/").startswith("/app/research/")
+        and route.split("?", 1)[0].rstrip("/") != "/app/research"
+    ]
+    rows = [dict(row) for row in list(accessibility.get("routes") or []) if isinstance(row, dict)]
+    observed_samples: set[tuple[str, str]] = set()
+    failed_rows: list[dict[str, Any]] = []
+    for row in rows:
+        route = str(row.get("route") or "").strip()
+        route_path = route.split("?", 1)[0].rstrip("/") or "/"
+        route_key = (
+            "/app/research/[detail]"
+            if route_path.startswith("/app/research/") and route_path != "/app/research"
+            else route_path
+        )
+        engine = str(row.get("browser_engine") or "").strip().lower()
+        checks = {
+            str(check.get("name") or ""): check.get("ok") is True
+            for check in list(row.get("checks") or [])
+            if isinstance(check, dict)
+        }
+        missing_checks = [name for name in REQUIRED_FLAGSHIP_ACCESSIBILITY_CHECKS if checks.get(name) is not True]
+        metrics = dict(row.get("metrics") or {})
+        row_ok = (
+            row.get("ok") is True
+            and not missing_checks
+            and metrics.get("axe_core_version") == REQUIRED_AXE_CORE_VERSION
+            and int(metrics.get("axe_serious_critical_count") or 0) == 0
+        )
+        if row_ok:
+            observed_samples.add((engine, route_key))
+        else:
+            failed_rows.append(
+                {
+                    "browser_engine": engine or "missing",
+                    "route": route_path,
+                    "missing_checks": missing_checks,
+                    "axe_core_version": str(metrics.get("axe_core_version") or ""),
+                    "serious_critical_count": int(metrics.get("axe_serious_critical_count") or 0),
+                    "error": str(metrics.get("error") or ""),
+                }
+            )
+    expected_route_keys = {
+        *(str(route).split("?", 1)[0].rstrip("/") or "/" for route in REQUIRED_FLAGSHIP_ACCESSIBILITY_ROUTES),
+        "/app/research/[detail]",
+    }
+    expected_samples = {(engine, route) for engine in engines for route in expected_route_keys}
+    missing_samples = sorted(expected_samples - observed_samples)
+    top_checks = {
+        str(check.get("name") or ""): check.get("ok") is True
+        for check in list(accessibility.get("checks") or [])
+        if isinstance(check, dict)
+    }
+    required_top_checks = (
+        "axe_core_pinned_input",
+        "accessibility_route_engine_matrix_complete",
+        "public_information_route_matrix_configured",
+        "research_detail_route_configured",
+        "dialog_focus_interaction_sampled",
+    )
+    missing_top_checks = [name for name in required_top_checks if top_checks.get(name) is not True]
+    observed_engines = {engine for engine, _route in observed_samples if engine}
+    missing_engines = sorted(engine_set - observed_engines)
+    details = {
+        "required_browser_engines": list(engines),
+        "declared_browser_engines": sorted(declared_engines),
+        "observed_browser_engines": sorted(observed_engines),
+        "missing_browser_engines": missing_engines,
+        "required_routes": sorted(expected_route_keys),
+        "configured_routes": configured_routes,
+        "research_detail_routes": detail_routes,
+        "required_axe_core_version": REQUIRED_AXE_CORE_VERSION,
+        "reported_axe_core_version": str(accessibility.get("axe_core_version") or ""),
+        "missing_samples": [
+            {"browser_engine": engine, "route": route}
+            for engine, route in missing_samples
+        ],
+        "missing_top_checks": missing_top_checks,
+        "failed_rows": failed_rows,
+    }
+    ready = (
+        accessibility.get("status") == "pass"
+        and int(accessibility.get("failed_count") or 0) == 0
+        and accessibility.get("axe_core_version") == REQUIRED_AXE_CORE_VERSION
+        and engine_set.issubset(declared_engines)
+        and bool(detail_routes)
+        and not missing_engines
+        and not missing_samples
+        and not missing_top_checks
+        and not failed_rows
+    )
+    return ready, details
+
+
+def _flagship_failure_state_proof(
+    failure_states: dict[str, Any],
+    *,
+    required_browser_engines: tuple[str, ...] = DEFAULT_REQUIRED_FLAGSHIP_BROWSER_ENGINES,
+) -> tuple[bool, dict[str, Any]]:
+    engines = _normalize_required_browser_engines(required_browser_engines)
+    declared_engines = {
+        str(engine or "").strip().lower()
+        for engine in list(failure_states.get("required_browser_engines") or [])
+        if str(engine or "").strip()
+    }
+    declared_states = {
+        str(state or "").strip()
+        for state in list(failure_states.get("required_failure_states") or [])
+        if str(state or "").strip()
+    }
+    rows = [dict(row) for row in list(failure_states.get("rows") or []) if isinstance(row, dict)]
+    observed_samples: set[tuple[str, str]] = set()
+    failed_rows: list[dict[str, Any]] = []
+    for row in rows:
+        engine = str(row.get("browser_engine") or "").strip().lower()
+        state = str(row.get("state") or "").strip()
+        row_checks = {
+            str(check.get("name") or ""): check.get("ok") is True
+            for check in list(row.get("checks") or [])
+            if isinstance(check, dict)
+        }
+        missing_checks = [
+            name for name in REQUIRED_FLAGSHIP_FAILURE_STATE_CHECKS
+            if row_checks.get(name) is not True
+        ]
+        if row.get("ok") is True and not missing_checks:
+            observed_samples.add((engine, state))
+        else:
+            failed_rows.append(
+                {
+                    "browser_engine": engine or "missing",
+                    "state": state or "missing",
+                    "missing_checks": missing_checks,
+                    "error": str(row.get("error") or ""),
+                }
+            )
+    expected_samples = {
+        (engine, state)
+        for engine in engines
+        for state in REQUIRED_FLAGSHIP_FAILURE_STATES
+    }
+    missing_samples = sorted(expected_samples - observed_samples)
+    top_checks = {
+        str(check.get("name") or ""): check.get("ok") is True
+        for check in list(failure_states.get("checks") or [])
+        if isinstance(check, dict)
+    }
+    required_top_checks = (
+        "required_failure_scenarios_configured",
+        "browser_state_engine_matrix_complete",
+        "no_provider_response_mocking",
+    )
+    missing_top_checks = [name for name in required_top_checks if top_checks.get(name) is not True]
+    details = {
+        "proof_mode": str(failure_states.get("proof_mode") or ""),
+        "required_browser_engines": list(engines),
+        "declared_browser_engines": sorted(declared_engines),
+        "required_failure_states": list(REQUIRED_FLAGSHIP_FAILURE_STATES),
+        "declared_failure_states": sorted(declared_states),
+        "missing_top_checks": missing_top_checks,
+        "missing_samples": [
+            {"browser_engine": engine, "state": state}
+            for engine, state in missing_samples
+        ],
+        "failed_rows": failed_rows,
+    }
+    ready = (
+        failure_states.get("status") == "pass"
+        and int(failure_states.get("failed_count") or 0) == 0
+        and details["proof_mode"] == "playwright_browser_all"
+        and set(engines).issubset(declared_engines)
+        and set(REQUIRED_FLAGSHIP_FAILURE_STATES).issubset(declared_states)
+        and not missing_top_checks
+        and not missing_samples
+        and not failed_rows
+    )
+    return ready, details
+
+
+def _flagship_activation_to_value_proof(
+    activation: dict[str, Any],
+) -> tuple[bool, dict[str, Any]]:
+    steps = [dict(row) for row in list(activation.get("steps") or []) if isinstance(row, dict)]
+    step_by_name = {str(row.get("name") or ""): row for row in steps}
+    missing_steps = [
+        name
+        for name in REQUIRED_ACTIVATION_TO_VALUE_STEPS
+        if step_by_name.get(name, {}).get("ok") is not True
+    ]
+    checks = {
+        str(row.get("name") or ""): row.get("ok") is True
+        for row in list(activation.get("checks") or [])
+        if isinstance(row, dict)
+    }
+    required_checks = (
+        "protected_live_configuration",
+        "idempotent_run_reservation",
+        "activation_step_matrix_complete",
+        "safe_cleanup_complete",
+    )
+    missing_checks = [name for name in required_checks if checks.get(name) is not True]
+    live_contract = dict(activation.get("live_contract") or {})
+    required_live_contract = (
+        "explicit_persona",
+        "principal_headers_forbidden",
+        "session_injection_forbidden",
+        "provider_response_mocking_forbidden",
+        "local_execution_forbidden",
+        "deployed_playwright_runner",
+    )
+    missing_live_contract = [
+        name for name in required_live_contract if live_contract.get(name) is not True
+    ]
+    account_step = dict(step_by_name.get("account_create_or_reopen") or {})
+    provider_step = dict(step_by_name.get("real_provider_results") or {})
+    walkthrough_step = dict(step_by_name.get("walkthrough_request_or_reuse") or {})
+    cleanup_step = dict(step_by_name.get("safe_cleanup") or {})
+    details = {
+        "auth_mode": str(activation.get("auth_mode") or ""),
+        "browser_engine": str(activation.get("browser_engine") or ""),
+        "proof_mode": str(activation.get("proof_mode") or ""),
+        "persona_digest_present": bool(str(activation.get("persona_digest") or "").strip()),
+        "run_key_present": bool(str(activation.get("run_key") or "").strip()),
+        "missing_steps": missing_steps,
+        "missing_checks": missing_checks,
+        "missing_live_contract": missing_live_contract,
+        "account_outcome": str(account_step.get("outcome") or ""),
+        "provider_count": int(provider_step.get("provider_count") or 0),
+        "result_count": int(provider_step.get("result_count") or 0),
+        "walkthrough_mode": str(walkthrough_step.get("mode") or ""),
+        "session_cleared": cleanup_step.get("session_cleared") is True,
+    }
+    ready = (
+        activation.get("status") == "pass"
+        and int(activation.get("failed_count") or 0) == 0
+        and str(activation.get("auth_mode") or "") in {"google", "email_link"}
+        and details["proof_mode"] == "deployed_playwright"
+        and details["persona_digest_present"]
+        and details["run_key_present"]
+        and not missing_steps
+        and not missing_checks
+        and not missing_live_contract
+        and details["account_outcome"] in {"created", "reopened"}
+        and details["provider_count"] > 0
+        and details["result_count"] > 0
+        and details["walkthrough_mode"] in {"requested", "reused_ready"}
+        and details["session_cleared"]
+    )
+    return ready, details
+
+
 def _public_sign_in_checks(public_smoke: dict[str, Any]) -> tuple[bool, list[str], list[dict[str, Any]]]:
     sign_in_row: dict[str, Any] = {}
     for row in list(public_smoke.get("checks") or []):
@@ -1004,7 +1793,64 @@ def _route_named_checks(receipt: dict[str, Any], route_path: str) -> tuple[dict[
     return route_row, passed, failed
 
 
-def _authenticated_billing_surface_checks(authenticated_smoke: dict[str, Any]) -> tuple[bool, list[str], list[dict[str, Any]], str]:
+def _billing_route_availability_details(route_row: dict[str, Any]) -> dict[str, Any]:
+    passed_checks = {
+        str(check.get("name") or "")
+        for check in list(route_row.get("checks") or [])
+        if isinstance(check, dict) and check.get("ok") is True
+    }
+    if set(REQUIRED_FLAGSHIP_BILLING_HANDOFF_CHECKS).issubset(passed_checks):
+        state = "available"
+        reason = "no_second_login_handoff_verified"
+    elif passed_checks & {"billing_internal_account_fallback", "billing_bridge_guided_login_assist"}:
+        state = "degraded"
+        reason = "account_fallback_or_second_login_required"
+    elif "billing_fail_closed_recovery" in passed_checks:
+        state = "unavailable"
+        reason = "fail_closed_recovery_only"
+    elif "billing_external_handoff" in passed_checks:
+        state = "degraded"
+        reason = "external_handoff_not_proven_usable"
+    else:
+        state = "unavailable"
+        reason = "billing_route_not_available"
+    return {
+        "state": state,
+        "available": state == "available",
+        "reason": reason,
+        "passed_checks": sorted(passed_checks),
+    }
+
+
+def _live_mobile_billing_availability_details(live_mobile: dict[str, Any]) -> dict[str, Any]:
+    route_rows = [
+        dict(row)
+        for row in list(live_mobile.get("routes") or [])
+        if isinstance(row, dict)
+        and str(row.get("route") or "").split("?", 1)[0].strip() == "/app/billing"
+    ]
+    details = [_billing_route_availability_details(row) for row in route_rows]
+    states = [str(detail.get("state") or "unavailable") for detail in details]
+    state = (
+        "available"
+        if states and all(value == "available" for value in states)
+        else "degraded"
+        if any(value == "degraded" for value in states)
+        else "unavailable"
+    )
+    return {
+        "state": state,
+        "available": state == "available",
+        "sample_count": len(route_rows),
+        "reasons": sorted({str(detail.get("reason") or "") for detail in details if detail.get("reason")}),
+    }
+
+
+def _authenticated_billing_surface_checks(
+    authenticated_smoke: dict[str, Any],
+    *,
+    require_available: bool = False,
+) -> tuple[bool, list[str], list[dict[str, Any]], str]:
     route_row, passed_checks, failed_checks = _route_named_checks(authenticated_smoke, "/app/billing")
     if not route_row:
         return False, ["billing_route_missing"], [], ""
@@ -1016,6 +1862,10 @@ def _authenticated_billing_surface_checks(authenticated_smoke: dict[str, Any]) -
     )
     if not handoff_or_recovery_ok:
         missing.append("billing_external_handoff_or_fail_closed_recovery")
+    if require_available:
+        availability = _billing_route_availability_details(route_row)
+        if availability.get("available") is not True:
+            missing.append("billing_available_no_second_login_handoff")
     return not missing and not failed_checks, missing, failed_checks, str(route_row.get("status_code") or "")
 
 
@@ -1205,14 +2055,22 @@ def _billing_handoff_ready(
     billing_receipt: dict[str, Any],
     *,
     authenticated_smoke: dict[str, Any] | None = None,
+    require_live_no_second_login: bool = False,
 ) -> bool:
-    return bool(_billing_handoff_readiness_details(billing_receipt, authenticated_smoke=authenticated_smoke).get("ready"))
+    return bool(
+        _billing_handoff_readiness_details(
+            billing_receipt,
+            authenticated_smoke=authenticated_smoke,
+            require_live_no_second_login=require_live_no_second_login,
+        ).get("ready")
+    )
 
 
 def _billing_handoff_readiness_details(
     billing_receipt: dict[str, Any],
     *,
     authenticated_smoke: dict[str, Any] | None = None,
+    require_live_no_second_login: bool = False,
 ) -> dict[str, Any]:
     handoff = billing_receipt.get("billing_handoff")
     if not isinstance(handoff, dict):
@@ -1224,15 +2082,24 @@ def _billing_handoff_readiness_details(
             "live_smoke_external_handoff_usable": False,
             "live_smoke_no_second_login": False,
             "pricing_placeholder": False,
+            "provider_disabled": False,
+            "strict_live_proof_required": require_live_no_second_login,
         }
     pricing_probe = handoff.get("pricing_surface_probe")
     pricing_placeholder = isinstance(pricing_probe, dict) and pricing_probe.get("placeholder") is True
-    direct_ready = (
+    provider_status = str(billing_receipt.get("status") or "").strip().lower()
+    provider_disabled = (
+        provider_status in {"disabled", "intentionally_disabled", "not_configured"}
+        or billing_receipt.get("enabled") is False
+        or handoff.get("enabled") is False
+    )
+    provider_receipt_eligible = provider_status != "blocked" and not provider_disabled
+    direct_ready_without_live_proof = (
         bool(handoff.get("configured"))
         and bool(handoff.get("host_resolves"))
         and handoff.get("account_handoff_usable") is True
         and str(handoff.get("url") or "").strip().startswith("https://")
-        and str(billing_receipt.get("status") or "").strip() != "blocked"
+        and provider_receipt_eligible
         and not pricing_placeholder
     )
     bridge = billing_receipt.get("billing_sso_bridge")
@@ -1244,14 +2111,18 @@ def _billing_handoff_readiness_details(
     live_external_usable = "billing_external_handoff_usable" in authenticated_passed_checks
     live_no_second_login = "billing_no_second_login" in authenticated_passed_checks
     authenticated_external_handoff_usable = bool(authenticated_route_row) and live_external_usable and live_no_second_login
+    direct_ready = direct_ready_without_live_proof and (
+        authenticated_external_handoff_usable or not require_live_no_second_login
+    )
     member_token_ready = (
         isinstance(member_token_handoff, dict)
         and member_token_handoff.get("ready") is True
         and bool(handoff.get("configured"))
         and bool(handoff.get("host_resolves"))
         and str(handoff.get("url") or "").strip().startswith("https://")
-        and str(billing_receipt.get("status") or "").strip() != "blocked"
+        and provider_receipt_eligible
         and (authenticated_external_handoff_usable or not authenticated_route_row)
+        and (authenticated_external_handoff_usable or not require_live_no_second_login)
         and not pricing_placeholder
     )
     bridge_session_ready = (
@@ -1289,6 +2160,8 @@ def _billing_handoff_readiness_details(
         "live_smoke_bridge_launch": bool(authenticated_bridge_launch),
         "bridge_guided_login_assist": bool(bridge_guided_login_assist),
         "pricing_placeholder": bool(pricing_placeholder),
+        "provider_disabled": bool(provider_disabled),
+        "strict_live_proof_required": require_live_no_second_login,
     }
 
 
@@ -1378,6 +2251,9 @@ def build_gold_status_receipt(
     provider_matrix_receipt_path: Path,
     billing_receipt_path: Path | None = None,
     live_mobile_receipt_path: Path | None = None,
+    accessibility_receipt_path: Path | None = None,
+    failure_state_receipt_path: Path | None = None,
+    activation_to_value_receipt_path: Path | None = None,
     public_smoke_receipt_path: Path | None = None,
     authenticated_smoke_receipt_path: Path | None = None,
     tour_provider_ownership_receipt_path: Path | None = None,
@@ -1399,13 +2275,62 @@ def build_gold_status_receipt(
     scene_video_runtime_status_receipt_path: Path | None = None,
     scene_video_provider_refresh_packet_path: Path | None = None,
     scene_video_provider_refresh_packet_verifier_receipt_path: Path | None = None,
+    slo_evidence_receipt_path: Path | None = None,
+    expected_release_commit_sha: str = "",
+    expected_release_image_digest: str = "",
+    slo_evidence_max_age_seconds: int = DEFAULT_SLO_EVIDENCE_MAX_AGE_SECONDS,
     id_austria_receipt_path: Path | None = None,
     max_receipt_age_hours: float | None = None,
     provider_catalog_receipt_path: Path | None = None,
+    readiness_profile: str = "standard",
+    required_browser_engines: tuple[str, ...] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
+    normalized_readiness_profile = _normalize_readiness_profile(readiness_profile)
+    flagship_profile = normalized_readiness_profile == "flagship"
+    configured_browser_engines = _normalize_required_browser_engines(
+        required_browser_engines
+        if required_browser_engines is not None
+        else tuple(
+            engine.strip()
+            for engine in os.environ.get(
+                "PROPERTYQUARRY_FLAGSHIP_REQUIRED_BROWSER_ENGINES",
+                ",".join(DEFAULT_REQUIRED_FLAGSHIP_BROWSER_ENGINES),
+            ).split(",")
+            if engine.strip()
+        )
+    )
+    effective_max_receipt_age_hours = (
+        DEFAULT_FLAGSHIP_MAX_RECEIPT_AGE_HOURS
+        if flagship_profile and (max_receipt_age_hours is None or max_receipt_age_hours <= 0)
+        else max_receipt_age_hours
+    )
+    flagship_customer_ux_receipt_paths: dict[str, Path | None] = {
+        "public_auth_surfaces": public_smoke_receipt_path,
+        "authenticated_customer_surfaces": authenticated_smoke_receipt_path,
+        "live_mobile_surfaces": live_mobile_receipt_path,
+        "accessibility": accessibility_receipt_path,
+        "failure_states": failure_state_receipt_path,
+        "activation_to_value": activation_to_value_receipt_path,
+        "billing_handoff": billing_receipt_path,
+        "browser_rendered_3d": browser_3d_gate_receipt_path,
+        "map_preview_flagship": map_preview_flagship_receipt_path,
+        "walkthrough_quality": walkthrough_quality_receipt_path,
+    }
+    missing_flagship_customer_ux_receipts = [
+        area
+        for area in FLAGSHIP_CUSTOMER_UX_RECEIPT_AREAS
+        if flagship_customer_ux_receipt_paths.get(area) is None
+    ] if flagship_profile else []
     performance = _load_json(performance_receipt_path)
     live_mobile = _load_json(live_mobile_receipt_path) if live_mobile_receipt_path is not None else {}
+    accessibility = _load_json(accessibility_receipt_path) if accessibility_receipt_path is not None else {}
+    failure_states = _load_json(failure_state_receipt_path) if failure_state_receipt_path is not None else {}
+    activation_to_value = (
+        _load_json(activation_to_value_receipt_path)
+        if activation_to_value_receipt_path is not None
+        else {}
+    )
     public_smoke = _load_json(public_smoke_receipt_path) if public_smoke_receipt_path is not None else {}
     authenticated_smoke = _load_json(authenticated_smoke_receipt_path) if authenticated_smoke_receipt_path is not None else {}
     tour_controls = _load_json(tour_control_receipt_path)
@@ -1451,6 +2376,11 @@ def build_gold_status_receipt(
         if scene_video_provider_refresh_packet_verifier_receipt_path is not None
         else {}
     )
+    slo_evidence = (
+        _load_json(slo_evidence_receipt_path)
+        if slo_evidence_receipt_path is not None
+        else {}
+    )
     id_austria_receipt = _load_json(id_austria_receipt_path) if id_austria_receipt_path is not None else {}
     repair_canary = _load_json(repair_canary_receipt_path)
     provider_catalog = _load_json(provider_catalog_receipt_path) if provider_catalog_receipt_path is not None else {}
@@ -1466,6 +2396,9 @@ def build_gold_status_receipt(
             **({"provider_catalog_smoke": provider_catalog} if provider_catalog_receipt_path is not None else {}),
             "provider_matrix": provider_matrix,
             **({"live_mobile_surfaces": live_mobile} if live_mobile_receipt_path is not None else {}),
+            **({"accessibility": accessibility} if accessibility_receipt_path is not None else {}),
+            **({"failure_states": failure_states} if failure_state_receipt_path is not None else {}),
+            **({"activation_to_value": activation_to_value} if activation_to_value_receipt_path is not None else {}),
             **({"public_auth_surfaces": public_smoke} if public_smoke_receipt_path is not None else {}),
             **({"authenticated_customer_surfaces": authenticated_smoke} if authenticated_smoke_receipt_path is not None else {}),
             **({"tour_provider_ownership": tour_provider_ownership} if tour_provider_ownership_receipt_path is not None else {}),
@@ -1497,8 +2430,17 @@ def build_gold_status_receipt(
             **({"scene_video_provider_refresh_packet_verifier": scene_video_provider_refresh_packet_verifier} if scene_video_provider_refresh_packet_verifier_receipt_path is not None else {}),
         },
         now=now,
-        max_age_hours=max_receipt_age_hours,
+        max_age_hours=effective_max_receipt_age_hours,
     )
+    slo_evidence_ok, slo_evidence_details = _slo_evidence_status(
+        slo_evidence,
+        receipt_present=slo_evidence_receipt_path is not None,
+        expected_release_commit_sha=expected_release_commit_sha,
+        expected_release_image_digest=expected_release_image_digest,
+        now=now,
+        max_age_seconds=slo_evidence_max_age_seconds,
+    )
+    slo_evidence_required = flagship_profile or slo_evidence_receipt_path is not None
 
     missing_provider_modes = _missing_provider_modes(tour_controls)
     magicfit_playback = dict(tour_controls.get("magicfit_playback") or {})
@@ -1565,8 +2507,13 @@ def build_gold_status_receipt(
         if not any(_route_covers_required_detail(route, prefix) for route in live_mobile_covered_routes)
     ]
     failed_live_mobile_coverage_checks = _failed_live_mobile_coverage_checks(live_mobile)
+    flagship_live_mobile_browser_ok, flagship_live_mobile_browser_details = _live_mobile_flagship_browser_proof(
+        live_mobile,
+        required_browser_engines=configured_browser_engines,
+    )
+    live_mobile_billing_availability = _live_mobile_billing_availability_details(live_mobile)
     live_mobile_ok = (
-        live_mobile_receipt_path is None
+        (live_mobile_receipt_path is None and not flagship_profile)
         or (
             live_mobile.get("status") == "pass"
             and int(live_mobile.get("failed_count") or 0) == 0
@@ -1574,21 +2521,48 @@ def build_gold_status_receipt(
             and not missing_live_mobile_routes
             and not missing_live_mobile_detail_routes
             and not failed_live_mobile_coverage_checks
+            and (not flagship_profile or flagship_live_mobile_browser_ok)
+            and (not flagship_profile or live_mobile_billing_availability.get("available") is True)
         )
+    )
+    flagship_accessibility_ok, flagship_accessibility_details = _flagship_accessibility_proof(
+        accessibility,
+        required_browser_engines=configured_browser_engines,
+    )
+    accessibility_ok = not flagship_profile or (
+        accessibility_receipt_path is not None and flagship_accessibility_ok
+    )
+    flagship_failure_states_ok, flagship_failure_states_details = _flagship_failure_state_proof(
+        failure_states,
+        required_browser_engines=configured_browser_engines,
+    )
+    failure_states_ok = not flagship_profile or (
+        failure_state_receipt_path is not None and flagship_failure_states_ok
+    )
+    flagship_activation_to_value_ok, flagship_activation_to_value_details = _flagship_activation_to_value_proof(
+        activation_to_value
+    )
+    activation_to_value_ok = not flagship_profile or (
+        activation_to_value_receipt_path is not None and flagship_activation_to_value_ok
     )
     public_sign_in_ok, missing_public_sign_in_checks, failed_public_sign_in_checks = _public_sign_in_checks(public_smoke)
     public_auth_ok = (
-        public_smoke_receipt_path is None
+        (public_smoke_receipt_path is None and not flagship_profile)
         or (
             public_smoke.get("status") == "pass"
             and int(public_smoke.get("failed_count") or 0) == 0
             and public_sign_in_ok
         )
     )
-    authenticated_billing_ok, missing_authenticated_billing_checks, failed_authenticated_billing_checks, authenticated_billing_status_code = _authenticated_billing_surface_checks(authenticated_smoke)
+    authenticated_billing_ok, missing_authenticated_billing_checks, failed_authenticated_billing_checks, authenticated_billing_status_code = _authenticated_billing_surface_checks(
+        authenticated_smoke,
+        require_available=flagship_profile,
+    )
+    authenticated_billing_route, _, _ = _route_named_checks(authenticated_smoke, "/app/billing")
+    authenticated_billing_availability = _billing_route_availability_details(authenticated_billing_route)
     authenticated_notifications_ok, missing_authenticated_notification_checks, failed_authenticated_notification_checks = _authenticated_account_notification_checks(authenticated_smoke)
     authenticated_customer_ok = (
-        authenticated_smoke_receipt_path is None
+        (authenticated_smoke_receipt_path is None and not flagship_profile)
         or (
             authenticated_smoke.get("status") == "pass"
             and int(authenticated_smoke.get("failed_count") or 0) == 0
@@ -1597,7 +2571,10 @@ def build_gold_status_receipt(
         )
     )
     tour_controls_ok = tour_controls.get("status") == "pass" and not missing_provider_modes and magicfit_playback_ok
-    browser_3d_gate_ok = browser_3d_gate_receipt_path is None or _hard_gate_receipt_ok(browser_3d_gate)
+    browser_3d_gate_ok = (
+        (browser_3d_gate_receipt_path is None and not flagship_profile)
+        or _hard_gate_receipt_ok(browser_3d_gate)
+    )
     runtime_reconstruction_details = dict(runtime_reconstruction.get("details") or {})
     runtime_reconstruction_paths = dict(runtime_reconstruction_details.get("paths") or {})
     runtime_reconstruction_glb = dict(runtime_reconstruction_paths.get("glb") or {})
@@ -1647,7 +2624,10 @@ def build_gold_status_receipt(
             and service_generated_reconstruction.get("public_route_contract_ok") is True
         )
     )
-    walkthrough_quality_ok = walkthrough_quality_receipt_path is None or _hard_gate_receipt_ok(walkthrough_quality)
+    walkthrough_quality_ok = (
+        (walkthrough_quality_receipt_path is None and not flagship_profile)
+        or _hard_gate_receipt_ok(walkthrough_quality)
+    )
     walkthrough_provider_proof_required = scene_video_readiness_receipt_path is not None
     walkthrough_provider_proof_ok = (
         not walkthrough_provider_proof_required
@@ -1771,8 +2751,12 @@ def build_gold_status_receipt(
     billing_readiness = _billing_handoff_readiness_details(
         billing_receipt,
         authenticated_smoke=authenticated_smoke if authenticated_smoke_receipt_path is not None else None,
+        require_live_no_second_login=flagship_profile,
     )
-    billing_ok = billing_receipt_path is None or bool(billing_readiness.get("ready"))
+    billing_ok = (
+        (billing_receipt_path is None and not flagship_profile)
+        or bool(billing_readiness.get("ready"))
+    )
     id_austria_details = _id_austria_gate_details(id_austria_receipt)
     id_austria_ok = id_austria_receipt_path is None or bool(id_austria_details.get("ready"))
     manifest_providers = {
@@ -1894,9 +2878,41 @@ def build_gold_status_receipt(
             )
         )
     )
-    map_preview_flagship_ok = map_preview_flagship_receipt_path is None or _hard_gate_receipt_ok(map_preview_flagship)
+    map_preview_flagship_ok = (
+        (map_preview_flagship_receipt_path is None and not flagship_profile)
+        or _hard_gate_receipt_ok(map_preview_flagship)
+    )
 
     blockers: list[dict[str, Any]] = []
+    if slo_evidence_required and not slo_evidence_ok:
+        blockers.append(
+            {
+                "area": "slo_evidence",
+                "status": slo_evidence_details.get("status") or "blocked",
+                "errors": list(slo_evidence_details.get("errors") or []),
+                "captured_at": str(slo_evidence_details.get("captured_at") or ""),
+                "age_seconds": slo_evidence_details.get("age_seconds"),
+                "max_age_seconds": slo_evidence_details.get("max_age_seconds"),
+                "release_commit_sha": str(
+                    slo_evidence_details.get("release_commit_sha") or ""
+                ),
+                "release_image_digest": str(
+                    slo_evidence_details.get("release_image_digest") or ""
+                ),
+                "replica_id": str(slo_evidence_details.get("replica_id") or ""),
+                "replica_count": slo_evidence_details.get("replica_count"),
+                "action": "capture fresh authenticated private /internal/metrics evidence for the exact release image and replica set, then rerun propertyquarry_slo_evidence.py --flagship before promotion",
+            }
+        )
+    if missing_flagship_customer_ux_receipts:
+        blockers.append(
+            {
+                "area": "flagship_customer_ux_evidence",
+                "status": "missing_required_receipts",
+                "missing_receipts": missing_flagship_customer_ux_receipts,
+                "action": "generate every required deployed customer-UX receipt before claiming the PropertyQuarry flagship launch profile",
+            }
+        )
     if not performance_ok:
         blockers.append(
             {
@@ -1921,18 +2937,54 @@ def build_gold_status_receipt(
         blockers.append(
             {
                 "area": "live_mobile_surfaces",
-                "status": live_mobile.get("status") or "unknown",
+                "status": live_mobile.get("status") or ("not_configured" if live_mobile_receipt_path is None else "missing"),
                 "missing_routes": missing_live_mobile_routes,
                 "missing_detail_routes": missing_live_mobile_detail_routes,
                 "failed_coverage_checks": failed_live_mobile_coverage_checks,
-                "action": "run propertyquarry_live_mobile_surface_smoke.py against the deployed stack with PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE and fix any overflow, chrome, touch-target, detail, or logout regressions",
+                "flagship_browser_proof": flagship_live_mobile_browser_details if flagship_profile else None,
+                "billing_availability": live_mobile_billing_availability,
+                "action": (
+                    "run propertyquarry_live_mobile_surface_smoke.py --proof-mode browser-all against the deployed stack for every configured required browser engine and require /app/billing to open a resolving no-second-login account handoff while fixing every browser-measured viewport, overflow, touch, focus, navigation, detail, or logout regression"
+                    if flagship_profile
+                    else "run propertyquarry_live_mobile_surface_smoke.py against the deployed stack with PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE and fix any overflow, chrome, touch-target, detail, or logout regressions"
+                ),
+            }
+        )
+    if not accessibility_ok:
+        blockers.append(
+            {
+                "area": "accessibility",
+                "status": accessibility.get("status")
+                or ("not_configured" if accessibility_receipt_path is None else "missing"),
+                "proof": flagship_accessibility_details,
+                "action": "run propertyquarry_accessibility_gate.py against every configured customer route and required browser engine with the pinned local axe-core input, then fix serious/critical violations, keyboard/focus/dialog, semantics, 200% reflow, contrast, and reduced-motion failures",
+            }
+        )
+    if not failure_states_ok:
+        blockers.append(
+            {
+                "area": "failure_states",
+                "status": failure_states.get("status")
+                or ("not_configured" if failure_state_receipt_path is None else "missing"),
+                "proof": flagship_failure_states_details,
+                "action": "run propertyquarry_failure_state_gate.py against pre-provisioned read-only 500, empty, partial, and provider-blocked canaries plus the deterministic 404, offline, expired-session, stale-link, and missing-packet routes in every required browser engine; fix calm copy, semantics, recovery actions, or leaked diagnostics without mocking provider responses",
+            }
+        )
+    if not activation_to_value_ok:
+        blockers.append(
+            {
+                "area": "activation_to_value",
+                "status": activation_to_value.get("status")
+                or ("not_configured" if activation_to_value_receipt_path is None else "missing"),
+                "proof": flagship_activation_to_value_details,
+                "action": "run the protected propertyquarry_activation_to_value_live.py journey with an explicitly provisioned persona and unique run key, then require real authentication, real provider search/results, shortlist, research, walkthrough readiness, logout, relogin, and safe final logout to pass without test session injection",
             }
         )
     if not public_auth_ok:
         blockers.append(
             {
                 "area": "public_auth_surfaces",
-                "status": public_smoke.get("status") or "unknown",
+                "status": public_smoke.get("status") or ("not_configured" if public_smoke_receipt_path is None else "missing"),
                 "missing_sign_in_checks": missing_public_sign_in_checks,
                 "failed_sign_in_checks": failed_public_sign_in_checks,
                 "action": "run propertyquarry_live_public_smoke.py against the deployed stack and fix provider sign-in account-creation copy, unavailable-copy, or provider-opening regressions",
@@ -1955,13 +3007,18 @@ def build_gold_status_receipt(
         blockers.append(
             {
                 "area": "authenticated_customer_surfaces",
-                "status": authenticated_smoke.get("status") or "unknown",
+                "status": authenticated_smoke.get("status") or ("not_configured" if authenticated_smoke_receipt_path is None else "missing"),
                 "billing_status_code": authenticated_billing_status_code,
                 "missing_billing_checks": missing_authenticated_billing_checks,
                 "failed_billing_checks": failed_authenticated_billing_checks,
+                "billing_availability": authenticated_billing_availability,
                 "missing_notification_checks": missing_authenticated_notification_checks,
                 "failed_notification_checks": failed_authenticated_notification_checks,
-                "action": "run propertyquarry_live_authenticated_smoke.py against the deployed stack and keep /app/billing either redirected to a resolving billing portal or fail-closed without local billing-board copy, while /app/account keeps the notification routing form usable",
+                "action": (
+                    "run propertyquarry_live_authenticated_smoke.py against the deployed stack and prove /app/billing opens a resolving no-second-login account handoff for the paid persona while /app/account keeps the notification routing form usable"
+                    if flagship_profile
+                    else "run propertyquarry_live_authenticated_smoke.py against the deployed stack and keep /app/billing either redirected to a resolving billing portal or fail-closed without local billing-board copy, while /app/account keeps the notification routing form usable"
+                ),
             }
         )
     if missing_provider_modes:
@@ -2177,10 +3234,20 @@ def build_gold_status_receipt(
                 "member_login_token_required_env": list(BILLING_MEMBER_TOKEN_REQUIRED_ENV),
                 "ready_via": str(billing_readiness.get("ready_via") or ""),
                 "signed_handoff_usable": bool(billing_readiness.get("signed_handoff_usable")),
+                "provider_disabled": bool(billing_readiness.get("provider_disabled")),
+                "launch_blocker_reason": (
+                    "billing_intentionally_disabled"
+                    if billing_readiness.get("provider_disabled") is True
+                    else "no_verified_no_second_login_handoff"
+                ),
                 "live_smoke_external_handoff_usable": bool(billing_readiness.get("live_smoke_external_handoff_usable")),
                 "live_smoke_no_second_login": bool(billing_readiness.get("live_smoke_no_second_login")),
                 "admin_action": BILLING_MEMBER_TOKEN_ADMIN_ACTION,
-                "action": "configure the Brilliant Directories white-label billing host or signed member-login handoff so /app/billing opens a usable external account lane without a second login",
+                "action": (
+                    "enable billing and configure the Brilliant Directories white-label host or signed member-login handoff so /app/billing opens a usable external account lane for the paid persona without a second login"
+                    if billing_readiness.get("provider_disabled") is True
+                    else "configure the Brilliant Directories white-label billing host or signed member-login handoff so /app/billing opens a usable external account lane without a second login"
+                ),
             }
         )
     if import_manifest_receipt_path is not None and import_manifest_status in {"ready_for_exports", "waiting_for_verified_assets", "partial_ready_for_import", "ready_for_import"} and not hardened_readmes_ok:
@@ -2301,7 +3368,7 @@ def build_gold_status_receipt(
             {
                 "area": "receipt_freshness",
                 "status": "stale_or_missing",
-                "max_age_hours": max_receipt_age_hours,
+                "max_age_hours": effective_max_receipt_age_hours,
                 "stale_receipts": stale_receipts,
                 "action": "rerun the stale live smoke, tour, repair, provider, or discovery verifiers before claiming gold",
             }
@@ -2425,6 +3492,19 @@ def build_gold_status_receipt(
         else None,
         {"area": "live_mobile_surfaces", "status": "pass", "receipt_path": str(live_mobile_receipt_path)}
         if live_mobile_receipt_path is not None and live_mobile_ok
+        else None,
+        {"area": "accessibility", "status": "pass", "receipt_path": str(accessibility_receipt_path)}
+        if accessibility_receipt_path is not None and flagship_accessibility_ok
+        else None,
+        {"area": "failure_states", "status": "pass", "receipt_path": str(failure_state_receipt_path)}
+        if failure_state_receipt_path is not None and flagship_failure_states_ok
+        else None,
+        {
+            "area": "activation_to_value",
+            "status": "pass",
+            "receipt_path": str(activation_to_value_receipt_path),
+        }
+        if activation_to_value_receipt_path is not None and flagship_activation_to_value_ok
         else None,
         {"area": "public_auth_surfaces", "status": "pass", "receipt_path": str(public_smoke_receipt_path)}
         if public_smoke_receipt_path is not None and public_auth_ok
@@ -2587,6 +3667,17 @@ def build_gold_status_receipt(
         }
         if scene_video_provider_refresh_packet_verifier_receipt_path is not None and scene_video_provider_refresh_packet_verifier_ok
         else None,
+        {
+            "area": "slo_evidence",
+            "status": "pass",
+            "release_commit_sha": slo_evidence_details.get("release_commit_sha"),
+            "release_image_digest": slo_evidence_details.get("release_image_digest"),
+            "replica_id": slo_evidence_details.get("replica_id"),
+            "replica_count": slo_evidence_details.get("replica_count"),
+            "receipt_path": str(slo_evidence_receipt_path),
+        }
+        if slo_evidence_required and slo_evidence_ok
+        else None,
         {"area": "receipt_freshness", "status": "pass"}
         if receipt_freshness_ok
         else None,
@@ -2598,6 +3689,9 @@ def build_gold_status_receipt(
             and performance_ok
             and analytics_ok
             and live_mobile_ok
+            and accessibility_ok
+            and failure_states_ok
+            and activation_to_value_ok
             and public_auth_ok
             and id_austria_ok
             and authenticated_customer_ok
@@ -2622,6 +3716,7 @@ def build_gold_status_receipt(
             and walkthrough_provider_proof_ok
             and scene_video_readiness_verifier_ok
             and scene_video_provider_refresh_packet_verifier_ok
+            and (not slo_evidence_required or slo_evidence_ok)
             and receipt_freshness_ok
         )
         else "blocked"
@@ -2629,7 +3724,13 @@ def build_gold_status_receipt(
     billing_provider_status = str(
         billing_receipt.get("status") or ("not_configured" if billing_receipt_path is None else "missing")
     )
-    billing_handoff_status = "ready" if billing_ok else billing_provider_status
+    billing_handoff_status = (
+        "ready"
+        if billing_readiness.get("ready") is True
+        else "not_checked_compatible"
+        if billing_receipt_path is None and not flagship_profile
+        else billing_provider_status
+    )
     notes: list[str] = []
     if status == "pass":
         notes.extend(
@@ -2664,6 +3765,8 @@ def build_gold_status_receipt(
             notes.append(
                 "Release-manifest authority is blocked until /version matches the candidate commit; PropertyQuarry API and render containers run image-baked /app code, so host worktree changes do not count as runtime proof until rebuild/recreate."
             )
+        if billing_readiness.get("provider_disabled") is True:
+            notes.append("Paid-persona billing is intentionally disabled, so flagship launch readiness remains blocked until a no-second-login account handoff is enabled and verified live.")
         if "magicfit" in missing_provider_modes and vendor_tooling_receipt_path is not None and not bool(magicfit_renderer.get("ready")):
             notes.append("MagicFit is still blocked on renderer configuration, not just a missing imported walkthrough asset.")
         if not browser_3d_gate_ok:
@@ -2686,6 +3789,21 @@ def build_gold_status_receipt(
             notes.append("OMagic model-upload adapter deployment is blocked until the checked runtime contains the packaged adapter script.")
     notes.append(_tour_provider_missing_note(missing_provider_modes))
     ready_for_notification = status == "pass" and not blockers and not next_required_actions
+    flagship_customer_ux_ready = (
+        flagship_profile
+        and not missing_flagship_customer_ux_receipts
+        and live_mobile_ok
+        and accessibility_ok
+        and failure_states_ok
+        and activation_to_value_ok
+        and public_auth_ok
+        and authenticated_customer_ok
+        and billing_ok
+        and browser_3d_gate_ok
+        and map_preview_flagship_ok
+        and walkthrough_quality_ok
+        and receipt_freshness_ok
+    )
     normalized_blockers: list[dict[str, Any]] = []
     for row in blockers:
         normalized_row = dict(row)
@@ -2698,6 +3816,24 @@ def build_gold_status_receipt(
         "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "status": status,
         "ready_for_notification": ready_for_notification,
+        "readiness_profile": normalized_readiness_profile,
+        "flagship_customer_ux_evidence": {
+            "required": flagship_profile,
+            "ready": flagship_customer_ux_ready if flagship_profile else None,
+            "required_receipts": list(FLAGSHIP_CUSTOMER_UX_RECEIPT_AREAS),
+            "missing_receipts": missing_flagship_customer_ux_receipts,
+            "research_detail_required": flagship_profile,
+            "browser_all_mobile_proof_required": flagship_profile,
+            "browser_all_mobile_proof_ready": flagship_live_mobile_browser_ok if flagship_profile else None,
+            "accessibility_proof_required": flagship_profile,
+            "accessibility_proof_ready": flagship_accessibility_ok if flagship_profile else None,
+            "activation_to_value_proof_required": flagship_profile,
+            "activation_to_value_proof_ready": flagship_activation_to_value_ok if flagship_profile else None,
+            "required_browser_engines": list(configured_browser_engines) if flagship_profile else [],
+            "live_mobile_billing_available": live_mobile_billing_availability.get("available") if flagship_profile else None,
+            "authenticated_billing_available": authenticated_billing_availability.get("available") if flagship_profile else None,
+            "max_receipt_age_hours": effective_max_receipt_age_hours if flagship_profile else max_receipt_age_hours,
+        },
         "performance": {
             "status": performance.get("status"),
             "failed_count": performance.get("failed_count"),
@@ -2729,7 +3865,45 @@ def build_gold_status_receipt(
             "missing_detail_routes": missing_live_mobile_detail_routes,
             "failed_coverage_checks": failed_live_mobile_coverage_checks,
             "viewport": live_mobile.get("viewport"),
+            "proof_mode": live_mobile.get("proof_mode"),
+            "flagship_browser_proof_ok": flagship_live_mobile_browser_ok if flagship_profile else None,
+            "flagship_browser_proof": flagship_live_mobile_browser_details if flagship_profile else None,
+            "billing_availability": live_mobile_billing_availability,
             "receipt_path": str(live_mobile_receipt_path) if live_mobile_receipt_path is not None else "",
+        },
+        "accessibility": {
+            "status": accessibility.get("status")
+            or ("not_configured" if accessibility_receipt_path is None else "missing"),
+            "failed_count": accessibility.get("failed_count"),
+            "route_count": accessibility.get("route_count"),
+            "axe_core_version": str(accessibility.get("axe_core_version") or ""),
+            "flagship_proof_ok": flagship_accessibility_ok if flagship_profile else None,
+            "flagship_proof": flagship_accessibility_details if flagship_profile else None,
+            "receipt_path": str(accessibility_receipt_path) if accessibility_receipt_path is not None else "",
+        },
+        "failure_states": {
+            "status": failure_states.get("status")
+            or ("not_configured" if failure_state_receipt_path is None else "missing"),
+            "failed_count": failure_states.get("failed_count"),
+            "proof_mode": str(failure_states.get("proof_mode") or ""),
+            "flagship_proof_ok": flagship_failure_states_ok if flagship_profile else None,
+            "flagship_proof": flagship_failure_states_details if flagship_profile else None,
+            "receipt_path": str(failure_state_receipt_path) if failure_state_receipt_path is not None else "",
+        },
+        "activation_to_value": {
+            "status": activation_to_value.get("status")
+            or ("not_configured" if activation_to_value_receipt_path is None else "missing"),
+            "failed_count": activation_to_value.get("failed_count"),
+            "auth_mode": str(activation_to_value.get("auth_mode") or ""),
+            "browser_engine": str(activation_to_value.get("browser_engine") or ""),
+            "proof_mode": str(activation_to_value.get("proof_mode") or ""),
+            "flagship_proof_ok": flagship_activation_to_value_ok if flagship_profile else None,
+            "flagship_proof": flagship_activation_to_value_details if flagship_profile else None,
+            "receipt_path": (
+                str(activation_to_value_receipt_path)
+                if activation_to_value_receipt_path is not None
+                else ""
+            ),
         },
         "public_auth_surfaces": {
             "status": public_smoke.get("status") or ("not_configured" if public_smoke_receipt_path is None else "missing"),
@@ -2748,6 +3922,7 @@ def build_gold_status_receipt(
             "billing_status_code": authenticated_billing_status_code,
             "missing_billing_checks": missing_authenticated_billing_checks if authenticated_smoke_receipt_path is not None else [],
             "failed_billing_checks": failed_authenticated_billing_checks if authenticated_smoke_receipt_path is not None else [],
+            "billing_availability": authenticated_billing_availability,
             "notification_checks_ok": authenticated_notifications_ok if authenticated_smoke_receipt_path is not None else None,
             "missing_notification_checks": missing_authenticated_notification_checks if authenticated_smoke_receipt_path is not None else [],
             "failed_notification_checks": failed_authenticated_notification_checks if authenticated_smoke_receipt_path is not None else [],
@@ -2966,6 +4141,8 @@ def build_gold_status_receipt(
             "live_smoke_bridge_launch": bool(billing_readiness.get("live_smoke_bridge_launch")),
             "bridge_guided_login_assist": bool(billing_readiness.get("bridge_guided_login_assist")),
             "pricing_placeholder": bool(billing_readiness.get("pricing_placeholder")),
+            "provider_disabled": bool(billing_readiness.get("provider_disabled")),
+            "strict_live_proof_required": bool(billing_readiness.get("strict_live_proof_required")),
             "account_handoff_error": str((billing_receipt.get("billing_handoff") or {}).get("account_handoff_error") or "") if isinstance(billing_receipt.get("billing_handoff"), dict) else "",
             "required_dns_record": (billing_receipt.get("billing_handoff") or {}).get("required_dns_record") if isinstance(billing_receipt.get("billing_handoff"), dict) and isinstance((billing_receipt.get("billing_handoff") or {}).get("required_dns_record"), dict) else {},
             "next_action": str((billing_receipt.get("billing_handoff") or {}).get("next_action") or "") if isinstance(billing_receipt.get("billing_handoff"), dict) else "",
@@ -2985,7 +4162,8 @@ def build_gold_status_receipt(
                 "next_action": str((billing_receipt.get("member_login_token_handoff") or {}).get("next_action") or "") if isinstance(billing_receipt.get("member_login_token_handoff"), dict) else "",
                 "required_env": list(BILLING_MEMBER_TOKEN_REQUIRED_ENV),
             },
-            "ready": billing_ok,
+            "ready": bool(billing_readiness.get("ready")),
+            "compatibility_ok": billing_ok,
             "receipt_path": str(billing_receipt_path) if billing_receipt_path is not None else "",
         },
         "id_austria": {
@@ -3127,9 +4305,17 @@ def build_gold_status_receipt(
             "receipt_path": str(tour_delivery_contract_receipt_path) if tour_delivery_contract_receipt_path is not None else "",
             "note": "Public-safe tour delivery contract shape gate with Chummer-derived ready/blocker vocabulary and first-class Matterport readiness.",
         },
+        "slo_evidence": {
+            **slo_evidence_details,
+            "required": slo_evidence_required,
+            "receipt_path": str(slo_evidence_receipt_path)
+            if slo_evidence_receipt_path is not None
+            else "",
+            "note": "Launch SLO evidence must be a fresh authenticated private no-store capture bound to the exact release SHA, image digest, and API replica set, with offline rule injection passing.",
+        },
         "receipt_freshness": {
             "status": "pass" if receipt_freshness_ok else "fail",
-            "max_age_hours": max_receipt_age_hours,
+            "max_age_hours": effective_max_receipt_age_hours,
             "stale_receipts": stale_receipts,
         },
         "blockers": normalized_blockers,
@@ -3139,10 +4325,456 @@ def build_gold_status_receipt(
     }
 
 
+def _secure_launch_input_bytes(
+    path: Path,
+    *,
+    field: str,
+    _test_allow_insecure: bool,
+) -> bytes:
+    resolved = path.expanduser()
+    if not resolved.is_absolute():
+        raise ValueError(f"{field} path must be absolute")
+    if not _test_allow_insecure:
+        evidence_contract.assert_secure_external_parent(resolved, field=field)
+    try:
+        path_before = os.stat(resolved, follow_symlinks=False)
+    except OSError as exc:
+        raise ValueError(f"{field} could not be securely inspected") from exc
+    if not stat.S_ISREG(path_before.st_mode):
+        raise ValueError(f"{field} must be a non-symlink regular file")
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(resolved, flags)
+    except OSError as exc:
+        raise ValueError(f"{field} could not be securely opened") from exc
+    try:
+        before = os.fstat(fd)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_dev != path_before.st_dev
+            or before.st_ino != path_before.st_ino
+            or (not _test_allow_insecure and before.st_uid != 0)
+            or stat.S_IMODE(before.st_mode) & 0o022
+            or before.st_size <= 0
+            or before.st_size > 128 * 1024 * 1024
+        ):
+            raise ValueError(f"{field} ownership, mode, or size is unsafe")
+        chunks: list[bytes] = []
+        remaining = before.st_size
+        while remaining:
+            chunk = os.read(fd, min(remaining, 1024 * 1024))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        raw = b"".join(chunks)
+        after = os.fstat(fd)
+        if len(raw) != before.st_size or any(
+            getattr(before, name) != getattr(after, name)
+            for name in ("st_dev", "st_ino", "st_size", "st_mtime_ns", "st_ctime_ns")
+        ):
+            raise ValueError(f"{field} changed while it was snapshotted")
+        try:
+            path_after = os.stat(resolved, follow_symlinks=False)
+        except OSError as exc:
+            raise ValueError(f"{field} changed while it was snapshotted") from exc
+        if (
+            not stat.S_ISREG(path_after.st_mode)
+            or path_after.st_dev != before.st_dev
+            or path_after.st_ino != before.st_ino
+            or path_after.st_size != before.st_size
+            or path_after.st_mtime_ns != before.st_mtime_ns
+            or path_after.st_ctime_ns != before.st_ctime_ns
+        ):
+            raise ValueError(f"{field} changed while it was snapshotted")
+        return raw
+    finally:
+        os.close(fd)
+
+
+def _write_pinned_input(path: Path, raw: bytes) -> None:
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0)
+    fd = os.open(path, flags, 0o400)
+    try:
+        view = memoryview(raw)
+        while view:
+            written = os.write(fd, view)
+            if written <= 0:
+                raise OSError("short write while pinning launch input")
+            view = view[written:]
+        os.fsync(fd)
+        os.fchmod(fd, 0o400)
+    finally:
+        os.close(fd)
+
+
+def _pin_launch_input_set(
+    *,
+    inputs: dict[str, Path],
+    destination: Path,
+    _test_allow_insecure: bool,
+) -> tuple[dict[str, Path], dict[str, str]]:
+    destination.mkdir(mode=0o700, parents=False, exist_ok=False)
+    pinned: dict[str, Path] = {}
+    hashes: dict[str, str] = {}
+    raw_by_name: dict[str, bytes] = {}
+    for name, source in inputs.items():
+        raw = _secure_launch_input_bytes(
+            source,
+            field=f"canonical launch input {name}",
+            _test_allow_insecure=_test_allow_insecure,
+        )
+        target = destination / f"{name}.artifact"
+        _write_pinned_input(target, raw)
+        pinned[name] = target
+        hashes[name] = hashlib.sha256(raw).hexdigest()
+        raw_by_name[name] = raw
+
+    companions: set[tuple[Path, str]] = set()
+    for bundle_name in ("metrics_snapshot", "metrics_probe"):
+        try:
+            payload = json.loads(raw_by_name[bundle_name])
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError(f"{bundle_name} is not strict JSON") from exc
+        rows = payload.get("replicas") if isinstance(payload, dict) else None
+        if not isinstance(rows, list):
+            raise ValueError(f"{bundle_name} replica inventory is invalid")
+        for row in rows:
+            if not isinstance(row, dict):
+                raise ValueError(f"{bundle_name} replica reference is invalid")
+            references = (
+                (row.get("start"), row.get("end"))
+                if bundle_name == "metrics_snapshot"
+                else (row,)
+            )
+            for reference in references:
+                if not isinstance(reference, dict):
+                    raise ValueError(f"{bundle_name} companion reference is invalid")
+                relative = str(reference.get("path") or "")
+                if not relative or Path(relative).name != relative:
+                    raise ValueError(f"{bundle_name} companion path is unsafe")
+                companions.add((inputs[bundle_name].parent / relative, relative))
+    pinned_companion_hashes: dict[str, str] = {}
+    for source, relative in companions:
+        raw = _secure_launch_input_bytes(
+            source,
+            field=f"canonical launch companion {relative}",
+            _test_allow_insecure=_test_allow_insecure,
+        )
+        target = destination / relative
+        companion_hash = hashlib.sha256(raw).hexdigest()
+        if relative in pinned_companion_hashes:
+            if pinned_companion_hashes[relative] != companion_hash:
+                raise ValueError("canonical launch companion name collision")
+            continue
+        _write_pinned_input(target, raw)
+        pinned_companion_hashes[relative] = companion_hash
+    return pinned, hashes
+
+
+def _run_canonical_launch_validators(
+    *,
+    release_commit_sha: str,
+    release_image_digest: str,
+    metrics_snapshot_path: Path,
+    metrics_probe_path: Path,
+    monitoring_receipt_path: Path,
+    prometheus_range_receipt_path: Path,
+    prometheus_range_response_path: Path,
+    alert_delivery_receipt_path: Path,
+    output_directory: Path,
+    slo_path: Path = DEFAULT_SLO_PATH,
+    rules_path: Path = DEFAULT_RULES_PATH,
+    rule_tests_path: Path = DEFAULT_RULE_TESTS_PATH,
+    prometheus_config_path: Path = DEFAULT_PROMETHEUS_CONFIG_PATH,
+    alertmanager_config_path: Path = DEFAULT_ALERTMANAGER_CONFIG_PATH,
+    slo_runner: Any | None = None,
+    now: datetime | None = None,
+    _test_allow_insecure_inputs: bool = False,
+) -> tuple[dict[str, Any], dict[str, Any], Path, Path, list[str]]:
+    """Run canonical validators from raw artifacts for a gold launch claim."""
+
+    selected_policy_paths = {
+        slo_path: DEFAULT_SLO_PATH,
+        rules_path: DEFAULT_RULES_PATH,
+        rule_tests_path: DEFAULT_RULE_TESTS_PATH,
+        prometheus_config_path: DEFAULT_PROMETHEUS_CONFIG_PATH,
+        alertmanager_config_path: DEFAULT_ALERTMANAGER_CONFIG_PATH,
+    }
+    if any(selected.resolve() != canonical.resolve() for selected, canonical in selected_policy_paths.items()):
+        raise ValueError("canonical launch policy path override is forbidden")
+
+    output_directory.mkdir(parents=False, exist_ok=False, mode=0o700)
+    os.chmod(output_directory, 0o700)
+    output_stat = os.stat(output_directory, follow_symlinks=False)
+    if (
+        not stat.S_ISDIR(output_stat.st_mode)
+        or output_stat.st_uid != os.geteuid()
+        or stat.S_IMODE(output_stat.st_mode) != 0o700
+    ):
+        raise ValueError("canonical launch output directory is unsafe")
+    pinned_inputs, shared_input_hashes = _pin_launch_input_set(
+        inputs={
+            "metrics_snapshot": metrics_snapshot_path,
+            "metrics_probe": metrics_probe_path,
+            "monitoring_receipt": monitoring_receipt_path,
+            "prometheus_range_receipt": prometheus_range_receipt_path,
+            "prometheus_range_response": prometheus_range_response_path,
+            "alert_delivery_receipt": alert_delivery_receipt_path,
+        },
+        destination=output_directory / "pinned-inputs",
+        _test_allow_insecure=_test_allow_insecure_inputs,
+    )
+    metrics_snapshot_path = pinned_inputs["metrics_snapshot"]
+    metrics_probe_path = pinned_inputs["metrics_probe"]
+    monitoring_receipt_path = pinned_inputs["monitoring_receipt"]
+    prometheus_range_receipt_path = pinned_inputs["prometheus_range_receipt"]
+    prometheus_range_response_path = pinned_inputs["prometheus_range_response"]
+    alert_delivery_receipt_path = pinned_inputs["alert_delivery_receipt"]
+    slo_output = output_directory / "slo-revalidated.json"
+    observability_output = output_directory / "observability-revalidated.json"
+    errors: list[str] = []
+    slo_receipt: dict[str, Any] = {}
+    observability_receipt: dict[str, Any] = {}
+    try:
+        slo_arguments: dict[str, Any] = {
+            "config": EvidenceConfig(
+                release_commit_sha=release_commit_sha,
+                release_image_digest=release_image_digest,
+                metrics_snapshot_path=metrics_snapshot_path,
+                metrics_probe_path=metrics_probe_path,
+                prometheus_range_path=prometheus_range_response_path,
+                prometheus_range_receipt_path=prometheus_range_receipt_path,
+                slo_path=slo_path,
+                rules_path=rules_path,
+                rule_tests_path=rule_tests_path,
+                prometheus_config_path=prometheus_config_path,
+                alertmanager_config_path=alertmanager_config_path,
+                receipt_path=slo_output,
+                flagship=True,
+                overwrite_receipt=True,
+                shared_input_hashes=shared_input_hashes,
+                shared_input_paths=pinned_inputs,
+            )
+        }
+        if slo_runner is not None:
+            slo_arguments["runner"] = slo_runner
+        if now is not None:
+            slo_arguments["now"] = now
+        slo_receipt_raw, slo_exit_code = run_evidence_gate(**slo_arguments)
+        slo_receipt = dict(slo_receipt_raw)
+        if slo_exit_code != 0:
+            error = slo_receipt.get("error")
+            message = str(error.get("message") or "canonical SLO validator failed") if isinstance(error, dict) else "canonical SLO validator failed"
+            errors.append(message)
+    except Exception as exc:
+        errors.append(f"canonical SLO validator could not complete: {type(exc).__name__}")
+
+    try:
+        observability_arguments: dict[str, Any] = {
+            "release_commit_sha": release_commit_sha,
+            "release_image_digest": release_image_digest,
+            "monitoring_receipt_path": monitoring_receipt_path,
+            "metrics_snapshot_path": metrics_snapshot_path,
+            "metrics_probe_path": metrics_probe_path,
+            "prometheus_range_receipt_path": prometheus_range_receipt_path,
+            "prometheus_range_response_path": prometheus_range_response_path,
+            "alert_delivery_receipt_path": alert_delivery_receipt_path,
+            "expected_input_hashes": shared_input_hashes,
+        }
+        if now is not None:
+            observability_arguments["now"] = now
+        observability_receipt = dict(
+            verify_receipt_bundle(
+                **observability_arguments,
+            )
+        )
+        write_observability_verification(
+            observability_output,
+            observability_receipt,
+            overwrite=True,
+        )
+    except ObservabilityReceiptValidationError as exc:
+        errors.append(str(exc))
+    except Exception as exc:
+        errors.append(f"canonical observability validator could not complete: {type(exc).__name__}")
+
+    if slo_receipt.get("shared_input_hashes") != shared_input_hashes:
+        errors.append("canonical SLO validator shared input hash set differs")
+    if observability_receipt.get("shared_input_hashes") != shared_input_hashes:
+        errors.append("canonical observability validator shared input hash set differs")
+    try:
+        canonical_policy_hashes = evidence_contract.canonical_policy_hashes()
+    except evidence_contract.EvidenceContractError:
+        errors.append("canonical launch policy hashes could not be recomputed")
+    else:
+        slo_policy_hashes = (
+            dict(slo_receipt.get("authenticated_evidence") or {}).get(
+                "policy_hashes"
+            )
+            if isinstance(slo_receipt.get("authenticated_evidence"), dict)
+            else None
+        )
+        if slo_policy_hashes != canonical_policy_hashes:
+            errors.append("canonical SLO validator policy hash set differs")
+        if observability_receipt.get("policy_hashes") != canonical_policy_hashes:
+            errors.append("canonical observability validator policy hash set differs")
+    try:
+        canonical_monitoring = evidence_contract.load_canonical_monitoring_identity()
+    except evidence_contract.EvidenceContractError:
+        errors.append("canonical monitoring identity could not be recomputed")
+    else:
+        canonical_identity = canonical_monitoring.get("identity")
+        canonical_tools = canonical_monitoring.get("monitoring_tools")
+        if slo_receipt.get("canonical_monitoring_identity") != canonical_identity:
+            errors.append("canonical SLO monitoring identity differs")
+        if observability_receipt.get("canonical_monitoring_identity") != canonical_identity:
+            errors.append("canonical observability monitoring identity differs")
+        if slo_receipt.get("monitoring_tools") != canonical_tools:
+            errors.append("canonical SLO pinned tool identities differ")
+        if observability_receipt.get("monitoring_tools") != canonical_tools:
+            errors.append("canonical observability pinned tool identities differ")
+    for name, pinned_path in pinned_inputs.items():
+        try:
+            pinned_hash = hashlib.sha256(
+                _secure_launch_input_bytes(
+                    pinned_path,
+                    field=f"pinned canonical launch input {name}",
+                    _test_allow_insecure=_test_allow_insecure_inputs,
+                )
+            ).hexdigest()
+        except ValueError:
+            errors.append(f"pinned canonical launch input changed: {name}")
+            continue
+        if pinned_hash != shared_input_hashes[name]:
+            errors.append(f"pinned canonical launch input changed: {name}")
+
+    return slo_receipt, observability_receipt, slo_output, observability_output, errors
+
+
+def _apply_canonical_launch_evidence(
+    receipt: dict[str, Any],
+    *,
+    slo_receipt: dict[str, Any],
+    observability_receipt: dict[str, Any],
+    slo_receipt_path: Path,
+    observability_receipt_path: Path,
+    validation_errors: list[str],
+) -> None:
+    """Attach validator results and fail gold closed when either proof is not canonical."""
+
+    effective_errors = list(validation_errors)
+    try:
+        canonical_monitoring = evidence_contract.load_canonical_monitoring_identity()
+    except evidence_contract.EvidenceContractError:
+        effective_errors.append("Gold could not recompute canonical monitoring identity")
+    else:
+        if (
+            slo_receipt.get("canonical_monitoring_identity")
+            != canonical_monitoring.get("identity")
+            or observability_receipt.get("canonical_monitoring_identity")
+            != canonical_monitoring.get("identity")
+            or slo_receipt.get("monitoring_tools")
+            != canonical_monitoring.get("monitoring_tools")
+            or observability_receipt.get("monitoring_tools")
+            != canonical_monitoring.get("monitoring_tools")
+        ):
+            effective_errors.append(
+                "Gold canonical monitoring or pinned tool identity differs"
+            )
+    slo_ok = slo_receipt.get("status") == "pass" and slo_receipt.get("gate_passed") is True
+    observability_ok = (
+        observability_receipt.get("schema_version")
+        == "propertyquarry.observability-receipt-verification.v2"
+        and observability_receipt.get("producer")
+        == "propertyquarry-observability-receipt-verifier"
+        and observability_receipt.get("status") == "verified"
+        and observability_receipt.get("cross_receipt_links_verified") is True
+    )
+    launch_ok = bool(slo_ok and observability_ok and not effective_errors)
+    receipt["canonical_launch_evidence"] = {
+        "required": True,
+        "status": "pass" if launch_ok else "blocked",
+        "validators_invoked": [
+            "scripts.propertyquarry_slo_evidence.run_evidence_gate",
+            "scripts.propertyquarry_observability_receipts.verify_receipt_bundle",
+        ],
+        "validation_errors": effective_errors,
+        "slo": {
+            "status": slo_receipt.get("status") or "missing",
+            "receipt_path": str(slo_receipt_path),
+            "inputs": slo_receipt.get("inputs") or {},
+            "probe": slo_receipt.get("probe") or {},
+            "metrics": slo_receipt.get("metrics") or {},
+            "rules": slo_receipt.get("rules") or {},
+            "monitoring_config": slo_receipt.get("monitoring_config") or {},
+            "promtool": slo_receipt.get("promtool") or {},
+            "amtool": slo_receipt.get("amtool") or {},
+            "authenticated_evidence": slo_receipt.get("authenticated_evidence") or {},
+            "canonical_monitoring_identity": slo_receipt.get(
+                "canonical_monitoring_identity"
+            )
+            or {},
+            "monitoring_tools": slo_receipt.get("monitoring_tools") or {},
+        },
+        "observability": {
+            "status": observability_receipt.get("status") or "missing",
+            "receipt_path": str(observability_receipt_path),
+            "release": observability_receipt.get("release") or {},
+            "replica_ids": observability_receipt.get("replica_ids") or [],
+            "receipts": observability_receipt.get("receipts") or {},
+            "cross_receipt_links_verified": observability_receipt.get("cross_receipt_links_verified"),
+            "payload_sha256": observability_receipt.get("payload_sha256") or "",
+            "policy_hashes": observability_receipt.get("policy_hashes") or {},
+            "canonical_monitoring_identity": observability_receipt.get(
+                "canonical_monitoring_identity"
+            )
+            or {},
+            "monitoring_tools": observability_receipt.get("monitoring_tools") or {},
+        },
+        "note": "Gold invoked canonical validators from raw artifacts; stored producer pass booleans were not used as launch authority.",
+    }
+    pass_areas = receipt.setdefault("pass_areas", [])
+    if launch_ok:
+        pass_areas.append(
+            {
+                "area": "canonical_launch_evidence",
+                "status": "pass",
+                "slo_receipt_path": str(slo_receipt_path),
+                "observability_receipt_path": str(observability_receipt_path),
+            }
+        )
+        return
+
+    receipt["status"] = "blocked"
+    receipt["ready_for_notification"] = False
+    blockers = receipt.setdefault("blockers", [])
+    blockers.append(
+        {
+            "area": "canonical_launch_evidence",
+            "key": "canonical_launch_evidence",
+            "status": "blocked",
+            "slo_validated": slo_ok,
+            "observability_validated": observability_ok,
+            "validation_errors": effective_errors,
+            "action": "supply fresh raw metrics, monitoring-runtime, Prometheus 30-day range response/receipt, and alert-delivery artifacts for this exact release, then rerun gold",
+        }
+    )
+    receipt.setdefault("next_required_actions", []).append(
+        "Re-run canonical SLO and observability validation from fresh raw release-bound artifacts."
+    )
+    receipt.setdefault("notes", []).append(
+        "Gold launch authority is withheld because canonical raw-artifact validation did not pass."
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Summarize current PropertyQuarry gold-readiness receipts.")
     parser.add_argument("--performance-receipt", default="")
     parser.add_argument("--live-mobile-receipt", default="")
+    parser.add_argument("--accessibility-receipt", default="")
+    parser.add_argument("--failure-state-receipt", default="")
+    parser.add_argument("--activation-to-value-receipt", default="")
     parser.add_argument("--public-smoke-receipt", default="")
     parser.add_argument("--authenticated-smoke-receipt", default="")
     parser.add_argument("--tour-control-receipt", default="")
@@ -3168,18 +4800,139 @@ def main() -> int:
     parser.add_argument("--scene-video-runtime-status-receipt", default="")
     parser.add_argument("--scene-video-provider-refresh-packet", default="")
     parser.add_argument("--scene-video-provider-refresh-packet-verifier-receipt", default="")
+    parser.add_argument("--slo-evidence-receipt", default="")
+    parser.add_argument("--slo-metrics-snapshot", default="")
+    parser.add_argument("--slo-metrics-probe", default="")
+    parser.add_argument("--monitoring-runtime-receipt", default="")
+    parser.add_argument("--prometheus-range-receipt", default="")
+    parser.add_argument("--prometheus-range-response", default="")
+    parser.add_argument("--alert-delivery-receipt", default="")
+    parser.add_argument(
+        "--require-launch-evidence",
+        action="store_true",
+        help="Invoke both canonical validators from every raw launch artifact and fail gold closed.",
+    )
+    parser.add_argument(
+        "--launch-evidence-dir",
+        default="_completion/property_gold_status/launch_evidence",
+    )
+    parser.add_argument("--slo-definition", default=str(DEFAULT_SLO_PATH))
+    parser.add_argument("--alert-rules", default=str(DEFAULT_RULES_PATH))
+    parser.add_argument("--alert-rule-tests", default=str(DEFAULT_RULE_TESTS_PATH))
+    parser.add_argument("--prometheus-config", default=str(DEFAULT_PROMETHEUS_CONFIG_PATH))
+    parser.add_argument("--alertmanager-config", default=str(DEFAULT_ALERTMANAGER_CONFIG_PATH))
+    parser.add_argument(
+        "--expected-release-sha",
+        default=os.environ.get("PROPERTYQUARRY_RELEASE_COMMIT_SHA", ""),
+    )
+    parser.add_argument(
+        "--expected-image-digest",
+        default=os.environ.get("PROPERTYQUARRY_RELEASE_IMAGE_DIGEST", ""),
+    )
+    parser.add_argument(
+        "--slo-evidence-max-age-seconds",
+        type=int,
+        default=DEFAULT_SLO_EVIDENCE_MAX_AGE_SECONDS,
+        help="Maximum private metrics probe age; values above 900 remain capped at 900.",
+    )
     parser.add_argument("--id-austria-receipt", default="")
     parser.add_argument("--repair-canary-receipt", default="")
     parser.add_argument("--provider-catalog-receipt", default="")
     parser.add_argument("--provider-matrix-receipt", default="")
     parser.add_argument("--write", default="_completion/property_gold_status/latest.json")
     parser.add_argument("--max-receipt-age-hours", type=float, default=24.0)
+    parser.add_argument(
+        "--profile",
+        choices=("standard", "flagship", "launch"),
+        default="standard",
+        help="Use flagship/launch to require fresh deployed customer-UX evidence; standard preserves legacy optional receipts.",
+    )
+    parser.add_argument(
+        "--required-browser-engines",
+        default=os.environ.get(
+            "PROPERTYQUARRY_FLAGSHIP_REQUIRED_BROWSER_ENGINES",
+            ",".join(DEFAULT_REQUIRED_FLAGSHIP_BROWSER_ENGINES),
+        ),
+        help="Comma-separated browser engines that flagship gold must prove (default: chromium,firefox,webkit).",
+    )
     parser.add_argument("--fail-on-blocked", action="store_true")
     args = parser.parse_args()
+    try:
+        configured_browser_engines = _normalize_required_browser_engines(
+            tuple(engine.strip() for engine in str(args.required_browser_engines or "").split(",") if engine.strip())
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
+
+    raw_launch_arguments = {
+        "--slo-metrics-snapshot": args.slo_metrics_snapshot,
+        "--slo-metrics-probe": args.slo_metrics_probe,
+        "--monitoring-runtime-receipt": args.monitoring_runtime_receipt,
+        "--prometheus-range-receipt": args.prometheus_range_receipt,
+        "--prometheus-range-response": args.prometheus_range_response,
+        "--alert-delivery-receipt": args.alert_delivery_receipt,
+    }
+    launch_evidence_requested = (
+        args.require_launch_evidence
+        or args.profile in {"flagship", "launch"}
+        or any(raw_launch_arguments.values())
+    )
+    launch_slo_receipt: dict[str, Any] = {}
+    launch_observability_receipt: dict[str, Any] = {}
+    launch_slo_receipt_path = Path(args.slo_evidence_receipt) if args.slo_evidence_receipt else Path()
+    launch_observability_receipt_path = Path()
+    launch_validation_errors: list[str] = []
+    if launch_evidence_requested:
+        missing_launch_arguments = [name for name, value in raw_launch_arguments.items() if not value]
+        if missing_launch_arguments:
+            parser.error(
+                "canonical launch evidence requires all raw inputs; missing "
+                + ", ".join(missing_launch_arguments)
+            )
+        if not args.expected_release_sha or not args.expected_image_digest:
+            parser.error("canonical launch evidence requires --expected-release-sha and --expected-image-digest")
+        (
+            launch_slo_receipt,
+            launch_observability_receipt,
+            launch_slo_receipt_path,
+            launch_observability_receipt_path,
+            launch_validation_errors,
+        ) = _run_canonical_launch_validators(
+            release_commit_sha=args.expected_release_sha,
+            release_image_digest=args.expected_image_digest,
+            metrics_snapshot_path=Path(args.slo_metrics_snapshot),
+            metrics_probe_path=Path(args.slo_metrics_probe),
+            monitoring_receipt_path=Path(args.monitoring_runtime_receipt),
+            prometheus_range_receipt_path=Path(args.prometheus_range_receipt),
+            prometheus_range_response_path=Path(args.prometheus_range_response),
+            alert_delivery_receipt_path=Path(args.alert_delivery_receipt),
+            output_directory=Path(args.launch_evidence_dir),
+            slo_path=Path(args.slo_definition),
+            rules_path=Path(args.alert_rules),
+            rule_tests_path=Path(args.alert_rule_tests),
+            prometheus_config_path=Path(args.prometheus_config),
+            alertmanager_config_path=Path(args.alertmanager_config),
+        )
+        args.slo_evidence_receipt = str(launch_slo_receipt_path)
 
     receipt = build_gold_status_receipt(
         performance_receipt_path=Path(args.performance_receipt) if args.performance_receipt else _default_receipt_path("performance"),
         live_mobile_receipt_path=Path(args.live_mobile_receipt) if args.live_mobile_receipt else _default_receipt_path("live_mobile"),
+        accessibility_receipt_path=(
+            Path(args.accessibility_receipt)
+            if args.accessibility_receipt
+            else _default_receipt_path_if_exists("accessibility")
+        ),
+        failure_state_receipt_path=(
+            Path(args.failure_state_receipt)
+            if args.failure_state_receipt
+            else _default_receipt_path_if_exists("failure_states")
+        ),
+        activation_to_value_receipt_path=(
+            Path(args.activation_to_value_receipt)
+            if args.activation_to_value_receipt
+            else _default_receipt_path_if_exists("activation_to_value")
+        ),
         public_smoke_receipt_path=Path(args.public_smoke_receipt) if args.public_smoke_receipt else _default_receipt_path("public_smoke"),
         authenticated_smoke_receipt_path=Path(args.authenticated_smoke_receipt) if args.authenticated_smoke_receipt else _default_receipt_path("authenticated_smoke"),
         tour_control_receipt_path=Path(args.tour_control_receipt) if args.tour_control_receipt else _default_receipt_path("tour_control"),
@@ -3237,6 +4990,12 @@ def main() -> int:
             if args.scene_video_provider_refresh_packet_verifier_receipt
             else _default_receipt_path("scene_video_provider_refresh_packet_verifier")
         ),
+        slo_evidence_receipt_path=(
+            Path(args.slo_evidence_receipt) if args.slo_evidence_receipt else None
+        ),
+        expected_release_commit_sha=args.expected_release_sha,
+        expected_release_image_digest=args.expected_image_digest,
+        slo_evidence_max_age_seconds=args.slo_evidence_max_age_seconds,
         id_austria_receipt_path=Path(args.id_austria_receipt) if args.id_austria_receipt else _default_receipt_path("id_austria"),
         repair_canary_receipt_path=Path(args.repair_canary_receipt) if args.repair_canary_receipt else _default_receipt_path("repair_canary"),
         provider_catalog_receipt_path=(
@@ -3246,7 +5005,18 @@ def main() -> int:
         ),
         provider_matrix_receipt_path=Path(args.provider_matrix_receipt) if args.provider_matrix_receipt else _default_receipt_path("provider_matrix"),
         max_receipt_age_hours=args.max_receipt_age_hours,
+        readiness_profile=args.profile,
+        required_browser_engines=configured_browser_engines,
     )
+    if launch_evidence_requested:
+        _apply_canonical_launch_evidence(
+            receipt,
+            slo_receipt=launch_slo_receipt,
+            observability_receipt=launch_observability_receipt,
+            slo_receipt_path=launch_slo_receipt_path,
+            observability_receipt_path=launch_observability_receipt_path,
+            validation_errors=launch_validation_errors,
+        )
     output = json.dumps(receipt, indent=2, sort_keys=True)
     if args.write:
         out_path = Path(args.write)

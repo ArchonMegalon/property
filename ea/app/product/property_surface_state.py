@@ -97,6 +97,8 @@ _RAW_PROVIDER_FAILURE_TOKENS = (
     " 500",
     " 502",
     " 503",
+    "error code: 1010",
+    "error code: 1015",
 )
 
 _HIDDEN_PROPERTY_ACTION_LABELS = {
@@ -587,6 +589,9 @@ def property_run_customer_safe_status_detail(
         )
     ) or any(token in lowered for token in _RAW_PROVIDER_FAILURE_TOKENS)
 
+    if any(token in lowered for token in ("error code: 1010", "error code: 1015")):
+        return customer_status or calm_repair_copy or "PropertyQuarry is retrying affected providers."
+
     if repair_step and raw_failure_like and prefer_repair_step:
         return customer_status or calm_repair_copy or "Refreshing affected providers."
     if customer_status and (status in {"failed", "completed_partial"} or raw_failure_like):
@@ -933,23 +938,28 @@ def _property_run_source_work_counts(summary: dict[str, object], *, status: str 
     counted_done = 0
     active = 0
     failed = 0
+    explicit_source_state_total = 0
     for row in source_rows:
         row_status = str(row.get("status") or row.get("state") or "").strip().lower()
         has_error = bool(row.get("error"))
+        if row_status or has_error:
+            explicit_source_state_total += 1
         if row_status in done_statuses or has_error:
             counted_done += 1
         elif row_status in active_statuses:
             active += 1
         if row_status in {"failed", "error"} or has_error:
             failed += 1
-    done = max(
-        _positive_int(summary.get("sources_completed") or summary.get("completed_sources")),
-        counted_done,
-    )
+    reported_done = _positive_int(summary.get("sources_completed") or summary.get("completed_sources"))
+    run_status = str(status or summary.get("status") or "").strip().lower()
+    terminal_run = run_status in {"processed", "completed", "completed_partial", "noop", "cancelled"}
+    # Materialized source rows are preseeded before execution. While a run is
+    # active, their explicit states are stronger evidence than an aggregate
+    # counter that may have counted every queued row as completed.
+    done = counted_done if explicit_source_state_total and not terminal_run else max(reported_done, counted_done)
     if total > 0:
         active = min(active, max(0, total - done))
-    run_status = str(status or summary.get("status") or "").strip().lower()
-    if total > 0 and run_status in {"processed", "completed", "completed_partial", "noop", "cancelled"}:
+    if total > 0 and terminal_run:
         done = total
         active = 0
     waiting = max(0, total - done - active)
@@ -1825,7 +1835,7 @@ def _parse_property_run_message_info(value: object) -> dict[str, str]:
             "raw": text,
             "fraction_label": "",
             "source_label": _canonical_property_run_source_label(completed_match.group(1)),
-            "phase_label": "Source finished",
+            "phase_label": "Site batch finished",
         }
     return {
         "raw": text,
@@ -2419,21 +2429,28 @@ def build_property_run_live_board_snapshot(
             source_total = provider_total
         elif provider_total and source_total > provider_total + 2:
             source_total = provider_total
+    fraction_label = str(live_info.get("fraction_label") or "").strip()
+    if phase_label == "Site batch finished":
+        completed_fraction = re.fullmatch(r"(\d+)\s*/\s*(\d+)", fraction_label)
+        if completed_fraction:
+            checked_total = completed_fraction.group(2)
+            checked_unit = "home" if checked_total == "1" else "homes"
+            fraction_label = f"{completed_fraction.group(1)} of {checked_total} {checked_unit} checked"
     if source_rows:
         unit = _property_run_source_unit_label(summary, total=source_total)
-        source_count_label = live_info.get("fraction_label") or f"{len(source_rows)}/{source_total} {unit}"
+        source_count_label = fraction_label or f"{len(source_rows)}/{source_total} {unit}"
     else:
         unit = _property_run_source_unit_label(summary, total=source_total)
-        source_count_label = live_info.get("fraction_label") or ("waiting for providers" if source_total == 0 else f"0/{source_total} {unit}")
+        source_count_label = fraction_label or ("waiting for providers" if source_total == 0 else f"0/{source_total} {unit}")
     summary_label = (
-        f"{aggregate_label} · {provider_label} · {live_info.get('fraction_label')}"
-        if aggregate_label != "checking" and provider_full_label and live_info.get("fraction_label")
+        f"{aggregate_label} · {provider_label} · {fraction_label}"
+        if aggregate_label != "checking" and provider_full_label and fraction_label
         else (aggregate_label if aggregate_label != "checking" else (scan_total_label or aggregate_label))
     )
     return PropertyRunLiveBoardSnapshot(
         provider_label=provider_label,
         provider_full_label=provider_full_label,
-        fraction_label=str(live_info.get("fraction_label") or "").strip(),
+        fraction_label=fraction_label,
         phase_label=phase_label,
         aggregate_label=aggregate_label,
         summary_label=summary_label,

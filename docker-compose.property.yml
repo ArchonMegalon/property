@@ -23,6 +23,12 @@ services:
       EA_RESPONSES_PROVIDER_LEDGER_DIR: /data/provider-ledger
       EA_SCHEDULER_HEARTBEAT_PATH: /data/artifacts/propertyquarry-scheduler-heartbeat.json
       EA_SCHEDULER_HEARTBEAT_MAX_AGE_SECONDS: "${EA_SCHEDULER_HEARTBEAT_MAX_AGE_SECONDS:-900}"
+      PROPERTYQUARRY_WORKER_HEARTBEAT_REQUIRED: "0"
+      PROPERTYQUARRY_SCHEDULER_HEARTBEAT_REQUIRED: "1"
+      PROPERTYQUARRY_EXPECTED_API_REPLICAS: "${PROPERTYQUARRY_EXPECTED_API_REPLICAS:-1}"
+      PROPERTYQUARRY_SEARCH_SCHEMA_READINESS_REQUIRED: "1"
+      PROPERTYQUARRY_RECONSTRUCTION_RENDER_BRIDGE_URL: "${PROPERTYQUARRY_RECONSTRUCTION_RENDER_BRIDGE_URL:-http://propertyquarry-render-tools:8091/generate-reconstruction}"
+      PROPERTYQUARRY_RECONSTRUCTION_RENDER_BRIDGE_TOKEN: "${PROPERTYQUARRY_RECONSTRUCTION_RENDER_BRIDGE_TOKEN:?Set PROPERTYQUARRY_RECONSTRUCTION_RENDER_BRIDGE_TOKEN for the render bridge}"
       DATABASE_URL: "${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD for property compose}@propertyquarry-db:5432/postgres}"
       TEABLE_BASE_URL: "${TEABLE_BASE_URL:-https://app.teable.ai}"
       TEABLE_TABLE_SYNC_CONFIG_JSON: "${TEABLE_TABLE_SYNC_CONFIG_JSON:-}"
@@ -80,6 +86,25 @@ services:
       - propertyquarry_artifacts:/data/artifacts
       - propertyquarry_public_tours:/data/public_property_tours
       - propertyquarry_provider_ledger:/data/provider-ledger
+    depends_on:
+      propertyquarry-db:
+        condition: service_healthy
+      propertyquarry-migrate:
+        condition: service_completed_successfully
+
+  propertyquarry-migrate:
+    image: "${PROPERTYQUARRY_WEB_IMAGE:-propertyquarry-web-runtime:latest}"
+    container_name: "${PROPERTYQUARRY_MIGRATE_CONTAINER_NAME:-propertyquarry-migrate}"
+    cgroup_parent: "${PROPERTYQUARRY_RUNTIME_CGROUP_PARENT:-system.slice}"
+    restart: "no"
+    environment:
+      EA_ROLE: property-search-migrate
+      EA_RUNTIME_MODE: "${EA_RUNTIME_MODE:-prod}"
+      DATABASE_URL: "${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD for property compose}@propertyquarry-db:5432/postgres}"
+      PROPERTYQUARRY_RELEASE_COMMIT_SHA: "${PROPERTYQUARRY_RELEASE_COMMIT_SHA:-}"
+      HOME: /home/ea
+      TZ: Europe/Vienna
+    command: ["python", "-m", "app.product.property_search_schema", "migrate"]
     depends_on:
       propertyquarry-db:
         condition: service_healthy
@@ -158,6 +183,8 @@ services:
         condition: service_healthy
       propertyquarry-api:
         condition: service_started
+      propertyquarry-migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "python", "-m", "app.scheduler_healthcheck"]
       interval: 30s
@@ -172,7 +199,9 @@ services:
     image: "${PROPERTYQUARRY_RENDER_IMAGE:-propertyquarry-render-runtime:latest}"
     container_name: "${PROPERTYQUARRY_RENDER_CONTAINER_NAME:-propertyquarry-render-tools}"
     cgroup_parent: "${PROPERTYQUARRY_RUNTIME_CGROUP_PARENT:-system.slice}"
-    restart: "no"
+    restart: unless-stopped
+    # The bridge reads the same numeric seconds value and reserves 30s for process close.
+    stop_grace_period: "${PROPERTYQUARRY_RENDER_STOP_GRACE_SECONDS:-1860}s"
     env_file:
       - path: ./state/runtime/property_scene_video_shared.env
         required: false
@@ -192,6 +221,11 @@ services:
       PROPERTYQUARRY_TEABLE_TENANT_NAME: "${PROPERTYQUARRY_TEABLE_TENANT_NAME:-PropertyQuarry}"
       PROPERTYQUARRY_TEABLE_TABLE_SYNC_CONFIG_JSON: "${PROPERTYQUARRY_TEABLE_TABLE_SYNC_CONFIG_JSON:-}"
       PROPERTYQUARRY_TEABLE_AUTO_SYNC: "${PROPERTYQUARRY_TEABLE_AUTO_SYNC:-0}"
+      PROPERTYQUARRY_RECONSTRUCTION_RENDER_HOST: "0.0.0.0"
+      PROPERTYQUARRY_RECONSTRUCTION_RENDER_BRIDGE_TOKEN: "${PROPERTYQUARRY_RECONSTRUCTION_RENDER_BRIDGE_TOKEN:?Set PROPERTYQUARRY_RECONSTRUCTION_RENDER_BRIDGE_TOKEN for the render bridge}"
+      PROPERTYQUARRY_RECONSTRUCTION_RENDER_REQUEST_TIMEOUT_SECONDS: "${PROPERTYQUARRY_RECONSTRUCTION_RENDER_REQUEST_TIMEOUT_SECONDS:-30}"
+      PROPERTYQUARRY_RECONSTRUCTION_RENDER_MAX_GENERATION_SECONDS: "${PROPERTYQUARRY_RECONSTRUCTION_RENDER_MAX_GENERATION_SECONDS:-1800}"
+      PROPERTYQUARRY_RENDER_STOP_GRACE_SECONDS: "${PROPERTYQUARRY_RENDER_STOP_GRACE_SECONDS:-1860}"
       HOME: /home/ea
       TZ: Europe/Vienna
     command: ["python", "/app/scripts/property_reconstruction_render_bridge.py"]
@@ -207,6 +241,7 @@ services:
       retries: 5
     cpu_shares: ${PROPERTYQUARRY_RENDER_CPU_SHARES:-512}
     cpus: ${PROPERTYQUARRY_RENDER_CPUS:-1.0}
+    # Memory, PID, and shared-memory limits require measured Blender/COLMAP peaks; do not guess them here.
     volumes:
       - ./config:/config:ro
       - ./config:/app/config:ro

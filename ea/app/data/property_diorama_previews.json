@@ -1,0 +1,21 @@
+{
+  "contract_name": "propertyquarry.curated_diorama_previews.v1",
+  "generated_at": "2026-07-11T03:55:00Z",
+  "entries": [
+    {
+      "candidate_refs": [
+        "d907fa5b6b5d7308"
+      ],
+      "listing_ids": [
+        "846238136"
+      ],
+      "preview_kind": "rendered_diorama",
+      "asset_url": "/static/property/research/d907fa5b6b5d7308-diorama.png",
+      "asset_sha256": "bd0fce33199f7d8a2b19e8b72d455389e9d368f06a0c4d8880a218e7e2a89e8c",
+      "source_basis": "listing_floorplan_and_listing_photo",
+      "source_floorplan_sha256": "1d96616f192b0d7eefeac8099569b37176ff2a714c03b21a1913bbb6d7282153",
+      "source_photo_sha256": "8a1e2e68358df67d40b1ba9e24a08a9d5d614d1f1c8702a49d60d7f1f242c321",
+      "truth_boundary": "Generated spatial preview for orientation; listing photos and the original plan remain the source evidence."
+    }
+  ]
+}

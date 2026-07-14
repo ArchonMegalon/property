@@ -305,9 +305,12 @@
 {% set source_total = (summary.get('source_variant_total') or summary.get('sources_total') or run_sources|length or 0)|int %}
 {% set source_completed = (summary.get('sources_completed') or summary.get('completed_sources') or 0)|int %}
 {% set source_variant_total = (summary.get('source_variant_total') or summary.get('sources_total') or source_total or 0)|int %}
-{% set source_counts = namespace(done=0, active=0, failed=0) %}
+{% set source_counts = namespace(done=0, active=0, failed=0, observed=0) %}
 {% for source in run_sources %}
   {% set source_status = (source.get('status') or source.get('state') or '')|string|lower %}
+  {% if source_status or source.get('error') %}
+    {% set source_counts.observed = source_counts.observed + 1 %}
+  {% endif %}
   {% if source_status in ['completed', 'processed', 'done', 'success', 'repaired', 'skipped', 'failed', 'error'] or source.get('error') %}
     {% set source_counts.done = source_counts.done + 1 %}
   {% elif source_status in ['running', 'processing', 'in_progress', 'working', 'starting', 'warming', 'repairing'] %}
@@ -317,10 +320,15 @@
     {% set source_counts.failed = source_counts.failed + 1 %}
   {% endif %}
 {% endfor %}
-{% set source_done_total = source_completed if source_completed > source_counts.done else source_counts.done %}
+{% set source_terminal = status|lower in ['processed', 'completed', 'completed_partial', 'noop', 'cancelled'] %}
+{% if source_counts.observed > 0 and not source_terminal %}
+  {% set source_done_total = source_counts.done %}
+{% else %}
+  {% set source_done_total = source_completed if source_completed > source_counts.done else source_counts.done %}
+{% endif %}
 {% set source_remaining_capacity = source_variant_total - source_done_total if source_variant_total > source_done_total else 0 %}
 {% set source_active_total = source_counts.active if source_counts.active < source_remaining_capacity else source_remaining_capacity %}
-{% if status|lower in ['processed', 'completed', 'completed_partial', 'noop', 'cancelled'] and source_variant_total > 0 %}
+{% if source_terminal and source_variant_total > 0 %}
   {% set source_done_total = source_variant_total %}
   {% set source_active_total = 0 %}
 {% endif %}
@@ -1240,6 +1248,30 @@
       .pqx-shell[data-pqx-surface="account"] .pqx-pref-row {
         padding: 8px 10px;
         border-radius: 16px;
+      }
+      .pqx-shell[data-pqx-surface="account"] .pqx-account-link-list .pqx-pref-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        align-items: stretch;
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+      }
+      .pqx-shell[data-pqx-surface="account"] .pqx-account-link-list .pqx-actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        justify-content: stretch;
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+      }
+      .pqx-shell[data-pqx-surface="account"] .pqx-account-link-list .pqx-actions > * {
+        box-sizing: border-box;
+        max-width: 100%;
+        min-width: 0;
+      }
+      .pqx-shell[data-pqx-surface="account"] .pqx-account-link-list .pqx-actions > :only-child {
+        grid-column: 1 / -1;
       }
       .pqx-shell[data-pqx-surface="account"] .pqx-pill {
         min-height: 28px;
@@ -4274,6 +4306,24 @@
     }
     .pqx-inline-status { color: var(--pq-green); font-size: 12px; }
     .pqx-inline-error { color: var(--pq-red); font-size: 12px; }
+    .pqx-network-state {
+      position: sticky;
+      top: 8px;
+      z-index: 60;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      margin: 8px;
+      padding: 12px 14px;
+      border: 1px solid color-mix(in srgb, var(--pq-amber) 52%, var(--pq-line) 48%);
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--pq-paper) 91%, var(--pq-amber) 9%);
+      color: var(--pq-ink);
+      box-shadow: 0 12px 30px rgba(28, 24, 18, .1);
+    }
+    .pqx-network-state strong { display: block; margin-bottom: 2px; }
+    .pqx-network-state p { margin: 0; color: var(--pq-muted); font-size: 12px; line-height: 1.45; }
     .pqx-inline-status,
     .pqx-inline-error,
     .pqx-evidence-catalog {
@@ -9668,6 +9718,25 @@
       .pqx-account-channel-form {
         gap: 8px;
       }
+      .pqx-shell[data-pqx-surface="account"] .pqx-account-action-grid {
+        box-sizing: border-box;
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+      }
+      .pqx-shell[data-pqx-surface="account"] .pqx-account-action-grid > *,
+      .pqx-shell[data-pqx-surface="account"] .pqx-account-settings-links,
+      .pqx-shell[data-pqx-surface="account"] .pqx-account-settings-links .pqx-link-button {
+        box-sizing: border-box;
+        max-width: 100%;
+        min-width: 0;
+      }
+      .pqx-shell[data-pqx-surface="account"] .pqx-account-settings-links .pqx-link-button {
+        width: 100%;
+        padding-inline: 10px;
+        white-space: normal;
+        overflow-wrap: anywhere;
+      }
       .pqx-account-action-grid > *,
       .pqx-account-action-card > div,
       .pqx-account-action-card > summary,
@@ -10754,6 +10823,13 @@
     'empty_outcome': empty_outcome,
   } %}
   <div class="pqx-shell" data-pq-greenfield-shell data-property-app-shell data-property-spa-shell data-property-decision-workbench data-pqx-surface="{{ surface_mode }}" data-pqx-state="{{ 'results' if has_results else ('running' if run_active else ('empty_results' if run_terminal_no_results else 'setup')) }}">
+    <section class="pqx-network-state" data-pq-network-state data-pq-failure-state="offline" role="status" aria-live="polite" aria-atomic="true" hidden>
+      <div>
+        <strong>You’re offline.</strong>
+        <p>Keep this page open. Reconnect, then try again. Your saved work is unchanged.</p>
+      </div>
+      <button class="pqx-button subtle" type="button" data-pq-network-retry data-pq-next-action>Try again</button>
+    </section>
     <header class="pqx-topbar" data-property-research-topnav>
       <a class="pqx-brand" href="/?home=1" aria-label="PropertyQuarry public home">
         <span class="pqx-mark">PQ</span>
@@ -10948,18 +11024,18 @@
 
     <main class="pqx-main">
       {% if route_recovery %}
-      <aside class="pqx-recovery-banner" data-pqx-route-recovery role="status">
+      <aside class="pqx-recovery-banner" data-pqx-route-recovery data-pq-failure-state="stale" role="status" aria-live="polite">
         <div>
           <strong>{{ route_recovery.get('title') or 'Opened the current workspace' }}</strong>
           <span>{{ route_recovery.get('detail') or 'That saved link was stale, so PropertyQuarry opened the current search workspace.' }}</span>
         </div>
         <div class="pqx-recovery-meta">
-          <a class="pqx-link-button subtle" href="{{ route_recovery.get('action_href') or request.url.path }}">{{ route_recovery.get('action_label') or 'Stay here' }}</a>
+          <a class="pqx-link-button subtle" data-pq-next-action href="{{ route_recovery.get('action_href') or request.url.path }}">{{ route_recovery.get('action_label') or 'Stay here' }}</a>
         </div>
       </aside>
       {% endif %}
       {% if packet_recovery %}
-      <aside class="pqx-recovery-banner" data-pqx-packet-recovery role="status">
+      <aside class="pqx-recovery-banner" data-pqx-packet-recovery data-pq-failure-state="missing_packet" role="status" aria-live="polite">
         <div>
           <strong>{{ packet_recovery.get('title') or 'Property page is being rebuilt' }}</strong>
           <span>{{ packet_recovery.get('detail') or 'The shortlist remains available while this page is refreshed.' }}</span>
@@ -10971,7 +11047,18 @@
           {% if packet_recovery.get('queue_item_ref') %}
           <span class="pqx-pill good">Queued</span>
           {% endif %}
-          <a class="pqx-link-button subtle" href="{{ packet_recovery.get('action_href') or '/app/shortlist' }}">{{ packet_recovery.get('action_label') or 'Open shortlist' }}</a>
+          <a class="pqx-link-button subtle" data-pq-next-action href="{{ packet_recovery.get('action_href') or '/app/shortlist' }}">{{ packet_recovery.get('action_label') or 'Open shortlist' }}</a>
+        </div>
+      </aside>
+      {% endif %}
+      {% if run_status == 'completed_partial' %}
+      <aside class="pqx-recovery-banner" data-pq-failure-state="partial" role="status" aria-live="polite">
+        <div>
+          <strong>This search finished with partial results.</strong>
+          <span>You can review the homes already found. Edit the search if you want to try the missing sources again.</span>
+        </div>
+        <div class="pqx-recovery-meta">
+          <a class="pqx-link-button subtle" data-pq-next-action href="/app/search{{ topnav_query_suffix }}">Edit search</a>
         </div>
       </aside>
       {% endif %}
@@ -11012,9 +11099,12 @@
 	          {% set live_run_message_raw = (run.get('message') or '')|trim %}
           {% set live_provider_total = (run.get('provider_display_total') or run_summary.get('provider_display_total') or run_summary.get('provider_total') or run_summary.get('source_variant_total') or 0)|int %}
           {% set live_source_total = (run_summary.get('source_variant_total') or run_summary.get('sources_total') or run_sources|length or 0)|int %}
-          {% set live_source_counts = namespace(done=0, active=0) %}
+          {% set live_source_counts = namespace(done=0, active=0, explicit=0) %}
           {% for source in run_sources %}
             {% set live_source_status = (source.get('status') or source.get('state') or '')|string|lower %}
+            {% if live_source_status or source.get('error') %}
+              {% set live_source_counts.explicit = live_source_counts.explicit + 1 %}
+            {% endif %}
             {% if live_source_status in ['completed', 'processed', 'done', 'success', 'repaired', 'skipped', 'failed', 'error'] or source.get('error') %}
               {% set live_source_counts.done = live_source_counts.done + 1 %}
             {% elif live_source_status in ['running', 'processing', 'in_progress', 'working', 'starting', 'warming', 'repairing'] %}
@@ -11022,7 +11112,7 @@
             {% endif %}
           {% endfor %}
           {% set live_source_completed = (run_summary.get('sources_completed') or run_summary.get('completed_sources') or 0)|int %}
-          {% set live_source_done_total = live_source_completed if live_source_completed > live_source_counts.done else live_source_counts.done %}
+          {% set live_source_done_total = live_source_counts.done if live_source_counts.explicit > 0 else live_source_completed %}
           {% set live_source_remaining_capacity = live_source_total - live_source_done_total if live_source_total > live_source_done_total else 0 %}
           {% set live_source_active_total = live_source_counts.active if live_source_counts.active < live_source_remaining_capacity else live_source_remaining_capacity %}
           {% set live_source_waiting_raw = live_source_total - live_source_done_total - live_source_active_total %}
@@ -11200,6 +11290,20 @@
               <div class="pqx-previous-scope-caption">
                 <span class="pqx-note">{{ current_scope_preview.get('summary') or current_scope_preview.get('market_label') or 'Current brief' }}</span>
               </div>
+            </div>
+            {% endif %}
+            {% if surface_mode == 'search' %}
+            {% set search_health_view = search_health if search_health is mapping else {} %}
+            <div
+              class="pqx-dashboard-row"
+              data-property-search-health
+              data-search-health-state="{{ search_health_view.get('state') or 'blocked' }}"
+              data-search-health-freshness="{{ search_health_view.get('freshness_state') or 'missing' }}"
+              role="status"
+            >
+              <span class="pqx-small">Search health</span>
+              <strong>{{ search_health_view.get('label') or 'Unavailable' }}</strong>
+              <span class="pqx-note">{{ search_health_view.get('detail') or 'Search status could not be confirmed. Please try again shortly.' }} · {{ search_health_view.get('freshness_label') or 'Status not checked' }}</span>
             </div>
             {% endif %}
             <div class="pqx-dashboard-row">
@@ -12063,8 +12167,8 @@
               </div>
               <div class="pqx-source-grid" data-pqx-evidence-source-list></div>
             </section>
-            <div class="pqx-inline-status" data-property-inline-status></div>
-            <div class="pqx-inline-error" data-property-inline-error></div>
+            <div class="pqx-inline-status" data-property-inline-status role="status" aria-live="polite" aria-atomic="true"></div>
+            <div class="pqx-inline-error" data-property-inline-error role="alert" aria-live="assertive" aria-atomic="true"></div>
           </form>
           {% if surface_mode == 'account' %}
           <details
@@ -12188,7 +12292,7 @@
       {% set empty_eta_feedback = (empty_outcome.get('eta_feedback') or '')|trim %}
       {% set hard_filtered_total = (run.get('filtered_total') or run.get('held_back_total') or run_summary.get('filtered_total') or run_summary.get('held_back_total') or 0)|int %}
       {% set held_back_ranked_total = (run_summary.get('held_back_ranked_total') or 0)|int %}
-      <section class="pqx-stage pqx-empty-results{% if not ranked_candidates %} pqx-empty-results-compact{% endif %}{% if run_failed_no_results %} pqx-empty-results-failed{% else %} pqx-empty-results-completed{% endif %}" data-pqx-empty-results>
+      <section class="pqx-stage pqx-empty-results{% if not ranked_candidates %} pqx-empty-results-compact{% endif %}{% if run_failed_no_results %} pqx-empty-results-failed{% else %} pqx-empty-results-completed{% endif %}" data-pqx-empty-results data-pq-failure-state="{{ 'provider_blocked' if run_failed_no_results else 'empty' }}" role="status" aria-live="polite">
         <aside class="pqx-run-hero{% if mobile_primary == 'results' %} active{% endif %}" data-pqx-mobile-panel="results" data-pqx-screenfit-target="run-progress">
           <div class="pqx-title">
             <span>{% if run_status == 'failed' %}{{ run_reliability.get('health_label') or 'Interrupted' }}{% else %}Completed{% endif %}</span>
@@ -12213,9 +12317,9 @@
             <div class="pqx-fact-grid">
               {% set provider_display_total = (run.get('provider_display_total') or run_summary.get('provider_display_total') or run_summary.get('provider_total') or run_sources|length or run_summary.get('sources_total') or 0)|int %}
 	              {% set homes_checked_total = (run_summary.get('found_listing_total') if run_summary.get('found_listing_total') is not none else (run_summary.get('raw_listing_total') or run_summary.get('scanned_listing_total') or run_summary.get('reviewed_listing_total') or run_summary.get('listing_total') or 0))|int %}
-	              <div class="pqx-fact"><span>Status</span><strong>{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</strong></div>
-		              <div class="pqx-fact"><span>Sources</span><strong>{{ provider_display_total or 0 }}</strong></div>
-	              <div class="pqx-fact"><span>Listings</span><strong>{{ homes_checked_total }}</strong></div>
+		              <div class="pqx-fact"><span>Search status</span><strong>{{ run.get('status_label') or run_status|replace('_', ' ')|title }}</strong></div>
+			              <div class="pqx-fact"><span>Sites checked</span><strong>{{ provider_display_total or 0 }}</strong></div>
+		              <div class="pqx-fact"><span>Listings checked</span><strong>{{ homes_checked_total }}</strong></div>
             </div>
             {% if empty_active_rule or empty_next_move or run_status == 'failed' %}
             <div class="pqx-empty-outcome-next">
@@ -12224,7 +12328,7 @@
             </div>
             {% endif %}
 	            <div class="pqx-actions">
-	              <a class="pqx-link-button primary" href="/app/search{{ topnav_query_suffix }}">{% if run_summary.get('brief_snapshot_status') == 'old_run' or run_summary.get('brief_preferences_stale') %}{{ run_summary.get('brief_stale_action_label') or 'Start updated search' }}{% else %}Edit search{% endif %}</a>
+	              <a class="pqx-link-button primary" data-pq-next-action href="/app/search{{ topnav_query_suffix }}">{% if run_summary.get('brief_snapshot_status') == 'old_run' or run_summary.get('brief_preferences_stale') %}{{ run_summary.get('brief_stale_action_label') or 'Start updated search' }}{% else %}Edit search{% endif %}</a>
 	              {% if run_failed_no_results %}
 	              <button class="pqx-button subtle" type="button" data-pqx-filtered-open>More options</button>
 	              {% endif %}

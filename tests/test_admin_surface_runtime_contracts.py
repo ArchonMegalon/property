@@ -243,7 +243,7 @@ def test_admin_surfaces_render_live_runtime_state() -> None:
     assert "Renewal owner" in diagnostics.text
     assert "Configured providers" in diagnostics.text
     assert "Queue state" in diagnostics.text
-    assert "SLA breaches" in diagnostics.text
+    assert "Overdue handoffs" in diagnostics.text
     assert "Unclaimed handoffs" in diagnostics.text
     assert "Retrying delivery" in diagnostics.text
     assert "Load score" in diagnostics.text

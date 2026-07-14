@@ -1185,6 +1185,7 @@ def test_generated_source_specs_allow_countrywide_costa_rica_without_target_area
         "propertiesincostarica_cr",
         "twocostaricarealestate_cr",
         "tierraverde_cr",
+        "costaricarealestateservice_cr",
     }
     assert all(row["location_query"] == "" for row in specs)
     assert all(row["country_code"] == "CR" for row in specs)

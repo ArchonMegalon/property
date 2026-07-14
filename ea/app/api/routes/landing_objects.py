@@ -516,6 +516,7 @@ def _propertyquarry_handoff_tour_url(
     handoff,
     input_json: dict[str, object],
     primary_candidate: dict[str, object],
+    principal_id: str = "",
 ) -> str:
     direct_url = str(
         getattr(handoff, "tour_url", "")
@@ -526,9 +527,15 @@ def _propertyquarry_handoff_tour_url(
     if direct_url:
         if not property_tour_hosting._is_branded_public_tour_url(direct_url):
             return direct_url
-        if property_tour_hosting._hosted_property_tour_first_party_open_url(direct_url):
+        if property_tour_hosting._hosted_property_tour_first_party_open_url(
+            direct_url,
+            principal_id=principal_id,
+        ):
             return direct_url
-        direct_payload = property_tour_hosting._hosted_property_tour_payload_for_url(direct_url)
+        direct_payload = property_tour_hosting._hosted_property_tour_payload_for_url(
+            direct_url,
+            principal_id=principal_id,
+        )
         if direct_payload:
             if property_tour_hosting._property_tour_payload_is_disabled_fallback(direct_payload):
                 return ""
@@ -551,12 +558,19 @@ def _propertyquarry_handoff_tour_url(
             primary_candidate=primary_candidate,
             key="external_id",
         ),
+        principal_id=principal_id,
     )
     if not existing_url:
         return ""
-    if property_tour_hosting._hosted_property_tour_first_party_open_url(existing_url):
+    if property_tour_hosting._hosted_property_tour_first_party_open_url(
+        existing_url,
+        principal_id=principal_id,
+    ):
         return existing_url
-    existing_payload = property_tour_hosting._hosted_property_tour_payload_for_url(existing_url)
+    existing_payload = property_tour_hosting._hosted_property_tour_payload_for_url(
+        existing_url,
+        principal_id=principal_id,
+    )
     if existing_payload:
         if property_tour_hosting._property_tour_payload_is_disabled_fallback(existing_payload):
             return ""
@@ -568,6 +582,7 @@ def _propertyquarry_handoff_generated_reconstruction_url(
     handoff,
     input_json: dict[str, object],
     primary_candidate: dict[str, object],
+    principal_id: str = "",
 ) -> str:
     direct_url = str(
         getattr(handoff, "tour_url", "")
@@ -594,13 +609,17 @@ def _propertyquarry_handoff_generated_reconstruction_url(
             primary_candidate=primary_candidate,
             key="external_id",
         ),
+        principal_id=principal_id,
     )
     if existing_url and existing_url not in candidate_urls:
         candidate_urls.append(existing_url)
     for candidate_url in candidate_urls:
         if not candidate_url or not property_tour_hosting._is_branded_public_tour_url(candidate_url):
             continue
-        payload = property_tour_hosting._hosted_property_tour_payload_for_url(candidate_url)
+        payload = property_tour_hosting._hosted_property_tour_payload_for_url(
+            candidate_url,
+            principal_id=principal_id,
+        )
         if not payload or not isinstance(payload, dict):
             continue
         generated_reconstruction = payload.get("generated_reconstruction")
@@ -677,6 +696,7 @@ def _propertyquarry_handoff_media_payload(
         handoff=handoff,
         input_json=input_json,
         primary_candidate=primary_candidate,
+        principal_id=principal_id,
     )
     property_facts = dict(input_json.get("property_facts_json") or {}) if isinstance(input_json.get("property_facts_json"), dict) else {}
     if isinstance(primary_candidate.get("property_facts"), dict):
@@ -695,6 +715,7 @@ def _propertyquarry_handoff_media_payload(
                 handoff=handoff,
                 input_json=input_json,
                 primary_candidate=primary_candidate,
+                principal_id=principal_id,
             )
             or ""
         ).strip(),
@@ -755,7 +776,13 @@ def _propertyquarry_handoff_media_payload(
     ready_tour_href = ""
     if resolved_tour_url:
         if property_tour_hosting._is_branded_public_tour_url(resolved_tour_url):
-            ready_tour_href = str(property_tour_hosting._hosted_property_tour_verified_open_url(resolved_tour_url) or "").strip()
+            ready_tour_href = str(
+                property_tour_hosting._hosted_property_tour_verified_open_url(
+                    resolved_tour_url,
+                    principal_id=principal_id,
+                )
+                or ""
+            ).strip()
         else:
             ready_tour_href = resolved_tour_url
     if ready_tour_href:
@@ -1330,6 +1357,7 @@ def handoff_detail(
             handoff=handoff,
             input_json=input_json,
             primary_candidate=primary_candidate,
+            principal_id=context.principal_id,
         )
         property_url = _propertyquarry_handoff_property_url(
             handoff=handoff,

@@ -334,6 +334,10 @@ class OnboardingService(AssistantOnboardingService):
         )
         self._memory_runtime = memory_runtime
 
+    def erase_principal(self, principal_id: str) -> bool:
+        method = getattr(self._repo, "erase_principal", None)
+        return bool(method(str(principal_id or "").strip())) if callable(method) else False
+
     def _preferred_google_binding(self, *, principal_id: str):  # type: ignore[no-untyped-def]
         google_binding = self._provider_registry.get_persisted_binding_record(
             binding_id=f"{principal_id}:{GOOGLE_PROVIDER_KEY}",

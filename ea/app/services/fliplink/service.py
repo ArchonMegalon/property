@@ -1171,6 +1171,56 @@ class FlipLinkPacketService:
         )
         return [dict(event.get("payload_json") or {}) for event in rows]
 
+    def list_summary_artifacts(self, *, principal_id: str) -> list[dict[str, object]]:
+        return self._summary_events(principal_id=principal_id)
+
+    def export_principal_data(self, *, principal_id: str) -> dict[str, list[dict[str, object]]]:
+        method = getattr(self._repo, "export_principal", None)
+        if callable(method):
+            payload = dict(method(str(principal_id or "").strip()) or {})
+            return {
+                "publications": [dict(row) for row in list(payload.get("publications") or []) if isinstance(row, dict)],
+                "events": [dict(row) for row in list(payload.get("events") or []) if isinstance(row, dict)],
+            }
+        return {
+            "publications": self.list_publications(principal_id=principal_id, limit=500),
+            "events": self.list_events(principal_id=principal_id, limit=500),
+        }
+
+    def erase_principal_data(self, *, principal_id: str) -> dict[str, int]:
+        principal = str(principal_id or "").strip()
+        if not principal:
+            return {"publications": 0, "events": 0, "artifact_files": 0}
+        publications = self._repo.list_publications(principal_id=principal, limit=500)
+        artifact_files = 0
+        try:
+            artifact_root = self._artifact_root.resolve()
+        except OSError:
+            artifact_root = self._artifact_root
+        for publication in publications:
+            for key in ("artifact_download_path", "source_pdf_artifact_ref", "receipt_artifact_ref"):
+                raw_path = str(publication.get(key) or "").strip()
+                if not raw_path:
+                    continue
+                try:
+                    candidate = Path(raw_path).expanduser().resolve()
+                except OSError:
+                    continue
+                if candidate == artifact_root or artifact_root not in candidate.parents or not candidate.is_file():
+                    continue
+                try:
+                    candidate.unlink()
+                except OSError:
+                    continue
+                artifact_files += 1
+        eraser = getattr(self._repo, "erase_principal", None)
+        counts = dict(eraser(principal) or {}) if callable(eraser) else {}
+        return {
+            "publications": int(counts.get("publications") or 0),
+            "events": int(counts.get("events") or 0),
+            "artifact_files": artifact_files,
+        }
+
     def _attached_summary_ids(self, *, principal_id: str, publication_id: str) -> list[str]:
         rows = self._repo.list_events(
             principal_id=principal_id,

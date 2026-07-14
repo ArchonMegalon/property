@@ -29,6 +29,7 @@ from app.services import public_branding
 from app.services import property_market_catalog
 from app.services.onboarding import OnboardingService
 from app.product import service as product_service
+from app.product import property_tour_hosting
 from app.product import property_surface_state
 from app.product.models import HandoffNote
 from app.product.service import (
@@ -3927,6 +3928,92 @@ def test_propertyquarry_running_panel_separates_source_work_from_found_queue(mon
     assert "Reviewed" not in visible_source
 
 
+def test_propertyquarry_running_panel_ignores_preseeded_completed_source_overcount(monkeypatch) -> None:
+    client = build_property_client(principal_id="pq-running-source-overcount")
+    start_workspace(client, mode="personal", workspace_name="Running Source Count Office")
+
+    def _fake_active_run(self, *, principal_id: str):
+        return {"run_id": "run-live-source-overcount", "status": "in_progress"}
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "in_progress",
+            "progress": 96,
+            "message": "Reviewing candidate 10 of 10 for Century 21 Costa Rica · Puerto Viejo.",
+            "summary": {
+                "status": "in_progress",
+                "provider_total": 5,
+                "provider_display_total": 5,
+                "source_variant_total": 10,
+                "sources_total": 10,
+                "sources_completed": 10,
+                "raw_listing_total": 342,
+                "reviewed_listing_total": 342,
+                "ranked_candidates": [],
+                "sources": [
+                    *[
+                        {"source_label": f"Finished source {index}", "status": "completed"}
+                        for index in range(6)
+                    ],
+                    {"source_label": "Running source", "status": "in_progress"},
+                    {"source_label": "Starting source", "status": "starting"},
+                    {"source_label": "Queued source A", "status": "queued"},
+                    {"source_label": "Queued source B", "status": "queued"},
+                ],
+            },
+        }
+
+    monkeypatch.setattr(ProductService, "find_active_property_search_run", _fake_active_run)
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    response = client.get(
+        "/app/properties",
+        params={"run_id": "run-live-source-overcount"},
+        headers={"host": "propertyquarry.com"},
+    )
+
+    assert response.status_code == 200
+    source_match = re.search(
+        r'<div class="pqx-source-progress"[^>]*>(?P<source>.*?)<div class="pqx-progress-meter under-source"',
+        response.text,
+        re.S,
+    )
+    assert source_match
+    visible_source = html.unescape(re.sub(r"<[^>]+>", " ", source_match.group("source")))
+    assert re.search(r"6\s*/\s*\d+\s+(?:checks|providers)", visible_source)
+    assert not re.search(r"(\d+)\s*/\s*\1\s+(?:checks|providers)", visible_source)
+    assert "left" in visible_source
+
+
+def test_propertyquarry_search_dashboard_ignores_preseeded_completed_source_overcount() -> None:
+    from jinja2 import Environment
+
+    repo_root = Path(__file__).resolve().parents[1]
+    template = (repo_root / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
+    block_start = template.index("{% set live_source_counts = namespace(done=0, active=0, explicit=0) %}")
+    block_end = template.index("{% set live_source_remaining_capacity", block_start)
+    count_template = Environment().from_string(
+        template[block_start:block_end] + "{{ live_source_done_total }}"
+    )
+    sources = [
+        *[{"source_label": f"Finished source {index}", "status": "completed"} for index in range(6)],
+        {"source_label": "Running source", "status": "in_progress"},
+        {"source_label": "Starting source", "status": "starting"},
+        {"source_label": "Queued source A", "status": "queued"},
+        {"source_label": "Queued source B", "status": "queued"},
+    ]
+
+    rendered = count_template.render(
+        run_sources=sources,
+        run_summary={"sources_completed": 10, "completed_sources": 10},
+    )
+
+    assert rendered.strip().endswith("6")
+
+
 def test_propertyquarry_running_panel_replaces_stale_zero_review_copy_while_pages_remain(monkeypatch) -> None:
     client = build_property_client(principal_id="pq-running-stale-zero-review")
     start_workspace(client, mode="personal", workspace_name="Running Stale Zero Review Office")
@@ -4010,11 +4097,11 @@ def test_propertyquarry_running_panel_explains_page_preparation_queue_without_ov
                 "review_created_total": 0,
                 "review_existing_total": 0,
                 "current_step": "source_review_packet",
-                "ranked_candidates": [],
-                "sources": [
-                    {"source_label": f"Provider check {index}", "status": "warming"}
-                    for index in range(223)
-                ],
+                    "ranked_candidates": [],
+                    "sources": [
+                        {"source_label": f"Provider check {index}", "status": "completed"}
+                        for index in range(223)
+                    ],
             },
         }
 
@@ -8258,6 +8345,62 @@ def test_property_surface_state_builds_active_run_health_summary_from_compact_fr
     assert snapshot["message"] == "102 homes found · all found homes are checked"
 
 
+def test_property_source_completion_names_one_site_batch_and_checked_home_fraction() -> None:
+    run_payload = {
+        "run_id": "run-costa-rica-site-batch",
+        "status": "in_progress",
+        "progress": 61,
+        "current_step": "source_completed",
+        "message": "Completed scanning Century 21 Costa Rica · Puerto Viejo.",
+        "summary": {
+            "status": "in_progress",
+            "provider_total": 14,
+            "source_variant_total": 42,
+            "sources_total": 42,
+            "raw_listing_total": 10,
+            "reviewed_listing_total": 10,
+            "sources": [
+                {
+                    "source_label": "Century 21 Costa Rica · Puerto Viejo",
+                    "platform": "century21_cr",
+                    "status": "completed",
+                    "raw_listing_total": 10,
+                    "reviewed_listing_total": 10,
+                }
+            ],
+        },
+        "events": [
+            {
+                "step": "source_previewing",
+                "status": "in_progress",
+                "message": "Reviewing candidate 10 of 10 for Century 21 Costa Rica · Puerto Viejo.",
+            },
+            {
+                "step": "source_completed",
+                "status": "in_progress",
+                "message": "Completed scanning Century 21 Costa Rica · Puerto Viejo.",
+            },
+        ],
+    }
+
+    live_board = property_surface_state.build_property_run_live_board_snapshot(run_payload, plan_key="agent")
+    messages = [
+        str(event.get("message") or "")
+        for event in property_surface_state.property_run_customer_visible_events(run_payload=run_payload)
+    ]
+
+    assert live_board["phase_label"] == "Site batch finished"
+    assert live_board["fraction_label"] == "10 of 10 homes checked"
+    assert live_board["provider_full_label"] == "Century 21 Costa Rica · Puerto Viejo"
+    assert live_board["source_count_label"] == "10 of 10 homes checked"
+    assert any(
+        message.startswith("Site batch finished · Century 21 Costa · 10 of 10 homes checked")
+        for message in messages
+    )
+    assert not any("Source finished" in message for message in messages)
+    assert property_surface_state.property_run_status_copy("processed") == ("Finished", "")
+
+
 def test_property_surface_state_builds_filtered_total_from_summary_components() -> None:
     snapshot = property_surface_state.build_property_run_health_snapshot(
         {
@@ -8847,7 +8990,7 @@ def test_property_workspace_payload_derives_diorama_preview_from_ready_generated
     monkeypatch.setattr(
         landing_property_workspace_payload,
         "_property_visual_ready_tour_url",
-        lambda *, tour_url="", open_tour_url="": (
+        lambda *, tour_url="", open_tour_url="", principal_id="": (
             generated_reconstruction_url
             if str(tour_url or open_tour_url).strip() == generated_reconstruction_url
             else ""
@@ -8965,7 +9108,7 @@ def test_property_workbench_selected_review_derives_diorama_cover_from_ready_gen
     monkeypatch.setattr(
         landing_property_workspace_payload,
         "_property_visual_ready_tour_url",
-        lambda *, tour_url="", open_tour_url="": (
+        lambda *, tour_url="", open_tour_url="", principal_id="": (
             generated_reconstruction_url
             if str(tour_url or open_tour_url).strip() == generated_reconstruction_url
             else ""
@@ -9038,6 +9181,7 @@ def test_property_console_context_skips_feedback_and_profile_hydration_on_proper
     )
 
     candidate = context["run"]["summary"]["sources"][0]["top_candidates"][0]
+    assert context["_principal_id"] == "pq-fast-properties"
     assert context["preference_bundle"] == {}
     assert "feedback_summary" not in candidate
     assert "feedback_rows" not in candidate
@@ -11299,6 +11443,92 @@ def test_property_research_detail_prefers_generated_diorama_for_hero_media(monke
     assert re.search(r">\s*Diorama\s*<", page.text)
 
 
+def test_property_research_detail_uses_curated_diorama_instead_of_floorplan_preview(monkeypatch) -> None:
+    principal_id = "pq-research-detail-curated-diorama"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Curated Diorama Office")
+    floorplan_preview_url = "https://cache.willhaben.at/mmo/6/846/238/136_111134838.jpg"
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str, lightweight: bool = False):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "Property scouting run completed.",
+            "property_search_preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "search_goal": "home",
+                "location_query": "1010 Wien",
+            },
+            "summary": {
+                "sources_total": 1,
+                "listing_total": 1,
+                "ranked_candidates": [
+                    {
+                        "candidate_ref": "d907fa5b6b5d7308",
+                        "listing_id": "846238136",
+                        "title": "Furnished classic city apartment",
+                        "summary": "A four-room Vienna apartment with listing photos and a plan.",
+                        "recommendation": "shortlist",
+                        "review_url": "/app/research/d907fa5b6b5d7308",
+                        "property_url": (
+                            "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/"
+                            "wien-1010-innere-stadt/furnished-classic-style-city-apartment-846238136/"
+                        ),
+                        "source_label": "Willhaben",
+                        "fit_score": 81,
+                        "preview_image_url": floorplan_preview_url,
+                        "property_facts": {
+                            "price_display": "EUR 3,960",
+                            "monthly_rent_eur": 3960,
+                            "area_m2": 153,
+                            "rooms": 4,
+                            "postal_name": "1010 Wien",
+                            "preview_image_url": floorplan_preview_url,
+                            "image_url": floorplan_preview_url,
+                            "media_urls_json": [floorplan_preview_url],
+                        },
+                    }
+                ],
+                "sources": [],
+            },
+            "events": [
+                {"step": "completed", "message": "Property scouting run completed.", "status": "processed"},
+            ],
+        }
+
+    landing_routes._property_curated_diorama_preview_index.cache_clear()
+    monkeypatch.setattr(
+        landing_routes,
+        "_property_curated_diorama_preview_index",
+        lambda: {
+            "candidate:d907fa5b6b5d7308": "/static/property/research/d907fa5b6b5d7308-diorama.png",
+            "listing:846238136": "/static/property/research/d907fa5b6b5d7308-diorama.png",
+        },
+    )
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    page = client.get(
+        "/app/research/d907fa5b6b5d7308",
+        params={"run_id": "727428e87aa544de82d2682a79e6da16"},
+        headers=headers,
+    )
+
+    assert page.status_code == 200
+    hero_image_match = re.search(
+        r'<img src="([^"]+)" alt="Furnished classic city apartment" loading="lazy" data-prd-hero-image',
+        page.text,
+    )
+    assert hero_image_match is not None
+    assert hero_image_match.group(1) == "/static/property/research/d907fa5b6b5d7308-diorama.png"
+    assert hero_image_match.group(1) != floorplan_preview_url
+    assert re.search(r'class="[^"]*\bprd-media-frame-diorama\b[^"]*"', page.text)
+    assert re.search(r">\s*Diorama\s*<", page.text)
+
 def test_property_research_detail_derives_generated_diorama_from_reconstruction_bundle(monkeypatch) -> None:
     principal_id = "pq-research-detail-generated-diorama-derived"
     client = build_property_client(principal_id=principal_id)
@@ -13422,7 +13652,7 @@ def test_propertyquarry_prepare_run_payload_synthesizes_tour_payload_for_verifie
     monkeypatch.setattr(
         property_tour_hosting,
         "_hosted_property_tour_verified_open_url",
-        lambda _url: verified_url,
+        lambda _url, *, principal_id="": verified_url,
     )
 
     normalized = landing_routes._propertyquarry_prepare_run_payload(
@@ -13527,12 +13757,12 @@ def test_property_workspace_payload_ready_tour_snapshot_includes_nested_tour_wit
     monkeypatch.setattr(
         property_tour_hosting,
         "_hosted_property_tour_verified_open_url",
-        lambda _url: verified_url,
+        lambda _url, *, principal_id="": verified_url,
     )
     monkeypatch.setattr(
         property_tour_hosting,
         "_hosted_property_tour_verified_provider",
-        lambda _url: "matterport",
+        lambda _url, *, principal_id="": "matterport",
     )
 
     payload = landing_property_workspace_payload.property_workspace_payload(
@@ -13592,7 +13822,7 @@ def test_property_workspace_payload_ready_tour_snapshot_accepts_top_level_open_t
     monkeypatch.setattr(
         landing_property_workspace_payload,
         "_property_visual_ready_tour_url",
-        lambda *, tour_url="", open_tour_url="": str(open_tour_url or tour_url or "").strip(),
+        lambda *, tour_url="", open_tour_url="", principal_id="": str(open_tour_url or tour_url or "").strip(),
     )
 
     payload = landing_property_workspace_payload.property_workspace_payload(
@@ -13654,7 +13884,7 @@ def test_property_workspace_payload_generated_reconstruction_snapshot_does_not_i
     monkeypatch.setattr(
         property_tour_hosting,
         "_hosted_property_tour_verified_open_url",
-        lambda _url: "",
+        lambda _url, *, principal_id="": "",
     )
     monkeypatch.setattr(
         property_tour_hosting,
@@ -13783,6 +14013,7 @@ def test_property_workspace_payload_recovers_ready_tour_from_hosted_identity(
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL", "https://propertyquarry.com/tours")
     slug = "workspace-identity-ready"
+    principal_id = "workspace-identity-ready-owner"
     bundle_dir = tmp_path / slug
     bundle_dir.mkdir(parents=True)
     (bundle_dir / "scene-01.jpg").write_bytes(b"real-asset")
@@ -13791,10 +14022,11 @@ def test_property_workspace_payload_recovers_ready_tour_from_hosted_identity(
         "<html><script>window.TDVPlayer = {}</script></html>",
         encoding="utf-8",
     )
-    (bundle_dir / "tour.json").write_text(
-        json.dumps(
-            {
+    property_tour_hosting._write_hosted_property_tour_payload(
+        bundle_dir,
+        {
             "slug": slug,
+            "principal_id": principal_id,
             "property_url": "https://example.test/workspace-identity-ready",
             "listing_url": "https://example.test/workspace-identity-ready",
             "source_ref": "provider:workspace-identity-ready",
@@ -13815,16 +14047,21 @@ def test_property_workspace_payload_recovers_ready_tour_from_hosted_identity(
                 "rendered_viewer": True,
             },
             "matterport_url": "https://my.matterport.com/show/?m=WORKSPACE1",
-                "scenes": [{"asset_relpath": "scene-01.jpg"}],
-            }
-        ),
-        encoding="utf-8",
+            "scenes": [{"asset_relpath": "scene-01.jpg"}],
+        },
     )
+    public_manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
+    private_receipt = json.loads((bundle_dir / "tour.private.json").read_text(encoding="utf-8"))
+    assert "property_url" not in public_manifest
+    assert "matterport_url" not in public_manifest
+    assert "three_d_vista_entry_relpath" not in public_manifest
+    assert private_receipt["three_d_vista_entry_relpath"] == "3dvista/index.htm"
 
     payload = landing_property_workspace_payload.property_workspace_payload(
         "shortlist",
         status={},
         property_state={
+            "_principal_id": principal_id,
             "commercial": {},
             "billing_truth": {},
             "preferences": {
@@ -14292,7 +14529,7 @@ def test_property_research_detail_uses_minimal_top_navigation_layout() -> None:
     assert ".prd-top-context {\n      display: flex;\n      justify-content: flex-end;\n      grid-column: 2;\n    }" in body
     assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in body
     assert "min-height: clamp(206px, 30vh, 288px);" in body
-    assert "min-height: clamp(320px, 44vh, 500px);" in body
+    assert "min-height: clamp(320px, 44vh, 380px);" in body
     assert "grid-template-columns: repeat(4, minmax(0, 1fr));" in body
     assert "grid-template-columns: 84px minmax(0, 1fr);" in body
     assert 'data-pqx-screenfit-target="research-detail-hero"' in body
@@ -14604,7 +14841,7 @@ def test_property_research_media_ignores_disabled_fallback_tour_record(monkeypat
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
         "_hosted_property_tour_payload_for_url",
-        lambda _url: {
+        lambda _url, *, principal_id="": {
             "creation_mode": "hosted_floorplan_tour",
             "scene_strategy": "floorplan_hosted",
         },
@@ -15301,6 +15538,16 @@ def test_property_run_safe_status_replaces_stale_zero_review_copy() -> None:
 
     assert message == "4097 homes found · 6 checks left"
     assert "0 to review" not in message.lower()
+
+
+def test_property_run_safe_status_maps_upstream_retry_error_code() -> None:
+    message = property_surface_state.property_run_customer_safe_status_detail(
+        "failed",
+        "The provider call failed with error code: 1010 after fetch.",
+        summary={},
+    )
+
+    assert message == "PropertyQuarry is retrying affected providers."
 
 
 def test_property_run_live_board_distinguishes_found_from_reviewed_candidates() -> None:
@@ -18691,10 +18938,53 @@ def test_property_workspace_payload_compacts_top_level_run_payload_for_shortlist
     serialized_top_level_run = json.dumps(top_level_run, sort_keys=True)
     assert top_level_run["run_id"] == "run-compact"
     assert top_level_run["summary"]["listing_total"] == 3
-    assert "ranked_candidates" not in serialized_top_level_run
-    assert "top_candidates" not in serialized_top_level_run
-    assert "source_html" not in serialized_top_level_run
-    assert heavy_blob not in serialized_top_level_run
+
+
+def test_property_workspace_payload_sanitizes_error_code_1010_in_search_cards() -> None:
+    raw_message = "Could not complete. Error code: 1010 while fetching listings."
+    expected_safe_message = property_surface_state.property_run_customer_safe_status_detail(
+        "failed",
+        raw_message,
+        summary={
+            "status": "failed",
+            "sources_total": 3,
+            "sources_completed": 0,
+            "listing_total": 0,
+            "repair_status": "repairing",
+            "repair_status_label": "Retrying",
+        },
+        prefer_repair_step=True,
+    )
+    payload = landing_routes._property_workspace_payload(
+        "search",
+        status={"workspace": {"name": "Search"}, "channels": {}},
+        property_state={
+            "preferences": {"country_code": "AT", "listing_mode": "buy"},
+            "commercial": {"current_plan_label": "Agent", "current_plan_key": "agent"},
+            "preference_bundle": {},
+            "run": {
+                "run_id": "run-1010-raw",
+                "status": "failed",
+                "progress": 100,
+                "message": raw_message,
+                "summary": {
+                    "status": "failed",
+                    "sources_total": 3,
+                    "sources_completed": 0,
+                    "listing_total": 0,
+                    "repair_status": "repairing",
+                    "repair_status_label": "Retrying",
+                },
+            },
+        },
+    )
+
+    assert payload["run_payload"]["message"] == expected_safe_message
+    assert payload["decision_workbench"]["run"]["message"] == expected_safe_message
+    assert "error code: 1010" not in payload["decision_workbench"]["client_run"]["message"].lower()
+    assert "error code: 1010" not in expected_safe_message.lower()
+    serialized_payload = json.dumps(payload, sort_keys=True).lower()
+    assert "error code: 1010" not in serialized_payload
 
 
 def test_property_workspace_payload_bounds_properties_first_paint_results() -> None:
@@ -20591,6 +20881,11 @@ def test_propertyquarry_project_shape_docs_define_flagship_loop_and_design_gate(
     assert "Public packets and tours" in retention_body
     assert "External investment data" in retention_body
     assert "Revocation must remove customer access and make stale artifacts undiscoverable" in retention_body
+    assert "Account Export and Erasure Lifecycle" in retention_body
+    assert "signed cursors" in retention_body
+    assert "Backup Tombstone Policy" in retention_body
+    assert "provider-issued receipt" in retention_body
+    assert "revoked slugs return `410`" in retention_body
     assert "workspace defaults" not in retention_body
     assert "workspace links" not in retention_body
 
@@ -21258,8 +21553,8 @@ def test_propertyquarry_empty_outcome_rows_fallback_when_values_are_blank(monkey
     response = client.get("/app/properties", params={"run_id": "run-empty-outcome"}, headers=headers)
 
     assert response.status_code == 200
-    assert "Status" in response.text
-    assert '<div class="pqx-fact"><span>Status</span><strong>' in response.text
+    assert "Search status" in response.text
+    assert '<div class="pqx-fact"><span>Search status</span><strong>' in response.text
     assert "New search" in response.text
     assert "Try this" in response.text
     assert "Adjust the search, then search again." in response.text
@@ -21307,6 +21602,86 @@ def test_propertyquarry_completed_empty_results_hide_run_updates(monkeypatch) ->
     assert "No homes in scope yet." in response.text
     assert "Search updates" not in rendered_html
     assert "Fetched listings from Willhaben." not in rendered_html
+
+
+def test_propertyquarry_completed_costa_rica_run_labels_equal_site_and_listing_counts(monkeypatch) -> None:
+    principal_id = "pq-completed-cr-equal-counts"
+    client = build_property_client(principal_id=principal_id)
+    headers = {"host": "propertyquarry.com"}
+    start_workspace(client, mode="personal", workspace_name="Costa Rica Equal Counts")
+    selected_platforms = [
+        "encuentra24_cr",
+        "re_cr_mls",
+        "realtor_cr",
+        "properstar_cr",
+        "coldwellbanker_cr",
+        "century21_cr",
+        "remax_cr",
+        "theagency_cr",
+        "krain_cr",
+        "desarrollos_cr",
+    ]
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "CR",
+            "language_code": "es",
+            "listing_mode": "buy",
+            "property_type": "apartment",
+            "region_code": "costa_rica",
+            "location_query": "Costa Rica",
+            "selected_platforms": selected_platforms,
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str, **_kwargs):
+        assert principal_id == "pq-completed-cr-equal-counts"
+        assert run_id == "run-cr-equal-counts"
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "Property scouting run completed.",
+            "property_search_preferences": {
+                "country_code": "CR",
+                "listing_mode": "buy",
+                "property_type": "apartment",
+                "region_code": "costa_rica",
+                "location_query": "Costa Rica",
+                "selected_platforms": selected_platforms,
+            },
+            "summary": {
+                "status": "processed",
+                "provider_total": 10,
+                "source_variant_total": 10,
+                "sources_total": 10,
+                "sources_completed": 10,
+                "listing_total": 10,
+                "ranked_candidates": [],
+                "sources": [],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    response = client.get("/app/search", params={"run_id": "run-cr-equal-counts"}, headers=headers)
+
+    assert response.status_code == 200
+    assert 'data-pqx-state="empty_results"' in response.text
+    assert re.search(r"<span>Search status</span><strong>\s*Finished\s*</strong>", response.text)
+    assert re.search(r"<span>Sites checked</span><strong>\s*10\s*</strong>", response.text)
+    assert re.search(r"<span>Listings checked</span><strong>\s*10\s*</strong>", response.text)
+    assert '<span class="pqx-run-chip is-market">Costa Rica' in response.text
+    assert "10 / 10" not in response.text
 
 
 def test_propertyquarry_failed_empty_results_keep_run_updates(monkeypatch) -> None:
@@ -21528,13 +21903,13 @@ def test_propertyquarry_provider_fact_never_uses_source_variant_count(monkeypatc
     response = client.get("/app/properties", params={"run_id": "run-variant-heavy"}, headers=headers)
 
     assert response.status_code == 200
-    assert re.search(r"<span>Sources</span><strong>\s*3\s*</strong>", response.text)
-    assert re.search(r"<span>Listings</span><strong>\s*2160\s*</strong>", response.text)
-    assert "<span>Sources</span><strong>156</strong>" not in response.text
+    assert re.search(r"<span>Sites checked</span><strong>\s*3\s*</strong>", response.text)
+    assert re.search(r"<span>Listings checked</span><strong>\s*2160\s*</strong>", response.text)
+    assert "<span>Sites checked</span><strong>156</strong>" not in response.text
     assert "<span>Source checks</span>" not in response.text
     assert "Selected sites checked 2160 listings." in response.text
     assert "Source variants" not in response.text
-    assert "Status" in response.text
+    assert "Search status" in response.text
     assert "Timing" not in response.text
     assert "Checking again after the search was interrupted." in response.text
     assert "More options" in response.text
@@ -23095,12 +23470,12 @@ def test_propertyquarry_shortlist_shows_media_ready_status_without_direct_media_
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
         "_hosted_property_tour_verified_open_url",
-        lambda _url: verified_tour_href,
+        lambda _url, *, principal_id="": verified_tour_href,
     )
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
         "_hosted_property_tour_verified_provider",
-        lambda _url: "matterport",
+        lambda _url, *, principal_id="": "matterport",
     )
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
@@ -23253,7 +23628,9 @@ def test_propertyquarry_results_selected_review_opens_nested_ready_tour_on_first
     monkeypatch.setattr(
         landing_property_workspace_payload,
         "_property_visual_ready_tour_url",
-        lambda *, tour_url="", open_tour_url="": hosted_href if str(tour_url or open_tour_url).strip() else "",
+        lambda *, tour_url="", open_tour_url="", principal_id="": hosted_href
+        if str(tour_url or open_tour_url).strip()
+        else "",
     )
     response = client.get("/app/search", params={"run_id": "run-selected-review-ready-tour"}, headers={"host": "propertyquarry.com"})
     rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", response.text, flags=re.IGNORECASE | re.DOTALL)
@@ -23923,7 +24300,9 @@ def test_propertyquarry_workspace_exposes_investment_goal_and_guardrails() -> No
     assert "const setConditionalWrapVisibility = (wrap, visible, reason" in workbench_script
     assert "setConditionalWrapVisibility(locationFieldWrap, isSearchStep && hasAreaOptions, 'area_scope');" in workbench_script
     assert "const resyncSearchFormState = () => {" in workbench_script
-    assert ".finally(resyncSearchFormState);" in workbench_script
+    assert "const userInteractionStarted = () =>" in workbench_script
+    assert "if (!userInteractionStarted()) resyncSearchFormState();" in workbench_script
+    assert "applyBrowserAndIpDefaults().finally(finalizeInitialFormState);" in workbench_script
     assert "const lifestyleDetailWraps = [" in workbench_script
     assert "input[name=\"enable_lifestyle_research\"]')?.addEventListener('change', syncSearchGoalControls);" in workbench_script
     assert "university_name: Boolean(form.querySelector('input[name=\"enable_lifestyle_research\"]')?.checked)" in brief_script
@@ -25761,12 +26140,12 @@ def test_property_research_packet_treats_disabled_fallback_tour_as_requestable(m
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
         "_hosted_property_tour_verified_open_url",
-        lambda _url: "",
+        lambda _url, *, principal_id="": "",
     )
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
         "_hosted_property_tour_payload_for_url",
-        lambda _url: {
+        lambda _url, *, principal_id="": {
             "creation_mode": "hosted_floorplan_tour",
             "scene_strategy": "floorplan_hosted",
         },
@@ -25997,12 +26376,12 @@ def test_property_research_packet_uses_hosted_tour_href_for_ready_hero_action(mo
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
         "_hosted_property_tour_verified_open_url",
-        lambda _url: hosted_href,
+        lambda _url, *, principal_id="": hosted_href,
     )
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
         "_hosted_property_tour_verified_provider",
-        lambda _url: "matterport",
+        lambda _url, *, principal_id="": "matterport",
     )
 
     packet_ref = landing_property_research._property_candidate_ref(
@@ -26076,12 +26455,12 @@ def test_property_research_packet_uses_nested_ready_tour_payload_for_hero_action
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
         "_hosted_property_tour_verified_open_url",
-        lambda _url: hosted_href,
+        lambda _url, *, principal_id="": hosted_href,
     )
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
         "_hosted_property_tour_verified_provider",
-        lambda _url: "matterport",
+        lambda _url, *, principal_id="": "matterport",
     )
 
     packet_ref = landing_property_research._property_candidate_ref(
@@ -26149,11 +26528,15 @@ def test_property_research_packet_surfaces_generated_reconstruction_as_layout_to
 
     monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
     monkeypatch.setattr(landing_property_research, "_property_investment_research_snapshot", lambda **kwargs: {})
-    monkeypatch.setattr(landing_property_research.property_tour_hosting, "_hosted_property_tour_verified_open_url", lambda _url: "")
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_verified_open_url",
+        lambda _url, *, principal_id="": "",
+    )
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
         "_hosted_property_tour_first_party_open_url",
-        lambda _url: "https://propertyquarry.com/tours/generated-reconstruction-loft",
+        lambda _url, *, principal_id="": "https://propertyquarry.com/tours/generated-reconstruction-loft",
     )
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
@@ -26272,12 +26655,12 @@ def test_property_research_packet_shows_ready_walkthrough_inside_visual_console(
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
         "_hosted_property_tour_verified_open_url",
-        lambda _url: hosted_href,
+        lambda _url, *, principal_id="": hosted_href,
     )
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
         "_hosted_property_tour_verified_provider",
-        lambda _url: "matterport",
+        lambda _url, *, principal_id="": "matterport",
     )
     verified_walkthrough_href = "https://propertyquarry.com/tours/walkthrough-ready-loft?pane=flythrough-pane&autoplay=1"
     monkeypatch.setattr(
@@ -26362,12 +26745,12 @@ def test_property_research_packet_keeps_ready_tour_in_visual_rail_while_walkthro
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
         "_hosted_property_tour_verified_open_url",
-        lambda _url: hosted_href,
+        lambda _url, *, principal_id="": hosted_href,
     )
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
         "_hosted_property_tour_verified_provider",
-        lambda _url: "matterport",
+        lambda _url, *, principal_id="": "matterport",
     )
 
     packet_ref = landing_property_research._property_candidate_ref(

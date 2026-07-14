@@ -50,6 +50,18 @@ def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
         "https://propertyquarry.com/subprocessors": "PropertyQuarry Subprocessors Service partner registry",
         "https://propertyquarry.com/refunds": "PropertyQuarry Refunds and Cancellation failed payment recovery",
         "https://propertyquarry.com/disclaimers": "PropertyQuarry Disclaimers Generated visualization",
+        "https://propertyquarry.com/integrations": (
+            "PropertyQuarry Connect only what improves the property workflow. View details"
+        ),
+        "https://propertyquarry.com/docs": (
+            "PropertyQuarry Understand PropertyQuarry without reading the plumbing. Open"
+        ),
+        "https://propertyquarry.com/guides/wohnung-kaufen-wien-checkliste": (
+            "PropertyQuarry Wohnung kaufen in Wien The shortest useful checklist Open PropertyQuarry"
+        ),
+        "https://propertyquarry.com/markets/vienna": (
+            "PropertyQuarry Vienna apartment search What separates signal from noise Start a Vienna search"
+        ),
         "https://propertyquarry.com/register": "PropertyQuarry Set up your PropertyQuarry account Finish setup",
         "https://propertyquarry.com/sign-in": (
             'PropertyQuarry Use email or one of the sign-in options below. '
@@ -68,7 +80,23 @@ def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
         ),
         "https://propertyquarry.com/service-worker.js": "self.skipWaiting(); self.clients.claim();",
         "https://propertyquarry.com/robots.txt": "Sitemap: https://propertyquarry.com/sitemap.xml",
-        "https://propertyquarry.com/sitemap.xml": "<loc>https://propertyquarry.com/</loc><loc>https://propertyquarry.com/pricing</loc>",
+        "https://propertyquarry.com/sitemap.xml": (
+            "<loc>https://propertyquarry.com/</loc>"
+            "<loc>https://propertyquarry.com/pricing</loc>"
+            "<loc>https://propertyquarry.com/security</loc>"
+            "<loc>https://propertyquarry.com/privacy</loc>"
+            "<loc>https://propertyquarry.com/terms</loc>"
+            "<loc>https://propertyquarry.com/support</loc>"
+            "<loc>https://propertyquarry.com/imprint</loc>"
+            "<loc>https://propertyquarry.com/cookies</loc>"
+            "<loc>https://propertyquarry.com/subprocessors</loc>"
+            "<loc>https://propertyquarry.com/refunds</loc>"
+            "<loc>https://propertyquarry.com/disclaimers</loc>"
+            "<loc>https://propertyquarry.com/integrations</loc>"
+            "<loc>https://propertyquarry.com/docs</loc>"
+            "<loc>https://propertyquarry.com/guides/wohnung-kaufen-wien-checkliste</loc>"
+            "<loc>https://propertyquarry.com/markets/vienna</loc>"
+        ),
         "https://propertyquarry.com/app/properties": "PropertyQuarry Use email or one of the sign-in options below.",
         "https://propertyquarry.com/app/shortlist/run/public-demo-run": (
             "PropertyQuarry Sample homes Preview example homes before signing in. "
@@ -488,7 +516,21 @@ def test_live_public_smoke_accepts_localhost_sitemap_origin_without_network() ->
         base_url="http://localhost:18101",
         routes=("/sitemap.xml",),
         fetcher=lambda url, _timeout: _fake_response(
-            "<loc>http://localhost:18101/</loc><loc>http://localhost:18101/pricing</loc>",
+            "<loc>http://localhost:18101/</loc>"
+            "<loc>http://localhost:18101/pricing</loc>"
+            "<loc>http://localhost:18101/security</loc>"
+            "<loc>http://localhost:18101/privacy</loc>"
+            "<loc>http://localhost:18101/terms</loc>"
+            "<loc>http://localhost:18101/support</loc>"
+            "<loc>http://localhost:18101/imprint</loc>"
+            "<loc>http://localhost:18101/cookies</loc>"
+            "<loc>http://localhost:18101/subprocessors</loc>"
+            "<loc>http://localhost:18101/refunds</loc>"
+            "<loc>http://localhost:18101/disclaimers</loc>"
+            "<loc>http://localhost:18101/integrations</loc>"
+            "<loc>http://localhost:18101/docs</loc>"
+            "<loc>http://localhost:18101/guides/wohnung-kaufen-wien-checkliste</loc>"
+            "<loc>http://localhost:18101/markets/vienna</loc>",
             final_url=url,
         ),
     )

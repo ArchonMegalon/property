@@ -6,12 +6,15 @@ import json
 import os
 import time
 from pathlib import Path
+from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
+from app.observability import get_runtime_metrics
+from app.services.property_content_job_ledger import PropertyContentLedgerCorruptionError
 from app.services.property_content_packet_builder import (
     build_product_tutorial_source_packet,
     build_synthetic_dossier_source_packet,
@@ -70,6 +73,14 @@ def _event_id(payload: dict[str, object]) -> str:
 
 def _event_type(payload: dict[str, object]) -> str:
     return str(payload.get("type") or payload.get("event") or payload.get("event_type") or "").strip()
+
+
+def _content_webhook_lease_seconds() -> int:
+    try:
+        value = int(str(os.getenv("PROPERTYQUARRY_CONTENT_WEBHOOK_LEASE_SECONDS") or "300").strip() or "300")
+    except (TypeError, ValueError):
+        value = 300
+    return max(30, min(value, 1800))
 
 
 def _verify_subscribr_signature(*, raw_body: bytes, signature: str, timestamp: str = "") -> None:
@@ -165,46 +176,96 @@ async def subscribr_webhook(request: Request) -> dict[str, object]:
         raise HTTPException(status_code=422, detail="subscribr_webhook_event_id_required")
     event_type = _event_type(payload)
     studio = _studio()
-    if studio.ledger.webhook_seen(event_id):
+    metrics = get_runtime_metrics(request.app)
+    claim_owner = f"subscribr-webhook:{os.getpid()}:{uuid4().hex}"
+    try:
+        claim = studio.ledger.claim_webhook_event(
+            event_id=event_id,
+            payload=payload,
+            claim_owner=claim_owner,
+            lease_seconds=_content_webhook_lease_seconds(),
+            extra={
+                "raw_body_sha256": hashlib.sha256(raw_body).hexdigest(),
+                "signature_status": "verified",
+                "timestamp": str(request.headers.get("x-subscribr-timestamp") or "").strip(),
+            },
+        )
+    except PropertyContentLedgerCorruptionError as exc:
+        metrics.record_content_ledger_event(outcome="corruption")
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception:
+        metrics.record_content_ledger_event(outcome="failed")
+        raise
+    if bool(claim.get("conflict")):
+        metrics.record_content_ledger_event(outcome="replay_conflict")
+        raise HTTPException(status_code=409, detail="subscribr_webhook_event_payload_conflict")
+    if not bool(claim.get("claimed")):
+        metrics.record_content_ledger_event(outcome="duplicate")
         return {"status": "duplicate_ignored", "event_id": event_id}
-    studio.ledger.record_webhook_event(
-        event_id=event_id,
-        payload=payload,
-        status="received",
-        extra={
-            "raw_body_sha256": hashlib.sha256(raw_body).hexdigest(),
-            "signature_status": "verified",
-            "timestamp": str(request.headers.get("x-subscribr-timestamp") or "").strip(),
-        },
-    )
-    if event_type and event_type not in _SUBSCRIBR_SCRIPT_COMPLETION_EVENTS:
-        return {
-            "status": "received",
-            "event_id": event_id,
-            "event_type": event_type,
-            "next": "wait_for_script_generated_or_export_completed",
-            "publication_allowed": False,
-        }
-    packet_id = str(payload.get("packet_id") or payload.get("packetId") or "").strip()
-    inline_packet = payload.get("packet") if isinstance(payload.get("packet"), dict) else {}
-    if not packet_id and inline_packet:
-        packet_id = str(inline_packet.get("packet_id") or "").strip()
-    row = studio.ledger.get_job(packet_id) if packet_id else None
-    packet = dict(row.get("source_packet_json") or {}) if isinstance(row, dict) else {}
-    markdown = str(payload.get("markdown") or payload.get("script_markdown") or payload.get("export_markdown") or "")
-    if packet and markdown:
-        receipt = studio.ingest_completed_script(packet=packet, event_payload=payload, markdown=markdown)
-        return {"status": "review_required", "event_id": event_id, "receipt": receipt}
-    if markdown and not packet:
-        return {
-            "status": "received",
-            "event_id": event_id,
-            "next": "await_local_source_packet",
-            "publication_allowed": False,
-        }
-    return {
-        "status": "received",
-        "event_id": event_id,
-        "next": "export_script_and_validate",
-        "publication_allowed": False,
-    }
+    metrics.record_content_ledger_event(outcome="recovered" if bool(claim.get("recovered")) else "claimed")
+
+    def finish(response: dict[str, object], *, status: str) -> dict[str, object]:
+        studio.ledger.complete_webhook_event(
+            event_id=event_id,
+            claim_owner=claim_owner,
+            status=status,
+            extra={"response_status": str(response.get("status") or status)},
+        )
+        metrics.record_content_ledger_event(outcome="completed")
+        return response
+
+    try:
+        if event_type and event_type not in _SUBSCRIBR_SCRIPT_COMPLETION_EVENTS:
+            return finish(
+                {
+                    "status": "received",
+                    "event_id": event_id,
+                    "event_type": event_type,
+                    "next": "wait_for_script_generated_or_export_completed",
+                    "publication_allowed": False,
+                },
+                status="received",
+            )
+        packet_id = str(payload.get("packet_id") or payload.get("packetId") or "").strip()
+        inline_packet = payload.get("packet") if isinstance(payload.get("packet"), dict) else {}
+        if not packet_id and inline_packet:
+            packet_id = str(inline_packet.get("packet_id") or "").strip()
+        row = studio.ledger.get_job(packet_id) if packet_id else None
+        packet = dict(row.get("source_packet_json") or {}) if isinstance(row, dict) else {}
+        markdown = str(payload.get("markdown") or payload.get("script_markdown") or payload.get("export_markdown") or "")
+        if packet and markdown:
+            receipt = studio.ingest_completed_script(packet=packet, event_payload=payload, markdown=markdown)
+            return finish(
+                {"status": "review_required", "event_id": event_id, "receipt": receipt},
+                status="review_required",
+            )
+        if markdown and not packet:
+            return finish(
+                {
+                    "status": "received",
+                    "event_id": event_id,
+                    "next": "await_local_source_packet",
+                    "publication_allowed": False,
+                },
+                status="received",
+            )
+        return finish(
+            {
+                "status": "received",
+                "event_id": event_id,
+                "next": "export_script_and_validate",
+                "publication_allowed": False,
+            },
+            status="received",
+        )
+    except Exception as exc:
+        try:
+            studio.ledger.fail_webhook_event(
+                event_id=event_id,
+                claim_owner=claim_owner,
+                error=f"webhook_processing_failed:{exc.__class__.__name__}",
+            )
+        except Exception:
+            pass
+        metrics.record_content_ledger_event(outcome="failed")
+        raise

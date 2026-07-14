@@ -1,0 +1,391 @@
+from __future__ import annotations
+
+import asyncio
+from dataclasses import replace
+import json
+import threading
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.testclient import TestClient
+from pydantic import ValidationError
+import pytest
+
+from app.api.dependencies import RequestContext
+from app.api.errors import install_error_handlers
+from app.api.ingress import (
+    FixedWindowQuota,
+    IngressAbuseMiddleware,
+    IngressPolicy,
+    parse_trusted_proxy_cidrs,
+    resolve_client_ip,
+)
+from app.api.routes.product_api_contracts import (
+    PropertyMagicFitReferenceUploadIn,
+    PropertyMagicFitSceneCreateIn,
+    PropertySearchRunStartIn,
+)
+from app.observability import RuntimeMetrics
+
+
+def _policy(**overrides: object) -> IngressPolicy:
+    base = IngressPolicy(
+        quotas_enabled=True,
+        max_body_bytes=128,
+        max_upload_body_bytes=512,
+        window_seconds=60,
+        ip_request_limit=100,
+        account_request_limit=100,
+        ip_cost_limit=1_000,
+        account_cost_limit=1_000,
+        high_cost_ip_concurrency=4,
+        high_cost_account_concurrency=2,
+        active_search_limit=1,
+        trusted_proxy_cidrs=parse_trusted_proxy_cidrs("127.0.0.0/8,::1/128"),
+    )
+    return replace(base, **overrides)
+
+
+def _app_with_ingress(
+    *,
+    policy: IngressPolicy,
+    clock=lambda: 1.0,
+    context_resolver=None,
+    active_search_counter=None,
+) -> FastAPI:
+    app = FastAPI()
+    app.state.runtime_metrics = RuntimeMetrics()
+    app.add_middleware(
+        IngressAbuseMiddleware,
+        policy=policy,
+        clock=clock,
+        context_resolver=context_resolver,
+        active_search_counter=active_search_counter,
+    )
+
+    @app.get("/limited")
+    def limited() -> dict[str, bool]:
+        return {"ok": True}
+
+    @app.get("/health/live")
+    def live() -> dict[str, str]:
+        return {"status": "live"}
+
+    @app.get("/healthz")
+    def healthz() -> dict[str, str]:
+        return {"status": "healthy"}
+
+    @app.post("/echo")
+    async def echo(request: Request) -> dict[str, int]:
+        body = await request.body()
+        return {"size": len(body)}
+
+    @app.post("/app/api/property/decision-copilot")
+    def expensive() -> dict[str, bool]:
+        return {"ok": True}
+
+    @app.post("/app/api/property/search-runs")
+    def search() -> dict[str, bool]:
+        return {"started": True}
+
+    return app
+
+
+def test_ingress_policy_is_production_on_and_test_dev_deterministic() -> None:
+    production = IngressPolicy.from_environ(runtime_mode="prod", environ={})
+    test = IngressPolicy.from_environ(runtime_mode="test", environ={})
+    explicit_dev = IngressPolicy.from_environ(
+        runtime_mode="dev",
+        environ={"PROPERTYQUARRY_INGRESS_QUOTAS_ENABLED": "true"},
+    )
+
+    assert production.quotas_enabled is True
+    assert test.quotas_enabled is False
+    assert explicit_dev.quotas_enabled is True
+    assert resolve_client_ip(
+        peer_host="127.0.0.1",
+        headers={"x-forwarded-for": "198.51.100.3"},
+        trusted_proxy_cidrs=production.trusted_proxy_cidrs,
+    ) == "198.51.100.3"
+
+
+def test_ingress_rejects_declared_and_streamed_oversized_bodies() -> None:
+    app = _app_with_ingress(policy=_policy(quotas_enabled=False, max_body_bytes=8))
+    client = TestClient(app)
+
+    declared = client.post(
+        "/echo",
+        content=b"{}",
+        headers={"Content-Length": "9", "Content-Type": "application/json"},
+    )
+
+    assert declared.status_code == 413
+    assert declared.json()["error"]["code"] == "request_body_too_large"
+    assert declared.json()["error"]["details"] == {"max_body_bytes": 8}
+
+    async def _streamed_request() -> tuple[int, dict[str, object]]:
+        middleware = IngressAbuseMiddleware(
+            _body_reader_asgi_app,
+            policy=_policy(quotas_enabled=False, max_body_bytes=8),
+        )
+        messages = iter(
+            [
+                {"type": "http.request", "body": b"12345", "more_body": True},
+                {"type": "http.request", "body": b"67890", "more_body": False},
+            ]
+        )
+        sent: list[dict[str, object]] = []
+
+        async def receive() -> dict[str, object]:
+            return next(messages)
+
+        async def send(message: dict[str, object]) -> None:
+            sent.append(message)
+
+        await middleware(
+            {
+                "type": "http",
+                "asgi": {"version": "3.0"},
+                "http_version": "1.1",
+                "method": "POST",
+                "scheme": "http",
+                "path": "/echo",
+                "raw_path": b"/echo",
+                "query_string": b"",
+                "headers": [],
+                "client": ("203.0.113.5", 1234),
+                "server": ("testserver", 80),
+                "state": {},
+            },
+            receive,
+            send,
+        )
+        status = int(next(message["status"] for message in sent if message["type"] == "http.response.start"))
+        body = b"".join(bytes(message.get("body") or b"") for message in sent if message["type"] == "http.response.body")
+        return status, json.loads(body.decode("utf-8"))
+
+    status, payload = asyncio.run(_streamed_request())
+    assert status == 413
+    assert payload["error"]["code"] == "request_body_too_large"  # type: ignore[index]
+
+
+async def _body_reader_asgi_app(scope, receive, send) -> None:  # type: ignore[no-untyped-def]
+    while True:
+        message = await receive()
+        if not message.get("more_body"):
+            break
+    await send({"type": "http.response.start", "status": 204, "headers": []})
+    await send({"type": "http.response.body", "body": b""})
+
+
+def test_ingress_rate_limit_has_retry_after_envelope_and_health_bypass() -> None:
+    app = _app_with_ingress(policy=_policy(ip_request_limit=2))
+    client = TestClient(app)
+
+    assert client.get("/limited").status_code == 200
+    assert client.get("/limited").status_code == 200
+    rejected = client.get("/limited")
+
+    assert rejected.status_code == 429
+    assert rejected.headers["Retry-After"] == "59"
+    assert rejected.json()["error"]["code"] == "ingress_rate_limit_exceeded"
+    assert rejected.json()["error"]["correlation_id"]
+    assert client.get("/health/live").status_code == 200
+    assert client.get("/health/live").status_code == 200
+    assert client.get("/health/live/").status_code in {200, 307}
+    assert client.get("/healthz").status_code == 200
+    metrics = app.state.runtime_metrics.render_prometheus(readiness_ready=True)
+    assert 'propertyquarry_ingress_rejections_total{reason="ingress_rate_limit_exceeded",dimension="ip"} 1' in metrics
+
+
+def test_trusted_proxy_resolution_ignores_spoofed_headers_from_untrusted_peer() -> None:
+    trusted = parse_trusted_proxy_cidrs("127.0.0.0/8,10.0.0.0/8")
+
+    assert resolve_client_ip(
+        peer_host="203.0.113.10",
+        headers={"x-forwarded-for": "198.51.100.7"},
+        trusted_proxy_cidrs=trusted,
+    ) == "203.0.113.10"
+    assert resolve_client_ip(
+        peer_host="10.0.0.4",
+        headers={"x-forwarded-for": "198.51.100.7, 10.0.0.3"},
+        trusted_proxy_cidrs=trusted,
+    ) == "198.51.100.7"
+
+
+def test_quota_key_capacity_fails_closed_without_resetting_live_callers() -> None:
+    now = [1.0]
+    quota = FixedWindowQuota(window_seconds=60, clock=lambda: now[0], max_keys=2)
+
+    assert quota.consume("caller-a", units=1, limit=2)[0] is True
+    assert quota.consume("caller-b", units=1, limit=2)[0] is True
+    assert quota.consume("caller-c", units=1, limit=2)[0] is False
+    assert quota.consume("caller-a", units=1, limit=2)[0] is True
+    assert quota.consume("caller-a", units=1, limit=2)[0] is False
+
+    now[0] = 61.0
+    assert quota.consume("caller-c", units=1, limit=2)[0] is True
+
+
+def test_account_cost_quota_cannot_be_bypassed_with_principal_header() -> None:
+    context = RequestContext(principal_id="verified-account", authenticated=True, auth_source="test")
+    app = _app_with_ingress(
+        policy=_policy(account_cost_limit=12),
+        context_resolver=lambda request: context,
+    )
+    client = TestClient(app)
+
+    first = client.post(
+        "/app/api/property/decision-copilot",
+        json={},
+        headers={"X-EA-Principal-ID": "spoof-a"},
+    )
+    second = client.post(
+        "/app/api/property/decision-copilot",
+        json={},
+        headers={"X-EA-Principal-ID": "spoof-b"},
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 429
+    assert second.json()["error"]["code"] == "ingress_cost_quota_exceeded"
+    assert second.json()["error"]["details"] == {"retry_after_seconds": 59}
+
+
+def test_identity_resolution_fails_closed_without_replacing_auth_errors() -> None:
+    unavailable = _app_with_ingress(
+        policy=_policy(),
+        context_resolver=lambda request: (_ for _ in ()).throw(RuntimeError("identity store unavailable")),
+    )
+    unavailable_response = TestClient(unavailable).post("/echo", json={})
+
+    assert unavailable_response.status_code == 503
+    assert unavailable_response.headers["Retry-After"] == "5"
+    assert unavailable_response.json()["error"]["code"] == "ingress_identity_check_unavailable"
+
+    auth_rejected = _app_with_ingress(
+        policy=_policy(),
+        context_resolver=lambda request: (_ for _ in ()).throw(
+            HTTPException(status_code=401, detail="auth_required")
+        ),
+    )
+    auth_response = TestClient(auth_rejected).post("/echo", json={})
+
+    # The middleware preserves IP controls but delegates canonical auth handling
+    # to the application instead of converting a caller error into a 503.
+    assert auth_response.status_code == 200
+
+
+def test_high_cost_account_concurrency_is_shed() -> None:
+    entered = threading.Event()
+    release = threading.Event()
+    context = RequestContext(principal_id="concurrent-account", authenticated=True, auth_source="test")
+    app = FastAPI()
+    app.state.runtime_metrics = RuntimeMetrics()
+    app.add_middleware(
+        IngressAbuseMiddleware,
+        policy=_policy(high_cost_account_concurrency=1),
+        clock=lambda: 1.0,
+        context_resolver=lambda request: context,
+    )
+
+    @app.post("/app/api/property/decision-copilot")
+    def expensive() -> dict[str, bool]:
+        entered.set()
+        release.wait(timeout=3)
+        return {"ok": True}
+
+    first_result: dict[str, object] = {}
+
+    def _first_request() -> None:
+        with TestClient(app) as first_client:
+            first_result["response"] = first_client.post(
+                "/app/api/property/decision-copilot",
+                json={},
+            )
+
+    thread = threading.Thread(target=_first_request)
+    thread.start()
+    assert entered.wait(timeout=2)
+    with TestClient(app) as second_client:
+        rejected = second_client.post("/app/api/property/decision-copilot", json={})
+    release.set()
+    thread.join(timeout=3)
+
+    assert rejected.status_code == 429
+    assert rejected.headers["Retry-After"] == "1"
+    assert rejected.json()["error"]["code"] == "ingress_concurrency_limit_exceeded"
+    assert first_result["response"].status_code == 200  # type: ignore[union-attr]
+
+
+def test_active_property_search_cap_rejects_before_route_dispatch() -> None:
+    context = RequestContext(principal_id="search-account", authenticated=True, auth_source="test")
+    app = _app_with_ingress(
+        policy=_policy(),
+        context_resolver=lambda request: context,
+        active_search_counter=lambda request, resolved, limit: 1,
+    )
+    client = TestClient(app)
+
+    rejected = client.post("/app/api/property/search-runs", json={})
+
+    assert rejected.status_code == 429
+    assert rejected.headers["Retry-After"] == "60"
+    assert rejected.json()["error"]["code"] == "active_search_limit_exceeded"
+    assert rejected.json()["error"]["details"] == {
+        "active_search_limit": 1,
+        "retry_after_seconds": 60,
+    }
+
+
+def test_ingress_rejections_keep_correlation_and_browser_security_headers() -> None:
+    app = _app_with_ingress(policy=_policy(quotas_enabled=False, max_body_bytes=8))
+    install_error_handlers(app)
+    client = TestClient(app)
+
+    rejected = client.post(
+        "/echo",
+        content=b"{}",
+        headers={"Content-Length": "9", "Content-Type": "application/json"},
+    )
+
+    assert rejected.status_code == 413
+    assert rejected.headers["x-correlation-id"] == rejected.json()["error"]["correlation_id"]
+    assert rejected.headers["x-content-type-options"] == "nosniff"
+
+
+def test_high_cost_input_schemas_forbid_extra_and_bound_nested_work() -> None:
+    with pytest.raises(ValidationError, match="extra_forbidden"):
+        PropertySearchRunStartIn.model_validate({"unexpected": True})
+    with pytest.raises(ValidationError, match="too_long"):
+        PropertySearchRunStartIn.model_validate({"selected_platforms": [f"source-{index}" for index in range(25)]})
+    with pytest.raises(ValidationError, match="too_long"):
+        PropertySearchRunStartIn.model_validate(
+            {"property_preferences": {f"key-{index}": index for index in range(129)}}
+        )
+    with pytest.raises(ValidationError, match="min_rooms_out_of_range"):
+        PropertySearchRunStartIn.model_validate({"property_preferences": {"min_rooms": 101}})
+    with pytest.raises(ValidationError, match="nested_payload_depth_exceeds_limit"):
+        PropertySearchRunStartIn.model_validate(
+            {
+                "property_preferences": {
+                    "a": {"b": {"c": {"d": {"e": {"f": "too deep"}}}}}
+                }
+            }
+        )
+    with pytest.raises(ValidationError, match="extra_forbidden"):
+        PropertyMagicFitSceneCreateIn.model_validate(
+            {"property_ref": "property-1", "surprise": "not accepted"}
+        )
+    with pytest.raises(ValidationError, match="extra_forbidden"):
+        PropertyMagicFitReferenceUploadIn.model_validate(
+            {
+                "items": [
+                    {
+                        "file_name": "room.jpg",
+                        "mime_type": "image/jpeg",
+                        "data_url": "data:image/jpeg;base64,AA==",
+                        "unexpected": True,
+                    }
+                ]
+            }
+        )

@@ -2147,6 +2147,51 @@ def test_property_search_run_status_fixes_provider_total_from_source_variants() 
     assert int(dict(status.get("summary") or {}).get("source_variant_total") or 0) == 156
 
 
+def test_property_search_run_status_repairs_active_preseeded_source_overcount() -> None:
+    principal_id = "exec-property-run-source-count-fix"
+    client = build_product_client(principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+    run_id = f"source-total-fix-{uuid.uuid4().hex}"
+    now_iso = datetime.now(timezone.utc).isoformat()
+    source_rows = [
+        *[
+            {
+                "provider_source_key": f"provider-{index}:area",
+                "source_label": f"Provider {index}",
+                "status": "completed",
+            }
+            for index in range(6)
+        ],
+        {"provider_source_key": "provider-6:area", "source_label": "Provider 6", "status": "warming"},
+        {"provider_source_key": "provider-7:area", "source_label": "Provider 7", "status": "starting"},
+        {"provider_source_key": "provider-8:area", "source_label": "Provider 8", "status": "queued"},
+        {"provider_source_key": "provider-9:area", "source_label": "Provider 9", "status": "queued"},
+    ]
+
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "in_progress",
+            "progress": 96,
+            "created_at": now_iso,
+            "updated_at": now_iso,
+            "selected_platforms": [f"provider-{index}" for index in range(10)],
+            "summary": {
+                "status": "in_progress",
+                "sources_total": 10,
+                "source_variant_total": 10,
+                "sources_completed": 10,
+                "sources": source_rows,
+            },
+        }
+
+    status = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
+
+    assert status is not None
+    assert int(dict(status.get("summary") or {}).get("sources_completed") or 0) == 6
+
+
 def test_property_visual_state_does_not_cross_update_same_source_ref_different_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -5012,6 +5057,21 @@ def test_property_provider_repair_task_dedupes_across_transient_source_refs() ->
     assert repair_tasks[0].assigned_operator_id == "ea_one_manager"
 
 
+def test_property_provider_repair_subject_key_keeps_full_provider_path() -> None:
+    service = ProductService.__new__(ProductService)
+
+    willhaben_key = service._property_provider_repair_subject_key(
+        property_url="propertyquarry://provider/willhaben/generic-listing-page",
+    )
+    costa_rica_key = service._property_provider_repair_subject_key(
+        property_url="propertyquarry://provider/re_cr_mls/generic-listing-page",
+    )
+
+    assert "willhaben/generic-listing-page" in willhaben_key
+    assert "re_cr_mls/generic-listing-page" in costa_rica_key
+    assert willhaben_key != costa_rica_key
+
+
 def test_property_provider_repair_copy_uses_propertyquarry_language() -> None:
     principal_id = "exec-property-provider-repair-copy"
     client = build_property_client(principal_id=principal_id)
@@ -5129,6 +5189,226 @@ def test_existing_returned_provider_repair_records_receipt_for_new_run() -> None
     assert summary["repair_resolved_total"] == 1
     assert summary["repair_receipts"][0]["run_id"] == run_id
     assert summary["sources"][0]["repair_status"] == "returned"
+
+
+def test_old_willhaben_repair_receipt_does_not_contaminate_costa_rica_run() -> None:
+    principal_id = "exec-property-provider-repair-country-isolation"
+    run_id = f"costa-rica-repair-{uuid.uuid4().hex}"
+    service = ProductService.__new__(ProductService)
+    costa_rica_source = {
+        "source_url": "https://www.encuentra24.com/costa-rica-es/bienes-raices-venta-de-propiedades",
+        "source_label": "Encuentra24 | Costa Rica | Buy",
+        "source_platform": "encuentra24_cr",
+        "status": "failed",
+        "error": "source fetch failed",
+    }
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "in_progress",
+            "summary": {"sources": [dict(costa_rica_source)]},
+        }
+
+    old_willhaben_task = SimpleNamespace(
+        human_task_id="old-willhaben-repair",
+        input_json={
+            "run_id": "old-austria-run",
+            "property_url": "propertyquarry://provider/willhaben/generic-listing-page",
+            "source_url": "https://www.willhaben.at/iad/immobilien/eigentumswohnung",
+            "source_label": "Willhaben | Austria | Buy",
+            "source_platform": "willhaben",
+            "filter_key": "generic_listing_page",
+            "repair_workflow": "ea_provider_ooda",
+        },
+        returned_payload_json={},
+    )
+
+    service._record_property_search_run_repair_receipt(
+        principal_id=principal_id,
+        run_id=run_id,
+        task=old_willhaben_task,
+        resolution="suppressed_generic_listing_page",
+        reason="old Austrian provider result",
+        actor="ea_one_manager",
+    )
+
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        summary = dict(product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id]["summary"])
+    assert summary == {"sources": [costa_rica_source]}
+
+
+def test_historical_willhaben_receipt_is_removed_from_costa_rica_run_view() -> None:
+    run_id = "historical-costa-rica-repair-run"
+    task_ref = "human_task:old-willhaben-repair"
+    service = ProductService.__new__(ProductService)
+
+    projected = service._apply_property_search_run_repair_receipts(
+        run_id=run_id,
+        summary={
+            "sources": [
+                {
+                    "source_url": "https://www.encuentra24.com/costa-rica-es/bienes-raices-venta-de-propiedades",
+                    "source_label": "Encuentra24 | Costa Rica | Buy",
+                    "source_platform": "encuentra24_cr",
+                    "status": "repaired",
+                    "original_error": "source fetch failed",
+                    "provider_repair_task_opened_total": 1,
+                    "provider_repair_tasks": [
+                        {
+                            "status": "returned",
+                            "human_task_id": task_ref,
+                            "queue_item_ref": task_ref,
+                        }
+                    ],
+                    "repair_status": "returned",
+                    "repair_resolution": "suppressed_generic_listing_page",
+                }
+            ],
+            "provider_repair_tasks": [
+                {
+                    "status": "returned",
+                    "human_task_id": task_ref,
+                    "queue_item_ref": task_ref,
+                }
+            ],
+            "repair_receipts": [
+                {
+                    "run_id": run_id,
+                    "source_url": "propertyquarry://provider/willhaben/generic-listing-page",
+                    "source_label": "Willhaben | Austria | Buy",
+                    "source_platform": "willhaben",
+                    "filter_key": "generic_listing_page",
+                    "human_task_id": task_ref,
+                    "resolution": "suppressed_generic_listing_page",
+                }
+            ],
+            "repair_resolved_total": 1,
+        },
+    )
+
+    assert projected["repair_receipts"] == []
+    assert projected["repair_resolved_total"] == 0
+    assert "provider_repair_tasks" not in projected
+    source = dict(projected["sources"][0])
+    assert source["status"] == "failed"
+    assert source["error"] == "source fetch failed"
+    assert "provider_repair_tasks" not in source
+    assert "repair_status" not in source
+    assert "repair_resolution" not in source
+
+
+def test_process_property_provider_repair_tasks_scopes_to_requested_run(monkeypatch) -> None:
+    target_task = SimpleNamespace(
+        task_type="property_provider_repair_ooda",
+        input_json={"run_id": "target-run"},
+    )
+    other_task = SimpleNamespace(
+        task_type="property_provider_repair_ooda",
+        input_json={"run_id": "other-run"},
+    )
+    service = ProductService.__new__(ProductService)
+    service._container = SimpleNamespace(
+        orchestrator=SimpleNamespace(
+            list_human_tasks=lambda **_kwargs: [other_task, target_task],
+        )
+    )
+    processed_run_ids: list[str] = []
+
+    def _fake_auto_resolve(
+        self,
+        *,
+        principal_id: str,
+        task,
+        actor: str,
+    ) -> dict[str, object]:
+        task_run_id = str(dict(task.input_json or {}).get("run_id") or "")
+        processed_run_ids.append(task_run_id)
+        return {"status": "resolved", "run_id": task_run_id}
+
+    monkeypatch.setattr(
+        ProductService,
+        "_auto_resolve_property_provider_repair_task",
+        _fake_auto_resolve,
+    )
+
+    result = service.process_property_provider_repair_tasks(
+        principal_id="exec-property-provider-repair-run-scope",
+        actor="test",
+        run_id="target-run",
+    )
+
+    assert processed_run_ids == ["target-run"]
+    assert result["resolved_total"] == 1
+    assert result["deferred_total"] == 0
+    assert result["resolved"] == [{"status": "resolved", "run_id": "target-run"}]
+
+
+def test_process_property_provider_repair_tasks_scoped_limit_skips_unrelated_tasks(monkeypatch) -> None:
+    unrelated_task = SimpleNamespace(
+        task_type="property_provider_repair_ooda",
+        input_json={"run_id": "other-run", "task_key": "unrelated"},
+    )
+    target_task = SimpleNamespace(
+        task_type="property_provider_repair_ooda",
+        input_json={"run_id": "target-run", "task_key": "target-first"},
+    )
+    second_target_task = SimpleNamespace(
+        task_type="property_provider_repair_ooda",
+        input_json={"run_id": "target-run", "task_key": "target-second"},
+    )
+    query_limits: list[int] = []
+
+    def _list_human_tasks(*, limit: int, **_kwargs):
+        query_limits.append(limit)
+        return [unrelated_task, target_task, second_target_task][:limit]
+
+    service = ProductService.__new__(ProductService)
+    service._container = SimpleNamespace(
+        orchestrator=SimpleNamespace(list_human_tasks=_list_human_tasks)
+    )
+    processed_task_keys: list[str] = []
+
+    def _fake_auto_resolve(
+        self,
+        *,
+        principal_id: str,
+        task,
+        actor: str,
+    ) -> dict[str, object]:
+        input_json = dict(task.input_json or {})
+        task_key = str(input_json.get("task_key") or "")
+        processed_task_keys.append(task_key)
+        return {
+            "status": "resolved",
+            "run_id": str(input_json.get("run_id") or ""),
+            "task_key": task_key,
+        }
+
+    monkeypatch.setattr(
+        ProductService,
+        "_auto_resolve_property_provider_repair_task",
+        _fake_auto_resolve,
+    )
+
+    result = service.process_property_provider_repair_tasks(
+        principal_id="exec-property-provider-repair-scoped-limit",
+        actor="test",
+        run_id="target-run",
+        limit=1,
+    )
+
+    assert query_limits and 1 < query_limits[0] <= 2000
+    assert processed_task_keys == ["target-first"]
+    assert result["resolved_total"] == 1
+    assert result["deferred_total"] == 0
+    assert result["resolved"] == [
+        {
+            "status": "resolved",
+            "run_id": "target-run",
+            "task_key": "target-first",
+        }
+    ]
 
 
 def test_property_provider_repair_auto_resolves_generic_listing_pages(monkeypatch) -> None:
@@ -6664,6 +6944,7 @@ def test_property_search_run_status_enriches_source_fetch_repairs() -> None:
         filter_key="source_fetch",
         diagnostics={"provider_host": "wohnberatung.example.invalid", "error": "HTTP Error 403: Forbidden"},
         source_ref="property-source:test",
+        run_id=run_id,
     )
     tasks = [
         task
@@ -8729,31 +9010,42 @@ def test_property_scout_listing_url_cache_rejects_overstale_persistent_fallback(
 
 
 def test_hosted_property_tour_bundle_reuses_existing_manifest(monkeypatch, tmp_path) -> None:
+    from app.product import property_tour_hosting
+
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     title = "Reusable listing"
     listing_id = "reuse-1"
     property_url = "https://www.willhaben.at/iad/object?adId=reuse-1"
     variant_key = "layout_first"
+    principal_id = "exec-reuse"
     slug = product_service._hosted_property_tour_slug(
         title=title,
         listing_id=listing_id,
         property_url=property_url,
         variant_key=variant_key,
+        principal_id=principal_id,
     )
     bundle_dir = tmp_path / slug
     bundle_dir.mkdir(parents=True)
     (bundle_dir / "floorplan-01.pdf").write_bytes(b"%PDF-1.4\n")
-    (bundle_dir / "tour.json").write_text(
-        json.dumps(
-            {
-                "slug": slug,
-                "hosted_url": f"https://propertyquarry.com/tours/{slug}",
-                "public_url": f"https://propertyquarry.com/tours/{slug}",
-                "creation_mode": "hosted_floorplan_tour",
-                "scenes": [{"asset_relpath": "floorplan-01.pdf", "role": "floorplan"}],
-            }
-        ),
-        encoding="utf-8",
+    property_tour_hosting._write_hosted_property_tour_payload(
+        bundle_dir,
+        {
+            "slug": slug,
+            "principal_id": principal_id,
+            "property_url": property_url,
+            "hosted_url": f"https://propertyquarry.com/tours/{slug}",
+            "public_url": f"https://propertyquarry.com/tours/{slug}",
+            "creation_mode": "hosted_floorplan_tour",
+            "scenes": [
+                {
+                    "asset_relpath": "floorplan-01.pdf",
+                    "role": "floorplan",
+                    "privacy_class": "floorplan_pdf_public",
+                    "mime_type": "application/pdf",
+                }
+            ],
+        },
     )
 
     def _blocked_download(*args, **kwargs) -> str:
@@ -8762,7 +9054,7 @@ def test_hosted_property_tour_bundle_reuses_existing_manifest(monkeypatch, tmp_p
     monkeypatch.setattr(product_service, "_download_public_tour_asset_with_type", _blocked_download)
 
     payload = product_service._write_hosted_floorplan_property_tour_bundle(
-        principal_id="exec-reuse",
+        principal_id=principal_id,
         title=title,
         listing_id=listing_id,
         property_url=property_url,
@@ -9036,7 +9328,7 @@ def test_public_tour_asset_download_enforces_max_bytes(monkeypatch, tmp_path) ->
             return False
 
     monkeypatch.setenv("PROPERTYQUARRY_TOUR_ASSET_MAX_BYTES", "4")
-    monkeypatch.setattr("app.product.property_tour_hosting.urllib.request.urlopen", lambda *args, **kwargs: _FakeResponse())
+    monkeypatch.setattr("app.product.outbound_url_security.open_guarded_url", lambda *args, **kwargs: _FakeResponse())
 
     with pytest.raises(RuntimeError, match="tour_asset_too_large"):
         product_service._download_public_tour_asset_with_type(
@@ -10416,7 +10708,7 @@ def test_property_search_run_status_api_accepts_lightweight_query(monkeypatch) -
     assert body["summary"]["sources_total"] == 2
 
 
-def test_property_search_run_progress_records_sources_completed_and_eta_summary() -> None:
+def test_property_search_run_progress_records_only_terminal_sources_and_eta_summary() -> None:
     principal_id = "exec-property-search-progress-eta"
     client = build_property_client(principal_id=principal_id)
     service = product_service.build_product_service(client.app.state.container)
@@ -10438,7 +10730,10 @@ def test_property_search_run_progress_records_sources_completed_and_eta_summary(
             "steps_completed": 2,
             "summary": {
                 "sources_total": 6,
-                "sources": [{"source_label": "Source A"}, {"source_label": "Source B"}],
+                "sources": [
+                    {"source_label": "Source A", "status": "completed"},
+                    {"source_label": "Source B", "status": "in_progress"},
+                ],
             },
             "events": [],
             "property_search_preferences": {},
@@ -10459,7 +10754,7 @@ def test_property_search_run_progress_records_sources_completed_and_eta_summary(
 
     status = service.get_property_search_run_status(principal_id=principal_id, run_id=run_id)
     assert status is not None
-    assert int(status["summary"]["sources_completed"]) == 2
+    assert int(status["summary"]["sources_completed"]) == 1
     assert int(status["summary"]["eta_seconds"]) > 0
     assert str(status["summary"]["eta_label"])
 
@@ -10724,7 +11019,7 @@ def test_property_search_run_starts_with_explicit_platform_and_tracks_progress(m
             "max_results_per_source": 2,
         },
     )
-    assert started.status_code == 200, started.text
+    assert started.status_code == 202, started.text
 
     started_body = started.json()
     run_id = started_body["run_id"]
@@ -10819,7 +11114,7 @@ def test_property_search_run_api_passes_normalized_merged_preferences_to_worker(
             "max_results_per_source": 2,
         },
     )
-    assert started.status_code == 200, started.text
+    assert started.status_code == 202, started.text
 
     status = _poll_property_search_run_status(client, started.json()["run_id"])
     assert status["status"] == "processed"
@@ -10889,7 +11184,7 @@ def test_property_search_run_greenfield_api_wraps_legacy_signal_contract(monkeyp
             "max_results_per_source": 2,
         },
     )
-    assert started.status_code == 200, started.text
+    assert started.status_code == 202, started.text
     body = started.json()
     run_id = body["run_id"]
     assert body["status_url"] == f"/app/api/property/search-runs/{run_id}"
@@ -10966,7 +11261,7 @@ def test_property_search_run_dispatch_only_returns_queued_without_snapshot(monke
         },
     )
 
-    assert started.status_code == 200, started.text
+    assert started.status_code == 202, started.text
     body = started.json()
     assert body["run_id"]
     assert body["status"] == "queued"
@@ -11034,11 +11329,148 @@ def test_property_search_run_preserves_restored_agent_commercial_when_raw_prefer
         },
     )
 
-    assert started.status_code == 200, started.text
+    assert started.status_code == 202, started.text
     body = started.json()
     assert dict(observed["property_search_preferences"])["property_commercial"]["active_plan_key"] == "agent"
     assert body["summary"]["current_plan_key"] == "agent"
     assert body["summary"]["provider_workers"]["worker_concurrency"] == 4
+
+
+def test_property_search_run_preferences_strip_workspace_state_and_keep_active_agent() -> None:
+    persisted_preferences = {
+        "country_code": "AT",
+        "listing_mode": "rent",
+        "selected_platforms": ["willhaben"],
+        "active_search_agent_id": "persisted-agent",
+        "search_agents": [{"agent_id": "persisted-agent", "location_query": "Wien"}],
+        "raw_preferences": {
+            "country_code": "AT",
+            "contact_email": "persisted-secret@example.test",
+        },
+        "property_commercial": {
+            "active_plan_key": "agent",
+            "status": "active",
+            "stripe_customer_id": "cus_persisted_secret",
+        },
+        "saved_shortlist_candidates": [{"property_url": "https://persisted.example.test/listing"}],
+        "saved_shortlist_share_slug": "persisted-private-slug",
+    }
+    service = ProductService.__new__(ProductService)
+    service._container = SimpleNamespace(
+        onboarding=SimpleNamespace(
+            status=lambda **_kwargs: {
+                "property_search_preferences": persisted_preferences,
+            }
+        )
+    )
+    requested_preferences = {
+        "country_code": "AT",
+        "listing_mode": "rent",
+        "active_search_agent_id": "requested-agent",
+        "search_agents": [{"agent_id": "requested-agent", "location_query": "Graz"}],
+        "raw_preferences": {"contact_email": "requested-secret@example.test"},
+        "property_commercial": {
+            "active_plan_key": "agent",
+            "status": "active",
+            "active_until": "2999-01-01T00:00:00+00:00",
+            "checkout_session_id": "cs_requested_secret",
+        },
+        "saved_shortlist_candidates": [{"property_url": "https://requested.example.test/listing"}],
+        "saved_shortlist_share_slug": "requested-private-slug",
+    }
+
+    selected_platforms, run_preferences, resolved_max_results = service._resolve_property_search_run_preferences(
+        principal_id="exec-property-search-run-preference-isolation",
+        selected_platforms=("willhaben",),
+        property_preferences=requested_preferences,
+        max_results_per_source=37,
+        force_refresh=False,
+    )
+
+    assert selected_platforms == ("willhaben",)
+    assert run_preferences["active_search_agent_id"] == "requested-agent"
+    assert run_preferences["property_commercial"] == {
+        "active_plan_key": "agent",
+        "status": "active",
+        "active_until": "2999-01-01T00:00:00+00:00",
+    }
+    assert run_preferences["min_match_score"] == 0.0
+    assert run_preferences["max_results_per_source"] == 37
+    assert resolved_max_results == 37
+    for workspace_only_key in (
+        "search_agents",
+        "raw_preferences",
+        "saved_shortlist_candidates",
+        "saved_shortlist_share_slug",
+        "contact_email",
+    ):
+        assert workspace_only_key not in run_preferences
+
+
+def test_property_search_run_snapshot_projection_strips_historical_workspace_state() -> None:
+    snapshot = {
+        "run_id": "historical-costa-rica-run",
+        "property_search_preferences": {
+            "country_code": "CR",
+            "region_code": "G",
+            "listing_mode": "buy",
+            "location_query": "Tamarindo, Costa Rica",
+            "selected_platforms": ["re_cr_mls", "encuentra24_cr"],
+            "active_search_agent_id": "costa-rica-agent",
+            "raw_preferences": {
+                "country_code": "CR",
+                "contact_email": "historical-secret@example.test",
+            },
+            "contact_email": "historical-secret@example.test",
+            "search_agents": [
+                {
+                    "agent_id": "stale-vienna-agent",
+                    "location_query": "1010 Vienna",
+                    "selected_platforms": ["willhaben"],
+                }
+            ],
+            "saved_shortlist_candidates": [
+                {
+                    "title": "Stale Vienna shortlist listing",
+                    "property_url": "https://stale-vienna.example.test/listing",
+                }
+            ],
+            "saved_shortlist_share_slug": "stale-private-share-slug",
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+                "stripe_customer_id": "cus_historical_secret",
+                "payment_history": [{"payment_intent_id": "pi_historical_secret"}],
+            },
+        },
+    }
+
+    projected = product_service._property_search_run_snapshot_projection(snapshot)
+
+    preferences = dict(projected["property_search_preferences"])
+    assert preferences["country_code"] == "CR"
+    assert preferences["region_code"] == "G"
+    assert preferences["listing_mode"] == "buy"
+    assert preferences["location_query"] == "Tamarindo, Costa Rica"
+    assert preferences["selected_platforms"] == ["re_cr_mls", "encuentra24_cr"]
+    assert preferences["active_search_agent_id"] == "costa-rica-agent"
+    assert preferences["property_commercial"] == {
+        "active_plan_key": "agent",
+        "status": "active",
+        "active_until": "2999-01-01T00:00:00+00:00",
+    }
+    serialized = json.dumps(projected, ensure_ascii=False)
+    for excluded_value in (
+        "historical-secret@example.test",
+        "1010 Vienna",
+        "stale-vienna-agent",
+        "https://stale-vienna.example.test/listing",
+        "stale-private-share-slug",
+        "cus_historical_secret",
+        "pi_historical_secret",
+    ):
+        assert excluded_value not in serialized
 
 
 def test_property_search_run_worker_concurrency_defaults_to_four(monkeypatch) -> None:
@@ -11111,7 +11543,7 @@ def test_property_search_run_worker_semaphore_allows_four_live_runs(monkeypatch)
                 },
             },
         )
-        assert started.status_code == 200, started.text
+        assert started.status_code == 202, started.text
         run_ids.append(str(started.json()["run_id"]))
 
     deadline = time.time() + 2.0
@@ -11192,7 +11624,7 @@ def test_property_search_agent_active_run_guard_matches_agent_id(monkeypatch) ->
         },
         headers={"X-PropertyQuarry-Dispatch-Probe": "1"},
     )
-    assert started.status_code == 200, started.text
+    assert started.status_code == 202, started.text
 
     service = product_service.build_product_service(client.app.state.container)
     assert service._property_search_agent_has_active_run(principal_id=principal_id, agent_id="agent-vienna") is True
@@ -11372,7 +11804,7 @@ def test_property_search_run_dispatch_probe_ack_only_does_not_start_worker(monke
         headers={"X-PropertyQuarry-Dispatch-Probe": "1"},
     )
 
-    assert started.status_code == 200, started.text
+    assert started.status_code == 202, started.text
     body = started.json()
     assert body["run_id"]
     assert body["status"] == "queued"
@@ -11442,7 +11874,14 @@ def test_property_search_run_worker_preserves_provider_repair_receipts_before_te
             ],
         }
 
-    def _fake_process_property_provider_repair_tasks(self, *, principal_id: str, actor: str, limit: int = 40) -> dict[str, object]:
+    def _fake_process_property_provider_repair_tasks(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        limit: int = 40,
+        run_id: str = "",
+    ) -> dict[str, object]:
         with product_service._PROPERTY_SEARCH_RUN_LOCK:
             active = [
                 state
@@ -11453,6 +11892,7 @@ def test_property_search_run_worker_preserves_provider_repair_receipts_before_te
             ]
             assert active
             state = active[-1]
+            assert str(state.get("run_id") or "") == run_id
             summary = dict(state.get("summary") or {})
             summary["repair_receipts"] = [
                 {
@@ -11479,7 +11919,7 @@ def test_property_search_run_worker_preserves_provider_repair_receipts_before_te
         "/app/api/property/search-runs",
         json={"selected_platforms": ["willhaben"], "property_preferences": {"country_code": "AT"}},
     )
-    assert started.status_code == 200, started.text
+    assert started.status_code == 202, started.text
     run_id = started.json()["run_id"]
     status = _poll_property_search_run_status(client, run_id)
 
@@ -11561,7 +12001,7 @@ def test_property_search_run_can_be_deleted_from_api(monkeypatch) -> None:
             "max_results_per_source": 1,
         },
     )
-    assert started.status_code == 200, started.text
+    assert started.status_code == 202, started.text
     run_id = started.json()["run_id"]
 
     deleted = client.delete(f"/app/api/property/search-runs/{run_id}")
@@ -11836,7 +12276,7 @@ def test_property_search_run_rejects_invalid_platform_and_enforces_run_principal
     assert owner.status_code == 200, owner.text
 
     started = client.post("/app/api/signals/property/search/run", json={"property_preferences": {}})
-    assert started.status_code == 200
+    assert started.status_code == 202
     run_id = started.json()["run_id"]
     assert observed_sync.get("called") is True
     assert set(observed_sync.get("selected_platforms") or ()) == {"willhaben", "kalandra"}
@@ -11888,6 +12328,11 @@ def test_property_search_run_sends_results_ready_email_when_processed(monkeypatc
         lambda **kwargs: sent.append(dict(kwargs)) or _Receipt(),
     )
     monkeypatch.setattr(product_service.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_verified_open_url",
+        lambda value, *, principal_id="": str(value) if "/control/3dvista" in str(value) else "",
+    )
 
     def _fake_sync_direct_property_scout(
         self,
@@ -11921,7 +12366,7 @@ def test_property_search_run_sends_results_ready_email_when_processed(monkeypatc
                             "fit_score": 88.0,
                             "fit_summary": "Personal fit 88/100",
                             "review_url": "https://propertyquarry.com/workspace-access/review-token?return_to=%2Fapp%2Fhandoffs%2Fhuman_task%3Areview-1",
-                            "tour_url": "https://propertyquarry.com/tours/best-floorplan-flat",
+                            "tour_url": "https://propertyquarry.com/tours/best-floorplan-flat/control/3dvista",
                             "tour_status": "created",
                         }
                     ],
@@ -11935,7 +12380,7 @@ def test_property_search_run_sends_results_ready_email_when_processed(monkeypatc
         "/app/api/signals/property/search/run",
         json={"selected_platforms": ["willhaben"], "property_preferences": {"country_code": "AT", "location_query": "Wien"}},
     )
-    assert started.status_code == 200, started.text
+    assert started.status_code == 202, started.text
     run_id = started.json()["run_id"]
     status = _poll_property_search_run_status(client, run_id)
     assert status["status"] == "processed"
@@ -11947,7 +12392,7 @@ def test_property_search_run_sends_results_ready_email_when_processed(monkeypatc
     assert sent[0]["top_properties"][0]["title"] == "Best floorplan flat"
     assert sent[0]["top_properties"][0]["review_url"].startswith("https://propertyquarry.com/workspace-access/")
     assert str(sent[0]["top_properties"][0]["review_url"]).endswith("return_to=%2Fapp%2Fhandoffs%2Fhuman_task%3Areview-1")
-    assert "return_to=%2Ftours%2Fbest-floorplan-flat" in str(sent[0]["top_properties"][0]["tour_url"])
+    assert "return_to=%2Ftours%2Fbest-floorplan-flat%2Fcontrol%2F3dvista" in str(sent[0]["top_properties"][0]["tour_url"])
 
 
 def test_property_search_results_ready_email_waits_for_tour_completion(monkeypatch) -> None:
@@ -11968,10 +12413,15 @@ def test_property_search_results_ready_email_waits_for_tour_completion(monkeypat
         lambda **kwargs: sent.append(dict(kwargs)) or _Receipt(),
     )
     monkeypatch.setattr(product_service.time, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_verified_open_url",
+        lambda value, *, principal_id="": str(value) if "/control/3dvista" in str(value) else "",
+    )
 
     poll_state = {"calls": 0}
 
-    def _fake_recent_observations(limit: int = 1000, principal_id: str = "") -> list[object]:
+    def _fake_recent_observations(limit: int = 1000, principal_id: str = "", **_kwargs) -> list[object]:
         poll_state["calls"] += 1
         if poll_state["calls"] < 2:
             return []
@@ -11981,14 +12431,18 @@ def test_property_search_results_ready_email_waits_for_tour_completion(monkeypat
                 event_type="generic_property_tour_created",
                 source_id="property-scout:test-1",
                 payload={
-                    "tour_url": "https://propertyquarry.com/tours/final-tour",
-                    "vendor_tour_url": "https://vendor.example/tour",
+                    "tour_url": "https://propertyquarry.com/tours/final-tour/control/3dvista",
+                    "vendor_tour_url": "",
                 },
                 created_at=product_service._now_iso(),
             )
         ]
 
-    monkeypatch.setattr(client.app.state.container.channel_runtime, "list_recent_observations", _fake_recent_observations)
+    monkeypatch.setattr(
+        client.app.state.container.channel_runtime,
+        "list_recent_observations_matching",
+        _fake_recent_observations,
+    )
 
     service = product_service.build_product_service(client.app.state.container)
     result = {
@@ -12022,7 +12476,79 @@ def test_property_search_results_ready_email_waits_for_tour_completion(monkeypat
     assert sent[0]["hosted_tour_total"] == 1
 
 
-def test_property_search_results_delivery_refresh_batches_tour_observation_lookup() -> None:
+def test_property_search_results_delivery_preserves_completed_partial_status(monkeypatch) -> None:
+    principal_id = "cf-email:partial.delivery@example.com"
+    client = build_property_client(principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+    run_id = f"run-partial-delivery-{uuid.uuid4().hex}"
+    result = {
+        "status": "completed_partial",
+        "failed_total": 6,
+        "listing_total": 64,
+        "reviewed_listing_total": 447,
+        "repair_status": "degraded",
+        "repair_status_label": "Partial coverage",
+        "sources": [],
+    }
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id] = {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "created_at": product_service._now_iso(),
+            "updated_at": product_service._now_iso(),
+            "status": "completed_partial",
+            "progress": 100,
+            "current_step": "completed",
+            "message": "Search run completed with status completed_partial.",
+            "stages_total": 6,
+            "steps_completed": 6,
+            "summary": dict(result),
+            "events": [],
+            "selected_platforms": ["century21_cr"],
+        }
+
+    monkeypatch.setattr(ProductService, "_recent_product_event_exists", lambda self, **kwargs: False)
+    monkeypatch.setattr(ProductService, "_notify_property_search_results_ready", lambda self, **kwargs: None)
+
+    service._await_property_search_results_delivery_ready(
+        principal_id=principal_id,
+        run_id=run_id,
+        result=result,
+        timeout_seconds=1,
+        poll_interval_seconds=0.01,
+    )
+
+    with product_service._PROPERTY_SEARCH_RUN_LOCK:
+        final_state = dict(product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id])
+    assert final_state["status"] == "completed_partial"
+    assert dict(final_state["summary"])["status"] == "completed_partial"
+    assert [event["status"] for event in final_state["events"]] == [
+        "completed_partial",
+        "completed_partial",
+    ]
+    assert [event["step"] for event in final_state["events"]] == [
+        "results_finalizing",
+        "results_email_sent",
+    ]
+
+
+def test_property_search_results_delivery_refresh_batches_tour_observation_lookup(monkeypatch) -> None:
+    verified_open_url_calls: list[dict[str, str]] = []
+
+    def _verified_open_url(value: object, *, principal_id: str = "") -> str:
+        verified_open_url_calls.append(
+            {
+                "tour_url": str(value or ""),
+                "principal_id": str(principal_id or ""),
+            }
+        )
+        return str(value) if "/control/3dvista" in str(value) else ""
+
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_verified_open_url",
+        _verified_open_url,
+    )
     service = ProductService.__new__(ProductService)
 
     class _Runtime:
@@ -12037,8 +12563,8 @@ def test_property_search_results_delivery_refresh_batches_tour_observation_looku
                     source_id="source-1",
                     payload={
                         "property_url": "https://example.test/flat-1",
-                        "tour_url": "https://propertyquarry.com/tours/flat-1",
-                        "vendor_tour_url": "https://vendor.example/flat-1",
+                        "tour_url": "https://propertyquarry.com/tours/flat-1/control/3dvista",
+                        "vendor_tour_url": "",
                     },
                     created_at=product_service._now_iso(),
                 )
@@ -12073,11 +12599,60 @@ def test_property_search_results_delivery_refresh_batches_tour_observation_looku
     )
 
     assert runtime.calls == 1
+    assert verified_open_url_calls == [
+        {
+            "tour_url": "https://propertyquarry.com/tours/flat-1/control/3dvista",
+            "principal_id": "cf-email:batched-tour-refresh@example.com",
+        }
+    ]
     assert refreshed["ready_tour_total"] == 1
     assert refreshed["pending_tour_total"] == 1
     candidates = refreshed["sources"][0]["top_candidates"]
-    assert candidates[0]["tour_url"] == "https://propertyquarry.com/tours/flat-1"
+    assert candidates[0]["tour_url"] == "https://propertyquarry.com/tours/flat-1/control/3dvista"
     assert candidates[1].get("tour_url") in {"", None}
+
+
+def test_property_search_results_delivery_refresh_does_not_full_scan_when_targeted_query_is_empty() -> None:
+    service = ProductService.__new__(ProductService)
+
+    class _Runtime:
+        matching_calls = 0
+        legacy_calls = 0
+
+        def list_recent_observations_matching(self, **_kwargs) -> list[object]:
+            self.matching_calls += 1
+            return []
+
+        def list_recent_observations(self, **_kwargs) -> list[object]:
+            self.legacy_calls += 1
+            return []
+
+    runtime = _Runtime()
+    service._container = SimpleNamespace(channel_runtime=runtime)
+
+    refreshed = service._refresh_property_search_results_delivery_state(
+        principal_id="cf-email:empty-targeted-tour-query@example.com",
+        result={
+            "sources": [
+                {
+                    "source_label": "Source",
+                    "top_candidates": [
+                        {
+                            "source_ref": "source-1",
+                            "property_url": "https://example.test/flat-1",
+                            "tour_status": "queued",
+                            "property_facts": {"has_360": True},
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+
+    assert runtime.matching_calls == 1
+    assert runtime.legacy_calls == 0
+    assert refreshed["ready_tour_total"] == 0
+    assert refreshed["pending_tour_total"] == 1
 
 
 def test_property_search_results_delivery_refresh_does_not_promote_generated_reconstruction_to_ready(monkeypatch) -> None:
@@ -12148,6 +12723,11 @@ def test_property_search_run_status_snapshot_recovers_tour_readiness_without_ema
         "send_property_search_results_ready_email",
         lambda **kwargs: sent.append(dict(kwargs)) or _Receipt(),
     )
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_verified_open_url",
+        lambda value, **_kwargs: str(value) if "/control/3dvista" in str(value) else "",
+    )
 
     container = client.app.state.container
     service = product_service.build_product_service(container)
@@ -12182,13 +12762,13 @@ def test_property_search_run_status_snapshot_recovers_tour_readiness_without_ema
 
     monkeypatch.setattr(
         container.channel_runtime,
-        "list_recent_observations",
-        lambda limit=1000, principal_id="": [
+        "list_recent_observations_matching",
+        lambda **_kwargs: [
             SimpleNamespace(
                 channel="product",
                 event_type="generic_property_tour_created",
                 source_id="property-scout:test-2",
-                payload={"tour_url": "https://propertyquarry.com/tours/recovered-tour"},
+                payload={"tour_url": "https://propertyquarry.com/tours/recovered-tour/control/3dvista"},
                 created_at=product_service._now_iso(),
             )
         ],
@@ -12242,7 +12822,7 @@ def test_property_search_run_status_marks_stale_active_run_failed(monkeypatch) -
     assert status["progress"] == 100
     assert status["summary"]["interrupted"] is True
     assert status["summary"]["repair_status"] == "repairing"
-    assert status["summary"]["repair_status_label"] == "Repairing"
+    assert status["summary"]["repair_status_label"] == "Checking again"
     assert status["summary"]["repair_replacement_run_id"] == "run-stale-1-repair"
     assert status["summary"]["repair_replacement_status_url"] == "/app/api/signals/property/search/run/run-stale-1-repair"
     assert status["summary"]["provider_repair_task_opened_total"] == 1
@@ -12377,7 +12957,7 @@ def test_property_search_run_worker_exception_opens_generic_repair_task(monkeypa
 
     assert status["status"] == "failed"
     assert status["summary"]["repair_status"] == "repairing"
-    assert status["summary"]["repair_step_label"] == "Started a replacement search run from the saved brief."
+    assert status["summary"]["repair_step_label"] == "Started a fresh search from the saved brief."
     assert status["summary"]["repair_replacement_run_id"] == "worker-exception-repair-run"
     assert status["summary"]["repair_replacement_status_url"] == "/app/api/signals/property/search/run/worker-exception-repair-run"
     assert status["summary"]["provider_repair_task_opened_total"] == 1
@@ -12844,6 +13424,43 @@ def test_property_search_run_progress_advances_once_real_source_output_exists() 
     assert isinstance(eta_label, str)
 
 
+def test_property_search_run_progress_repairs_preseeded_source_overcount() -> None:
+    summary = {
+        "sources_total": 10,
+        "source_variant_total": 10,
+        "sources_completed": 10,
+        "sources": [
+            *[
+                {"source_label": f"Finished {index}", "status": "completed"}
+                for index in range(6)
+            ],
+            {"source_label": "Running", "status": "in_progress"},
+            {"source_label": "Starting", "status": "starting"},
+            {"source_label": "Queued A", "status": "queued"},
+            {"source_label": "Queued B", "status": "queued"},
+        ],
+        "listing_total": 32,
+        "reviewed_listing_total": 342,
+    }
+
+    progress, eta_seconds, eta_label = product_service._property_search_run_progress_projection(
+        state={
+            "created_at": (datetime.now(timezone.utc) - timedelta(minutes=20)).isoformat(),
+            "progress": 96,
+        },
+        step="source_ranking",
+        status="in_progress",
+        summary=summary,
+        stages_total=100,
+        steps_completed=60,
+    )
+
+    assert summary["sources_completed"] == 6
+    assert 0 < progress < 96
+    assert eta_seconds > 0
+    assert eta_label
+
+
 def test_property_search_run_state_applies_event_and_caps_history() -> None:
     state = {
         "status": "queued",
@@ -13035,7 +13652,7 @@ def test_property_search_run_status_survives_registry_loss_via_persisted_record(
     monkeypatch.setattr(ProductService, "sync_direct_property_scout", _fake_sync_direct_property_scout)
 
     started = client.post("/app/api/signals/property/search/run", json={"selected_platforms": ["willhaben"]})
-    assert started.status_code == 200, started.text
+    assert started.status_code == 202, started.text
     run_id = started.json()["run_id"]
     status = _poll_property_search_run_status(client, run_id)
     assert status["status"] == "processed"
@@ -13105,7 +13722,7 @@ def test_property_search_run_can_finish_completed_partial(monkeypatch: pytest.Mo
     monkeypatch.setattr(ProductService, "sync_direct_property_scout", _fake_sync_direct_property_scout)
 
     started = client.post("/app/api/signals/property/search/run", json={"selected_platforms": ["willhaben"]})
-    assert started.status_code == 200, started.text
+    assert started.status_code == 202, started.text
     run_id = started.json()["run_id"]
     status = _poll_property_search_run_status(client, run_id)
     assert status["status"] == "completed_partial"
@@ -13540,7 +14157,7 @@ def test_property_search_run_uses_saved_platforms_before_family_toggles(monkeypa
     monkeypatch.setattr(ProductService, "sync_direct_property_scout", _fake_sync_direct_property_scout)
 
     started = client.post("/app/api/signals/property/search/run", json={"selected_platforms": []})
-    assert started.status_code == 200, started.text
+    assert started.status_code == 202, started.text
     _poll_property_search_run_status(client, started.json()["run_id"])
 
     assert set(observed.get("selected_platforms") or ()) >= {
@@ -13724,7 +14341,7 @@ def test_property_search_run_explicit_empty_keywords_clear_saved_keywords(monkey
         "/app/api/signals/property/search/run",
         json={"property_preferences": {"keywords": "", "custom_keywords": ""}},
     )
-    assert started.status_code == 200, started.text
+    assert started.status_code == 202, started.text
     _poll_property_search_run_status(client, started.json()["run_id"])
 
     assert observed["property_search_preferences"]["keywords"] == ""
@@ -13810,7 +14427,7 @@ def test_property_search_preferences_update_preserves_existing_commercial_state(
         "/app/api/signals/property/search/run",
         json={"property_preferences": {"preference_person_id": "override"}},
     )
-    assert started.status_code == 200
+    assert started.status_code == 202
     assert set(observed.get("selected_platforms") or ()) == {"willhaben", "genossenschaften_at"}
     assert observed.get("preference_person_id") == "override"
     assert observed.get("use_stored_feedback_preferences") is False
@@ -13908,7 +14525,7 @@ def test_property_search_run_does_not_reapply_stale_saved_agent_area_filter(monk
             },
         },
     )
-    assert started.status_code == 200, started.text
+    assert started.status_code == 202, started.text
     _poll_property_search_run_status(client, started.json()["run_id"])
 
     preferences = dict(observed["property_search_preferences"])
@@ -14025,7 +14642,7 @@ def test_property_search_run_status_marks_old_snapshot_after_budget_change(monke
     assert summary["held_back_total"] == 0
     assert summary["ranked_total"] == 0
     assert summary["can_refresh_with_current_brief"] is True
-    assert snapshot["message"].startswith("This run used an earlier brief.")
+    assert snapshot["message"].startswith("This search used an earlier brief.")
 
 
 def test_property_search_run_status_reopens_budget_filtered_saved_candidate_after_budget_increase(monkeypatch) -> None:
@@ -14885,7 +15502,7 @@ def test_property_search_run_drops_saved_providers_from_wrong_country(monkeypatc
     monkeypatch.setattr(ProductService, "sync_direct_property_scout", _fake_sync_direct_property_scout)
 
     started = client.post("/app/api/signals/property/search/run", json={"property_preferences": {}})
-    assert started.status_code == 200, started.text
+    assert started.status_code == 202, started.text
     assert "re_cr_mls" not in observed["selected_platforms"]
     assert "encuentra24_cr" not in observed["selected_platforms"]
     assert set(observed["selected_platforms"]) >= {"willhaben", "immmo", "immoscout_at"}
@@ -14945,7 +15562,7 @@ def test_property_search_run_drops_saved_unready_and_mode_mismatched_providers(m
     monkeypatch.setattr(ProductService, "sync_direct_property_scout", _fake_sync_direct_property_scout)
 
     started = client.post("/app/api/signals/property/search/run", json={"property_preferences": {}})
-    assert started.status_code == 200, started.text
+    assert started.status_code == 202, started.text
     assert observed["selected_platforms"] == ("core_portals_de",)
     preferences = observed["property_search_preferences"]
     assert preferences["provider_selection_filter_applied"] is True
@@ -15051,6 +15668,32 @@ def test_reconcile_property_search_results_delivery_completes_unsent_ready_run(m
     assert summary["emailed"] >= 1
     assert observed["principal_id"] == "exec-property-search-reconcile"
     assert observed["run_id"] == run_id
+
+
+def test_reconcile_property_search_results_delivery_includes_partial_runs(monkeypatch) -> None:
+    client = build_property_client(principal_id="exec-property-search-reconcile-partial")
+    service = product_service.build_product_service(client.app.state.container)
+    captured: dict[str, object] = {}
+
+    def _fake_list_records(**kwargs):
+        captured.update(kwargs)
+        return ()
+
+    monkeypatch.setattr(product_service, "_list_property_search_run_records", _fake_list_records)
+
+    summary = service.reconcile_property_search_results_delivery(
+        principal_id="exec-property-search-reconcile-partial",
+        limit=10,
+    )
+
+    assert "completed_partial" in tuple(captured["statuses"])
+    assert captured["lightweight"] is True
+    assert summary == {
+        "attempted": 0,
+        "finalized": 0,
+        "emailed": 0,
+        "pending": 0,
+    }
 
 
 def test_property_search_results_ready_can_send_heyy_digest(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -15511,8 +16154,10 @@ def test_property_search_run_postgres_round_trip(monkeypatch: pytest.MonkeyPatch
     db_url = str(os.environ.get("EA_TEST_PROPERTY_DATABASE_URL") or "").strip()
     if not db_url:
         pytest.skip("EA_TEST_PROPERTY_DATABASE_URL is not set")
+    from app.product.property_search_schema import migrate_property_search_schema
+
+    migrate_property_search_schema(db_url, applied_by="property-search-run-contract")
     monkeypatch.setenv("DATABASE_URL", db_url)
-    monkeypatch.setattr(property_search_storage, "_PROPERTY_SEARCH_RUN_SCHEMA_READY", False)
     run_id = f"run-postgres-round-trip-{uuid.uuid4().hex}"
     state = product_service._new_property_search_run_record(
         run_id=run_id,
@@ -15548,9 +16193,11 @@ def test_property_search_run_postgres_retention_compacts_without_deleting_saved_
     db_url = str(os.environ.get("EA_TEST_PROPERTY_DATABASE_URL") or "").strip()
     if not db_url:
         pytest.skip("EA_TEST_PROPERTY_DATABASE_URL is not set")
+    from app.product.property_search_schema import migrate_property_search_schema
+
+    migrate_property_search_schema(db_url, applied_by="property-search-retention-contract")
     monkeypatch.setenv("DATABASE_URL", db_url)
     monkeypatch.setenv("EA_PROPERTY_SEARCH_RUN_RETENTION_SECONDS", "60")
-    monkeypatch.setattr(property_search_storage, "_PROPERTY_SEARCH_RUN_SCHEMA_READY", False)
     run_id = f"run-postgres-retention-{uuid.uuid4().hex}"
     principal_id = "exec-property-postgres-retention"
     old_timestamp = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat()
@@ -16074,9 +16721,12 @@ def test_property_search_run_status_defaults_missing_result_cap_to_all_ranked(mo
 
 def test_property_search_run_upsert_does_not_change_existing_owner() -> None:
     source = Path(property_search_storage.__file__).read_text(encoding="utf-8")
+    migration_source = Path("ea/app/product/property_search_schema.py").read_text(
+        encoding="utf-8"
+    )
 
-    assert "PRIMARY KEY (principal_id, run_id)" in source
-    assert "ALTER TABLE property_search_runs ADD PRIMARY KEY (principal_id, run_id)" in source
+    assert "PRIMARY KEY (principal_id, run_id)" in migration_source
+    assert "property_search_runs_pkey PRIMARY KEY (principal_id, run_id)" in migration_source
     assert "SET principal_id = EXCLUDED.principal_id" not in source
     assert "ON CONFLICT (run_id)" not in source
     assert "ON CONFLICT (principal_id, run_id) DO UPDATE" in source
@@ -16133,75 +16783,13 @@ def test_property_search_status_api_preserves_backfilled_updated_at() -> None:
     assert response.selected_platform_count == 0
 
 
-def test_property_search_run_schema_ready_does_not_backfill_existing_compact_columns(monkeypatch: pytest.MonkeyPatch) -> None:
-    executed_sql: list[str] = []
+def test_property_search_runtime_schema_boundary_is_check_only() -> None:
+    source = Path(property_search_storage.__file__).read_text(encoding="utf-8").upper()
 
-    class _Cursor:
-        def __init__(self) -> None:
-            self.last_params: tuple[object, ...] = ()
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):  # noqa: ANN001
-            return False
-
-        def execute(self, sql: str, params=None):  # noqa: ANN001
-            self.last_params = tuple(params or ())
-            executed_sql.append(" ".join(str(sql).split()))
-
-        def fetchone(self):
-            if not executed_sql:
-                return None
-            last_sql = executed_sql[-1]
-            if "to_regclass('property_search_runs')" in last_sql:
-                return ("property_search_runs",)
-            if "FROM pg_class c" in last_sql and self.last_params in (
-                ("idx_property_search_runs_updated",),
-                ("idx_property_search_runs_principal_updated",),
-                ("idx_property_search_runs_status_updated",),
-                ("idx_property_search_runs_principal_status_updated",),
-            ):
-                return (1,)
-            return None
-
-        def fetchall(self):
-            if not executed_sql:
-                return []
-            last_sql = executed_sql[-1]
-            if "information_schema.columns" in last_sql:
-                return [
-                    ("principal_id",),
-                    ("run_id",),
-                    ("payload_json",),
-                    ("status",),
-                    ("compact_json",),
-                    ("created_at",),
-                    ("updated_at",),
-                ]
-            if "FROM pg_index" in last_sql:
-                return [("principal_id",), ("run_id",)]
-            return []
-
-    class _Connection:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):  # noqa: ANN001
-            return False
-
-        def cursor(self):
-            return _Cursor()
-
-    monkeypatch.setenv("DATABASE_URL", "postgresql://example")
-    monkeypatch.setattr(property_search_storage, "_PROPERTY_SEARCH_RUN_SCHEMA_READY", False)
-    monkeypatch.setattr(property_search_storage, "_property_search_run_connect", lambda: _Connection())
-
-    property_search_storage._ensure_property_search_run_schema()  # type: ignore[attr-defined]
-
-    assert not any(sql.startswith("UPDATE property_search_runs SET") for sql in executed_sql)
-    assert not any(sql.startswith("ALTER TABLE property_search_runs ADD COLUMN") for sql in executed_sql)
-    assert not any(sql.startswith("CREATE INDEX idx_property_search_runs_") for sql in executed_sql)
+    assert "DEF _REQUIRE_PROPERTY_SEARCH_RUN_SCHEMA" in source
+    assert "CREATE TABLE" not in source
+    assert "ALTER TABLE" not in source
+    assert "CREATE INDEX" not in source
 
 
 def test_property_search_run_upsert_skips_noop_conflict_updates() -> None:
@@ -16300,6 +16888,9 @@ def test_property_source_listing_cache_postgres_round_trip(monkeypatch: pytest.M
     db_url = str(os.environ.get("EA_TEST_PROPERTY_DATABASE_URL") or "").strip()
     if not db_url:
         pytest.skip("EA_TEST_PROPERTY_DATABASE_URL is not set")
+    from app.product.property_search_schema import migrate_property_search_schema
+
+    migrate_property_search_schema(db_url, applied_by="property-search-cache-contract")
     monkeypatch.setenv("DATABASE_URL", db_url)
     monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_BACKEND", "postgres")
     monkeypatch.setenv("EA_PROPERTY_SOURCE_LISTING_CACHE_TTL_SECONDS", "60")
@@ -16365,10 +16956,13 @@ def test_property_search_storage_schema_scripts() -> None:
 
 def test_property_search_storage_schema_check_enforces_tenant_primary_key() -> None:
     source = Path("scripts/check_property_search_storage_schema.py").read_text(encoding="utf-8")
+    migration_source = Path("ea/app/product/property_search_schema.py").read_text(
+        encoding="utf-8"
+    )
 
-    assert "idx_property_search_runs_principal_updated" in source
-    assert "idx_property_search_runs_status_updated" in source
-    assert "idx_property_search_runs_principal_status_updated" in source
+    assert "idx_property_search_runs_principal_updated" in migration_source
+    assert "idx_property_search_runs_status_updated" in migration_source
+    assert "idx_property_search_runs_principal_status_updated" in migration_source
     assert "_check_source_contracts()" in source
     assert "ON CONFLICT (principal_id, run_id) DO UPDATE" in source
     assert "payload_retention_status" in source
@@ -16377,8 +16971,10 @@ def test_property_search_storage_schema_check_enforces_tenant_primary_key() -> N
     assert "SET principal_id = EXCLUDED.principal_id" in source
     assert "forbidden_storage_contract" in source
     assert "if not normalized_principal_id and not admin:" in source
-    assert "run_primary_key != (\"principal_id\", \"run_id\")" in source
-    assert "invalid_primary_key:property_search_runs" in source
+    assert "runtime_schema_ddl_forbidden" in source
+    assert "property_search_runs_pkey" in migration_source
+    assert "pg_advisory_xact_lock" in migration_source
+    assert "checksum_sha256" in migration_source
     assert "(payload_json->>'status') = ANY(%s)" in source
 
 

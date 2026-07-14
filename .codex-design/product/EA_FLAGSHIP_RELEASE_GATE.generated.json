@@ -1,24 +1,30 @@
 {
-  "product": "executive-assistant",
-  "surface": "flagship_release_control",
+  "product": "propertyquarry",
+  "surface": "propertyquarry_flagship_release_control",
   "version": 1,
   "kind": "release_receipt",
-  "generated_at": "2026-06-26T13:52:58Z",
+  "generated_at": "2026-07-14T03:55:06Z",
   "generated_by": "scripts/materialize_ea_flagship_release_gate.py",
   "status": "blocked",
-  "operator_summary": "EA flagship release truth is materialized, but the current browser-proof or release-doc state still blocks the claim.",
+  "source_binding": null,
+  "browser_receipt_binding": {
+    "path": ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json",
+    "sha256": "3abcaf841b16a4986266fdd4e31e9a0653e1b28377f076ca7d64d836a17af8bb",
+    "git_blob_oid": "e86269ced361deab6fda3296262b7da4c4493c73"
+  },
+  "operator_summary": "PropertyQuarry flagship release truth is materialized, but the current browser-proof or release-doc state still blocks the claim.",
   "truth_plane": {
     "source": ".codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md",
     "present": true,
     "legacy_history": "MILESTONE.json"
   },
   "release_claim": {
-    "summary": "EA can only claim flagship-grade release truth when the browser workflow proof and release asset verification agree with this gate seed.",
+    "summary": "The standalone PropertyQuarry surface can only claim flagship-grade release truth when its browser workflow proof and release asset verification agree with this gate seed.",
     "required_conditions": [
       "EA product surface canon exists and names the public navigation, app navigation, first-value journey, surface system, copy rules, and LTD delivery map",
-      "browser workflow proof renders seeded browser workspace pages with durable EA product objects",
-      "browser workflow proof shows browser actions updating the live workspace without stale narration",
-      "real browser E2E covers activation, approval-safe review, and the memo-to-queue loop",
+      "source-backed browser proof renders the standalone PropertyQuarry search, shortlist, research, and failed-run surfaces",
+      "real browser E2E opens ranked PropertyQuarry results and candidate research packets on desktop",
+      "real browser E2E proves the standalone PropertyQuarry decision workbench remains usable on mobile",
       "release asset verification knows the EA flagship truth plane, the EA product surface canon, and the gate seed",
       "release checklists cite the EA truth plane and the EA product surface canon instead of using MILESTONE green as the oracle"
     ]
@@ -83,41 +89,38 @@
     "all_required_docs_present": true
   },
   "browser_workflow_proof": {
+    "proof_target": "propertyquarry",
     "evidence_sources": [
       {
-        "file": "tests/test_product_browser_journeys.py",
+        "file": "tests/test_propertyquarry_workspace_redesign.py",
         "cases": [
-          "test_workspace_pages_render_seeded_product_objects",
-          "test_browser_journey_updates_after_approval_and_commitment_closure",
-          "test_browser_action_routes_match_rendered_forms",
-          "test_browser_handoff_and_people_memory_actions_work"
+          "test_propertyquarry_workspace_routes_render_greenfield_surfaces",
+          "test_propertyquarry_failed_run_stays_on_activity_surface"
         ]
       },
       {
-        "file": "tests/e2e/test_product_workflows.py",
+        "file": "tests/e2e/test_propertyquarry_greenfield_browser.py",
         "cases": [
-          "test_activation_and_memo_flow_in_real_browser",
-          "test_draft_and_commitment_workflows_in_real_browser"
+          "test_propertyquarry_greenfield_workspace_in_real_browser",
+          "test_propertyquarry_greenfield_workspace_is_mobile_usable"
         ]
       }
     ],
     "source_files_present": [
       {
-        "file": "tests/test_product_browser_journeys.py",
+        "file": "tests/test_propertyquarry_workspace_redesign.py",
         "present": true,
         "cases": [
-          "test_workspace_pages_render_seeded_product_objects",
-          "test_browser_journey_updates_after_approval_and_commitment_closure",
-          "test_browser_action_routes_match_rendered_forms",
-          "test_browser_handoff_and_people_memory_actions_work"
+          "test_propertyquarry_workspace_routes_render_greenfield_surfaces",
+          "test_propertyquarry_failed_run_stays_on_activity_surface"
         ]
       },
       {
-        "file": "tests/e2e/test_product_workflows.py",
+        "file": "tests/e2e/test_propertyquarry_greenfield_browser.py",
         "present": true,
         "cases": [
-          "test_activation_and_memo_flow_in_real_browser",
-          "test_draft_and_commitment_workflows_in_real_browser"
+          "test_propertyquarry_greenfield_workspace_in_real_browser",
+          "test_propertyquarry_greenfield_workspace_is_mobile_usable"
         ]
       }
     ],
@@ -166,12 +169,14 @@
     }
   ],
   "blocking_reasons": [
-    "browser workflow proof: real browser E2E proof is not passing"
+    "immutable source binding failed: release source differs from immutable code commit 812e0b1132a18538f14978e887b049166c4cc3c7: .codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
+    "browser workflow proof: immutable source binding failed: release source differs from immutable code commit 812e0b1132a18538f14978e887b049166c4cc3c7: .codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
+    "browser workflow proof: published pass still reports browser blockers: immutable source binding failed: release source differs from immutable code commit 812e0b1132a18538f14978e887b049166c4cc3c7: .codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json"
   ],
   "current_limitations": [],
   "release_truth": {
     "oracle": ".codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md",
     "seed": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
-    "summary": "EA can only claim flagship-grade release truth when the browser workflow proof and release asset verification agree with this gate seed."
+    "summary": "The standalone PropertyQuarry surface can only claim flagship-grade release truth when its browser workflow proof and release asset verification agree with this gate seed."
   }
 }

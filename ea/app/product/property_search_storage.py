@@ -13,8 +13,6 @@ from uuid import uuid4
 
 
 _PROPERTY_SEARCH_RUN_TTL_SECONDS = 90 * 24 * 60 * 60
-_PROPERTY_SEARCH_RUN_SCHEMA_LOCK = threading.Lock()
-_PROPERTY_SEARCH_RUN_SCHEMA_READY = False
 _PROPERTY_SEARCH_RUN_DB_CONNECT_RETRY_SECONDS = 45.0
 _PROPERTY_SEARCH_RUN_DB_CONNECT_TIMEOUT_SECONDS = 3
 
@@ -302,10 +300,6 @@ def _property_search_run_connect():  # type: ignore[no-untyped-def]
             return
         finally:
             _PROPERTY_SEARCH_RUN_DB_SEMAPHORE.release()
-
-
-def _quote_pg_identifier(value: str) -> str:
-    return '"' + str(value or "").replace('"', '""') + '"'
 
 
 def _property_search_compact_candidate_preview_url(candidate: object) -> str:
@@ -807,182 +801,19 @@ def _compact_property_search_run_json_sql() -> str:
                 """
 
 
-def _property_search_run_primary_key_columns(cur) -> tuple[str, ...]:  # type: ignore[no-untyped-def]
-    cur.execute(
-        """
-        SELECT a.attname
-        FROM pg_index i
-        JOIN pg_class t ON t.oid = i.indrelid
-        JOIN pg_namespace n ON n.oid = t.relnamespace
-        JOIN unnest(i.indkey) WITH ORDINALITY AS key_columns(attnum, ordinal) ON TRUE
-        JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = key_columns.attnum
-        WHERE n.nspname = current_schema()
-          AND t.relname = 'property_search_runs'
-          AND i.indisprimary
-        ORDER BY key_columns.ordinal
-        """
-    )
-    return tuple(str(row[0]) for row in cur.fetchall())
-
-
-def _property_search_run_table_exists(cur) -> bool:  # type: ignore[no-untyped-def]
-    cur.execute("SELECT to_regclass('property_search_runs')")
-    row = cur.fetchone()
-    return bool(row and row[0])
-
-
-def _property_search_run_column_names(cur) -> set[str]:  # type: ignore[no-untyped-def]
-    cur.execute(
-        """
-        SELECT column_name
-        FROM information_schema.columns
-        WHERE table_schema = current_schema()
-          AND table_name = 'property_search_runs'
-        """
-    )
-    return {str(row[0]) for row in cur.fetchall() if row and row[0]}
-
-
-def _property_search_run_index_exists(cur, index_name: str) -> bool:  # type: ignore[no-untyped-def]
-    cur.execute(
-        """
-        SELECT 1
-        FROM pg_class c
-        JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE n.nspname = current_schema()
-          AND c.relkind = 'i'
-          AND c.relname = %s
-        LIMIT 1
-        """,
-        (str(index_name or "").strip(),),
-    )
-    return bool(cur.fetchone())
-
-
-def _ensure_property_search_run_primary_key(cur) -> None:  # type: ignore[no-untyped-def]
-    desired_columns = ("principal_id", "run_id")
-    if _property_search_run_primary_key_columns(cur) == desired_columns:
+def _require_property_search_run_schema() -> None:
+    database_url = _property_search_run_database_url()
+    if not database_url:
         return
-    cur.execute(
-        """
-        SELECT conname
-        FROM pg_constraint
-        WHERE conrelid = 'property_search_runs'::regclass
-          AND contype = 'p'
-        """
-    )
-    row = cur.fetchone()
-    if row and row[0]:
-        cur.execute(f"ALTER TABLE property_search_runs DROP CONSTRAINT {_quote_pg_identifier(str(row[0]))}")
-    cur.execute(
-        """
-        DELETE FROM property_search_runs a
-        USING property_search_runs b
-        WHERE a.ctid < b.ctid
-          AND a.principal_id = b.principal_id
-          AND a.run_id = b.run_id
-        """
-    )
-    cur.execute("ALTER TABLE property_search_runs ALTER COLUMN principal_id SET NOT NULL")
-    cur.execute("ALTER TABLE property_search_runs ALTER COLUMN run_id SET NOT NULL")
-    cur.execute("ALTER TABLE property_search_runs ADD PRIMARY KEY (principal_id, run_id)")
+    from app.product.property_search_schema import require_property_search_schema_ready
 
-
-def _ensure_property_search_run_schema() -> None:
-    global _PROPERTY_SEARCH_RUN_SCHEMA_READY
-    if _PROPERTY_SEARCH_RUN_SCHEMA_READY or not _property_search_run_database_url():
-        return
-    with _PROPERTY_SEARCH_RUN_SCHEMA_LOCK:
-        if _PROPERTY_SEARCH_RUN_SCHEMA_READY:
-            return
-        with _property_search_run_connect() as conn:
-            with conn.cursor() as cur:
-                table_existed = _property_search_run_table_exists(cur)
-                existing_columns = _property_search_run_column_names(cur) if table_existed else set()
-                needs_compact_backfill = (
-                    table_existed
-                    and (
-                        "status" not in existing_columns
-                        or "compact_json" not in existing_columns
-                    )
-                )
-                if not table_existed:
-                    cur.execute(
-                        """
-                        CREATE TABLE property_search_runs (
-                            principal_id TEXT NOT NULL,
-                            run_id TEXT NOT NULL,
-                            payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-                            status TEXT,
-                            compact_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-                            created_at TIMESTAMPTZ NOT NULL,
-                            updated_at TIMESTAMPTZ NOT NULL,
-                            PRIMARY KEY (principal_id, run_id)
-                        )
-                        """
-                    )
-                    existing_columns = {
-                        "principal_id",
-                        "run_id",
-                        "payload_json",
-                        "status",
-                        "compact_json",
-                        "created_at",
-                        "updated_at",
-                    }
-                if "status" not in existing_columns:
-                    cur.execute("ALTER TABLE property_search_runs ADD COLUMN status TEXT")
-                    existing_columns.add("status")
-                if "compact_json" not in existing_columns:
-                    cur.execute("ALTER TABLE property_search_runs ADD COLUMN compact_json JSONB NOT NULL DEFAULT '{}'::jsonb")
-                    existing_columns.add("compact_json")
-                _ensure_property_search_run_primary_key(cur)
-                if not _property_search_run_index_exists(cur, "idx_property_search_runs_updated"):
-                    cur.execute(
-                        """
-                        CREATE INDEX idx_property_search_runs_updated
-                        ON property_search_runs(updated_at DESC)
-                        """
-                    )
-                if not _property_search_run_index_exists(cur, "idx_property_search_runs_principal_updated"):
-                    cur.execute(
-                        """
-                        CREATE INDEX idx_property_search_runs_principal_updated
-                        ON property_search_runs(principal_id, updated_at DESC)
-                        """
-                    )
-                if not _property_search_run_index_exists(cur, "idx_property_search_runs_status_updated"):
-                    cur.execute(
-                        """
-                        CREATE INDEX idx_property_search_runs_status_updated
-                        ON property_search_runs(status, updated_at DESC)
-                        """
-                    )
-                if not _property_search_run_index_exists(cur, "idx_property_search_runs_principal_status_updated"):
-                    cur.execute(
-                        """
-                        CREATE INDEX idx_property_search_runs_principal_status_updated
-                        ON property_search_runs(principal_id, status, updated_at DESC)
-                        """
-                    )
-                if needs_compact_backfill:
-                    cur.execute(
-                        f"""
-                        UPDATE property_search_runs
-                        SET status = COALESCE(status, payload_json->>'status', payload_json#>>'{{summary,status}}'),
-                            compact_json = {_compact_property_search_run_json_sql()}
-                        WHERE compact_json = '{{}}'::jsonb
-                           OR compact_json IS NULL
-                           OR status IS NULL
-                        """
-                    )
-        _PROPERTY_SEARCH_RUN_SCHEMA_READY = True
+    require_property_search_schema_ready(database_url)
 
 
 def _store_property_search_run_record(record: dict[str, object]) -> None:
     if not _property_search_run_database_url():
         return
-    _ensure_property_search_run_schema()
+    _require_property_search_run_schema()
     normalized_record = _property_search_run_canonicalize_record(dict(record or {}))
     run_id = str(normalized_record.get("run_id") or "").strip()
     principal_id = str(normalized_record.get("principal_id") or "").strip()
@@ -1022,7 +853,7 @@ def _store_property_search_run_record(record: dict[str, object]) -> None:
 def _load_property_search_run_record(*, run_id: str, principal_id: str) -> dict[str, object] | None:
     if not _property_search_run_database_url():
         return None
-    _ensure_property_search_run_schema()
+    _require_property_search_run_schema()
     normalized_run_id = str(run_id or "").strip()
     normalized_principal_id = str(principal_id or "").strip()
     if not normalized_run_id or not normalized_principal_id:
@@ -1046,7 +877,7 @@ def _load_property_search_run_record(*, run_id: str, principal_id: str) -> dict[
 def _load_property_search_run_compact_record(*, run_id: str, principal_id: str) -> dict[str, object] | None:
     if not _property_search_run_database_url():
         return None
-    _ensure_property_search_run_schema()
+    _require_property_search_run_schema()
     normalized_run_id = str(run_id or "").strip()
     normalized_principal_id = str(principal_id or "").strip()
     if not normalized_run_id or not normalized_principal_id:
@@ -1108,7 +939,7 @@ def _list_property_search_run_records(
         if lightweight:
             rows = [_compact_property_search_run_record(row) for row in rows]
         return tuple(rows[:normalized_limit])
-    _ensure_property_search_run_schema()
+    _require_property_search_run_schema()
     query = (
         """
         SELECT COALESCE(
@@ -1163,7 +994,7 @@ def _prune_property_search_run_records() -> None:
     retention_seconds = _property_search_run_retention_seconds()
     if retention_seconds <= 0:
         return
-    _ensure_property_search_run_schema()
+    _require_property_search_run_schema()
     cutoff = (datetime.now(timezone.utc) - timedelta(seconds=retention_seconds)).isoformat()
     pruned_at = _now_iso()
     with _property_search_run_connect() as conn:
@@ -1211,7 +1042,7 @@ def _delete_property_search_run_record(
         if str(dict(record or {}).get("principal_id") or "").strip() != normalized_principal_id:
             return False
         return registry.pop(normalized_run_id, None) is not None
-    _ensure_property_search_run_schema()
+    _require_property_search_run_schema()
     with _property_search_run_connect() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -1453,27 +1284,7 @@ def _ensure_property_source_listing_cache_schema() -> bool:
         if _PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_READY:
             return True
         try:
-            with _property_search_run_connect() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        CREATE TABLE IF NOT EXISTS property_source_listing_cache (
-                            cache_key TEXT PRIMARY KEY,
-                            source_url TEXT NOT NULL DEFAULT '',
-                            listing_urls JSONB NOT NULL DEFAULT '[]'::jsonb,
-                            provider_filter_pushdown JSONB NOT NULL DEFAULT '{}'::jsonb,
-                            stored_at_epoch DOUBLE PRECISION NOT NULL,
-                            stored_at TIMESTAMPTZ NOT NULL,
-                            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                        )
-                        """
-                    )
-                    cur.execute(
-                        """
-                        CREATE INDEX IF NOT EXISTS idx_property_source_listing_cache_stored_at
-                        ON property_source_listing_cache(stored_at_epoch DESC)
-                        """
-                    )
+            _require_property_search_run_schema()
         except Exception:
             return False
         _PROPERTY_SOURCE_LISTING_CACHE_SCHEMA_READY = True
