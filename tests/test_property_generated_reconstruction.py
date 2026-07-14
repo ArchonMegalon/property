@@ -192,7 +192,12 @@ def _viewer_accessibility_receipt(page) -> dict[str, object]:
               undersizedTargets: targets.filter((target) => target.width < 44 || target.height < 44),
               floorplanTargetOverlaps: overlaps,
               clippedVisibleHotspotLabels: Array.from(document.querySelectorAll('.route-hotspot-label'))
-                .filter((label) => Number.parseFloat(getComputedStyle(label).opacity || '0') > 0)
+                .filter((label) => {
+                  const rect = label.getBoundingClientRect();
+                  return !label.closest('.route-hotspot')?.hidden
+                    && Number.parseFloat(getComputedStyle(label).opacity || '0') > 0
+                    && rect.width > 0 && rect.height > 0;
+                })
                 .map((label) => ({ label, rect: label.getBoundingClientRect() }))
                 .filter(({ rect }) => {
                   const viewport = document.getElementById('stage-hotspots')?.getBoundingClientRect();
@@ -200,6 +205,35 @@ def _viewer_accessibility_receipt(page) -> dict[str, object]:
                     || rect.top < viewport.top + 7 || rect.bottom > viewport.bottom - 7;
                 })
                 .map(({ label }) => String(label.textContent || '').trim()),
+              visibleHotspotLabelBounds: Array.from(document.querySelectorAll('.route-hotspot-label'))
+                .filter((label) => {
+                  const rect = label.getBoundingClientRect();
+                  return !label.closest('.route-hotspot')?.hidden
+                    && Number.parseFloat(getComputedStyle(label).opacity || '0') > 0
+                    && rect.width > 0 && rect.height > 0;
+                })
+                .map((label) => {
+                  const rect = label.getBoundingClientRect();
+                  const button = label.closest('.route-hotspot');
+                  const buttonRect = button?.getBoundingClientRect();
+                  const viewport = document.getElementById('stage-hotspots')?.getBoundingClientRect();
+                  return {
+                    label: String(label.textContent || '').trim(),
+                    rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom },
+                    button: buttonRect
+                      ? { left: buttonRect.left, top: buttonRect.top, right: buttonRect.right, bottom: buttonRect.bottom }
+                      : null,
+                    buttonStyle: button
+                      ? { left: button.style.left, top: button.style.top, hidden: button.hidden }
+                      : null,
+                    placement: label.dataset.placement,
+                    shiftX: label.style.getPropertyValue('--hotspot-label-shift-x'),
+                    shiftY: label.style.getPropertyValue('--hotspot-label-shift-y'),
+                    viewport: viewport
+                      ? { left: viewport.left, top: viewport.top, right: viewport.right, bottom: viewport.bottom }
+                      : null,
+                  };
+                }),
               horizontalOverflowPx: Math.max(0, document.documentElement.scrollWidth - window.innerWidth),
             };
         }"""
@@ -247,6 +281,7 @@ def _write_viewer_accessibility_fixture(tmp_path: Path) -> Path:
                 {"width": 8.0, "depth": 0.12, "center_x": 0, "center_z": 2.94, "rotation_y": 0},
                 {"width": 6.0, "depth": 0.12, "center_x": -3.94, "center_z": 0, "rotation_y": 1.5708},
                 {"width": 6.0, "depth": 0.12, "center_x": 3.94, "center_z": 0, "rotation_y": 1.5708},
+                {"width": 3.0, "depth": 0.12, "center_x": 1.4, "center_z": -1.44, "rotation_y": 0},
             ],
         },
         "walkable_scene": {"route": route},
@@ -336,7 +371,7 @@ def test_generated_reconstruction_viewer_honors_reduced_motion_and_webgl_fallbac
                 reduced_page.locator(".route-button").nth(1).click()
                 route_receipt = reduced_page.evaluate(
                     """() => {
-                        const metrics = window.__pqReconstructionDebug.getRenderMetrics();
+                        const metrics = window.__pqReconstructionDebug.getRenderMetrics({ includeObstruction: true });
                         const routes = Array.from(document.querySelectorAll('.route-button'));
                         const planStops = Array.from(document.querySelectorAll('.floorplan-stop'));
                         const hotspots = Array.from(document.querySelectorAll('.route-hotspot'));
@@ -354,12 +389,46 @@ def test_generated_reconstruction_viewer_honors_reduced_motion_and_webgl_fallbac
                 assert route_receipt["metrics"]["activeRouteIndex"] == 1
                 assert route_receipt["metrics"]["transitionDurationMs"] == 0
                 assert route_receipt["metrics"]["isTransitioning"] is False
+                assert route_receipt["metrics"]["wallHeightScale"] == pytest.approx(0.72)
+                assert route_receipt["metrics"]["wallOpacity"] == pytest.approx(0.52)
+                assert route_receipt["metrics"]["raycastObstructionSampled"] is True
+                assert route_receipt["metrics"]["raycastWallObstructionPct"] < 45
+                assert route_receipt["metrics"]["cameraTargetDistance"] < 3.0
+                assert route_receipt["metrics"]["hiddenRoomOccluderWallCount"] >= 1
+                assert route_receipt["metrics"]["visibleHotspotCount"] == 1
+                assert route_receipt["metrics"]["roomCutawayEvaluationCount"] > 0
+                assert route_receipt["metrics"]["roomCutawayCameraDelta"] == pytest.approx(0.0)
                 assert route_receipt["overviewPressed"] == "false"
                 assert route_receipt["roomPressed"] == "true"
                 assert route_receipt["routeCurrent"] == ["false", "step"]
                 assert route_receipt["planCurrent"] == ["false", "step"]
                 assert route_receipt["hotspotCurrent"] == ["false", "step"]
                 assert "living room" in route_receipt["liveStatus"].lower()
+
+                reduced_page.evaluate("() => window.__pqReconstructionDebug.setOverviewView()")
+                reduced_page.wait_for_timeout(80)
+                reduced_page.evaluate("() => window.__pqReconstructionDebug.setRouteView(1)")
+                reduced_page.wait_for_timeout(80)
+                from_overview = reduced_page.evaluate("() => window.__pqReconstructionDebug.getRenderMetrics()")
+                reduced_page.evaluate("() => window.__pqReconstructionDebug.setDollhouseView()")
+                reduced_page.wait_for_timeout(80)
+                reduced_page.evaluate("() => window.__pqReconstructionDebug.setRouteView(1)")
+                reduced_page.wait_for_timeout(80)
+                from_dollhouse = reduced_page.evaluate("() => window.__pqReconstructionDebug.getRenderMetrics()")
+                assert from_overview["cameraPosition"] == from_dollhouse["cameraPosition"]
+                assert from_overview["cameraTargetDistance"] == from_dollhouse["cameraTargetDistance"]
+
+                before_interaction = from_dollhouse
+                reduced_page.evaluate(
+                    """() => document.querySelector('#viewport canvas')?.dispatchEvent(
+                        new WheelEvent('wheel', { deltaY: -360, bubbles: true, cancelable: true })
+                    )"""
+                )
+                reduced_page.wait_for_timeout(180)
+                after_drag = reduced_page.evaluate("() => window.__pqReconstructionDebug.getRenderMetrics()")
+                assert after_drag["cameraPosition"] != before_interaction["cameraPosition"]
+                assert after_drag["roomCutawayEvaluationCount"] > before_interaction["roomCutawayEvaluationCount"]
+                assert after_drag["roomCutawayCameraDelta"] == pytest.approx(0.0)
                 reduced_context.close()
 
                 fallback_page = browser.new_page(viewport={"width": 1280, "height": 720})
@@ -1842,7 +1911,10 @@ def test_generated_reconstruction_viewer_guided_route_runs_in_real_browser(tmp_p
                 assert mobile_accessibility["targetCount"] >= 10
                 assert mobile_accessibility["undersizedTargets"] == []
                 assert mobile_accessibility["floorplanTargetOverlaps"] == []
-                assert mobile_accessibility["clippedVisibleHotspotLabels"] == []
+                assert mobile_accessibility["clippedVisibleHotspotLabels"] == [], json.dumps(
+                    mobile_accessibility["visibleHotspotLabelBounds"],
+                    ensure_ascii=False,
+                )
                 assert mobile_accessibility["horizontalOverflowPx"] == 0
             finally:
                 browser.close()
