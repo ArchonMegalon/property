@@ -283,6 +283,8 @@ import json
 import subprocess
 from pathlib import Path
 
+from scripts.verify_generated_release_artifacts_clean import _normalize
+
 
 def _head_json(path: str) -> dict:
     payload = subprocess.run(
@@ -296,41 +298,6 @@ def _head_json(path: str) -> dict:
 
 def _worktree_json(path: str) -> dict:
     return json.loads(Path(path).read_text(encoding="utf-8"))
-
-
-def _normalize(value):
-    if isinstance(value, dict):
-        normalized = {}
-        for key, item in value.items():
-            if key in {
-                "generated_at",
-                "as_of",
-                "created_at",
-                "mtime_utc",
-                "size_bytes",
-                "sha256",
-                "duration_seconds",
-                "git_branch",
-                "git_head",
-                "source_path",
-                "resolved_path",
-                "git_repo_root",
-                "command",
-                "cwd",
-                "python_bin",
-            }:
-                continue
-            if key.endswith("_git_head"):
-                continue
-            if key == "review_due":
-                continue
-            if key == "output_excerpt":
-                continue
-            normalized[key] = _normalize(item)
-        return normalized
-    if isinstance(value, list):
-        return [_normalize(item) for item in value]
-    return value
 
 
 paths = (

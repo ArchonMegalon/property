@@ -32,19 +32,22 @@ VOLATILE_KEYS = {
     "output_excerpt",
     "python_bin",
     "review_due",
+    "code_commit",
 }
 
 
-def _normalize(value: Any) -> Any:
+def _normalize(value: Any, path: tuple[str, ...] = ()) -> Any:
     if isinstance(value, dict):
         normalized: dict[str, Any] = {}
         for key, item in value.items():
             if key in VOLATILE_KEYS or str(key).endswith("_git_head"):
                 continue
-            normalized[key] = _normalize(item)
+            if key == "git_blob_oid" and path[-1:] == ("browser_receipt_binding",):
+                continue
+            normalized[key] = _normalize(item, (*path, str(key)))
         return normalized
     if isinstance(value, list):
-        return [_normalize(item) for item in value]
+        return [_normalize(item, path) for item in value]
     return value
 
 

@@ -52,3 +52,27 @@ def test_generated_release_artifact_normalizer_preserves_semantic_status_drift()
     module = _load_module()
 
     assert module._normalize({"status": "pass"}) != module._normalize({"status": "blocked"})
+
+
+def test_generated_release_artifact_normalizer_ignores_self_referential_git_identity() -> None:
+    module = _load_module()
+    head = {
+        "source_binding": {"code_commit": "a" * 40},
+        "browser_receipt_binding": {"git_blob_oid": "b" * 40},
+        "required_test_sources": [{"git_blob_oid": "c" * 40}],
+    }
+    materialized = {
+        "source_binding": {"code_commit": "d" * 40},
+        "browser_receipt_binding": {"git_blob_oid": "e" * 40},
+        "required_test_sources": [{"git_blob_oid": "c" * 40}],
+    }
+
+    assert module._normalize(head) == module._normalize(materialized)
+
+
+def test_generated_release_artifact_normalizer_preserves_source_blob_drift() -> None:
+    module = _load_module()
+    head = {"required_test_sources": [{"git_blob_oid": "a" * 40}]}
+    materialized = {"required_test_sources": [{"git_blob_oid": "b" * 40}]}
+
+    assert module._normalize(head) != module._normalize(materialized)
