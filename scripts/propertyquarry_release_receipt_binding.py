@@ -15,6 +15,15 @@ CANONICAL_FLAGSHIP_RECEIPT = Path(".codex-design/product/EA_FLAGSHIP_RELEASE_GAT
 CANONICAL_RELEASE_MANIFEST = Path("docs/PROPERTYQUARRY_RELEASE_MANIFEST.md")
 CANONICAL_WEEKLY_PULSE = Path(".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json")
 SOURCE_BINDING_VERSION = 1
+MAX_METADATA_ONLY_ANCESTORS = 128
+RELEASE_METADATA_ONLY_PATHS = frozenset(
+    {
+        CANONICAL_BROWSER_RECEIPT.as_posix(),
+        CANONICAL_FLAGSHIP_RECEIPT.as_posix(),
+        CANONICAL_RELEASE_MANIFEST.as_posix(),
+        CANONICAL_WEEKLY_PULSE.as_posix(),
+    }
+)
 
 
 class ReleaseBindingError(ValueError):
@@ -91,6 +100,21 @@ def changed_paths(root: Path, parent: str, commit: str) -> list[str]:
     return [line.strip() for line in output.splitlines() if line.strip()]
 
 
+def resolve_source_binding_commit(root: Path, revision: str = "HEAD") -> str:
+    """Resolve the source commit behind any receipt-only refresh commits."""
+    candidate = resolve_commit(root, revision)
+    for _depth in range(MAX_METADATA_ONLY_ANCESTORS):
+        parents = commit_parents(root, candidate)
+        if len(parents) != 1:
+            return candidate
+        parent = parents[0]
+        paths = set(changed_paths(root, parent, candidate))
+        if not paths or not paths.issubset(RELEASE_METADATA_ONLY_PATHS):
+            return candidate
+        candidate = parent
+    return candidate
+
+
 def commit_timestamp(root: Path, commit: str) -> int:
     raw = git_text(root, "show", "-s", "--format=%ct", commit)
     try:
@@ -148,7 +172,11 @@ def build_source_binding(
 ) -> dict[str, Any]:
     root = root.resolve(strict=True)
     seed_path = _safe_relative_path(seed_path)
-    code_commit = resolve_commit(root, code_commit or "HEAD")
+    code_commit = (
+        resolve_commit(root, code_commit)
+        if code_commit is not None
+        else resolve_source_binding_commit(root)
+    )
     if not isinstance(evidence_sources, list):
         raise ReleaseBindingError("flagship seed lacks browser evidence source nodes")
     source_paths: list[Path] = []
