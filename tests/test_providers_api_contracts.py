@@ -7822,20 +7822,8 @@ def test_generated_reconstruction_bundle_does_not_publish_fake_tour_viewer(
         assert private_marker not in serialized_payload
 
     viewer = client.get(f"/tours/files/{slug}/generated-reconstruction/viewer.html", follow_redirects=False)
-    assert viewer.status_code == 200
-    assert viewer.headers["x-propertyquarry-tour-asset-kind"] == "generated-reconstruction-viewer"
-    assert viewer.headers["x-propertyquarry-asset-privacy"] == "generated_reconstruction_public"
-    assert "source-floorplan.jpg" in viewer.text
-    assert "photo-01.jpg" in viewer.text
-    for private_marker in (
-        "owner-private@example.test",
-        "willhaben:private-generated-reconstruction",
-        "private-generated-external-id",
-        "private.example.test",
-        "Private Generated Street",
-        "Private Receipt Generated Street",
-    ):
-        assert private_marker not in viewer.text
+    assert viewer.status_code == 302
+    assert viewer.headers["location"] == f"/tours/{slug}"
 
     viewer_shell = client.get(f"/tours/{slug}")
     assert viewer_shell.status_code == 200
@@ -8025,7 +8013,7 @@ def test_public_tour_page_rejects_generated_reconstruction_launch_shell(
     assert response.status_code == 200
     assert "PropertyQuarry layout tour" in response.text
     assert "Generated reconstruction" in response.text
-    assert f"/tours/files/{slug}/generated-reconstruction/viewer.html" in response.text
+    assert f"/tours/files/{slug}/generated-reconstruction/viewer.html" not in response.text
     layout_preview = client.get(f"/tours/{slug}/layout-preview", follow_redirects=False)
     assert layout_preview.status_code == 200
     assert "PropertyQuarry layout preview" in layout_preview.text

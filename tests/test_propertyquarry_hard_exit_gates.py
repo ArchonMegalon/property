@@ -134,6 +134,7 @@ def test_3d_browser_gate_ignores_noncritical_external_provider_asset_failures() 
 
 def test_3d_browser_gate_persists_3dvista_browser_render_proof_in_private_receipt(monkeypatch, tmp_path: Path) -> None:
     from scripts import propertyquarry_3d_browser_gate as gate
+    from scripts.property_tour_3dvista_provenance import export_tree_sha256
     from scripts.verify_property_tour_controls import build_property_tour_control_receipt
 
     slug = "browser-proof-demo"
@@ -168,7 +169,29 @@ def test_3d_browser_gate_persists_3dvista_browser_render_proof_in_private_receip
                     "propertyquarry_tour_metadata": True,
                     "trial_branding_checked": True,
                     "trial_branding_present": False,
-                }
+                },
+                "three_d_vista_target_provenance": {
+                    "schema": "propertyquarry.3dvista_target_provenance.v1",
+                    "status": "pass",
+                    "provider": "3dvista",
+                    "target_slug": slug,
+                    "target_subdir": "3dvista",
+                    "artifact": {
+                        "kind": "local_export",
+                        "sha256": export_tree_sha256(bundle / "3dvista"),
+                        "entry_relpath": "index.html",
+                    },
+                    "authorization": {
+                        "status": "approved",
+                        "reference": "test-reviewed-export",
+                    },
+                    "review": {
+                        "property_match": "pass",
+                        "visual_match": "pass",
+                        "reviewed_by": "propertyquarry-test-reviewer",
+                        "reviewed_at": "2026-07-04T09:45:00Z",
+                    },
+                },
             }
         ),
         encoding="utf-8",
@@ -1011,17 +1034,18 @@ def test_deploy_and_release_scripts_wire_3d_walkthrough_and_map_preview_as_exit_
     deploy = (ROOT / "scripts" / "deploy_propertyquarry.sh").read_text(encoding="utf-8")
     release = (ROOT / "scripts" / "property_release_gates.sh").read_text(encoding="utf-8")
 
-    assert 'if ! PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_3d_browser_gate.py' in deploy
-    assert 'if ! PYTHONPATH=ea timeout "${walkthrough_quality_process_timeout_seconds}" "${deploy_python_bin}" scripts/propertyquarry_walkthrough_quality_gate.py' in deploy
-    assert 'scripts/propertyquarry_walkthrough_provider_proof_gate.py' in deploy
-    assert '--walkthrough-provider-proof-receipt _completion/smoke/property-live-walkthrough-provider-proof-latest.json' in deploy
-    assert '--service-generated-reconstruction-receipt "${service_generated_reconstruction_receipt}"' in deploy
-    assert '--ffprobe-timeout-seconds "${walkthrough_quality_ffprobe_timeout_seconds}"' in deploy
-    assert '--frame-sample-timeout-seconds "${walkthrough_quality_frame_sample_timeout_seconds}"' in deploy
-    assert 'if ! EA_API_TOKEN="${api_token}" PYTHONPATH=ea "${deploy_python_bin}" scripts/propertyquarry_map_preview_flagship_gate.py' in deploy
-    assert "--map-preview-flagship-receipt _completion/smoke/property-live-map-preview-flagship-latest.json" in deploy
-    assert "--browser-3d-gate-receipt _completion/smoke/property-live-3d-browser-gate-latest.json" in deploy
-    assert "--walkthrough-quality-receipt _completion/smoke/property-live-walkthrough-quality-latest.json" in deploy
+    assert 'PROPERTYQUARRY_EXTERNAL_CONTROLLER_PATH="/usr/libexec/propertyquarry-release-control/propertyquarry-deploy-controller"' in deploy
+    assert 'PROPERTYQUARRY_EXTERNAL_CONTROLLER_MANIFEST="/etc/propertyquarry/release-control/external-deploy-controller.v1.json"' in deploy
+    assert "--controller-owns-all-privileged-actions" in deploy
+    assert "--require-controller-self-attestation" in deploy
+    assert "--forbid-candidate-output-authority" in deploy
+    for candidate_owned_gate in (
+        "scripts/propertyquarry_3d_browser_gate.py",
+        "scripts/propertyquarry_walkthrough_quality_gate.py",
+        "scripts/propertyquarry_walkthrough_provider_proof_gate.py",
+        "scripts/propertyquarry_map_preview_flagship_gate.py",
+    ):
+        assert candidate_owned_gate not in deploy
     assert "scripts/propertyquarry_3d_browser_gate.py" in release
     assert "scripts/propertyquarry_walkthrough_quality_gate.py" in release
     assert "scripts/propertyquarry_walkthrough_provider_proof_gate.py" in release
@@ -1036,10 +1060,6 @@ def test_deploy_and_release_scripts_wire_3d_walkthrough_and_map_preview_as_exit_
     assert "--runtime-reconstruction-receipt _completion/tours/property-runtime-reconstruction-release-gate.json" in release
     assert "--walkthrough-quality-receipt _completion/smoke/property-live-walkthrough-quality-release-gate.json" in release
     assert "_completion/tours/property-runtime-reconstruction-release-gate.json" in release
-    assert "PROPERTYQUARRY_GOLD_NOTIFICATION_ENABLED" in deploy
-    assert "PROPERTYQUARRY_GOLD_NOTIFICATION_ENABLED_not_set" in deploy
-    assert "PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_ENABLED" in deploy
-    assert "PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_ENABLED_not_set" in deploy
     assert "PROPERTYQUARRY_GOLD_NOTIFICATION_ENABLED" in release
     assert "PROPERTYQUARRY_GOLD_NOTIFICATION_ENABLED_not_set" in release
     assert "PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_ENABLED" in release

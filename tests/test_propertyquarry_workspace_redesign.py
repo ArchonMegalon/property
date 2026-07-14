@@ -11696,7 +11696,7 @@ def test_property_research_detail_derives_generated_diorama_from_ready_layout_me
     monkeypatch.setattr(
         landing_routes,
         "_property_tour_media_payload",
-        lambda _candidate: {
+        lambda _candidate, *, principal_id="": {
             "generated_reconstruction_ready": True,
             "generated_reconstruction_href": generated_reconstruction_href,
             "generated_reconstruction_label": "Open layout tour",
@@ -14823,7 +14823,7 @@ def test_property_research_media_does_not_embed_stale_hosted_tour_record(monkeyp
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
         "_hosted_property_tour_verified_open_url",
-        lambda _url: "",
+        lambda _url, *, principal_id="": "",
     )
 
     payload = landing_property_research._property_tour_media_payload(
@@ -26145,7 +26145,7 @@ def test_property_research_packet_renders_request_actions_when_hosted_tour_is_no
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
         "_hosted_property_tour_verified_open_url",
-        lambda _url: "",
+        lambda _url, *, principal_id="": "",
     )
 
     packet_ref = landing_property_research._property_candidate_ref(
