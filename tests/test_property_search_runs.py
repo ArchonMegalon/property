@@ -10870,6 +10870,45 @@ def test_property_alert_personal_fit_snapshot_times_out_fast(monkeypatch) -> Non
     assert listing_id == ""
 
 
+def test_property_alert_personal_fit_snapshot_pins_scorer_across_timeout(monkeypatch) -> None:
+    release_facts = threading.Event()
+    scoring_finished = threading.Event()
+    scoring_calls: list[str] = []
+
+    def _blocked_facts(url: str) -> tuple[dict[str, object], str]:
+        assert release_facts.wait(timeout=2.0)
+        return {"postal_name": "1200 Wien"}, "listing-pinned-scorer"
+
+    def _record_scorer(label: str):
+        def _scorer(**kwargs) -> dict[str, object]:
+            scoring_calls.append(label)
+            scoring_finished.set()
+            return {"fit_score": 50}
+
+        return _scorer
+
+    monkeypatch.setenv("EA_PROPERTY_ALERT_ASSESSMENT_TIMEOUT_SECONDS", "0.05")
+    monkeypatch.setattr(product_service, "_property_alert_facts_for_url", _blocked_facts)
+    monkeypatch.setattr(product_service, "_property_alert_personal_fit_from_facts", _record_scorer("initial"))
+
+    assessment, facts, listing_id = _property_alert_personal_fit_snapshot(
+        preference_profiles=object(),
+        principal_id="exec-pinned-scorer",
+        person_id="self",
+        property_url="https://www.willhaben.at/iad/object?adId=2",
+    )
+
+    assert assessment is None
+    assert facts == {}
+    assert listing_id == ""
+
+    monkeypatch.setattr(product_service, "_property_alert_personal_fit_from_facts", _record_scorer("replacement"))
+    release_facts.set()
+
+    assert scoring_finished.wait(timeout=2.0)
+    assert scoring_calls == ["initial"]
+
+
 def test_property_candidate_supports_live_tour_detects_360() -> None:
     assert product_service._property_candidate_supports_live_tour(
         {"property_facts": {"has_360": True}}

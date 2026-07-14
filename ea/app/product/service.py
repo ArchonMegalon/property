@@ -14996,9 +14996,12 @@ def _property_alert_personal_fit_snapshot(
     property_url: str,
     use_profile_preferences: bool = True,
 ) -> tuple[dict[str, object] | None, dict[str, object], str]:
+    # A timed-out daemon can outlive this call, so keep its scorer immutable.
+    fit_from_facts = _property_alert_personal_fit_from_facts
+
     def _compute_snapshot() -> tuple[dict[str, object] | None, dict[str, object], str]:
         property_facts_json, listing_id = _property_alert_facts_for_url(normalized_url)
-        result = _property_alert_personal_fit_from_facts(
+        result = fit_from_facts(
             preference_profiles=preference_profiles,
             principal_id=principal_id,
             person_id=str(person_id or "").strip() or "self",
@@ -42464,6 +42467,8 @@ class ProductService:
         progress_callback: callable | None = None,
     ) -> dict[str, object]:
         run_started_at = time.perf_counter()
+        # Keep a long-running search on one scorer implementation from start to finish.
+        fit_from_facts = _property_alert_personal_fit_from_facts
 
         def _report(
             *,
@@ -45044,7 +45049,7 @@ class ProductService:
                         summary_updates={"filtered_listing_mode_total": filtered_listing_mode_total},
                     )
                     continue
-                assessment = _property_alert_personal_fit_from_facts(
+                assessment = fit_from_facts(
                     preference_profiles=self._preference_profiles,
                     principal_id=principal_id,
                     person_id=source_preference_person_id,

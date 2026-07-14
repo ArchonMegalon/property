@@ -26817,11 +26817,16 @@ def test_property_search_run_blocks_free_plan_when_limits_exceed_free_tier() -> 
             "selected_platforms": ["willhaben", "kalandra"],
             "property_preferences": {"preference_person_id": "self"},
             "max_results_per_source": 4,
+            "dispatch_only": True,
         },
+        headers={"X-PropertyQuarry-Dispatch-Probe": "1"},
     )
 
     assert response.status_code == 202
-    assert response.json()["status"] in {"queued", "running", "in_progress", "processed", "completed", "completed_partial"}
+    body = response.json()
+    assert body["status"] == "queued"
+    assert body["summary"]["dispatch_probe_ack_only"] is True
+    assert body["summary"]["worker_started"] is False
 
 
 def test_property_search_run_rejects_explicit_unsupported_country_instead_of_defaulting_to_austria() -> None:
@@ -26850,31 +26855,10 @@ def test_property_search_run_rejects_explicit_unsupported_country_instead_of_def
     assert response.json()["error"]["details"] == "unsupported_property_market"
 
 
-def test_property_search_run_allows_free_plan_across_multiple_platforms_when_result_cap_is_respected(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_property_search_run_allows_free_plan_across_multiple_platforms_when_result_cap_is_respected() -> None:
     principal_id = "exec-property-free-multi-platform"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Free Multi Platform Office")
-
-    monkeypatch.setattr(
-        ProductService,
-        "sync_direct_property_scout",
-        lambda self, **_: {
-            "generated_at": product_api_delivery_routes.now_iso(),
-            "status": "processed",
-            "sources_total": 2,
-            "listing_total": 2,
-            "review_created_total": 0,
-            "review_existing_total": 0,
-            "notified_total": 0,
-            "tour_created_total": 0,
-            "tour_existing_total": 0,
-            "high_fit_total": 0,
-            "watch_notified_total": 0,
-            "sources": [],
-        },
-    )
 
     response = client.post(
         "/app/api/signals/property/search/run",
@@ -26882,10 +26866,16 @@ def test_property_search_run_allows_free_plan_across_multiple_platforms_when_res
             "selected_platforms": ["willhaben", "kalandra"],
             "property_preferences": {"preference_person_id": "self"},
             "max_results_per_source": 2,
+            "dispatch_only": True,
         },
+        headers={"X-PropertyQuarry-Dispatch-Probe": "1"},
     )
 
     assert response.status_code == 202, response.text
+    body = response.json()
+    assert body["status"] == "queued"
+    assert body["summary"]["dispatch_probe_ack_only"] is True
+    assert body["summary"]["worker_started"] is False
 
 
 def test_property_search_run_ignores_stale_agent_result_cap_from_request(
