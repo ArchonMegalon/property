@@ -127,6 +127,11 @@ echo "db_container=${DB_CONTAINER}"
 echo "db_host=${DB_HOST}"
 echo "db_name=${TEST_DB}"
 
+echo "== property-search schema migration =="
+DATABASE_URL="${DB_URL}" PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=ea \
+  "${PYTHON_BIN}" -m app.product.property_search_schema migrate \
+  --applied-by postgres-contracts
+
 # shellcheck disable=SC2086
 EA_TEST_DATABASE_URL="${DB_URL}" PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=ea \
   "${PYTHON_BIN}" -m pytest -q ${TEST_FILES} -p no:cacheprovider

@@ -315,8 +315,11 @@ fi
 set_env_value "EA_API_TOKEN" "smoke-postgres-token"
 set_env_value "EA_ALLOW_LOOPBACK_NO_AUTH" "1"
 set_env_value "EA_OPERATOR_PRINCIPAL_IDS" "exec-1"
+smoke_signing_secret="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+set_env_value "EA_SIGNING_SECRET" "${smoke_signing_secret}"
 export EA_API_TOKEN="smoke-postgres-token"
 export EA_ALLOW_LOOPBACK_NO_AUTH="1"
+export EA_SIGNING_SECRET="${smoke_signing_secret}"
 
 if [[ "${env_had_file}" == "1" ]]; then
   restore_api_env=1
@@ -330,6 +333,11 @@ if [[ "${legacy_fixture}" == "1" ]]; then
   echo "smoke-postgres legacy fixture complete (${SMOKE_DB})"
   exit 0
 fi
+
+echo "== smoke-postgres: property-search migration =="
+"${DC[@]}" run --rm --no-deps --build "${API_SERVICE}" \
+  python -m app.product.property_search_schema migrate \
+  --applied-by smoke-postgres
 
 echo "== smoke-postgres: compose up (api + worker) =="
 # With the default service alias, this is the override-safe equivalent of
