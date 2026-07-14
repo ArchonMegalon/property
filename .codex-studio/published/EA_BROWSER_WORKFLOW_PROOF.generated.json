@@ -5,7 +5,7 @@
   "proof_target": "propertyquarry",
   "version": 1,
   "kind": "proof_receipt",
-  "generated_at": "2026-07-14T17:02:13Z",
+  "generated_at": "2026-07-14T17:29:39Z",
   "generated_by": "scripts/materialize_ea_browser_workflow_proof.py",
   "status": "pass",
   "operator_summary": "PropertyQuarry browser workflow proof is published and green across both source-backed journeys and real-browser E2E.",
@@ -20,7 +20,7 @@
   ],
   "source_binding": {
     "version": 1,
-    "code_commit": "d56f42cc093fda3554aeb5b169dca4dc238197e5",
+    "code_commit": "30310be782e16cbb9821aaa75899b4cb9ca7776c",
     "seed": {
       "path": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
       "sha256": "542cd03e2ea8ca3432f8be73a4b37dd2b58c52dd92cd8726375db507e09ebf07",
@@ -29,8 +29,8 @@
     "required_test_sources": [
       {
         "path": "tests/test_propertyquarry_workspace_redesign.py",
-        "sha256": "385816f6d18684a4818b6abda8697c686db5c5a07845c9776dc99912baf5c854",
-        "git_blob_oid": "142e07faf2b17db1eef1d80415bdd3a62975b70d"
+        "sha256": "269d7d42815ee21b51ef54b89d2e00b70541d2d5a36d5a9967efca6f3d14cdef",
+        "git_blob_oid": "bf5ac8213459b4f49f92767ce6ba1a6a5ee835e8"
       },
       {
         "path": "tests/e2e/test_propertyquarry_greenfield_browser.py",
@@ -42,7 +42,7 @@
   "source_backed_journey_proof": {
     "status": "pass",
     "command": "/docker/property/.venv/bin/python -m pytest -q tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_workspace_routes_render_greenfield_surfaces tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_failed_run_stays_on_activity_surface",
-    "cwd": "/tmp/property-integrate-canary-20260714",
+    "cwd": "/tmp/property-pricing-polish",
     "python_bin": "/docker/property/.venv/bin/python",
     "test_file": "tests/test_propertyquarry_workspace_redesign.py",
     "cases": [
@@ -50,10 +50,10 @@
       "test_propertyquarry_failed_run_stays_on_activity_surface"
     ],
     "exit_code": 0,
-    "duration_seconds": 40.219,
+    "duration_seconds": 71.668,
     "output_excerpt": [
       "..                                                                       [100%]",
-      "2 passed in 37.06s"
+      "2 passed in 64.21s (0:01:04)"
     ],
     "limitations": [],
     "outcome_counts": {
@@ -71,7 +71,7 @@
   "real_browser_e2e_proof": {
     "status": "pass",
     "command": "/docker/property/.venv/bin/python -m pytest -q tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_greenfield_workspace_in_real_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_greenfield_workspace_is_mobile_usable -rs",
-    "cwd": "/tmp/property-integrate-canary-20260714",
+    "cwd": "/tmp/property-pricing-polish",
     "python_bin": "/docker/property/.venv/bin/python",
     "test_file": "tests/e2e/test_propertyquarry_greenfield_browser.py",
     "cases": [
@@ -79,10 +79,10 @@
       "test_propertyquarry_greenfield_workspace_is_mobile_usable"
     ],
     "exit_code": 0,
-    "duration_seconds": 37.219,
+    "duration_seconds": 57.409,
     "output_excerpt": [
       "..                                                                       [100%]",
-      "2 passed in 33.12s"
+      "2 passed in 48.03s"
     ],
     "limitations": [],
     "outcome_counts": {
