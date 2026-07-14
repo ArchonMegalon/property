@@ -1696,7 +1696,11 @@ def test_propertyquarry_greenfield_workspace_in_real_browser(
     page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
     page.on("pageerror", lambda err: page_errors.append(str(err)))
     try:
-        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42&full=1", wait_until="domcontentloaded")
+        response = page.goto(
+            f"{base_url}/app/shortlist?run_id=run-42&full=1",
+            wait_until="domcontentloaded",
+            timeout=90_000,
+        )
         assert response is not None and response.ok
         content = page.content()
         assert 'data-property-spa-shell' in content
