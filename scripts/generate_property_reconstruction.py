@@ -1963,8 +1963,28 @@ def _runtime_publish_required() -> bool:
     return configured_public_root != Path("/data/public_property_tours").resolve()
 
 
+def _runtime_publish_requested() -> bool:
+    if _env_flag("PROPERTYQUARRY_RECONSTRUCTION_ALLOW_LOCAL_ONLY"):
+        return False
+    if _env_flag("PROPERTYQUARRY_RECONSTRUCTION_PUBLISH_RUNTIME"):
+        return True
+    return _runtime_publish_required()
+
+
+def _bundle_uses_shared_runtime_root(bundle_dir: Path) -> bool:
+    try:
+        bundle_root = bundle_dir.expanduser().resolve().parent
+    except OSError:
+        return False
+    return bundle_root == Path("/data/public_property_tours").resolve()
+
+
 def _runtime_publish_succeeded(receipt: dict[str, object]) -> bool:
-    return str(receipt.get("status") or "").strip() == "updated"
+    return str(receipt.get("status") or "").strip() in {
+        "updated",
+        "skipped_not_requested",
+        "skipped_shared_public_root",
+    }
 
 
 def _sync_bundle_to_runtime_container(bundle_dir: Path, *, slug: str) -> dict[str, object]:
@@ -1992,6 +2012,16 @@ def _sync_bundle_to_runtime_container(bundle_dir: Path, *, slug: str) -> dict[st
         )
     except Exception:
         copy_timeout_seconds = 30.0
+    try:
+        permission_timeout_seconds = max(
+            2.0,
+            float(
+                str(os.getenv("PROPERTYQUARRY_RECONSTRUCTION_RUNTIME_PERMISSION_TIMEOUT_SECONDS") or "8").strip()
+                or "8"
+            ),
+        )
+    except Exception:
+        permission_timeout_seconds = 8.0
     try:
         mkdir_result = subprocess.run(
             [docker_bin, "exec", container, "mkdir", "-p", remote_bundle],
@@ -2035,6 +2065,31 @@ def _sync_bundle_to_runtime_container(bundle_dir: Path, *, slug: str) -> dict[st
             "slug": slug,
             "container": container,
             "stderr": (copy_result.stderr or "").strip()[-400:],
+        }
+    public_manifest = f"{remote_bundle}/tour.json"
+    try:
+        permission_result = subprocess.run(
+            [docker_bin, "exec", "--user", "0", container, "chmod", "0644", public_manifest],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=permission_timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return {
+            "status": "runtime_permission_timeout",
+            "slug": slug,
+            "container": container,
+            "public_manifest": public_manifest,
+            "timeout_seconds": exc.timeout,
+        }
+    if permission_result.returncode != 0:
+        return {
+            "status": "runtime_permission_failed",
+            "slug": slug,
+            "container": container,
+            "public_manifest": public_manifest,
+            "stderr": (permission_result.stderr or "").strip()[-400:],
         }
     return {"status": "updated", "slug": slug, "container": container}
 
@@ -2980,7 +3035,7 @@ def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_contr
         )
         floorplan_stop_items.append(
             f"""
-        <button class="floorplan-stop" type="button" data-route-index="{index}" aria-label="Go to {label}" style="left:{display_left_pct}%;top:{display_top_pct}%;">
+        <button class="floorplan-stop" type="button" data-route-index="{index}" aria-label="Go to {label}" aria-current="false" style="left:{display_left_pct}%;top:{display_top_pct}%;">
           <span class="floorplan-stop-index">{index + 1}</span>
           <span class="floorplan-stop-label">{label}</span>
         </button>"""
@@ -2997,7 +3052,7 @@ def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_contr
         else ""
     )
     route_items = "\n".join(
-        f'<button class="route-button" type="button" data-route-index="{index}">{html.escape(str(stop.get("label") or stop.get("room") or stop.get("name") or f"Stop {index + 1}"))}</button>'
+        f'<button class="route-button" type="button" data-route-index="{index}" aria-current="false">{html.escape(str(stop.get("label") or stop.get("room") or stop.get("name") or f"Stop {index + 1}"))}</button>'
         for index, stop in enumerate(route_stops)
         if isinstance(stop, dict)
     )
@@ -3031,7 +3086,7 @@ def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_contr
         else ""
     )
     return f"""<!doctype html>
-<html lang="en" data-pq-preview-kind="approximate-layout" data-pq-verified-provider-capture="false">
+<html lang="en" data-pq-preview-kind="approximate-layout" data-pq-verified-provider-capture="false" data-viewer-status="loading">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -3052,6 +3107,18 @@ def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_contr
       --shadow:0 12px 32px rgba(23,32,28,.1);
     }}
     * {{ box-sizing: border-box; }}
+    .sr-only {{
+      position:absolute;
+      width:1px;
+      height:1px;
+      padding:0;
+      margin:-1px;
+      overflow:hidden;
+      clip:rect(0,0,0,0);
+      clip-path:inset(50%);
+      white-space:nowrap;
+      border:0;
+    }}
     body {{
       margin:0;
       min-height:100vh;
@@ -3076,6 +3143,26 @@ def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_contr
       display:block;
       width:100%;
       height:100%;
+    }}
+    .viewer-fallback {{
+      position:absolute;
+      top:50%;
+      left:50%;
+      z-index:5;
+      width:min(440px,calc(100% - 40px));
+      transform:translate(-50%,-50%);
+      padding:20px 22px;
+      border:1px solid var(--line);
+      border-left:4px solid var(--signal);
+      border-radius:6px;
+      background:rgba(255,255,255,.97);
+      box-shadow:var(--shadow);
+    }}
+    .viewer-fallback[hidden] {{ display:none; }}
+    .viewer-fallback strong {{ display:block; font-size:18px; line-height:1.25; }}
+    .viewer-fallback p {{ margin:8px 0 0; color:var(--muted); font-size:14px; line-height:1.45; }}
+    .viewport[data-render-status="unavailable"] {{
+      background:linear-gradient(145deg,#edf2ef,#dfe8e3);
     }}
     .stage-hotspots {{
       position:absolute;
@@ -3102,6 +3189,7 @@ def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_contr
       cursor:pointer;
       pointer-events:auto;
     }}
+    .route-hotspot[hidden] {{ display:none; }}
     .route-hotspot::before {{
       content:"";
       position:absolute;
@@ -3117,7 +3205,7 @@ def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_contr
       top:calc(50% + 20px);
       left:50%;
       max-width:min(260px,calc(100vw - 24px));
-      transform:translateX(calc(-50% + var(--hotspot-label-shift-x,0px)));
+      transform:translateX(calc(-50% + var(--hotspot-label-shift-x,0px))) translateY(var(--hotspot-label-shift-y,0px));
       padding:5px 8px;
       border:1px solid var(--line);
       border-radius:4px;
@@ -3424,7 +3512,12 @@ def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_contr
 <body>
 <main>
   <section class="stage">
-    <div class="viewport" id="viewport" aria-label="3D layout preview"></div>
+    <div class="viewport" id="viewport" aria-label="Interactive 3D layout preview" aria-busy="true"></div>
+    <p class="sr-only" id="viewer-live-status" role="status" aria-live="polite" aria-atomic="true">Loading interactive 3D layout preview.</p>
+    <div class="viewer-fallback" id="viewer-fallback" role="alert" aria-live="assertive" aria-atomic="true" hidden>
+      <strong>3D preview is unavailable</strong>
+      <p>Your browser could not start the interactive view. Use the floorplan and listing photos to review the layout.</p>
+    </div>
     <div class="stage-hotspots" id="stage-hotspots" aria-label="Room hotspots"></div>
     <div class="hud">
       <div class="title-card">
@@ -3434,10 +3527,10 @@ def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_contr
       <div class="hint-pill">Drag, zoom, then inspect the plan beside it.</div>
     </div>
     <div class="viewer-actions">
-      <button class="viewer-chip" id="view-overview" type="button">Overview</button>
-      <button class="viewer-chip" id="view-dollhouse" type="button">Dollhouse</button>
-      <button class="viewer-chip" id="view-inside" type="button">Room view</button>
-      <button class="viewer-chip" id="view-guided-route" type="button">Guide me</button>
+      <button class="viewer-chip" id="view-overview" type="button" aria-pressed="false">Overview</button>
+      <button class="viewer-chip" id="view-dollhouse" type="button" aria-pressed="false">Dollhouse</button>
+      <button class="viewer-chip" id="view-inside" type="button" aria-pressed="false">Room view</button>
+      <button class="viewer-chip" id="view-guided-route" type="button" aria-pressed="false">Guide me</button>
     </div>
     <div class="capture-route-card" id="capture-route-card" hidden>
       <span class="capture-route-kicker" id="capture-route-kicker">Layout flythrough</span>
@@ -3481,6 +3574,8 @@ import {{ OrbitControls }} from "./{orbit_controls_relpath}";
 
 const viewport = document.getElementById("viewport");
 const hotspotLayer = document.getElementById("stage-hotspots");
+const viewerLiveStatus = document.getElementById("viewer-live-status");
+const viewerFallback = document.getElementById("viewer-fallback");
 const overviewButton = document.getElementById("view-overview");
 const dollhouseButton = document.getElementById("view-dollhouse");
 const insideButton = document.getElementById("view-inside");
@@ -3498,6 +3593,8 @@ const routeQuery = new URLSearchParams(window.location.search);
 const captureMode = routeQuery.get("capture") === "1";
 const guidedQueryEnabled = routeQuery.get("guided") === "1";
 const shellProbeMode = routeQuery.get("shell_probe") === "1";
+const reducedMotionMedia = window.matchMedia("(prefers-reduced-motion: reduce)");
+let prefersReducedMotion = Boolean(reducedMotionMedia.matches);
 if (captureMode) {{
   document.documentElement.dataset.captureMode = "true";
 }}
@@ -3506,17 +3603,70 @@ const captureRouteKicker = document.getElementById("capture-route-kicker");
 const captureRouteLabel = document.getElementById("capture-route-label");
 const captureRouteProgress = document.getElementById("capture-route-progress");
 
+function announceViewerState(message) {{
+  if (viewerLiveStatus) {{
+    viewerLiveStatus.textContent = String(message || "").trim();
+  }}
+}}
+
+function webglSupported() {{
+  try {{
+    const probe = document.createElement("canvas");
+    return Boolean(probe.getContext("webgl2") || probe.getContext("webgl"));
+  }} catch (_error) {{
+    return false;
+  }}
+}}
+
+function showViewerFallback() {{
+  document.documentElement.dataset.viewerStatus = "unavailable";
+  viewport.dataset.renderStatus = "unavailable";
+  viewport.setAttribute("aria-busy", "false");
+  hotspotLayer && (hotspotLayer.hidden = true);
+  if (viewerFallback) {{
+    viewerFallback.hidden = false;
+  }}
+  document.querySelectorAll(".viewer-chip, .route-button, .floorplan-stop").forEach((button) => {{
+    button.disabled = true;
+  }});
+  announceViewerState("The interactive 3D preview is unavailable. Use the floorplan and listing photos instead.");
+  window.__pqReconstructionDebug = {{
+    getRenderMetrics: () => ({{
+      ready: false,
+      reason: "webgl_unavailable",
+      routeStopCount: Number(routeStops.length || 0),
+      guidedQueryEnabled: Boolean(guidedQueryEnabled),
+      guidedRouteActive: false,
+      prefersReducedMotion: Boolean(prefersReducedMotion),
+      frameCount: 0,
+    }}),
+  }};
+}}
+
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xe8eeeb);
 scene.fog = new THREE.Fog(0xe8eeeb, 13, 34);
 let renderFrameCount = 0;
 
 const camera = new THREE.PerspectiveCamera(48, 1, 0.1, 100);
-const renderer = new THREE.WebGLRenderer({{ antialias: true, alpha: true, preserveDrawingBuffer: true }});
+let renderer = null;
+if (webglSupported()) {{
+  try {{
+    renderer = new THREE.WebGLRenderer({{ antialias: true, alpha: true, preserveDrawingBuffer: true }});
+  }} catch (_error) {{
+    renderer = null;
+  }}
+}}
+if (!renderer) {{
+  showViewerFallback();
+}}
+if (renderer) {{
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.domElement.setAttribute("role", "img");
+renderer.domElement.setAttribute("aria-label", "Interactive 3D layout preview. Use the view and room route controls to navigate.");
 viewport.appendChild(renderer.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -3644,6 +3794,7 @@ for (const stop of routeStops) {{
     const hotspotLabel = String(stop.label || stop.room || stop.name || `Stop ${{routeHotspots.length + 1}}`);
     button.dataset.label = hotspotLabel;
     button.setAttribute("aria-label", `Go to ${{hotspotLabel}}`);
+    button.setAttribute("aria-current", "false");
     button.textContent = String(routeHotspots.length + 1);
     const label = document.createElement("span");
     label.className = "route-hotspot-label";
@@ -3798,6 +3949,7 @@ const liveViewerState = {{
   routeStopCount: Number(routeStops.length || 0),
   activeRouteIndex: -1,
   viewMode: "overview",
+  prefersReducedMotion: Boolean(prefersReducedMotion),
   photoPanelCount: Number(photoPanelSpecs.length || 0),
   loadedPhotoTextureCount: 0,
   frameCount: 0,
@@ -3935,6 +4087,143 @@ function dollhouseCameraState() {{
   }};
 }}
 
+function roomWallLocalPoint(point, wall) {{
+  const rotationY = Number(wall?.rotation_y || 0);
+  const cosine = Math.cos(rotationY);
+  const sine = Math.sin(rotationY);
+  const deltaX = Number(point?.x || 0) - Number(wall?.center_x || 0);
+  const deltaZ = Number(point?.z || 0) - Number(wall?.center_z || 0);
+  return {{
+    x: (cosine * deltaX) - (sine * deltaZ),
+    z: (sine * deltaX) + (cosine * deltaZ),
+  }};
+}}
+
+function roomPointInsideWall(point, wall, padding = 0) {{
+  const local = roomWallLocalPoint(point, wall);
+  const halfWidth = (Math.max(0, Number(wall?.width || 0)) * 0.5) + Math.max(0, Number(padding || 0));
+  const halfDepth = (Math.max(0, Number(wall?.depth || 0)) * 0.5) + Math.max(0, Number(padding || 0));
+  return Math.abs(local.x) <= halfWidth && Math.abs(local.z) <= halfDepth;
+}}
+
+function roomSegmentIntersectsWall(start, end, wall, padding = 0.06) {{
+  const localStart = roomWallLocalPoint(start, wall);
+  const localEnd = roomWallLocalPoint(end, wall);
+  const deltaX = localEnd.x - localStart.x;
+  const deltaZ = localEnd.z - localStart.z;
+  const halfWidth = (Math.max(0, Number(wall?.width || 0)) * 0.5) + Math.max(0, Number(padding || 0));
+  const halfDepth = (Math.max(0, Number(wall?.depth || 0)) * 0.5) + Math.max(0, Number(padding || 0));
+  let entry = 0;
+  let exit = 1;
+  for (const [origin, delta, extent] of [[localStart.x, deltaX, halfWidth], [localStart.z, deltaZ, halfDepth]]) {{
+    if (Math.abs(delta) < 1e-7) {{
+      if (origin < -extent || origin > extent) return false;
+      continue;
+    }}
+    const first = (-extent - origin) / delta;
+    const second = (extent - origin) / delta;
+    entry = Math.max(entry, Math.min(first, second));
+    exit = Math.min(exit, Math.max(first, second));
+    if (entry > exit) return false;
+  }}
+  return exit >= 0.02 && entry <= 0.98;
+}}
+
+function roomCameraWallIndexes(position, target, options = {{}}) {{
+  const spread = Boolean(options && options.spread);
+  const probeRadius = Math.max(0.34, Math.min(0.68, Math.max(roomWidth, roomDepth) * 0.052));
+  const probeTargets = [target];
+  if (spread) {{
+    probeTargets.push(
+      target.clone().add(new THREE.Vector3(probeRadius, 0, 0)),
+      target.clone().add(new THREE.Vector3(-probeRadius, 0, 0)),
+      target.clone().add(new THREE.Vector3(0, 0, probeRadius)),
+      target.clone().add(new THREE.Vector3(0, 0, -probeRadius)),
+    );
+  }}
+  const indexes = new Set();
+  for (const probeTarget of probeTargets) {{
+    wallRectangles.forEach((wall, wallIndex) => {{
+      if (roomSegmentIntersectsWall(position, probeTarget, wall)) {{
+        indexes.add(wallIndex);
+      }}
+    }});
+  }}
+  if (spread) {{
+    const targetCutawayPadding = Math.max(
+      0.52,
+      Math.min(0.92, Math.max(roomWidth, roomDepth) * 0.075),
+    );
+    wallRectangles.forEach((wall, wallIndex) => {{
+      if (roomPointInsideWall(target, wall, targetCutawayPadding)) {{
+        indexes.add(wallIndex);
+      }}
+    }});
+  }}
+  return Array.from(indexes).sort((first, second) => first - second);
+}}
+
+function routePhotoPanelPosition(routeIndex) {{
+  const activePhotoPanelSpec = photoPanelSpecs.find(
+    (spec) => spec && Number(spec.route_index ?? -1) === Number(routeIndex ?? -1),
+  );
+  return activePhotoPanelSpec?.position
+    ? new THREE.Vector3(
+        Number(activePhotoPanelSpec.position.x || 0),
+        Number(activePhotoPanelSpec.position.y || roomHeight * 0.58),
+        Number(activePhotoPanelSpec.position.z || 0),
+      )
+    : null;
+}}
+
+function roomCameraPosition(target, cameraStop, routeIndex, variant) {{
+  const maximumSpan = Math.max(roomWidth, roomDepth);
+  const radius = Math.max(1.7, Math.min(2.45, maximumSpan * 0.2));
+  const activePhotoPanelPosition = routePhotoPanelPosition(routeIndex);
+  const preferredX = Number(cameraStop.x ?? target.x + 1) - target.x;
+  const preferredZ = Number(cameraStop.z ?? target.z + 1) - target.z;
+  const fallbackAngle = ((Math.max(0, Number(routeIndex || 0)) % 8) / 8) * Math.PI * 2;
+  const preferredAngle = Math.abs(preferredX) + Math.abs(preferredZ) > 0.01
+    ? Math.atan2(preferredZ, preferredX)
+    : fallbackAngle;
+  const variantOffset = Math.max(0, Number(variant || 0)) * (Math.PI / 16) * (Number(routeIndex || 0) % 2 ? 1 : -1);
+  const angleOffsets = [0, Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2, Math.PI * 0.75, -Math.PI * 0.75, Math.PI];
+  const halfWidth = roomWidth * 0.5;
+  const halfDepth = roomDepth * 0.5;
+  const boundaryInset = Math.max(0.28, Math.min(0.48, maximumSpan * 0.035));
+  let best = null;
+  for (let candidateIndex = 0; candidateIndex < angleOffsets.length; candidateIndex += 1) {{
+    const angle = preferredAngle + variantOffset + angleOffsets[candidateIndex];
+    const position = new THREE.Vector3(
+      Math.max(-halfWidth + boundaryInset, Math.min(halfWidth - boundaryInset, target.x + (Math.cos(angle) * radius))),
+      Math.max(roomHeight * 0.88, target.y + 0.82),
+      Math.max(-halfDepth + boundaryInset, Math.min(halfDepth - boundaryInset, target.z + (Math.sin(angle) * radius))),
+    );
+    const horizontalDistance = Math.hypot(position.x - target.x, position.z - target.z);
+    const insideWall = wallRectangles.some((wall) => roomPointInsideWall(position, wall, 0.12));
+    const occluderCount = roomCameraWallIndexes(position, target).length;
+    let photoPanelFramingPenalty = 0;
+    if (activePhotoPanelPosition) {{
+      const cameraToTarget = target.clone().sub(position);
+      const cameraToPanel = activePhotoPanelPosition.clone().sub(position);
+      if (cameraToTarget.lengthSq() > 1e-6 && cameraToPanel.lengthSq() > 1e-6) {{
+        const panelAlignment = cameraToTarget.normalize().dot(cameraToPanel.normalize());
+        photoPanelFramingPenalty = Math.max(0, 0.96 - panelAlignment) * 900;
+      }}
+    }}
+    const score =
+      (insideWall ? 10000 : 0)
+      + (occluderCount * 1000)
+      + photoPanelFramingPenalty
+      + (Math.max(0, radius - horizontalDistance) * 120)
+      + candidateIndex;
+    if (!best || score < best.score) {{
+      best = {{ position, score }};
+    }}
+  }}
+  return best?.position || new THREE.Vector3(target.x + 1.4, roomHeight * 0.9, target.z + 1.4);
+}}
+
 function routeCameraState(index = 0, variant = 0) {{
   const boundedIndex = routeStops.length
     ? Math.max(0, Math.min(Number(index || 0), routeStops.length - 1))
@@ -3942,33 +4231,17 @@ function routeCameraState(index = 0, variant = 0) {{
   const stop = boundedIndex >= 0 ? (routeStops[boundedIndex] || routeStops[0]) : null;
   const focus = stop?.focus && typeof stop.focus === "object" ? stop.focus : {{}};
   const cameraStop = stop?.camera && typeof stop.camera === "object" ? stop.camera : {{}};
-  const position = new THREE.Vector3(
-    Number(cameraStop.x || 0),
-    Number(cameraStop.y || roomHeight * 0.78),
-    Number(cameraStop.z || 0),
-  );
   const target = new THREE.Vector3(
     Number(focus.x || 0),
-    Number(focus.y || roomHeight * 0.6),
+    Math.max(roomHeight * 0.26, Math.min(roomHeight * 0.32, Number(focus.y || roomHeight * 0.29))),
     Number(focus.z || 0),
   );
-  const visitVariant = Math.max(0, Number(variant || 0));
-  if (visitVariant > 0) {{
-    const lookVector = new THREE.Vector3(target.x - position.x, 0, target.z - position.z);
-    if (lookVector.lengthSq() > 1e-6) {{
-      lookVector.normalize();
-      const lateral = new THREE.Vector3(-lookVector.z, 0, lookVector.x);
-      const orbitDirection = visitVariant % 2 === 0 ? 1 : -1;
-      const lateralOffset = Math.min(Math.max(roomWidth, roomDepth) * 0.06, 0.46) * Math.min(2.2, 0.92 + (visitVariant * 0.32)) * orbitDirection;
-      const forwardOffset = Math.min(Math.max(roomWidth, roomDepth) * 0.04, 0.28) * Math.min(visitVariant, 2);
-      position.addScaledVector(lateral, lateralOffset);
-      position.addScaledVector(lookVector, forwardOffset);
-      position.y += Math.min(0.22, 0.08 * visitVariant);
-      target.addScaledVector(lateral, lateralOffset * 0.18);
-      position.x = Math.max(-(roomWidth * 0.45), Math.min(roomWidth * 0.45, position.x));
-      position.z = Math.max(-(roomDepth * 0.45), Math.min(roomDepth * 0.45, position.z));
-    }}
+  const activePhotoPanelPosition = routePhotoPanelPosition(boundedIndex);
+  if (activePhotoPanelPosition) {{
+    target.lerp(activePhotoPanelPosition, 0.22);
   }}
+  const visitVariant = Math.max(0, Number(variant || 0));
+  const position = roomCameraPosition(target, cameraStop, boundedIndex, visitVariant);
   return {{
     position,
     target,
@@ -4085,13 +4358,24 @@ function setGuideChipState(active) {{
     return;
   }}
   guideButton.dataset.active = active ? "true" : "false";
+  guideButton.setAttribute("aria-pressed", active ? "true" : "false");
+  guideButton.disabled = Boolean(prefersReducedMotion);
+  if (prefersReducedMotion) {{
+    guideButton.title = "Guided autoplay is off while reduced motion is enabled.";
+  }} else {{
+    guideButton.removeAttribute("title");
+  }}
   guideButton.textContent = active ? "Stop guide" : "Guide me";
 }}
 
 function stopGuidedRoute() {{
+  const wasActive = Boolean(guidedRouteState.active);
   clearGuidedRouteTimer();
   guidedRouteState.active = false;
   setGuideChipState(false);
+  if (wasActive) {{
+    announceViewerState("Guided room route stopped.");
+  }}
 }}
 
 function queueGuidedRouteIndex(index, delayMs) {{
@@ -4122,7 +4406,11 @@ function runGuidedRouteIndex(index) {{
 }}
 
 function startGuidedRoute(options = {{}}) {{
-  if (!routeStops.length) {{
+  if (!routeStops.length || prefersReducedMotion) {{
+    if (prefersReducedMotion) {{
+      stopGuidedRoute();
+      announceViewerState("Guided autoplay is off because reduced motion is enabled.");
+    }}
     return false;
   }}
   guidedRouteState.active = true;
@@ -4131,6 +4419,7 @@ function startGuidedRoute(options = {{}}) {{
     : (activeRouteIndex >= 0 ? activeRouteIndex : 0);
   guidedRouteState.currentIndex = Math.max(0, Math.min(requestedIndex, routeStops.length - 1));
   setGuideChipState(true);
+  announceViewerState("Guided room route started.");
   runGuidedRouteIndex(guidedRouteState.currentIndex);
   return true;
 }}
@@ -4146,6 +4435,25 @@ function completeCameraTransition() {{
   routeCameraTransition.active = false;
   routeCameraTransition.startedAt = 0;
   routeCameraTransition.progress = 1;
+  if (activeViewMode === "room") {{
+    updateRoomCameraCutaway(camera.position, controls.target, {{ force: true }});
+  }}
+}}
+
+function handleReducedMotionChange(event) {{
+  prefersReducedMotion = Boolean(event && event.matches);
+  liveViewerState.prefersReducedMotion = Boolean(prefersReducedMotion);
+  if (prefersReducedMotion) {{
+    if (routeCameraTransition.active) {{
+      routeCameraTransition.durationMs = 0;
+      completeCameraTransition();
+    }}
+    stopGuidedRoute();
+    announceViewerState("Reduced motion enabled. Camera transitions and guided autoplay are off.");
+  }} else {{
+    announceViewerState("Reduced motion disabled. Camera transitions are available.");
+  }}
+  setGuideChipState(guidedRouteState.active);
 }}
 
 function startCameraTransition({{ position, target, viewMode, routeIndex = activeRouteIndex, immediate = false }}) {{
@@ -4163,7 +4471,7 @@ function startCameraTransition({{ position, target, viewMode, routeIndex = activ
   routeCameraTransition.targetViewMode = activeViewMode;
   routeCameraTransition.toPosition.copy(nextPosition);
   routeCameraTransition.toTarget.copy(nextTarget);
-  if (immediate || travelDistance < 0.08) {{
+  if (immediate || prefersReducedMotion || travelDistance < 0.08) {{
     routeCameraTransition.durationMs = 0;
     completeCameraTransition();
     return;
@@ -4243,20 +4551,75 @@ function setInsideView(options = {{}}) {{
 let activeRouteIndex = -1;
 let activeViewMode = "overview";
 function setActiveViewChip(mode) {{
-  overviewButton && (overviewButton.dataset.active = mode === "overview" ? "true" : "false");
-  dollhouseButton && (dollhouseButton.dataset.active = mode === "dollhouse" ? "true" : "false");
-  insideButton && (insideButton.dataset.active = mode === "room" ? "true" : "false");
+  const viewButtons = [
+    [overviewButton, mode === "overview"],
+    [dollhouseButton, mode === "dollhouse"],
+    [insideButton, mode === "room"],
+  ];
+  viewButtons.forEach(([button, active]) => {{
+    if (!button) return;
+    button.dataset.active = active ? "true" : "false";
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  }});
   setGuideChipState(guidedRouteState.active);
+  const viewLabel = mode === "dollhouse" ? "Dollhouse view" : mode === "room" ? "Room view" : "Overview";
+  announceViewerState(`${{viewLabel}} selected.`);
 }}
 
 const cutawayWallCount = wallMeshPairs.filter((pair) => Boolean(pair.cutawayEligible)).length;
+const roomOccludingWallIndexes = new Set();
+const roomCutawayState = {{
+  cameraPosition: new THREE.Vector3(),
+  target: new THREE.Vector3(),
+  evaluationCount: 0,
+  initialized: false,
+  evaluatedAt: 0,
+}};
 function applyCutawayWallVisibility(active) {{
   const hideCutawayWalls = Boolean(active);
-  for (const pair of wallMeshPairs) {{
-    const visible = !(hideCutawayWalls && Boolean(pair.cutawayEligible));
+  wallMeshPairs.forEach((pair, wallIndex) => {{
+    const hideRoomOccluder = activeViewMode === "room" && roomOccludingWallIndexes.has(wallIndex);
+    const visible = !(hideCutawayWalls && Boolean(pair.cutawayEligible)) && !hideRoomOccluder;
     pair.mesh.visible = visible;
     pair.edges.visible = visible;
+  }});
+}}
+
+function updateRoomCameraCutaway(position, target, options = {{}}) {{
+  if (activeViewMode === "room") {{
+    const unchangedPose =
+      roomCutawayState.initialized
+      && roomCutawayState.cameraPosition.distanceToSquared(position) < 1e-8
+      && roomCutawayState.target.distanceToSquared(target) < 1e-8;
+    if (unchangedPose) {{
+      return;
+    }}
+    const evaluatedAt = performance.now();
+    if (
+      !Boolean(options && options.force)
+      && roomCutawayState.initialized
+      && evaluatedAt - Number(roomCutawayState.evaluatedAt || 0) < 80
+    ) {{
+      return;
+    }}
+    roomCutawayState.cameraPosition.copy(position);
+    roomCutawayState.target.copy(target);
+    roomCutawayState.evaluationCount += 1;
+    roomCutawayState.initialized = true;
+    roomCutawayState.evaluatedAt = evaluatedAt;
   }}
+  const nextIndexes = activeViewMode === "room"
+    ? roomCameraWallIndexes(position, target, {{ spread: true }})
+    : [];
+  const unchanged =
+    nextIndexes.length === roomOccludingWallIndexes.size
+    && nextIndexes.every((wallIndex) => roomOccludingWallIndexes.has(wallIndex));
+  if (unchanged) {{
+    return;
+  }}
+  roomOccludingWallIndexes.clear();
+  nextIndexes.forEach((wallIndex) => roomOccludingWallIndexes.add(wallIndex));
+  applyCutawayWallVisibility(activeViewMode === "overview" || activeViewMode === "dollhouse");
 }}
 
 function setWallHeightScale(scale) {{
@@ -4278,10 +4641,10 @@ function applyViewMode(mode) {{
   const cutawayActive = isOverview || isDollhouse;
   activeViewMode = normalizedMode;
   liveViewerState.viewMode = normalizedMode;
-  wallMaterial.opacity = isDollhouse ? 0.3 : isOverview ? 0.66 : 1.0;
-  wallMaterial.depthWrite = !cutawayActive;
+  wallMaterial.opacity = isDollhouse ? 0.3 : isOverview ? 0.66 : 0.52;
+  wallMaterial.depthWrite = !cutawayActive && normalizedMode !== "room";
   wallMaterial.needsUpdate = true;
-  wallEdgeMaterial.opacity = isDollhouse ? 0.88 : isOverview ? 0.54 : 0.62;
+  wallEdgeMaterial.opacity = isDollhouse ? 0.88 : isOverview ? 0.54 : 0.46;
   floor.material.color.set(isDollhouse ? 0xfcf8ef : isOverview ? 0xfbf7ef : 0xf8f4eb);
   photoPanelGroup.visible = !isDollhouse;
   if (hotspotLayer) {{
@@ -4289,7 +4652,14 @@ function applyViewMode(mode) {{
   }}
   controls.minPolarAngle = isDollhouse ? Math.PI * 0.02 : isOverview ? Math.PI * 0.1 : Math.PI * 0.14;
   controls.maxPolarAngle = isDollhouse ? Math.PI * 0.34 : isOverview ? Math.PI * 0.42 : Math.PI * 0.49;
-  setWallHeightScale(isDollhouse ? 0.42 : isOverview ? 0.62 : 1.0);
+  controls.minDistance = normalizedMode === "room"
+    ? Math.max(0.82, Math.max(roomWidth, roomDepth) * 0.085)
+    : Math.max(roomWidth, roomDepth) * 0.32;
+  setWallHeightScale(isDollhouse ? 0.42 : isOverview ? 0.62 : 0.72);
+  if (normalizedMode !== "room") {{
+    roomOccludingWallIndexes.clear();
+    roomCutawayState.initialized = false;
+  }}
   applyCutawayWallVisibility(cutawayActive);
   setActiveViewChip(normalizedMode);
   syncCaptureRouteCard();
@@ -4297,17 +4667,23 @@ function applyViewMode(mode) {{
 
 function setActiveRouteButton(index) {{
   routeButtons.forEach((button, buttonIndex) => {{
-    button.dataset.active = buttonIndex === index ? "true" : "false";
+    const active = buttonIndex === index;
+    button.dataset.active = active ? "true" : "false";
+    button.setAttribute("aria-current", active ? "step" : "false");
   }});
   floorplanStopButtons.forEach((button) => {{
-    button.dataset.active = Number(button.dataset.routeIndex || -1) === index ? "true" : "false";
+    const active = Number(button.dataset.routeIndex || -1) === index;
+    button.dataset.active = active ? "true" : "false";
+    button.setAttribute("aria-current", active ? "step" : "false");
   }});
   routeMarkers.forEach((marker, markerIndex) => {{
     marker.scale.setScalar(markerIndex === index ? 1.28 : 1.0);
     marker.material.color.set(markerIndex === index ? 0xb9892f : 0xa77c2b);
   }});
   routeHotspots.forEach((entry, entryIndex) => {{
-    entry.button.dataset.active = entryIndex === index ? "true" : "false";
+    const active = entryIndex === index;
+    entry.button.dataset.active = active ? "true" : "false";
+    entry.button.setAttribute("aria-current", active ? "step" : "false");
   }});
   photoPanelCards.forEach((card) => {{
     const active = Number(card.routeIndex) === index;
@@ -4317,6 +4693,11 @@ function setActiveRouteButton(index) {{
   activeRouteIndex = index;
   liveViewerState.activeRouteIndex = index;
   syncCaptureRouteCard({{ routeIndex: index }});
+  const activeStop = index >= 0 ? routeStops[index] : null;
+  const activeLabel = String(activeStop?.label || activeStop?.room || activeStop?.name || `Stop ${{index + 1}}`);
+  if (index >= 0) {{
+    announceViewerState(`Room route: ${{activeLabel}}, stop ${{index + 1}} of ${{routeStops.length}}.`);
+  }}
 }}
 
 function setRouteView(index, options = {{}}) {{
@@ -4358,6 +4739,11 @@ renderer.domElement.addEventListener("wheel", () => {{
     stopGuidedRoute();
   }}
 }}, {{ passive: true }});
+controls.addEventListener("end", () => {{
+  if (activeViewMode === "room") {{
+    updateRoomCameraCutaway(camera.position, controls.target, {{ force: true }});
+  }}
+}});
 
 function resize() {{
   const width = Math.max(320, viewport.clientWidth || 320);
@@ -4365,6 +4751,7 @@ function resize() {{
   camera.aspect = width / height;
   camera.updateProjectionMatrix();
   renderer.setSize(width, height, false);
+  syncRouteHotspots();
 }}
 
 function syncRouteHotspots() {{
@@ -4375,6 +4762,11 @@ function syncRouteHotspots() {{
   const height = Math.max(1, viewport.clientHeight || renderer.domElement.clientHeight || 1);
   let visibleCount = 0;
   for (const entry of routeHotspots) {{
+    const routeIndex = Number(entry.button.dataset.routeIndex ?? -1);
+    if (activeViewMode === "room" && routeIndex !== activeRouteIndex) {{
+      entry.button.hidden = true;
+      continue;
+    }}
     const projected = entry.focus.clone().project(camera);
     const visible =
       Number.isFinite(projected.x) &&
@@ -4397,6 +4789,7 @@ function syncRouteHotspots() {{
     entry.button.style.top = `${{top.toFixed(1)}}px`;
     entry.label.dataset.placement = "below";
     entry.label.style.setProperty("--hotspot-label-shift-x", "0px");
+    entry.label.style.setProperty("--hotspot-label-shift-y", "0px");
     const layerBounds = hotspotLayer.getBoundingClientRect();
     let labelBounds = entry.label.getBoundingClientRect();
     const inset = 8;
@@ -4411,7 +4804,30 @@ function syncRouteHotspots() {{
     if (labelBounds.right + shiftX > layerBounds.right - inset) {{
       shiftX -= (labelBounds.right + shiftX) - (layerBounds.right - inset);
     }}
+    let shiftY = 0;
+    if (labelBounds.top < layerBounds.top + inset) {{
+      shiftY += (layerBounds.top + inset) - labelBounds.top;
+    }}
+    if (labelBounds.bottom + shiftY > layerBounds.bottom - inset) {{
+      shiftY -= (labelBounds.bottom + shiftY) - (layerBounds.bottom - inset);
+    }}
     entry.label.style.setProperty("--hotspot-label-shift-x", `${{shiftX.toFixed(1)}}px`);
+    entry.label.style.setProperty("--hotspot-label-shift-y", `${{shiftY.toFixed(1)}}px`);
+    labelBounds = entry.label.getBoundingClientRect();
+    if (labelBounds.left < layerBounds.left + inset) {{
+      shiftX += (layerBounds.left + inset) - labelBounds.left;
+    }}
+    if (labelBounds.right > layerBounds.right - inset) {{
+      shiftX -= labelBounds.right - (layerBounds.right - inset);
+    }}
+    if (labelBounds.top < layerBounds.top + inset) {{
+      shiftY += (layerBounds.top + inset) - labelBounds.top;
+    }}
+    if (labelBounds.bottom > layerBounds.bottom - inset) {{
+      shiftY -= labelBounds.bottom - (layerBounds.bottom - inset);
+    }}
+    entry.label.style.setProperty("--hotspot-label-shift-x", `${{shiftX.toFixed(1)}}px`);
+    entry.label.style.setProperty("--hotspot-label-shift-y", `${{shiftY.toFixed(1)}}px`);
     visibleCount += 1;
   }}
   return visibleCount;
@@ -4451,6 +4867,7 @@ function renderCaptureFrame(payload = {{}}) {{
   applyViewMode(String(toState.viewMode || "overview"));
   camera.position.lerpVectors(fromState.position, toState.position, progress);
   controls.target.lerpVectors(fromState.target, toState.target, progress);
+  updateRoomCameraCutaway(camera.position, controls.target, {{ force: true }});
   controls.update();
   setActiveRouteButton(routeIndex);
   syncCaptureRouteCard(
@@ -4472,13 +4889,61 @@ if (routeStops.length) {{
 }}
 syncCaptureRouteCard();
 setGuideChipState(false);
-if (guidedQueryEnabled && routeStops.length && !captureMode) {{
+if (typeof reducedMotionMedia.addEventListener === "function") {{
+  reducedMotionMedia.addEventListener("change", handleReducedMotionChange);
+}} else if (typeof reducedMotionMedia.addListener === "function") {{
+  reducedMotionMedia.addListener(handleReducedMotionChange);
+}}
+if (guidedQueryEnabled && routeStops.length && !captureMode && !prefersReducedMotion) {{
   window.setTimeout(() => {{
     startGuidedRoute({{ startIndex: 0 }});
   }}, 820);
 }}
 
-function getRenderMetrics() {{
+const obstructionRaycaster = new THREE.Raycaster();
+const obstructionSamplePoint = new THREE.Vector2();
+const obstructionWallMeshes = new Set(wallMeshes);
+const obstructionStagingObjects = new Set(stagingObjects);
+let latestObstructionMetrics = {{ wallFirstHitPct: 0, wallVisualObstructionPct: 0, stagingFirstHitPct: 0 }};
+
+function getRaycastObstructionMetrics() {{
+  if (activeViewMode !== "room") {{
+    return {{ wallFirstHitPct: 0, wallVisualObstructionPct: 0, stagingFirstHitPct: 0 }};
+  }}
+  const sampleColumns = 7;
+  const sampleRows = 5;
+  const sampleObjects = [
+    floor,
+    ...wallMeshes.filter((mesh) => mesh.visible),
+    ...stagingObjects.filter((object) => object.visible),
+  ];
+  let wallFirstHits = 0;
+  let stagingFirstHits = 0;
+  const sampleCount = sampleColumns * sampleRows;
+  for (let row = 0; row < sampleRows; row += 1) {{
+    const normalizedY = -0.76 + ((row / Math.max(1, sampleRows - 1)) * 1.52);
+    for (let column = 0; column < sampleColumns; column += 1) {{
+      const normalizedX = -0.78 + ((column / Math.max(1, sampleColumns - 1)) * 1.56);
+      obstructionSamplePoint.set(normalizedX, normalizedY);
+      obstructionRaycaster.setFromCamera(obstructionSamplePoint, camera);
+      const firstHit = obstructionRaycaster.intersectObjects(sampleObjects, false)[0];
+      if (!firstHit?.object) continue;
+      if (obstructionWallMeshes.has(firstHit.object)) {{
+        wallFirstHits += 1;
+      }} else if (obstructionStagingObjects.has(firstHit.object)) {{
+        stagingFirstHits += 1;
+      }}
+    }}
+  }}
+  const wallFirstHitRatio = wallFirstHits / Math.max(1, sampleCount);
+  return {{
+    wallFirstHitPct: Number((wallFirstHitRatio * 100).toFixed(2)),
+    wallVisualObstructionPct: Number((wallFirstHitRatio * Number(wallMaterial.opacity || 0) * 100).toFixed(2)),
+    stagingFirstHitPct: Number(((stagingFirstHits / Math.max(1, sampleCount)) * 100).toFixed(2)),
+  }};
+}}
+
+function getRenderMetrics(options = {{}}) {{
     const canvas = renderer.domElement;
     if (!canvas) {{
       return {{
@@ -4498,12 +4963,16 @@ function getRenderMetrics() {{
     const corner = new THREE.Vector3();
     let visibleWallCount = 0;
     let hiddenCutawayWallCount = 0;
+    let hiddenRoomOccluderWallCount = 0;
     let projectedCoverage = 0;
     let maxProjectedArea = 0;
-    for (const mesh of wallMeshes) {{
+    for (const [wallIndex, mesh] of wallMeshes.entries()) {{
       if (!mesh.visible) {{
         if (Boolean(mesh.userData?.cutawayEligible)) {{
           hiddenCutawayWallCount += 1;
+        }}
+        if (roomOccludingWallIndexes.has(wallIndex)) {{
+          hiddenRoomOccluderWallCount += 1;
         }}
         continue;
       }}
@@ -4544,6 +5013,7 @@ function getRenderMetrics() {{
     let visiblePhotoPanelCount = 0;
     let projectedPhotoCoverage = 0;
     for (const panel of photoPanelPlanes) {{
+      if (!photoPanelGroup.visible || !panel.visible) continue;
       const box = new THREE.Box3().setFromObject(panel);
       if (!frustum.intersectsBox(box)) continue;
       visiblePhotoPanelCount += 1;
@@ -4612,6 +5082,10 @@ function getRenderMetrics() {{
       const projectedHeight = Math.max(0, (maxY - minY) / 2);
       projectedStagingCoverage += projectedWidth * projectedHeight;
     }}
+      if (Boolean(options && options.includeObstruction)) {{
+        latestObstructionMetrics = getRaycastObstructionMetrics();
+      }}
+      const obstructionMetrics = latestObstructionMetrics;
       return {{
         ready: true,
         frameCount: Number(renderFrameCount || 0),
@@ -4619,6 +5093,11 @@ function getRenderMetrics() {{
         wallMeshCount: Number(wallMeshes.length || 0),
         cutawayWallCount: Number(cutawayWallCount || 0),
         hiddenCutawayWallCount: Number(hiddenCutawayWallCount || 0),
+        hiddenRoomOccluderWallCount: Number(hiddenRoomOccluderWallCount || 0),
+        roomCutawayEvaluationCount: Number(roomCutawayState.evaluationCount || 0),
+        roomCutawayCameraDelta: activeViewMode === "room"
+          ? Number(camera.position.distanceTo(roomCutawayState.cameraPosition).toFixed(6))
+          : 0,
         visibleWallCount: Number(visibleWallCount || 0),
         routeStopCount: Number(routeStops.length || 0),
         activeRouteIndex: Number(activeRouteIndex ?? -1),
@@ -4626,6 +5105,7 @@ function getRenderMetrics() {{
         captureMode: Boolean(captureMode),
         guidedQueryEnabled: Boolean(guidedQueryEnabled),
         guidedRouteActive: Boolean(guidedRouteState.active),
+        prefersReducedMotion: Boolean(prefersReducedMotion),
         guidedRouteCurrentIndex: Number(guidedRouteState.currentIndex ?? -1),
         guidedRouteDwellMs: Number(guidedRouteState.dwellMs || 0),
         isTransitioning: Boolean(routeCameraTransition.active),
@@ -4652,6 +5132,11 @@ function getRenderMetrics() {{
       projectedPhotoCoveragePct: Number((Math.min(1, projectedPhotoCoverage) * 100).toFixed(2)),
       projectedStagingCoveragePct: Number((Math.min(1, projectedStagingCoverage) * 100).toFixed(2)),
       maxProjectedWallPct: Number((Math.min(1, maxProjectedArea) * 100).toFixed(2)),
+      raycastWallFirstHitPct: Number(obstructionMetrics.wallFirstHitPct || 0),
+      raycastWallObstructionPct: Number(obstructionMetrics.wallVisualObstructionPct || 0),
+      raycastStagingFirstHitPct: Number(obstructionMetrics.stagingFirstHitPct || 0),
+      raycastObstructionSampled: Boolean(options && options.includeObstruction),
+      cameraTargetDistance: Number(camera.position.distanceTo(controls.target).toFixed(3)),
       renderCalls: Number(renderer.info.render.calls || 0),
       renderTriangles: Number(renderer.info.render.triangles || 0),
       cameraPosition: {{
@@ -4680,9 +5165,16 @@ window.__pqReconstructionDebug = {{
       if (!transitioned) {{
         controls.update();
       }}
+      if (activeViewMode === "room") {{
+        updateRoomCameraCutaway(camera.position, controls.target);
+      }}
       renderer.render(scene, camera);
       syncRouteHotspots();
       renderFrameCount += 1;
+      if (!liveViewerState.ready) {{
+        document.documentElement.dataset.viewerStatus = "ready";
+        viewport.setAttribute("aria-busy", "false");
+      }}
       liveViewerState.ready = true;
       liveViewerState.frameCount = Number(renderFrameCount || 0);
       liveViewerState.routeStopCount = Number(routeStops.length || 0);
@@ -4695,6 +5187,7 @@ window.__pqReconstructionDebug = {{
     }}
 
     renderFrame(performance.now());
+}}
 </script>
 </body>
 </html>
@@ -5614,8 +6107,13 @@ def main() -> int:
         if walkthrough.get("sidecar_relpath"):
             payload["video_sidecar_relpath"] = f"{base_relpath}/{walkthrough.get('sidecar_relpath')}"
     manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    runtime_publish = _sync_bundle_to_runtime_container(bundle_dir, slug=slug)
     runtime_publish_required = _runtime_publish_required()
+    if _bundle_uses_shared_runtime_root(bundle_dir):
+        runtime_publish = {"status": "skipped_shared_public_root", "slug": slug}
+    elif _runtime_publish_requested():
+        runtime_publish = _sync_bundle_to_runtime_container(bundle_dir, slug=slug)
+    else:
+        runtime_publish = {"status": "skipped_not_requested", "slug": slug}
     runtime_publish_ok = _runtime_publish_succeeded(runtime_publish)
     receipt["runtime_publish"] = runtime_publish
     receipt["runtime_publish_required"] = runtime_publish_required

@@ -11,6 +11,11 @@ from pathlib import Path
 from PIL import Image
 
 from scripts.discover_property_tour_exports import build_discovery_receipt
+from scripts.intake_3dvista_gold_artifact import build_3dvista_intake_receipt
+from scripts.property_tour_3dvista_provenance import (
+    THREE_D_VISTA_TARGET_PROVENANCE_SCHEMA,
+    export_tree_sha256,
+)
 from scripts.verify_property_tour_controls import build_property_tour_control_receipt
 from scripts.check_property_tour_delivery_contract import build_tour_delivery_contract_receipt
 
@@ -40,6 +45,45 @@ def _write_base_tour(tmp_path: Path, slug: str) -> Path:
         encoding="utf-8",
     )
     return bundle_dir
+
+
+def _write_3dvista_provenance(
+    export_dir: Path,
+    slug: str,
+    *,
+    entry_relpath: str = "index.html",
+    authorization_status: str = "approved",
+    property_match: str = "pass",
+    visual_match: str = "pass",
+) -> Path:
+    receipt_path = export_dir / "3dvista-target-provenance.json"
+    receipt_path.write_text(
+        json.dumps(
+            {
+                "schema": THREE_D_VISTA_TARGET_PROVENANCE_SCHEMA,
+                "status": "pass",
+                "provider": "3dvista",
+                "target_slug": slug,
+                "artifact": {
+                    "kind": "local_export",
+                    "sha256": export_tree_sha256(export_dir),
+                    "entry_relpath": entry_relpath,
+                },
+                "authorization": {
+                    "status": authorization_status,
+                    "reference": f"fixture-authorization:{slug}",
+                },
+                "review": {
+                    "property_match": property_match,
+                    "visual_match": visual_match,
+                    "reviewed_by": "propertyquarry-test-reviewer",
+                    "reviewed_at": "2026-07-14T00:00:00+00:00",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    return receipt_path
 
 
 def _write_playable_mp4(path: Path) -> None:
@@ -128,6 +172,20 @@ def test_3dvista_importer_requires_verified_export_markers(tmp_path: Path) -> No
     (verified_export / "runtime").mkdir()
     (verified_export / "runtime" / "app.js").write_text("window.TDVPlayer = true;", encoding="utf-8")
 
+    missing_provenance = _run_importer(
+        "import_3dvista_export.py",
+        tmp_path,
+        "--slug",
+        slug,
+        "--export-dir",
+        str(verified_export),
+    )
+
+    assert missing_provenance.returncode != 0
+    assert "3dvista_target_provenance_missing" in missing_provenance.stderr
+    assert not (bundle_dir / "3dvista" / "index.html").exists()
+    _write_3dvista_provenance(verified_export, slug)
+
     imported = _run_importer(
         "import_3dvista_export.py",
         tmp_path,
@@ -145,9 +203,161 @@ def test_3dvista_importer_requires_verified_export_markers(tmp_path: Path) -> No
     assert manifest["viewer_provider"] == "3dvista_vt_pro"
     assert manifest["three_d_vista_entry_relpath"] == "3dvista/index.html"
     assert manifest["three_d_vista_export_root_relpath"] == "3dvista"
-    assert manifest["three_d_vista_white_label_proof"]["non_trial_export_verified"] is True
-    assert manifest["three_d_vista_white_label_proof"]["trial_branding_present"] is False
+    assert "three_d_vista_white_label_proof" not in manifest
+    assert "three_d_vista_target_provenance" not in manifest
+    private_manifest = json.loads((bundle_dir / "tour.private.json").read_text(encoding="utf-8"))
+    assert private_manifest["three_d_vista_white_label_proof"]["non_trial_export_verified"] is True
+    assert private_manifest["three_d_vista_white_label_proof"]["trial_branding_present"] is False
+    provenance = private_manifest["three_d_vista_target_provenance"]
+    assert provenance["target_slug"] == slug
+    assert provenance["artifact"]["sha256"] == export_tree_sha256(verified_export)
+    assert (bundle_dir / "tour.private.json").stat().st_mode & 0o777 == 0o600
+    assert not (bundle_dir / "3dvista" / "3dvista-target-provenance.json").exists()
     assert (bundle_dir / "3dvista" / "runtime" / "app.js").exists()
+
+
+def test_3dvista_importer_rejects_wrong_target_hash_or_review(tmp_path: Path) -> None:
+    slug = "target-bound-3dvista-import"
+    bundle_dir = _write_base_tour(tmp_path, slug)
+    export_dir = tmp_path / "target_bound_3dvista"
+    export_dir.mkdir()
+    (export_dir / "index.html").write_text(
+        "<!doctype html><script src='runtime/app.js'></script><div>3DVista export shell</div>",
+        encoding="utf-8",
+    )
+    (export_dir / "runtime").mkdir()
+    (export_dir / "runtime" / "app.js").write_text("window.TDVPlayer = true;", encoding="utf-8")
+    receipt_path = _write_3dvista_provenance(export_dir, slug)
+    valid_receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+
+    cases = (
+        ("target_slug_mismatch", {"target_slug": "different-property"}),
+        ("artifact_sha256_mismatch", {"artifact": {**valid_receipt["artifact"], "sha256": "0" * 64}}),
+        ("authorization_not_approved", {"authorization": {**valid_receipt["authorization"], "status": "pending"}}),
+        ("visual_match_not_pass", {"review": {**valid_receipt["review"], "visual_match": "fail"}}),
+    )
+    for expected_error, override in cases:
+        receipt_path.write_text(json.dumps({**valid_receipt, **override}), encoding="utf-8")
+        rejected = _run_importer(
+            "import_3dvista_export.py",
+            tmp_path,
+            "--slug",
+            slug,
+            "--export-dir",
+            str(export_dir),
+        )
+        assert rejected.returncode != 0
+        assert expected_error in rejected.stderr
+        assert not (bundle_dir / "3dvista").exists()
+        assert "three_d_vista_entry_relpath" not in json.loads(
+            (bundle_dir / "tour.json").read_text(encoding="utf-8")
+        )
+
+
+def test_3dvista_provenance_template_is_private_and_fails_closed_until_reviewed(tmp_path: Path) -> None:
+    slug = "review-template-3dvista-import"
+    _write_base_tour(tmp_path, slug)
+    export_dir = tmp_path / "review_template_3dvista"
+    export_dir.mkdir()
+    (export_dir / "index.html").write_text(
+        "<!doctype html><script src='tdvplayer.js'></script><div>3DVista export shell</div>",
+        encoding="utf-8",
+    )
+    (export_dir / "tdvplayer.js").write_text("window.TDVPlayer = true;", encoding="utf-8")
+
+    generated = _run_importer(
+        "create_3dvista_provenance_template.py",
+        tmp_path,
+        "--slug",
+        slug,
+        "--export-dir",
+        str(export_dir),
+    )
+
+    assert generated.returncode == 0, generated.stderr
+    receipt_path = export_dir / "3dvista-target-provenance.json"
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    assert receipt["status"] == "pending_review"
+    assert receipt["artifact"]["sha256"] == export_tree_sha256(export_dir)
+    assert receipt_path.stat().st_mode & 0o777 == 0o600
+    pending = _run_importer(
+        "import_3dvista_export.py",
+        tmp_path,
+        "--slug",
+        slug,
+        "--export-dir",
+        str(export_dir),
+    )
+    assert pending.returncode != 0
+    assert "status_not_pass" in pending.stderr
+    assert "authorization_not_approved" in pending.stderr
+
+    receipt["status"] = "pass"
+    receipt["authorization"] = {"status": "approved", "reference": "fixture-approved-reuse"}
+    receipt["review"] = {
+        "property_match": "pass",
+        "visual_match": "pass",
+        "reviewed_by": "propertyquarry-test-reviewer",
+        "reviewed_at": "2026-07-14T00:00:00+00:00",
+    }
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    imported = _run_importer(
+        "import_3dvista_export.py",
+        tmp_path,
+        "--slug",
+        slug,
+        "--export-dir",
+        str(export_dir),
+    )
+    assert imported.returncode == 0, imported.stderr
+
+
+def test_3dvista_intake_manifest_is_scoped_to_exact_requested_slug(tmp_path: Path) -> None:
+    target_slug = "exact-intake-target"
+    other_slug = "other-importable-tour"
+    for slug in (target_slug, other_slug):
+        _write_base_tour(tmp_path, slug)
+        export_dir = tmp_path / "drop" / slug / "3dvista"
+        export_dir.mkdir(parents=True)
+        (export_dir / "index.html").write_text(
+            "<!doctype html><script src='tdvplayer.js'></script><div>3DVista export shell</div>",
+            encoding="utf-8",
+        )
+        (export_dir / "tdvplayer.js").write_text("window.TDVPlayer = true;", encoding="utf-8")
+        _write_3dvista_provenance(export_dir, slug)
+
+    completion_dir = tmp_path / "completion"
+    receipt = build_3dvista_intake_receipt(
+        drop_dir=tmp_path / "drop",
+        public_tour_dir=tmp_path / "public_tours",
+        slug=target_slug,
+        completion_dir=completion_dir,
+        dry_run=True,
+    )
+
+    assert receipt["status"] == "ready_to_import"
+    assert receipt["3dvista_import_count"] == 1
+    assert receipt["ignored_non_target_import_count"] == 1
+    scoped_manifest = json.loads(
+        (completion_dir / "3dvista-gold-import-manifest.json").read_text(encoding="utf-8")
+    )
+    assert [row["slug"] for row in scoped_manifest["imports"]] == [target_slug]
+    assert (completion_dir / "3dvista-gold-import-manifest.json").stat().st_mode & 0o777 == 0o600
+
+    missing_completion = tmp_path / "missing-completion"
+    missing = build_3dvista_intake_receipt(
+        drop_dir=tmp_path / "drop",
+        public_tour_dir=tmp_path / "public_tours",
+        slug="missing-exact-target",
+        completion_dir=missing_completion,
+        dry_run=True,
+    )
+    assert missing["status"] == "blocked_waiting_for_artifact"
+    assert missing["3dvista_import_count"] == 0
+    empty_manifest = json.loads(
+        (missing_completion / "3dvista-gold-import-manifest.json").read_text(encoding="utf-8")
+    )
+    assert empty_manifest == {"imports": []}
 
 
 def test_3dvista_trial_branded_export_is_not_premium_ready(tmp_path: Path) -> None:
@@ -168,7 +378,7 @@ def test_3dvista_trial_branded_export_is_not_premium_ready(tmp_path: Path) -> No
     (trial_export / "runtime").mkdir()
     (trial_export / "runtime" / "app.js").write_text("window.TDVPlayer = true;", encoding="utf-8")
 
-    imported = _run_importer(
+    rejected = _run_importer(
         "import_3dvista_export.py",
         tmp_path,
         "--slug",
@@ -177,12 +387,11 @@ def test_3dvista_trial_branded_export_is_not_premium_ready(tmp_path: Path) -> No
         str(trial_export),
     )
 
-    assert imported.returncode == 0, imported.stderr
+    assert rejected.returncode != 0
+    assert "3dvista_trial_branding_present" in rejected.stderr
     manifest = json.loads((tmp_path / "public_tours" / slug / "tour.json").read_text(encoding="utf-8"))
-    proof = manifest["three_d_vista_white_label_proof"]
-    assert proof["non_trial_export_verified"] is False
-    assert proof["trial_branding_present"] is True
-    assert proof["trial_branding_checked"] is True
+    assert "three_d_vista_entry_relpath" not in manifest
+    assert not (tmp_path / "public_tours" / slug / "3dvista").exists()
     verifier = build_property_tour_control_receipt(
         tour_root=tmp_path / "public_tours",
         require_all_provider_modes=True,
@@ -190,14 +399,13 @@ def test_3dvista_trial_branded_export_is_not_premium_ready(tmp_path: Path) -> No
     assert verifier["provider_counts"]["3dvista"] == 0
     assert "3dvista" in verifier["missing_provider_modes"]
     blockers = verifier["provider_blockers"]["3dvista"]["reasons"]
-    assert blockers[0]["reason"] == "3dvista_trial_branding_present"
-    assert "licensed 3DVista VT Pro export" in blockers[0]["action"]
+    assert blockers[0]["reason"] == "missing_3dvista_export"
     vista_contract = verifier["delivery_contracts"]["3dvista"]
     assert vista_contract["schema"] == "propertyquarry.tour_delivery_contract.v1"
     assert vista_contract["status"] == "blocked"
-    assert vista_contract["blocked_reason"] == "3dvista_trial_branding_present"
+    assert vista_contract["blocked_reason"] == "missing_3dvista_export"
     assert any("verified non-trial 3DVista" in item for item in vista_contract["required_to_send"])
-    assert "PropertyQuarry property tour" in " ".join(vista_contract["required_to_send"])
+    assert "private target-bound receipt" in " ".join(vista_contract["required_to_send"])
     assert vista_contract["white_label_contract"]["schema"] == "propertyquarry.tour_white_label_contract.v1"
     assert vista_contract["white_label_contract"]["status"] == "blocked"
     assert any("Private Viewer" in item for item in vista_contract["white_label_contract"]["required_to_white_label"])
@@ -216,6 +424,7 @@ def test_3dvista_white_label_contract_becomes_ready_for_propertyquarry_source_pr
     )
     (verified_export / "runtime").mkdir()
     (verified_export / "runtime" / "app.js").write_text("window.TDVPlayer = true;", encoding="utf-8")
+    _write_3dvista_provenance(verified_export, slug)
 
     imported = _run_importer(
         "import_3dvista_export.py",
@@ -245,6 +454,19 @@ def test_3dvista_white_label_contract_becomes_ready_for_propertyquarry_source_pr
     assert proof_basis["ready_basis"] == ["propertyquarry_non_trial_vt_pro_export"]
     assert proof_basis["non_trial_export_verified"] is True
     assert proof_basis["propertyquarry_tour_metadata"] is True
+
+    imported_runtime = tmp_path / "public_tours" / slug / "3dvista" / "runtime" / "app.js"
+    imported_runtime.write_text("window.TDVPlayer = false; // tampered", encoding="utf-8")
+    tampered = build_property_tour_control_receipt(
+        tour_root=tmp_path / "public_tours",
+        base_url="https://propertyquarry.example",
+        live_probe=True,
+        require_all_provider_modes=True,
+    )
+    assert tampered["provider_counts"]["3dvista"] == 0
+    assert tampered["provider_blockers"]["3dvista"]["reasons"][0]["reason"] == (
+        "3dvista_target_provenance_missing_or_invalid"
+    )
 
 
 def test_3dvista_white_label_contract_requires_review_for_non_propertyquarry_source_project(tmp_path: Path) -> None:
@@ -713,6 +935,7 @@ def test_tour_export_discovery_accepts_vendor_named_export_folders(tmp_path: Pat
         encoding="utf-8",
     )
     (three_dvista_export / "tdvplayer.js").write_text("window.TDVPlayer = true;", encoding="utf-8")
+    _write_3dvista_provenance(three_dvista_export, slug, entry_relpath="index.htm")
     (pano2vr_export / "index.html").write_text(
         "<!doctype html><script src='tour.js'></script>",
         encoding="utf-8",
@@ -889,6 +1112,7 @@ def test_batch_tour_export_importer_materializes_verified_3dvista_and_pano2vr_ex
     )
     (vista_export / "runtime").mkdir()
     (vista_export / "runtime" / "app.js").write_text("window.TDVPlayer = true;", encoding="utf-8")
+    _write_3dvista_provenance(vista_export, "batch-3dvista")
     pano_export = tmp_path / "batch_pano_export"
     pano_export.mkdir()
     (pano_export / "index.html").write_text(
@@ -971,6 +1195,7 @@ def test_batch_tour_export_importer_accepts_verified_3dvista_and_pano2vr_zips(tm
     )
     (pano_export / "assets").mkdir()
     (pano_export / "assets" / "viewer.js").write_text("window.GGSKIN = true;", encoding="utf-8")
+    vista_provenance = _write_3dvista_provenance(vista_export, "zip-3dvista")
     vista_zip = tmp_path / "vista-export.zip"
     pano_zip = tmp_path / "pano-export.zip"
     for source_dir, target_zip in ((vista_export, vista_zip), (pano_export, pano_zip)):
@@ -984,7 +1209,12 @@ def test_batch_tour_export_importer_accepts_verified_3dvista_and_pano2vr_zips(tm
         json.dumps(
             {
                 "imports": [
-                    {"slug": "zip-3dvista", "provider": "3dvista", "export_zip": str(vista_zip)},
+                    {
+                        "slug": "zip-3dvista",
+                        "provider": "3dvista",
+                        "export_zip": str(vista_zip),
+                        "provenance_receipt": str(vista_provenance),
+                    },
                     {"slug": "zip-pano2vr", "provider": "pano2vr", "export_zip": str(pano_zip)},
                 ]
             }
@@ -1437,6 +1667,7 @@ def test_tour_export_discovery_emits_manifest_for_verified_drop_folders(tmp_path
     )
     (vista_export / "runtime").mkdir()
     (vista_export / "runtime" / "app.js").write_text("window.TDVPlayer = true;", encoding="utf-8")
+    _write_3dvista_provenance(vista_export, "discover-3dvista")
     pano_export = drop_dir / "pano2vr" / "discover-pano2vr"
     pano_export.mkdir(parents=True)
     (pano_export / "index.html").write_text(
@@ -1566,6 +1797,8 @@ def test_tour_export_discovery_accepts_verified_provider_zips(tmp_path: Path) ->
             for path in sorted(source_dir.rglob("*")):
                 if path.is_file():
                     archive.write(path, path.relative_to(source_dir.parent).as_posix())
+    vista_provenance = _write_3dvista_provenance(vista_src, "discover-zip-3dvista")
+    shutil.copy2(vista_provenance, vista_drop / "3dvista-target-provenance.json")
     receipt_path = tmp_path / "discovery.json"
     manifest_path = tmp_path / "imports.json"
 
@@ -1610,6 +1843,25 @@ def test_tour_export_discovery_resolves_stale_drop_when_provider_already_importe
         "target_subdir": "3dvista",
     }
     manifest_path.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")
+    live_export = bundle_dir / "3dvista"
+    live_export.mkdir()
+    (live_export / "index.htm").write_text(
+        "<!doctype html><script src='tdvplayer.js'></script><div>3DVista export shell</div>",
+        encoding="utf-8",
+    )
+    (live_export / "tdvplayer.js").write_text("window.TDVPlayer = true;", encoding="utf-8")
+    provenance_path = _write_3dvista_provenance(
+        live_export,
+        "existing-3dvista",
+        entry_relpath="index.htm",
+    )
+    provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+    provenance["target_subdir"] = "3dvista"
+    provenance_path.unlink()
+    (bundle_dir / "tour.private.json").write_text(
+        json.dumps({"three_d_vista_target_provenance": provenance}),
+        encoding="utf-8",
+    )
 
     drop_dir = tmp_path / "drop"
     stale_export = drop_dir / "existing-3dvista" / "3dvista"
@@ -1629,6 +1881,27 @@ def test_tour_export_discovery_resolves_stale_drop_when_provider_already_importe
     assert resolved["status"] == "already_imported_live_bundle"
     assert resolved["live_evidence"] == "public_bundle_3dvista_import"
     assert resolved["live_control_path"] == "/tours/existing-3dvista/control/3dvista"
+
+
+def test_tour_export_discovery_does_not_resolve_unbound_live_3dvista_manifest(tmp_path: Path) -> None:
+    public_root = tmp_path / "public_tours"
+    bundle_dir = _write_base_tour(tmp_path, "unbound-live-3dvista")
+    manifest_path = bundle_dir / "tour.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["three_d_vista_entry_relpath"] = "3dvista/index.htm"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    drop_dir = tmp_path / "drop"
+    stale_export = drop_dir / "unbound-live-3dvista" / "3dvista"
+    stale_export.mkdir(parents=True)
+    (stale_export / "index.html").write_text("<!doctype html><title>Coming soon</title>", encoding="utf-8")
+
+    receipt = build_discovery_receipt(drop_dir=drop_dir, public_tour_dir=public_root)
+
+    assert receipt["status"] == "blocked_no_verified_exports"
+    assert receipt["resolved_existing_import_count"] == 0
+    assert receipt["rejected_count"] == 1
+    assert receipt["rejected"][0]["reason"] == "3dvista_export_entry_unverified"
 
 
 def test_tour_export_discovery_ignores_duplicate_rejected_drop_when_same_provider_is_importable(

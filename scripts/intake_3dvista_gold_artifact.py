@@ -53,7 +53,11 @@ def _redacted_cmd(cmd: list[str]) -> list[str]:
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    temporary.chmod(0o600)
+    temporary.replace(path)
+    path.chmod(0o600)
 
 
 def build_3dvista_intake_receipt(
@@ -86,6 +90,7 @@ def build_3dvista_intake_receipt(
             "PropertyQuarry-owned tour metadata",
             "tdvplayer/tdvplayerapi/tourviewer runtime evidence",
             "no 3DVista trial branding",
+            "private propertyquarry.3dvista_target_provenance.v1 receipt binding the exact slug and export bytes to approved reuse and dated human property/visual match",
         ],
     }
 
@@ -115,19 +120,30 @@ def build_3dvista_intake_receipt(
             "drop_path": row.get("drop_path"),
         }
         for row in list(discovery.get("rejected") or [])
-        if isinstance(row, dict) and str(row.get("provider") or "").strip().lower() == "3dvista"
+        if (
+            isinstance(row, dict)
+            and str(row.get("provider") or "").strip().lower() == "3dvista"
+            and str(row.get("slug") or "").strip() == str(slug).strip()
+        )
     ]
 
     import_rows = [
         row
         for row in list((discovery.get("import_manifest") or {}).get("imports") or [])
-        if isinstance(row, dict) and str(row.get("provider") or "").strip().lower() == "3dvista"
+        if (
+            isinstance(row, dict)
+            and str(row.get("provider") or "").strip().lower() == "3dvista"
+            and str(row.get("slug") or "").strip() == str(slug).strip()
+        )
     ]
     receipt["3dvista_import_count"] = len(import_rows)
+    receipt["ignored_non_target_import_count"] = max(int(discovery.get("import_count") or 0) - len(import_rows), 0)
+    _write_json(import_manifest_path, {"imports": import_rows})
     if not import_rows:
         receipt["next_action"] = (
-            "Copy a licensed non-trial 3DVista export into the expected export dir, "
-            "then rerun this script."
+            "Copy a licensed non-trial 3DVista export plus 3dvista-target-provenance.json "
+            "into the expected export dir. Use create_3dvista_provenance_template.py to compute the "
+            "exact export hash, complete its authorization/property/visual review, then rerun this script."
         )
         return receipt
 

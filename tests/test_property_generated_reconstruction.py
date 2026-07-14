@@ -192,7 +192,12 @@ def _viewer_accessibility_receipt(page) -> dict[str, object]:
               undersizedTargets: targets.filter((target) => target.width < 44 || target.height < 44),
               floorplanTargetOverlaps: overlaps,
               clippedVisibleHotspotLabels: Array.from(document.querySelectorAll('.route-hotspot-label'))
-                .filter((label) => Number.parseFloat(getComputedStyle(label).opacity || '0') > 0)
+                .filter((label) => {
+                  const rect = label.getBoundingClientRect();
+                  return !label.closest('.route-hotspot')?.hidden
+                    && Number.parseFloat(getComputedStyle(label).opacity || '0') > 0
+                    && rect.width > 0 && rect.height > 0;
+                })
                 .map((label) => ({ label, rect: label.getBoundingClientRect() }))
                 .filter(({ rect }) => {
                   const viewport = document.getElementById('stage-hotspots')?.getBoundingClientRect();
@@ -200,6 +205,35 @@ def _viewer_accessibility_receipt(page) -> dict[str, object]:
                     || rect.top < viewport.top + 7 || rect.bottom > viewport.bottom - 7;
                 })
                 .map(({ label }) => String(label.textContent || '').trim()),
+              visibleHotspotLabelBounds: Array.from(document.querySelectorAll('.route-hotspot-label'))
+                .filter((label) => {
+                  const rect = label.getBoundingClientRect();
+                  return !label.closest('.route-hotspot')?.hidden
+                    && Number.parseFloat(getComputedStyle(label).opacity || '0') > 0
+                    && rect.width > 0 && rect.height > 0;
+                })
+                .map((label) => {
+                  const rect = label.getBoundingClientRect();
+                  const button = label.closest('.route-hotspot');
+                  const buttonRect = button?.getBoundingClientRect();
+                  const viewport = document.getElementById('stage-hotspots')?.getBoundingClientRect();
+                  return {
+                    label: String(label.textContent || '').trim(),
+                    rect: { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom },
+                    button: buttonRect
+                      ? { left: buttonRect.left, top: buttonRect.top, right: buttonRect.right, bottom: buttonRect.bottom }
+                      : null,
+                    buttonStyle: button
+                      ? { left: button.style.left, top: button.style.top, hidden: button.hidden }
+                      : null,
+                    placement: label.dataset.placement,
+                    shiftX: label.style.getPropertyValue('--hotspot-label-shift-x'),
+                    shiftY: label.style.getPropertyValue('--hotspot-label-shift-y'),
+                    viewport: viewport
+                      ? { left: viewport.left, top: viewport.top, right: viewport.right, bottom: viewport.bottom }
+                      : null,
+                   };
+                 }),
               horizontalOverflowPx: Math.max(0, document.documentElement.scrollWidth - window.innerWidth),
             };
         }"""
@@ -218,6 +252,232 @@ def _expected_default_walkthrough_contract() -> tuple[str, str, str]:
         "ken_burns_route_cards",
         "floorplan_inset_active_stop",
     )
+
+
+def _write_viewer_accessibility_fixture(tmp_path: Path) -> Path:
+    viewer_dir = tmp_path / "viewer-accessibility"
+    viewer_dir.mkdir(parents=True)
+    _write_floorplan(viewer_dir / "source-floorplan.jpg")
+    reconstruction_script._copy_viewer_vendor_assets(viewer_dir)
+    route = [
+        {
+            "label": "entry/hall",
+            "focus": {"x": -1.8, "y": 1.2, "z": 1.2},
+            "camera": {"x": -2.8, "y": 1.8, "z": 2.3},
+        },
+        {
+            "label": "living room",
+            "focus": {"x": 1.4, "y": 1.2, "z": -0.8},
+            "camera": {"x": 2.8, "y": 1.9, "z": 1.3},
+        },
+    ]
+    manifest = {
+        "room_dimensions_m": {"width": 8.0, "depth": 6.0, "height": 2.8},
+        "floorplan": {"relpath": "source-floorplan.jpg"},
+        "geometry": {
+            "floor_texture_crop": {"offset_x": 0, "offset_y": 0, "repeat_x": 1, "repeat_y": 1},
+            "wall_rectangles": [
+                {"width": 8.0, "depth": 0.12, "center_x": 0, "center_z": -2.94, "rotation_y": 0},
+                {"width": 8.0, "depth": 0.12, "center_x": 0, "center_z": 2.94, "rotation_y": 0},
+                {"width": 6.0, "depth": 0.12, "center_x": -3.94, "center_z": 0, "rotation_y": 1.5708},
+                {"width": 6.0, "depth": 0.12, "center_x": 3.94, "center_z": 0, "rotation_y": 1.5708},
+                {"width": 3.0, "depth": 0.12, "center_x": 1.4, "center_z": -1.44, "rotation_y": 0},
+            ],
+        },
+        "walkable_scene": {"route": route},
+        "photos": [],
+        "photo_reference_panels": [],
+        "style_label": "launch accessibility fixture",
+    }
+    viewer_path = viewer_dir / "viewer.html"
+    viewer_path.write_text(
+        reconstruction_script._viewer_html(
+            manifest=manifest,
+            three_relpath="vendor/three.module.js",
+            orbit_controls_relpath="vendor/examples/jsm/controls/OrbitControls.js",
+        ),
+        encoding="utf-8",
+    )
+    return viewer_path
+
+
+def test_generated_reconstruction_viewer_emits_launch_accessibility_contract(tmp_path: Path) -> None:
+    viewer_html = _write_viewer_accessibility_fixture(tmp_path).read_text(encoding="utf-8")
+
+    assert 'id="viewer-live-status"' in viewer_html
+    assert 'role="status"' in viewer_html
+    assert 'aria-live="polite"' in viewer_html
+    assert 'id="viewer-fallback"' in viewer_html
+    assert 'role="alert"' in viewer_html
+    assert 'aria-live="assertive"' in viewer_html
+    assert 'aria-label="Interactive 3D layout preview' in viewer_html
+    assert 'aria-pressed="false"' in viewer_html
+    assert 'aria-current="false"' in viewer_html
+    assert 'matchMedia("(prefers-reduced-motion: reduce)")' in viewer_html
+    assert "prefersReducedMotion" in viewer_html
+    assert 'reason: "webgl_unavailable"' in viewer_html
+
+
+def test_generated_reconstruction_viewer_honors_reduced_motion_and_webgl_fallback(tmp_path: Path) -> None:
+    if not reconstruction_script._playwright_chromium_capture_available():
+        pytest.skip("playwright_missing")
+
+    viewer_path = _write_viewer_accessibility_fixture(tmp_path)
+    viewer_root = viewer_path.parent
+
+    with _serve_directory(viewer_root) as base_url:
+        with reconstruction_script.sync_playwright() as playwright:
+            launch_kwargs = reconstruction_script._playwright_chromium_launch_kwargs(playwright)
+            browser = playwright.chromium.launch(**launch_kwargs)
+            try:
+                reduced_context = browser.new_context(
+                    reduced_motion="reduce",
+                    viewport={"width": 1280, "height": 720},
+                    device_scale_factor=1,
+                )
+                reduced_page = reduced_context.new_page()
+                reduced_page.goto(f"{base_url}/viewer.html?guided=1", wait_until="domcontentloaded")
+                _wait_for_playwright_condition(
+                    reduced_page,
+                    """() => Boolean(window.__pqReconstructionDebug?.getRenderMetrics?.()?.ready)""",
+                    timeout_ms=20_000,
+                )
+                reduced_page.wait_for_timeout(1_200)
+                reduced_receipt = reduced_page.evaluate(
+                    """() => {
+                        const metrics = window.__pqReconstructionDebug.getRenderMetrics();
+                        const guide = document.getElementById('view-guided-route');
+                        const canvas = document.querySelector('#viewport canvas');
+                        const status = document.getElementById('viewer-live-status');
+                        return {
+                            metrics,
+                            guideDisabled: Boolean(guide?.disabled),
+                            guidePressed: String(guide?.getAttribute('aria-pressed') || ''),
+                            canvasLabel: String(canvas?.getAttribute('aria-label') || ''),
+                            statusRole: String(status?.getAttribute('role') || ''),
+                            statusLive: String(status?.getAttribute('aria-live') || ''),
+                        };
+                    }"""
+                )
+                assert reduced_receipt["metrics"]["prefersReducedMotion"] is True
+                assert reduced_receipt["metrics"]["guidedQueryEnabled"] is True
+                assert reduced_receipt["metrics"]["guidedRouteActive"] is False
+                assert reduced_receipt["guideDisabled"] is True
+                assert reduced_receipt["guidePressed"] == "false"
+                assert reduced_receipt["canvasLabel"].startswith("Interactive 3D layout preview")
+                assert reduced_receipt["statusRole"] == "status"
+                assert reduced_receipt["statusLive"] == "polite"
+
+                reduced_page.locator(".route-button").nth(1).click()
+                route_receipt = reduced_page.evaluate(
+                    """() => {
+                        const metrics = window.__pqReconstructionDebug.getRenderMetrics({ includeObstruction: true });
+                        const routes = Array.from(document.querySelectorAll('.route-button'));
+                        const planStops = Array.from(document.querySelectorAll('.floorplan-stop'));
+                        const hotspots = Array.from(document.querySelectorAll('.route-hotspot'));
+                        return {
+                            metrics,
+                            overviewPressed: document.getElementById('view-overview')?.getAttribute('aria-pressed'),
+                            roomPressed: document.getElementById('view-inside')?.getAttribute('aria-pressed'),
+                            routeCurrent: routes.map((button) => button.getAttribute('aria-current')),
+                            planCurrent: planStops.map((button) => button.getAttribute('aria-current')),
+                            hotspotCurrent: hotspots.map((button) => button.getAttribute('aria-current')),
+                            liveStatus: String(document.getElementById('viewer-live-status')?.textContent || '').trim(),
+                        };
+                    }"""
+                )
+                assert route_receipt["metrics"]["activeRouteIndex"] == 1
+                assert route_receipt["metrics"]["transitionDurationMs"] == 0
+                assert route_receipt["metrics"]["isTransitioning"] is False
+                assert route_receipt["metrics"]["wallHeightScale"] == pytest.approx(0.72)
+                assert route_receipt["metrics"]["wallOpacity"] == pytest.approx(0.52)
+                assert route_receipt["metrics"]["raycastObstructionSampled"] is True
+                assert route_receipt["metrics"]["raycastWallObstructionPct"] < 45
+                assert route_receipt["metrics"]["cameraTargetDistance"] < 3.0
+                assert route_receipt["metrics"]["hiddenRoomOccluderWallCount"] >= 1
+                assert route_receipt["metrics"]["visibleHotspotCount"] == 1
+                assert route_receipt["metrics"]["roomCutawayEvaluationCount"] > 0
+                assert route_receipt["metrics"]["roomCutawayCameraDelta"] == pytest.approx(0.0)
+                assert route_receipt["overviewPressed"] == "false"
+                assert route_receipt["roomPressed"] == "true"
+                assert route_receipt["routeCurrent"] == ["false", "step"]
+                assert route_receipt["planCurrent"] == ["false", "step"]
+                assert route_receipt["hotspotCurrent"] == ["false", "step"]
+                assert "living room" in route_receipt["liveStatus"].lower()
+
+                reduced_page.evaluate("() => window.__pqReconstructionDebug.setOverviewView()")
+                reduced_page.wait_for_timeout(80)
+                reduced_page.evaluate("() => window.__pqReconstructionDebug.setRouteView(1)")
+                reduced_page.wait_for_timeout(80)
+                from_overview = reduced_page.evaluate("() => window.__pqReconstructionDebug.getRenderMetrics()")
+                reduced_page.evaluate("() => window.__pqReconstructionDebug.setDollhouseView()")
+                reduced_page.wait_for_timeout(80)
+                reduced_page.evaluate("() => window.__pqReconstructionDebug.setRouteView(1)")
+                reduced_page.wait_for_timeout(80)
+                from_dollhouse = reduced_page.evaluate("() => window.__pqReconstructionDebug.getRenderMetrics()")
+                assert from_overview["cameraPosition"] == from_dollhouse["cameraPosition"]
+                assert from_overview["cameraTargetDistance"] == from_dollhouse["cameraTargetDistance"]
+
+                before_interaction = from_dollhouse
+                reduced_page.evaluate(
+                    """() => document.querySelector('#viewport canvas')?.dispatchEvent(
+                        new WheelEvent('wheel', { deltaY: -360, bubbles: true, cancelable: true })
+                    )"""
+                )
+                reduced_page.wait_for_timeout(180)
+                after_drag = reduced_page.evaluate("() => window.__pqReconstructionDebug.getRenderMetrics()")
+                assert after_drag["cameraPosition"] != before_interaction["cameraPosition"]
+                assert after_drag["roomCutawayEvaluationCount"] > before_interaction["roomCutawayEvaluationCount"]
+                assert after_drag["roomCutawayCameraDelta"] == pytest.approx(0.0)
+                reduced_context.close()
+
+                fallback_page = browser.new_page(viewport={"width": 1280, "height": 720})
+                page_errors: list[str] = []
+                fallback_page.on("pageerror", lambda error: page_errors.append(str(error)))
+                fallback_page.add_init_script(
+                    """(() => {
+                        const originalGetContext = HTMLCanvasElement.prototype.getContext;
+                        HTMLCanvasElement.prototype.getContext = function(kind, ...args) {
+                            const normalized = String(kind || '').toLowerCase();
+                            if (normalized === 'webgl' || normalized === 'webgl2' || normalized === 'experimental-webgl') {
+                                return null;
+                            }
+                            return originalGetContext.call(this, kind, ...args);
+                        };
+                    })();"""
+                )
+                fallback_page.goto(f"{base_url}/viewer.html", wait_until="domcontentloaded")
+                _wait_for_playwright_condition(
+                    fallback_page,
+                    """() => document.documentElement.dataset.viewerStatus === 'unavailable'""",
+                    timeout_ms=10_000,
+                )
+                fallback_receipt = fallback_page.evaluate(
+                    """() => {
+                        const fallback = document.getElementById('viewer-fallback');
+                        const metrics = window.__pqReconstructionDebug?.getRenderMetrics?.() || {};
+                        return {
+                            visible: Boolean(fallback && !fallback.hidden && getComputedStyle(fallback).display !== 'none'),
+                            role: String(fallback?.getAttribute('role') || ''),
+                            ariaLive: String(fallback?.getAttribute('aria-live') || ''),
+                            text: String(fallback?.textContent || '').trim(),
+                            canvasCount: document.querySelectorAll('#viewport canvas').length,
+                            disabledControlCount: document.querySelectorAll('button:disabled').length,
+                            metrics,
+                        };
+                    }"""
+                )
+                assert page_errors == []
+                assert fallback_receipt["visible"] is True
+                assert fallback_receipt["role"] == "alert"
+                assert fallback_receipt["ariaLive"] == "assertive"
+                assert "3d preview is unavailable" in fallback_receipt["text"].lower()
+                assert fallback_receipt["canvasCount"] == 0
+                assert fallback_receipt["disabledControlCount"] >= 4
+                assert fallback_receipt["metrics"]["ready"] is False
+                assert fallback_receipt["metrics"]["reason"] == "webgl_unavailable"
+            finally:
+                browser.close()
 
 
 def test_generated_reconstruction_walkthrough_stop_card_embeds_floorplan_route_context(tmp_path: Path) -> None:
@@ -1133,6 +1393,84 @@ def test_generated_reconstruction_runtime_sync_timeout_returns_receipt(
     assert receipt["container"] == "propertyquarry-api"
 
 
+def test_generated_reconstruction_runtime_sync_makes_only_public_manifest_readable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    slug = "runtime-readable"
+    bundle_dir = _write_base_tour(tmp_path, slug)
+    (bundle_dir / "tour.private.json").write_text('{"private": true}\n', encoding="utf-8")
+    calls: list[tuple[list[str], dict[str, object]]] = []
+
+    def _fake_run(command, **kwargs):
+        calls.append((list(command), dict(kwargs)))
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(reconstruction_script.shutil, "which", lambda _name: "/usr/bin/docker")
+    monkeypatch.setattr(reconstruction_script.subprocess, "run", _fake_run)
+    monkeypatch.setenv("PROPERTYQUARRY_RECONSTRUCTION_RUNTIME_PERMISSION_TIMEOUT_SECONDS", "11")
+
+    receipt = reconstruction_script._sync_bundle_to_runtime_container(bundle_dir, slug=slug)
+
+    remote_bundle = f"/data/public_property_tours/{slug}"
+    assert receipt == {"status": "updated", "slug": slug, "container": "propertyquarry-api"}
+    assert calls[0][0] == [
+        "/usr/bin/docker",
+        "exec",
+        "propertyquarry-api",
+        "mkdir",
+        "-p",
+        remote_bundle,
+    ]
+    assert calls[1][0] == [
+        "/usr/bin/docker",
+        "cp",
+        f"{bundle_dir.resolve()}/.",
+        f"propertyquarry-api:{remote_bundle}/",
+    ]
+    assert calls[2][0] == [
+        "/usr/bin/docker",
+        "exec",
+        "--user",
+        "0",
+        "propertyquarry-api",
+        "chmod",
+        "0644",
+        f"{remote_bundle}/tour.json",
+    ]
+    assert calls[2][1]["timeout"] == 11.0
+    assert all("tour.private.json" not in argument for argument in calls[2][0])
+
+
+def test_generated_reconstruction_runtime_sync_fails_closed_when_public_manifest_chmod_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    slug = "runtime-unreadable"
+    bundle_dir = _write_base_tour(tmp_path, slug)
+    calls: list[list[str]] = []
+
+    def _fake_run(command, **_kwargs):
+        calls.append(list(command))
+        return subprocess.CompletedProcess(
+            command,
+            1 if len(calls) == 3 else 0,
+            stdout="",
+            stderr="permission denied" if len(calls) == 3 else "",
+        )
+
+    monkeypatch.setattr(reconstruction_script.shutil, "which", lambda _name: "/usr/bin/docker")
+    monkeypatch.setattr(reconstruction_script.subprocess, "run", _fake_run)
+
+    receipt = reconstruction_script._sync_bundle_to_runtime_container(bundle_dir, slug=slug)
+
+    assert receipt["status"] == "runtime_permission_failed"
+    assert receipt["slug"] == slug
+    assert receipt["container"] == "propertyquarry-api"
+    assert receipt["public_manifest"] == f"/data/public_property_tours/{slug}/tour.json"
+    assert receipt["stderr"] == "permission denied"
+
+
 def test_generated_reconstruction_required_runtime_publish_failure_exits_nonzero(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1172,6 +1510,83 @@ def test_generated_reconstruction_required_runtime_publish_failure_exits_nonzero
     assert receipt["runtime_publish_required"] is True
     assert receipt["runtime_publish_ok"] is False
     assert receipt["runtime_publish"]["status"] == "docker_unavailable"
+
+
+def test_generated_reconstruction_review_build_never_invokes_runtime_publish(
+    tmp_path: Path,
+) -> None:
+    slug = "generated-reconstruction-review-only"
+    bundle_dir = _write_base_tour(tmp_path, slug)
+    floorplan = tmp_path / "floorplan.jpg"
+    photo = tmp_path / "living.jpg"
+    tool_path = tmp_path / "tool-bin"
+    docker_call_marker = tmp_path / "docker-was-called"
+    tool_path.mkdir()
+    fake_docker = tool_path / "docker"
+    fake_docker.write_text(
+        '#!/bin/sh\n: > "$DOCKER_CALL_MARKER"\nexit 99\n',
+        encoding="utf-8",
+    )
+    fake_docker.chmod(0o755)
+    _write_floorplan(floorplan)
+    _write_photo(photo, (122, 106, 84))
+
+    generated = _run_generator_with_env(
+        tmp_path,
+        "--slug",
+        slug,
+        "--floorplan",
+        str(floorplan),
+        "--photo",
+        str(photo),
+        "--skip-video",
+        env_overrides={
+            "PATH": str(tool_path),
+            "DOCKER_CALL_MARKER": str(docker_call_marker),
+            "EA_ROLE": None,
+            "PROPERTYQUARRY_RECONSTRUCTION_ALLOW_LOCAL_ONLY": None,
+            "PROPERTYQUARRY_RECONSTRUCTION_PUBLISH_RUNTIME": None,
+            "PROPERTYQUARRY_RECONSTRUCTION_REQUIRE_RUNTIME_PUBLISH": None,
+        },
+    )
+
+    assert generated.returncode == 0, generated.stdout or generated.stderr
+    body = json.loads(generated.stdout)
+    assert body["runtime_publish_required"] is False
+    assert body["runtime_publish"] == {"status": "skipped_not_requested", "slug": slug}
+    assert not docker_call_marker.exists()
+    receipt = json.loads(
+        (bundle_dir / "generated-reconstruction" / "reconstruction.json").read_text(encoding="utf-8")
+    )
+    assert receipt["runtime_publish"] == {"status": "skipped_not_requested", "slug": slug}
+
+
+def test_generated_reconstruction_runtime_publish_request_policy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    review_bundle = tmp_path / "public_tours" / "review-tour"
+    shared_bundle = Path("/data/public_property_tours/shared-tour")
+    monkeypatch.delenv("EA_ROLE", raising=False)
+    monkeypatch.delenv("PROPERTYQUARRY_RECONSTRUCTION_ALLOW_LOCAL_ONLY", raising=False)
+    monkeypatch.delenv("PROPERTYQUARRY_RECONSTRUCTION_PUBLISH_RUNTIME", raising=False)
+    monkeypatch.delenv("PROPERTYQUARRY_RECONSTRUCTION_REQUIRE_RUNTIME_PUBLISH", raising=False)
+
+    assert reconstruction_script._runtime_publish_requested() is False
+    assert reconstruction_script._bundle_uses_shared_runtime_root(review_bundle) is False
+    assert reconstruction_script._bundle_uses_shared_runtime_root(shared_bundle) is True
+    assert reconstruction_script._runtime_publish_succeeded(
+        {"status": "skipped_shared_public_root"}
+    ) is True
+    assert reconstruction_script._runtime_publish_succeeded(
+        {"status": "skipped_not_requested"}
+    ) is True
+
+    monkeypatch.setenv("PROPERTYQUARRY_RECONSTRUCTION_PUBLISH_RUNTIME", "1")
+    assert reconstruction_script._runtime_publish_requested() is True
+
+    monkeypatch.setenv("PROPERTYQUARRY_RECONSTRUCTION_ALLOW_LOCAL_ONLY", "1")
+    assert reconstruction_script._runtime_publish_requested() is False
 
 
 def test_generated_reconstruction_render_tools_shared_public_volume_does_not_require_runtime_publish(
@@ -1496,7 +1911,10 @@ def test_generated_reconstruction_viewer_guided_route_runs_in_real_browser(tmp_p
                 assert mobile_accessibility["targetCount"] >= 10
                 assert mobile_accessibility["undersizedTargets"] == []
                 assert mobile_accessibility["floorplanTargetOverlaps"] == []
-                assert mobile_accessibility["clippedVisibleHotspotLabels"] == []
+                assert mobile_accessibility["clippedVisibleHotspotLabels"] == [], json.dumps(
+                    mobile_accessibility["visibleHotspotLabelBounds"],
+                    ensure_ascii=False,
+                )
                 assert mobile_accessibility["horizontalOverflowPx"] == 0
             finally:
                 browser.close()

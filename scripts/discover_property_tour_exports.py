@@ -13,6 +13,21 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+if __package__:
+    from .property_tour_3dvista_provenance import (
+        find_3dvista_provenance_receipt,
+        load_json_object,
+        safe_relpath as _safe_provenance_relpath,
+        validate_3dvista_target_provenance,
+    )
+else:
+    from property_tour_3dvista_provenance import (
+        find_3dvista_provenance_receipt,
+        load_json_object,
+        safe_relpath as _safe_provenance_relpath,
+        validate_3dvista_target_provenance,
+    )
+
 
 PROVIDERS = ("3dvista", "pano2vr", "krpano", "magicfit")
 PROVIDER_DROP_LAYOUTS = {
@@ -25,6 +40,8 @@ REJECTION_ACTIONS = {
     "tour_manifest_missing": "create or import the base hosted tour bundle first so tour.json exists under the public tour directory",
     "3dvista_export_entry_unverified": "copy the complete 3DVista export; the entry or bundled runtime must contain tdvplayer, tdvplayerapi, or tourviewer markers",
     "3dvista_trial_branding_present": "replace the trial-branded 3DVista export with a licensed 3DVista VT Pro export",
+    "3dvista_target_provenance_missing": "run create_3dvista_provenance_template.py, then complete 3dvista-target-provenance.json with exact slug/export binding, approved reuse, and dated human property/visual match",
+    "3dvista_target_provenance_invalid": "replace 3dvista-target-provenance.json with a passing propertyquarry.3dvista_target_provenance.v1 receipt for these exact export bytes",
     "pano2vr_export_entry_unverified": "copy the complete Pano2VR export; the entry or bundled runtime must contain ggpkg, ggskin, pano.xml, or tour.js markers",
     "krpano_assets_missing": "copy a real 2:1 panorama named panorama.jpg/png/webp or six cube faces named cube-face-1..6",
     "magicfit_video_missing": "copy the playable MagicFit walkthrough as magicfit-walkthrough.mp4/mov/webm or walkthrough.mp4/mov/webm",
@@ -193,6 +210,41 @@ def _verified_zip_entry(zip_path: Path, provider: str) -> tuple[str, str, str]:
         return "", "", ""
 
 
+def _3dvista_provenance_rejection(
+    *,
+    export_dir: Path,
+    slug: str,
+    entry_relpath: str,
+    export_zip: Path | None = None,
+) -> tuple[str, Path | None, list[str]]:
+    receipt_path = find_3dvista_provenance_receipt(export_dir)
+    if receipt_path is None:
+        return "3dvista_target_provenance_missing", None, ["receipt_missing"]
+    receipt = load_json_object(receipt_path)
+    if export_zip is None:
+        _normalized, errors = validate_3dvista_target_provenance(
+            receipt,
+            target_slug=slug,
+            export_dir=export_dir,
+            entry_relpath=entry_relpath,
+        )
+    else:
+        try:
+            with tempfile.TemporaryDirectory(prefix="propertyquarry-3dvista-provenance-") as tmp:
+                extracted = _safe_extract_zip(export_zip, Path(tmp))
+                _normalized, errors = validate_3dvista_target_provenance(
+                    receipt,
+                    target_slug=slug,
+                    export_dir=extracted,
+                    entry_relpath=entry_relpath,
+                )
+        except Exception:
+            errors = ["local_export_unhashable"]
+    if errors:
+        return "3dvista_target_provenance_invalid", receipt_path, errors
+    return "", receipt_path, []
+
+
 def _discover_export_zip(export_dir: Path, provider: str) -> tuple[Path | None, str, str]:
     preferred = [
         export_dir / f"{provider}.zip",
@@ -295,13 +347,37 @@ def _public_bundle_provider_state(*, bundle_dir: Path, slug: str, provider: str)
     if provider == "3dvista":
         entry_relpath = str(payload.get("three_d_vista_entry_relpath") or private_payload.get("three_d_vista_entry_relpath") or "").strip()
         provider_url = str(private_payload.get("three_d_vista_url") or payload.get("three_d_vista_url") or "").strip()
+        provenance = private_payload.get("three_d_vista_target_provenance") or payload.get("three_d_vista_target_provenance")
+        if not isinstance(provenance, dict):
+            return {}
         if entry_relpath:
+            entry_parts = Path(entry_relpath).parts
+            target_subdir = _safe_provenance_relpath(
+                provenance.get("target_subdir") or (entry_parts[0] if len(entry_parts) > 1 else "")
+            )
+            if not target_subdir or not entry_relpath.startswith(f"{target_subdir}/"):
+                return {}
+            _normalized, errors = validate_3dvista_target_provenance(
+                dict(provenance),
+                target_slug=slug,
+                export_dir=bundle_dir / target_subdir,
+                entry_relpath=entry_relpath[len(target_subdir) + 1 :],
+            )
+            if errors:
+                return {}
             return {
                 "evidence": "public_bundle_3dvista_import",
                 "entry_relpath": entry_relpath,
                 "control_path": f"/tours/{slug}/control/3dvista",
             }
         if provider_url:
+            _normalized, errors = validate_3dvista_target_provenance(
+                dict(provenance),
+                target_slug=slug,
+                provider_url=provider_url,
+            )
+            if errors:
+                return {}
             return {
                 "evidence": "private_allowlisted_3dvista_url",
                 "control_path": f"/tours/{slug}/control/3dvista",
@@ -488,8 +564,13 @@ def _repair_manifest_rows(rejected: Iterable[dict[str, Any]]) -> list[dict[str, 
         if not provider or not slug or not reason:
             continue
         command = ""
-        if provider in {"3dvista", "pano2vr"} and drop_path:
-            command = f"python /app/scripts/import_{provider}_export.py --slug {slug} --export-dir {drop_path}"
+        if provider == "3dvista" and drop_path:
+            command = (
+                f"python /app/scripts/import_3dvista_export.py --slug {slug} --export-dir {drop_path} "
+                f"--provenance-receipt {drop_path}/3dvista-target-provenance.json"
+            )
+        elif provider == "pano2vr" and drop_path:
+            command = f"python /app/scripts/import_pano2vr_export.py --slug {slug} --export-dir {drop_path}"
         elif provider == "krpano" and drop_path:
             command = f"python /app/scripts/import_krpano_walkable_scene.py --slug {slug} --panorama {drop_path}/panorama.jpg"
         elif provider == "magicfit" and drop_path:
@@ -508,7 +589,15 @@ def _repair_manifest_rows(rejected: Iterable[dict[str, Any]]) -> list[dict[str, 
             "drop_layout": str(row.get("drop_layout") or "").strip(),
             "import_command_after_assets_arrive": command,
         }
-        for key in ("file_count", "present_sample", "entry_candidates", "missing", "missing_markers"):
+        for key in (
+            "file_count",
+            "present_sample",
+            "entry_candidates",
+            "missing",
+            "missing_markers",
+            "provenance_errors",
+            "provenance_receipt",
+        ):
             if key in row:
                 repair_row[key] = row[key]
         rows.append(repair_row)
@@ -622,6 +711,25 @@ def _evaluate_candidate_layout(*, slug: str, provider: str, export_dir: Path, ma
             )
         if entry is not None and _export_has_forbidden_provider_markers(export_dir, entry, provider):
             return "rejected", _rejection_row(slug=slug, provider=provider, reason=f"{provider}_trial_branding_present", export_dir=export_dir)
+        provenance_path: Path | None = None
+        if provider == "3dvista":
+            provenance_reason, provenance_path, provenance_errors = _3dvista_provenance_rejection(
+                export_dir=export_dir,
+                slug=slug,
+                entry_relpath=entry_relpath,
+                export_zip=export_zip,
+            )
+            if provenance_reason:
+                rejected = _rejection_row(
+                    slug=slug,
+                    provider=provider,
+                    reason=provenance_reason,
+                    export_dir=export_dir,
+                )
+                rejected["provenance_errors"] = provenance_errors
+                if provenance_path is not None:
+                    rejected["provenance_receipt"] = str(provenance_path)
+                return "rejected", rejected
         row = {
             "slug": slug,
             "provider": provider,
@@ -630,6 +738,8 @@ def _evaluate_candidate_layout(*, slug: str, provider: str, export_dir: Path, ma
         }
         if export_zip is not None:
             row["export_zip"] = str(export_zip)
+        if provenance_path is not None:
+            row["provenance_receipt"] = str(provenance_path)
         return "import", row
     if provider == "krpano":
         panorama = _discover_panorama(export_dir)
@@ -732,6 +842,7 @@ def build_discovery_receipt(*, drop_dir: Path, public_tour_dir: Path | None = No
             "This discovery step does not publish tours. It only emits rows accepted by the hardened import_property_tour_exports.py importer.",
             "Documentation-only provider folders that contain only README.propertyquarry-export.txt are intentionally ignored here so they do not appear as broken exports.",
             "3DVista and Pano2VR placeholders are rejected unless the entry or bundled local runtime files contain provider markers.",
+            "3DVista rows additionally require a private target-bound provenance receipt for the exact slug and export bytes; provider samples and unapproved reuse fail closed.",
             "krpano rows require a real panorama/cubemap candidate; MagicFit rows require a playable video stream and receipt candidate before import.",
             "Rejected duplicate drop folders are ignored when another folder for the same slug/provider is already importable in this run.",
             "Rejected rows are resolved instead of repaired when the provider is already imported in the live tour bundle for the same slug.",

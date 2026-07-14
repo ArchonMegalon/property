@@ -1183,6 +1183,8 @@ def _write_generated_reconstruction_public_shell_bundle(
                 "display_title": title,
                 "hosted_url": f"https://propertyquarry.com/tours/{slug}",
                 "public_url": f"https://propertyquarry.com/tours/{slug}",
+                "scene_strategy": "floorplan_hosted",
+                "creation_mode": "hosted_floorplan_tour",
                 "diorama_preview_relpath": "diorama-preview.png",
                 "preview_relpath": "diorama-preview.png",
                 "photo_count": len(photo_specs),
@@ -1538,6 +1540,8 @@ def generated_reconstruction_shell_server(
                 "display_title": "Generated Reconstruction Shell Browser Tour",
                 "hosted_url": f"https://propertyquarry.com/tours/{slug}",
                 "public_url": f"https://propertyquarry.com/tours/{slug}",
+                "scene_strategy": "floorplan_hosted",
+                "creation_mode": "hosted_floorplan_tour",
                 "diorama_preview_relpath": "diorama-preview.png",
                 "preview_relpath": "diorama-preview.png",
                 "generated_reconstruction": {
@@ -2461,6 +2465,23 @@ def test_generated_reconstruction_launch_page_renders_honest_public_shell(
     context = _new_context(browser)
     page = context.new_page()
     slug = str(generated_reconstruction_shell_server["slug"])
+    manifest = json.loads(
+        (
+            Path(generated_reconstruction_shell_server["bundle_root"])
+            / slug
+            / "tour.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert manifest["scene_strategy"] == "floorplan_hosted"
+    assert manifest["creation_mode"] == "hosted_floorplan_tour"
+
+    layout_preview_url = f"{generated_reconstruction_shell_server['local_base_url']}/tours/{slug}/layout-preview"
+    with urllib.request.urlopen(layout_preview_url, timeout=10.0) as layout_preview_response:
+        assert int(layout_preview_response.status) == 200
+        layout_preview_html = layout_preview_response.read().decode("utf-8")
+    assert "generated reconstruction" in layout_preview_html.lower()
+    assert "tour unavailable" not in layout_preview_html.lower()
+
     launch_url = f"{generated_reconstruction_shell_server['base_url']}/tours/{slug}"
 
     response = page.goto(launch_url, wait_until="domcontentloaded")
@@ -2560,23 +2581,63 @@ def test_generated_reconstruction_expanded_walkthrough_public_shell_is_interacti
         )
         route_actions = page.locator(".route-action")
         assert route_actions.count() >= 2
-        page.evaluate(
-            """() => {
+        selected_route = page.evaluate(
+            """(initialStopName) => {
                 const nodes = Array.from(document.querySelectorAll('.route-action'));
-                const node = nodes[1];
+                const candidates = nodes.slice(0, Math.max(1, nodes.length - 1));
+                const normalizedInitial = String(initialStopName || '').trim();
+                const node = candidates.find((candidate) => {
+                    const label = String(
+                        candidate.getAttribute('data-focus-label') ||
+                        candidate.getAttribute('data-route-label') ||
+                        ''
+                    ).trim();
+                    return label && label !== normalizedInitial;
+                }) || candidates[0];
                 if (node && typeof node.click === 'function') {
                     node.click();
                 }
-            }"""
+                return node ? {
+                    routeIndex: Number(node.getAttribute('data-route-index')),
+                    expectedLabel: String(
+                        node.getAttribute('data-focus-label') ||
+                        node.getAttribute('data-route-label') ||
+                        ''
+                    ).trim(),
+                } : null;
+            }""",
+            initial_stop_name,
         )
+        assert isinstance(selected_route, dict)
+        selected_route_index = int(selected_route["routeIndex"])
+        selected_route_label = str(selected_route["expectedLabel"])
+        assert selected_route_index < route_actions.count() - 1
+        assert selected_route_label
+        assert selected_route_label != initial_stop_name
         page.wait_for_timeout(200)
-        synced_second_route_metrics = _wait_for_embedded_layout_viewer_route(page, route_index=1)
-        assert synced_second_route_metrics["viewMode"] == "room"
+        synced_selected_route_metrics = _wait_for_embedded_layout_viewer_route(
+            page,
+            route_index=selected_route_index,
+        )
+        assert synced_selected_route_metrics["viewMode"] == "room"
         assert page.locator(".route-action.is-active").count() == 1
-        assert page.locator("#walkthrough-stop-name").inner_text() != initial_stop_name
-        assert page.locator("#reference-focus-name").inner_text().strip()
+        assert page.locator(".route-action.is-active").get_attribute("data-route-index") == str(
+            selected_route_index
+        )
+        assert page.locator("#walkthrough-stop-name").inner_text() == selected_route_label
+        assert page.locator("#reference-focus-name").inner_text().strip() == selected_route_label
         assert page.locator(".walkthrough-progress-marker").count() >= 4
         mid_stop_name = page.locator("#walkthrough-stop-name").inner_text()
+        next_route_index = selected_route_index + 1
+        next_route_action = page.locator(
+            f'.route-action[data-route-index="{next_route_index}"]'
+        )
+        next_route_label = str(
+            next_route_action.get_attribute("data-focus-label")
+            or next_route_action.get_attribute("data-route-label")
+            or ""
+        ).strip()
+        assert next_route_label
         route_next = page.locator("#route-next")
         assert route_next.is_enabled()
         page.evaluate(
@@ -2588,8 +2649,12 @@ def test_generated_reconstruction_expanded_walkthrough_public_shell_is_interacti
             }"""
         )
         page.wait_for_timeout(200)
-        synced_third_route_metrics = _wait_for_embedded_layout_viewer_route(page, route_index=2)
-        assert synced_third_route_metrics["viewMode"] == "room"
+        synced_next_route_metrics = _wait_for_embedded_layout_viewer_route(
+            page,
+            route_index=next_route_index,
+        )
+        assert synced_next_route_metrics["viewMode"] == "room"
+        assert page.locator("#walkthrough-stop-name").inner_text() == next_route_label
         assert page.locator("#walkthrough-stop-name").inner_text() != mid_stop_name
         progress_state = page.evaluate(
             """() => ({
@@ -2675,7 +2740,8 @@ def test_generated_reconstruction_viewer_renders_routeable_layout_in_real_browse
     inside_metrics = dict(probe["inside_metrics"])
     assert inside_metrics["view_mode"] == "room"
     assert inside_metrics["is_transitioning"] is False
-    assert inside_metrics["wall_height_scale"] == 1.0
+    assert inside_metrics["wall_height_scale"] == 0.72
+    assert inside_metrics["wall_height_scale"] > overview_metrics["wall_height_scale"]
     assert inside_metrics["photo_panel_group_visible"] is True
     assert inside_metrics["camera_position"] != overview_metrics["camera_position"]
     assert inside_metrics["projected_coverage_pct"] >= 0.5
