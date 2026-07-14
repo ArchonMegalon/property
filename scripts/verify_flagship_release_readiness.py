@@ -196,7 +196,9 @@ def verify(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Fail closed unless EA flagship release readiness is genuinely clear.")
+    parser = argparse.ArgumentParser(
+        description="Fail closed unless PropertyQuarry flagship release readiness is genuinely clear."
+    )
     parser.add_argument("--pulse", type=Path, default=DEFAULT_PULSE)
     parser.add_argument("--flagship-receipt", type=Path, default=DEFAULT_FLAGSHIP_RECEIPT)
     parser.add_argument("--browser-proof", type=Path, default=DEFAULT_BROWSER_PROOF)
@@ -216,7 +218,12 @@ def main() -> int:
     if issues:
         print(json.dumps({"status": "blocked", "issues": issues}, indent=2))
         return 1
-    print(json.dumps({"status": "pass", "message": "EA flagship release readiness is clear."}, indent=2))
+    print(
+        json.dumps(
+            {"status": "pass", "message": "PropertyQuarry flagship release readiness is clear."},
+            indent=2,
+        )
+    )
     return 0
 
 

@@ -1,85 +1,85 @@
-# Executive Assistant implementation scope
+# PropertyQuarry implementation scope
 
 ## Mission
 
-`executive-assistant` is the private chief-of-staff system for one executive and one operator.
-Its product center of gravity is the daily command brief, decision queue, commitment ledger, approved-action workflow, and evidence-backed audit trail.
-The flagship-facing product canon lives in the EA product surface canon under `.codex-design/ea/*`, and release claims must stay downstream of that truth plane instead of relying on milestone history alone.
+`propertyquarry` is the standalone property discovery and decision product for people who need to find, compare, research, and revisit homes across fragmented listing markets.
+Its center of gravity is the search-to-decision loop: market-aware discovery, preference-backed ranking, research packets, hosted review pages, spatial tours, feedback learning, and a clear next action.
 
-Inside the Chummer estate, it is also the governed synthesis/runtime substrate adjacent to the release train.
-It exists to turn mirrored canon and bounded product signals into petitions, synthesis briefs, and operator aids without becoming a second product authority.
+This repository is the implementation source of truth for the PropertyQuarry application, product-facing tests, deployment system, and branded public surfaces.
+It was extracted from the Executive Assistant runtime, so some compatibility names and governance artifacts still use the `EA` prefix; those inherited names do not change the product identity or broaden the release claim.
 
 ## Governance posture
 
-`executive-assistant` sits inside the Fleet `control-plane` autonomy perimeter alongside `fleet`.
+PropertyQuarry is a standalone product runtime, not a Fleet control plane and not an Executive Assistant office-workflow surface.
+
+The approved local Chummer design mirror under `.codex-design/product/*` supplies cross-repo context only; it does not make PropertyQuarry an owner of Chummer canon.
+The inherited EA product surface canon under `.codex-design/ea/*` remains a bounded input to the current release truth plane for navigation, interaction, copy, accessibility, and operator-governance standards.
+PropertyQuarry must consume mirrored `.codex-design/ea/*` material downstream and must not use it as evidence for Executive Assistant core eligibility.
 
 That means:
 
-* the designer and product-governor loop may observe EA runtime posture, mirror drift, synthesis seams, and operator aids as first-class control-plane input
-* EA is governance-adjacent and execution-relevant, not hidden sidecar cargo
-
-That does not mean:
-
-* EA owns canon
-* EA owns milestones, blockers, queue truth, or release authority
-* EA becomes a substitute for Hub, Fleet, or `chummer6-design`
+* the PropertyQuarry gate seed, browser proof, generated receipt, live-runtime proof, and deploy receipts must all name the same PropertyQuarry target
+* release claims are limited to the exact PropertyQuarry journeys and candidate identity actually proven
+* inherited EA or Chummer artifacts may constrain implementation, but cannot silently redefine this repository's product or proof target
 
 ## Owns
 
-* morning-brief, decision-queue, commitment-ledger, and approved-action workflow posture for the EA product itself
-* provider-aware runtime substrate for governed assistant execution
-* petition-packet and design-synthesis helper flows downstream of mirrored canon
-* proactive horizon scans and signal briefs
-* human-edit reflection and bounded replanning support
-* interruption-budget throttling and operator-safe runtime guardrails
-* mirror-status briefs and ownership telemetry derived from design canon
-* EA-local implementation of skills, adapters, and runtime policy that stay downstream of Chummer canon
+* the PropertyQuarry landing, onboarding, sign-in, account, property desk, and research-detail surfaces
+* market and provider selection, property-search dispatch, durable run state, ranking, shortlist, and failure recovery
+* preference profiles, decision reasons, research enrichment, feedback learning, and revisitation workflows
+* hosted property packets, governed public publication, spatial-tour presentation, and safe media fallbacks
+* PropertyQuarry pricing, plan handoff, client notifications, and product-specific account posture
+* product-specific storage schemas, migrations, privacy lifecycle, observability, backup/restore, rollback, and recovery contracts
+* candidate build, release evidence, deployment tooling, and branded runtime behavior for `propertyquarry.com`
 
 ## Must not own
 
-* canonical product, queue, milestone, blocker, or contract truth
-* raw support-case, user-account, group, reward, or entitlement truth
-* public landing, download, update, or help meaning
-* release-channel, install, or update-feed truth
-* hidden guide or participation canon that other repos must reverse-engineer
-* Fleet landing authority or Hub consent/account authority
+* Executive Assistant briefing, inbox, approval, commitment, handoff, people-memory, or other office-loop eligibility
+* Chummer product canon, Fleet queue truth, cross-repo milestones, blockers, or release authority
+* source-portal inventory truth, provider account authority, or facts that have not been retrieved and attributed
+* a public media or spatial-tour claim without the corresponding source, publication state, quota posture, and receipt
+* user-visible publication, billing, messaging, or destructive lifecycle actions without the required consent and authority
+* a production traffic switch that bypasses the governed deploy controller, provenance checks, health gates, or rollback contract
 
 ## Required inputs
 
-* mirrored `.codex-design/product/*`
-* mirrored `.codex-design/repo/IMPLEMENTATION_SCOPE.md`
-* mirrored `.codex-design/review/REVIEW_CONTEXT.md`
-* `PARTICIPATION_AND_BOOSTER_WORKFLOW.md`
-* `FEEDBACK_AND_SIGNAL_OODA_LOOP.md`
-* `PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md`
-* `PROVIDER_AND_ROUTE_STEWARDSHIP.md`
-* `EXTERNAL_TOOLS_PLANE.md`
+* `docs/PRODUCT_BRIEF.md`
+* `docs/ARCHITECTURE.md`
+* `docs/REPO_ISOLATION.md`
+* `docs/PROPERTY_DECISION_WORKBENCH_GUIDE.md`
+* `docs/PROPERTYQUARRY_RELEASE_MANIFEST.md`
+* `.codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md`
+* `.codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json`
+* inherited `.codex-design/ea/*` release-governance inputs
+* generated browser, flagship, weekly-pulse, runtime, recovery, and deploy receipts bound to the candidate under review
 
 ## Boundary rules
 
-* If mirrored canon is missing a seam, emit a petition packet instead of inventing local truth.
-* EA may summarize support, release, participation, or horizon signals, but Hub, Fleet, and design remain the owning truth planes.
-* Guide/help/public projections must compile from mirrored design sources rather than assistant-local prompt lore.
-* Provider adapters and runtime telemetry may live here, but they must not redefine product semantics or repo boundaries.
-* Default provider or model changes must follow `PROVIDER_AND_ROUTE_STEWARDSHIP.md`; EA may generate challenger briefs, but it must not self-promote a new default.
+* New PropertyQuarry product work lands here first; the broader EA repository is not its implementation home.
+* Mirrored design context is read-only product input. If it conflicts with the standalone PropertyQuarry contract, fail closed and reconcile the owning truth plane instead of inventing local canon.
+* Generated evidence is materialized from its source tests and current gate seed; it is never made green by hand.
+* A source-level pass is not a live-runtime or production-launch claim. Live, authenticated, recovery, provider, provenance, and rollback gates must bind to the candidate being promoted.
+* Search and research results must preserve source attribution, uncertainty, market context, and actionable recovery states.
+* Spatial-tour generation and hosting must remain provider-safe, quota-aware, receipt-backed, accessible, mobile-usable, and resilient when WebGL or premium media is unavailable.
+* Public publication and traffic promotion must use the governed controller and preserve a verified rollback path.
 
 ## Proof mode
 
-EA should default toward accountable office posture, not chatbot posture.
+PropertyQuarry should default to decision-workbench posture, not portal-wrapper or unsupported-chat posture.
 
-Important memo or decision items should answer:
+A flagship release should answer:
 
-* why this is here
-* what evidence supports it
-* what changed since the last brief
-* what action is recommended
-* who must approve it
-* what happens if it is ignored
+* which exact search, shortlist, research, feedback, failure-recovery, mobile, and spatial-tour journeys ran
+* which commit, image, configuration, data migration, and provider posture produced the evidence
+* whether browser, authenticated runtime, backup/restore, monitoring, and rollback proofs agree
+* what remains unavailable, degraded, preview-only, or dependent on operator action
+* who has authority to promote the candidate and how production can be rolled back
 
 ## Non-goals
 
-* a first-line support inbox
-* a hidden contract package owner
-* a release authority
-* a parallel roadmap or queue system
-* a generic chatbot that asks the user to trust unsupported memory
+* a generic listing portal or MLS clone
+* a luxury marketing shell without decision support
+* an unsupported LLM chat surface
+* a hidden Executive Assistant product surface
+* a second Chummer or Fleet truth plane
+* a flagship claim based only on milestone history, generated prose, or an unbound local smoke test

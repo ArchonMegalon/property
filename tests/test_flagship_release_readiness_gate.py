@@ -88,6 +88,10 @@ def test_flagship_release_readiness_gate_repository_defaults_share_product_ident
 
     expected_product = seed["product"]
     assert expected_product == "propertyquarry"
+    implementation_scope = (
+        ROOT / ".codex-design/repo/IMPLEMENTATION_SCOPE.md"
+    ).read_text(encoding="utf-8")
+    assert implementation_scope.splitlines()[0] == "# PropertyQuarry implementation scope"
     assert browser["product"] == expected_product
     assert browser["proof_target"] == seed["browser_workflow_proof"]["proof_target"]
     assert browser["release_claim_summary"] == seed["release_claim"]["summary"]
