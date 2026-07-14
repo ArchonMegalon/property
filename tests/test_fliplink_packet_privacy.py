@@ -91,6 +91,11 @@ def _rendered_searchable_text(rendered: dict[str, object]) -> str:
     return pdf_text
 
 
+def _use_browser_independent_pdf_renderer(monkeypatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_DOSSIER_RENDERER", "legacy")
+    monkeypatch.setenv("PROPERTYQUARRY_LEGACY_PDF_RENDERER_ALLOW", "1")
+
+
 def test_fliplink_compare_reason_localizer_uses_fit_note_language() -> None:
     text = _localize_compare_reason(
         "Chosen ahead of the next option because it scored 5 points higher on the current brief and includes a floorplan."
@@ -266,7 +271,8 @@ def test_fliplink_packet_media_refs_allow_common_listing_cdn_hosts() -> None:
     assert "storage.justimmo.at" in redacted.receipt["media_allowed_hosts"]
 
 
-def test_paid_market_report_redaction_is_market_level_only(tmp_path: Path) -> None:
+def test_paid_market_report_redaction_is_market_level_only(tmp_path: Path, monkeypatch) -> None:
+    _use_browser_independent_pdf_renderer(monkeypatch)
     source = {
         "title": "Exact Street 12 investment flat",
         "market_report_title": "1020 Vienna buy-to-let market report",
@@ -360,7 +366,8 @@ def test_paid_market_report_redaction_is_market_level_only(tmp_path: Path) -> No
     assert rendered["redacted_payload"] == redacted.payload
 
 
-def test_fliplink_pdf_receipt_matches_pdf_hash(tmp_path: Path) -> None:
+def test_fliplink_pdf_receipt_matches_pdf_hash(tmp_path: Path, monkeypatch) -> None:
+    _use_browser_independent_pdf_renderer(monkeypatch)
     rendered = render_property_packet_pdf(
         artifact_root=tmp_path,
         publication_id="pub_test",
@@ -608,7 +615,8 @@ def test_fliplink_pdf_renders_listing_media_and_fact_json_shapes(tmp_path: Path)
     assert any(item in rendered["receipt"]["visual_elements"] for item in ("tour_spread", "section_cards"))
 
 
-def test_fliplink_pdf_uses_tour_fallback_when_redacted_payload_lacks_direct_tour_url(tmp_path: Path) -> None:
+def test_fliplink_pdf_uses_tour_fallback_when_redacted_payload_lacks_direct_tour_url(tmp_path: Path, monkeypatch) -> None:
+    _use_browser_independent_pdf_renderer(monkeypatch)
     source = _source_payload()
     source.pop("tour_url", None)
     source["vendor_tour_url"] = "https://propertyquarry.com/tours/fallback-tour"
@@ -629,7 +637,8 @@ def test_fliplink_pdf_uses_tour_fallback_when_redacted_payload_lacks_direct_tour
     assert rendered["receipt"].get("renderer_provider") in {"playwright", None}
 
 
-def test_fliplink_pdf_can_embed_magic_fit_scene_for_private_packet(tmp_path: Path) -> None:
+def test_fliplink_pdf_can_embed_magic_fit_scene_for_private_packet(tmp_path: Path, monkeypatch) -> None:
+    _use_browser_independent_pdf_renderer(monkeypatch)
     source = _source_payload()
     source["magic_fit_scene"] = {
         "scene_id": "magicfit-1",

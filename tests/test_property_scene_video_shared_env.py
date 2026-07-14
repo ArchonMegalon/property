@@ -38,7 +38,7 @@ def test_property_scene_video_shared_env_materializes_magicfit_and_magicai_bridg
                 "MAGICAI_ACCOUNT_01_API_KEY=ak_test_slot",
                 "POSTGRES_PASSWORD=pq-pass",
                 "DATABASE_URL=postgresql://pq-user:pq-pass@db.internal/property",
-                "EA_STORAGE_BACKEND=postgres",
+                "EA_STORAGE_BACKEND=memory",
                 "EA_TELEGRAM_BOT_TOKEN=tg-bot-token",
                 "EA_TELEGRAM_BOT_REGISTRY_JSON={\"bots\":[\"propertyquarry\"]}",
                 "EA_TELEGRAM_DEFAULT_PRINCIPAL_ID=cf-email:test@example.test",
@@ -97,6 +97,24 @@ def test_property_scene_video_shared_env_materializes_magicfit_and_magicai_bridg
     assert magicai_accounts.stat().st_mode & 0o777 == 0o600
     assert json.loads(magicfit_accounts.read_text(encoding="utf-8"))[0]["email"] == "magicfit@example.test"
     assert len(json.loads(magicai_accounts.read_text(encoding="utf-8"))) == 2
+
+
+def test_property_scene_video_shared_env_preserves_memory_without_database_url(tmp_path: Path) -> None:
+    module = _load_script()
+    source_env = tmp_path / "source.env"
+    source_env.write_text("EA_STORAGE_BACKEND=memory\n", encoding="utf-8")
+    output_path = tmp_path / "property_scene_video_shared.env"
+
+    module.write_shared_env_file(
+        output_path=output_path,
+        source_env_files=(source_env,),
+        account_host_dir=tmp_path / "accounts",
+        account_runtime_dir=PurePosixPath("/runtime/accounts"),
+    )
+
+    rendered = output_path.read_text(encoding="utf-8")
+    assert "EA_STORAGE_BACKEND='memory'" in rendered
+    assert "DATABASE_URL=" not in rendered
 
 
 def test_property_scene_video_shared_env_load_does_not_override_existing_values(tmp_path: Path, monkeypatch) -> None:

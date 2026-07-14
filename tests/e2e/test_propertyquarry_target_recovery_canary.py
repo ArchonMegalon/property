@@ -525,6 +525,14 @@ def _match_candidate(candidate: dict[str, object], case: TargetListing) -> Ident
     return IdentityMatch(matched=False)
 
 
+def _match_ranked_target(candidates: list[dict[str, object]], case: TargetListing) -> IdentityMatch:
+    for candidate in candidates:
+        match = _match_candidate(candidate, case)
+        if match.matched:
+            return match
+    return IdentityMatch(matched=False)
+
+
 def _match_negative(candidate: dict[str, object], control: NegativeControl) -> bool:
     if control.external_id:
         candidate_external_id = str(candidate.get("external_id") or candidate.get("listing_id") or "").strip()
@@ -572,21 +580,78 @@ def _list_repair_tasks(client, *, limit: int = 200) -> list[dict[str, object]]:
     return [dict(row) for row in rows if isinstance(row, dict)]
 
 
+def _normalize_human_task_id(value: object) -> str:
+    normalized = str(value or "").strip()
+    return normalized.removeprefix("human_task:")
+
+
+def _current_run_repair_task_ids(status_payload: dict[str, object], *, run_id: str) -> set[str]:
+    normalized_run_id = str(run_id or "").strip()
+    status_run_id = str(status_payload.get("run_id") or "").strip()
+    if not normalized_run_id or status_run_id != normalized_run_id:
+        return set()
+    summary = dict(status_payload.get("summary") or {}) if isinstance(status_payload.get("summary"), dict) else {}
+    task_rows = [
+        dict(row)
+        for row in list(summary.get("provider_repair_tasks") or [])
+        if isinstance(row, dict)
+    ]
+    for source in [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]:
+        task_rows.extend(
+            dict(row)
+            for row in list(source.get("provider_repair_tasks") or [])
+            if isinstance(row, dict)
+        )
+    task_ids = {
+        normalized
+        for row in task_rows
+        for normalized in (
+            _normalize_human_task_id(
+                row.get("human_task_id") or row.get("task_id") or row.get("queue_item_ref")
+            ),
+        )
+        if normalized
+    }
+    for row in [dict(item) for item in list(summary.get("repair_receipts") or []) if isinstance(item, dict)]:
+        if str(row.get("run_id") or "").strip() != normalized_run_id:
+            continue
+        normalized = _normalize_human_task_id(
+            row.get("human_task_id") or row.get("task_id") or row.get("queue_item_ref")
+        )
+        if normalized:
+            task_ids.add(normalized)
+    return task_ids
+
+
 def _matching_repair_tasks(
     tasks: list[dict[str, object]],
     case: TargetListing,
     *,
     baseline_task_ids: set[str],
     run_id: str = "",
+    status_payload: dict[str, object] | None = None,
 ) -> list[dict[str, object]]:
     matches: list[dict[str, object]] = []
     normalized_target_url = _normalize_url(case.canonical_url)
     normalized_run_id = str(run_id or "").strip()
+    normalized_baseline_task_ids = {
+        _normalize_human_task_id(task_id)
+        for task_id in baseline_task_ids
+        if _normalize_human_task_id(task_id)
+    }
+    current_run_task_ids = _current_run_repair_task_ids(
+        dict(status_payload or {}),
+        run_id=normalized_run_id,
+    )
     for task in tasks:
         task_id = str(task.get("human_task_id") or "").strip()
-        if task_id in baseline_task_ids:
-            continue
         if str(task.get("task_type") or "").strip() != "property_provider_repair_ooda":
+            continue
+        normalized_task_id = _normalize_human_task_id(task_id)
+        if normalized_task_id and normalized_task_id in current_run_task_ids:
+            matches.append(task)
+            continue
+        if normalized_task_id in normalized_baseline_task_ids:
             continue
         input_json = dict(task.get("input_json") or {}) if isinstance(task.get("input_json"), dict) else {}
         task_run_id = str(input_json.get("run_id") or "").strip()
@@ -1177,7 +1242,7 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
             _print_watch_banner(case, principal, run_id, variant=variant)
 
             last_status: dict[str, object] = {}
-            first_target_match = IdentityMatch(matched=False)
+            target_match = IdentityMatch(matched=False)
             repair_trace = RepairTrace()
             deadline = time.time() + timeout_seconds
             while time.time() < deadline:
@@ -1190,18 +1255,14 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
                 _apply_repair_receipts_to_trace(repair_trace, summary, run_id=run_id)
 
                 candidates = _candidate_rows(last_status)
-                if not first_target_match.matched:
-                    for candidate in candidates:
-                        match = _match_candidate(candidate, case)
-                        if match.matched:
-                            first_target_match = match
-                            break
+                target_match = _match_ranked_target(candidates, case)
 
                 tasks = _matching_repair_tasks(
                     _list_repair_tasks(client),
                     case,
                     baseline_task_ids=baseline_task_ids,
                     run_id=run_id,
+                    status_payload=last_status,
                 )
                 if tasks:
                     repair_trace.repair_triggered = True
@@ -1225,12 +1286,7 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
             media_counters = _assert_no_generated_media(summary)
             _apply_repair_receipts_to_trace(repair_trace, summary, run_id=run_id)
             candidates = _candidate_rows(last_status)
-            if not first_target_match.matched:
-                for candidate in candidates:
-                    match = _match_candidate(candidate, case)
-                    if match.matched:
-                        first_target_match = match
-                        break
+            target_match = _match_ranked_target(candidates, case)
             negative_hits: list[dict[str, object]] = []
             for control in case.negatives:
                 for candidate in candidates:
@@ -1256,9 +1312,9 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
                 pool_size=case.pool_size,
                 picked_index=case.picked_index,
                 run_status=status_value,
-                target_found=first_target_match.matched,
-                target_match_tier=first_target_match.tier,
-                target_rank=first_target_match.rank,
+                target_found=target_match.matched,
+                target_match_tier=target_match.tier,
+                target_rank=target_match.rank,
                 repair=repair_trace,
                 generated_media_counters=media_counters,
                 negative_hits=negative_hits,
@@ -1285,7 +1341,7 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
                     f"{bad_source_fetch_resolutions}"
                 )
 
-            if first_target_match.matched and first_target_match.tier in MATCH_TIERS and not forbidden_hits and 0 < first_target_match.rank <= rank_threshold:
+            if target_match.matched and target_match.tier in MATCH_TIERS and not forbidden_hits and 0 < target_match.rank <= rank_threshold:
                 successful_case_total += 1
                 break
         assert final_report is not None
@@ -1453,3 +1509,80 @@ def test_matching_repair_tasks_prefers_run_id_over_provider_broad_match() -> Non
     ]
     matches = _matching_repair_tasks(tasks, case, baseline_task_ids=set(), run_id="run-123")
     assert [str(task.get("human_task_id") or "") for task in matches] == ["human_task:current"]
+
+
+def test_match_ranked_target_uses_the_current_snapshot_rank() -> None:
+    case = TargetListing(
+        provider="willhaben",
+        country_code="AT",
+        canonical_url="https://www.willhaben.at/iad/object?adId=123",
+        title="Target flat",
+        listing_mode="rent",
+        property_type="apartment",
+        location_query="1010 Vienna",
+        external_id="123",
+    )
+
+    early_match = _match_ranked_target([{"external_id": "123", "rank": 6}], case)
+    terminal_match = _match_ranked_target([{"external_id": "123", "rank": 4}], case)
+
+    assert early_match.rank == 6
+    assert terminal_match.rank == 4
+
+
+def test_matching_repair_tasks_accepts_reused_baseline_task_only_with_current_run_evidence() -> None:
+    case = TargetListing(
+        provider="willhaben",
+        country_code="AT",
+        canonical_url="https://www.willhaben.at/iad/object?adId=123",
+        title="Target flat",
+        listing_mode="rent",
+        property_type="apartment",
+        location_query="1010 Vienna",
+    )
+    tasks = [
+        {
+            "human_task_id": "reused",
+            "task_type": "property_provider_repair_ooda",
+            "status": "returned",
+            "resolution": "patched_provider_extractor",
+            "input_json": {"run_id": "run-original"},
+        },
+        {
+            "human_task_id": "unrelated",
+            "task_type": "property_provider_repair_ooda",
+            "status": "returned",
+            "resolution": "patched_other_provider",
+            "input_json": {"run_id": "run-other"},
+        },
+    ]
+    status_payload = {
+        "run_id": "run-current",
+        "summary": {
+            "sources": [
+                {
+                    "provider_repair_tasks": [
+                        {"human_task_id": "human_task:reused", "status": "returned"},
+                    ],
+                }
+            ]
+        },
+    }
+
+    matches = _matching_repair_tasks(
+        tasks,
+        case,
+        baseline_task_ids={"reused", "unrelated"},
+        run_id="run-current",
+        status_payload=status_payload,
+    )
+    without_current_run_evidence = _matching_repair_tasks(
+        tasks,
+        case,
+        baseline_task_ids={"reused", "unrelated"},
+        run_id="run-current",
+        status_payload={"run_id": "run-other", "summary": status_payload["summary"]},
+    )
+
+    assert [str(task.get("human_task_id") or "") for task in matches] == ["reused"]
+    assert without_current_run_evidence == []

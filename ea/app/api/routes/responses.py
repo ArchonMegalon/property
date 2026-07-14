@@ -2450,7 +2450,7 @@ def _prune_responses_debug_capture(target_dir: Path) -> None:
             continue
 
 
-def _capture_responses_debug(*, name: str, payload: object) -> None:
+def _capture_responses_debug(*, name: str, payload: object) -> threading.Thread | None:
     target_dir = _responses_debug_capture_dir()
     if target_dir is None:
         return
@@ -2468,9 +2468,11 @@ def _capture_responses_debug(*, name: str, payload: object) -> None:
             return
 
     try:
-        threading.Thread(target=_write_snapshot, daemon=True).start()
+        worker = threading.Thread(target=_write_snapshot, daemon=True)
+        worker.start()
+        return worker
     except Exception:
-        return
+        return None
 
 
 def _write_responses_live_summary(*, name: str, payload: object) -> None:

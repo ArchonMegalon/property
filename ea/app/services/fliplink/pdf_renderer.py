@@ -2003,7 +2003,7 @@ def _visual_pdf(
     cta_y = 262
     if redacted_tour_url:
         _draw_rect(ops, MARGIN_X + 386, cta_y, 168, 34, fill=(0.15, 0.38, 0.30))
-        _draw_text(ops, "Open floor plan", x=MARGIN_X + 398, y=275, size=8.6, font="F2", fill=(0.98, 0.98, 0.96))
+        _draw_text(ops, "Open 3D tour", x=MARGIN_X + 398, y=275, size=8.6, font="F2", fill=(0.98, 0.98, 0.96))
         media_annotations.append({"url": redacted_tour_url, "rect": [MARGIN_X + 386, cta_y, MARGIN_X + 554, cta_y + 34]})
     if redacted_flythrough_url:
         _draw_rect(ops, MARGIN_X + 386, cta_y - 46, 140, 34, fill=(0.74, 0.55, 0.18))

@@ -448,6 +448,8 @@ def build_shared_env_assignments(
         _copy_if_present(assignments, env_updates, env_name)
     for prefix in PASSTHROUGH_ENV_PREFIXES:
         _copy_by_prefix(assignments, env_updates, prefix)
+    if property_database_url:
+        env_updates["EA_STORAGE_BACKEND"] = "postgres"
     return env_updates, details
 
 

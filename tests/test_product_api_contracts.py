@@ -28445,18 +28445,29 @@ def test_normalize_property_flythrough_result_uses_published_video_url_when_flyt
 
 def test_pdf_appendix_exit_gate_rejects_missing_hero_poster(tmp_path: Path) -> None:
     pdf_path = tmp_path / "appendix-without-hero.pdf"
-    pdf_path.write_bytes(
-        b"%PDF-1.4\n"
-        b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n"
-        b"2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n"
-        b"3 0 obj << /Type /Page /Parent 2 0 R /Resources << >> /MediaBox [0 0 612 842] >> endobj\n"
-        b"trailer << /Root 1 0 R >>\n%%EOF\n"
+    pdf_bytes = bytearray(b"%PDF-1.4\n")
+    objects = (
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /Resources << >> /MediaBox [0 0 612 842] >>",
     )
+    offsets: list[int] = []
+    for object_number, body in enumerate(objects, start=1):
+        offsets.append(len(pdf_bytes))
+        pdf_bytes.extend(f"{object_number} 0 obj\n".encode("ascii"))
+        pdf_bytes.extend(body)
+        pdf_bytes.extend(b"\nendobj\n")
+    xref_offset = len(pdf_bytes)
+    pdf_bytes.extend(b"xref\n0 4\n0000000000 65535 f \n")
+    for offset in offsets:
+        pdf_bytes.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
+    pdf_bytes.extend(f"trailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n{xref_offset}\n%%EOF\n".encode("ascii"))
+    pdf_path.write_bytes(pdf_bytes)
 
     ok, reason, metrics = product_service._pdf_appendix_exit_gate_passed(str(pdf_path))
 
     assert ok is False
-    assert reason in {"appendix_hero_poster_missing", "appendix_links_missing", "appendix_too_sparse"}
+    assert reason == "appendix_hero_poster_missing"
     assert metrics["page_count"] == 1
 
 

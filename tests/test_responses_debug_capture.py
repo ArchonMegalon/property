@@ -16,11 +16,17 @@ def test_responses_debug_capture_prunes_numbered_files(monkeypatch, tmp_path):
     monkeypatch.setenv("EA_RESPONSES_DEBUG_CAPTURE_PRUNE_EVERY_SECONDS", "0")
     responses._RESPONSES_DEBUG_CAPTURE_LAST_PRUNE = 0.0
 
+    workers = []
     for index in range(5):
-        responses._capture_responses_debug(name="request", payload={"index": index})
+        worker = responses._capture_responses_debug(name="request", payload={"index": index})
+        if worker is not None:
+            workers.append(worker)
         time.sleep(0.002)
 
-    numbered = sorted(path.name for path in tmp_path.glob("*_request.json") if not path.name.startswith("latest_"))
+    for worker in workers:
+        worker.join(timeout=5.0)
 
+    assert all(not worker.is_alive() for worker in workers)
+    numbered = sorted(path.name for path in tmp_path.glob("*_request.json") if not path.name.startswith("latest_"))
     assert len(numbered) <= 2
     assert (tmp_path / "latest_request.json").is_file()

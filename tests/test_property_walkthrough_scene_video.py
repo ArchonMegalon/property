@@ -634,7 +634,17 @@ def test_onemin_walkthrough_defaults_to_15_second_room_segments(tmp_path, monkey
     monkeypatch.delenv("PROPERTYQUARRY_ONEMIN_SEGMENT_DURATION_SECONDS", raising=False)
     monkeypatch.setattr(product_service, "_onemin_i2v_keys_available", lambda: True)
     monkeypatch.setattr(product_service, "_repo_root", lambda: tmp_path)
-    monkeypatch.setattr(product_service, "_property_walkthrough_scene_video_context", lambda _tour_url: {})
+    captured_principal_ids: list[str] = []
+
+    def _fake_scene_video_context(_tour_url, *, principal_id: str = ""):
+        captured_principal_ids.append(principal_id)
+        return {}
+
+    monkeypatch.setattr(
+        product_service,
+        "_property_walkthrough_scene_video_context",
+        _fake_scene_video_context,
+    )
     monkeypatch.setattr(
         product_service,
         "_property_walkthrough_enrich_facts_with_context",
@@ -695,6 +705,7 @@ def test_onemin_walkthrough_defaults_to_15_second_room_segments(tmp_path, monkey
     result = product_service._render_onemin_property_flythrough_into_hosted_tour(
         tour_url="/tours/sample-flat",
         title="2 room apartment",
+        principal_id="principal-onemin-test",
         property_facts={
             "magicfit_route_labels": ["entry/hall", "living room"],
             "room_count": 2,
@@ -703,6 +714,7 @@ def test_onemin_walkthrough_defaults_to_15_second_room_segments(tmp_path, monkey
 
     assert result["status"] == "rendered"
     assert result["provider_key"] == "onemin_i2v"
+    assert captured_principal_ids == ["principal-onemin-test"]
     assert captured_durations == ["10", "5", "10", "5", "10", "5"]
     assert result["combined_duration_seconds"] == 45.0
 
