@@ -5,7 +5,7 @@
   "proof_target": "propertyquarry",
   "version": 1,
   "kind": "proof_receipt",
-  "generated_at": "2026-07-14T18:49:26Z",
+  "generated_at": "2026-07-14T20:24:30Z",
   "generated_by": "scripts/materialize_ea_browser_workflow_proof.py",
   "status": "pass",
   "operator_summary": "PropertyQuarry browser workflow proof is published and green across both source-backed journeys and real-browser E2E.",
@@ -20,7 +20,7 @@
   ],
   "source_binding": {
     "version": 1,
-    "code_commit": "f1e55a3bc502822832521ebdc8554357b38dc1cc",
+    "code_commit": "b5e4cdb9bc1cdba7a9dd5a996d6ff0bf1174bab6",
     "seed": {
       "path": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
       "sha256": "542cd03e2ea8ca3432f8be73a4b37dd2b58c52dd92cd8726375db507e09ebf07",
@@ -29,8 +29,8 @@
     "required_test_sources": [
       {
         "path": "tests/test_propertyquarry_workspace_redesign.py",
-        "sha256": "269d7d42815ee21b51ef54b89d2e00b70541d2d5a36d5a9967efca6f3d14cdef",
-        "git_blob_oid": "bf5ac8213459b4f49f92767ce6ba1a6a5ee835e8"
+        "sha256": "bb9e93b474f5d52c90bc0e3c0271378feb6fdd6e9c0932ef6b226b694815bfd8",
+        "git_blob_oid": "f80656e327119c4ba28a11c1cfa275d4442a0866"
       },
       {
         "path": "tests/e2e/test_propertyquarry_greenfield_browser.py",
@@ -50,10 +50,10 @@
       "test_propertyquarry_failed_run_stays_on_activity_surface"
     ],
     "exit_code": 0,
-    "duration_seconds": 57.521,
+    "duration_seconds": 47.859,
     "output_excerpt": [
       "..                                                                       [100%]",
-      "2 passed in 46.50s"
+      "2 passed in 44.00s"
     ],
     "limitations": [],
     "outcome_counts": {
@@ -79,10 +79,10 @@
       "test_propertyquarry_greenfield_workspace_is_mobile_usable"
     ],
     "exit_code": 0,
-    "duration_seconds": 117.093,
+    "duration_seconds": 89.39,
     "output_excerpt": [
       "..                                                                       [100%]",
-      "2 passed in 93.12s (0:01:33)"
+      "2 passed in 69.28s (0:01:09)"
     ],
     "limitations": [],
     "outcome_counts": {
