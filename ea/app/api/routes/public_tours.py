@@ -15,6 +15,7 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import secrets
+import stat
 import time
 import urllib.parse
 from urllib.parse import urlparse
@@ -64,6 +65,9 @@ from app.product.property_tour_hosting import (
 from app.product.service import _property_feedback_reason_map, build_product_service
 from app.services.public_clickrank import clickrank_head_snippet, request_hostname, request_path
 from app.services.property_market_catalog import currency_code_for_country, supported_currency_codes
+from app.services.public_tour_release_policy import (
+    evaluate_public_tour_generated_viewer_release,
+)
 
 router = APIRouter(tags=["public-tours"])
 
@@ -5715,6 +5719,291 @@ async def public_tour_csp_report(request: Request) -> Response:
     return Response(status_code=204, headers=_public_tour_security_headers())
 
 
+def _public_tour_generated_viewer_url(slug: str, relpath: object) -> str:
+    safe_slug = str(slug or "").strip()
+    safe_relpath = _public_tour_safe_asset_relpath(relpath)
+    if not safe_slug or "/" in safe_slug or ".." in safe_slug or not safe_relpath:
+        return ""
+    return (
+        f"/tours/viewer/{urllib.parse.quote(safe_slug, safe='')}/"
+        f"{urllib.parse.quote(safe_relpath, safe='/')}"
+    )
+
+
+def _public_tour_generated_manifest_source_paths(value: object) -> list[object]:
+    paths: list[object] = []
+    if isinstance(value, dict):
+        for key, child in value.items():
+            normalized_key = str(key or "").strip().lower().replace("-", "_")
+            if normalized_key in {
+                "source_path",
+                "source_uri",
+                "source_asset_ref",
+                "source_asset_id",
+            }:
+                paths.append(child)
+            else:
+                paths.extend(_public_tour_generated_manifest_source_paths(child))
+    elif isinstance(value, list):
+        for child in value:
+            paths.extend(_public_tour_generated_manifest_source_paths(child))
+    return paths
+
+
+def _public_tour_generated_source_path_is_unsafe(value: object) -> bool:
+    if not isinstance(value, str):
+        return True
+    normalized = value.strip().replace("\\", "/")
+
+    def is_local_path(path: str) -> bool:
+        lowered_path = path.lower()
+        return bool(
+            not path
+            or "\x00" in path
+            or path.startswith(("/", "~"))
+            or re.match(r"^[a-zA-Z]:", path)
+            or lowered_path.startswith(
+                (
+                    "file:",
+                    "home/",
+                    "root/",
+                    "tmp/",
+                    "var/tmp/",
+                    "users/",
+                )
+            )
+        )
+
+    if is_local_path(normalized):
+        return True
+    lowered = normalized.lower()
+    source_path = normalized
+    if "://" in lowered:
+        scheme, source_path = normalized.split("://", 1)
+        if scheme.lower() not in {"pcloud", "property"}:
+            return True
+        if is_local_path(source_path):
+            return True
+    if any(part in {"", ".", ".."} for part in source_path.split("/")):
+        return True
+    return bool(
+        re.search(
+            r"(?:^|[/._-])(?:pytest(?:-of)?|debug|probe)(?:[/._-]|$)",
+            lowered,
+        )
+    )
+
+
+def _public_tour_read_bound_file(
+    bundle_dir: Path,
+    binding: dict[str, object],
+    *,
+    maximum_size_bytes: int = 8 * 1024 * 1024,
+) -> bytes:
+    relpath = _public_tour_safe_asset_relpath(binding.get("path"))
+    expected_sha256 = str(binding.get("sha256") or "").strip().lower()
+    expected_size = binding.get("size_bytes")
+    if (
+        not relpath
+        or not re.fullmatch(r"[0-9a-f]{64}", expected_sha256)
+        or type(expected_size) is not int
+        or expected_size <= 0
+        or expected_size > maximum_size_bytes
+        or not hasattr(os, "O_NOFOLLOW")
+        or not hasattr(os, "O_DIRECTORY")
+    ):
+        raise HTTPException(status_code=404, detail="tour_viewer_not_found")
+
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    file_flags = os.O_RDONLY | os.O_NOFOLLOW
+    if hasattr(os, "O_CLOEXEC"):
+        directory_flags |= os.O_CLOEXEC
+        file_flags |= os.O_CLOEXEC
+    descriptors: list[int] = []
+    try:
+        current_fd = os.open(bundle_dir, directory_flags)
+        descriptors.append(current_fd)
+        parts = PurePosixPath(relpath).parts
+        for part in parts[:-1]:
+            current_fd = os.open(part, directory_flags, dir_fd=current_fd)
+            descriptors.append(current_fd)
+        file_fd = os.open(parts[-1], file_flags, dir_fd=current_fd)
+        descriptors.append(file_fd)
+        before = os.fstat(file_fd)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_nlink != 1
+            or before.st_size != expected_size
+        ):
+            raise HTTPException(status_code=410, detail="tour_viewer_integrity_failed")
+        chunks: list[bytes] = []
+        remaining = expected_size
+        while remaining:
+            chunk = os.read(file_fd, min(1024 * 1024, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        content = b"".join(chunks)
+        after = os.fstat(file_fd)
+        stable_fields = (
+            "st_dev",
+            "st_ino",
+            "st_mode",
+            "st_nlink",
+            "st_size",
+            "st_mtime_ns",
+            "st_ctime_ns",
+        )
+        if (
+            len(content) != expected_size
+            or any(getattr(before, field) != getattr(after, field) for field in stable_fields)
+            or hashlib.sha256(content).hexdigest() != expected_sha256
+        ):
+            raise HTTPException(status_code=410, detail="tour_viewer_integrity_failed")
+        return content
+    except HTTPException:
+        raise
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=404, detail="tour_viewer_not_found") from exc
+    finally:
+        for descriptor in reversed(descriptors):
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+
+
+def _public_tour_verified_generated_viewer_asset(
+    slug: str,
+    asset_path: str,
+    *,
+    payload: dict[str, object] | None = None,
+) -> tuple[bytes, dict[str, object], dict[str, object]]:
+    loaded_payload = payload or _load_tour_with_private_receipt(slug)
+    _require_public_tour_viewable(loaded_payload)
+    release = evaluate_public_tour_generated_viewer_release(loaded_payload)
+    if not release.get("released"):
+        status_code = 410 if release.get("terminal") else 404
+        detail = (
+            "tour_viewer_no_longer_available"
+            if status_code == 410
+            else "tour_viewer_not_found"
+        )
+        raise HTTPException(status_code=status_code, detail=detail)
+
+    safe_relpath = _public_tour_safe_asset_relpath(asset_path)
+    bindings = release.get("bindings")
+    binding = (
+        dict(bindings.get(safe_relpath) or {})
+        if isinstance(bindings, dict) and safe_relpath
+        else {}
+    )
+    role = str(binding.get("role") or "").strip().lower()
+    mime_type = str(binding.get("mime_type") or "").strip().lower()
+    allowed_mime_types = {
+        "viewer_document": {"text/html"},
+        "viewer_module": {"application/javascript", "text/javascript"},
+        "floorplan_texture": {"image/jpeg", "image/png", "image/webp"},
+        "photo_texture": {"image/jpeg", "image/png", "image/webp"},
+    }
+    if (
+        not safe_relpath
+        or role not in allowed_mime_types
+        or mime_type not in allowed_mime_types[role]
+        or (
+            role == "viewer_document"
+            and safe_relpath != release.get("viewer_relpath")
+        )
+    ):
+        raise HTTPException(status_code=404, detail="tour_viewer_not_found")
+
+    bundle_dir = _tour_bundle_dir(slug)
+    if bundle_dir is None:
+        raise HTTPException(status_code=404, detail="tour_viewer_not_found")
+    proof_bindings = [
+        dict(row)
+        for row in dict(release.get("bindings") or {}).values()
+        if isinstance(row, dict)
+        and str(row.get("role") or "").strip().lower()
+        == "reconstruction_manifest"
+    ]
+    if len(proof_bindings) != 1:
+        raise HTTPException(status_code=410, detail="tour_viewer_integrity_failed")
+    proof_bytes = _public_tour_read_bound_file(bundle_dir, proof_bindings[0])
+    try:
+        proof = json.loads(proof_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise HTTPException(
+            status_code=410,
+            detail="tour_viewer_integrity_failed",
+        ) from exc
+    source_paths = _public_tour_generated_manifest_source_paths(proof)
+    if not isinstance(proof, dict) or not source_paths or any(
+        _public_tour_generated_source_path_is_unsafe(path) for path in source_paths
+    ):
+        raise HTTPException(status_code=410, detail="tour_viewer_integrity_failed")
+    content = _public_tour_read_bound_file(bundle_dir, binding)
+    return content, binding, release
+
+
+def _public_tour_verified_generated_viewer_response(
+    slug: str,
+    asset_path: str,
+    *,
+    payload: dict[str, object] | None = None,
+) -> Response:
+    content, binding, release = _public_tour_verified_generated_viewer_asset(
+        slug,
+        asset_path,
+        payload=payload,
+    )
+    role = str(binding.get("role") or "").strip().lower()
+    mime_type = str(binding.get("mime_type") or "application/octet-stream").strip()
+    is_document = role == "viewer_document"
+    viewer_html = ""
+    if is_document:
+        try:
+            viewer_html = content.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise HTTPException(
+                status_code=410,
+                detail="tour_viewer_integrity_failed",
+            ) from exc
+    headers = _public_tour_security_headers(
+        cache_control=(
+            "no-cache, max-age=0, must-revalidate"
+            if is_document
+            else "public, max-age=86400, immutable"
+        ),
+        runtime_profile="generated_viewer" if is_document else "document",
+        script_hashes=(
+            _public_tour_inline_csp_hashes(viewer_html, tag_name="script")
+            if is_document
+            else ()
+        ),
+        style_hashes=(
+            _public_tour_inline_csp_hashes(viewer_html, tag_name="style")
+            if is_document
+            else ()
+        ),
+    )
+    headers.update(
+        {
+            "Cross-Origin-Resource-Policy": "same-origin",
+            "X-Frame-Options": "SAMEORIGIN",
+            "X-PropertyQuarry-Asset-SHA256": str(binding.get("sha256") or ""),
+            "X-PropertyQuarry-Preview-Kind": "approximate-layout",
+            "X-PropertyQuarry-Verified-Provider-Capture": "false",
+            "X-PropertyQuarry-Verified-Tour-Gate": "false",
+            "X-PropertyQuarry-Viewer-Revision": str(
+                release.get("release_revision") or ""
+            ),
+        }
+    )
+    return Response(content=content, media_type=mime_type, headers=headers)
+
+
 @router.get("/tours/{slug}.json", response_class=JSONResponse)
 def public_tour_payload(slug: str) -> JSONResponse:
     payload = _load_tour(slug)
@@ -5738,7 +6027,21 @@ def public_tour_file(slug: str, asset_path: str, request: Request):
     payload = _load_tour_with_private_receipt(slug)
     _require_public_tour_viewable(payload)
     safe_relpath = _public_tour_safe_asset_relpath(asset_path)
+    generated_viewer_release = payload.get("generated_viewer_release")
     manifest_row = _public_tour_manifest(payload, only_relpath=safe_relpath).get(safe_relpath, {}) if safe_relpath else {}
+    generated_privacy_class = (
+        str(manifest_row.get("privacy_class") or "").strip().lower()
+        == _GENERATED_RECONSTRUCTION_PREVIEW_PRIVACY_CLASS
+    )
+    if isinstance(generated_viewer_release, dict) and (
+        safe_relpath.startswith(_GENERATED_RECONSTRUCTION_PREVIEW_PREFIX)
+        or generated_privacy_class
+    ):
+        return _public_tour_verified_generated_viewer_response(
+            slug,
+            safe_relpath,
+            payload=payload,
+        )
     preview_manifest_row = _generated_reconstruction_preview_asset_manifest_row(payload, safe_relpath)
     walkthrough_acceptance = _public_tour_walkthrough_acceptance(payload)
     if walkthrough_acceptance.get("allowed") is False and safe_relpath in set(
@@ -5835,6 +6138,12 @@ def public_tour_generated_reconstruction_preview_asset(slug: str, asset_path: st
     payload = _load_tour_with_private_receipt(slug)
     _require_public_tour_viewable(payload)
     safe_relpath = _generated_reconstruction_preview_relpath(asset_path)
+    if isinstance(payload.get("generated_viewer_release"), dict):
+        return _public_tour_verified_generated_viewer_response(
+            slug,
+            safe_relpath,
+            payload=payload,
+        )
     if not safe_relpath or not _generated_reconstruction_preview_asset_manifest_row(payload, safe_relpath):
         raise HTTPException(status_code=404, detail="tour_file_not_found")
     return public_tour_file(slug, safe_relpath, request)
@@ -5915,6 +6224,30 @@ def public_tour_generated_layout_preview(slug: str, request: Request) -> HTMLRes
                 status_code=302,
                 headers=_public_tour_security_headers(),
             )
+        viewer_release = evaluate_public_tour_generated_viewer_release(payload)
+        if (
+            not primary_control_path
+            and isinstance(payload.get("generated_viewer_release"), dict)
+        ):
+            if not viewer_release.get("released"):
+                raise HTTPException(
+                    status_code=410 if viewer_release.get("terminal") else 404,
+                    detail="tour_generated_layout_preview_unavailable",
+                )
+            viewer_url = _public_tour_generated_viewer_url(
+                slug,
+                viewer_release.get("viewer_relpath"),
+            )
+            if not viewer_url:
+                raise HTTPException(
+                    status_code=404,
+                    detail="tour_generated_layout_preview_unavailable",
+                )
+            return RedirectResponse(
+                viewer_url,
+                status_code=302,
+                headers=_public_tour_security_headers(),
+            )
         if _generated_reconstruction_layout_preview_relpath(payload):
             return _generated_reconstruction_public_launch_response(payload, layout_focus=True, request=request)
         if generated_reconstruction_only:
@@ -5932,6 +6265,11 @@ def public_tour_generated_layout_preview(slug: str, request: Request) -> HTMLRes
         )
     except HTTPException as exc:
         detail = str(exc.detail or "").strip().lower()
+        if (
+            exc.status_code == 410
+            and detail == "tour_generated_layout_preview_unavailable"
+        ):
+            return _render_generated_viewer_terminal_page(request)
         if exc.status_code == 410 and detail == "tour_revoked":
             return _render_tour_unavailable_page(
                 request,
@@ -6798,6 +7136,31 @@ def _render_generated_reconstruction_not_tour_page(request: Request) -> HTMLResp
                 "label": "Next step",
                 "value": "Open PropertyQuarry",
                 "detail": "Use the property page for the diorama and walkthrough, or request a fresh 3D tour once provider media is ready.",
+            },
+        ],
+    )
+
+
+def _render_generated_viewer_terminal_page(request: Request) -> HTMLResponse:
+    return _render_tour_unavailable_page(
+        request,
+        status_code=410,
+        title="This 3D preview is no longer available.",
+        summary=(
+            "The reviewed layout preview was revoked or disqualified and its "
+            "public assets are no longer served."
+        ),
+        status_label="Preview removed",
+        rows=[
+            {
+                "label": "Preview state",
+                "value": "Removed",
+                "detail": "PropertyQuarry fails closed when a release authority withdraws a viewer.",
+            },
+            {
+                "label": "Next step",
+                "value": "Request a fresh link",
+                "detail": "A new review and publication authority are required before this preview can return.",
             },
         ],
     )
@@ -8650,6 +9013,30 @@ def public_tour_page(
                 status_code=302,
                 headers=_public_tour_security_headers(),
             )
+        viewer_release = evaluate_public_tour_generated_viewer_release(payload)
+        if (
+            not primary_control_path
+            and isinstance(payload.get("generated_viewer_release"), dict)
+        ):
+            if not viewer_release.get("released"):
+                raise HTTPException(
+                    status_code=410 if viewer_release.get("terminal") else 404,
+                    detail="tour_generated_layout_preview_unavailable",
+                )
+            viewer_url = _public_tour_generated_viewer_url(
+                slug,
+                viewer_release.get("viewer_relpath"),
+            )
+            if not viewer_url:
+                raise HTTPException(
+                    status_code=404,
+                    detail="tour_generated_layout_preview_unavailable",
+                )
+            return RedirectResponse(
+                viewer_url,
+                status_code=302,
+                headers=_public_tour_security_headers(),
+            )
         if generated_reconstruction_only:
             return _generated_reconstruction_public_launch_response(payload, request=request)
         rendered_payload = _redacted_public_tour_payload(payload, expose_asset_relpaths=True)
@@ -8695,6 +9082,11 @@ def public_tour_page(
         )
     except HTTPException as exc:
         detail = str(exc.detail or "").strip().lower()
+        if (
+            exc.status_code == 410
+            and detail == "tour_generated_layout_preview_unavailable"
+        ):
+            return _render_generated_viewer_terminal_page(request)
         if exc.status_code == 410 and detail == "tour_revoked":
             return _render_tour_unavailable_page(
                 request,
