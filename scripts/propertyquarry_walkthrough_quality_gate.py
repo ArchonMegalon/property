@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -9,7 +10,7 @@ import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 import urllib.parse
 
@@ -35,6 +36,110 @@ def _load_json(path: Path) -> dict[str, Any]:
     except Exception:
         return {}
     return dict(payload) if isinstance(payload, dict) else {}
+
+
+def _safe_relpath(value: object) -> str:
+    raw_value = str(value or "")
+    raw = raw_value.strip()
+    if (
+        not raw
+        or raw != raw_value
+        or raw.startswith("/")
+        or "\\" in raw
+        or "://" in raw
+        or "\x00" in raw
+    ):
+        return ""
+    path = PurePosixPath(raw)
+    normalized = "/".join(path.parts)
+    if (
+        path.is_absolute()
+        or normalized != raw
+        or any(part in {"", ".", ".."} for part in path.parts)
+    ):
+        return ""
+    return normalized
+
+
+def _safe_slug(value: object) -> str:
+    raw_value = str(value or "")
+    raw = raw_value.strip()
+    if (
+        not raw
+        or raw != raw_value
+        or raw in {".", ".."}
+        or "/" in raw
+        or "\\" in raw
+        or "://" in raw
+        or "\x00" in raw
+    ):
+        return ""
+    return raw
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _provider_proof_media_binding(receipt: dict[str, Any]) -> dict[str, Any]:
+    provider_results = [
+        dict(row)
+        for row in list(receipt.get("provider_results") or [])
+        if isinstance(row, dict)
+        and str(row.get("provider") or "").strip().lower() == "magicfit"
+        and str(row.get("status") or "").strip().lower() == "pass"
+    ]
+    provenance_rows = [
+        dict(row)
+        for row in list(receipt.get("provenance_index") or [])
+        if isinstance(row, dict)
+        and str(row.get("key") or "").strip().lower() == "magicfit"
+        and str(row.get("kind") or "").strip().lower() == "media_provider"
+        and str(row.get("role") or "").strip().lower() == "walkthrough_media_provider"
+        and str(row.get("status") or "").strip().lower() == "pass"
+        and row.get("media_authorship") is True
+    ]
+    provider_result = provider_results[0] if len(provider_results) == 1 else {}
+    provenance_row = provenance_rows[0] if len(provenance_rows) == 1 else {}
+    slug = _safe_slug(provider_result.get("slug"))
+    video_relpath = _safe_relpath(provider_result.get("video_relpath"))
+    video_sha256 = str(provider_result.get("video_sha256") or "").strip().lower()
+    sha256_valid = len(video_sha256) == 64 and all(
+        character in "0123456789abcdef" for character in video_sha256
+    )
+    binding = {
+        "provider": "magicfit",
+        "bundle_slug": slug,
+        "video_relpath": video_relpath,
+        "bundle_media_path": f"{slug}/{video_relpath}" if slug and video_relpath else "",
+        "video_sha256": video_sha256,
+    }
+    provenance_matches = bool(provenance_row) and (
+        _safe_slug(provenance_row.get("evidence_bundle_slug")) == slug
+        and _safe_relpath(provenance_row.get("evidence_video_relpath")) == video_relpath
+        and str(provenance_row.get("evidence_video_sha256") or "").strip().lower()
+        == video_sha256
+    )
+    return {
+        "valid": (
+            receipt.get("contract_name") == "propertyquarry.walkthrough_provider_proof_gate.v1"
+            and receipt.get("status") == "pass"
+            and len(provider_results) == 1
+            and len(provenance_rows) == 1
+            and bool(slug)
+            and bool(video_relpath)
+            and sha256_valid
+            and provenance_matches
+        ),
+        "provider_result_count": len(provider_results),
+        "provenance_row_count": len(provenance_rows),
+        "provenance_matches": provenance_matches,
+        "binding": binding,
+    }
 
 
 def _timeout_seconds(value: float | None) -> float | None:
@@ -475,6 +580,13 @@ def _selected_walkthrough_payload(
     return active
 
 
+def _provider_bound_walkthrough_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **payload,
+        "_walkthrough_candidate": "provider_proof_media",
+    }
+
+
 def _service_generated_reconstruction_slug(receipt: dict[str, Any]) -> str:
     for key in ("slug", "demo_slug"):
         value = str(receipt.get(key) or "").strip()
@@ -554,9 +666,14 @@ def _resolve_walkthrough_tour_root(
             _load_json(manifest_path),
             force_generated_reconstruction=force_generated_reconstruction,
         )
-        video_relpath = str(payload.get("video_relpath") or "").strip()
+        video_relpath = _safe_relpath(payload.get("video_relpath"))
         video_path = (candidate_root / slug / video_relpath).resolve() if video_relpath else candidate_root / "__missing__"
-        has_video = int(bool(video_relpath) and video_path.is_file())
+        bundle_dir = (candidate_root / slug).resolve()
+        has_video = int(
+            bool(video_relpath)
+            and bundle_dir in video_path.parents
+            and video_path.is_file()
+        )
         try:
             manifest_mtime = float(manifest_path.stat().st_mtime)
         except OSError:
@@ -606,30 +723,63 @@ def build_walkthrough_quality_receipt(
     ffprobe_timeout_seconds: float = 20.0,
     frame_sample_timeout_seconds: float = 45.0,
     service_generated_reconstruction_receipt_path: str = "",
+    provider_proof_receipt_path: str = "",
 ) -> dict[str, object]:
     service_receipt_path = Path(str(service_generated_reconstruction_receipt_path or "").strip()) if str(service_generated_reconstruction_receipt_path or "").strip() else None
     service_receipt = _load_json(service_receipt_path) if service_receipt_path is not None and service_receipt_path.is_file() else {}
+    provider_receipt_path = Path(str(provider_proof_receipt_path or "").strip()) if str(provider_proof_receipt_path or "").strip() else None
+    provider_receipt = _load_json(provider_receipt_path) if provider_receipt_path is not None and provider_receipt_path.is_file() else {}
+    provider_binding_details = _provider_proof_media_binding(provider_receipt)
+    expected_provider_binding = dict(provider_binding_details.get("binding") or {})
+    provider_binding_required = provider_receipt_path is not None
     requested_slug = str(demo_slug or DEFAULT_DEMO_SLUG).strip()
-    slug, service_slug, selection_source = _selected_walkthrough_slug(
-        requested_slug=requested_slug,
-        service_generated_reconstruction_receipt=service_receipt,
-    )
+    if provider_binding_required:
+        slug = _safe_slug(expected_provider_binding.get("bundle_slug"))
+        service_slug = _service_generated_reconstruction_slug(service_receipt)
+        selection_source = "provider_proof_receipt"
+    else:
+        slug, service_slug, selection_source = _selected_walkthrough_slug(
+            requested_slug=requested_slug,
+            service_generated_reconstruction_receipt=service_receipt,
+        )
     temp_root: tempfile.TemporaryDirectory[str] | None = None
-    force_generated_reconstruction = bool(service_slug) and slug == service_slug
-    root = _resolve_walkthrough_tour_root(
-        tour_root,
-        slug=slug,
-        force_generated_reconstruction=force_generated_reconstruction,
+    force_generated_reconstruction = (
+        not provider_binding_required and bool(service_slug) and slug == service_slug
     )
-    bundle = root / slug
-    manifest_payload = _load_json(bundle / "tour.json")
-    payload = _selected_walkthrough_payload(
-        manifest_payload,
-        force_generated_reconstruction=force_generated_reconstruction,
+    lookup_slug = slug or "__invalid_provider_binding__"
+    root = (
+        Path(tour_root or "state/public_property_tours").expanduser().resolve()
+        if provider_binding_required
+        else _resolve_walkthrough_tour_root(
+            tour_root,
+            slug=lookup_slug,
+            force_generated_reconstruction=force_generated_reconstruction,
+        )
     )
-    initial_video_relpath = str(payload.get("video_relpath") or "").strip()
+    bundle = root / lookup_slug
+    bundle_path_safe = bundle.parent == root and not bundle.is_symlink()
+    manifest_payload = _load_json(bundle / "tour.json") if bundle_path_safe else {}
+    payload = (
+        _provider_bound_walkthrough_payload(manifest_payload)
+        if provider_binding_required
+        else _selected_walkthrough_payload(
+            manifest_payload,
+            force_generated_reconstruction=force_generated_reconstruction,
+        )
+    )
+    initial_video_relpath = _safe_relpath(payload.get("video_relpath"))
     initial_video_path = (bundle / initial_video_relpath).resolve() if initial_video_relpath else bundle / "__missing__"
-    if (not manifest_payload or not initial_video_relpath or not initial_video_path.is_file()) and slug:
+    initial_inside_bundle = bool(
+        bundle_path_safe
+        and initial_video_relpath
+        and bundle.resolve() in initial_video_path.parents
+    )
+    if (
+        not manifest_payload
+        or not initial_video_relpath
+        or not initial_inside_bundle
+        or not initial_video_path.is_file()
+    ) and slug and not provider_binding_required:
         temp_root = _copy_runtime_bundle_to_temp_root(slug)
         if temp_root is not None:
             root = Path(temp_root.name)
@@ -640,6 +790,42 @@ def build_walkthrough_quality_receipt(
                 force_generated_reconstruction=force_generated_reconstruction,
             )
     checks: list[dict[str, object]] = []
+    if provider_binding_required:
+        checks.extend(
+            (
+                _check(
+                    "walkthrough_provider_proof_receipt_present",
+                    bool(provider_receipt),
+                    receipt_path=str(provider_receipt_path),
+                ),
+                _check(
+                    "walkthrough_provider_magicfit_result_unique",
+                    int(provider_binding_details.get("provider_result_count") or 0) == 1,
+                    provider_result_count=int(
+                        provider_binding_details.get("provider_result_count") or 0
+                    ),
+                ),
+                _check(
+                    "walkthrough_provider_magicfit_provenance_unique",
+                    int(provider_binding_details.get("provenance_row_count") or 0) == 1,
+                    provenance_row_count=int(
+                        provider_binding_details.get("provenance_row_count") or 0
+                    ),
+                ),
+                _check(
+                    "walkthrough_provider_media_provenance_matches",
+                    provider_binding_details.get("valid") is True,
+                    expected_binding=expected_provider_binding,
+                ),
+                _check(
+                    "walkthrough_provider_selection_unambiguous",
+                    service_receipt_path is None,
+                    service_generated_reconstruction_receipt_path=(
+                        str(service_receipt_path) if service_receipt_path is not None else ""
+                    ),
+                ),
+            )
+        )
     if service_receipt_path is not None:
         checks.append(
             _check(
@@ -657,8 +843,22 @@ def build_walkthrough_quality_receipt(
                 selection_source=selection_source,
             )
         )
-    video_relpath = str(payload.get("video_relpath") or "").strip()
-    video_path = bundle / video_relpath if video_relpath else Path()
+    raw_video_relpath = str(payload.get("video_relpath") or "")
+    video_relpath = _safe_relpath(raw_video_relpath)
+    video_path = (bundle / video_relpath).resolve() if video_relpath else Path()
+    inside_bundle = bool(
+        bundle_path_safe
+        and video_relpath
+        and bundle.resolve() in video_path.parents
+    )
+    checks.append(
+        _check(
+            "walkthrough_bundle_path_inside_tour_root",
+            bundle_path_safe,
+            bundle_path=str(bundle),
+            tour_root=str(root),
+        )
+    )
     checks.append(_check("tour_manifest_present", bool(payload), manifest=str(bundle / "tour.json")))
     if service_receipt_path is not None:
         checks.append(
@@ -668,12 +868,65 @@ def build_walkthrough_quality_receipt(
                 walkthrough_candidate=str(payload.get("_walkthrough_candidate") or "").strip(),
             )
         )
-    checks.append(_check("walkthrough_video_declared", bool(video_relpath), video_relpath=video_relpath))
-    checks.append(_check("walkthrough_video_file_present", bool(video_path and video_path.is_file()), video_path=str(video_path)))
+    checks.append(
+        _check(
+            "walkthrough_video_declared",
+            bool(video_relpath),
+            video_relpath=video_relpath,
+            raw_video_relpath=raw_video_relpath,
+        )
+    )
+    checks.append(
+        _check(
+            "walkthrough_video_path_inside_bundle",
+            inside_bundle,
+            video_path=str(video_path),
+        )
+    )
+    checks.append(_check("walkthrough_video_file_present", bool(inside_bundle and video_path.is_file()), video_path=str(video_path)))
+
+    actual_video_sha256 = (
+        _sha256(video_path) if inside_bundle and video_path.is_file() else ""
+    )
+    provider_media_binding = (
+        {
+            "provider": "magicfit",
+            "bundle_slug": slug,
+            "video_relpath": video_relpath,
+            "bundle_media_path": f"{slug}/{video_relpath}" if slug and video_relpath else "",
+            "video_sha256": actual_video_sha256,
+        }
+        if provider_binding_required
+        else {}
+    )
+    if provider_binding_required:
+        checks.extend(
+            (
+                _check(
+                    "walkthrough_provider_media_path_matches",
+                    bool(slug)
+                    and slug == str(expected_provider_binding.get("bundle_slug") or "")
+                    and video_relpath
+                    == str(expected_provider_binding.get("video_relpath") or ""),
+                    expected_binding=expected_provider_binding,
+                    actual_binding=provider_media_binding,
+                ),
+                _check(
+                    "walkthrough_provider_media_sha256_matches",
+                    bool(actual_video_sha256)
+                    and actual_video_sha256
+                    == str(expected_provider_binding.get("video_sha256") or ""),
+                    expected_video_sha256=str(
+                        expected_provider_binding.get("video_sha256") or ""
+                    ),
+                    actual_video_sha256=actual_video_sha256,
+                ),
+            )
+        )
 
     metadata = (
         _video_metadata(video_path, timeout_seconds=ffprobe_timeout_seconds)
-        if video_path and video_path.is_file()
+        if inside_bundle and video_path.is_file()
         else {}
     )
     format_payload = dict(metadata.get("format") or {}) if isinstance(metadata.get("format"), dict) else {}
@@ -717,7 +970,7 @@ def build_walkthrough_quality_receipt(
         )
     delta_stats = (
         _frame_delta_stats(video_path, **frame_delta_kwargs)
-        if video_path and video_path.is_file()
+        if inside_bundle and video_path.is_file()
         else {"ok": False}
     )
     max_delta = float(delta_stats.get("max_delta") or 0)
@@ -742,7 +995,10 @@ def build_walkthrough_quality_receipt(
             "selection_source": selection_source,
             "service_generated_reconstruction_slug": service_slug,
             "service_generated_reconstruction_receipt_path": str(service_receipt_path) if service_receipt_path is not None else "",
+            "provider_proof_receipt_path": str(provider_receipt_path) if provider_receipt_path is not None else "",
             "video_relpath": video_relpath,
+            "video_sha256": actual_video_sha256,
+            "provider_media_binding": provider_media_binding,
             "walkthrough_candidate": str(payload.get("_walkthrough_candidate") or "").strip(),
             "continuity_sampling_context": continuity_context,
             "check_count": len(checks),
@@ -775,6 +1031,7 @@ def main() -> int:
         default=float(os.getenv("PROPERTYQUARRY_WALKTHROUGH_QUALITY_FRAME_SAMPLE_TIMEOUT_SECONDS", "45") or 45),
     )
     parser.add_argument("--service-generated-reconstruction-receipt", default="")
+    parser.add_argument("--provider-proof-receipt", default="")
     parser.add_argument("--write", default="_completion/smoke/property-live-walkthrough-quality-latest.json")
     args = parser.parse_args()
     receipt = build_walkthrough_quality_receipt(
@@ -785,6 +1042,7 @@ def main() -> int:
         ffprobe_timeout_seconds=max(1.0, float(args.ffprobe_timeout_seconds or 20.0)),
         frame_sample_timeout_seconds=max(1.0, float(args.frame_sample_timeout_seconds or 45.0)),
         service_generated_reconstruction_receipt_path=str(args.service_generated_reconstruction_receipt or "").strip(),
+        provider_proof_receipt_path=str(args.provider_proof_receipt or "").strip(),
     )
     output = json.dumps(receipt, ensure_ascii=True, indent=2, sort_keys=True)
     if args.write:

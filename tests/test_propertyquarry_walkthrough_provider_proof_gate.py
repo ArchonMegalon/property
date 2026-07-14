@@ -105,6 +105,14 @@ def test_walkthrough_provider_proof_gate_requires_real_magicfit_and_omagic_bundl
     media_rows = receipt["provenance_index"][1:]
     assert [row["key"] for row in media_rows] == ["magicfit", "omagic"]
     assert all(row["media_authorship"] is True for row in media_rows)
+    results_by_provider = {
+        row["provider"]: row for row in receipt["provider_results"]
+    }
+    for row in media_rows:
+        result = results_by_provider[row["key"]]
+        assert row["evidence_bundle_slug"] == result["slug"]
+        assert row["evidence_video_relpath"] == result["video_relpath"]
+        assert row["evidence_video_sha256"] == result["video_sha256"]
 
 
 def test_walkthrough_provider_proof_gate_does_not_treat_readiness_or_magicfit_only_as_parity(

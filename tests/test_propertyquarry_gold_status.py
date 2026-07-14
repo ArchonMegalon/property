@@ -299,6 +299,8 @@ def _flagship_customer_ux_receipt_args(tmp_path: Path, *, generated_at: str) -> 
     browser_3d["generated_at"] = generated_at
     walkthrough_quality = _walkthrough_quality_gate_payload()
     walkthrough_quality["generated_at"] = generated_at
+    walkthrough_provider_proof = _walkthrough_provider_proof_payload()
+    walkthrough_provider_proof["generated_at"] = generated_at
     map_preview = {
         "generated_at": generated_at,
         "status": "pass",
@@ -382,6 +384,10 @@ def _flagship_customer_ux_receipt_args(tmp_path: Path, *, generated_at: str) -> 
         "walkthrough_quality_receipt_path": _write_json(
             tmp_path / "walkthrough-quality.json",
             walkthrough_quality,
+        ),
+        "walkthrough_provider_proof_receipt_path": _write_json(
+            tmp_path / "walkthrough-provider-proof.json",
+            walkthrough_provider_proof,
         ),
         "slo_evidence_receipt_path": _write_json(
             tmp_path / "slo-evidence.json",
@@ -1554,6 +1560,9 @@ def _browser_3d_gate_payload(*, status: str = "pass") -> dict[str, object]:
 
 def _walkthrough_quality_gate_payload(*, status: str = "pass") -> dict[str, object]:
     failing = status != "pass"
+    slug = "magicfit-proof-tour"
+    video_relpath = "magicfit-walkthrough.mp4"
+    video_sha256 = "a" * 64
     checks: list[dict[str, object]] = [
         {"name": "walkthrough_video_file_present", "ok": True},
         {
@@ -1587,7 +1596,17 @@ def _walkthrough_quality_gate_payload(*, status: str = "pass") -> dict[str, obje
         "contract_name": "propertyquarry.walkthrough_quality_gate.v1",
         "generated_at": "2026-06-29T10:01:00Z",
         "status": status,
-        "video_relpath": "magicfit-walkthrough.mp4",
+        "demo_slug": slug,
+        "video_relpath": video_relpath,
+        "video_sha256": video_sha256,
+        "provider_proof_receipt_path": "walkthrough-provider-proof.json",
+        "provider_media_binding": {
+            "provider": "magicfit",
+            "bundle_slug": slug,
+            "video_relpath": video_relpath,
+            "bundle_media_path": f"{slug}/{video_relpath}",
+            "video_sha256": video_sha256,
+        },
         "failed_count": 3 if failing else 0,
         "checks": checks,
     }
@@ -1595,6 +1614,7 @@ def _walkthrough_quality_gate_payload(*, status: str = "pass") -> dict[str, obje
 
 def _walkthrough_provider_proof_payload(*, status: str = "pass") -> dict[str, object]:
     passing = status == "pass"
+    video_sha256 = "a" * 64
     verified_providers = ["magicfit", "omagic"] if passing else ["magicfit"]
     verified_orchestrators = ["ea"] if passing else []
     return {
@@ -1620,6 +1640,9 @@ def _walkthrough_provider_proof_payload(*, status: str = "pass") -> dict[str, ob
                 "role": "walkthrough_media_provider",
                 "status": "pass",
                 "media_authorship": True,
+                "evidence_bundle_slug": "magicfit-proof-tour",
+                "evidence_video_relpath": "magicfit-walkthrough.mp4",
+                "evidence_video_sha256": video_sha256,
             },
             {
                 "key": "omagic",
@@ -1627,16 +1650,28 @@ def _walkthrough_provider_proof_payload(*, status: str = "pass") -> dict[str, ob
                 "role": "walkthrough_media_provider",
                 "status": "pass" if passing else "fail",
                 "media_authorship": True,
+                "evidence_bundle_slug": "omagic-proof-tour" if passing else "",
+                "evidence_video_relpath": "omagic-walkthrough.mp4" if passing else "",
+                "evidence_video_sha256": video_sha256 if passing else "",
             },
         ],
         "missing_providers": [] if passing else ["omagic"],
         "failed_count": 0 if passing else 1,
         "provider_results": [
-            {"provider": "magicfit", "status": "pass", "slug": "magicfit-proof-tour", "failed_count": 0},
+            {
+                "provider": "magicfit",
+                "status": "pass",
+                "slug": "magicfit-proof-tour",
+                "video_relpath": "magicfit-walkthrough.mp4",
+                "video_sha256": video_sha256,
+                "failed_count": 0,
+            },
             {
                 "provider": "omagic",
                 "status": "pass" if passing else "fail",
                 "slug": "omagic-proof-tour" if passing else "",
+                "video_relpath": "omagic-walkthrough.mp4" if passing else "",
+                "video_sha256": video_sha256 if passing else "",
                 "failed_count": 0 if passing else 1,
             },
         ],
@@ -1655,8 +1690,83 @@ def test_gold_status_walkthrough_provider_proof_requires_truthful_ea_index() -> 
     false_authorship["provenance_index"][0]["media_authorship"] = True
     assert gold_status._walkthrough_provider_proof_receipt_ok(false_authorship) is False
 
+    false_media_evidence = json.loads(json.dumps(payload))
+    false_media_evidence["provenance_index"][0]["evidence_sidecar_path"] = (
+        "/tmp/tour.magicfit.json"
+    )
+    assert gold_status._walkthrough_provider_proof_receipt_ok(false_media_evidence) is False
+
     missing_index = {**payload, "provenance_index": []}
     assert gold_status._walkthrough_provider_proof_receipt_ok(missing_index) is False
+
+
+def test_gold_status_walkthrough_quality_binding_matches_provider_proof() -> None:
+    quality = _walkthrough_quality_gate_payload()
+    provider = _walkthrough_provider_proof_payload()
+
+    ok, details = gold_status._walkthrough_quality_provider_binding_status(
+        quality,
+        provider,
+    )
+
+    assert ok is True
+    assert details["status"] == "pass"
+
+    digest_mismatch = json.loads(json.dumps(quality))
+    digest_mismatch["provider_media_binding"]["video_sha256"] = "b" * 64
+    mismatch_ok, mismatch_details = (
+        gold_status._walkthrough_quality_provider_binding_status(
+            digest_mismatch,
+            provider,
+        )
+    )
+    assert mismatch_ok is False
+    assert mismatch_details["checks"]["quality_binding_matches_provider_result"] is False
+
+    legacy_quality = json.loads(json.dumps(quality))
+    legacy_quality.pop("provider_media_binding")
+    legacy_quality.pop("video_sha256")
+    legacy_ok, legacy_details = gold_status._walkthrough_quality_provider_binding_status(
+        legacy_quality,
+        provider,
+    )
+    assert legacy_ok is False
+    assert legacy_details["checks"]["quality_binding_matches_provider_result"] is False
+    assert legacy_details["checks"]["quality_top_level_identity_matches"] is False
+
+
+def test_gold_status_blocks_walkthrough_quality_digest_mismatch(
+    tmp_path: Path,
+) -> None:
+    quality_payload = _walkthrough_quality_gate_payload()
+    quality_payload["provider_media_binding"]["video_sha256"] = "b" * 64
+    quality = _write_json(tmp_path / "walkthrough-quality.json", quality_payload)
+    provider = _write_json(
+        tmp_path / "walkthrough-provider-proof.json",
+        _walkthrough_provider_proof_payload(),
+    )
+
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=_write_json(tmp_path / "performance.json", {}),
+        tour_control_receipt_path=_write_json(tmp_path / "tour-controls.json", {}),
+        export_discovery_receipt_path=_write_json(tmp_path / "discovery.json", {}),
+        repair_canary_receipt_path=_write_json(tmp_path / "repair.json", {}),
+        provider_matrix_receipt_path=_write_json(tmp_path / "provider-matrix.json", {}),
+        walkthrough_quality_receipt_path=quality,
+        walkthrough_provider_proof_receipt_path=provider,
+    )
+
+    blocker = next(
+        row for row in receipt["blockers"] if row["area"] == "walkthrough_quality"
+    )
+    assert receipt["status"] == "blocked"
+    assert receipt["walkthrough_quality"]["ready"] is False
+    assert (
+        blocker["provider_binding"]["checks"][
+            "quality_binding_matches_provider_result"
+        ]
+        is False
+    )
 
 
 def _runtime_reconstruction_payload(

@@ -37,13 +37,26 @@ def _load_json(path: Path) -> dict[str, Any]:
 
 
 def _safe_relpath(value: object) -> str:
-    raw = str(value or "").strip().replace("\\", "/")
-    if not raw or raw.startswith("/") or "://" in raw or "\x00" in raw:
+    raw_value = str(value or "")
+    raw = raw_value.strip()
+    if (
+        not raw
+        or raw != raw_value
+        or raw.startswith("/")
+        or "\\" in raw
+        or "://" in raw
+        or "\x00" in raw
+    ):
         return ""
     path = PurePosixPath(raw)
-    if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
+    normalized = "/".join(path.parts)
+    if (
+        path.is_absolute()
+        or normalized != raw
+        or any(part in {"", ".", ".."} for part in path.parts)
+    ):
         return ""
-    return "/".join(path.parts)
+    return normalized
 
 
 def _sha256(path: Path) -> str:
@@ -238,6 +251,11 @@ def _verify_bundle_provider_proof(
         or manifest.get("magicfit_video_relpath")
     )
     checks = [
+        _check(
+            "bundle_directory_not_symlink",
+            not bundle_dir.is_symlink(),
+            bundle_dir=str(bundle_dir),
+        ),
         _check("sidecar_present", sidecar_path.is_file(), sidecar_path=str(sidecar_path)),
         _check("manifest_present", manifest_path.is_file(), manifest_path=str(manifest_path)),
         _check("provider_key_exact", str(sidecar.get("provider_key") or "").strip().lower() == provider_key),
@@ -415,6 +433,9 @@ def build_walkthrough_provider_proof_receipt(
                 "status": str(row.get("status") or "fail"),
                 "media_authorship": True,
                 "evidence_sidecar_path": str(row.get("sidecar_path") or ""),
+                "evidence_bundle_slug": str(row.get("slug") or ""),
+                "evidence_video_relpath": str(row.get("video_relpath") or ""),
+                "evidence_video_sha256": str(row.get("video_sha256") or ""),
             }
             for row in provider_results
         ],

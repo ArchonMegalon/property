@@ -1092,12 +1092,42 @@ def test_property_gold_refresh_runs_generated_reconstruction_browser_shell_smoke
 def test_property_gold_refresh_runs_walkthrough_quality_on_host_toolchain() -> None:
     refresh_script = _read("scripts/refresh_propertyquarry_current_gold_receipts.sh")
 
+    provider_index = refresh_script.index(
+        "scripts/propertyquarry_walkthrough_provider_proof_gate.py"
+    )
+    quality_index = refresh_script.index(
+        "scripts/propertyquarry_walkthrough_quality_gate.py"
+    )
+    stale_receipt_clear_index = refresh_script.index(
+        'rm -f "${walkthrough_provider_proof_receipt}" "${walkthrough_quality_receipt}"'
+    )
+    assert stale_receipt_clear_index < provider_index
+    assert provider_index < quality_index
+    assert "PROPERTYQUARRY_WALKTHROUGH_PROVIDER_PROOF_TIMEOUT_SECONDS" in refresh_script
     assert "PROPERTYQUARRY_WALKTHROUGH_QUALITY_PROCESS_TIMEOUT_SECONDS" in refresh_script
     assert "PROPERTYQUARRY_WALKTHROUGH_QUALITY_FFPROBE_TIMEOUT_SECONDS" in refresh_script
     assert "PROPERTYQUARRY_WALKTHROUGH_QUALITY_FRAME_SAMPLE_TIMEOUT_SECONDS" in refresh_script
-    assert '--tour-root "${CURRENT_PUBLIC_TOUR_DIR}"' in refresh_script
-    assert '--service-generated-reconstruction-receipt "${service_generated_reconstruction_receipt}"' in refresh_script
+    assert refresh_script.count('--tour-root "${walkthrough_tour_root}"') == 2
+    assert '--provider-proof-receipt "${walkthrough_provider_proof_receipt}"' in refresh_script
+    assert '"--walkthrough-provider-proof-receipt" "${walkthrough_provider_proof_receipt}"' in refresh_script
     assert "python /app/scripts/propertyquarry_walkthrough_quality_gate.py" not in refresh_script
+
+
+def test_property_release_gate_binds_quality_to_provider_proof_on_one_tour_root() -> None:
+    release_gate = _read("scripts/property_release_gates.sh")
+
+    provider_index = release_gate.index(
+        "scripts/propertyquarry_walkthrough_provider_proof_gate.py"
+    )
+    quality_index = release_gate.index(
+        "scripts/propertyquarry_walkthrough_quality_gate.py"
+    )
+    assert provider_index < quality_index
+    assert release_gate.count('--tour-root "${walkthrough_provider_proof_tour_root}"') == 2
+    assert (
+        "--provider-proof-receipt _completion/smoke/"
+        "property-live-walkthrough-provider-proof-release-gate.json"
+    ) in release_gate
 
 
 def test_property_deploy_refreshes_service_generated_reconstruction_before_gold_status() -> None:

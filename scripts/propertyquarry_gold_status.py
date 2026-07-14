@@ -11,7 +11,7 @@ import stat
 import sys
 import tempfile
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 if __package__:
@@ -1936,6 +1936,22 @@ def _walkthrough_provider_proof_receipt_ok(receipt: dict[str, Any]) -> bool:
         == "governance_and_verification"
         and str(ea_rows[0].get("status") or "").strip().lower() == "pass"
         and ea_rows[0].get("media_authorship") is False
+        and not any(
+            field in ea_rows[0]
+            for field in (
+                "slug",
+                "bundle_slug",
+                "video_relpath",
+                "video_path",
+                "video_sha256",
+                "bundle_media_path",
+                "provider_media_binding",
+                "evidence_sidecar_path",
+                "evidence_bundle_slug",
+                "evidence_video_relpath",
+                "evidence_video_sha256",
+            )
+        )
     )
     return (
         _hard_gate_receipt_ok(receipt)
@@ -1944,6 +1960,135 @@ def _walkthrough_provider_proof_receipt_ok(receipt: dict[str, Any]) -> bool:
         and required_providers | {"ea"} <= indexed_participants
         and ea_row_ok
     )
+
+
+def _walkthrough_safe_slug(value: object) -> str:
+    raw_value = str(value or "")
+    raw = raw_value.strip()
+    if (
+        not raw
+        or raw != raw_value
+        or raw in {".", ".."}
+        or "/" in raw
+        or "\\" in raw
+        or "://" in raw
+        or "\x00" in raw
+    ):
+        return ""
+    return raw
+
+
+def _walkthrough_safe_relpath(value: object) -> str:
+    raw_value = str(value or "")
+    raw = raw_value.strip()
+    if (
+        not raw
+        or raw != raw_value
+        or raw.startswith("/")
+        or "\\" in raw
+        or "://" in raw
+        or "\x00" in raw
+    ):
+        return ""
+    path = PurePosixPath(raw)
+    normalized = "/".join(path.parts)
+    if (
+        path.is_absolute()
+        or normalized != raw
+        or any(part in {"", ".", ".."} for part in path.parts)
+    ):
+        return ""
+    return normalized
+
+
+def _walkthrough_quality_provider_binding_status(
+    quality_receipt: dict[str, Any],
+    provider_receipt: dict[str, Any],
+) -> tuple[bool, dict[str, Any]]:
+    quality_binding = (
+        dict(quality_receipt.get("provider_media_binding") or {})
+        if isinstance(quality_receipt.get("provider_media_binding"), dict)
+        else {}
+    )
+    provider_results = [
+        dict(row)
+        for row in list(provider_receipt.get("provider_results") or [])
+        if isinstance(row, dict)
+        and str(row.get("provider") or "").strip().lower() == "magicfit"
+        and str(row.get("status") or "").strip().lower() == "pass"
+    ]
+    provenance_rows = [
+        dict(row)
+        for row in list(provider_receipt.get("provenance_index") or [])
+        if isinstance(row, dict)
+        and str(row.get("key") or "").strip().lower() == "magicfit"
+        and str(row.get("kind") or "").strip().lower() == "media_provider"
+        and str(row.get("role") or "").strip().lower() == "walkthrough_media_provider"
+        and str(row.get("status") or "").strip().lower() == "pass"
+        and row.get("media_authorship") is True
+    ]
+    provider_result = provider_results[0] if len(provider_results) == 1 else {}
+    provenance_row = provenance_rows[0] if len(provenance_rows) == 1 else {}
+
+    slug = _walkthrough_safe_slug(provider_result.get("slug"))
+    video_relpath = _walkthrough_safe_relpath(provider_result.get("video_relpath"))
+    video_sha256 = str(provider_result.get("video_sha256") or "").strip().lower()
+    sha256_valid = len(video_sha256) == 64 and all(
+        character in "0123456789abcdef" for character in video_sha256
+    )
+    expected_binding = {
+        "provider": "magicfit",
+        "bundle_slug": slug,
+        "video_relpath": video_relpath,
+        "bundle_media_path": f"{slug}/{video_relpath}" if slug and video_relpath else "",
+        "video_sha256": video_sha256,
+    }
+    provenance_binding = {
+        "provider": "magicfit",
+        "bundle_slug": _walkthrough_safe_slug(
+            provenance_row.get("evidence_bundle_slug")
+        ),
+        "video_relpath": _walkthrough_safe_relpath(
+            provenance_row.get("evidence_video_relpath")
+        ),
+        "bundle_media_path": (
+            f"{_walkthrough_safe_slug(provenance_row.get('evidence_bundle_slug'))}/"
+            f"{_walkthrough_safe_relpath(provenance_row.get('evidence_video_relpath'))}"
+            if provenance_row
+            else ""
+        ),
+        "video_sha256": str(
+            provenance_row.get("evidence_video_sha256") or ""
+        ).strip().lower(),
+    }
+    checks = {
+        "quality_contract": quality_receipt.get("contract_name")
+        == "propertyquarry.walkthrough_quality_gate.v1",
+        "provider_contract": provider_receipt.get("contract_name")
+        == "propertyquarry.walkthrough_provider_proof_gate.v1",
+        "provider_proof_receipt_recorded": bool(
+            str(quality_receipt.get("provider_proof_receipt_path") or "").strip()
+        ),
+        "magicfit_result_unique": len(provider_results) == 1,
+        "magicfit_provenance_unique": len(provenance_rows) == 1,
+        "provider_media_identity_valid": bool(slug and video_relpath and sha256_valid),
+        "quality_binding_matches_provider_result": quality_binding == expected_binding,
+        "provider_provenance_matches_result": provenance_binding == expected_binding,
+        "quality_top_level_identity_matches": (
+            str(quality_receipt.get("demo_slug") or "").strip() == slug
+            and str(quality_receipt.get("video_relpath") or "").strip()
+            == video_relpath
+            and str(quality_receipt.get("video_sha256") or "").strip().lower()
+            == video_sha256
+        ),
+    }
+    return all(checks.values()), {
+        "status": "pass" if all(checks.values()) else "fail",
+        "checks": checks,
+        "quality_binding": quality_binding,
+        "provider_binding": expected_binding,
+        "provenance_binding": provenance_binding,
+    }
 
 
 def _route_covers_required_detail(route: str, required_prefix: str) -> bool:
@@ -2624,17 +2769,45 @@ def build_gold_status_receipt(
             and service_generated_reconstruction.get("public_route_contract_ok") is True
         )
     )
-    walkthrough_quality_ok = (
-        (walkthrough_quality_receipt_path is None and not flagship_profile)
-        or _hard_gate_receipt_ok(walkthrough_quality)
+    walkthrough_provider_binding_claimed = bool(
+        isinstance(walkthrough_quality.get("provider_media_binding"), dict)
+        and walkthrough_quality.get("provider_media_binding")
+    ) or bool(str(walkthrough_quality.get("provider_proof_receipt_path") or "").strip())
+    walkthrough_provider_proof_required = (
+        scene_video_readiness_receipt_path is not None
+        or walkthrough_provider_proof_receipt_path is not None
+        or walkthrough_provider_binding_claimed
     )
-    walkthrough_provider_proof_required = scene_video_readiness_receipt_path is not None
     walkthrough_provider_proof_ok = (
         not walkthrough_provider_proof_required
         or (
             walkthrough_provider_proof_receipt_path is not None
             and _walkthrough_provider_proof_receipt_ok(walkthrough_provider_proof)
         )
+    )
+    walkthrough_provider_binding_ok, walkthrough_provider_binding_details = (
+        _walkthrough_quality_provider_binding_status(
+            walkthrough_quality,
+            walkthrough_provider_proof,
+        )
+        if walkthrough_provider_proof_required
+        else (
+            True,
+            {
+                "status": "not_required",
+                "checks": {},
+                "quality_binding": {},
+                "provider_binding": {},
+                "provenance_binding": {},
+            },
+        )
+    )
+    walkthrough_quality_ok = (
+        (
+            (walkthrough_quality_receipt_path is None and not flagship_profile)
+            or _hard_gate_receipt_ok(walkthrough_quality)
+        )
+        and walkthrough_provider_binding_ok
     )
     scene_video_readiness_verifier_ok = (
         scene_video_readiness_verifier_receipt_path is None
@@ -3125,8 +3298,11 @@ def build_gold_status_receipt(
                 "status": walkthrough_quality.get("status") or ("not_configured" if walkthrough_quality_receipt_path is None else "missing"),
                 "failed_count": walkthrough_quality.get("failed_count"),
                 "video_relpath": str(walkthrough_quality.get("video_relpath") or ""),
+                "video_sha256": str(walkthrough_quality.get("video_sha256") or ""),
+                "provider_media_binding": walkthrough_quality.get("provider_media_binding") or {},
+                "provider_binding": walkthrough_provider_binding_details,
                 "failed_checks": _failed_receipt_checks(walkthrough_quality),
-                "action": "rerun propertyquarry_walkthrough_quality_gate.py --service-generated-reconstruction-receipt _completion/tours/property-service-generated-reconstruction-current.json after generating a walkthrough with explicit room coverage, sufficient duration, and frame-continuity proof",
+                "action": "run propertyquarry_walkthrough_provider_proof_gate.py first, then rerun propertyquarry_walkthrough_quality_gate.py with --provider-proof-receipt pointing at that exact passing proof and the same tour root; fix media identity, digest, room coverage, duration, or frame-continuity failures",
             }
         )
     if not walkthrough_provider_proof_ok:
@@ -3626,6 +3802,8 @@ def build_gold_status_receipt(
             "area": "walkthrough_quality",
             "status": "pass",
             "video_relpath": str(walkthrough_quality.get("video_relpath") or ""),
+            "video_sha256": str(walkthrough_quality.get("video_sha256") or ""),
+            "provider_media_binding": walkthrough_quality.get("provider_media_binding") or {},
             "receipt_path": str(walkthrough_quality_receipt_path),
         }
         if walkthrough_quality_receipt_path is not None and walkthrough_quality_ok
@@ -4008,6 +4186,9 @@ def build_gold_status_receipt(
             "status": walkthrough_quality.get("status") or ("not_configured" if walkthrough_quality_receipt_path is None else "missing"),
             "failed_count": walkthrough_quality.get("failed_count") if walkthrough_quality_receipt_path is not None else None,
             "video_relpath": str(walkthrough_quality.get("video_relpath") or ""),
+            "video_sha256": str(walkthrough_quality.get("video_sha256") or ""),
+            "provider_media_binding": walkthrough_quality.get("provider_media_binding") or {},
+            "provider_binding": walkthrough_provider_binding_details,
             "failed_checks": _failed_receipt_checks(walkthrough_quality) if walkthrough_quality_receipt_path is not None else [],
             "ready": walkthrough_quality_ok if walkthrough_quality_receipt_path is not None else None,
             "receipt_path": str(walkthrough_quality_receipt_path) if walkthrough_quality_receipt_path is not None else "",

@@ -334,24 +334,25 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_3d_browser_gate.py \
   --screenshots-dir _completion/smoke/property-live-3d-browser-gate-release-gate-screenshots \
   --write _completion/smoke/property-live-3d-browser-gate-release-gate.json \
   > /dev/null
+walkthrough_provider_proof_tour_root="${PROPERTYQUARRY_WALKTHROUGH_PROVIDER_PROOF_TOUR_ROOT:-${EA_PUBLIC_TOUR_DIR:-${EA_ROOT}/state/public_property_tours}}"
+walkthrough_provider_proof_timeout_seconds="${PROPERTYQUARRY_WALKTHROUGH_PROVIDER_PROOF_TIMEOUT_SECONDS:-180}"
+if ! PYTHONPATH=ea timeout "${walkthrough_provider_proof_timeout_seconds}" "${PYTHON_BIN}" scripts/propertyquarry_walkthrough_provider_proof_gate.py \
+  --tour-root "${walkthrough_provider_proof_tour_root}" \
+  --write _completion/smoke/property-live-walkthrough-provider-proof-release-gate.json \
+  > /dev/null; then
+  echo "error: PropertyQuarry MagicFit/OMagic walkthrough provider proof gate failed or timed out." >&2
+  cat _completion/smoke/property-live-walkthrough-provider-proof-release-gate.json >&2 2>/dev/null || true
+  exit 1
+fi
 if ! PYTHONPATH=ea timeout "${walkthrough_quality_process_timeout_seconds}" "${PYTHON_BIN}" scripts/propertyquarry_walkthrough_quality_gate.py \
-  --tour-root "${EA_PUBLIC_TOUR_DIR:-${EA_ROOT}/state/public_property_tours}" \
-  --service-generated-reconstruction-receipt _completion/tours/property-service-generated-reconstruction-release-gate.json \
+  --tour-root "${walkthrough_provider_proof_tour_root}" \
+  --provider-proof-receipt _completion/smoke/property-live-walkthrough-provider-proof-release-gate.json \
   --ffprobe-timeout-seconds "${walkthrough_quality_ffprobe_timeout_seconds}" \
   --frame-sample-timeout-seconds "${walkthrough_quality_frame_sample_timeout_seconds}" \
   --write _completion/smoke/property-live-walkthrough-quality-release-gate.json \
   > /dev/null; then
   echo "error: PropertyQuarry walkthrough quality gate failed or timed out." >&2
   cat _completion/smoke/property-live-walkthrough-quality-release-gate.json >&2 2>/dev/null || true
-  exit 1
-fi
-walkthrough_provider_proof_timeout_seconds="${PROPERTYQUARRY_WALKTHROUGH_PROVIDER_PROOF_TIMEOUT_SECONDS:-180}"
-if ! PYTHONPATH=ea timeout "${walkthrough_provider_proof_timeout_seconds}" "${PYTHON_BIN}" scripts/propertyquarry_walkthrough_provider_proof_gate.py \
-  --tour-root "${PROPERTYQUARRY_WALKTHROUGH_PROVIDER_PROOF_TOUR_ROOT:-${EA_PUBLIC_TOUR_DIR:-${EA_ROOT}/state/public_property_tours}}" \
-  --write _completion/smoke/property-live-walkthrough-provider-proof-release-gate.json \
-  > /dev/null; then
-  echo "error: PropertyQuarry MagicFit/OMagic walkthrough provider proof gate failed or timed out." >&2
-  cat _completion/smoke/property-live-walkthrough-provider-proof-release-gate.json >&2 2>/dev/null || true
   exit 1
 fi
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/verify_property_tour_provider_ownership.py \

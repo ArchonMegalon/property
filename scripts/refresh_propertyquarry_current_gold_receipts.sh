@@ -29,7 +29,7 @@ Defaults:
 
 The script refreshes the current receipts that propertyquarry_gold_status.py
 consumes for flagship live proof: public/auth/mobile/provider smokes, tour
-controls, export discovery, vendor tooling, walkthrough quality, browser-rendered
+controls, export discovery, vendor tooling, walkthrough provider proof and quality, browser-rendered
 3D, billing/ID Austria, scene-video readiness, runtime reconstruction, service-owned
 generated reconstruction, and the
 static contract receipts that were previously going stale.
@@ -75,6 +75,7 @@ MOBILE_PROCESS_TIMEOUT_SECONDS="${PROPERTYQUARRY_DEPLOY_MOBILE_SMOKE_PROCESS_TIM
 WALKTHROUGH_QUALITY_PROCESS_TIMEOUT_SECONDS="${PROPERTYQUARRY_WALKTHROUGH_QUALITY_PROCESS_TIMEOUT_SECONDS:-180}"
 WALKTHROUGH_QUALITY_FFPROBE_TIMEOUT_SECONDS="${PROPERTYQUARRY_WALKTHROUGH_QUALITY_FFPROBE_TIMEOUT_SECONDS:-20}"
 WALKTHROUGH_QUALITY_FRAME_SAMPLE_TIMEOUT_SECONDS="${PROPERTYQUARRY_WALKTHROUGH_QUALITY_FRAME_SAMPLE_TIMEOUT_SECONDS:-45}"
+WALKTHROUGH_PROVIDER_PROOF_TIMEOUT_SECONDS="${PROPERTYQUARRY_WALKTHROUGH_PROVIDER_PROOF_TIMEOUT_SECONDS:-180}"
 RUNTIME_RECONSTRUCTION_CONTAINER="${PROPERTYQUARRY_RUNTIME_RECONSTRUCTION_CONTAINER:-${RENDER_CONTAINER}}"
 RUNTIME_RECONSTRUCTION_SLUG="${PROPERTYQUARRY_RUNTIME_RECONSTRUCTION_SMOKE_SLUG:-runtime-reconstruction-current-$(date +%Y%m%d%H%M%S)}"
 SERVICE_GENERATED_RECONSTRUCTION_SLUG="${PROPERTYQUARRY_SERVICE_GENERATED_RECONSTRUCTION_SMOKE_SLUG:-service-generated-reconstruction-current-$(date +%Y%m%d%H%M%S)}"
@@ -216,10 +217,13 @@ scene_video_refresh_packet="_completion/scene_video_readiness/provider-refresh-p
 scene_video_refresh_packet_verifier="_completion/scene_video_readiness/provider-refresh-packet-verifier.json"
 gold_status_receipt="_completion/property_gold_status/latest.json"
 service_generated_reconstruction_receipt="_completion/tours/property-service-generated-reconstruction-current.json"
+walkthrough_provider_proof_receipt="_completion/smoke/property-live-walkthrough-provider-proof-latest.json"
+walkthrough_quality_receipt="_completion/smoke/property-live-walkthrough-quality-latest.json"
 
 resolve_public_tour_dir
 resolve_api_token
 require_container "${API_CONTAINER}"
+walkthrough_tour_root="${PROPERTYQUARRY_WALKTHROUGH_PROVIDER_PROOF_TOUR_ROOT:-${CURRENT_PUBLIC_TOUR_DIR}}"
 
 run_allow_fail \
   "Security posture receipt" \
@@ -436,15 +440,25 @@ run_allow_fail \
     --runtime-container "${API_CONTAINER}" \
     --screenshots-dir _completion/smoke/property-live-3d-browser-gate-screenshots \
     --write _completion/smoke/property-live-3d-browser-gate-latest.json
+if ! rm -f "${walkthrough_provider_proof_receipt}" "${walkthrough_quality_receipt}"; then
+  echo "error: could not clear stale walkthrough provider-proof and quality receipts." >&2
+  exit 1
+fi
+run_allow_fail \
+  "Walkthrough provider-proof receipt" \
+  timeout "${WALKTHROUGH_PROVIDER_PROOF_TIMEOUT_SECONDS}" \
+    env PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_walkthrough_provider_proof_gate.py \
+      --tour-root "${walkthrough_tour_root}" \
+      --write "${walkthrough_provider_proof_receipt}"
 run_allow_fail \
   "Walkthrough quality receipt" \
   timeout "${WALKTHROUGH_QUALITY_PROCESS_TIMEOUT_SECONDS}" \
     env PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_walkthrough_quality_gate.py \
-      --tour-root "${CURRENT_PUBLIC_TOUR_DIR}" \
-      --service-generated-reconstruction-receipt "${service_generated_reconstruction_receipt}" \
+      --tour-root "${walkthrough_tour_root}" \
+      --provider-proof-receipt "${walkthrough_provider_proof_receipt}" \
       --ffprobe-timeout-seconds "${WALKTHROUGH_QUALITY_FFPROBE_TIMEOUT_SECONDS}" \
       --frame-sample-timeout-seconds "${WALKTHROUGH_QUALITY_FRAME_SAMPLE_TIMEOUT_SECONDS}" \
-      --write _completion/smoke/property-live-walkthrough-quality-latest.json
+      --write "${walkthrough_quality_receipt}"
 
 gold_args=(
   "--performance-receipt" "_completion/smoke/property-auth-performance-latest.json"
@@ -470,7 +484,8 @@ gold_args=(
   "--browser-3d-gate-receipt" "_completion/smoke/property-live-3d-browser-gate-latest.json"
   "--runtime-reconstruction-receipt" "_completion/tours/property-runtime-reconstruction-release-gate.json"
   "--service-generated-reconstruction-receipt" "${service_generated_reconstruction_receipt}"
-  "--walkthrough-quality-receipt" "_completion/smoke/property-live-walkthrough-quality-latest.json"
+  "--walkthrough-provider-proof-receipt" "${walkthrough_provider_proof_receipt}"
+  "--walkthrough-quality-receipt" "${walkthrough_quality_receipt}"
   "--scene-video-readiness-receipt" "${scene_video_receipt}"
   "--scene-video-readiness-verifier-receipt" "${scene_video_verifier_receipt}"
   "--scene-video-runtime-status-receipt" "${scene_video_runtime_status_receipt}"
