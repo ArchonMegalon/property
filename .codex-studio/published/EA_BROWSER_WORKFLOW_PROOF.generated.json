@@ -5,7 +5,7 @@
   "proof_target": "propertyquarry",
   "version": 1,
   "kind": "proof_receipt",
-  "generated_at": "2026-07-14T05:06:07Z",
+  "generated_at": "2026-07-14T14:29:48Z",
   "generated_by": "scripts/materialize_ea_browser_workflow_proof.py",
   "status": "pass",
   "operator_summary": "PropertyQuarry browser workflow proof is published and green across both source-backed journeys and real-browser E2E.",
@@ -20,7 +20,7 @@
   ],
   "source_binding": {
     "version": 1,
-    "code_commit": "6e2959f6313dcc1b29d0257cb20843f50f845517",
+    "code_commit": "1d5a829ad64045a933afc3d429a3a8c57dcc9cf0",
     "seed": {
       "path": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
       "sha256": "542cd03e2ea8ca3432f8be73a4b37dd2b58c52dd92cd8726375db507e09ebf07",
@@ -29,13 +29,13 @@
     "required_test_sources": [
       {
         "path": "tests/test_propertyquarry_workspace_redesign.py",
-        "sha256": "2fcaf73d371b452410d35b1d5ca4026e07ffc327091ac5f64973ee67cca872d2",
-        "git_blob_oid": "6c00c1de2710cc33d21652625ea0d27063038337"
+        "sha256": "d75861e47e42322b160c976beb514b1e0e1b390e88e16fb8cee8510e9e5ffd5e",
+        "git_blob_oid": "f1fa9a1ad0fb328ee9a7c74ab222cb0e49e3e851"
       },
       {
         "path": "tests/e2e/test_propertyquarry_greenfield_browser.py",
-        "sha256": "a22bbac210f35e5a20793b1fedf5ac143bd925d65887fea453c26d131edc0019",
-        "git_blob_oid": "22cf5bd1991a5d9630227a2126c8c270f5b881a4"
+        "sha256": "b77f43eb3eb4b568a89ba27576dac44a7928a71f7caaa430f9fe185e30cfcaee",
+        "git_blob_oid": "ea18aef5b458a42a521b324e993e88d99bdcab04"
       }
     ]
   },
@@ -50,10 +50,10 @@
       "test_propertyquarry_failed_run_stays_on_activity_surface"
     ],
     "exit_code": 0,
-    "duration_seconds": 266.748,
+    "duration_seconds": 34.48,
     "output_excerpt": [
       "..                                                                       [100%]",
-      "2 passed in 232.39s (0:03:52)"
+      "2 passed in 30.87s"
     ],
     "limitations": [],
     "outcome_counts": {
@@ -79,10 +79,10 @@
       "test_propertyquarry_greenfield_workspace_is_mobile_usable"
     ],
     "exit_code": 0,
-    "duration_seconds": 188.603,
+    "duration_seconds": 58.506,
     "output_excerpt": [
       "..                                                                       [100%]",
-      "2 passed in 154.76s (0:02:34)"
+      "2 passed in 49.58s"
     ],
     "limitations": [],
     "outcome_counts": {
