@@ -3015,7 +3015,7 @@ def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_contr
         )
         floorplan_stop_items.append(
             f"""
-        <button class="floorplan-stop" type="button" data-route-index="{index}" aria-label="Go to {label}" style="left:{display_left_pct}%;top:{display_top_pct}%;">
+        <button class="floorplan-stop" type="button" data-route-index="{index}" aria-label="Go to {label}" aria-current="false" style="left:{display_left_pct}%;top:{display_top_pct}%;">
           <span class="floorplan-stop-index">{index + 1}</span>
           <span class="floorplan-stop-label">{label}</span>
         </button>"""
@@ -3032,7 +3032,7 @@ def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_contr
         else ""
     )
     route_items = "\n".join(
-        f'<button class="route-button" type="button" data-route-index="{index}">{html.escape(str(stop.get("label") or stop.get("room") or stop.get("name") or f"Stop {index + 1}"))}</button>'
+        f'<button class="route-button" type="button" data-route-index="{index}" aria-current="false">{html.escape(str(stop.get("label") or stop.get("room") or stop.get("name") or f"Stop {index + 1}"))}</button>'
         for index, stop in enumerate(route_stops)
         if isinstance(stop, dict)
     )
@@ -3066,7 +3066,7 @@ def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_contr
         else ""
     )
     return f"""<!doctype html>
-<html lang="en" data-pq-preview-kind="approximate-layout" data-pq-verified-provider-capture="false">
+<html lang="en" data-pq-preview-kind="approximate-layout" data-pq-verified-provider-capture="false" data-viewer-status="loading">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -3087,6 +3087,18 @@ def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_contr
       --shadow:0 12px 32px rgba(23,32,28,.1);
     }}
     * {{ box-sizing: border-box; }}
+    .sr-only {{
+      position:absolute;
+      width:1px;
+      height:1px;
+      padding:0;
+      margin:-1px;
+      overflow:hidden;
+      clip:rect(0,0,0,0);
+      clip-path:inset(50%);
+      white-space:nowrap;
+      border:0;
+    }}
     body {{
       margin:0;
       min-height:100vh;
@@ -3111,6 +3123,26 @@ def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_contr
       display:block;
       width:100%;
       height:100%;
+    }}
+    .viewer-fallback {{
+      position:absolute;
+      top:50%;
+      left:50%;
+      z-index:5;
+      width:min(440px,calc(100% - 40px));
+      transform:translate(-50%,-50%);
+      padding:20px 22px;
+      border:1px solid var(--line);
+      border-left:4px solid var(--signal);
+      border-radius:6px;
+      background:rgba(255,255,255,.97);
+      box-shadow:var(--shadow);
+    }}
+    .viewer-fallback[hidden] {{ display:none; }}
+    .viewer-fallback strong {{ display:block; font-size:18px; line-height:1.25; }}
+    .viewer-fallback p {{ margin:8px 0 0; color:var(--muted); font-size:14px; line-height:1.45; }}
+    .viewport[data-render-status="unavailable"] {{
+      background:linear-gradient(145deg,#edf2ef,#dfe8e3);
     }}
     .stage-hotspots {{
       position:absolute;
@@ -3459,7 +3491,12 @@ def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_contr
 <body>
 <main>
   <section class="stage">
-    <div class="viewport" id="viewport" aria-label="3D layout preview"></div>
+    <div class="viewport" id="viewport" aria-label="Interactive 3D layout preview" aria-busy="true"></div>
+    <p class="sr-only" id="viewer-live-status" role="status" aria-live="polite" aria-atomic="true">Loading interactive 3D layout preview.</p>
+    <div class="viewer-fallback" id="viewer-fallback" role="alert" aria-live="assertive" aria-atomic="true" hidden>
+      <strong>3D preview is unavailable</strong>
+      <p>Your browser could not start the interactive view. Use the floorplan and listing photos to review the layout.</p>
+    </div>
     <div class="stage-hotspots" id="stage-hotspots" aria-label="Room hotspots"></div>
     <div class="hud">
       <div class="title-card">
@@ -3469,10 +3506,10 @@ def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_contr
       <div class="hint-pill">Drag, zoom, then inspect the plan beside it.</div>
     </div>
     <div class="viewer-actions">
-      <button class="viewer-chip" id="view-overview" type="button">Overview</button>
-      <button class="viewer-chip" id="view-dollhouse" type="button">Dollhouse</button>
-      <button class="viewer-chip" id="view-inside" type="button">Room view</button>
-      <button class="viewer-chip" id="view-guided-route" type="button">Guide me</button>
+      <button class="viewer-chip" id="view-overview" type="button" aria-pressed="false">Overview</button>
+      <button class="viewer-chip" id="view-dollhouse" type="button" aria-pressed="false">Dollhouse</button>
+      <button class="viewer-chip" id="view-inside" type="button" aria-pressed="false">Room view</button>
+      <button class="viewer-chip" id="view-guided-route" type="button" aria-pressed="false">Guide me</button>
     </div>
     <div class="capture-route-card" id="capture-route-card" hidden>
       <span class="capture-route-kicker" id="capture-route-kicker">Layout flythrough</span>
@@ -3516,6 +3553,8 @@ import {{ OrbitControls }} from "./{orbit_controls_relpath}";
 
 const viewport = document.getElementById("viewport");
 const hotspotLayer = document.getElementById("stage-hotspots");
+const viewerLiveStatus = document.getElementById("viewer-live-status");
+const viewerFallback = document.getElementById("viewer-fallback");
 const overviewButton = document.getElementById("view-overview");
 const dollhouseButton = document.getElementById("view-dollhouse");
 const insideButton = document.getElementById("view-inside");
@@ -3533,6 +3572,8 @@ const routeQuery = new URLSearchParams(window.location.search);
 const captureMode = routeQuery.get("capture") === "1";
 const guidedQueryEnabled = routeQuery.get("guided") === "1";
 const shellProbeMode = routeQuery.get("shell_probe") === "1";
+const reducedMotionMedia = window.matchMedia("(prefers-reduced-motion: reduce)");
+let prefersReducedMotion = Boolean(reducedMotionMedia.matches);
 if (captureMode) {{
   document.documentElement.dataset.captureMode = "true";
 }}
@@ -3541,17 +3582,70 @@ const captureRouteKicker = document.getElementById("capture-route-kicker");
 const captureRouteLabel = document.getElementById("capture-route-label");
 const captureRouteProgress = document.getElementById("capture-route-progress");
 
+function announceViewerState(message) {{
+  if (viewerLiveStatus) {{
+    viewerLiveStatus.textContent = String(message || "").trim();
+  }}
+}}
+
+function webglSupported() {{
+  try {{
+    const probe = document.createElement("canvas");
+    return Boolean(probe.getContext("webgl2") || probe.getContext("webgl"));
+  }} catch (_error) {{
+    return false;
+  }}
+}}
+
+function showViewerFallback() {{
+  document.documentElement.dataset.viewerStatus = "unavailable";
+  viewport.dataset.renderStatus = "unavailable";
+  viewport.setAttribute("aria-busy", "false");
+  hotspotLayer && (hotspotLayer.hidden = true);
+  if (viewerFallback) {{
+    viewerFallback.hidden = false;
+  }}
+  document.querySelectorAll(".viewer-chip, .route-button, .floorplan-stop").forEach((button) => {{
+    button.disabled = true;
+  }});
+  announceViewerState("The interactive 3D preview is unavailable. Use the floorplan and listing photos instead.");
+  window.__pqReconstructionDebug = {{
+    getRenderMetrics: () => ({{
+      ready: false,
+      reason: "webgl_unavailable",
+      routeStopCount: Number(routeStops.length || 0),
+      guidedQueryEnabled: Boolean(guidedQueryEnabled),
+      guidedRouteActive: false,
+      prefersReducedMotion: Boolean(prefersReducedMotion),
+      frameCount: 0,
+    }}),
+  }};
+}}
+
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xe8eeeb);
 scene.fog = new THREE.Fog(0xe8eeeb, 13, 34);
 let renderFrameCount = 0;
 
 const camera = new THREE.PerspectiveCamera(48, 1, 0.1, 100);
-const renderer = new THREE.WebGLRenderer({{ antialias: true, alpha: true, preserveDrawingBuffer: true }});
+let renderer = null;
+if (webglSupported()) {{
+  try {{
+    renderer = new THREE.WebGLRenderer({{ antialias: true, alpha: true, preserveDrawingBuffer: true }});
+  }} catch (_error) {{
+    renderer = null;
+  }}
+}}
+if (!renderer) {{
+  showViewerFallback();
+}}
+if (renderer) {{
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.domElement.setAttribute("role", "img");
+renderer.domElement.setAttribute("aria-label", "Interactive 3D layout preview. Use the view and room route controls to navigate.");
 viewport.appendChild(renderer.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -3679,6 +3773,7 @@ for (const stop of routeStops) {{
     const hotspotLabel = String(stop.label || stop.room || stop.name || `Stop ${{routeHotspots.length + 1}}`);
     button.dataset.label = hotspotLabel;
     button.setAttribute("aria-label", `Go to ${{hotspotLabel}}`);
+    button.setAttribute("aria-current", "false");
     button.textContent = String(routeHotspots.length + 1);
     const label = document.createElement("span");
     label.className = "route-hotspot-label";
@@ -3833,6 +3928,7 @@ const liveViewerState = {{
   routeStopCount: Number(routeStops.length || 0),
   activeRouteIndex: -1,
   viewMode: "overview",
+  prefersReducedMotion: Boolean(prefersReducedMotion),
   photoPanelCount: Number(photoPanelSpecs.length || 0),
   loadedPhotoTextureCount: 0,
   frameCount: 0,
@@ -4120,13 +4216,24 @@ function setGuideChipState(active) {{
     return;
   }}
   guideButton.dataset.active = active ? "true" : "false";
+  guideButton.setAttribute("aria-pressed", active ? "true" : "false");
+  guideButton.disabled = Boolean(prefersReducedMotion);
+  if (prefersReducedMotion) {{
+    guideButton.title = "Guided autoplay is off while reduced motion is enabled.";
+  }} else {{
+    guideButton.removeAttribute("title");
+  }}
   guideButton.textContent = active ? "Stop guide" : "Guide me";
 }}
 
 function stopGuidedRoute() {{
+  const wasActive = Boolean(guidedRouteState.active);
   clearGuidedRouteTimer();
   guidedRouteState.active = false;
   setGuideChipState(false);
+  if (wasActive) {{
+    announceViewerState("Guided room route stopped.");
+  }}
 }}
 
 function queueGuidedRouteIndex(index, delayMs) {{
@@ -4157,7 +4264,11 @@ function runGuidedRouteIndex(index) {{
 }}
 
 function startGuidedRoute(options = {{}}) {{
-  if (!routeStops.length) {{
+  if (!routeStops.length || prefersReducedMotion) {{
+    if (prefersReducedMotion) {{
+      stopGuidedRoute();
+      announceViewerState("Guided autoplay is off because reduced motion is enabled.");
+    }}
     return false;
   }}
   guidedRouteState.active = true;
@@ -4166,6 +4277,7 @@ function startGuidedRoute(options = {{}}) {{
     : (activeRouteIndex >= 0 ? activeRouteIndex : 0);
   guidedRouteState.currentIndex = Math.max(0, Math.min(requestedIndex, routeStops.length - 1));
   setGuideChipState(true);
+  announceViewerState("Guided room route started.");
   runGuidedRouteIndex(guidedRouteState.currentIndex);
   return true;
 }}
@@ -4183,6 +4295,22 @@ function completeCameraTransition() {{
   routeCameraTransition.progress = 1;
 }}
 
+function handleReducedMotionChange(event) {{
+  prefersReducedMotion = Boolean(event && event.matches);
+  liveViewerState.prefersReducedMotion = Boolean(prefersReducedMotion);
+  if (prefersReducedMotion) {{
+    if (routeCameraTransition.active) {{
+      routeCameraTransition.durationMs = 0;
+      completeCameraTransition();
+    }}
+    stopGuidedRoute();
+    announceViewerState("Reduced motion enabled. Camera transitions and guided autoplay are off.");
+  }} else {{
+    announceViewerState("Reduced motion disabled. Camera transitions are available.");
+  }}
+  setGuideChipState(guidedRouteState.active);
+}}
+
 function startCameraTransition({{ position, target, viewMode, routeIndex = activeRouteIndex, immediate = false }}) {{
   const nextPosition = position.clone();
   const nextTarget = target.clone();
@@ -4198,7 +4326,7 @@ function startCameraTransition({{ position, target, viewMode, routeIndex = activ
   routeCameraTransition.targetViewMode = activeViewMode;
   routeCameraTransition.toPosition.copy(nextPosition);
   routeCameraTransition.toTarget.copy(nextTarget);
-  if (immediate || travelDistance < 0.08) {{
+  if (immediate || prefersReducedMotion || travelDistance < 0.08) {{
     routeCameraTransition.durationMs = 0;
     completeCameraTransition();
     return;
@@ -4278,10 +4406,19 @@ function setInsideView(options = {{}}) {{
 let activeRouteIndex = -1;
 let activeViewMode = "overview";
 function setActiveViewChip(mode) {{
-  overviewButton && (overviewButton.dataset.active = mode === "overview" ? "true" : "false");
-  dollhouseButton && (dollhouseButton.dataset.active = mode === "dollhouse" ? "true" : "false");
-  insideButton && (insideButton.dataset.active = mode === "room" ? "true" : "false");
+  const viewButtons = [
+    [overviewButton, mode === "overview"],
+    [dollhouseButton, mode === "dollhouse"],
+    [insideButton, mode === "room"],
+  ];
+  viewButtons.forEach(([button, active]) => {{
+    if (!button) return;
+    button.dataset.active = active ? "true" : "false";
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  }});
   setGuideChipState(guidedRouteState.active);
+  const viewLabel = mode === "dollhouse" ? "Dollhouse view" : mode === "room" ? "Room view" : "Overview";
+  announceViewerState(`${{viewLabel}} selected.`);
 }}
 
 const cutawayWallCount = wallMeshPairs.filter((pair) => Boolean(pair.cutawayEligible)).length;
@@ -4332,17 +4469,23 @@ function applyViewMode(mode) {{
 
 function setActiveRouteButton(index) {{
   routeButtons.forEach((button, buttonIndex) => {{
-    button.dataset.active = buttonIndex === index ? "true" : "false";
+    const active = buttonIndex === index;
+    button.dataset.active = active ? "true" : "false";
+    button.setAttribute("aria-current", active ? "step" : "false");
   }});
   floorplanStopButtons.forEach((button) => {{
-    button.dataset.active = Number(button.dataset.routeIndex || -1) === index ? "true" : "false";
+    const active = Number(button.dataset.routeIndex || -1) === index;
+    button.dataset.active = active ? "true" : "false";
+    button.setAttribute("aria-current", active ? "step" : "false");
   }});
   routeMarkers.forEach((marker, markerIndex) => {{
     marker.scale.setScalar(markerIndex === index ? 1.28 : 1.0);
     marker.material.color.set(markerIndex === index ? 0xb9892f : 0xa77c2b);
   }});
   routeHotspots.forEach((entry, entryIndex) => {{
-    entry.button.dataset.active = entryIndex === index ? "true" : "false";
+    const active = entryIndex === index;
+    entry.button.dataset.active = active ? "true" : "false";
+    entry.button.setAttribute("aria-current", active ? "step" : "false");
   }});
   photoPanelCards.forEach((card) => {{
     const active = Number(card.routeIndex) === index;
@@ -4352,6 +4495,11 @@ function setActiveRouteButton(index) {{
   activeRouteIndex = index;
   liveViewerState.activeRouteIndex = index;
   syncCaptureRouteCard({{ routeIndex: index }});
+  const activeStop = index >= 0 ? routeStops[index] : null;
+  const activeLabel = String(activeStop?.label || activeStop?.room || activeStop?.name || `Stop ${{index + 1}}`);
+  if (index >= 0) {{
+    announceViewerState(`Room route: ${{activeLabel}}, stop ${{index + 1}} of ${{routeStops.length}}.`);
+  }}
 }}
 
 function setRouteView(index, options = {{}}) {{
@@ -4507,7 +4655,12 @@ if (routeStops.length) {{
 }}
 syncCaptureRouteCard();
 setGuideChipState(false);
-if (guidedQueryEnabled && routeStops.length && !captureMode) {{
+if (typeof reducedMotionMedia.addEventListener === "function") {{
+  reducedMotionMedia.addEventListener("change", handleReducedMotionChange);
+}} else if (typeof reducedMotionMedia.addListener === "function") {{
+  reducedMotionMedia.addListener(handleReducedMotionChange);
+}}
+if (guidedQueryEnabled && routeStops.length && !captureMode && !prefersReducedMotion) {{
   window.setTimeout(() => {{
     startGuidedRoute({{ startIndex: 0 }});
   }}, 820);
@@ -4661,6 +4814,7 @@ function getRenderMetrics() {{
         captureMode: Boolean(captureMode),
         guidedQueryEnabled: Boolean(guidedQueryEnabled),
         guidedRouteActive: Boolean(guidedRouteState.active),
+        prefersReducedMotion: Boolean(prefersReducedMotion),
         guidedRouteCurrentIndex: Number(guidedRouteState.currentIndex ?? -1),
         guidedRouteDwellMs: Number(guidedRouteState.dwellMs || 0),
         isTransitioning: Boolean(routeCameraTransition.active),
@@ -4718,6 +4872,10 @@ window.__pqReconstructionDebug = {{
       renderer.render(scene, camera);
       syncRouteHotspots();
       renderFrameCount += 1;
+      if (!liveViewerState.ready) {{
+        document.documentElement.dataset.viewerStatus = "ready";
+        viewport.setAttribute("aria-busy", "false");
+      }}
       liveViewerState.ready = true;
       liveViewerState.frameCount = Number(renderFrameCount || 0);
       liveViewerState.routeStopCount = Number(routeStops.length || 0);
@@ -4730,6 +4888,7 @@ window.__pqReconstructionDebug = {{
     }}
 
     renderFrame(performance.now());
+}}
 </script>
 </body>
 </html>

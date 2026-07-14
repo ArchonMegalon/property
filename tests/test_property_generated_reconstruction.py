@@ -220,6 +220,197 @@ def _expected_default_walkthrough_contract() -> tuple[str, str, str]:
     )
 
 
+def _write_viewer_accessibility_fixture(tmp_path: Path) -> Path:
+    viewer_dir = tmp_path / "viewer-accessibility"
+    viewer_dir.mkdir(parents=True)
+    _write_floorplan(viewer_dir / "source-floorplan.jpg")
+    reconstruction_script._copy_viewer_vendor_assets(viewer_dir)
+    route = [
+        {
+            "label": "entry/hall",
+            "focus": {"x": -1.8, "y": 1.2, "z": 1.2},
+            "camera": {"x": -2.8, "y": 1.8, "z": 2.3},
+        },
+        {
+            "label": "living room",
+            "focus": {"x": 1.4, "y": 1.2, "z": -0.8},
+            "camera": {"x": 2.8, "y": 1.9, "z": 1.3},
+        },
+    ]
+    manifest = {
+        "room_dimensions_m": {"width": 8.0, "depth": 6.0, "height": 2.8},
+        "floorplan": {"relpath": "source-floorplan.jpg"},
+        "geometry": {
+            "floor_texture_crop": {"offset_x": 0, "offset_y": 0, "repeat_x": 1, "repeat_y": 1},
+            "wall_rectangles": [
+                {"width": 8.0, "depth": 0.12, "center_x": 0, "center_z": -2.94, "rotation_y": 0},
+                {"width": 8.0, "depth": 0.12, "center_x": 0, "center_z": 2.94, "rotation_y": 0},
+                {"width": 6.0, "depth": 0.12, "center_x": -3.94, "center_z": 0, "rotation_y": 1.5708},
+                {"width": 6.0, "depth": 0.12, "center_x": 3.94, "center_z": 0, "rotation_y": 1.5708},
+            ],
+        },
+        "walkable_scene": {"route": route},
+        "photos": [],
+        "photo_reference_panels": [],
+        "style_label": "launch accessibility fixture",
+    }
+    viewer_path = viewer_dir / "viewer.html"
+    viewer_path.write_text(
+        reconstruction_script._viewer_html(
+            manifest=manifest,
+            three_relpath="vendor/three.module.js",
+            orbit_controls_relpath="vendor/examples/jsm/controls/OrbitControls.js",
+        ),
+        encoding="utf-8",
+    )
+    return viewer_path
+
+
+def test_generated_reconstruction_viewer_emits_launch_accessibility_contract(tmp_path: Path) -> None:
+    viewer_html = _write_viewer_accessibility_fixture(tmp_path).read_text(encoding="utf-8")
+
+    assert 'id="viewer-live-status"' in viewer_html
+    assert 'role="status"' in viewer_html
+    assert 'aria-live="polite"' in viewer_html
+    assert 'id="viewer-fallback"' in viewer_html
+    assert 'role="alert"' in viewer_html
+    assert 'aria-live="assertive"' in viewer_html
+    assert 'aria-label="Interactive 3D layout preview' in viewer_html
+    assert 'aria-pressed="false"' in viewer_html
+    assert 'aria-current="false"' in viewer_html
+    assert 'matchMedia("(prefers-reduced-motion: reduce)")' in viewer_html
+    assert "prefersReducedMotion" in viewer_html
+    assert 'reason: "webgl_unavailable"' in viewer_html
+
+
+def test_generated_reconstruction_viewer_honors_reduced_motion_and_webgl_fallback(tmp_path: Path) -> None:
+    if not reconstruction_script._playwright_chromium_capture_available():
+        pytest.skip("playwright_missing")
+
+    viewer_path = _write_viewer_accessibility_fixture(tmp_path)
+    viewer_root = viewer_path.parent
+
+    with _serve_directory(viewer_root) as base_url:
+        with reconstruction_script.sync_playwright() as playwright:
+            launch_kwargs = reconstruction_script._playwright_chromium_launch_kwargs(playwright)
+            browser = playwright.chromium.launch(**launch_kwargs)
+            try:
+                reduced_context = browser.new_context(
+                    reduced_motion="reduce",
+                    viewport={"width": 1280, "height": 720},
+                    device_scale_factor=1,
+                )
+                reduced_page = reduced_context.new_page()
+                reduced_page.goto(f"{base_url}/viewer.html?guided=1", wait_until="domcontentloaded")
+                _wait_for_playwright_condition(
+                    reduced_page,
+                    """() => Boolean(window.__pqReconstructionDebug?.getRenderMetrics?.()?.ready)""",
+                    timeout_ms=20_000,
+                )
+                reduced_page.wait_for_timeout(1_200)
+                reduced_receipt = reduced_page.evaluate(
+                    """() => {
+                        const metrics = window.__pqReconstructionDebug.getRenderMetrics();
+                        const guide = document.getElementById('view-guided-route');
+                        const canvas = document.querySelector('#viewport canvas');
+                        const status = document.getElementById('viewer-live-status');
+                        return {
+                            metrics,
+                            guideDisabled: Boolean(guide?.disabled),
+                            guidePressed: String(guide?.getAttribute('aria-pressed') || ''),
+                            canvasLabel: String(canvas?.getAttribute('aria-label') || ''),
+                            statusRole: String(status?.getAttribute('role') || ''),
+                            statusLive: String(status?.getAttribute('aria-live') || ''),
+                        };
+                    }"""
+                )
+                assert reduced_receipt["metrics"]["prefersReducedMotion"] is True
+                assert reduced_receipt["metrics"]["guidedQueryEnabled"] is True
+                assert reduced_receipt["metrics"]["guidedRouteActive"] is False
+                assert reduced_receipt["guideDisabled"] is True
+                assert reduced_receipt["guidePressed"] == "false"
+                assert reduced_receipt["canvasLabel"].startswith("Interactive 3D layout preview")
+                assert reduced_receipt["statusRole"] == "status"
+                assert reduced_receipt["statusLive"] == "polite"
+
+                reduced_page.locator(".route-button").nth(1).click()
+                route_receipt = reduced_page.evaluate(
+                    """() => {
+                        const metrics = window.__pqReconstructionDebug.getRenderMetrics();
+                        const routes = Array.from(document.querySelectorAll('.route-button'));
+                        const planStops = Array.from(document.querySelectorAll('.floorplan-stop'));
+                        const hotspots = Array.from(document.querySelectorAll('.route-hotspot'));
+                        return {
+                            metrics,
+                            overviewPressed: document.getElementById('view-overview')?.getAttribute('aria-pressed'),
+                            roomPressed: document.getElementById('view-inside')?.getAttribute('aria-pressed'),
+                            routeCurrent: routes.map((button) => button.getAttribute('aria-current')),
+                            planCurrent: planStops.map((button) => button.getAttribute('aria-current')),
+                            hotspotCurrent: hotspots.map((button) => button.getAttribute('aria-current')),
+                            liveStatus: String(document.getElementById('viewer-live-status')?.textContent || '').trim(),
+                        };
+                    }"""
+                )
+                assert route_receipt["metrics"]["activeRouteIndex"] == 1
+                assert route_receipt["metrics"]["transitionDurationMs"] == 0
+                assert route_receipt["metrics"]["isTransitioning"] is False
+                assert route_receipt["overviewPressed"] == "false"
+                assert route_receipt["roomPressed"] == "true"
+                assert route_receipt["routeCurrent"] == ["false", "step"]
+                assert route_receipt["planCurrent"] == ["false", "step"]
+                assert route_receipt["hotspotCurrent"] == ["false", "step"]
+                assert "living room" in route_receipt["liveStatus"].lower()
+                reduced_context.close()
+
+                fallback_page = browser.new_page(viewport={"width": 1280, "height": 720})
+                page_errors: list[str] = []
+                fallback_page.on("pageerror", lambda error: page_errors.append(str(error)))
+                fallback_page.add_init_script(
+                    """(() => {
+                        const originalGetContext = HTMLCanvasElement.prototype.getContext;
+                        HTMLCanvasElement.prototype.getContext = function(kind, ...args) {
+                            const normalized = String(kind || '').toLowerCase();
+                            if (normalized === 'webgl' || normalized === 'webgl2' || normalized === 'experimental-webgl') {
+                                return null;
+                            }
+                            return originalGetContext.call(this, kind, ...args);
+                        };
+                    })();"""
+                )
+                fallback_page.goto(f"{base_url}/viewer.html", wait_until="domcontentloaded")
+                _wait_for_playwright_condition(
+                    fallback_page,
+                    """() => document.documentElement.dataset.viewerStatus === 'unavailable'""",
+                    timeout_ms=10_000,
+                )
+                fallback_receipt = fallback_page.evaluate(
+                    """() => {
+                        const fallback = document.getElementById('viewer-fallback');
+                        const metrics = window.__pqReconstructionDebug?.getRenderMetrics?.() || {};
+                        return {
+                            visible: Boolean(fallback && !fallback.hidden && getComputedStyle(fallback).display !== 'none'),
+                            role: String(fallback?.getAttribute('role') || ''),
+                            ariaLive: String(fallback?.getAttribute('aria-live') || ''),
+                            text: String(fallback?.textContent || '').trim(),
+                            canvasCount: document.querySelectorAll('#viewport canvas').length,
+                            disabledControlCount: document.querySelectorAll('button:disabled').length,
+                            metrics,
+                        };
+                    }"""
+                )
+                assert page_errors == []
+                assert fallback_receipt["visible"] is True
+                assert fallback_receipt["role"] == "alert"
+                assert fallback_receipt["ariaLive"] == "assertive"
+                assert "3d preview is unavailable" in fallback_receipt["text"].lower()
+                assert fallback_receipt["canvasCount"] == 0
+                assert fallback_receipt["disabledControlCount"] >= 4
+                assert fallback_receipt["metrics"]["ready"] is False
+                assert fallback_receipt["metrics"]["reason"] == "webgl_unavailable"
+            finally:
+                browser.close()
+
+
 def test_generated_reconstruction_walkthrough_stop_card_embeds_floorplan_route_context(tmp_path: Path) -> None:
     floorplan = tmp_path / "floorplan.jpg"
     hero = tmp_path / "hero.jpg"
