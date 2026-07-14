@@ -5,7 +5,7 @@
   "proof_target": "propertyquarry",
   "version": 1,
   "kind": "proof_receipt",
-  "generated_at": "2026-07-14T17:29:39Z",
+  "generated_at": "2026-07-14T18:49:26Z",
   "generated_by": "scripts/materialize_ea_browser_workflow_proof.py",
   "status": "pass",
   "operator_summary": "PropertyQuarry browser workflow proof is published and green across both source-backed journeys and real-browser E2E.",
@@ -20,7 +20,7 @@
   ],
   "source_binding": {
     "version": 1,
-    "code_commit": "30310be782e16cbb9821aaa75899b4cb9ca7776c",
+    "code_commit": "f1e55a3bc502822832521ebdc8554357b38dc1cc",
     "seed": {
       "path": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
       "sha256": "542cd03e2ea8ca3432f8be73a4b37dd2b58c52dd92cd8726375db507e09ebf07",
@@ -42,7 +42,7 @@
   "source_backed_journey_proof": {
     "status": "pass",
     "command": "/docker/property/.venv/bin/python -m pytest -q tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_workspace_routes_render_greenfield_surfaces tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_failed_run_stays_on_activity_surface",
-    "cwd": "/tmp/property-pricing-polish",
+    "cwd": "/docker/property",
     "python_bin": "/docker/property/.venv/bin/python",
     "test_file": "tests/test_propertyquarry_workspace_redesign.py",
     "cases": [
@@ -50,10 +50,10 @@
       "test_propertyquarry_failed_run_stays_on_activity_surface"
     ],
     "exit_code": 0,
-    "duration_seconds": 71.668,
+    "duration_seconds": 57.521,
     "output_excerpt": [
       "..                                                                       [100%]",
-      "2 passed in 64.21s (0:01:04)"
+      "2 passed in 46.50s"
     ],
     "limitations": [],
     "outcome_counts": {
@@ -71,7 +71,7 @@
   "real_browser_e2e_proof": {
     "status": "pass",
     "command": "/docker/property/.venv/bin/python -m pytest -q tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_greenfield_workspace_in_real_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_greenfield_workspace_is_mobile_usable -rs",
-    "cwd": "/tmp/property-pricing-polish",
+    "cwd": "/docker/property",
     "python_bin": "/docker/property/.venv/bin/python",
     "test_file": "tests/e2e/test_propertyquarry_greenfield_browser.py",
     "cases": [
@@ -79,10 +79,10 @@
       "test_propertyquarry_greenfield_workspace_is_mobile_usable"
     ],
     "exit_code": 0,
-    "duration_seconds": 57.409,
+    "duration_seconds": 117.093,
     "output_excerpt": [
       "..                                                                       [100%]",
-      "2 passed in 48.03s"
+      "2 passed in 93.12s (0:01:33)"
     ],
     "limitations": [],
     "outcome_counts": {

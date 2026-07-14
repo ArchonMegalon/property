@@ -3,12 +3,12 @@
   "surface": "propertyquarry_flagship_release_control",
   "version": 1,
   "kind": "release_receipt",
-  "generated_at": "2026-07-14T17:29:39Z",
+  "generated_at": "2026-07-14T18:49:26Z",
   "generated_by": "scripts/materialize_ea_flagship_release_gate.py",
   "status": "pass",
   "source_binding": {
     "version": 1,
-    "code_commit": "30310be782e16cbb9821aaa75899b4cb9ca7776c",
+    "code_commit": "f1e55a3bc502822832521ebdc8554357b38dc1cc",
     "seed": {
       "path": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
       "sha256": "542cd03e2ea8ca3432f8be73a4b37dd2b58c52dd92cd8726375db507e09ebf07",
@@ -29,8 +29,8 @@
   },
   "browser_receipt_binding": {
     "path": ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json",
-    "sha256": "e8e4dde8de8568f146acd3a7bd2e83e25b26a6ca0805850b8c95cc950ec39ca8",
-    "git_blob_oid": "50726e56615a3aed25f1955785ba37c95ccf89fa"
+    "sha256": "a7fd7efb2301e070c114e33cd2e5590d620813d64af074751e3d4ad1b90bf143",
+    "git_blob_oid": "d6578d92fb85f69fb5fbf5919d97e2e0e4ffec5f"
   },
   "operator_summary": "PropertyQuarry flagship release truth is published as a machine-readable receipt and currently green.",
   "truth_plane": {
