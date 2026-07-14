@@ -150,6 +150,18 @@ route_available() {
   [[ -n "${code}" && "${code}" != "404" ]]
 }
 
+resolve_api_container() {
+  local container=""
+  if ! command -v docker >/dev/null 2>&1; then
+    return 0
+  fi
+  container="$(docker ps --filter "label=com.docker.compose.service=${API_SERVICE}" --format '{{.Names}}' 2>/dev/null | head -n1 || true)"
+  if [[ -z "${container}" ]]; then
+    container="$(docker ps --filter "name=${API_SERVICE}" --format '{{.Names}}' 2>/dev/null | head -n1 || true)"
+  fi
+  printf '%s' "${container}"
+}
+
 HOST_PORT="${EA_HOST_PORT:-}"
 if [[ -z "${HOST_PORT}" && -f "${EA_ROOT}/.env" ]]; then
   HOST_PORT="$(grep -E '^EA_HOST_PORT=' "${EA_ROOT}/.env" | tail -n1 | cut -d= -f2- || true)"
@@ -194,30 +206,6 @@ fi
 OPERATOR_PRINCIPAL_ARGS=()
 if [[ -n "${OPERATOR_PRINCIPAL_ID}" ]]; then
   OPERATOR_PRINCIPAL_ARGS=(-H "X-EA-Principal-ID: ${OPERATOR_PRINCIPAL_ID}")
-fi
-
-resolve_api_container() {
-  local container=""
-  if ! command -v docker >/dev/null 2>&1; then
-    return 0
-  fi
-  container="$(docker ps --filter "label=com.docker.compose.service=${API_SERVICE}" --format '{{.Names}}' | head -n1)"
-  if [[ -z "${container}" ]]; then
-    container="$(docker ps --filter "name=${API_SERVICE}" --format '{{.Names}}' | head -n1)"
-  fi
-  printf '%s' "${container}"
-}
-
-if [[ -z "${EA_API_TOKEN}" ]] && command -v docker >/dev/null 2>&1; then
-  api_container="$(resolve_api_container)"
-  if [[ -n "${api_container}" ]]; then
-    EA_API_TOKEN="$(docker exec "${api_container}" /bin/sh -lc 'printenv EA_API_TOKEN' 2>/dev/null || true)"
-  fi
-fi
-
-AUTH_ARGS=()
-if [[ -n "${EA_API_TOKEN:-}" ]]; then
-  AUTH_ARGS=(-H "Authorization: Bearer ${EA_API_TOKEN}" -H "X-EA-API-Token: ${EA_API_TOKEN}")
 fi
 
 operator_curl() {

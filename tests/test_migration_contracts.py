@@ -70,6 +70,7 @@ def test_propertyquarry_property_passport_migration_defines_canonical_graph_tabl
 
 def test_legacy_migration_regression_smoke_contract_is_wired() -> None:
     smoke = (ROOT / "scripts/smoke_postgres.sh").read_text()
+    smoke_api = (ROOT / "scripts/smoke_api.sh").read_text()
     postgres_contracts = (ROOT / "scripts/test_postgres_contracts.sh").read_text()
     workflow = (ROOT / ".github/workflows/smoke-runtime.yml").read_text()
 
@@ -110,7 +111,12 @@ def test_legacy_migration_regression_smoke_contract_is_wired() -> None:
     assert "ORIGINAL_EA_API_TOKEN=" in smoke
     assert "token_candidates=" in smoke
     assert 'X-EA-API-Token: ${candidate_token}' in smoke
-    assert 'X-EA-API-Token: ${EA_API_TOKEN}' in (ROOT / "scripts/smoke_api.sh").read_text()
+    assert 'X-EA-API-Token: ${EA_API_TOKEN}' in smoke_api
+    assert smoke_api.index("resolve_api_container()") < smoke_api.index(
+        'api_container="$(resolve_api_container)"'
+    )
+    assert smoke_api.count('if [[ -z "${EA_API_TOKEN}" ]] && command -v docker') == 1
+    assert "2>/dev/null | head -n1 || true" in smoke_api
     assert 'set_env_value "EA_OPERATOR_PRINCIPAL_IDS" "exec-1"' in smoke
     assert "docker cp" in smoke
     assert 'API_SERVICE="${PROPERTYQUARRY_API_SERVICE:-${EA_API_SERVICE:-ea-api}}"' in smoke
