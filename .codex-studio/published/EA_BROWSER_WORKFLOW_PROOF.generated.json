@@ -5,10 +5,10 @@
   "proof_target": "propertyquarry",
   "version": 1,
   "kind": "proof_receipt",
-  "generated_at": "2026-07-14T03:54:41Z",
+  "generated_at": "2026-07-14T05:06:07Z",
   "generated_by": "scripts/materialize_ea_browser_workflow_proof.py",
-  "status": "blocked",
-  "operator_summary": "PropertyQuarry browser workflow proof is published, but it is blocked by failing or unavailable proof lanes.",
+  "status": "pass",
+  "operator_summary": "PropertyQuarry browser workflow proof is published and green across both source-backed journeys and real-browser E2E.",
   "seed_source": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
   "release_claim_summary": "The standalone PropertyQuarry surface can only claim flagship-grade release truth when its browser workflow proof and release asset verification agree with this gate seed.",
   "expected_browser_signals": [
@@ -18,7 +18,27 @@
     "the PropertyQuarry mobile workbench exposes results, property detail, and the mobile action dock within the viewport",
     "failed PropertyQuarry runs remain visible on the activity surface with an actionable recovery state"
   ],
-  "source_binding": null,
+  "source_binding": {
+    "version": 1,
+    "code_commit": "6e2959f6313dcc1b29d0257cb20843f50f845517",
+    "seed": {
+      "path": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
+      "sha256": "542cd03e2ea8ca3432f8be73a4b37dd2b58c52dd92cd8726375db507e09ebf07",
+      "git_blob_oid": "eae4c7cbc7dfe8b777bef788b982cb6ad4b7bb4c"
+    },
+    "required_test_sources": [
+      {
+        "path": "tests/test_propertyquarry_workspace_redesign.py",
+        "sha256": "2fcaf73d371b452410d35b1d5ca4026e07ffc327091ac5f64973ee67cca872d2",
+        "git_blob_oid": "6c00c1de2710cc33d21652625ea0d27063038337"
+      },
+      {
+        "path": "tests/e2e/test_propertyquarry_greenfield_browser.py",
+        "sha256": "a22bbac210f35e5a20793b1fedf5ac143bd925d65887fea453c26d131edc0019",
+        "git_blob_oid": "22cf5bd1991a5d9630227a2126c8c270f5b881a4"
+      }
+    ]
+  },
   "source_backed_journey_proof": {
     "status": "pass",
     "command": "/docker/property/.venv/bin/python -m pytest -q tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_workspace_routes_render_greenfield_surfaces tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_failed_run_stays_on_activity_surface",
@@ -30,10 +50,10 @@
       "test_propertyquarry_failed_run_stays_on_activity_surface"
     ],
     "exit_code": 0,
-    "duration_seconds": 56.02,
+    "duration_seconds": 266.748,
     "output_excerpt": [
       "..                                                                       [100%]",
-      "2 passed in 49.81s"
+      "2 passed in 232.39s (0:03:52)"
     ],
     "limitations": [],
     "outcome_counts": {
@@ -59,10 +79,10 @@
       "test_propertyquarry_greenfield_workspace_is_mobile_usable"
     ],
     "exit_code": 0,
-    "duration_seconds": 45.407,
+    "duration_seconds": 188.603,
     "output_excerpt": [
       "..                                                                       [100%]",
-      "2 passed in 41.32s"
+      "2 passed in 154.76s (0:02:34)"
     ],
     "limitations": [],
     "outcome_counts": {
@@ -77,8 +97,6 @@
     "selected_count": 2,
     "executed_count": 2
   },
-  "blocking_reasons": [
-    "immutable source binding failed: release source differs from immutable code commit 812e0b1132a18538f14978e887b049166c4cc3c7: .codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json"
-  ],
+  "blocking_reasons": [],
   "current_limitations": []
 }

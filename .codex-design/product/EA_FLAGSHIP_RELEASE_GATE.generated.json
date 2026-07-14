@@ -3,16 +3,36 @@
   "surface": "propertyquarry_flagship_release_control",
   "version": 1,
   "kind": "release_receipt",
-  "generated_at": "2026-07-14T03:55:06Z",
+  "generated_at": "2026-07-14T05:06:14Z",
   "generated_by": "scripts/materialize_ea_flagship_release_gate.py",
-  "status": "blocked",
-  "source_binding": null,
+  "status": "pass",
+  "source_binding": {
+    "version": 1,
+    "code_commit": "6e2959f6313dcc1b29d0257cb20843f50f845517",
+    "seed": {
+      "path": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
+      "sha256": "542cd03e2ea8ca3432f8be73a4b37dd2b58c52dd92cd8726375db507e09ebf07",
+      "git_blob_oid": "eae4c7cbc7dfe8b777bef788b982cb6ad4b7bb4c"
+    },
+    "required_test_sources": [
+      {
+        "path": "tests/test_propertyquarry_workspace_redesign.py",
+        "sha256": "2fcaf73d371b452410d35b1d5ca4026e07ffc327091ac5f64973ee67cca872d2",
+        "git_blob_oid": "6c00c1de2710cc33d21652625ea0d27063038337"
+      },
+      {
+        "path": "tests/e2e/test_propertyquarry_greenfield_browser.py",
+        "sha256": "a22bbac210f35e5a20793b1fedf5ac143bd925d65887fea453c26d131edc0019",
+        "git_blob_oid": "22cf5bd1991a5d9630227a2126c8c270f5b881a4"
+      }
+    ]
+  },
   "browser_receipt_binding": {
     "path": ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json",
-    "sha256": "3abcaf841b16a4986266fdd4e31e9a0653e1b28377f076ca7d64d836a17af8bb",
-    "git_blob_oid": "e86269ced361deab6fda3296262b7da4c4493c73"
+    "sha256": "2458127b9a71faeaeb61d567c4e7155056507bae72c18113e665562e4369179f",
+    "git_blob_oid": "9339ef34c2730fc0c8216d7166352f0f2f0640df"
   },
-  "operator_summary": "PropertyQuarry flagship release truth is materialized, but the current browser-proof or release-doc state still blocks the claim.",
+  "operator_summary": "PropertyQuarry flagship release truth is published as a machine-readable receipt and currently green.",
   "truth_plane": {
     "source": ".codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md",
     "present": true,
@@ -168,11 +188,7 @@
       "present": true
     }
   ],
-  "blocking_reasons": [
-    "immutable source binding failed: release source differs from immutable code commit 812e0b1132a18538f14978e887b049166c4cc3c7: .codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
-    "browser workflow proof: immutable source binding failed: release source differs from immutable code commit 812e0b1132a18538f14978e887b049166c4cc3c7: .codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
-    "browser workflow proof: published pass still reports browser blockers: immutable source binding failed: release source differs from immutable code commit 812e0b1132a18538f14978e887b049166c4cc3c7: .codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json"
-  ],
+  "blocking_reasons": [],
   "current_limitations": [],
   "release_truth": {
     "oracle": ".codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md",
