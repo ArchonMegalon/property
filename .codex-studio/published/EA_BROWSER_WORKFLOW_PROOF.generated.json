@@ -5,7 +5,7 @@
   "proof_target": "propertyquarry",
   "version": 1,
   "kind": "proof_receipt",
-  "generated_at": "2026-07-14T20:24:30Z",
+  "generated_at": "2026-07-14T21:00:30Z",
   "generated_by": "scripts/materialize_ea_browser_workflow_proof.py",
   "status": "pass",
   "operator_summary": "PropertyQuarry browser workflow proof is published and green across both source-backed journeys and real-browser E2E.",
@@ -20,7 +20,7 @@
   ],
   "source_binding": {
     "version": 1,
-    "code_commit": "b5e4cdb9bc1cdba7a9dd5a996d6ff0bf1174bab6",
+    "code_commit": "46e9dbefb3607e2f7b67b345a5035a76fd16affe",
     "seed": {
       "path": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
       "sha256": "542cd03e2ea8ca3432f8be73a4b37dd2b58c52dd92cd8726375db507e09ebf07",
@@ -34,8 +34,8 @@
       },
       {
         "path": "tests/e2e/test_propertyquarry_greenfield_browser.py",
-        "sha256": "322a70552e007c97d46dd6e26bde6745568f4c32c99985fce4434faf174cf93f",
-        "git_blob_oid": "c3c1de4411f31bc12abba25ec294aa673165ffb0"
+        "sha256": "99c3920cc937344af896aad0ae30c4acbc61e10151e35e1520b9e579a339f8e0",
+        "git_blob_oid": "6b98b3d564720d48814c846093346a10abf419ef"
       }
     ]
   },
@@ -50,10 +50,10 @@
       "test_propertyquarry_failed_run_stays_on_activity_surface"
     ],
     "exit_code": 0,
-    "duration_seconds": 47.859,
+    "duration_seconds": 84.556,
     "output_excerpt": [
       "..                                                                       [100%]",
-      "2 passed in 44.00s"
+      "2 passed in 77.77s (0:01:17)"
     ],
     "limitations": [],
     "outcome_counts": {
@@ -79,10 +79,10 @@
       "test_propertyquarry_greenfield_workspace_is_mobile_usable"
     ],
     "exit_code": 0,
-    "duration_seconds": 89.39,
+    "duration_seconds": 88.793,
     "output_excerpt": [
       "..                                                                       [100%]",
-      "2 passed in 69.28s (0:01:09)"
+      "2 passed in 75.59s (0:01:15)"
     ],
     "limitations": [],
     "outcome_counts": {
