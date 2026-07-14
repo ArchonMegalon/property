@@ -337,7 +337,7 @@ def _flagship_customer_ux_receipt_args(tmp_path: Path, *, generated_at: str) -> 
             "credential_persisted": False,
         },
         "prometheus_range": {
-            "schema": "propertyquarry.prometheus-range-receipt.v1",
+            "schema": gold_status.RANGE_RECEIPT_SCHEMA,
             "producer": "propertyquarry-prometheus-range-capture",
             "window_start": range_window_start.isoformat(),
             "window_end": probe_window_end.isoformat(),
