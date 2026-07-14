@@ -312,6 +312,7 @@ elif grep -q '^EA_LEDGER_BACKEND=' "${EA_ROOT}/.env"; then
 else
   echo 'EA_STORAGE_BACKEND=postgres' >> "${EA_ROOT}/.env"
 fi
+set_env_value "EA_RUNTIME_MODE" "test"
 set_env_value "EA_API_TOKEN" "smoke-postgres-token"
 set_env_value "EA_ALLOW_LOOPBACK_NO_AUTH" "1"
 set_env_value "EA_OPERATOR_PRINCIPAL_IDS" "exec-1"
