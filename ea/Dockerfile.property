@@ -40,6 +40,7 @@ COPY scripts/attach_provider_tour_layer.py /app/scripts/attach_provider_tour_lay
 COPY scripts/discover_property_tour_exports.py /app/scripts/discover_property_tour_exports.py
 COPY scripts/materialize_property_tour_export_manifest.py /app/scripts/materialize_property_tour_export_manifest.py
 COPY scripts/property_tour_runtime_paths.py /app/scripts/property_tour_runtime_paths.py
+COPY scripts/propertyquarry_playwright_runtime.py /app/scripts/propertyquarry_playwright_runtime.py
 COPY scripts/generate_property_reconstruction.py /app/scripts/generate_property_reconstruction.py
 COPY scripts/property_reconstruction_render_bridge.py /app/scripts/property_reconstruction_render_bridge.py
 COPY scripts/import_magicfit_walkthrough.py /app/scripts/import_magicfit_walkthrough.py
