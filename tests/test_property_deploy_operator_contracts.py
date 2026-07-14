@@ -243,6 +243,23 @@ def test_propertyquarry_docker_context_excludes_ignored_secret_and_runtime_files
     } <= dockerignore
 
 
+def test_property_runtime_image_copies_reconstruction_playwright_dependency() -> None:
+    dockerfile = _read("ea/Dockerfile.property")
+    runtime_copy = (
+        "COPY scripts/propertyquarry_playwright_runtime.py "
+        "/app/scripts/propertyquarry_playwright_runtime.py"
+    )
+    generator_copy = (
+        "COPY scripts/generate_property_reconstruction.py "
+        "/app/scripts/generate_property_reconstruction.py"
+    )
+
+    assert dockerfile.count(runtime_copy) == 1
+    assert dockerfile.count(generator_copy) == 1
+    assert dockerfile.index(runtime_copy) < dockerfile.index(generator_copy)
+    assert dockerfile.index(generator_copy) < dockerfile.index("COPY ea/app /app/app")
+
+
 def test_propertyquarry_deploy_wrapper_preflights_prod_and_probes_runtime() -> None:
     script = _read("scripts/deploy_propertyquarry.sh")
 
@@ -1030,6 +1047,7 @@ def test_property_runtime_copied_scripts_do_not_depend_on_fleet_paths() -> None:
         "discover_property_tour_exports.py",
         "materialize_property_tour_export_manifest.py",
         "property_tour_runtime_paths.py",
+        "propertyquarry_playwright_runtime.py",
         "generate_property_reconstruction.py",
         "property_reconstruction_render_bridge.py",
         "import_magicfit_walkthrough.py",
