@@ -66,11 +66,18 @@ def _onemin_manifest_path() -> Path | None:
         )
     seen: set[Path] = set()
     for candidate in candidates:
-        normalized = candidate.resolve(strict=False)
+        try:
+            normalized = candidate.resolve(strict=False)
+        except (OSError, RuntimeError):
+            continue
         if normalized in seen:
             continue
         seen.add(normalized)
-        if normalized.exists():
+        try:
+            available = normalized.is_file()
+        except OSError:
+            available = False
+        if available:
             return normalized
     return None
 
