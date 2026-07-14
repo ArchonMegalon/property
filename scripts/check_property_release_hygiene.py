@@ -152,16 +152,23 @@ def committed_paths_since(commit_sha: str, head_sha: str) -> list[str] | None:
             "--format=",
             "--name-only",
             "--no-renames",
+            "-z",
             f"{commit_sha}..{head_sha}",
         ],
         cwd=ROOT,
         check=False,
         capture_output=True,
-        text=True,
+        text=False,
     )
     if result.returncode != 0:
         return None
-    return sorted({line.strip() for line in result.stdout.splitlines() if line.strip()})
+    return sorted(
+        {
+            raw_path.decode("utf-8", errors="surrogateescape")
+            for raw_path in result.stdout.split(b"\0")
+            if raw_path
+        }
+    )
 
 
 def manifest_release_binding(

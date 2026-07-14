@@ -139,3 +139,22 @@ def test_committed_paths_since_keeps_reverted_runtime_change_visible(monkeypatch
     descendant_paths = release_hygiene.committed_paths_since(baseline_sha, head_sha)
 
     assert descendant_paths == ["ea/app/api/routes/landing.py"]
+
+
+def test_committed_paths_since_does_not_split_newline_filename(monkeypatch) -> None:
+    class GitResult:
+        returncode = 0
+        stdout = (
+            b"docs/PROPERTYQUARRY_RELEASE_MANIFEST.md\n"
+            b".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json\0"
+        )
+
+    monkeypatch.setattr(release_hygiene.subprocess, "run", lambda *args, **kwargs: GitResult())
+
+    descendant_paths = release_hygiene.committed_paths_since("candidate-sha", "head-sha")
+
+    assert descendant_paths == [
+        "docs/PROPERTYQUARRY_RELEASE_MANIFEST.md\n"
+        ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json"
+    ]
+    assert descendant_paths[0] not in release_hygiene.RELEASE_METADATA_DESCENDANT_PATHS
