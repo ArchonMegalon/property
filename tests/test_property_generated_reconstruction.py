@@ -1443,6 +1443,83 @@ def test_generated_reconstruction_required_runtime_publish_failure_exits_nonzero
     assert receipt["runtime_publish"]["status"] == "docker_unavailable"
 
 
+def test_generated_reconstruction_review_build_never_invokes_runtime_publish(
+    tmp_path: Path,
+) -> None:
+    slug = "generated-reconstruction-review-only"
+    bundle_dir = _write_base_tour(tmp_path, slug)
+    floorplan = tmp_path / "floorplan.jpg"
+    photo = tmp_path / "living.jpg"
+    tool_path = tmp_path / "tool-bin"
+    docker_call_marker = tmp_path / "docker-was-called"
+    tool_path.mkdir()
+    fake_docker = tool_path / "docker"
+    fake_docker.write_text(
+        '#!/bin/sh\n: > "$DOCKER_CALL_MARKER"\nexit 99\n',
+        encoding="utf-8",
+    )
+    fake_docker.chmod(0o755)
+    _write_floorplan(floorplan)
+    _write_photo(photo, (122, 106, 84))
+
+    generated = _run_generator_with_env(
+        tmp_path,
+        "--slug",
+        slug,
+        "--floorplan",
+        str(floorplan),
+        "--photo",
+        str(photo),
+        "--skip-video",
+        env_overrides={
+            "PATH": str(tool_path),
+            "DOCKER_CALL_MARKER": str(docker_call_marker),
+            "EA_ROLE": None,
+            "PROPERTYQUARRY_RECONSTRUCTION_ALLOW_LOCAL_ONLY": None,
+            "PROPERTYQUARRY_RECONSTRUCTION_PUBLISH_RUNTIME": None,
+            "PROPERTYQUARRY_RECONSTRUCTION_REQUIRE_RUNTIME_PUBLISH": None,
+        },
+    )
+
+    assert generated.returncode == 0, generated.stdout or generated.stderr
+    body = json.loads(generated.stdout)
+    assert body["runtime_publish_required"] is False
+    assert body["runtime_publish"] == {"status": "skipped_not_requested", "slug": slug}
+    assert not docker_call_marker.exists()
+    receipt = json.loads(
+        (bundle_dir / "generated-reconstruction" / "reconstruction.json").read_text(encoding="utf-8")
+    )
+    assert receipt["runtime_publish"] == {"status": "skipped_not_requested", "slug": slug}
+
+
+def test_generated_reconstruction_runtime_publish_request_policy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    review_bundle = tmp_path / "public_tours" / "review-tour"
+    shared_bundle = Path("/data/public_property_tours/shared-tour")
+    monkeypatch.delenv("EA_ROLE", raising=False)
+    monkeypatch.delenv("PROPERTYQUARRY_RECONSTRUCTION_ALLOW_LOCAL_ONLY", raising=False)
+    monkeypatch.delenv("PROPERTYQUARRY_RECONSTRUCTION_PUBLISH_RUNTIME", raising=False)
+    monkeypatch.delenv("PROPERTYQUARRY_RECONSTRUCTION_REQUIRE_RUNTIME_PUBLISH", raising=False)
+
+    assert reconstruction_script._runtime_publish_requested() is False
+    assert reconstruction_script._bundle_uses_shared_runtime_root(review_bundle) is False
+    assert reconstruction_script._bundle_uses_shared_runtime_root(shared_bundle) is True
+    assert reconstruction_script._runtime_publish_succeeded(
+        {"status": "skipped_shared_public_root"}
+    ) is True
+    assert reconstruction_script._runtime_publish_succeeded(
+        {"status": "skipped_not_requested"}
+    ) is True
+
+    monkeypatch.setenv("PROPERTYQUARRY_RECONSTRUCTION_PUBLISH_RUNTIME", "1")
+    assert reconstruction_script._runtime_publish_requested() is True
+
+    monkeypatch.setenv("PROPERTYQUARRY_RECONSTRUCTION_ALLOW_LOCAL_ONLY", "1")
+    assert reconstruction_script._runtime_publish_requested() is False
+
+
 def test_generated_reconstruction_render_tools_shared_public_volume_does_not_require_runtime_publish(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -1963,8 +1963,28 @@ def _runtime_publish_required() -> bool:
     return configured_public_root != Path("/data/public_property_tours").resolve()
 
 
+def _runtime_publish_requested() -> bool:
+    if _env_flag("PROPERTYQUARRY_RECONSTRUCTION_ALLOW_LOCAL_ONLY"):
+        return False
+    if _env_flag("PROPERTYQUARRY_RECONSTRUCTION_PUBLISH_RUNTIME"):
+        return True
+    return _runtime_publish_required()
+
+
+def _bundle_uses_shared_runtime_root(bundle_dir: Path) -> bool:
+    try:
+        bundle_root = bundle_dir.expanduser().resolve().parent
+    except OSError:
+        return False
+    return bundle_root == Path("/data/public_property_tours").resolve()
+
+
 def _runtime_publish_succeeded(receipt: dict[str, object]) -> bool:
-    return str(receipt.get("status") or "").strip() == "updated"
+    return str(receipt.get("status") or "").strip() in {
+        "updated",
+        "skipped_not_requested",
+        "skipped_shared_public_root",
+    }
 
 
 def _sync_bundle_to_runtime_container(bundle_dir: Path, *, slug: str) -> dict[str, object]:
@@ -5808,8 +5828,13 @@ def main() -> int:
         if walkthrough.get("sidecar_relpath"):
             payload["video_sidecar_relpath"] = f"{base_relpath}/{walkthrough.get('sidecar_relpath')}"
     manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    runtime_publish = _sync_bundle_to_runtime_container(bundle_dir, slug=slug)
     runtime_publish_required = _runtime_publish_required()
+    if _bundle_uses_shared_runtime_root(bundle_dir):
+        runtime_publish = {"status": "skipped_shared_public_root", "slug": slug}
+    elif _runtime_publish_requested():
+        runtime_publish = _sync_bundle_to_runtime_container(bundle_dir, slug=slug)
+    else:
+        runtime_publish = {"status": "skipped_not_requested", "slug": slug}
     runtime_publish_ok = _runtime_publish_succeeded(runtime_publish)
     receipt["runtime_publish"] = runtime_publish
     receipt["runtime_publish_required"] = runtime_publish_required
