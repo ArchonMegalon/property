@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+
 from scripts import check_property_release_hygiene as release_hygiene
 
 
@@ -102,3 +104,38 @@ def test_manifest_release_binding_rejects_non_ancestor(monkeypatch) -> None:
 
     assert accepted is False
     assert descendant_paths == []
+
+
+def test_committed_paths_since_keeps_reverted_runtime_change_visible(monkeypatch, tmp_path) -> None:
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.email", "release-hygiene@example.test"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "Release Hygiene"], cwd=tmp_path, check=True)
+    runtime_path = tmp_path / "ea/app/api/routes/landing.py"
+    runtime_path.parent.mkdir(parents=True)
+    runtime_path.write_text("baseline\n", encoding="utf-8")
+    subprocess.run(["git", "add", runtime_path.relative_to(tmp_path).as_posix()], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "baseline"], cwd=tmp_path, check=True)
+    baseline_sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    runtime_path.write_text("temporary runtime change\n", encoding="utf-8")
+    subprocess.run(["git", "commit", "-qam", "change runtime"], cwd=tmp_path, check=True)
+    runtime_path.write_text("baseline\n", encoding="utf-8")
+    subprocess.run(["git", "commit", "-qam", "revert runtime"], cwd=tmp_path, check=True)
+    head_sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    monkeypatch.setattr(release_hygiene, "ROOT", tmp_path)
+
+    descendant_paths = release_hygiene.committed_paths_since(baseline_sha, head_sha)
+
+    assert descendant_paths == ["ea/app/api/routes/landing.py"]

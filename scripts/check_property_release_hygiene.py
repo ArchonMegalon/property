@@ -145,7 +145,15 @@ def committed_paths_since(commit_sha: str, head_sha: str) -> list[str] | None:
     if not commit_sha or not head_sha:
         return None
     result = subprocess.run(
-        ["git", "diff", "--name-only", f"{commit_sha}..{head_sha}"],
+        [
+            "git",
+            "log",
+            "-m",
+            "--format=",
+            "--name-only",
+            "--no-renames",
+            f"{commit_sha}..{head_sha}",
+        ],
         cwd=ROOT,
         check=False,
         capture_output=True,
@@ -153,7 +161,7 @@ def committed_paths_since(commit_sha: str, head_sha: str) -> list[str] | None:
     )
     if result.returncode != 0:
         return None
-    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+    return sorted({line.strip() for line in result.stdout.splitlines() if line.strip()})
 
 
 def manifest_release_binding(
