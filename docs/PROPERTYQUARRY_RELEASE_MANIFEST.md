@@ -35,7 +35,7 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `aeb5835d7e93ef71b1689d826709c2f549a2c22f` |
+| Runtime commit SHA | `0acfa9a32a7e89c40641114888927cb90ab51c52` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
 | Deployment ID | `pending-next-verified-deploy`; integrated branch candidate restores the minimal outside-brief recovery affordance, aligns shared account and packet-dashboard copy with the current customer language, and keeps optional krpano walkthrough evidence fail-closed when a fake 16:9 still is presented as a 360 scene |
