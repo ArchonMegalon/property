@@ -8683,6 +8683,7 @@ def test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_b
     console_errors: list[str] = []
     failed_requests: list[str] = []
     tour_file_responses: list[str] = []
+    walkthrough_responses: list[str] = []
     error_responses: list[str] = []
     page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
     page.on("requestfailed", lambda request: failed_requests.append(f"{request.url} :: {request.failure}"))
@@ -8696,6 +8697,12 @@ def test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_b
         "response",
         lambda response: error_responses.append(f"{response.status} {response.url}")
         if response.status >= 400
+        else None,
+    )
+    page.on(
+        "response",
+        lambda response: walkthrough_responses.append(f"{response.status} {response.url}")
+        if response.url.split("?", 1)[0] == f"{base_url}/tours/altbau-u6/walkthrough"
         else None,
     )
     try:
@@ -8731,6 +8738,7 @@ def test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_b
         natural_width = page.evaluate("() => document.getElementById('stage-image')?.naturalWidth || 0")
         assert natural_width >= 1000
 
+        assert failed_requests == [], f"floorplan responses={error_responses}; failed={failed_requests}"
         response = page.goto(f"{tour_entry}?pane=flythrough-pane&autoplay=1", wait_until="domcontentloaded")
         assert response is not None and response.ok
         video = page.locator("#flythrough-video, #tour-video").first
@@ -8776,7 +8784,13 @@ def test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_b
         ]
         assert not noisy_console_errors, f"console={noisy_console_errors}; responses={error_responses}; failed={failed_requests}"
         assert error_responses == []
-        assert failed_requests == []
+        assert any(
+            200 <= int(response.split(" ", 1)[0]) < 400
+            for response in walkthrough_responses
+        ), f"walkthrough={walkthrough_responses}; failed={failed_requests}"
+        expected_navigation_abort = f"{base_url}/tours/altbau-u6/walkthrough :: net::ERR_ABORTED"
+        assert failed_requests.count(expected_navigation_abort) <= 1
+        assert [failure for failure in failed_requests if failure != expected_navigation_abort] == []
     finally:
         context.close()
 
