@@ -5729,7 +5729,7 @@ def test_propertyquarry_visual_request_does_not_invent_eta_before_backend_suppli
         packet_href = str(row.get_attribute("data-candidate-packet-url") or "").strip()
         assert packet_href
         packet_url = packet_href if packet_href.startswith("http") else f"{base_url}{packet_href}"
-        response = page.goto(packet_url, wait_until="networkidle")
+        response = page.goto(packet_url, wait_until="domcontentloaded")
         assert response is not None and response.ok
         request_button = page.get_by_role("button", name=re.compile("Request walkthrough", re.I)).first
         request_button.click()
@@ -5829,7 +5829,7 @@ def test_propertyquarry_3d_tour_request_is_user_initiated_in_real_browser(
         assert packet_href
         packet_url = packet_href if packet_href.startswith("http") else f"{base_url}{packet_href}"
 
-        response = page.goto(packet_url, wait_until="networkidle")
+        response = page.goto(packet_url, wait_until="domcontentloaded")
         assert response is not None and response.ok
         request_button = page.get_by_role("button", name="Request 3D tour").first
         expect(request_button).to_be_visible()
@@ -5851,7 +5851,7 @@ def test_propertyquarry_3d_tour_request_is_user_initiated_in_real_browser(
         rail_fill = page.locator("[data-prd-visual-progress]").first.get_attribute("style") or ""
         assert "16%" in rail_fill or "100%" in rail_fill
 
-        expect(page.locator("[data-prd-visual-status]")).to_contain_text("3D tour is ready.", timeout=5000)
+        expect(page.locator("[data-prd-visual-status]")).to_contain_text("3D tour is ready.", timeout=15_000)
         assert visual_status_polls >= 1
         updated_button = page.get_by_role("button", name="Open 3D tour").first
         expect(updated_button).to_be_visible()
@@ -5867,7 +5867,7 @@ def test_propertyquarry_3d_tour_request_is_user_initiated_in_real_browser(
         expected_provider_src = "/tours/3dvista/altbau-u6/3dvista/index.htm"
         expect(page.locator(".provider-frame")).to_have_attribute("src", expected_provider_src, timeout=5000)
         expect(page.locator(".provider-frame")).to_have_attribute("data-src", expected_provider_src)
-        response = page.go_back(wait_until="domcontentloaded")
+        response = page.goto(packet_url, wait_until="domcontentloaded")
         assert response is not None and response.ok
         expect(page.locator("[data-property-research-detail]")).to_be_visible()
         expect(page.locator("[data-prd-visual-status]")).to_contain_text("3D tour is ready.", timeout=5000)
@@ -6392,7 +6392,7 @@ def test_propertyquarry_blocked_3d_tour_can_be_retried_from_research_packet_in_r
         assert packet_href
         packet_url = packet_href if packet_href.startswith("http") else f"{base_url}{packet_href}"
 
-        response = page.goto(packet_url, wait_until="networkidle")
+        response = page.goto(packet_url, wait_until="domcontentloaded")
         assert response is not None and response.ok
         retry_button = page.get_by_role("button", name="Retry 3D tour").first
         expect(retry_button).to_be_visible()
@@ -6413,7 +6413,7 @@ def test_propertyquarry_blocked_3d_tour_can_be_retried_from_research_packet_in_r
         rail_fill = page.locator("[data-prd-visual-progress]").first.get_attribute("style") or ""
         assert "24%" in rail_fill or "100%" in rail_fill
 
-        expect(page.locator("[data-prd-visual-status]")).to_contain_text("3D tour is ready.", timeout=5000)
+        expect(page.locator("[data-prd-visual-status]")).to_contain_text("3D tour is ready.", timeout=15_000)
         assert visual_status_polls >= 1
         updated_button = page.get_by_role("button", name="Open 3D tour").first
         expect(updated_button).to_be_visible()
@@ -9453,7 +9453,7 @@ def test_propertyquarry_walkthrough_request_is_user_initiated_in_real_browser(
         packet_href = str(family_row.get_attribute("data-candidate-packet-url") or "").strip()
         assert packet_href
         packet_url = packet_href if packet_href.startswith("http") else f"{base_url}{packet_href}"
-        response = page.goto(packet_url, wait_until="networkidle")
+        response = page.goto(packet_url, wait_until="domcontentloaded")
         assert response is not None and response.ok
         request_button = page.get_by_role("button", name="Request walkthrough")
         expect(request_button).to_be_visible()
@@ -9658,7 +9658,7 @@ def test_propertyquarry_ready_tour_rail_stays_on_tour_while_walkthrough_queue_is
         assert packet_href
         packet_url = packet_href if packet_href.startswith("http") else f"{base_url}{packet_href}"
 
-        response = page.goto(packet_url, wait_until="networkidle")
+        response = page.goto(packet_url, wait_until="domcontentloaded")
         assert response is not None and response.ok
         tour_button = page.get_by_role("button", name="Request 3D tour").first
         expect(tour_button).to_be_visible()

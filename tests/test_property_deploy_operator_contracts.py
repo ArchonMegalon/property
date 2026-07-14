@@ -211,6 +211,7 @@ def test_make_deploy_uses_hardened_propertyquarry_wrapper() -> None:
 
 def test_smoke_runtime_runs_unprivileged_local_propertyquarry_browser_contracts() -> None:
     workflow = _read(".github/workflows/smoke-runtime.yml")
+    browser_test = _read("tests/e2e/test_propertyquarry_greenfield_browser.py")
     browser_job = _workflow_job(workflow, "propertyquarry-browser-contracts")
     product_browser_job = _workflow_job(workflow, "product-browser-e2e")
 
@@ -244,7 +245,14 @@ def test_smoke_runtime_runs_unprivileged_local_propertyquarry_browser_contracts(
         "test_propertyquarry_flagship_operating_loop_in_browser"
         in product_browser_job
     )
-    assert 'echo "127.0.0.1 propertyquarry.com"' in product_browser_job
+    assert browser_test.count('browser_base_url = f"http://propertyquarry.localhost:{port}"') == 1
+    assert 'monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", browser_base_url)' in browser_test
+    assert 'browser_base_url = f"http://propertyquarry.com:{port}"' not in browser_test
+    assert 'browser_base_url = f"http://127.0.0.1:{port}"' not in browser_test
+    assert "/etc/hosts" not in product_browser_job
+    assert 'echo "127.0.0.1 propertyquarry.com"' not in product_browser_job
+    assert "--host-resolver-rules" not in browser_test
+    assert "network.dns.localDomains" not in browser_test
     assert "secrets." not in product_browser_job
     assert "vars." not in product_browser_job
     assert "\n    environment:" not in product_browser_job
