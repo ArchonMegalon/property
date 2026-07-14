@@ -152,12 +152,11 @@ jobs:
           sudo apt-get install --yes ffmpeg
           python -m pip install -r ea/requirements.txt -c ea/requirements.lock httpx==0.28.1 pytest==9.0.2
           python -m playwright install --with-deps "${{ matrix.browser-engine }}"
-      - name: Prepare canonical repository path and branded host
+      - name: Prepare canonical repository path
         run: |
           sudo mkdir -p /docker
           sudo chown "$USER":"$USER" /docker
           ln -sfn "$GITHUB_WORKSPACE" /docker/property
-          echo "127.0.0.1 propertyquarry.com" | sudo tee -a /etc/hosts >/dev/null
       - name: Run flagship operating loop in ${{ matrix.browser-engine }}
         env:
           PROPERTYQUARRY_CORE_BROWSER_ENGINE: ${{ matrix.browser-engine }}

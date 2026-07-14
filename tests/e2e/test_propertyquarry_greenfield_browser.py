@@ -699,7 +699,7 @@ def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
     local_base_url = f"http://127.0.0.1:{port}"
-    browser_base_url = f"http://propertyquarry.com:{port}"
+    browser_base_url = f"http://propertyquarry.localhost:{port}"
     monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", browser_base_url)
     _wait_for_http(local_base_url)
     try:
@@ -719,13 +719,10 @@ def browser() -> Iterator[Browser]:
             "--disable-dev-shm-usage",
             "--disable-gpu",
             "--disable-software-rasterizer",
-            "--host-resolver-rules=MAP propertyquarry.com 127.0.0.1",
             "--no-proxy-server",
             "--autoplay-policy=no-user-gesture-required",
         ]
         launch_kwargs = playwright_engine_launch_kwargs(playwright, engine=engine, args=browser_args)
-        if engine == "firefox":
-            launch_kwargs["firefox_user_prefs"] = {"network.dns.localDomains": "propertyquarry.com"}
         browser_type = playwright_browser_type(playwright, engine=engine)
         try:
             browser = browser_type.launch(**launch_kwargs)
