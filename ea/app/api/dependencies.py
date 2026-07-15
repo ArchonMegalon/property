@@ -54,6 +54,18 @@ def _extract_token(request: Request) -> str:
     return ""
 
 
+def _request_supplies_auth_material(request: Request) -> bool:
+    return bool(
+        str(request.headers.get("authorization") or "").strip()
+        or str(request.headers.get("x-ea-api-token") or "").strip()
+        or str(request.headers.get("x-api-token") or "").strip()
+        or str(request.headers.get("x-ea-principal-id") or "").strip()
+        or str(request.headers.get("x-principal-id") or "").strip()
+        or str(request.headers.get("x-ea-operator-id") or "").strip()
+        or _extract_workspace_session_token(request)
+    )
+
+
 def _telegram_webhook_secret_candidates(*, bot_key: str = "") -> tuple[str, ...]:
     candidates: list[str] = []
     normalized_bot_key = str(bot_key or "").strip()
@@ -585,6 +597,23 @@ def get_request_context_if_available(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> RequestContext:
+    cached_context = getattr(request.state, "ea_request_context", None)
+    if isinstance(cached_context, RequestContext):
+        return cached_context
+    if isinstance(access_identity, DependsMarker):
+        access_identity = get_cloudflare_access_identity(request, container)
+    edge_assertion = getattr(request.state, VERIFIED_PRINCIPAL_ASSERTION_STATE_KEY, None)
+    profile = _runtime_profile(container)
+    if (
+        profile.auth_mode in {"token", "token_or_access", "access"}
+        and access_identity is None
+        and not isinstance(edge_assertion, VerifiedPrincipalAssertion)
+        and not _loopback_no_auth_allowed(request, container)
+        and not _request_supplies_auth_material(request)
+    ):
+        context = RequestContext(principal_id="", authenticated=False, auth_source="anonymous")
+        setattr(request.state, "ea_request_context", context)
+        return context
     try:
         return get_request_context(request=request, container=container, access_identity=access_identity)
     except HTTPException as exc:

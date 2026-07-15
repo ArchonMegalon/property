@@ -335,6 +335,21 @@ curl -fsS "${BASE}/health/ready" >/dev/null
 curl -fsS "${BASE}/version" >/dev/null
 echo "health/version ok"
 
+echo "== smoke: anonymous PropertyQuarry homepage =="
+PROPERTYQUARRY_PUBLIC_HOME="$(
+  curl -fsS "${BASE}/" \
+    -H 'Host: propertyquarry.com' \
+    -H 'Accept: text/html'
+)"
+PROPERTYQUARRY_PUBLIC_HOME_FIELDS="$(
+  python3 -c 'import sys; body=sys.stdin.read(); lowered=body.lower(); print("{}|{}|{}".format("<html" in lowered, "propertyquarry" in lowered, "auth_required" not in lowered))' \
+    <<<"${PROPERTYQUARRY_PUBLIC_HOME}"
+)"
+if [[ "${PROPERTYQUARRY_PUBLIC_HOME_FIELDS}" != "True|True|True" ]]; then
+  fail 12 "anonymous PropertyQuarry homepage is unavailable or auth-protected"
+fi
+echo "anonymous PropertyQuarry homepage ok"
+
 echo "== smoke: openapi =="
 OPENAPI_FIELDS="$(curl -fsS "${BASE}/openapi.json" | python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); schemas=((body.get('components') or {}).get('schemas') or {}); step_schema=schemas.get('SessionStepOut') or {}; step_examples=step_schema.get('examples') or []; waiting=next((row for row in step_examples if row.get('step_id') == 'step-artifact-save-waiting-approval'), {}); blocked=next((row for row in step_examples if row.get('step_id') == 'step-artifact-save-blocked-human'), {}); rewrite_examples=(schemas.get('RewriteAcceptedOut') or {}).get('examples') or []; rewrite_approval=next((row for row in rewrite_examples if row.get('status') == 'awaiting_approval'), {}); rewrite_human=next((row for row in rewrite_examples if row.get('status') == 'awaiting_human'), {}); rewrite_queued=next((row for row in rewrite_examples if row.get('status') == 'queued'), {}); plan_examples=(schemas.get('PlanExecuteAcceptedOut') or {}).get('examples') or []; plan_approval=next((row for row in plan_examples if row.get('status') == 'awaiting_approval'), {}); plan_human=next((row for row in plan_examples if row.get('status') == 'awaiting_human'), {}); plan_queued=next((row for row in plan_examples if row.get('status') == 'queued'), {}); print('{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}'.format(waiting.get('state',''), waiting.get('dependency_states') == {'step_policy_evaluate': 'completed'}, waiting.get('blocked_dependency_keys') == [], waiting.get('dependencies_satisfied') is True, blocked.get('state',''), blocked.get('blocked_dependency_keys') == ['step_human_review'], blocked.get('dependencies_satisfied') is False, rewrite_approval.get('approval_id',''), rewrite_human.get('human_task_id',''), rewrite_approval.get('next_action',''), rewrite_human.get('next_action',''), rewrite_queued.get('next_action',''), plan_approval.get('task_key',''), plan_human.get('task_key',''), plan_queued.get('task_key','')))")"
 if [[ "${OPENAPI_FIELDS}" != "waiting_approval|True|True|True|queued|True|True|approval-123|human-task-123|poll_or_subscribe|poll_or_subscribe|poll_or_subscribe|decision_brief_approval|stakeholder_briefing_review|rewrite_retry_delayed" ]]; then

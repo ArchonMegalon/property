@@ -47,6 +47,20 @@ def _smoke_runtime_text() -> str:
     return "\n".join(parts)
 
 
+def test_release_smoke_keeps_propertyquarry_homepage_anonymous() -> None:
+    smoke_api = (ROOT / "scripts/smoke_api.sh").read_text(encoding="utf-8")
+    probe = smoke_api.split(
+        'echo "== smoke: anonymous PropertyQuarry homepage =="', 1
+    )[1].split('echo "== smoke: openapi =="', 1)[0]
+
+    assert 'curl -fsS "${BASE}/"' in probe
+    assert "-H 'Host: propertyquarry.com'" in probe
+    assert "-H 'Accept: text/html'" in probe
+    assert '"${AUTH_ARGS[@]}"' not in probe
+    assert "auth_required" in probe
+    assert "anonymous PropertyQuarry homepage is unavailable or auth-protected" in probe
+
+
 def test_db_size_help_explains_pgdata_volume() -> None:
     result = subprocess.run(
         ["bash", "scripts/db_size.sh", "--help"],

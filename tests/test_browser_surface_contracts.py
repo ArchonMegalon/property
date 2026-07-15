@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import re
 import urllib.parse
@@ -898,3 +899,44 @@ def test_unauthenticated_api_calls_still_return_json_auth_error() -> None:
     response = client.get("/app/api/brief", headers={"accept": "application/json"})
     assert response.status_code == 401
     assert response.json()["error"]["code"] == "auth_required"
+
+
+def test_anonymous_public_home_does_not_emit_false_auth_failure_warning(
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
+    monkeypatch.delenv("EA_LEDGER_BACKEND", raising=False)
+    monkeypatch.setenv("EA_API_TOKEN", "test-token")
+    monkeypatch.delenv("EA_ALLOW_LOOPBACK_NO_AUTH", raising=False)
+    monkeypatch.delenv("EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER", raising=False)
+    monkeypatch.delenv("EA_OPERATOR_PRINCIPAL_IDS", raising=False)
+    from app.api.app import create_app
+
+    client = TestClient(create_app())
+    caplog.set_level(logging.WARNING, logger="app.api.dependencies")
+
+    response = client.get(
+        "/",
+        headers={"host": "propertyquarry.com", "accept": "text/html"},
+    )
+
+    assert response.status_code == 200
+    assert "PropertyQuarry" in response.text
+    assert not any("ea_auth_failure" in record.getMessage() for record in caplog.records)
+
+    caplog.clear()
+    invalid = client.get(
+        "/",
+        headers={
+            "host": "propertyquarry.com",
+            "accept": "text/html",
+            "authorization": "Bearer invalid-token",
+        },
+    )
+
+    assert invalid.status_code == 200
+    assert any(
+        "ea_auth_failure detail=auth_required" in record.getMessage()
+        for record in caplog.records
+    )
