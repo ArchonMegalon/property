@@ -3,12 +3,18 @@
   "surface": "propertyquarry_flagship_release_control",
   "version": 1,
   "kind": "release_receipt",
-  "generated_at": "2026-07-15T13:23:54Z",
+  "generated_at": "2026-07-15T14:34:24Z",
   "generated_by": "scripts/materialize_ea_flagship_release_gate.py",
   "status": "pass",
+  "readiness_scope": "source_and_browser_proof",
+  "live_readiness": {
+    "status": "not_evaluated",
+    "authority": "_completion/property_gold_status/release-gate.json",
+    "required_profile": "launch"
+  },
   "source_binding": {
     "version": 1,
-    "code_commit": "aef619e3e1d23cf10a61761eb6ed19c294cd3dbd",
+    "code_commit": "1227af36f307735fe9514bab1b74fd353b5cf909",
     "seed": {
       "path": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
       "sha256": "542cd03e2ea8ca3432f8be73a4b37dd2b58c52dd92cd8726375db507e09ebf07",
@@ -22,17 +28,17 @@
       },
       {
         "path": "tests/e2e/test_propertyquarry_greenfield_browser.py",
-        "sha256": "aee1bd6207b38a20fde01c30d23a5f967338d141b6f7624458adec7ce0fb286f",
-        "git_blob_oid": "5556e76fe6951ef8fe36384d76fe14fd0b2a7aba"
+        "sha256": "63632ed500856414b9f90e278ca29359c29a6996ebd1cfe83d2592bbdf5d8954",
+        "git_blob_oid": "ed8275cda717cfd30ab05ef72ea1ad32400fd9b1"
       }
     ]
   },
   "browser_receipt_binding": {
     "path": ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json",
-    "sha256": "c6cb6e11dc44596b76b89a4cf934267029a76f3ebcdd6bc89296cf05dcad7fe7",
-    "git_blob_oid": "f9bd134d1785b04dabe9d4d96a83f7647a8c7158"
+    "sha256": "ae2ebc9bb2957ba60f52034b37258da56762575a66deebda3404b9cc00f4ba81",
+    "git_blob_oid": "ffae3b376479def387b632a33367c776f70662b7"
   },
-  "operator_summary": "PropertyQuarry flagship release truth is published as a machine-readable receipt and currently green.",
+  "operator_summary": "PropertyQuarry source/browser flagship proof is published and green; final live readiness is not evaluated by this receipt.",
   "truth_plane": {
     "source": ".codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md",
     "present": true,

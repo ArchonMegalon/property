@@ -5,7 +5,7 @@
   "proof_target": "propertyquarry",
   "version": 1,
   "kind": "proof_receipt",
-  "generated_at": "2026-07-15T13:23:54Z",
+  "generated_at": "2026-07-15T14:34:21Z",
   "generated_by": "scripts/materialize_ea_browser_workflow_proof.py",
   "status": "pass",
   "operator_summary": "PropertyQuarry browser workflow proof is published and green across both source-backed journeys and real-browser E2E.",
@@ -20,7 +20,7 @@
   ],
   "source_binding": {
     "version": 1,
-    "code_commit": "aef619e3e1d23cf10a61761eb6ed19c294cd3dbd",
+    "code_commit": "1227af36f307735fe9514bab1b74fd353b5cf909",
     "seed": {
       "path": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
       "sha256": "542cd03e2ea8ca3432f8be73a4b37dd2b58c52dd92cd8726375db507e09ebf07",
@@ -34,8 +34,8 @@
       },
       {
         "path": "tests/e2e/test_propertyquarry_greenfield_browser.py",
-        "sha256": "aee1bd6207b38a20fde01c30d23a5f967338d141b6f7624458adec7ce0fb286f",
-        "git_blob_oid": "5556e76fe6951ef8fe36384d76fe14fd0b2a7aba"
+        "sha256": "63632ed500856414b9f90e278ca29359c29a6996ebd1cfe83d2592bbdf5d8954",
+        "git_blob_oid": "ed8275cda717cfd30ab05ef72ea1ad32400fd9b1"
       }
     ]
   },
@@ -50,10 +50,10 @@
       "test_propertyquarry_failed_run_stays_on_activity_surface"
     ],
     "exit_code": 0,
-    "duration_seconds": 31.202,
+    "duration_seconds": 45.743,
     "output_excerpt": [
       "..                                                                       [100%]",
-      "2 passed in 28.02s"
+      "2 passed in 32.08s"
     ],
     "limitations": [],
     "outcome_counts": {
@@ -79,10 +79,10 @@
       "test_propertyquarry_greenfield_workspace_is_mobile_usable"
     ],
     "exit_code": 0,
-    "duration_seconds": 42.606,
+    "duration_seconds": 137.801,
     "output_excerpt": [
       "..                                                                       [100%]",
-      "2 passed in 38.20s"
+      "2 passed in 111.79s (0:01:51)"
     ],
     "limitations": [],
     "outcome_counts": {
