@@ -144,6 +144,14 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
         }
         assert {"Primary navigation", "Mobile navigation", "Legal navigation"} <= nav_labels, path
 
+    how_it_works = client.get("/how-it-works")
+    security = client.get("/security")
+    assert "Search. Compare. Decide." in how_it_works.text
+    assert "Clear requirements. Calmer search." in security.text
+    assert "Must-haves decide what belongs" in security.text
+    assert "You choose what is shared" in security.text
+    assert "Search. Compare. Decide." not in security.text
+
     landing = anonymous_client.get("/", headers={"host": "propertyquarry.com", "accept": "text/html"})
     assert "Search once. See the right homes. Decide faster." in landing.text
     assert "matching homes" in landing.text
@@ -273,7 +281,7 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
         headers={"host": "propertyquarry.com", "accept": "text/html"},
     )
     assert "Operator details incomplete" in imprint.text
-    assert "verified legal operator name" in imprint.text.lower()
+    assert "legal operator name, service address" in imprint.text.lower()
     assert "Is this legal notice complete?" in imprint.text
     assert "PropertyQuarry is responsible for this public product surface" not in imprint.text
 

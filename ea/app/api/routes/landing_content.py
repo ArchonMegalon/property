@@ -283,7 +283,7 @@ PUBLIC_TRUST_PAGES = {
         "band": (
             {
                 "title": "Operator details incomplete",
-                "body": "The verified legal operator name, service address, company-register details, and tax identifiers are not yet published on this surface.",
+                "body": "The legal operator name, service address, company-register details, and tax identifiers are not yet published on this surface.",
             },
             {
                 "title": "Contact",
@@ -294,7 +294,7 @@ PUBLIC_TRUST_PAGES = {
             {
                 "eyebrow": "Contact",
                 "title": "How to reach PropertyQuarry",
-                "body": "PropertyQuarry is the product name shown on this site, not a substitute for the legal operator identity. Support remains the narrow contact path while the verified operator fields are completed.",
+                "body": "PropertyQuarry is the product name shown on this site, not a substitute for the legal operator identity. Support remains the narrow contact path while the required operator fields are completed.",
                 "items": (
                     "Product, billing, and account requests: save a signed-in Support reference to keep the account and search context attached, then email support for a reply.",
                     "Security, privacy, deletion, and shared-link revocation: email property@propertyquarry.com; a signed-in Support reference can attach safe account context first.",
@@ -315,7 +315,7 @@ PUBLIC_TRUST_PAGES = {
         "faqs": (
             {
                 "question": "Is this legal notice complete?",
-                "answer": "No. Do not rely on it as a complete legal notice until the verified operator and registration details appear above.",
+                "answer": "No. Do not rely on it as a complete legal notice until the operator and registration details appear above.",
             },
             {
                 "question": "Where should urgent data or wrong-area issues go?",

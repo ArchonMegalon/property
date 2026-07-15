@@ -256,17 +256,33 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
             )
         )
     elif path == "/sign-in":
-        google_active = 'href="/sign-in/google"' in text and "Continue with Google" in text
-        google_unavailable = 'href="/sign-in/google"' not in text and "Google unavailable" in text
-        facebook_active = 'href="/sign-in/facebook"' in text and "Continue with Facebook" in text
-        facebook_unavailable = 'href="/sign-in/facebook"' not in text and "Facebook unavailable" in text
-        google_hidden = 'href="/sign-in/google"' not in text and "Google unavailable" not in text
-        facebook_hidden = 'href="/sign-in/facebook"' not in text and "Facebook unavailable" not in text
+        google_href = bool(re.search(r'href="/sign-in/google(?:\?[^\"]*)?"', text))
+        facebook_href = bool(re.search(r'href="/sign-in/facebook(?:\?[^\"]*)?"', text))
+        id_austria_href = bool(re.search(r'href="/sign-in/id-austria(?:\?[^\"]*)?"', text))
+        google_active = google_href and "Continue with Google" in text
+        google_unavailable = not google_href and "Google unavailable" in text
+        facebook_active = facebook_href and "Continue with Facebook" in text
+        facebook_unavailable = not facebook_href and "Facebook unavailable" in text
+        google_hidden = not google_href and "Google unavailable" not in text
+        facebook_hidden = not facebook_href and "Facebook unavailable" not in text
+        signed_in_state = 'action="/app/actions/sign-out"' in text
+        email_link_available = 'action="/sign-in/email-link"' in text
+        connected_provider_active = google_active or facebook_active or id_austria_href
         checks.extend(
             (
                 (
                     "sign_in_minimal_copy",
-                    "Use email or one of the sign-in options below." in text
+                    (
+                        (
+                            signed_in_state
+                            and "Continue your property search." in text
+                        )
+                        or (
+                            not signed_in_state
+                            and "Use a secure email link if your address already has access." in text
+                            and (not email_link_available or "Create an account with email." in text)
+                        )
+                    )
                     and "Identity only" not in text
                     and "Identity-only." not in text
                     and "Google?" not in text
@@ -274,8 +290,9 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
                 ),
                 (
                     "sign_in_connected_identity_creates_account",
-                    "First sign-in" in text
-                    and "creates the account automatically" in text,
+                    signed_in_state
+                    or not connected_provider_active
+                    or "Sign-in providers open the same account and create it if needed." in text,
                 ),
                 (
                     "sign_in_no_unavailable_auth_copy",
@@ -293,10 +310,10 @@ def _route_checks(*, path: str, status_code: int, final_url: str, text: str) -> 
                 ),
             )
         )
-        if "Continue with Facebook" in text or 'href="/sign-in/facebook"' in text:
+        if facebook_href:
             checks.extend(
                 (
-                    ("sign_in_facebook_control", 'href="/sign-in/facebook"' in text),
+                    ("sign_in_facebook_control", facebook_href),
                     ("sign_in_facebook_feedback", 'data-submitting-label="Opening Facebook..."' in text),
                 )
             )

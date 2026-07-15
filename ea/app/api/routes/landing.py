@@ -5792,7 +5792,23 @@ def security_page(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
-    return _how_it_works_page(request, container=container, access_identity=access_identity)
+    principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
+    return _render_public_template(
+        request,
+        "security_page.html",
+        **_public_context(
+            request=request,
+            current_nav="security",
+            page_title="PropertyQuarry Security",
+            principal_id=principal_id,
+            status=status,
+            access_identity=access_identity,
+            extra={
+                "security_view": True,
+                "meta_description": "How PropertyQuarry keeps searches private, sharing explicit, account access narrow, and data controls visible.",
+            },
+        ),
+    )
 
 
 @router.get("/data-deletion", response_class=HTMLResponse)

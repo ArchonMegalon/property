@@ -108,6 +108,42 @@
 </style>
 
 <div class="trust-shell">
+  {% if security_view %}
+  <section class="trust-hero">
+    <div class="kicker">Security</div>
+    <h1>Clear requirements. Calmer search.</h1>
+    <p>Must-haves decide what belongs. Preferences shape the order. Private work stays private until you share it.</p>
+  </section>
+
+  <section class="trust-grid" aria-label="PropertyQuarry security basics">
+    <article class="trust-card">
+      <h2>Fit guide</h2>
+      <p>See how requirements, preferences, missing details, and saved feedback affect the order.</p>
+      <a class="btn ghost" href="/how-it-works/score">Open fit guide</a>
+    </article>
+    <article class="trust-card">
+      <h2>You choose what is shared</h2>
+      <p>Searches, decisions, notes, and private property pages stay signed in unless you create a public link.</p>
+    </article>
+    <article class="trust-card">
+      <h2>Actions stay explicit</h2>
+      <p>Messages, public links, generated tours, and account changes remain separate actions.</p>
+    </article>
+  </section>
+
+  <section class="trust-note">
+    <div>
+      <h2>Account and data controls</h2>
+      <p>Review connections, export account data, revoke public links, or request deletion from clear account surfaces.</p>
+    </div>
+    <a class="btn ghost" href="/data-deletion">Data deletion</a>
+  </section>
+
+  <div class="trust-actions">
+    <a class="btn primary" href="/privacy">Read privacy details</a>
+    <a class="btn ghost" href="/support">Contact support</a>
+  </div>
+  {% else %}
   <section class="trust-hero">
     <div class="kicker">How it works</div>
     <h1>Search. Compare. Decide.</h1>
@@ -141,5 +177,6 @@
     {% endif %}
     <a class="btn ghost" href="/privacy">Privacy</a>
   </div>
+  {% endif %}
 </div>
 {% endblock %}

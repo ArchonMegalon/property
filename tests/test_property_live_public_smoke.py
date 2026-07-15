@@ -12,8 +12,9 @@ SECURITY_HEADERS = {
 }
 
 SIGN_IN_COPY = (
-    "PropertyQuarry Use email or one of the sign-in options below. "
-    "First sign-in creates the account automatically. "
+    "PropertyQuarry Use a secure email link if your address already has access. "
+    "Create an account with email. "
+    "Sign-in providers open the same account and create it if needed. "
 )
 
 
@@ -64,10 +65,11 @@ def test_live_public_smoke_passes_core_public_routes_without_network() -> None:
         ),
         "https://propertyquarry.com/register": "PropertyQuarry Set up your PropertyQuarry account Finish setup",
         "https://propertyquarry.com/sign-in": (
-            'PropertyQuarry Use email or one of the sign-in options below. '
-            "First sign-in creates the account automatically. "
-            "Provider sign-in opens the same account and creates it if needed. "
-            '<a href="/sign-in/google" data-submitting-label="Opening Google...">Continue with Google</a>'
+            'PropertyQuarry Use a secure email link if your address already has access. '
+            '<form action="/sign-in/email-link">Create an account with email.</form> '
+            "Sign-in providers open the same account and create it if needed. "
+            '<a href="/sign-in/google?return_to=%2Fapp%2Fsearch" aria-label="Continue with Google" '
+            'data-submitting-label="Opening Google...">Continue</a>'
         ),
         "https://propertyquarry.com/manifest.webmanifest": (
             '{"name":"PropertyQuarry","lang":"en","dir":"ltr","id":"/app/search","start_url":"/app/search",'
