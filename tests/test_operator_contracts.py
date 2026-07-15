@@ -243,6 +243,38 @@ def test_makefile_selects_a_pytest_capable_python_for_local_tests() -> None:
     assert "$(PYTHON_BIN) -m compileall -q tests" in makefile
 
 
+def test_core_ci_gate_is_bounded_and_reports_slow_tests_without_reducing_coverage() -> None:
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/smoke-runtime.yml").read_text(encoding="utf-8")
+    )
+
+    job = workflow["jobs"]["smoke-runtime-api"]
+    assert job["timeout-minutes"] == 120
+    assert [
+        step for step in job["steps"] if step.get("name") == "Run core CI gates"
+    ] == [{"name": "Run core CI gates", "run": "make ci-gates"}]
+
+    test_api_body = makefile.split("test-api:\n", 1)[1].split("\n\n", 1)[0]
+    assert (
+        "PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTEST_PYTHON_BIN) -m pytest -q "
+        "tests --durations=25 --durations-min=1.0 "
+        "$(TEST_API_PYTEST_IGNORE) $(TEST_API_PYTEST_DESELECT)"
+    ) in test_api_body
+
+    ci_gates_body = makefile.split("ci-gates:\n", 1)[1].split("\n\n", 1)[0]
+    assert [
+        line.strip() for line in ci_gates_body.splitlines() if line.startswith("\t$(MAKE) ")
+    ] == [
+        "$(MAKE) smoke-help",
+        "$(MAKE) ci-local",
+        "$(MAKE) test-api",
+        "$(MAKE) verify-release-assets",
+        "$(MAKE) verify-flagship-release-readiness",
+        "$(MAKE) verify-generated-release-artifacts-clean",
+    ]
+
+
 def test_release_preflight_names_local_and_full_operator_contracts_truthfully() -> None:
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")

@@ -76,7 +76,7 @@ release-docs:
 
 test-api:
 	$(MAKE) materialize-release-assets
-	PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTEST_PYTHON_BIN) -m pytest -q tests $(TEST_API_PYTEST_IGNORE) $(TEST_API_PYTEST_DESELECT)
+	PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTEST_PYTHON_BIN) -m pytest -q tests --durations=25 --durations-min=1.0 $(TEST_API_PYTEST_IGNORE) $(TEST_API_PYTEST_DESELECT)
 
 test-all:
 	PYTHONPATH=ea $(PYTEST_PYTHON_BIN) -m pytest -q
