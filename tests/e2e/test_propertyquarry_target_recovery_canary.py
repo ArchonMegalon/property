@@ -19,6 +19,10 @@ from tests.product_test_helpers import build_property_client, start_workspace
 
 TERMINAL_RUN_STATUSES = {"processed", "completed_partial", "failed", "cancelled"}
 MATCH_TIERS = ("external_id", "property_url", "source_ref", "title_scope")
+PROBE_PRESENT = "PRESENT"
+PROBE_ABSENT = "ABSENT"
+PROBE_UNKNOWN = "UNKNOWN"
+PROBE_OUT_OF_WINDOW = "OUT_OF_WINDOW"
 INVALID_SOURCE_FETCH_REPAIR_RESOLUTIONS = {
     "suppressed_missing_location",
     "suppressed_location_scope",
@@ -95,6 +99,21 @@ class RepairTrace:
 
 
 @dataclass(slots=True)
+class ExactSearchProbe:
+    state: str
+    reason: str = ""
+    source_identities: list[str] = field(default_factory=list)
+    successful_source_count: int = 0
+    raw_url_count: int = 0
+    scanned_url_count: int = 0
+    scan_cap_per_source: int = 0
+    target_source_index: int | None = None
+    target_index: int | None = None
+    target_url: str = ""
+    errors: list[dict[str, object]] = field(default_factory=list)
+
+
+@dataclass(slots=True)
 class RecoveryReport:
     case_key: str
     principal_id: str
@@ -117,6 +136,8 @@ class RecoveryReport:
     source_count: int
     event_count: int
     synthesized_brief: dict[str, object]
+    initial_exact_probe: ExactSearchProbe
+    final_exact_probe: ExactSearchProbe | None = None
     provider_volatility: bool = False
     variant: str = "targeted"
 
@@ -1093,74 +1114,133 @@ def _discover_cases_from_catalog(client) -> tuple[list[TargetListing], list[str]
     return discovered, skipped
 
 
-def _provider_still_lists_target(service: ProductService, case: TargetListing) -> bool:
-    spec = next(
-        (
-            item
-            for item in PROVIDERS
-            if str(item.key or "").strip().lower() == str(case.provider or "").strip().lower()
-            and str(item.country_code or "").strip().upper() == str(case.country_code or "").strip().upper()
-        ),
-        None,
-    )
-    if spec is None:
-        return True
-    source_spec = _provider_source_spec(spec, listing_mode=case.listing_mode or _provider_listing_mode(spec))
-    source_url = str(source_spec.get("url") or "").strip()
-    if not source_url:
-        return True
-    try:
-        listing_urls, _cache_state = property_service_module._property_scout_listing_urls_for_source(
-            source_url=source_url,
-            source_spec=source_spec,
-            force_refresh=True,
-        )
-    except Exception:
-        return True
-    normalized_target_url = _normalize_url(case.canonical_url)
-    target_willhaben_ad_id = _willhaben_ad_id(case.canonical_url)
-    for item in listing_urls:
-        current_url = _normalize_url(item)
-        if normalized_target_url and current_url and normalized_target_url == current_url:
-            return True
-        if target_willhaben_ad_id and _willhaben_ad_id(current_url) == target_willhaben_ad_id:
-            return True
-    return False
+def _probe_error(
+    stage: str,
+    detail: object,
+    *,
+    source_index: int | None = None,
+    source_url: str = "",
+) -> dict[str, object]:
+    return {
+        "stage": stage,
+        "source_index": source_index,
+        "source_url": source_url,
+        "error": f"{type(detail).__name__}: {detail}" if isinstance(detail, BaseException) else str(detail),
+    }
 
 
-def _provider_search_still_surfaces_target(case: TargetListing, brief: dict[str, object]) -> bool:
+def _probe_no_store_spec(spec: dict[str, object]) -> dict[str, object]:
+    clone = dict(spec)
+    clone.pop("provider_cache_key", None)
+    pushdown = clone.get("provider_filter_pushdown")
+    if isinstance(pushdown, dict):
+        clone["provider_filter_pushdown"] = {key: value for key, value in pushdown.items() if key != "cache_key"}
+    return clone
+
+
+def _exact_search_probe(
+    case: TargetListing,
+    brief: dict[str, object],
+    *,
+    principal_id: str = "propertyquarry-target-recovery-probe",
+) -> ExactSearchProbe:
+    probe = ExactSearchProbe(state=PROBE_UNKNOWN)
     try:
-        specs = property_service_module.generated_property_source_specs(
+        generated_specs = property_service_module.generated_property_source_specs(
             preferences=brief,
             selected_platforms=tuple(case.selected_platforms or ((case.provider,) if case.provider else ())),
-            principal_id="propertyquarry-target-recovery-volatility-probe",
+            principal_id=principal_id,
             default_person_id="self",
             max_results=int(brief.get("max_results_per_source") or 5),
         )
-    except Exception:
-        return True
-    for spec in specs:
+        specs = [dict(spec) if isinstance(spec, dict) else {} for spec in list(generated_specs or [])]
+        probe.scan_cap_per_source = max(0, int(property_service_module._property_search_scan_cap_per_source()))
+    except Exception as exc:
+        probe.reason = "probe_setup_failed"
+        probe.errors.append(_probe_error("probe_setup", exc))
+        return probe
+
+    probe.source_identities = [str(spec.get("url") or "").strip() for spec in specs]
+    if not specs:
+        probe.reason = "no_generated_sources"
+        probe.errors.append(_probe_error("generate_source_specs", "no generated source specs"))
+        return probe
+
+    for source_index, spec in enumerate(specs):
         source_url = str(spec.get("url") or "").strip()
         if not source_url:
+            probe.errors.append(_probe_error("source_spec", "missing URL", source_index=source_index))
             continue
         try:
-            html = property_service_module._property_scout_fetch_html(source_url)
-            listing_urls = property_service_module._property_scout_extract_listing_urls(
+            listing_urls, _cache_state = property_service_module._property_scout_listing_urls_for_source(
                 source_url=source_url,
-                html=html,
-                source_spec=dict(spec),
+                source_spec=_probe_no_store_spec(spec),
+                force_refresh=True,
             )
-        except Exception:
-            return True
-        normalized_target_url = _normalize_url(case.canonical_url)
-        target_willhaben_ad_id = _willhaben_ad_id(case.canonical_url)
-        for item in listing_urls:
-            current_url = _normalize_url(item)
-            if normalized_target_url and current_url and normalized_target_url == current_url:
-                return True
-            if target_willhaben_ad_id and _willhaben_ad_id(current_url) == target_willhaben_ad_id:
-                return True
-    return False
+            raw_urls = list(listing_urls or [])
+        except Exception as exc:
+            probe.errors.append(_probe_error("source_list", exc, source_index=source_index, source_url=source_url))
+            continue
+        probe.successful_source_count += 1
+        probe.raw_url_count += len(raw_urls)
+        if not raw_urls:
+            probe.errors.append(
+                _probe_error("empty_source_list", "no listing URLs", source_index=source_index, source_url=source_url)
+            )
+            continue
+        scanned_urls = raw_urls if probe.scan_cap_per_source == 0 else raw_urls[: probe.scan_cap_per_source]
+        probe.scanned_url_count += len(scanned_urls)
+        for target_index, item in enumerate(raw_urls):
+            try:
+                matches_target = _match_candidate({"property_url": item}, case).matched
+            except Exception as exc:
+                if target_index < len(scanned_urls):
+                    probe.errors.append(
+                        _probe_error("match_listing_url", exc, source_index=source_index, source_url=source_url)
+                    )
+                continue
+            if matches_target:
+                within_window = target_index < len(scanned_urls)
+                if within_window or probe.target_index is None:
+                    probe.target_source_index = source_index
+                    probe.target_index = target_index
+                    probe.target_url = str(item or "").strip()
+                if within_window:
+                    probe.state = PROBE_PRESENT
+                    probe.reason = "target_in_scan_window"
+                    return probe
+
+    if probe.target_index is not None:
+        probe.state = PROBE_OUT_OF_WINDOW
+        probe.reason = "target_beyond_scan_cap"
+    elif probe.errors or probe.successful_source_count != len(specs):
+        probe.reason = "incomplete_source_evidence"
+    else:
+        probe.state = PROBE_ABSENT
+        probe.reason = "target_absent_from_source_windows"
+    return probe
+
+
+def _provider_volatility_allowed(
+    initial_probe: ExactSearchProbe,
+    final_probe: ExactSearchProbe,
+) -> bool:
+    return bool(
+        initial_probe.state == PROBE_PRESENT
+        and bool(initial_probe.source_identities)
+        and initial_probe.source_identities == final_probe.source_identities
+        and final_probe.state == PROBE_ABSENT
+    )
+
+
+def _probe_diagnostics(
+    initial_probe: ExactSearchProbe,
+    final_probe: ExactSearchProbe | None = None,
+) -> str:
+    return json.dumps(
+        {"initial_exact_probe": asdict(initial_probe), "final_exact_probe": asdict(final_probe) if final_probe else None},
+        ensure_ascii=False, sort_keys=True,
+    )
 
 
 def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1204,7 +1284,6 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
         actor="target_recovery_canary",
         auto_generate_tour_for_good_fit=False,
     )
-    service = ProductService(client.app.state.container)
     successful_case_total = 0
     volatility_skipped_total = 0
     variants = _target_recovery_variants()
@@ -1214,6 +1293,22 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
         soft_filters, default_soft_filters = _variant_soft_filter_mode(variant)
         rank_threshold = _rank_threshold()
         max_attempts = 5
+        eligibility_brief = _synthesize_search_preferences(
+            case,
+            loosen_level=max_attempts - 1,
+            soft_filters=soft_filters,
+            default_soft_filters=default_soft_filters,
+        )
+        _assert_brief_satisfies_target(case, eligibility_brief)
+        initial_exact_probe = _exact_search_probe(
+            case,
+            eligibility_brief,
+            principal_id=principal.principal_id,
+        )
+        assert initial_exact_probe.state == PROBE_PRESENT, (
+            f"{case.title}: exact loosest adaptive provider probe gate requires PRESENT before "
+            f"starting force_refresh=False recovery runs; {_probe_diagnostics(initial_exact_probe)}"
+        )
         for attempt_index in range(max_attempts):
             baseline_task_ids = {
                 str(task.get("human_task_id") or "").strip()
@@ -1327,6 +1422,7 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
                 source_count=len(_source_rows(last_status)),
                 event_count=len(list(last_status.get("events") or [])),
                 synthesized_brief=brief,
+                initial_exact_probe=initial_exact_probe,
                 variant=variant,
             )
             _write_report(tmp_path, final_report)
@@ -1349,29 +1445,240 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
                 successful_case_total += 1
                 break
         assert final_report is not None
-        if not final_report.target_found and (
-            not _provider_still_lists_target(service, case)
-            or not _provider_search_still_surfaces_target(case, final_report.synthesized_brief)
-        ):
-            final_report.provider_volatility = True
-            _write_report(tmp_path, final_report)
-            volatility_skipped_total += 1
-            sys.stderr.write(
-                f"[target-recovery] skipped volatile target for {case.provider}: {case.title}\n"
+        if not final_report.target_found:
+            final_report.final_exact_probe = _exact_search_probe(
+                case,
+                eligibility_brief,
+                principal_id=principal.principal_id,
             )
-            sys.stderr.flush()
-            continue
-        assert final_report.target_found, f"{case.title}: target listing not recovered after adaptive retries"
-        assert final_report.target_match_tier in MATCH_TIERS, f"{case.title}: unsupported target match tier"
+            _write_report(tmp_path, final_report)
+            if _provider_volatility_allowed(initial_exact_probe, final_report.final_exact_probe):
+                final_report.provider_volatility = True
+                _write_report(tmp_path, final_report)
+                volatility_skipped_total += 1
+                sys.stderr.write(
+                    f"[target-recovery] skipped volatile target for {case.provider}: {case.title}\n"
+                )
+                sys.stderr.flush()
+                continue
+        probe_diagnostics = _probe_diagnostics(initial_exact_probe, final_report.final_exact_probe)
+        assert final_report.target_found, (
+            f"{case.title}: target listing not recovered after adaptive retries; {probe_diagnostics}"
+        )
+        assert final_report.target_match_tier in MATCH_TIERS, (
+            f"{case.title}: unsupported target match tier; {probe_diagnostics}"
+        )
         assert 0 < final_report.target_rank <= rank_threshold, (
             f"{case.title}: target recovered but not ranked highly enough "
-            f"(rank={final_report.target_rank}, threshold={rank_threshold})"
+            f"(rank={final_report.target_rank}, threshold={rank_threshold}); {probe_diagnostics}"
         )
         forbidden_hits = [row for row in final_report.negative_hits if bool(row.get('must_not_rank', True))]
-        assert not forbidden_hits, f"{case.title}: near-miss impostors survived ranking: {forbidden_hits}"
+        assert not forbidden_hits, (
+            f"{case.title}: near-miss impostors survived ranking: {forbidden_hits}; {probe_diagnostics}"
+        )
     if successful_case_total <= 0 and volatility_skipped_total > 0:
         pytest.skip("all target-recovery cases became provider-volatile before recovery validation")
     assert successful_case_total > 0, "no target-recovery case completed successfully"
+
+
+def _exact_probe_test_case() -> TargetListing:
+    return TargetListing(
+        provider="willhaben",
+        country_code="AT",
+        canonical_url="https://www.willhaben.at/iad/object?adId=123456",
+        title="Target flat",
+        listing_mode="rent",
+        property_type="apartment",
+        location_query="1010 Vienna",
+        selected_platforms=("willhaben",),
+    )
+
+
+def _stub_exact_search_probe(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    specs: list[dict[str, object]] | None = None,
+    listing_urls: dict[str, list[str]] | None = None,
+    scan_cap: int = 80,
+    source_errors: dict[str, Exception] | None = None,
+) -> list[tuple[str, bool]]:
+    generated_specs = [{"url": "https://provider.test/search"}] if specs is None else specs
+    urls_by_source = listing_urls or {}
+    errors_by_source = source_errors or {}
+    calls: list[tuple[str, bool]] = []
+    monkeypatch.setattr(
+        property_service_module,
+        "generated_property_source_specs",
+        lambda **kwargs: generated_specs,
+    )
+    monkeypatch.setattr(property_service_module, "_property_search_scan_cap_per_source", lambda: scan_cap)
+
+    def _source_list(*, source_url: str, source_spec: dict[str, object], force_refresh: bool):
+        calls.append((source_url, force_refresh))
+        if source_url in errors_by_source:
+            raise errors_by_source[source_url]
+        return list(urls_by_source.get(source_url, [])), "fresh"
+
+    monkeypatch.setattr(
+        property_service_module,
+        "_property_scout_listing_urls_for_source",
+        _source_list,
+    )
+    return calls
+
+
+def test_exact_search_probe_real_wrapper_is_no_store(monkeypatch: pytest.MonkeyPatch) -> None:
+    case = _exact_probe_test_case()
+    source_url = "https://provider.test/search"
+    pushdown = {"cache_key": "nested-cache", "listing_mode": "rent", "location_query": "Vienna"}
+    original_spec: dict[str, object] = {
+        "url": source_url,
+        "platform": "willhaben",
+        "provider_cache_key": "top-level-cache",
+        "provider_filter_pushdown": pushdown,
+        "fetch_timeout_seconds": 12,
+    }
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(property_service_module, "generated_property_source_specs", lambda **kwargs: [original_spec])
+    monkeypatch.setattr(property_service_module, "_property_search_scan_cap_per_source", lambda: 80)
+    monkeypatch.setattr(property_service_module, "_property_scout_fetch_html_compat", lambda *args, **kwargs: "<html />")
+
+    def _extract(*, source_url: str, html: str, source_spec: dict[str, object]) -> tuple[str, ...]:
+        captured["source_spec"] = source_spec
+        return (case.canonical_url,)
+
+    monkeypatch.setattr(property_service_module, "_property_scout_extract_listing_urls", _extract)
+    monkeypatch.setattr(
+        property_service_module,
+        "_property_source_listing_cache_put",
+        lambda *args, **kwargs: pytest.fail("no-store probe wrote listing cache"),
+    )
+
+    probe = _exact_search_probe(case, {"max_results_per_source": 5})
+    passed_spec = dict(captured["source_spec"])
+
+    assert probe.state == PROBE_PRESENT
+    assert probe.source_identities == [source_url]
+    assert "provider_cache_key" not in passed_spec
+    assert passed_spec["provider_filter_pushdown"] == {"listing_mode": "rent", "location_query": "Vienna"}
+    assert passed_spec["fetch_timeout_seconds"] == 12
+    assert original_spec["provider_cache_key"] == "top-level-cache"
+    assert pushdown["cache_key"] == "nested-cache"
+
+
+@pytest.mark.parametrize(
+    ("specs", "urls", "cap", "errors", "expected"),
+    [
+        pytest.param(None, {"https://provider.test/search": [*[f"https://provider.test/{i}" for i in range(6)], _exact_probe_test_case().canonical_url]}, 80, None, {"state": PROBE_PRESENT, "target_index": 6, "scanned_url_count": 7}, id="in-window-beyond-max-results"),
+        pytest.param(None, {"https://provider.test/search": ["other", "other-2", _exact_probe_test_case().canonical_url]}, 0, None, {"state": PROBE_PRESENT, "target_index": 2, "scanned_url_count": 3}, id="zero-cap-unlimited"),
+        pytest.param(None, {}, 80, {"https://provider.test/search": RuntimeError("blocked")}, {"state": PROBE_UNKNOWN, "successful_source_count": 0, "error_stage": "source_list"}, id="source-exception"),
+        pytest.param(None, {}, 80, None, {"state": PROBE_UNKNOWN, "successful_source_count": 1, "error_stage": "empty_source_list"}, id="empty-extraction"),
+        pytest.param([], {}, 80, None, {"state": PROBE_UNKNOWN, "error_stage": "generate_source_specs"}, id="empty-generated-specs"),
+        pytest.param([{}], {}, 80, None, {"state": PROBE_UNKNOWN, "error_stage": "source_spec"}, id="url-less-spec"),
+        pytest.param(None, {"https://provider.test/search": ["other", "other-2", _exact_probe_test_case().canonical_url]}, 2, None, {"state": PROBE_OUT_OF_WINDOW, "reason": "target_beyond_scan_cap", "target_index": 2, "scanned_url_count": 2}, id="out-of-window"),
+        pytest.param([{"url": "good"}, {"url": "broken"}], {"good": ["other"]}, 80, {"broken": TimeoutError("blocked")}, {"state": PROBE_UNKNOWN, "successful_source_count": 1, "raw_url_count": 1, "scanned_url_count": 1}, id="mixed-negative"),
+    ],
+)
+def test_exact_search_probe_evidence_states(
+    monkeypatch: pytest.MonkeyPatch,
+    specs: list[dict[str, object]] | None,
+    urls: dict[str, list[str]],
+    cap: int,
+    errors: dict[str, Exception] | None,
+    expected: dict[str, object],
+) -> None:
+    calls = _stub_exact_search_probe(
+        monkeypatch,
+        specs=specs,
+        listing_urls=urls,
+        scan_cap=cap,
+        source_errors=errors,
+    )
+    probe = _exact_search_probe(_exact_probe_test_case(), {"max_results_per_source": 5})
+
+    for field_name, value in expected.items():
+        if field_name != "error_stage":
+            assert getattr(probe, field_name) == value
+    if "error_stage" in expected:
+        assert probe.errors[0]["stage"] == expected["error_stage"]
+    assert all(force_refresh for _source_url, force_refresh in calls)
+    if probe.state == PROBE_OUT_OF_WINDOW:
+        initial = ExactSearchProbe(state=PROBE_PRESENT, source_identities=probe.source_identities)
+        assert not _provider_volatility_allowed(initial, probe)
+
+
+def test_exact_search_probe_resets_cap_for_each_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    target = _exact_probe_test_case().canonical_url
+    _stub_exact_search_probe(
+        monkeypatch,
+        specs=[{"url": "one"}, {"url": "two"}],
+        listing_urls={"one": ["1", "2"], "two": ["3", target, "4"]},
+        scan_cap=2,
+    )
+    probe = _exact_search_probe(_exact_probe_test_case(), {"max_results_per_source": 5})
+
+    assert probe.state == PROBE_PRESENT
+    assert (probe.raw_url_count, probe.scanned_url_count) == (5, 4)
+    assert (probe.target_source_index, probe.target_index) == (1, 1)
+
+
+def test_exact_search_probe_partial_failure_plus_present(monkeypatch: pytest.MonkeyPatch) -> None:
+    target = _exact_probe_test_case().canonical_url
+    _stub_exact_search_probe(
+        monkeypatch,
+        specs=[{"url": "broken"}, {"url": "good"}],
+        listing_urls={"good": [target]},
+        source_errors={"broken": TimeoutError("blocked")},
+    )
+    probe = _exact_search_probe(_exact_probe_test_case(), {"max_results_per_source": 5})
+
+    assert probe.state == PROBE_PRESENT
+    assert probe.successful_source_count == 1
+    assert probe.errors[0]["stage"] == "source_list"
+
+
+def test_adaptive_eligibility_accepts_attempt_four_when_attempt_zero_is_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    case = _exact_probe_test_case()
+    _stub_exact_search_probe(
+        monkeypatch,
+        listing_urls={"apartment": ["other"], "any": [case.canonical_url]},
+    )
+    monkeypatch.setattr(
+        property_service_module,
+        "generated_property_source_specs",
+        lambda *, preferences, **kwargs: [{"url": str(preferences["property_type"])}],
+    )
+    attempt_zero = _synthesize_search_preferences(case, loosen_level=0)
+    attempt_four = _synthesize_search_preferences(case, loosen_level=4)
+
+    assert _exact_search_probe(case, attempt_zero).state == PROBE_ABSENT
+    assert _exact_search_probe(case, attempt_four).state == PROBE_PRESENT
+
+
+@pytest.mark.parametrize(
+    ("state", "source_identities", "expected"),
+    [
+        (PROBE_ABSENT, ["source"], True),
+        (PROBE_PRESENT, ["source"], False),
+        (PROBE_UNKNOWN, ["source"], False),
+        (PROBE_ABSENT, ["changed"], False),
+    ],
+    ids=("absent", "present", "unknown", "source-mismatch"),
+)
+def test_provider_volatility_requires_definitive_absence(
+    state: str,
+    source_identities: list[str],
+    expected: bool,
+) -> None:
+    initial = ExactSearchProbe(state=PROBE_PRESENT, source_identities=["source"])
+    final = ExactSearchProbe(
+        state=state,
+        source_identities=source_identities,
+        successful_source_count=1,
+    )
+    assert _provider_volatility_allowed(initial, final) is expected
 
 
 def test_ordered_probe_candidates_never_samples_beyond_rank_gate(monkeypatch: pytest.MonkeyPatch) -> None:
