@@ -147,6 +147,7 @@ def test_postgres_smoke_resolves_default_and_propertyquarry_service_aliases() ->
         "PROPERTYQUARRY_WORKER_SERVICE",
         "PROPERTYQUARRY_SCHEDULER_SERVICE",
         "PROPERTYQUARRY_DB_SERVICE",
+        "PROPERTYQUARRY_SMOKE_PUBLIC_HOME_REQUIRED",
         "EA_API_SERVICE",
         "EA_WORKER_SERVICE",
         "EA_SCHEDULER_SERVICE",
@@ -171,6 +172,7 @@ def test_postgres_smoke_resolves_default_and_propertyquarry_service_aliases() ->
         "worker": "ea-worker",
         "scheduler": "ea-scheduler",
         "db": "ea-db",
+        "public_home_required": "0",
     }
     assert resolved(
         {
@@ -184,6 +186,7 @@ def test_postgres_smoke_resolves_default_and_propertyquarry_service_aliases() ->
         "worker": "propertyquarry-worker-candidate",
         "scheduler": "propertyquarry-scheduler-candidate",
         "db": "propertyquarry-db-candidate",
+        "public_home_required": "1",
     }
 
 

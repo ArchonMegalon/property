@@ -8,6 +8,14 @@ API_SERVICE="${PROPERTYQUARRY_API_SERVICE:-${EA_API_SERVICE:-ea-api}}"
 WORKER_SERVICE="${PROPERTYQUARRY_WORKER_SERVICE:-${EA_WORKER_SERVICE:-ea-worker}}"
 SCHEDULER_SERVICE="${PROPERTYQUARRY_SCHEDULER_SERVICE:-${EA_SCHEDULER_SERVICE:-ea-scheduler}}"
 DB_SERVICE="${PROPERTYQUARRY_DB_SERVICE:-${EA_DB_SERVICE:-ea-db}}"
+PROPERTYQUARRY_SMOKE_PUBLIC_HOME_REQUIRED="${PROPERTYQUARRY_SMOKE_PUBLIC_HOME_REQUIRED:-}"
+if [[ -z "${PROPERTYQUARRY_SMOKE_PUBLIC_HOME_REQUIRED}" ]]; then
+  if [[ -n "${PROPERTYQUARRY_API_SERVICE:-}" ]]; then
+    PROPERTYQUARRY_SMOKE_PUBLIC_HOME_REQUIRED="1"
+  else
+    PROPERTYQUARRY_SMOKE_PUBLIC_HOME_REQUIRED="0"
+  fi
+fi
 
 for arg in "$@"; do
   case "${arg}" in
@@ -15,8 +23,9 @@ for arg in "$@"; do
       legacy_fixture=1
       ;;
     --print-service-selection)
-      printf 'api=%s\nworker=%s\nscheduler=%s\ndb=%s\n' \
-        "${API_SERVICE}" "${WORKER_SERVICE}" "${SCHEDULER_SERVICE}" "${DB_SERVICE}"
+      printf 'api=%s\nworker=%s\nscheduler=%s\ndb=%s\npublic_home_required=%s\n' \
+        "${API_SERVICE}" "${WORKER_SERVICE}" "${SCHEDULER_SERVICE}" "${DB_SERVICE}" \
+        "${PROPERTYQUARRY_SMOKE_PUBLIC_HOME_REQUIRED}"
       exit 0
       ;;
     --help|-h)
@@ -40,8 +49,9 @@ Options:
   --legacy-fixture          Seed a legacy UUID/approval schema fixture before
                             bootstrap and validate migration-upgrade behavior.
                             In this mode, API smoke is skipped.
-  --print-service-selection Print the resolved Compose service aliases and exit
-                            without reading files or invoking Docker.
+  --print-service-selection Print the resolved Compose service aliases and
+                            public-home requirement, then exit without reading
+                            files or invoking Docker.
 
 Environment:
   EA_HOST_PORT              Optional host port override (falls back to .env or 8090)
@@ -49,6 +59,9 @@ Environment:
   POSTGRES_USER             Postgres user (default: postgres)
   POSTGRES_PASSWORD         Postgres password (falls back to .env)
   EA_SMOKE_DB               Isolated smoke database name (default: ea_smoke_runtime)
+  PROPERTYQUARRY_SMOKE_PUBLIC_HOME_REQUIRED
+                            Defaults to 1 for a PROPERTYQUARRY_API_SERVICE
+                            override and 0 for the generic ea-api smoke profile
 USAGE
       exit 0
       ;;
@@ -432,6 +445,7 @@ for attempt in 1 2 3; do
     -e EA_HOST_PORT="8090" \
     -e EA_PRINCIPAL_ID="exec-1" \
     -e EA_OPERATOR_PRINCIPAL_ID="${container_operator_principal}" \
+    -e PROPERTYQUARRY_SMOKE_PUBLIC_HOME_REQUIRED="${PROPERTYQUARRY_SMOKE_PUBLIC_HOME_REQUIRED}" \
     "${API_CONTAINER}" bash /app/scripts/smoke_api.sh 2>&1)"
   smoke_api_status=$?
   set -e

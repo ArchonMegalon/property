@@ -59,6 +59,43 @@ def test_release_smoke_keeps_propertyquarry_homepage_anonymous() -> None:
     assert '"${AUTH_ARGS[@]}"' not in probe
     assert "auth_required" in probe
     assert "anonymous PropertyQuarry homepage is unavailable or auth-protected" in probe
+    assert 'PROPERTYQUARRY_SMOKE_PUBLIC_HOME_REQUIRED="${PROPERTYQUARRY_SMOKE_PUBLIC_HOME_REQUIRED:-1}"' in smoke_api
+    assert 'if [[ "${PROPERTYQUARRY_SMOKE_PUBLIC_HOME_REQUIRED}" == "1" ]]; then' in smoke_api
+
+
+def test_postgres_smoke_scopes_propertyquarry_homepage_probe_to_branded_service() -> None:
+    smoke_postgres = (ROOT / "scripts/smoke_postgres.sh").read_text(encoding="utf-8")
+
+    assert 'if [[ -n "${PROPERTYQUARRY_API_SERVICE:-}" ]]; then' in smoke_postgres
+    assert 'PROPERTYQUARRY_SMOKE_PUBLIC_HOME_REQUIRED="1"' in smoke_postgres
+    assert 'PROPERTYQUARRY_SMOKE_PUBLIC_HOME_REQUIRED="0"' in smoke_postgres
+    assert '-e PROPERTYQUARRY_SMOKE_PUBLIC_HOME_REQUIRED="${PROPERTYQUARRY_SMOKE_PUBLIC_HOME_REQUIRED}"' in smoke_postgres
+
+    generic_env = dict(os.environ)
+    generic_env.pop("PROPERTYQUARRY_API_SERVICE", None)
+    generic_env.pop("PROPERTYQUARRY_SMOKE_PUBLIC_HOME_REQUIRED", None)
+    generic = subprocess.run(
+        ["bash", "scripts/smoke_postgres.sh", "--print-service-selection"],
+        cwd=ROOT,
+        env=generic_env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert "api=ea-api" in generic.stdout
+    assert "public_home_required=0" in generic.stdout
+
+    branded_env = {**generic_env, "PROPERTYQUARRY_API_SERVICE": "propertyquarry-api"}
+    branded = subprocess.run(
+        ["bash", "scripts/smoke_postgres.sh", "--print-service-selection"],
+        cwd=ROOT,
+        env=branded_env,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert "api=propertyquarry-api" in branded.stdout
+    assert "public_home_required=1" in branded.stdout
 
 
 def test_db_size_help_explains_pgdata_volume() -> None:

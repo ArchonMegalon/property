@@ -4,6 +4,12 @@ set -euo pipefail
 EA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SMOKE_TMP_DIR="${EA_ROOT}/.smoke_tmp"
 API_SERVICE="${PROPERTYQUARRY_API_SERVICE:-${EA_API_SERVICE:-ea-api}}"
+PROPERTYQUARRY_SMOKE_PUBLIC_HOME_REQUIRED="${PROPERTYQUARRY_SMOKE_PUBLIC_HOME_REQUIRED:-1}"
+
+if [[ "${PROPERTYQUARRY_SMOKE_PUBLIC_HOME_REQUIRED}" != "0" && "${PROPERTYQUARRY_SMOKE_PUBLIC_HOME_REQUIRED}" != "1" ]]; then
+  echo "PROPERTYQUARRY_SMOKE_PUBLIC_HOME_REQUIRED must be 0 or 1" >&2
+  exit 2
+fi
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   cat <<'EOF'
@@ -21,6 +27,11 @@ Auth:
   X-EA-Principal-ID from EA_PRINCIPAL_ID
   (default: exec-1) and verify mismatches against EA_MISMATCH_PRINCIPAL_ID
   (default: exec-2) return principal_scope_mismatch.
+
+PropertyQuarry surface:
+  PROPERTYQUARRY_SMOKE_PUBLIC_HOME_REQUIRED defaults to 1 and requires the
+  anonymous branded homepage to return PropertyQuarry HTML without auth errors.
+  Generic runtime harnesses that do not mount the branded surface may set it to 0.
 
 Exit codes:
   11 missing execution_session_id
@@ -335,20 +346,24 @@ curl -fsS "${BASE}/health/ready" >/dev/null
 curl -fsS "${BASE}/version" >/dev/null
 echo "health/version ok"
 
-echo "== smoke: anonymous PropertyQuarry homepage =="
-PROPERTYQUARRY_PUBLIC_HOME="$(
-  curl -fsS "${BASE}/" \
-    -H 'Host: propertyquarry.com' \
-    -H 'Accept: text/html'
-)"
-PROPERTYQUARRY_PUBLIC_HOME_FIELDS="$(
-  python3 -c 'import sys; body=sys.stdin.read(); lowered=body.lower(); print("{}|{}|{}".format("<html" in lowered, "propertyquarry" in lowered, "auth_required" not in lowered))' \
-    <<<"${PROPERTYQUARRY_PUBLIC_HOME}"
-)"
-if [[ "${PROPERTYQUARRY_PUBLIC_HOME_FIELDS}" != "True|True|True" ]]; then
-  fail 12 "anonymous PropertyQuarry homepage is unavailable or auth-protected"
+if [[ "${PROPERTYQUARRY_SMOKE_PUBLIC_HOME_REQUIRED}" == "1" ]]; then
+  echo "== smoke: anonymous PropertyQuarry homepage =="
+  PROPERTYQUARRY_PUBLIC_HOME="$(
+    curl -fsS "${BASE}/" \
+      -H 'Host: propertyquarry.com' \
+      -H 'Accept: text/html'
+  )"
+  PROPERTYQUARRY_PUBLIC_HOME_FIELDS="$(
+    python3 -c 'import sys; body=sys.stdin.read(); lowered=body.lower(); print("{}|{}|{}".format("<html" in lowered, "propertyquarry" in lowered, "auth_required" not in lowered))' \
+      <<<"${PROPERTYQUARRY_PUBLIC_HOME}"
+  )"
+  if [[ "${PROPERTYQUARRY_PUBLIC_HOME_FIELDS}" != "True|True|True" ]]; then
+    fail 12 "anonymous PropertyQuarry homepage is unavailable or auth-protected"
+  fi
+  echo "anonymous PropertyQuarry homepage ok"
+else
+  echo "anonymous PropertyQuarry homepage skipped (generic runtime profile)"
 fi
-echo "anonymous PropertyQuarry homepage ok"
 
 echo "== smoke: openapi =="
 OPENAPI_FIELDS="$(curl -fsS "${BASE}/openapi.json" | python3 -c "import json,sys; body=json.loads(sys.stdin.read() or '{}'); schemas=((body.get('components') or {}).get('schemas') or {}); step_schema=schemas.get('SessionStepOut') or {}; step_examples=step_schema.get('examples') or []; waiting=next((row for row in step_examples if row.get('step_id') == 'step-artifact-save-waiting-approval'), {}); blocked=next((row for row in step_examples if row.get('step_id') == 'step-artifact-save-blocked-human'), {}); rewrite_examples=(schemas.get('RewriteAcceptedOut') or {}).get('examples') or []; rewrite_approval=next((row for row in rewrite_examples if row.get('status') == 'awaiting_approval'), {}); rewrite_human=next((row for row in rewrite_examples if row.get('status') == 'awaiting_human'), {}); rewrite_queued=next((row for row in rewrite_examples if row.get('status') == 'queued'), {}); plan_examples=(schemas.get('PlanExecuteAcceptedOut') or {}).get('examples') or []; plan_approval=next((row for row in plan_examples if row.get('status') == 'awaiting_approval'), {}); plan_human=next((row for row in plan_examples if row.get('status') == 'awaiting_human'), {}); plan_queued=next((row for row in plan_examples if row.get('status') == 'queued'), {}); print('{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}'.format(waiting.get('state',''), waiting.get('dependency_states') == {'step_policy_evaluate': 'completed'}, waiting.get('blocked_dependency_keys') == [], waiting.get('dependencies_satisfied') is True, blocked.get('state',''), blocked.get('blocked_dependency_keys') == ['step_human_review'], blocked.get('dependencies_satisfied') is False, rewrite_approval.get('approval_id',''), rewrite_human.get('human_task_id',''), rewrite_approval.get('next_action',''), rewrite_human.get('next_action',''), rewrite_queued.get('next_action',''), plan_approval.get('task_key',''), plan_human.get('task_key',''), plan_queued.get('task_key','')))")"
