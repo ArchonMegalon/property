@@ -37,6 +37,23 @@ PYTEST_OUTCOME_RE = re.compile(
     r"\b(?P<count>\d+)\s+(?P<outcome>passed|failed|skipped|errors?|xfailed|xpassed)\b",
     re.IGNORECASE,
 )
+PYTEST_ISOLATED_ENV_KEYS = (
+    "DATABASE_URL",
+    "EA_ALLOW_AUTHENTICATED_PRINCIPAL_HEADER",
+    "EA_ALLOW_LOOPBACK_NO_AUTH",
+    "EA_API_TOKEN",
+    "EA_DATABASE_URL",
+    "EA_HOST_PORT",
+    "EA_MISMATCH_PRINCIPAL_ID",
+    "EA_OPERATOR_PRINCIPAL_ID",
+    "EA_OPERATOR_PRINCIPAL_IDS",
+    "EA_OPERATOR_PRINCIPALS",
+    "EA_PRINCIPAL_ID",
+    "EA_RUNTIME_MODE",
+    "EA_STORAGE_BACKEND",
+    "EA_TRUST_API_TOKEN_PRINCIPAL_HEADER",
+    "EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER",
+)
 
 
 def _utc_now() -> str:
@@ -209,6 +226,8 @@ def _run_pytest_cases(
     if real_browser:
         cmd.append("-rs")
     env = os.environ.copy()
+    for key in PYTEST_ISOLATED_ENV_KEYS:
+        env.pop(key, None)
     env["PYTHONPATH"] = _with_pythonpath(str(env.get("PYTHONPATH") or ""), root)
     started = time.monotonic()
     result = subprocess.run(

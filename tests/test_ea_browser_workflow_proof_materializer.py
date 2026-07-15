@@ -132,6 +132,35 @@ def test_pytest_lane_runner_does_not_treat_exit_zero_with_all_skips_as_pass(
     assert "tests/e2e/test_propertyquarry_greenfield_browser.py::second_real_browser_case" in lane["command"]
 
 
+def test_pytest_lane_runner_isolates_release_runtime_environment(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_env: dict[str, str] = {}
+    for key in browser_proof_materializer.PYTEST_ISOLATED_ENV_KEYS:
+        monkeypatch.setenv(key, f"release-value-for-{key.lower()}")
+    monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", "/tmp/playwright-browsers")
+
+    def fake_run(*args: object, **kwargs: object) -> SimpleNamespace:
+        captured_env.update(kwargs["env"])
+        return SimpleNamespace(returncode=0, stdout="2 passed in 0.01s\n", stderr="")
+
+    monkeypatch.setattr(browser_proof_materializer.subprocess, "run", fake_run)
+
+    lane = browser_proof_materializer._run_pytest_cases(
+        tmp_path,
+        python_bin="python3",
+        test_file="tests/test_propertyquarry_workspace_redesign.py",
+        cases=["first_source_case", "second_source_case"],
+        real_browser=False,
+    )
+
+    assert lane["status"] == "pass"
+    assert all(key not in captured_env for key in browser_proof_materializer.PYTEST_ISOLATED_ENV_KEYS)
+    assert captured_env["PLAYWRIGHT_BROWSERS_PATH"] == "/tmp/playwright-browsers"
+    assert "ea" in captured_env["PYTHONPATH"].split(":")
+
+
 def test_browser_workflow_proof_blocks_false_green_zero_outcome_real_browser_lane(tmp_path: Path) -> None:
     _write_seed(tmp_path)
 

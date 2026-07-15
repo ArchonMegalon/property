@@ -289,6 +289,9 @@ if [[ -z "${MAX_REWRITE_CHARS}" && -f "${EA_ROOT}/.env" ]]; then
 fi
 MAX_REWRITE_CHARS="${MAX_REWRITE_CHARS:-20000}"
 SMOKE_RUN_TOKEN="${EA_SMOKE_RUN_TOKEN:-$(date +%s)-$$}"
+read -r TELEGRAM_SMOKE_CHAT_ID TELEGRAM_SMOKE_MESSAGE_ID < <(
+  python3 -c 'import hashlib,sys; value=int(hashlib.sha256(sys.argv[1].encode()).hexdigest(),16); print(1_000_000_000 + value % 900_000_000_000, 1 + (value >> 40) % 2_000_000_000)' "${SMOKE_RUN_TOKEN}"
+)
 # Release-guard anchors for dispatch/memory workflow smoke coverage:
 # dispatch-memory@example.com
 # reviewed-memory@example.com
@@ -1721,10 +1724,10 @@ fi
 if (( LEGACY_CONNECTORS_AVAILABLE )); then
 echo "== smoke: telegram adapter =="
 curl -fsS -X POST "${BASE}/v1/connectors/bindings" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' \
-  -d '{"connector_name":"telegram_identity","external_account_ref":"42","scope_json":{"assistant_surfaces":["dm"]},"auth_metadata_json":{"default_chat_ref":"42","identity_mode":"login_widget","history_mode":"future_only"},"status":"enabled"}' >/dev/null
+  -d "{\"connector_name\":\"telegram_identity\",\"external_account_ref\":\"${TELEGRAM_SMOKE_CHAT_ID}\",\"scope_json\":{\"assistant_surfaces\":[\"dm\"]},\"auth_metadata_json\":{\"default_chat_ref\":\"${TELEGRAM_SMOKE_CHAT_ID}\",\"identity_mode\":\"login_widget\",\"history_mode\":\"future_only\"},\"status\":\"enabled\"}" >/dev/null
 operator_post_json "${BASE}/v1/channels/telegram/ingest" -H 'content-type: application/json' \
   "${TELEGRAM_INGEST_ARGS[@]}" \
-  -d '{"update":{"message":{"chat":{"id":42},"text":"hello","message_id":7,"date":123}}}' >/dev/null
+  -d "{\"update\":{\"message\":{\"chat\":{\"id\":${TELEGRAM_SMOKE_CHAT_ID}},\"text\":\"hello\",\"message_id\":${TELEGRAM_SMOKE_MESSAGE_ID},\"date\":123}}}" >/dev/null
 echo "telegram adapter ok"
 
 echo "== smoke: tools and connectors =="
