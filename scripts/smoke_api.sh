@@ -312,13 +312,13 @@ fi
 if route_available "/v1/delivery/outbox/pending?limit=1"; then
   LEGACY_DELIVERY_AVAILABLE=1
 fi
-if route_available "/v1/connectors/registry"; then
+if route_available "/v1/connectors/bindings?limit=1"; then
   LEGACY_CONNECTORS_AVAILABLE=1
 fi
 if route_available "/v1/tasks/contracts"; then
   LEGACY_TASK_CONTRACTS_AVAILABLE=1
 fi
-if route_available "/v1/skills/catalog"; then
+if route_available "/v1/skills?limit=1"; then
   LEGACY_SKILLS_AVAILABLE=1
 fi
 if route_available "/v1/responses"; then
@@ -895,13 +895,13 @@ if [[ "${HUMAN_MINE_ASSIGNED_MATCH}" != "True" ]]; then
 fi
 HUMAN_REASSIGN_JSON="$(operator_post_json "${BASE}/v1/human/tasks/${HUMAN_TASK_ID}/assign" -H 'content-type: application/json' -d '{"operator_id":"operator-junior"}')"
 HUMAN_REASSIGN_FIELDS="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print("{}|{}|{}|{}|{}|{}".format(body.get("status",""), body.get("assignment_state",""), body.get("assigned_operator_id",""), body.get("assignment_source",""), bool(body.get("assigned_at","")), body.get("assigned_by_actor_id","")))' <<<"${HUMAN_REASSIGN_JSON}")"
-if [[ "${HUMAN_REASSIGN_FIELDS}" != "pending|assigned|operator-junior|manual|True|exec-1" && "${HUMAN_REASSIGN_FIELDS}" != "pending|assigned|operator-junior|manual|True|tibor-codex-ea" ]]; then
+if [[ "${HUMAN_REASSIGN_FIELDS}" != "pending|assigned|operator-junior|manual|True|${PRINCIPAL_ID}" ]]; then
   echo "expected manual reassignment to overwrite current owner but preserve explicit provenance fields; got ${HUMAN_REASSIGN_FIELDS}" >&2
   echo "${HUMAN_REASSIGN_JSON}" >&2
   fail 12 "policy contract mismatch"
 fi
 HUMAN_REASSIGN_SUMMARY_FIELDS="$(python3 -c 'import json,sys; body=json.loads(sys.stdin.read() or "{}"); print("{}|{}|{}|{}|{}|{}".format(body.get("last_transition_event_name",""), bool(body.get("last_transition_at","")), body.get("last_transition_assignment_state",""), body.get("last_transition_operator_id",""), body.get("last_transition_assignment_source",""), body.get("last_transition_by_actor_id","")))' <<<"${HUMAN_REASSIGN_JSON}")"
-if [[ "${HUMAN_REASSIGN_SUMMARY_FIELDS}" != "human_task_assigned|True|assigned|operator-junior|manual|exec-1" && "${HUMAN_REASSIGN_SUMMARY_FIELDS}" != "human_task_assigned|True|assigned|operator-junior|manual|tibor-codex-ea" && "${HUMAN_REASSIGN_SUMMARY_FIELDS}" != "|False||||" ]]; then
+if [[ "${HUMAN_REASSIGN_SUMMARY_FIELDS}" != "human_task_assigned|True|assigned|operator-junior|manual|${PRINCIPAL_ID}" && "${HUMAN_REASSIGN_SUMMARY_FIELDS}" != "|False||||" ]]; then
   echo "expected reassigned response to expose manual last-transition summary; got ${HUMAN_REASSIGN_SUMMARY_FIELDS}" >&2
   echo "${HUMAN_REASSIGN_JSON}" >&2
   fail 12 "policy contract mismatch"
@@ -1703,7 +1703,7 @@ fi
 
 if (( LEGACY_DELIVERY_AVAILABLE )); then
 echo "== smoke: outbox =="
-DELIVERY_JSON="$(curl -fsS -X POST "${BASE}/v1/delivery/outbox" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d '{"channel":"slack","recipient":"U1","content":"Draft ready","metadata":{"priority":"high"},"idempotency_key":"smoke-delivery-1"}')"
+DELIVERY_JSON="$(curl -fsS -X POST "${BASE}/v1/delivery/outbox" "${AUTH_ARGS[@]}" "${PRINCIPAL_ARGS[@]}" -H 'content-type: application/json' -d "{\"channel\":\"slack\",\"recipient\":\"U1\",\"content\":\"Draft ready\",\"metadata\":{\"priority\":\"high\"},\"idempotency_key\":\"smoke-delivery-${SMOKE_RUN_TOKEN}\"}")"
 DELIVERY_ID="$(python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("delivery_id",""))' <<<"${DELIVERY_JSON}")"
 if [[ -z "${DELIVERY_ID}" ]]; then
   fail 13 "missing delivery_id from outbox response"

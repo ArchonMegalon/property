@@ -99,7 +99,9 @@ class OperatorTaskRoutingService:
                 "step_id": updated.step_id or "",
             },
         )
-        return updated
+        if self._decorate_human_task is None:
+            return updated
+        return self._decorate_human_task(updated)
 
     def assign_human_task(
         self,
@@ -138,7 +140,9 @@ class OperatorTaskRoutingService:
                 "step_id": updated.step_id or "",
             },
         )
-        return updated
+        if self._decorate_human_task is None:
+            return updated
+        return self._decorate_human_task(updated)
 
     def return_human_task(
         self,

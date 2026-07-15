@@ -56,6 +56,8 @@ def _relations_for(version: int) -> set[str]:
             "idx_property_search_runs_delivery_work_updated",
             "idx_property_search_runs_principal_delivery_work_updated",
         }
+    if version == 7:
+        return {"idx_delivery_outbox_principal_idempotency_unique"}
     raise AssertionError(f"unexpected migration version: {version}")
 
 
@@ -155,6 +157,10 @@ class _FakeCursor:
                 if self.database.fail_migration_version == migration.version:
                     raise RuntimeError(f"synthetic migration {migration.version} failure")
                 self.database.relations.update(_relations_for(migration.version))
+                if migration.version == 7:
+                    self.database.relations.discard(
+                        "idx_delivery_outbox_idempotency_key_unique"
+                    )
                 return
 
     def fetchall(self) -> list[tuple[object, ...]]:
@@ -175,10 +181,10 @@ def test_clean_install_is_transactional_ordered_and_advisory_locked() -> None:
 
     assert result.previous_version == 0
     assert result.current_version == schema.LATEST_PROPERTY_SEARCH_SCHEMA_VERSION
-    assert result.applied_versions == (1, 2, 3, 4, 5, 6)
+    assert result.applied_versions == (1, 2, 3, 4, 5, 6, 7)
     assert database.commits == 1
     assert database.rollbacks == 0
-    assert tuple(database.ledger) == (1, 2, 3, 4, 5, 6)
+    assert tuple(database.ledger) == (1, 2, 3, 4, 5, 6, 7)
     assert "pg_advisory_xact_lock" in database.executed[0][0]
     assert database.executed[0][1] == (schema.SCHEMA_LOCK_ID,)
     for migration in schema.PROPERTY_SEARCH_MIGRATIONS:
@@ -203,8 +209,8 @@ def test_upgrade_from_run_schema_applies_queue_and_cache_once() -> None:
     )
 
     assert first.previous_version == 1
-    assert first.applied_versions == (2, 3, 4, 5, 6)
-    assert second.previous_version == 6
+    assert first.applied_versions == (2, 3, 4, 5, 6, 7)
+    assert second.previous_version == 7
     assert second.applied_versions == ()
     assert not any(
         sql == " ".join(migration.sql.split())
@@ -224,8 +230,8 @@ def test_upgrade_from_schema_v4_installs_content_ledger_and_delivery_projection(
     )
 
     assert result.previous_version == 4
-    assert result.current_version == 6
-    assert result.applied_versions == (5, 6)
+    assert result.current_version == 7
+    assert result.applied_versions == (5, 6, 7)
     assert _relations_for(5).issubset(database.relations)
     assert _relations_for(6).issubset(database.relations)
     executed_migrations = {
@@ -234,7 +240,45 @@ def test_upgrade_from_schema_v4_installs_content_ledger_and_delivery_projection(
         for migration in schema.PROPERTY_SEARCH_MIGRATIONS
         if sql == " ".join(migration.sql.split())
     }
-    assert executed_migrations == {5, 6}
+    assert executed_migrations == {5, 6, 7}
+
+
+def test_upgrade_from_schema_v6_removes_legacy_global_outbox_idempotency() -> None:
+    database = _FakeDatabase()
+    for version in (1, 2, 3, 4, 5, 6):
+        database.seed_migration(version)
+    database.relations.add("idx_delivery_outbox_idempotency_key_unique")
+
+    result = schema.migrate_property_search_schema(
+        "postgresql://test/property",
+        connect=database.connect,
+    )
+
+    assert result.previous_version == 6
+    assert result.current_version == 7
+    assert result.applied_versions == (7,)
+    assert "idx_delivery_outbox_idempotency_key_unique" not in database.relations
+    assert "idx_delivery_outbox_principal_idempotency_unique" in database.relations
+    migration_sql = " ".join(schema.PROPERTY_SEARCH_MIGRATIONS[-1].sql.split())
+    assert "DROP INDEX IF EXISTS idx_delivery_outbox_idempotency_key_unique" in migration_sql
+
+
+def test_replayable_legacy_outbox_migration_preserves_tenant_scope() -> None:
+    migration_sql = Path(
+        "ea/schema/20260305_v0_8_channel_runtime_reliability.sql"
+    ).read_text(encoding="utf-8")
+
+    principal_guard = migration_sql.index("attname = 'principal_id'")
+    scoped_index = migration_sql.index(
+        "idx_delivery_outbox_principal_idempotency_unique"
+    )
+    obsolete_drop = migration_sql.index(
+        "DROP INDEX IF EXISTS idx_delivery_outbox_idempotency_key_unique"
+    )
+    legacy_fallback = migration_sql.index(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_delivery_outbox_idempotency_key_unique"
+    )
+    assert principal_guard < scoped_index < obsolete_drop < legacy_fallback
 
 
 def test_checksum_drift_and_version_gaps_fail_before_any_migration() -> None:
@@ -305,7 +349,7 @@ def test_readiness_reports_missing_pending_drift_relation_and_ready() -> None:
     assert status.reason == "property_search_migration_checksum_drift:1"
 
     database = _FakeDatabase()
-    for version in (1, 2, 3, 4, 5, 6):
+    for version in (1, 2, 3, 4, 5, 6, 7):
         database.seed_migration(version)
     database.relations.remove("idx_property_search_work_claim")
     status = schema.inspect_property_search_schema(
@@ -331,13 +375,23 @@ def test_readiness_reports_missing_pending_drift_relation_and_ready() -> None:
     assert status.reason == "required_relation_missing:idx_property_content_webhook_claim"
 
     database.relations.add("idx_property_content_webhook_claim")
+    database.relations.add("idx_delivery_outbox_idempotency_key_unique")
+    status = schema.inspect_property_search_schema(
+        "postgresql://test/property",
+        connect=database.connect,
+    )
+    assert status.reason == (
+        "forbidden_relation_present:idx_delivery_outbox_idempotency_key_unique"
+    )
+
+    database.relations.remove("idx_delivery_outbox_idempotency_key_unique")
     status = schema.inspect_property_search_schema(
         "postgresql://test/property",
         connect=database.connect,
     )
     assert status.ready is True
     assert status.reason == "schema_ready"
-    assert status.current_version == 6
+    assert status.current_version == 7
 
 
 def test_runtime_schema_access_fails_closed_without_running_ddl() -> None:
@@ -415,17 +469,17 @@ def test_container_readiness_requires_current_schema_in_prod(
     assert ready is False
     assert reason == "property_search_schema_not_ready:migration_ledger_missing"
 
-    for version in (1, 2, 3, 4, 5, 6):
+    for version in (1, 2, 3, 4, 5, 6, 7):
         database.seed_migration(version)
     ready, reason = readiness._probe_database()
     assert ready is True
-    assert reason == "postgres_ready:property_search_schema_v6"
+    assert reason == "postgres_ready:property_search_schema_v7"
 
 
 def test_migration_checksums_are_stable_and_unique() -> None:
     checksums = [migration.checksum for migration in schema.PROPERTY_SEARCH_MIGRATIONS]
 
-    assert [migration.version for migration in schema.PROPERTY_SEARCH_MIGRATIONS] == [1, 2, 3, 4, 5, 6]
+    assert [migration.version for migration in schema.PROPERTY_SEARCH_MIGRATIONS] == [1, 2, 3, 4, 5, 6, 7]
     assert checksums == [
         "4938925d3679ca592f67de1fb5f5c5538ce0e2c93dd2435ffe1204674d02a37e",
         "9beb0cbc778018c9ea7ee5939cbd25a86830a904a8c2bfe8454a022219a078a6",
@@ -433,4 +487,5 @@ def test_migration_checksums_are_stable_and_unique() -> None:
         "b4a28da18a3d31d328ffa13c67b90a8ae1b1c3b1920c980dafc2343d226a20c3",
         "4f54431f5a138f03d697837b2c0940462a51ed3b6bafae754f316a4757edfe23",
         "5d3855e9cdbfc2b82b97f5be9101188e0a2907ed9ca080f39c533abbae143008",
+        "5d7ac5e0d805546f2f4e282323c3ba5dcda1c25f7e5947b1b13ad6df590a93e3",
     ]

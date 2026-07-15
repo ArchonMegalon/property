@@ -402,6 +402,15 @@ CREATE INDEX IF NOT EXISTS idx_property_search_runs_principal_delivery_work_upda
 """
 
 
+_TENANT_SCOPED_OUTBOX_IDEMPOTENCY_SCHEMA_V7 = r"""
+CREATE UNIQUE INDEX IF NOT EXISTS idx_delivery_outbox_principal_idempotency_unique
+    ON delivery_outbox(principal_id, idempotency_key)
+    WHERE idempotency_key <> '';
+
+DROP INDEX IF EXISTS idx_delivery_outbox_idempotency_key_unique;
+"""
+
+
 PROPERTY_SEARCH_MIGRATIONS: tuple[PropertySearchMigration, ...] = (
     PropertySearchMigration(1, "property_search_runs_tenant_schema", _RUN_SCHEMA_V1),
     PropertySearchMigration(2, "property_search_durable_work_queue", _WORK_QUEUE_SCHEMA_V2),
@@ -409,6 +418,11 @@ PROPERTY_SEARCH_MIGRATIONS: tuple[PropertySearchMigration, ...] = (
     PropertySearchMigration(4, "replica_safe_delivery_outbox", _DELIVERY_OUTBOX_SCHEMA_V4),
     PropertySearchMigration(5, "durable_property_content_job_ledger", _PROPERTY_CONTENT_LEDGER_SCHEMA_V5),
     PropertySearchMigration(6, "bounded_run_delivery_projection", _RUN_DELIVERY_PROJECTION_SCHEMA_V6),
+    PropertySearchMigration(
+        7,
+        "tenant_scoped_delivery_outbox_idempotency",
+        _TENANT_SCOPED_OUTBOX_IDEMPOTENCY_SCHEMA_V7,
+    ),
 )
 LATEST_PROPERTY_SEARCH_SCHEMA_VERSION = PROPERTY_SEARCH_MIGRATIONS[-1].version
 
@@ -454,6 +468,10 @@ _REQUIRED_RELATIONS = (
     "idx_property_content_job_events_packet_sequence",
     "idx_property_content_webhook_status_updated",
     "idx_property_content_webhook_claim",
+)
+
+_FORBIDDEN_RELATIONS = (
+    "idx_delivery_outbox_idempotency_key_unique",
 )
 
 _SCHEMA_READY_LOCK = threading.Lock()
@@ -611,6 +629,17 @@ def inspect_property_search_schema_cursor(cur) -> PropertySearchSchemaStatus:  #
             return PropertySearchSchemaStatus(
                 False,
                 f"required_relation_missing:{relation}",
+                current,
+                LATEST_PROPERTY_SEARCH_SCHEMA_VERSION,
+                versions,
+            )
+    for relation in _FORBIDDEN_RELATIONS:
+        cur.execute("SELECT to_regclass(%s)", (relation,))
+        relation_row = cur.fetchone()
+        if relation_row and relation_row[0] is not None:
+            return PropertySearchSchemaStatus(
+                False,
+                f"forbidden_relation_present:{relation}",
                 current,
                 LATEST_PROPERTY_SEARCH_SCHEMA_VERSION,
                 versions,

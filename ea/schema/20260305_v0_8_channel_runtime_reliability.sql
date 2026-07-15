@@ -23,9 +23,28 @@ ALTER TABLE delivery_outbox
     ADD COLUMN IF NOT EXISTS receipt_json JSONB NOT NULL DEFAULT '{}'::jsonb,
     ADD COLUMN IF NOT EXISTS dead_lettered_at TIMESTAMPTZ NULL;
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_delivery_outbox_idempotency_key_unique
-ON delivery_outbox(idempotency_key)
-WHERE idempotency_key <> '';
+DO $delivery_outbox_idempotency_scope$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM pg_attribute
+        WHERE attrelid = 'delivery_outbox'::regclass
+          AND attname = 'principal_id'
+          AND attnum > 0
+          AND NOT attisdropped
+    ) THEN
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_delivery_outbox_principal_idempotency_unique
+        ON delivery_outbox(principal_id, idempotency_key)
+        WHERE idempotency_key <> '';
+
+        DROP INDEX IF EXISTS idx_delivery_outbox_idempotency_key_unique;
+    ELSE
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_delivery_outbox_idempotency_key_unique
+        ON delivery_outbox(idempotency_key)
+        WHERE idempotency_key <> '';
+    END IF;
+END
+$delivery_outbox_idempotency_scope$;
 
 CREATE INDEX IF NOT EXISTS idx_delivery_outbox_retry_schedule
 ON delivery_outbox(status, next_attempt_at, created_at DESC);
