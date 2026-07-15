@@ -142,7 +142,8 @@ def test_browser_return_target_rejects_surrounding_controls_and_overlong_whitesp
 ) -> None:
     from app.api.routes.landing import _normalize_browser_return_to
 
-    assert _normalize_browser_return_to(unsafe_target, default="/app/search") == "/app/search"
+    fallback = "/safe-default"
+    assert _normalize_browser_return_to(unsafe_target, default=fallback) == fallback
 
 
 def _id_austria_claims(*, bpk: str = "ZP-MH:test-bpk", subject: str = "id-austria-subject") -> dict[str, object]:
