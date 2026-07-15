@@ -36,7 +36,7 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `1c8b241f2691c95589d30c074e45b29ec742300b` |
+| Runtime commit SHA | `e32aed8d6196eedb4dd110ff10a99f856c2fb0e6` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
 | Deployment ID | `pending-next-verified-deploy`; current candidate fails optional tour media safely, publishes reconstructed tours through a bounded unprivileged atomic exchange, and verifies browser journeys through explicit user-visible readiness on a reserved branded loopback origin |
