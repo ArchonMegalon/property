@@ -5,7 +5,7 @@
   "proof_target": "propertyquarry",
   "version": 1,
   "kind": "proof_receipt",
-  "generated_at": "2026-07-14T23:09:09Z",
+  "generated_at": "2026-07-15T02:52:01Z",
   "generated_by": "scripts/materialize_ea_browser_workflow_proof.py",
   "status": "pass",
   "operator_summary": "PropertyQuarry browser workflow proof is published and green across both source-backed journeys and real-browser E2E.",
@@ -20,7 +20,7 @@
   ],
   "source_binding": {
     "version": 1,
-    "code_commit": "a4e448579034eef9754fbcdaa4db8f3f0785f1d1",
+    "code_commit": "698c5881984a7e9d252e470c8f2889ed4c8a330a",
     "seed": {
       "path": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
       "sha256": "542cd03e2ea8ca3432f8be73a4b37dd2b58c52dd92cd8726375db507e09ebf07",
@@ -34,26 +34,26 @@
       },
       {
         "path": "tests/e2e/test_propertyquarry_greenfield_browser.py",
-        "sha256": "9ef6fc83f4567578adc7876323bd13b56faec469daed9f009640e2419a357456",
-        "git_blob_oid": "b947b5457d5f12fa4eda6f103f96c79d2e2a3557"
+        "sha256": "eb02e752bcb6d75e1cf92aee7d97d7562cf70cca4c2cf4682fecdb1f527ddc87",
+        "git_blob_oid": "4f0515e9914652fc38d224a84455b9845add14f9"
       }
     ]
   },
   "source_backed_journey_proof": {
     "status": "pass",
-    "command": "/docker/property/.venv/bin/python -m pytest -q tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_workspace_routes_render_greenfield_surfaces tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_failed_run_stays_on_activity_surface",
-    "cwd": "/docker/property",
-    "python_bin": "/docker/property/.venv/bin/python",
+    "command": "/usr/bin/python3 -m pytest -q tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_workspace_routes_render_greenfield_surfaces tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_failed_run_stays_on_activity_surface",
+    "cwd": "/tmp/propertyquarry-release-integration-20260715",
+    "python_bin": "/usr/bin/python3",
     "test_file": "tests/test_propertyquarry_workspace_redesign.py",
     "cases": [
       "test_propertyquarry_workspace_routes_render_greenfield_surfaces",
       "test_propertyquarry_failed_run_stays_on_activity_surface"
     ],
     "exit_code": 0,
-    "duration_seconds": 30.283,
+    "duration_seconds": 122.208,
     "output_excerpt": [
       "..                                                                       [100%]",
-      "2 passed in 26.79s"
+      "2 passed in 115.41s (0:01:55)"
     ],
     "limitations": [],
     "outcome_counts": {
@@ -70,19 +70,19 @@
   },
   "real_browser_e2e_proof": {
     "status": "pass",
-    "command": "/docker/property/.venv/bin/python -m pytest -q tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_greenfield_workspace_in_real_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_greenfield_workspace_is_mobile_usable -rs",
-    "cwd": "/docker/property",
-    "python_bin": "/docker/property/.venv/bin/python",
+    "command": "/usr/bin/python3 -m pytest -q tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_greenfield_workspace_in_real_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_greenfield_workspace_is_mobile_usable -rs",
+    "cwd": "/tmp/propertyquarry-release-integration-20260715",
+    "python_bin": "/usr/bin/python3",
     "test_file": "tests/e2e/test_propertyquarry_greenfield_browser.py",
     "cases": [
       "test_propertyquarry_greenfield_workspace_in_real_browser",
       "test_propertyquarry_greenfield_workspace_is_mobile_usable"
     ],
     "exit_code": 0,
-    "duration_seconds": 56.679,
+    "duration_seconds": 63.295,
     "output_excerpt": [
       "..                                                                       [100%]",
-      "2 passed in 47.59s"
+      "2 passed in 54.63s"
     ],
     "limitations": [],
     "outcome_counts": {
