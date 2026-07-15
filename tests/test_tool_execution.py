@@ -41,6 +41,17 @@ def _tool_execution_service(*args, **kwargs) -> ToolExecutionService:
     return ToolExecutionService(*args, **kwargs)
 
 
+def _stub_mootion_public_dns(monkeypatch: pytest.MonkeyPatch) -> None:
+    import socket
+
+    monkeypatch.setattr(
+        "app.mootion_remote_asset_policy.socket.getaddrinfo",
+        lambda host, port, type=0: [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", 443))
+        ],
+    )
+
+
 def test_tool_execution_service_executes_builtin_artifact_repository_handler() -> None:
     artifacts = InMemoryArtifactRepository()
     tool_runtime = ToolRuntimeService(
@@ -6600,10 +6611,24 @@ def test_tool_execution_scene_video_delivery_probe_sends_existing_video_without_
 def test_tool_execution_scene_video_mootion_remote_browseract_bypasses_local_docker_blockers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _stub_mootion_public_dns(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_MOOTION_REMOTE_VIDEO_ALLOWED_HOSTS", "cdn.example")
     registry = InMemoryToolRegistryRepository()
     tool_runtime = ToolRuntimeService(
         tool_registry=registry,
         connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-scene-video-mootion-remote",
+        connector_name="browseract",
+        external_account_ref="mootion-scene-video-remote",
+        scope_json={"services": ["mootion", "mootion_movie"]},
+        auth_metadata_json={
+            "mootion_browseract_bridge": True,
+            "service_key": "mootion_movie",
+            "mootion_movie_workflow_id": "wf-mootion-remote",
+        },
+        status="enabled",
     )
     provider_registry = ProviderRegistryService()
 
@@ -6679,6 +6704,7 @@ def test_tool_execution_scene_video_mootion_remote_browseract_bypasses_local_doc
                 "context_kind": "scene_briefing",
                 "title": "Runsite Mootion remote scene",
                 "script_text": "A remote BrowserAct Mootion briefing render.",
+                "binding_id": binding.binding_id,
                 "workflow_id": "wf-mootion-remote",
                 "timeout_seconds": 120,
             },
@@ -6689,6 +6715,7 @@ def test_tool_execution_scene_video_mootion_remote_browseract_bypasses_local_doc
     assert captured_payload["force_browseract"] is True
     assert captured_payload["allow_browseract_remote_fallback"] is True
     assert captured_payload["remote_fallback_allowed"] is True
+    assert captured_payload["binding_id"] == binding.binding_id
     assert captured_payload["workflow_id"] == "wf-mootion-remote"
     assert result.output_json["provider_key"] == "mootion"
     assert result.output_json["render_status"] == "rendered"
@@ -6698,6 +6725,8 @@ def test_tool_execution_scene_video_mootion_remote_browseract_bypasses_local_doc
 def test_tool_execution_scene_video_mootion_auto_selects_browseract_bridge_binding(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _stub_mootion_public_dns(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_MOOTION_REMOTE_VIDEO_ALLOWED_HOSTS", "cdn.example")
     registry = InMemoryToolRegistryRepository()
     tool_runtime = ToolRuntimeService(
         tool_registry=registry,
@@ -6799,6 +6828,797 @@ def test_tool_execution_scene_video_mootion_auto_selects_browseract_bridge_bindi
     assert captured_payload["allow_browseract_remote_fallback"] is True
     assert result.output_json["provider_key"] == "mootion"
     assert result.output_json["video_url"] == "https://cdn.example/mootion/auto-bridge.mp4"
+
+    monkeypatch.delenv("PROPERTYQUARRY_MOOTION_REMOTE_VIDEO_ALLOWED_HOSTS")
+    blocked = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-scene-video-mootion-auto-readiness-2",
+            step_id="step-scene-video-mootion-auto-readiness-2",
+            tool_name="ea.scene_video_generate",
+            action_kind="video.generate",
+            payload_json={
+                "provider_key": "mootion",
+                "context_kind": "scene_briefing",
+                "title": "Mootion bridge host policy readiness",
+                "script_text": "Require the remote asset host policy.",
+                "readiness_only": True,
+            },
+            context_json={"principal_id": "exec-scene-video-mootion-auto"},
+        )
+    )
+    assert blocked.output_json["render_status"] == "blocked"
+    assert "mootion_remote_asset_host_allowlist_missing" in blocked.output_json["structured_output_json"]["reason"]
+
+    monkeypatch.setenv("PROPERTYQUARRY_MOOTION_REMOTE_VIDEO_ALLOWED_HOSTS", "https://cdn.example")
+    invalid = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-scene-video-mootion-auto-readiness-3",
+            step_id="step-scene-video-mootion-auto-readiness-3",
+            tool_name="ea.scene_video_generate",
+            action_kind="video.generate",
+            payload_json={
+                "provider_key": "mootion",
+                "context_kind": "scene_briefing",
+                "title": "Mootion bridge malformed host policy readiness",
+                "script_text": "Reject malformed remote asset host policy.",
+                "readiness_only": True,
+            },
+            context_json={"principal_id": "exec-scene-video-mootion-auto"},
+        )
+    )
+    assert invalid.output_json["render_status"] == "blocked"
+    assert "mootion_remote_asset_host_allowlist_invalid" in invalid.output_json["structured_output_json"]["reason"]
+
+
+def test_tool_execution_property_walkthrough_mootion_uses_principal_browseract_bridge(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_mootion_public_dns(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_MOOTION_REMOTE_VIDEO_ALLOWED_HOSTS", "cdn.example")
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    binding = tool_runtime.upsert_connector_binding(
+        principal_id="exec-property-mootion-remote",
+        connector_name="browseract",
+        external_account_ref="mootion-property-bridge",
+        scope_json={"services": ["mootion", "mootion_movie", "propertyquarry"]},
+        auth_metadata_json={
+            "mootion_browseract_bridge": True,
+            "service_key": "mootion_movie",
+            "mootion_movie_workflow_id": "wf-property-mootion-remote",
+        },
+        status="enabled",
+    )
+    provider_registry = ProviderRegistryService()
+
+    def _route_tool_with_context(tool_name: str, *, principal_id: str | None = None) -> CapabilityRoute:
+        if tool_name == "ea.scene_video_generate":
+            return CapabilityRoute(
+                provider_key="ea",
+                capability_key="scene_video_generate",
+                tool_name="ea.scene_video_generate",
+                executable=True,
+            )
+        assert tool_name == "browseract.mootion_movie"
+        assert principal_id == "exec-property-mootion-remote"
+        return CapabilityRoute(
+            provider_key="browseract",
+            capability_key="mootion_movie",
+            tool_name="browseract.mootion_movie",
+            executable=True,
+        )
+
+    monkeypatch.setattr(provider_registry, "route_tool_with_context", _route_tool_with_context)
+    monkeypatch.setattr(
+        "app.services.scene_video_contract.scene_video_provider_runtime_readiness",
+        lambda provider_key: {
+            "provider_key": "mootion",
+            "provider_backend_key": "mootion",
+            "ready": True,
+            "status": "ready",
+            "blockers": [],
+            "execution_lane": "browseract_remote",
+            "checks": {
+                "script_exists": True,
+                "mootion_execution_lane": "browseract_remote",
+                "mootion_local_worker_blockers": ["mootion_docker_socket_missing"],
+                "mootion_browseract_remote": {"ready": True, "status": "ready", "target_count": 1},
+            },
+        },
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+        provider_registry=provider_registry,
+    )
+    captured_remote_payload: dict[str, object] = {}
+
+    def _fake_mootion_remote(request: ToolInvocationRequest, definition: ToolDefinition) -> ToolInvocationResult:
+        captured_remote_payload.update(dict(request.payload_json or {}))
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind="movie.render",
+            target_ref="https://cdn.example/mootion/property-remote.mp4",
+            output_json={
+                "binding_id": binding.binding_id,
+                "workflow_id": "wf-property-mootion-remote",
+                "task_id": "task-property-mootion-remote",
+                "render_status": "rendered",
+                "download_url": "https://cdn.example/mootion/property-remote.mp4",
+                "editor_url": "https://mootion.example/project/property-remote",
+                "structured_output_json": {
+                    "render_status": "rendered",
+                    "download_url": "https://cdn.example/mootion/property-remote.mp4",
+                },
+            },
+            receipt_json={"handler_key": definition.tool_name},
+        )
+
+    service.register_handler("browseract.mootion_movie", _fake_mootion_remote)
+    callback_result: dict[str, object] = {}
+
+    def _fake_property_render(**kwargs: object) -> dict[str, object]:
+        callback = kwargs.get("mootion_remote_render_callback")
+        assert callable(callback)
+        callback_result.update(
+            callback(
+                {
+                    "title": "Remote Property Walkthrough",
+                    "script_text": "Follow the verified property route in one continuous pass.",
+                    "visual_style": "photoreal",
+                    "camera_style": "continuous first-person",
+                    "aspect_ratio": "16:9",
+                    "duration_seconds": 30,
+                }
+            )
+        )
+        return {
+            "status": "rendered",
+            "provider_key": "mootion",
+            "media_route_provider_key": "mootion",
+            "editor_url": callback_result.get("editor_url"),
+        }
+
+    monkeypatch.setattr("app.product.service._render_property_flythrough_into_hosted_tour", _fake_property_render)
+    monkeypatch.setattr(
+        "app.product.service._hosted_property_tour_video_delivery",
+        lambda tour_url: {
+            "provider_key": "mootion",
+            "video_url": "https://property.example/tours/remote/video",
+            "flythrough_url": "https://property.example/tours/remote/flythrough",
+        },
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-property-mootion-remote-1",
+            step_id="step-property-mootion-remote-1",
+            tool_name="ea.scene_video_generate",
+            action_kind="video.generate",
+            payload_json={
+                "provider_key": "mootion",
+                "context_kind": "property_walkthrough",
+                "title": "Remote Property Walkthrough",
+                "tour_url": "https://property.example/tours/remote",
+                "tour_context_json": {"verified_provider": "3dvista"},
+                "workflow_id": "wf-caller-must-not-override-binding",
+                "run_url": "https://attacker.example/collect",
+            },
+            context_json={"principal_id": "exec-property-mootion-remote"},
+        )
+    )
+
+    assert captured_remote_payload["binding_id"] == binding.binding_id
+    assert captured_remote_payload["workflow_id"] == "wf-property-mootion-remote"
+    assert captured_remote_payload["run_url"] == ""
+    assert captured_remote_payload["force_browseract"] is True
+    assert callback_result["download_url"] == "https://cdn.example/mootion/property-remote.mp4"
+    assert callback_result["structured_output_json"]["execution_lane"] == "browseract_remote"
+    assert result.output_json["provider_key"] == "mootion"
+    assert result.output_json["render_status"] == "rendered"
+    assert result.output_json["video_url"] == "https://property.example/tours/remote/video"
+
+    def _fake_mootion_missing_status(request: ToolInvocationRequest, definition: ToolDefinition) -> ToolInvocationResult:
+        return ToolInvocationResult(
+            tool_name=definition.tool_name,
+            action_kind="movie.render",
+            target_ref="https://cdn.example/mootion/missing-status.mp4",
+            output_json={
+                "binding_id": binding.binding_id,
+                "workflow_id": "wf-property-mootion-remote",
+                "download_url": "https://cdn.example/mootion/missing-status.mp4",
+                "structured_output_json": {},
+            },
+            receipt_json={"handler_key": definition.tool_name},
+        )
+
+    service.register_handler("browseract.mootion_movie", _fake_mootion_missing_status)
+    with pytest.raises(ToolExecutionError, match="mootion_browseract_remote_not_completed:status_missing"):
+        service.execute_invocation(
+            ToolInvocationRequest(
+                session_id="session-property-mootion-missing-status-1",
+                step_id="step-property-mootion-missing-status-1",
+                tool_name="ea.scene_video_generate",
+                action_kind="video.generate",
+                payload_json={
+                    "provider_key": "mootion",
+                    "context_kind": "property_walkthrough",
+                    "title": "Missing Status Property Walkthrough",
+                    "tour_url": "https://property.example/tours/remote",
+                },
+                context_json={"principal_id": "exec-property-mootion-remote"},
+            )
+        )
+
+
+def test_tool_execution_mootion_remote_binding_is_principal_scoped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = InMemoryToolRegistryRepository()
+    tool_runtime = ToolRuntimeService(
+        tool_registry=registry,
+        connector_bindings=InMemoryConnectorBindingRepository(),
+    )
+    foreign_binding = tool_runtime.upsert_connector_binding(
+        principal_id="other-principal",
+        connector_name="browseract",
+        external_account_ref="mootion-foreign-bridge",
+        scope_json={"services": ["mootion", "mootion_movie"]},
+        auth_metadata_json={
+            "mootion_browseract_bridge": True,
+            "service_key": "mootion_movie",
+            "mootion_movie_workflow_id": "wf-mootion-foreign",
+        },
+        status="enabled",
+    )
+    monkeypatch.setattr(
+        "app.services.scene_video_contract.scene_video_provider_runtime_readiness",
+        lambda provider_key: {
+            "provider_key": "mootion",
+            "provider_backend_key": "mootion",
+            "ready": True,
+            "status": "ready",
+            "blockers": [],
+            "execution_lane": "browseract_remote",
+            "checks": {
+                "mootion_execution_lane": "browseract_remote",
+                "mootion_local_worker_blockers": ["mootion_docker_socket_missing"],
+                "mootion_browseract_remote": {"ready": True, "status": "ready", "target_count": 1},
+            },
+        },
+    )
+    service = _tool_execution_service(
+        tool_runtime=tool_runtime,
+        artifacts=InMemoryArtifactRepository(),
+    )
+
+    result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-scene-video-mootion-foreign-1",
+            step_id="step-scene-video-mootion-foreign-1",
+            tool_name="ea.scene_video_generate",
+            action_kind="video.generate",
+            payload_json={
+                "provider_key": "mootion",
+                "context_kind": "scene_briefing",
+                "title": "Foreign binding must not satisfy readiness",
+                "script_text": "Keep connector bindings principal scoped.",
+                "binding_id": foreign_binding.binding_id,
+                "workflow_id": "wf-mootion-foreign",
+                "readiness_only": True,
+            },
+            context_json={"principal_id": "requesting-principal"},
+        )
+    )
+
+    assert result.output_json["render_status"] == "blocked"
+    assert "mootion_browseract_principal_binding_missing" in result.output_json["structured_output_json"]["reason"]
+    assert result.output_json["runtime_readiness_json"]["execution_lane"] == "blocked"
+
+    no_binding_result = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-scene-video-mootion-no-binding-1",
+            step_id="step-scene-video-mootion-no-binding-1",
+            tool_name="ea.scene_video_generate",
+            action_kind="video.generate",
+            payload_json={
+                "provider_key": "mootion",
+                "context_kind": "scene_briefing",
+                "title": "Workflow without a binding must not satisfy readiness",
+                "script_text": "A workflow ID alone is not authority.",
+                "workflow_id": "wf-caller-only",
+                "readiness_only": True,
+            },
+            context_json={"principal_id": "requesting-principal"},
+        )
+    )
+
+    assert no_binding_result.output_json["render_status"] == "blocked"
+    assert "mootion_browseract_principal_binding_missing" in no_binding_result.output_json["structured_output_json"]["reason"]
+
+
+def test_property_mootion_remote_asset_keeps_hosted_tour_quality_gates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.product import service as product_service
+    from app import mootion_remote_asset_fetch as remote_fetch
+
+    _stub_mootion_public_dns(monkeypatch)
+    monkeypatch.setattr(
+        product_service,
+        "_materialize_mootion_remote_video_asset",
+        product_service._materialize_mootion_remote_video_asset_in_process,
+    )
+
+    bundle_dir = tmp_path / "hosted-tour"
+    manifest_updates: list[dict[str, object]] = []
+    progress_rows: list[dict[str, object]] = []
+    callback_packet: dict[str, object] = {}
+    video_bytes = b"bounded-mootion-video"
+
+    class _FakeResponse:
+        headers = {"Content-Length": str(len(video_bytes))}
+
+        def __init__(self) -> None:
+            self._offset = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback) -> None:
+            return None
+
+        def geturl(self) -> str:
+            return "https://cdn.example/mootion/property-gated.mp4"
+
+        def read1(self, size: int = -1) -> bytes:
+            if self._offset >= len(video_bytes):
+                return b""
+            end = len(video_bytes) if size < 0 else min(len(video_bytes), self._offset + size)
+            chunk = video_bytes[self._offset:end]
+            self._offset = end
+            return chunk
+
+    class _FakeOpener:
+        def open(self, request, timeout: float):
+            return _FakeResponse()
+
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_bundle_dir",
+        lambda tour_url: ("remote-gated", bundle_dir),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_walkthrough_scene_video_context",
+        lambda tour_url, principal_id="": {"verified_provider": "3dvista", "scene_count": 2},
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_walkthrough_enrich_facts_with_context",
+        lambda property_facts, tour_context_json=None: dict(property_facts or {}),
+    )
+    monkeypatch.setattr(product_service, "_property_walkthrough_context_reference_text", lambda context: "Verified tour context.")
+    monkeypatch.setattr(product_service, "_hosted_property_tour_scene_count", lambda tour_url: 2)
+    monkeypatch.setattr(product_service, "_magicfit_property_room_visit_plan", lambda **kwargs: (2, ["entry", "living room"]))
+    monkeypatch.setattr(product_service, "_magicfit_flythrough_minimum_duration_seconds", lambda **kwargs: 12.0)
+    monkeypatch.setattr(product_service, "_video_duration_seconds", lambda path: 18.0)
+    monkeypatch.setattr(product_service, "_video_continuous_shot_gate", lambda path: (True, "", {"cut_count": 0}))
+    monkeypatch.setattr(
+        product_service,
+        "_write_hosted_property_visual_progress",
+        lambda **kwargs: progress_rows.append(dict(kwargs)),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_update_hosted_property_tour_video_manifest",
+        lambda **kwargs: manifest_updates.append(dict(kwargs)),
+    )
+    monkeypatch.setenv("PROPERTYQUARRY_MOOTION_REMOTE_VIDEO_ALLOWED_HOSTS", "cdn.example")
+    class _FakeSocket:
+        def settimeout(self, timeout: float) -> None:
+            return None
+
+    _FakeResponse.fp = type("FakeFp", (), {"raw": type("FakeRaw", (), {"_sock": _FakeSocket()})()})()
+    monkeypatch.setattr(
+        remote_fetch,
+        "_mootion_remote_asset_global_addresses",
+        lambda hostname, deadline=None: ("93.184.216.34",),
+    )
+    monkeypatch.setattr(remote_fetch, "_mootion_remote_asset_opener", lambda: _FakeOpener())
+
+    def _remote_render(packet: dict[str, object]) -> dict[str, object]:
+        callback_packet.update(packet)
+        return {
+            "render_status": "rendered",
+            "download_url": "https://cdn.example/mootion/property-gated.mp4",
+            "editor_url": "https://mootion.example/project/property-gated",
+            "raw_text": "private provider output",
+            "structured_output_json": {
+                "execution_lane": "browseract_remote",
+                "browseract_binding_id": "private-binding-id",
+                "nested_secret": "private-provider-metadata",
+            },
+        }
+
+    result = product_service._render_mootion_property_flythrough_into_hosted_tour(
+        tour_url="https://property.example/tours/remote-gated",
+        title="Remote Gated Walkthrough",
+        principal_id="exec-property-mootion-gated",
+        property_facts={"rooms": 2},
+        remote_render_callback=_remote_render,
+    )
+
+    assert callback_packet["camera_style"] == "continuous first-person real-estate walkthrough"
+    assert callback_packet["duration_seconds"] >= 12
+    assert result["status"] == "rendered"
+    assert result["continuous_shot_gate"]["cut_count"] == 0
+    assert Path(str(result["video_file_path"])).read_bytes() == video_bytes
+    assert manifest_updates and manifest_updates[0]["provider_key"] == "mootion"
+    assert progress_rows[-1]["status"] == "ready"
+    sidecar = json.loads(Path(str(result["sidecar_path"])).read_text())
+    assert sidecar["execution_lane"] == "browseract_remote"
+    assert sidecar["quality_gates"]["continuous_shot"] == "pass"
+    assert "editor_url" not in sidecar
+    assert "raw_text" not in sidecar
+    assert "structured_output_json" not in sidecar
+
+    (bundle_dir / "accepted-manifest.json").write_text('{"video":"accepted"}', encoding="utf-8")
+    accepted_bundle = {path.name: path.read_bytes() for path in bundle_dir.iterdir() if path.is_file()}
+    rejected_asset = tmp_path / "rejected-rerender.mp4"
+    rejected_asset.write_bytes(b"rejected-rerender-video")
+    monkeypatch.setattr(product_service, "_video_duration_seconds", lambda path: 2.0)
+    too_short = product_service._render_mootion_property_flythrough_into_hosted_tour(
+        tour_url="https://property.example/tours/remote-gated",
+        title="Rejected Remote Rerender",
+        principal_id="exec-property-mootion-gated",
+        property_facts={"rooms": 2},
+        remote_render_callback=lambda packet: {
+            "render_status": "completed",
+            "asset_path": str(rejected_asset),
+        },
+    )
+    assert too_short["reason"] == "mootion_render_too_short"
+    assert {path.name: path.read_bytes() for path in bundle_dir.iterdir() if path.is_file()} == accepted_bundle
+
+    monkeypatch.setattr(product_service, "_video_duration_seconds", lambda path: 18.0)
+    monkeypatch.setattr(
+        product_service,
+        "_update_hosted_property_tour_video_manifest",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("manifest unavailable")),
+    )
+    manifest_failed = product_service._render_mootion_property_flythrough_into_hosted_tour(
+        tour_url="https://property.example/tours/remote-gated",
+        title="Manifest-Failed Remote Rerender",
+        principal_id="exec-property-mootion-gated",
+        property_facts={"rooms": 2},
+        remote_render_callback=lambda packet: {
+            "render_status": "completed",
+            "asset_path": str(rejected_asset),
+        },
+    )
+    assert manifest_failed["reason"] == "mootion_manifest_update_failed"
+    assert {path.name: path.read_bytes() for path in bundle_dir.iterdir() if path.is_file()} == accepted_bundle
+
+
+@pytest.mark.parametrize(
+    ("asset_url", "reason"),
+    (
+        ("http://cdn.example/mootion/video.mp4", "mootion_remote_asset_url_invalid"),
+        ("https://127.0.0.1/mootion/video.mp4", "mootion_remote_asset_url_invalid"),
+        ("https://service.internal/mootion/video.mp4", "mootion_remote_asset_host_blocked"),
+    ),
+)
+def test_property_mootion_remote_asset_rejects_unsafe_targets(
+    tmp_path: Path,
+    asset_url: str,
+    reason: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.product import service as product_service
+
+    _stub_mootion_public_dns(monkeypatch)
+    monkeypatch.setenv("PROPERTYQUARRY_MOOTION_REMOTE_VIDEO_ALLOWED_HOSTS", "cdn.example")
+    with pytest.raises(RuntimeError, match=reason):
+        product_service._materialize_mootion_remote_video_asset_in_process(asset_url, target_dir=tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("hostname", "reason"),
+    (
+        ("2130706433", "mootion_remote_asset_host_allowlist_invalid"),
+        ("private-dns.example", "mootion_remote_asset_host_blocked"),
+    ),
+)
+def test_property_mootion_remote_asset_rejects_private_dns_resolution(
+    hostname: str,
+    reason: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app import mootion_remote_asset_fetch as remote_fetch
+
+    monkeypatch.setattr(
+        remote_fetch.socket,
+        "getaddrinfo",
+        lambda host, port, type=0: [
+            (remote_fetch.socket.AF_INET, remote_fetch.socket.SOCK_STREAM, 6, "", ("127.0.0.1", 443))
+        ],
+    )
+
+    with pytest.raises(RuntimeError, match=reason):
+        remote_fetch._mootion_remote_asset_global_addresses(hostname)
+
+
+def test_property_mootion_remote_asset_validates_redirect_before_second_request(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.product import service as product_service
+    from app import mootion_remote_asset_fetch as remote_fetch
+
+    _stub_mootion_public_dns(monkeypatch)
+
+    calls: list[str] = []
+
+    class _RedirectingOpener:
+        def open(self, request, timeout: float):
+            calls.append(request.full_url)
+            raise product_service.urllib.error.HTTPError(
+                request.full_url,
+                302,
+                "Found",
+                {"Location": "https://127.0.0.1/private.mp4"},
+                None,
+            )
+
+    monkeypatch.setenv("PROPERTYQUARRY_MOOTION_REMOTE_VIDEO_ALLOWED_HOSTS", "public.example")
+    monkeypatch.setattr(
+        remote_fetch,
+        "_mootion_remote_asset_global_addresses",
+        lambda hostname, deadline=None: ("93.184.216.34",),
+    )
+    monkeypatch.setattr(remote_fetch, "_mootion_remote_asset_opener", lambda: _RedirectingOpener())
+
+    with pytest.raises(RuntimeError, match="mootion_remote_asset_url_invalid"):
+        product_service._materialize_mootion_remote_video_asset_in_process(
+            "https://public.example/video.mp4",
+            target_dir=tmp_path,
+        )
+
+    assert calls == ["https://public.example/video.mp4"]
+
+
+def test_property_mootion_remote_asset_enforces_stream_size_and_deadline(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.product import service as product_service
+    from app import mootion_remote_asset_fetch as remote_fetch
+
+    _stub_mootion_public_dns(monkeypatch)
+
+    class _FakeResponse:
+        headers: dict[str, str] = {}
+
+        def __init__(self, chunks: list[bytes]) -> None:
+            self._chunks = list(chunks)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback) -> None:
+            return None
+
+        def geturl(self) -> str:
+            return "https://cdn.example/video.mp4"
+
+        def read1(self, size: int = -1) -> bytes:
+            return self._chunks.pop(0) if self._chunks else b""
+
+    class _FakeSocket:
+        def settimeout(self, timeout: float) -> None:
+            return None
+
+    _FakeResponse.fp = type("FakeFp", (), {"raw": type("FakeRaw", (), {"_sock": _FakeSocket()})()})()
+
+    class _FakeOpener:
+        def __init__(self, response: _FakeResponse) -> None:
+            self._response = response
+
+        def open(self, request, timeout: float):
+            return self._response
+
+    monkeypatch.setenv("PROPERTYQUARRY_MOOTION_REMOTE_VIDEO_ALLOWED_HOSTS", "cdn.example")
+    monkeypatch.setenv("PROPERTYQUARRY_MOOTION_REMOTE_VIDEO_MAX_BYTES", str(1024 * 1024))
+    monkeypatch.setattr(
+        remote_fetch,
+        "_mootion_remote_asset_global_addresses",
+        lambda hostname, deadline=None: ("93.184.216.34",),
+    )
+    monkeypatch.setattr(
+        remote_fetch,
+        "_mootion_remote_asset_opener",
+        lambda: _FakeOpener(_FakeResponse([b"a" * 700_000, b"b" * 700_000])),
+    )
+
+    with pytest.raises(RuntimeError, match="mootion_remote_asset_too_large"):
+        product_service._materialize_mootion_remote_video_asset_in_process(
+            "https://cdn.example/video.mp4",
+            target_dir=tmp_path,
+        )
+    assert not (tmp_path / "mootion-browseract-remote.mp4").exists()
+
+    def _deadline_exceeded(*args, **kwargs):
+        raise RuntimeError("mootion_remote_asset_deadline_exceeded")
+
+    monkeypatch.setattr(remote_fetch, "_stream_mootion_remote_asset_response", _deadline_exceeded)
+    monkeypatch.setattr(
+        remote_fetch,
+        "_mootion_remote_asset_opener",
+        lambda: _FakeOpener(_FakeResponse([b"video"])),
+    )
+
+    with pytest.raises(RuntimeError, match="mootion_remote_asset_deadline_exceeded"):
+        product_service._materialize_mootion_remote_video_asset_in_process(
+            "https://cdn.example/video.mp4",
+            target_dir=tmp_path,
+        )
+    assert not (tmp_path / "mootion-browseract-remote.mp4").exists()
+
+
+def test_property_mootion_remote_asset_deadline_stops_a_real_trickling_stream(tmp_path: Path) -> None:
+    import http.client
+    import socket
+    import threading
+    import time
+
+    from app import mootion_remote_asset_fetch as remote_fetch
+
+    client_socket, server_socket = socket.socketpair()
+    stop = threading.Event()
+
+    def _serve_trickle() -> None:
+        try:
+            server_socket.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 100000\r\n\r\n")
+            while not stop.is_set():
+                server_socket.sendall(b"x")
+                time.sleep(0.02)
+        except OSError:
+            return
+
+    worker = threading.Thread(target=_serve_trickle, daemon=True)
+    worker.start()
+    response = http.client.HTTPResponse(client_socket)
+    response.begin()
+    output_path = tmp_path / "trickle.part"
+    started_at = time.monotonic()
+    try:
+        with output_path.open("wb") as output:
+            with pytest.raises(RuntimeError, match="mootion_remote_asset_deadline_exceeded"):
+                remote_fetch._stream_mootion_remote_asset_response(
+                    response,
+                    output=output,
+                    max_bytes=1024 * 1024,
+                    deadline=started_at + 0.15,
+                )
+    finally:
+        stop.set()
+        response.close()
+        client_socket.close()
+        server_socket.close()
+        worker.join(timeout=1.0)
+    assert time.monotonic() - started_at < 0.75
+    assert output_path.stat().st_size < 100
+
+
+def test_property_mootion_remote_asset_worker_watchdog_stops_header_trickle(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import time
+
+    from app.product import service as product_service
+
+    worker_path = tmp_path / "header_trickle_worker.py"
+    worker_path.write_text(
+        """
+import http.client
+import json
+import socket
+import sys
+import threading
+import time
+from pathlib import Path
+
+request = json.load(sys.stdin)
+target = Path(request["target_dir"]) / "mootion-browseract-remote.mp4"
+target.write_bytes(b"partial-header-fetch")
+client, server = socket.socketpair()
+
+def trickle():
+    try:
+        for value in b"HTTP/1.1 200 OK\\r\\nX-Test: never-finished":
+            server.sendall(bytes((value,)))
+            time.sleep(0.02)
+    except OSError:
+        pass
+
+threading.Thread(target=trickle, daemon=True).start()
+response = http.client.HTTPResponse(client)
+response.begin()
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PROPERTYQUARRY_MOOTION_REMOTE_VIDEO_ALLOWED_HOSTS", "cdn.example")
+    monkeypatch.setattr(product_service, "_mootion_remote_asset_fetch_worker_path", lambda: worker_path)
+    target_path = tmp_path / "mootion-browseract-remote.mp4"
+    started_at = time.monotonic()
+
+    with pytest.raises(RuntimeError, match="mootion_remote_asset_deadline_exceeded"):
+        product_service._run_mootion_remote_asset_fetch_worker(
+            asset_url="https://cdn.example/video.mp4",
+            target_dir=tmp_path,
+            target_path=target_path,
+            deadline=started_at + 0.4,
+        )
+
+    assert time.monotonic() - started_at < 1.25
+    assert not target_path.exists()
+    time.sleep(0.1)
+    assert not target_path.exists()
+
+
+def test_property_mootion_remote_asset_worker_wrapper_validates_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.product import service as product_service
+
+    worker_path = tmp_path / "successful_worker.py"
+    worker_path.write_text(
+        """
+import json
+import sys
+from pathlib import Path
+
+request = json.load(sys.stdin)
+target = Path(request["target_dir"]) / "mootion-browseract-remote.mp4"
+target.write_bytes(b"bounded-worker-video")
+print(json.dumps({"status": "completed", "size_bytes": target.stat().st_size}))
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PROPERTYQUARRY_MOOTION_REMOTE_VIDEO_ALLOWED_HOSTS", "cdn.example")
+    monkeypatch.setattr(product_service, "_mootion_remote_asset_fetch_worker_path", lambda: worker_path)
+
+    target_path = product_service._materialize_mootion_remote_video_asset(
+        "https://cdn.example/video.mp4",
+        target_dir=tmp_path,
+    )
+
+    assert target_path.read_bytes() == b"bounded-worker-video"
+
+
+def test_property_mootion_remote_asset_real_worker_fails_closed_on_malformed_policy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.product import service as product_service
+
+    monkeypatch.setenv("PROPERTYQUARRY_MOOTION_REMOTE_VIDEO_ALLOWED_HOSTS", "https://cdn.example")
+
+    with pytest.raises(RuntimeError, match="mootion_remote_asset_host_allowlist_invalid"):
+        product_service._materialize_mootion_remote_video_asset(
+            "https://cdn.example/video.mp4",
+            target_dir=tmp_path,
+        )
+    assert not (tmp_path / "mootion-browseract-remote.mp4").exists()
 
 
 def test_tool_execution_scene_video_omagic_uses_model_upload_adapter(

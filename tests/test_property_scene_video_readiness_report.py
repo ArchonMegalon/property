@@ -89,8 +89,105 @@ def test_scene_video_readiness_report_accepts_default_principal_telegram_route(m
     assert "principal-1" not in rendered
 
 
+def test_scene_video_readiness_report_requires_principal_scoped_mootion_binding(monkeypatch) -> None:
+    module = _load_script()
+    import socket
+
+    for env_name in module.MOOTION_BROWSERACT_PRINCIPAL_ENV_NAMES:
+        monkeypatch.delenv(env_name, raising=False)
+
+    missing = module.mootion_browseract_bridge_readiness()
+
+    assert missing["ready"] is False
+    assert missing["reason"] == "mootion_browseract_principal_scope_missing"
+    assert missing["principal_scope_configured"] is False
+
+    monkeypatch.setenv("PROPERTYQUARRY_SCENE_VIDEO_PRINCIPAL_ID", "principal-property-launch")
+    monkeypatch.setenv("EA_DEFAULT_PRINCIPAL_ID", "different-generic-default")
+    monkeypatch.setenv("PROPERTYQUARRY_MOOTION_REMOTE_VIDEO_ALLOWED_HOSTS", "cdn.example")
+    monkeypatch.setattr(
+        "app.mootion_remote_asset_policy.socket.getaddrinfo",
+        lambda host, port, type=0: [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("8.8.8.8", 443))
+        ],
+    )
+    binding = type(
+        "BindingStub",
+        (),
+        {
+            "binding_id": "binding-property-launch",
+            "principal_id": "principal-property-launch",
+            "connector_name": "browseract",
+            "external_account_ref": "mootion-property-bridge",
+            "scope_json": {"services": ["mootion", "propertyquarry"]},
+            "auth_metadata_json": {
+                "mootion_browseract_bridge": True,
+                "service_key": "mootion_movie",
+                "mootion_movie_workflow_id": "wf-property-launch",
+            },
+            "status": "enabled",
+        },
+    )()
+
+    class _RuntimeStub:
+        def list_connector_bindings(self, principal_id: str, limit: int = 500):
+            assert principal_id == "principal-property-launch"
+            assert limit == 500
+            return [binding]
+
+    monkeypatch.setattr("app.services.tool_runtime.build_tool_runtime", lambda: _RuntimeStub())
+    ready = module.mootion_browseract_bridge_readiness()
+    rendered = json.dumps(ready)
+
+    assert ready["ready"] is True
+    assert ready["target_count"] == 1
+    assert ready["principal_env_names"] == ["PROPERTYQUARRY_SCENE_VIDEO_PRINCIPAL_ID", "EA_DEFAULT_PRINCIPAL_ID"]
+    assert ready["selected_principal_env_name"] == "PROPERTYQUARRY_SCENE_VIDEO_PRINCIPAL_ID"
+    assert "principal-property-launch" not in rendered
+
+    monkeypatch.delenv("PROPERTYQUARRY_MOOTION_REMOTE_VIDEO_ALLOWED_HOSTS")
+    host_policy_missing = module.mootion_browseract_bridge_readiness()
+    assert host_policy_missing["ready"] is False
+    assert host_policy_missing["reason"] == "mootion_remote_asset_host_allowlist_missing"
+    assert host_policy_missing["target_count"] == 1
+
+    monkeypatch.setenv("PROPERTYQUARRY_MOOTION_REMOTE_VIDEO_ALLOWED_HOSTS", "https://cdn.example")
+    malformed_host_policy = module.mootion_browseract_bridge_readiness()
+    assert malformed_host_policy["ready"] is False
+    assert malformed_host_policy["reason"] == "mootion_remote_asset_host_allowlist_invalid"
+
+    monkeypatch.setenv("PROPERTYQUARRY_MOOTION_REMOTE_VIDEO_ALLOWED_HOSTS", "private.example")
+    monkeypatch.setattr(
+        "app.mootion_remote_asset_policy.socket.getaddrinfo",
+        lambda host, port, type=0: [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 443))
+        ],
+    )
+    private_host_policy = module.mootion_browseract_bridge_readiness()
+    assert private_host_policy["ready"] is False
+    assert private_host_policy["reason"] == "mootion_remote_asset_host_allowlist_invalid"
+
+
 def test_scene_video_readiness_report_promotes_mootion_when_browseract_bridge_ready(monkeypatch) -> None:
     module = _load_script()
+    remote_bridge = {
+        "ready": True,
+        "status": "ready",
+        "reason": "",
+        "principal_scope_configured": True,
+        "principal_env_names": ["PROPERTYQUARRY_SCENE_VIDEO_PRINCIPAL_ID"],
+        "target_count": 1,
+        "targets": [
+            {
+                "binding_id": "binding-1",
+                "external_account_ref": "mootion-scene-video-bridge",
+                "status": "enabled",
+                "workflow_configured": True,
+                "run_url_configured": False,
+            }
+        ],
+    }
+    monkeypatch.setattr(module, "mootion_browseract_bridge_readiness", lambda: dict(remote_bridge))
     monkeypatch.setattr(
         module,
         "scene_video_provider_runtime_readiness",
@@ -107,20 +204,7 @@ def test_scene_video_readiness_report_promotes_mootion_when_browseract_bridge_re
                 "docker_cli_configured": False,
                 "mootion_local_worker_blockers": ["mootion_docker_socket_missing", "mootion_docker_cli_missing"],
                 "mootion_execution_lane": "browseract_remote",
-                "mootion_browseract_remote": {
-                    "ready": True,
-                    "status": "ready",
-                    "target_count": 1,
-                    "targets": [
-                        {
-                            "binding_id": "binding-1",
-                            "external_account_ref": "mootion-scene-video-bridge",
-                            "status": "enabled",
-                            "workflow_configured": True,
-                            "run_url_configured": False,
-                        }
-                    ],
-                },
+                "mootion_browseract_remote": dict(remote_bridge),
             },
         },
     )
@@ -142,6 +226,13 @@ def test_scene_video_readiness_report_promotes_mootion_when_browseract_bridge_re
 
 def test_scene_video_readiness_report_blocks_missing_mootion_remote_lane(monkeypatch) -> None:
     module = _load_script()
+    remote_bridge = {
+        "ready": False,
+        "status": "unavailable",
+        "target_count": 0,
+        "targets": [],
+    }
+    monkeypatch.setattr(module, "mootion_browseract_bridge_readiness", lambda: dict(remote_bridge))
     monkeypatch.setattr(
         module,
         "scene_video_provider_runtime_readiness",
@@ -155,12 +246,7 @@ def test_scene_video_readiness_report_blocks_missing_mootion_remote_lane(monkeyp
                 "script_exists": True,
                 "docker_socket_configured": True,
                 "docker_cli_configured": True,
-                "mootion_browseract_remote": {
-                    "ready": False,
-                    "status": "unavailable",
-                    "target_count": 0,
-                    "targets": [],
-                },
+                "mootion_browseract_remote": dict(remote_bridge),
             },
         },
     )
@@ -194,6 +280,13 @@ def test_scene_video_readiness_report_blocks_missing_mootion_remote_lane(monkeyp
 
 def test_scene_video_readiness_report_blocks_requested_mootion_with_invalid_runtime_identity(monkeypatch) -> None:
     module = _load_script()
+    remote_bridge = {
+        "ready": False,
+        "status": "blocked",
+        "target_count": 0,
+        "targets": [],
+    }
+    monkeypatch.setattr(module, "mootion_browseract_bridge_readiness", lambda: dict(remote_bridge))
 
     for runtime_provider_key in (None, "unexpected-provider"):
         monkeypatch.setattr(
@@ -206,12 +299,7 @@ def test_scene_video_readiness_report_blocks_requested_mootion_with_invalid_runt
                 "status": "ready",
                 "blockers": [],
                 "checks": {
-                    "mootion_browseract_remote": {
-                        "ready": False,
-                        "status": "blocked",
-                        "target_count": 0,
-                        "targets": [],
-                    },
+                    "mootion_browseract_remote": dict(remote_bridge),
                 },
             },
         )

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import sys
@@ -36,6 +37,7 @@ GENERATED_MEDIA_COUNTER_KEYS = (
     "flythrough_existing_total",
     "flythrough_failed_total",
 )
+RANKING_AUDIT_SCORE_KEY = "_target_recovery_ranking_score_key"
 
 
 @dataclass(slots=True)
@@ -89,6 +91,18 @@ class IdentityMatch:
 
 
 @dataclass(slots=True)
+class RankingAudit:
+    valid: bool
+    reason: str = ""
+    score_key: str = ""
+    target_ordinal_rank: int = 0
+    target_competition_rank: int = 0
+    target_score: float = 0.0
+    strictly_higher_scored_count: int = 0
+    equal_scored_count: int = 0
+
+
+@dataclass(slots=True)
 class RepairTrace:
     repair_needed: bool = False
     repair_triggered: bool = False
@@ -128,6 +142,7 @@ class RecoveryReport:
     target_found: bool
     target_match_tier: str
     target_rank: int
+    target_ranking: RankingAudit
     repair: RepairTrace
     generated_media_counters: dict[str, int]
     negative_hits: list[dict[str, object]]
@@ -316,9 +331,9 @@ def _materialize_case_from_manifest_row(row: dict[str, object], *, row_index: in
 
 def _rank_threshold() -> int:
     try:
-        return max(1, int(os.environ.get("PROPERTYQUARRY_TARGET_RECOVERY_TARGET_RANK_MAX") or 5))
+        return int(os.environ.get("PROPERTYQUARRY_TARGET_RECOVERY_TARGET_RANK_MAX") or 5)
     except Exception:
-        return 5
+        return 0
 
 
 def _target_provider_matrix_enabled() -> bool:
@@ -456,6 +471,8 @@ def _candidate_rows(status_payload: dict[str, object]) -> list[dict[str, object]
     summary = dict(status_payload.get("summary") or {}) if isinstance(status_payload.get("summary"), dict) else {}
     ranked = [dict(row) for row in list(summary.get("ranked_candidates") or []) if isinstance(row, dict)]
     if ranked:
+        for candidate in ranked:
+            candidate[RANKING_AUDIT_SCORE_KEY] = "ranking_score"
         return ranked
     synthesized: list[dict[str, object]] = []
     for source in [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]:
@@ -465,6 +482,7 @@ def _candidate_rows(status_payload: dict[str, object]) -> list[dict[str, object]
     synthesized.sort(key=lambda item: float(item.get("fit_score") or 0.0), reverse=True)
     for index, candidate in enumerate(synthesized, start=1):
         candidate.setdefault("rank", index)
+        candidate[RANKING_AUDIT_SCORE_KEY] = "fit_score"
     return synthesized
 
 
@@ -552,6 +570,97 @@ def _match_ranked_target(candidates: list[dict[str, object]], case: TargetListin
         if match.matched:
             return match
     return IdentityMatch(matched=False)
+
+
+def _candidate_ranking_score(candidate: dict[str, object], *, score_key: str) -> float | None:
+    if score_key not in candidate or candidate.get(score_key) is None:
+        return None
+    raw_score = candidate.get(score_key)
+    if isinstance(raw_score, bool):
+        return None
+    try:
+        score = float(raw_score)
+    except (TypeError, ValueError):
+        return None
+    return score if math.isfinite(score) else None
+
+
+def _audit_target_ranking(
+    candidates: list[dict[str, object]],
+    case: TargetListing,
+) -> RankingAudit:
+    if not candidates:
+        return RankingAudit(valid=False, reason="ranked_candidates_missing")
+
+    score_keys = {
+        str(candidate.get(RANKING_AUDIT_SCORE_KEY) or "").strip()
+        for candidate in candidates
+    }
+    if "" in score_keys:
+        return RankingAudit(valid=False, reason="candidate_score_provenance_missing")
+    if len(score_keys) != 1:
+        return RankingAudit(valid=False, reason="candidate_score_provenance_mixed")
+    score_key = next(iter(score_keys))
+    if score_key not in {"ranking_score", "fit_score"}:
+        return RankingAudit(valid=False, reason="candidate_score_provenance_unsupported")
+
+    scores: list[float] = []
+    target_position = 0
+    target_score = 0.0
+    for position, candidate in enumerate(candidates, start=1):
+        reported_rank = candidate.get("rank")
+        if type(reported_rank) is not int:
+            return RankingAudit(valid=False, reason="candidate_rank_invalid")
+        if reported_rank != position:
+            return RankingAudit(valid=False, reason="candidate_ranks_not_sequential")
+        score = _candidate_ranking_score(candidate, score_key=score_key)
+        if score is None:
+            return RankingAudit(valid=False, reason="candidate_score_missing_or_invalid", score_key=score_key)
+        if scores and score > scores[-1]:
+            return RankingAudit(valid=False, reason="candidate_scores_not_descending")
+        scores.append(score)
+        if not target_position and _match_candidate(candidate, case).matched:
+            target_position = position
+            target_score = score
+
+    if not target_position:
+        return RankingAudit(valid=False, reason="target_missing_from_ranked_candidates")
+    if target_score <= 0.0:
+        return RankingAudit(
+            valid=False,
+            reason="target_score_not_positive",
+            score_key=score_key,
+            target_ordinal_rank=target_position,
+            target_score=target_score,
+        )
+
+    # ProductService sorts by this score and then assigns an ordinal. Equal
+    # scores retain arrival order, which is intentionally nondeterministic when
+    # provider previews finish concurrently. Competition rank applies the gate
+    # to the target's score tier without treating its arbitrary ordinal inside
+    # that tie cohort as a relevance regression.
+    strictly_higher_scored_count = sum(score > target_score for score in scores)
+    equal_scored_count = sum(score == target_score for score in scores)
+    return RankingAudit(
+        valid=True,
+        reason="score_order_and_rank_sequence_valid",
+        score_key=score_key,
+        target_ordinal_rank=target_position,
+        target_competition_rank=strictly_higher_scored_count + 1,
+        target_score=target_score,
+        strictly_higher_scored_count=strictly_higher_scored_count,
+        equal_scored_count=equal_scored_count,
+    )
+
+
+def _target_ranking_meets_threshold(audit: RankingAudit, *, threshold: int) -> bool:
+    return bool(
+        audit.valid
+        and type(threshold) is int
+        and threshold > 0
+        and audit.target_competition_rank > 0
+        and audit.target_competition_rank <= threshold
+    )
 
 
 def _match_negative(candidate: dict[str, object], control: NegativeControl) -> bool:
@@ -1292,6 +1401,7 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
         final_report: RecoveryReport | None = None
         soft_filters, default_soft_filters = _variant_soft_filter_mode(variant)
         rank_threshold = _rank_threshold()
+        assert rank_threshold > 0, "PROPERTYQUARRY_TARGET_RECOVERY_TARGET_RANK_MAX must be a positive integer"
         max_attempts = 5
         eligibility_brief = _synthesize_search_preferences(
             case,
@@ -1386,6 +1496,7 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
             _apply_repair_receipts_to_trace(repair_trace, summary, run_id=run_id)
             candidates = _candidate_rows(last_status)
             target_match = _match_ranked_target(candidates, case)
+            target_ranking = _audit_target_ranking(candidates, case)
             negative_hits: list[dict[str, object]] = []
             for control in case.negatives:
                 for candidate in candidates:
@@ -1414,6 +1525,7 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
                 target_found=target_match.matched,
                 target_match_tier=target_match.tier,
                 target_rank=target_match.rank,
+                target_ranking=target_ranking,
                 repair=repair_trace,
                 generated_media_counters=media_counters,
                 negative_hits=negative_hits,
@@ -1441,7 +1553,12 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
                     f"{bad_source_fetch_resolutions}"
                 )
 
-            if target_match.matched and target_match.tier in MATCH_TIERS and not forbidden_hits and 0 < target_match.rank <= rank_threshold:
+            if (
+                target_match.matched
+                and target_match.tier in MATCH_TIERS
+                and not forbidden_hits
+                and _target_ranking_meets_threshold(target_ranking, threshold=rank_threshold)
+            ):
                 successful_case_total += 1
                 break
         assert final_report is not None
@@ -1468,9 +1585,20 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
         assert final_report.target_match_tier in MATCH_TIERS, (
             f"{case.title}: unsupported target match tier; {probe_diagnostics}"
         )
-        assert 0 < final_report.target_rank <= rank_threshold, (
+        assert final_report.target_ranking.valid, (
+            f"{case.title}: ranked result integrity failed "
+            f"(reason={final_report.target_ranking.reason}, "
+            f"score_key={final_report.target_ranking.score_key or 'unknown'}); {probe_diagnostics}"
+        )
+        assert _target_ranking_meets_threshold(final_report.target_ranking, threshold=rank_threshold), (
             f"{case.title}: target recovered but not ranked highly enough "
-            f"(rank={final_report.target_rank}, threshold={rank_threshold}); {probe_diagnostics}"
+            f"(ordinal_rank={final_report.target_rank}, "
+            f"competition_rank={final_report.target_ranking.target_competition_rank}, "
+            f"score_key={final_report.target_ranking.score_key}, "
+            f"target_score={final_report.target_ranking.target_score}, "
+            f"strictly_higher={final_report.target_ranking.strictly_higher_scored_count}, "
+            f"equal_score={final_report.target_ranking.equal_scored_count}, "
+            f"threshold={rank_threshold}); {probe_diagnostics}"
         )
         forbidden_hits = [row for row in final_report.negative_hits if bool(row.get('must_not_rank', True))]
         assert not forbidden_hits, (
@@ -1479,6 +1607,174 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
     if successful_case_total <= 0 and volatility_skipped_total > 0:
         pytest.skip("all target-recovery cases became provider-volatile before recovery validation")
     assert successful_case_total > 0, "no target-recovery case completed successfully"
+
+
+def _ranking_audit_candidates(*, scores: list[float], target_position: int) -> list[dict[str, object]]:
+    target_url = _exact_probe_test_case().canonical_url
+    return [
+        {
+            "rank": position,
+            "ranking_score": score,
+            RANKING_AUDIT_SCORE_KEY: "ranking_score",
+            "property_url": target_url if position == target_position else f"https://provider.test/listing-{position}",
+        }
+        for position, score in enumerate(scores, start=1)
+    ]
+
+
+def test_target_ranking_gate_uses_score_competition_rank_for_ties() -> None:
+    candidates = _ranking_audit_candidates(
+        scores=[92.0] * 20 + [80.0] * 10,
+        target_position=14,
+    )
+
+    audit = _audit_target_ranking(candidates, _exact_probe_test_case())
+
+    assert audit.valid
+    assert audit.target_ordinal_rank == 14
+    assert audit.target_competition_rank == 1
+    assert audit.strictly_higher_scored_count == 0
+    assert audit.equal_scored_count == 20
+    assert _target_ranking_meets_threshold(audit, threshold=5)
+
+
+def test_target_ranking_gate_still_rejects_five_strictly_better_scores() -> None:
+    candidates = _ranking_audit_candidates(
+        scores=[100.0, 99.0, 98.0, 97.0, 96.0] + [90.0] * 15 + [80.0] * 10,
+        target_position=14,
+    )
+
+    audit = _audit_target_ranking(candidates, _exact_probe_test_case())
+
+    assert audit.valid
+    assert audit.target_ordinal_rank == 14
+    assert audit.target_competition_rank == 6
+    assert audit.strictly_higher_scored_count == 5
+    assert audit.equal_scored_count == 15
+    assert not _target_ranking_meets_threshold(audit, threshold=5)
+
+
+def test_target_ranking_score_uses_declared_key_without_truthy_fallback() -> None:
+    candidate = {
+        "ranking_score": 0.0,
+        "fit_score": 100.0,
+    }
+
+    assert _candidate_ranking_score(candidate, score_key="ranking_score") == 0.0
+    assert _candidate_ranking_score(candidate, score_key="fit_score") == 100.0
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_reason"),
+    [
+        pytest.param(
+            lambda rows: rows[1].update(
+                {
+                    RANKING_AUDIT_SCORE_KEY: "fit_score",
+                    "fit_score": rows[1]["ranking_score"],
+                }
+            ),
+            "candidate_score_provenance_mixed",
+            id="mixed-score-keys",
+        ),
+        pytest.param(
+            lambda rows: rows[1].pop("ranking_score"),
+            "candidate_score_missing_or_invalid",
+            id="missing-declared-score",
+        ),
+        pytest.param(
+            lambda rows: rows[1].pop(RANKING_AUDIT_SCORE_KEY),
+            "candidate_score_provenance_missing",
+            id="missing-score-provenance",
+        ),
+    ],
+)
+def test_target_ranking_gate_fails_closed_on_score_provenance(
+    mutation,
+    expected_reason: str,
+) -> None:
+    candidates = _ranking_audit_candidates(scores=[90.0, 80.0], target_position=2)
+    mutation(candidates)
+
+    audit = _audit_target_ranking(candidates, _exact_probe_test_case())
+
+    assert not audit.valid
+    assert audit.reason == expected_reason
+    assert not _target_ranking_meets_threshold(audit, threshold=5)
+
+
+@pytest.mark.parametrize("invalid_rank", [True, 1.0, 1.5, "1"])
+def test_target_ranking_gate_rejects_non_integer_rank_types(invalid_rank: object) -> None:
+    candidates = _ranking_audit_candidates(scores=[90.0], target_position=1)
+    candidates[0]["rank"] = invalid_rank
+
+    audit = _audit_target_ranking(candidates, _exact_probe_test_case())
+
+    assert not audit.valid
+    assert audit.reason == "candidate_rank_invalid"
+
+
+@pytest.mark.parametrize("invalid_threshold", [0, -1, True])
+def test_target_ranking_gate_rejects_nonpositive_or_boolean_threshold(invalid_threshold: object) -> None:
+    audit = _audit_target_ranking(
+        _ranking_audit_candidates(scores=[90.0], target_position=1),
+        _exact_probe_test_case(),
+    )
+
+    assert audit.valid
+    assert not _target_ranking_meets_threshold(audit, threshold=invalid_threshold)
+
+
+@pytest.mark.parametrize(
+    ("candidates", "expected_reason"),
+    [
+        pytest.param(
+            [
+                {
+                    "rank": 1,
+                    "ranking_score": 80.0,
+                    RANKING_AUDIT_SCORE_KEY: "ranking_score",
+                    "property_url": "https://provider.test/other",
+                },
+                {
+                    "rank": 2,
+                    "ranking_score": 90.0,
+                    RANKING_AUDIT_SCORE_KEY: "ranking_score",
+                    "property_url": "https://www.willhaben.at/iad/object?adId=123456",
+                },
+            ],
+            "candidate_scores_not_descending",
+            id="score-order",
+        ),
+        pytest.param(
+            [
+                {
+                    "rank": 1,
+                    "ranking_score": 90.0,
+                    RANKING_AUDIT_SCORE_KEY: "ranking_score",
+                    "property_url": "https://provider.test/other",
+                },
+                {
+                    "rank": 3,
+                    "ranking_score": 80.0,
+                    RANKING_AUDIT_SCORE_KEY: "ranking_score",
+                    "property_url": "https://www.willhaben.at/iad/object?adId=123456",
+                },
+            ],
+            "candidate_ranks_not_sequential",
+            id="rank-sequence",
+        ),
+    ],
+)
+def test_target_ranking_gate_rejects_broken_rank_integrity(
+    candidates: list[dict[str, object]],
+    expected_reason: str,
+) -> None:
+    audit = _audit_target_ranking(candidates, _exact_probe_test_case())
+
+    assert not audit.valid
+    assert audit.reason == expected_reason
+    assert not _target_ranking_meets_threshold(audit, threshold=5)
 
 
 def _exact_probe_test_case() -> TargetListing:

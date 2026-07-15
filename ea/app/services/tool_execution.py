@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import Callable
 
 from app.domain.models import ToolDefinition, ToolInvocationRequest, ToolInvocationResult
+from app.mootion_remote_asset_policy import mootion_remote_asset_host_policy_readiness
 from app.repositories.artifacts import ArtifactRepository
 from app.services.browseract_ui_service_catalog import browseract_ui_service_by_service_key, browseract_ui_service_definitions
 from app.services.channel_runtime import ChannelRuntimeService
@@ -754,10 +756,8 @@ class ToolExecutionService:
             def merge_target(source: dict[str, object], target: dict[str, object]) -> dict[str, object]:
                 resolved = dict(source)
                 resolved["binding_id"] = target.get("binding_id") or resolved.get("binding_id") or ""
-                if target.get("workflow_id"):
-                    resolved["workflow_id"] = target["workflow_id"]
-                if target.get("run_url"):
-                    resolved["run_url"] = target["run_url"]
+                resolved["workflow_id"] = target.get("workflow_id") or ""
+                resolved["run_url"] = target.get("run_url") or ""
                 resolved.setdefault("force_browseract", True)
                 resolved.setdefault("allow_browseract_remote_fallback", True)
                 resolved.setdefault("remote_fallback_allowed", True)
@@ -765,23 +765,22 @@ class ToolExecutionService:
                 return resolved
 
             explicit_binding_id = str(payload.get("binding_id") or "").strip()
-            if explicit_binding_id and not (str(payload.get("workflow_id") or "").strip() or str(payload.get("run_url") or "").strip()):
+            if explicit_binding_id:
                 explicit_binding = self._tool_runtime.get_connector_binding(explicit_binding_id)
                 if explicit_binding is not None:
                     target = _mootion_browseract_bridge_target(explicit_binding)
                     if target:
                         return merge_target(payload, target)
-            if _mootion_remote_browseract_requested(payload):
-                return payload
             principal_id = str(
                 dict(request.context_json or {}).get("principal_id")
                 or payload.get("principal_id")
                 or ""
             ).strip()
-            candidates: list[object] = []
-            if principal_id:
-                candidates.extend(self._tool_runtime.list_connector_bindings(principal_id, limit=100))
-            candidates.extend(self._tool_runtime.list_connector_bindings_for_connector("browseract", limit=100))
+            candidates: list[object] = (
+                list(self._tool_runtime.list_connector_bindings(principal_id, limit=100))
+                if principal_id
+                else []
+            )
             seen: set[str] = set()
             for binding in candidates:
                 binding_id = str(getattr(binding, "binding_id", "") or "").strip()
@@ -885,6 +884,87 @@ class ToolExecutionService:
                 runtime_readiness = scene_video_provider_runtime_readiness(provider_key)
             if effective_provider_key == "mootion":
                 payload = _with_default_mootion_browseract_bridge(payload, request)
+                remote_requested = _mootion_remote_browseract_requested(payload)
+                remote_binding_id = str(payload.get("binding_id") or "").strip()
+                remote_binding = self._tool_runtime.get_connector_binding(remote_binding_id) if remote_binding_id else None
+                remote_binding_target = (
+                    _mootion_browseract_bridge_target(remote_binding)
+                    if remote_binding is not None
+                    else {}
+                )
+                remote_request_principal_id = str(
+                    dict(request.context_json or {}).get("principal_id")
+                    or payload.get("principal_id")
+                    or ""
+                ).strip()
+                remote_binding_authorized = bool(
+                    remote_binding is not None
+                    and str(getattr(remote_binding, "status", "") or "").strip().lower() == "enabled"
+                    and str(getattr(remote_binding, "connector_name", "") or "").strip().lower() == "browseract"
+                    and str(getattr(remote_binding, "principal_id", "") or "").strip() == remote_request_principal_id
+                    and bool(remote_binding_target)
+                    and str(payload.get("workflow_id") or "").strip()
+                    == str(remote_binding_target.get("workflow_id") or "").strip()
+                    and str(payload.get("run_url") or "").strip()
+                    == str(remote_binding_target.get("run_url") or "").strip()
+                )
+                remote_asset_host_policy = (
+                    mootion_remote_asset_host_policy_readiness()
+                    if remote_binding_authorized
+                    or remote_requested
+                    or str(runtime_readiness.get("execution_lane") or "").strip() == "browseract_remote"
+                    else {
+                        "configured": bool(
+                            str(os.getenv("PROPERTYQUARRY_MOOTION_REMOTE_VIDEO_ALLOWED_HOSTS") or "").strip()
+                        ),
+                        "valid": False,
+                        "reason": "mootion_remote_asset_host_allowlist_missing",
+                        "validation_error": "",
+                        "host_count": 0,
+                    }
+                )
+                remote_asset_hosts_configured = bool(remote_asset_host_policy.get("configured"))
+                remote_asset_hosts_valid = bool(remote_asset_host_policy.get("valid"))
+                remote_binding_ready = remote_binding_authorized and remote_asset_hosts_valid
+                if (
+                    (remote_requested and not remote_binding_ready)
+                    or (
+                        str(runtime_readiness.get("execution_lane") or "").strip() == "browseract_remote"
+                        and not remote_requested
+                    )
+                ):
+                    checks = dict(runtime_readiness.get("checks") or {})
+                    local_blockers = [
+                        str(value or "").strip()
+                        for value in list(checks.get("mootion_local_worker_blockers") or [])
+                        if str(value or "").strip()
+                    ]
+                    remote_blockers: list[str] = []
+                    if not remote_binding_authorized:
+                        remote_blockers.append("mootion_browseract_principal_binding_missing")
+                    if not remote_asset_hosts_configured:
+                        remote_blockers.append("mootion_remote_asset_host_allowlist_missing")
+                    elif not remote_asset_hosts_valid:
+                        remote_blockers.append("mootion_remote_asset_host_allowlist_invalid")
+                    blockers = list(dict.fromkeys([*local_blockers, *remote_blockers]))
+                    checks["mootion_browseract_principal_binding_ready"] = remote_binding_authorized
+                    checks["mootion_remote_asset_host_allowlist_configured"] = remote_asset_hosts_configured
+                    checks["mootion_remote_asset_host_allowlist_valid"] = remote_asset_hosts_valid
+                    checks["mootion_remote_asset_host_count"] = int(remote_asset_host_policy.get("host_count") or 0)
+                    checks["mootion_execution_lane"] = "blocked"
+                    runtime_readiness = {
+                        **runtime_readiness,
+                        "ready": False,
+                        "status": "blocked",
+                        "blockers": blockers,
+                        "checks": checks,
+                        "execution_lane": "blocked",
+                    }
+                    if runtime_provider_resolution is not None:
+                        runtime_provider_resolution = {
+                            **dict(runtime_provider_resolution),
+                            "runtime_readiness_json": dict(runtime_readiness),
+                        }
             delivery_probe_video_url = str(payload.get("delivery_probe_video_url") or "").strip()
             if delivery_probe_video_url:
                 if not bool(payload.get("telegram_delivery_requested") or payload.get("telegram_delivery")):
@@ -1157,6 +1237,82 @@ class ToolExecutionService:
                             "runtime_provider_resolution_json": dict(runtime_provider_resolution or {}),
                         },
                     )
+                mootion_remote_render_callback = None
+                mootion_remote_private_receipt: dict[str, object] = {}
+                if effective_provider_key == "mootion" and _mootion_remote_browseract_requested(payload):
+                    def _render_mootion_property_via_browseract(
+                        packet: dict[str, object],
+                    ) -> dict[str, object]:
+                        remote_context = dict(request.context_json or {})
+                        remote_context.pop("telegram_delivery", None)
+                        remote_context["suppress_telegram_delivery"] = True
+                        nested = self.execute_invocation(
+                            ToolInvocationRequest(
+                                session_id=request.session_id,
+                                step_id=request.step_id,
+                                tool_name="browseract.mootion_movie",
+                                action_kind="movie.render",
+                                payload_json={
+                                    **dict(packet),
+                                    "binding_id": payload.get("binding_id"),
+                                    "run_url": payload.get("run_url"),
+                                    "workflow_id": payload.get("workflow_id"),
+                                    "timeout_seconds": payload.get("timeout_seconds") or packet.get("timeout_seconds"),
+                                    "force_browseract": True,
+                                    "allow_browseract_remote_fallback": True,
+                                    "remote_fallback_allowed": True,
+                                },
+                                context_json=remote_context,
+                            )
+                        )
+                        nested_output = dict(nested.output_json or {})
+                        nested_structured = dict(nested_output.get("structured_output_json") or {})
+                        remote_asset_url = str(
+                            nested_output.get("download_url")
+                            or nested_output.get("asset_url")
+                            or nested_output.get("public_url")
+                            or nested_output.get("video_url")
+                            or nested_structured.get("download_url")
+                            or nested_structured.get("asset_url")
+                            or nested_structured.get("public_url")
+                            or nested_structured.get("video_url")
+                            or ""
+                        ).strip()
+                        if not remote_asset_url:
+                            candidate_urls = _candidate_urls(nested_output) or _candidate_urls(nested_structured)
+                            remote_asset_url = str(candidate_urls[0] if candidate_urls else "").strip()
+                        if not remote_asset_url:
+                            raise ToolExecutionError("mootion_browseract_remote_asset_missing")
+                        remote_render_status = str(
+                            nested_output.get("render_status")
+                            or nested_structured.get("render_status")
+                            or ""
+                        ).strip().lower()
+                        if remote_render_status not in {"completed", "rendered", "ready", "success", "succeeded"}:
+                            raise ToolExecutionError(
+                                f"mootion_browseract_remote_not_completed:{remote_render_status or 'status_missing'}"
+                            )
+                        mootion_remote_private_receipt.update(
+                            {
+                                "binding_id": str(nested_output.get("binding_id") or "").strip(),
+                                "workflow_id": str(nested_output.get("workflow_id") or "").strip(),
+                                "task_id": str(nested_output.get("task_id") or "").strip(),
+                                "render_status": remote_render_status,
+                                "execution_lane": "browseract_remote",
+                            }
+                        )
+                        return {
+                            "render_status": remote_render_status,
+                            "asset_url": remote_asset_url,
+                            "download_url": str(nested_output.get("download_url") or remote_asset_url).strip(),
+                            "public_url": str(nested_output.get("public_url") or "").strip(),
+                            "structured_output_json": {
+                                "execution_lane": "browseract_remote",
+                                "provider_key": "mootion",
+                            },
+                        }
+
+                    mootion_remote_render_callback = _render_mootion_property_via_browseract
                 rendered = _render_property_flythrough_into_hosted_tour(
                     tour_url=tour_url,
                     title=title,
@@ -1168,6 +1324,7 @@ class ToolExecutionService:
                     preferred_provider_key=effective_provider_key,
                     tour_context_json=tour_context_json,
                     principal_id=request_principal_id,
+                    mootion_remote_render_callback=mootion_remote_render_callback,
                 )
                 delivery = _hosted_property_tour_video_delivery(tour_url)
                 video_url = str(delivery.get("video_url") or rendered.get("video_url") or "").strip()
@@ -1233,6 +1390,11 @@ class ToolExecutionService:
                         "tour_context_present": bool(tour_context_json),
                         "runtime_readiness_json": runtime_readiness,
                         "runtime_provider_resolution_json": dict(runtime_provider_resolution or {}),
+                        **(
+                            {"mootion_browseract_remote_receipt": dict(mootion_remote_private_receipt)}
+                            if mootion_remote_private_receipt
+                            else {}
+                        ),
                     },
                 )
             nested_context = dict(request.context_json or {})

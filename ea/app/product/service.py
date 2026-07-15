@@ -32,7 +32,7 @@ from functools import lru_cache
 from html import escape as html_escape
 from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable
 from uuid import uuid4
 
 import requests
@@ -60,6 +60,12 @@ from app.services.property_billing import (
     property_commercial_snapshot,
     property_plan_has_unlimited_provider_results,
     property_worker_cap,
+)
+from app.mootion_remote_asset_fetch import (
+    _materialize_mootion_remote_video_asset_in_process,
+    _mootion_remote_asset_max_bytes,
+    _mootion_remote_asset_target_path,
+    _mootion_remote_asset_timeout_seconds,
 )
 from app.services.onboarding import normalize_property_notification_channel, normalize_property_notification_channels
 from app.services.property_decision_loop import PropertyDecisionLoopSnapshot, build_property_decision_loop_snapshot
@@ -17682,7 +17688,13 @@ def _update_hosted_property_tour_magicfit_video_manifest(
             ],
         }
     payload["flythrough_url"] = _hosted_public_tour_asset_url(tour_url, slug=slug, asset_relpath=normalized_video_relpath)
-    manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    staging_manifest_path = manifest_path.with_name(f".{manifest_path.name}.{uuid4().hex}.tmp")
+    try:
+        staging_manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(staging_manifest_path, manifest_path)
+    finally:
+        with contextlib.suppress(OSError):
+            staging_manifest_path.unlink()
     return payload
 
 
@@ -17731,7 +17743,13 @@ def _update_hosted_property_tour_video_manifest(
         payload["covered_route_labels"] = normalized_route_labels
         payload["room_visit_plan"] = normalized_route_labels
     payload["flythrough_url"] = _hosted_public_tour_asset_url(tour_url, slug=slug, asset_relpath=normalized_video_relpath)
-    manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    staging_manifest_path = manifest_path.with_name(f".{manifest_path.name}.{uuid4().hex}.tmp")
+    try:
+        staging_manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        os.replace(staging_manifest_path, manifest_path)
+    finally:
+        with contextlib.suppress(OSError):
+            staging_manifest_path.unlink()
     return payload
 
 
@@ -19399,6 +19417,115 @@ def _render_onemin_property_flythrough_into_hosted_tour(
     return render_log
 
 
+def _mootion_remote_asset_fetch_worker_path() -> Path:
+    return (_repo_root() / "scripts" / "mootion_remote_asset_fetch_worker.py").resolve()
+
+
+def _run_mootion_remote_asset_fetch_worker(
+    *,
+    asset_url: object,
+    target_dir: Path,
+    target_path: Path,
+    deadline: float,
+) -> dict[str, object]:
+    worker_path = _mootion_remote_asset_fetch_worker_path()
+    if not worker_path.exists() or not worker_path.is_file():
+        raise RuntimeError("mootion_remote_asset_worker_missing")
+    worker_env: dict[str, str] = {
+        "LANG": str(os.getenv("LANG") or "C.UTF-8"),
+        "LC_ALL": str(os.getenv("LC_ALL") or "C.UTF-8"),
+        "PROPERTYQUARRY_MOOTION_REMOTE_VIDEO_ALLOWED_HOSTS": str(
+            os.getenv("PROPERTYQUARRY_MOOTION_REMOTE_VIDEO_ALLOWED_HOSTS") or ""
+        ),
+        "PROPERTYQUARRY_MOOTION_REMOTE_VIDEO_MAX_BYTES": str(_mootion_remote_asset_max_bytes()),
+        "PROPERTYQUARRY_MOOTION_REMOTE_VIDEO_TIMEOUT_SECONDS": str(_mootion_remote_asset_timeout_seconds()),
+    }
+    for env_name in ("SSL_CERT_FILE", "SSL_CERT_DIR"):
+        env_value = str(os.getenv(env_name) or "").strip()
+        if env_value:
+            worker_env[env_name] = env_value
+    process = subprocess.Popen(
+        [sys.executable, "-I", str(worker_path)],
+        cwd=str(_repo_root()),
+        env=worker_env,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        close_fds=True,
+        start_new_session=True,
+    )
+    request_text = json.dumps(
+        {
+            "asset_url": str(asset_url or "").strip(),
+            "target_dir": str(target_dir.resolve()),
+        },
+        ensure_ascii=False,
+    )
+    remaining_seconds = deadline - time.monotonic()
+    if remaining_seconds <= 0:
+        with contextlib.suppress(Exception):
+            process.kill()
+        with contextlib.suppress(Exception):
+            process.communicate(timeout=5.0)
+        with contextlib.suppress(OSError):
+            target_path.unlink()
+        raise RuntimeError("mootion_remote_asset_deadline_exceeded")
+    try:
+        stdout_text, _stderr_text = process.communicate(
+            input=request_text,
+            timeout=max(0.001, remaining_seconds),
+        )
+    except subprocess.TimeoutExpired as exc:
+        with contextlib.suppress(Exception):
+            process.kill()
+        with contextlib.suppress(Exception):
+            process.communicate(timeout=5.0)
+        with contextlib.suppress(OSError):
+            target_path.unlink()
+        raise RuntimeError("mootion_remote_asset_deadline_exceeded") from exc
+    output_lines = [line.strip() for line in str(stdout_text or "").splitlines() if line.strip()]
+    try:
+        worker_result = json.loads(output_lines[-1]) if output_lines else {}
+    except Exception:
+        worker_result = {}
+    if not isinstance(worker_result, dict):
+        worker_result = {}
+    if process.returncode != 0 or str(worker_result.get("status") or "").strip() != "completed":
+        with contextlib.suppress(OSError):
+            target_path.unlink()
+        reason = str(worker_result.get("reason") or "").strip()
+        if not reason.startswith("mootion_remote_asset_"):
+            reason = "mootion_remote_asset_worker_failed"
+        raise RuntimeError(reason)
+    return worker_result
+
+
+def _materialize_mootion_remote_video_asset(asset_url: object, *, target_dir: Path) -> Path:
+    deadline = time.monotonic() + _mootion_remote_asset_timeout_seconds()
+    target_path = _mootion_remote_asset_target_path(asset_url, target_dir=target_dir)
+    if target_path.exists():
+        raise RuntimeError("mootion_remote_asset_target_exists")
+    _run_mootion_remote_asset_fetch_worker(
+        asset_url=asset_url,
+        target_dir=target_dir,
+        target_path=target_path,
+        deadline=deadline,
+    )
+    if time.monotonic() >= deadline:
+        with contextlib.suppress(OSError):
+            target_path.unlink()
+        raise RuntimeError("mootion_remote_asset_deadline_exceeded")
+    if not target_path.exists() or not target_path.is_file():
+        raise RuntimeError("mootion_remote_asset_worker_output_missing")
+    size_bytes = target_path.stat().st_size
+    if size_bytes <= 0 or size_bytes > _mootion_remote_asset_max_bytes():
+        with contextlib.suppress(OSError):
+            target_path.unlink()
+        raise RuntimeError("mootion_remote_asset_worker_output_invalid")
+    return target_path
+
+
 def _render_mootion_property_flythrough_into_hosted_tour(
     *,
     tour_url: str,
@@ -19410,12 +19537,13 @@ def _render_mootion_property_flythrough_into_hosted_tour(
     person_motion_hint: str = "",
     diorama_style_hint: str = "",
     tour_context_json: dict[str, object] | None = None,
+    remote_render_callback: Callable[[dict[str, object]], dict[str, object]] | None = None,
 ) -> dict[str, object]:
     slug, bundle_dir = _hosted_property_tour_bundle_dir(tour_url)
     if not slug or bundle_dir is None:
         return {"status": "missing", "reason": "hosted_tour_bundle_missing", "provider_key": "mootion"}
     script_path = (_repo_root() / "scripts" / "mootion_movie_worker.py").resolve()
-    if not script_path.exists():
+    if remote_render_callback is None and not script_path.exists():
         return {"status": "missing", "reason": "mootion_render_script_missing", "provider_key": "mootion"}
     resolved_tour_context = (
         dict(tour_context_json or {})
@@ -19491,30 +19619,27 @@ def _render_mootion_property_flythrough_into_hosted_tour(
     with tempfile.TemporaryDirectory(prefix="mootion-property-tour-") as tmp_dir:
         tmp_path = Path(tmp_dir)
         packet_path = tmp_path / "packet.json"
-        packet_path.write_text(
-            json.dumps(
-                {
-                    "title": result_title,
-                    "result_title": result_title,
-                    "script_text": script_text,
-                    "visual_style": compact_text(
-                        str(diorama_style_hint or "photoreal real-estate walkthrough").strip(),
-                        fallback="photoreal real-estate walkthrough",
-                        limit=120,
-                    ),
-                    "camera_style": "continuous first-person real-estate walkthrough",
-                    "aspect_ratio": "16:9",
-                    "duration_seconds": max(12, min(90, int(math.ceil(required_duration_seconds)))),
-                    "scene_count": max(3, min(12, len(route_labels) + 1)),
-                    "shot_pacing": "steady",
-                    "caption_mode": "none",
-                    "music_mood": "none",
-                    "language": "en",
-                    "timeout_seconds": max(360, int(os.getenv("PROPERTYQUARRY_MOOTION_TIMEOUT_SECONDS") or "600")),
-                },
-                ensure_ascii=False,
-                indent=2,
+        packet_payload = {
+            "title": result_title,
+            "result_title": result_title,
+            "script_text": script_text,
+            "visual_style": compact_text(
+                str(diorama_style_hint or "photoreal real-estate walkthrough").strip(),
+                fallback="photoreal real-estate walkthrough",
+                limit=120,
             ),
+            "camera_style": "continuous first-person real-estate walkthrough",
+            "aspect_ratio": "16:9",
+            "duration_seconds": max(12, min(90, int(math.ceil(required_duration_seconds)))),
+            "scene_count": max(3, min(12, len(route_labels) + 1)),
+            "shot_pacing": "steady",
+            "caption_mode": "none",
+            "music_mood": "none",
+            "language": "en",
+            "timeout_seconds": max(360, int(os.getenv("PROPERTYQUARRY_MOOTION_TIMEOUT_SECONDS") or "600")),
+        }
+        packet_path.write_text(
+            json.dumps(packet_payload, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
         command = [
@@ -19524,76 +19649,17 @@ def _render_mootion_property_flythrough_into_hosted_tour(
             str(packet_path),
         ]
         timeout_seconds = max(360, int(os.getenv("PROPERTYQUARRY_MOOTION_SUBPROCESS_TIMEOUT_SECONDS") or "900"))
-        try:
-            completed = subprocess.run(
-                command,
-                cwd=str(_repo_root()),
-                capture_output=True,
-                text=True,
-                timeout=timeout_seconds,
-                check=False,
-            )
-        except subprocess.TimeoutExpired as exc:
-            render_log.update(
-                {
-                    "status": "failed",
-                    "reason": "mootion_subprocess_timeout",
-                    "stdout_tail": compact_text(str(exc.stdout or "").strip(), fallback="", limit=1200),
-                    "stderr_tail": compact_text(str(exc.stderr or "").strip(), fallback="", limit=1200),
-                    "timeout_seconds": timeout_seconds,
-                }
-            )
-            _write_hosted_property_visual_progress(
-                tour_url=tour_url,
-                request_kind="flythrough",
-                status="failed",
-                progress_pct=0,
-                detail=_property_visual_unavailable_detail(
-                    request_kind="flythrough",
-                    reason="mootion_subprocess_timeout",
-                ),
-                reason="mootion_subprocess_timeout",
-                provider_key="mootion",
-            )
-            return render_log
-        stdout_text = str(completed.stdout or "").strip()
-        stderr_text = compact_text(str(completed.stderr or "").strip(), fallback="", limit=1200)
-        if completed.returncode != 0 or not stdout_text:
-            render_log.update(
-                {
-                    "status": "failed",
-                    "reason": "mootion_worker_failed",
-                    "stdout_tail": compact_text(stdout_text, fallback="", limit=1200),
-                    "stderr_tail": stderr_text,
-                    "returncode": int(completed.returncode),
-                }
-            )
-            _write_hosted_property_visual_progress(
-                tour_url=tour_url,
-                request_kind="flythrough",
-                status="failed",
-                progress_pct=0,
-                detail=_property_visual_unavailable_detail(
-                    request_kind="flythrough",
-                    reason="mootion_worker_failed",
-                ),
-                reason="mootion_worker_failed",
-                provider_key="mootion",
-            )
-            return render_log
-        try:
-            worker_payload = json.loads(stdout_text)
-        except Exception:
-            last_line = str(stdout_text.splitlines()[-1] if stdout_text else "").strip()
+        stdout_text = ""
+        stderr_text = ""
+        if remote_render_callback is not None:
             try:
-                worker_payload = json.loads(last_line)
-            except Exception:
+                worker_payload = remote_render_callback(dict(packet_payload))
+            except Exception as exc:  # noqa: BLE001
                 render_log.update(
                     {
                         "status": "failed",
-                        "reason": "mootion_worker_output_invalid",
-                        "stdout_tail": compact_text(stdout_text, fallback="", limit=1200),
-                        "stderr_tail": stderr_text,
+                        "reason": "mootion_browseract_remote_failed",
+                        "error": compact_text(str(exc or exc.__class__.__name__), fallback="", limit=1200),
                     }
                 )
                 _write_hosted_property_visual_progress(
@@ -19603,12 +19669,79 @@ def _render_mootion_property_flythrough_into_hosted_tour(
                     progress_pct=0,
                     detail=_property_visual_unavailable_detail(
                         request_kind="flythrough",
-                        reason="mootion_worker_output_invalid",
+                        reason="mootion_browseract_remote_failed",
                     ),
-                    reason="mootion_worker_output_invalid",
+                    reason="mootion_browseract_remote_failed",
                     provider_key="mootion",
                 )
                 return render_log
+            stdout_text = json.dumps(worker_payload, ensure_ascii=False) if isinstance(worker_payload, dict) else ""
+        else:
+            try:
+                completed = subprocess.run(
+                    command,
+                    cwd=str(_repo_root()),
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout_seconds,
+                    check=False,
+                )
+            except subprocess.TimeoutExpired as exc:
+                render_log.update(
+                    {
+                        "status": "failed",
+                        "reason": "mootion_subprocess_timeout",
+                        "stdout_tail": compact_text(str(exc.stdout or "").strip(), fallback="", limit=1200),
+                        "stderr_tail": compact_text(str(exc.stderr or "").strip(), fallback="", limit=1200),
+                        "timeout_seconds": timeout_seconds,
+                    }
+                )
+                _write_hosted_property_visual_progress(
+                    tour_url=tour_url,
+                    request_kind="flythrough",
+                    status="failed",
+                    progress_pct=0,
+                    detail=_property_visual_unavailable_detail(
+                        request_kind="flythrough",
+                        reason="mootion_subprocess_timeout",
+                    ),
+                    reason="mootion_subprocess_timeout",
+                    provider_key="mootion",
+                )
+                return render_log
+            stdout_text = str(completed.stdout or "").strip()
+            stderr_text = compact_text(str(completed.stderr or "").strip(), fallback="", limit=1200)
+            if completed.returncode != 0 or not stdout_text:
+                render_log.update(
+                    {
+                        "status": "failed",
+                        "reason": "mootion_worker_failed",
+                        "stdout_tail": compact_text(stdout_text, fallback="", limit=1200),
+                        "stderr_tail": stderr_text,
+                        "returncode": int(completed.returncode),
+                    }
+                )
+                _write_hosted_property_visual_progress(
+                    tour_url=tour_url,
+                    request_kind="flythrough",
+                    status="failed",
+                    progress_pct=0,
+                    detail=_property_visual_unavailable_detail(
+                        request_kind="flythrough",
+                        reason="mootion_worker_failed",
+                    ),
+                    reason="mootion_worker_failed",
+                    provider_key="mootion",
+                )
+                return render_log
+            try:
+                worker_payload = json.loads(stdout_text)
+            except Exception:
+                last_line = str(stdout_text.splitlines()[-1] if stdout_text else "").strip()
+                try:
+                    worker_payload = json.loads(last_line)
+                except Exception:
+                    worker_payload = None
         if not isinstance(worker_payload, dict):
             render_log.update(
                 {
@@ -19633,6 +19766,66 @@ def _render_mootion_property_flythrough_into_hosted_tour(
             return render_log
         render_status = str(worker_payload.get("render_status") or "").strip().lower()
         asset_path_text = str(worker_payload.get("asset_path") or "").strip()
+        remote_asset_url = str(
+            worker_payload.get("download_url")
+            or worker_payload.get("asset_url")
+            or worker_payload.get("public_url")
+            or worker_payload.get("video_url")
+            or ""
+        ).strip()
+        if remote_render_callback is not None:
+            if render_status not in {"completed", "rendered", "ready", "success", "succeeded"}:
+                render_log.update(
+                    {
+                        "status": "failed",
+                        "reason": "mootion_browseract_remote_not_completed",
+                        "render_status": render_status,
+                    }
+                )
+                _write_hosted_property_visual_progress(
+                    tour_url=tour_url,
+                    request_kind="flythrough",
+                    status="failed",
+                    progress_pct=0,
+                    detail=_property_visual_unavailable_detail(
+                        request_kind="flythrough",
+                        reason="mootion_browseract_remote_not_completed",
+                    ),
+                    reason="mootion_browseract_remote_not_completed",
+                    provider_key="mootion",
+                )
+                return render_log
+            render_status = "completed"
+        if remote_render_callback is not None and not asset_path_text and remote_asset_url:
+            try:
+                asset_path_text = str(
+                    _materialize_mootion_remote_video_asset(
+                        remote_asset_url,
+                        target_dir=tmp_path,
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001
+                render_log.update(
+                    {
+                        "status": "failed",
+                        "reason": "mootion_browseract_remote_asset_failed",
+                        "error": compact_text(str(exc or exc.__class__.__name__), fallback="", limit=1200),
+                        "editor_url": str(worker_payload.get("editor_url") or "").strip(),
+                    }
+                )
+                _write_hosted_property_visual_progress(
+                    tour_url=tour_url,
+                    request_kind="flythrough",
+                    status="failed",
+                    progress_pct=0,
+                    detail=_property_visual_unavailable_detail(
+                        request_kind="flythrough",
+                        reason="mootion_browseract_remote_asset_failed",
+                    ),
+                    reason="mootion_browseract_remote_asset_failed",
+                    provider_key="mootion",
+                )
+                return render_log
         if render_status != "completed" or not asset_path_text:
             render_log.update(
                 {
@@ -19681,23 +19874,7 @@ def _render_mootion_property_flythrough_into_hosted_tour(
                 provider_key="mootion",
             )
             return render_log
-        bundle_dir.mkdir(parents=True, exist_ok=True)
-        _write_hosted_property_visual_progress(
-            tour_url=tour_url,
-            request_kind="flythrough",
-            status="processing",
-            progress_pct=92,
-            detail="Finalizing walkthrough delivery.",
-            provider_key="mootion",
-        )
-        video_relpath = f"tour-mootion-{render_token}{asset_path.suffix.lower() or '.webm'}"
-        sidecar_relpath = "tour.mootion.json"
-        bundle_video_path = (bundle_dir / video_relpath).resolve()
-        bundle_sidecar_path = (bundle_dir / sidecar_relpath).resolve()
-        if bundle_dir.resolve() not in bundle_video_path.parents or bundle_dir.resolve() not in bundle_sidecar_path.parents:
-            return {"status": "missing", "reason": "hosted_tour_bundle_invalid", "provider_key": "mootion"}
-        shutil.copy2(asset_path, bundle_video_path)
-        duration_seconds = _video_duration_seconds(str(bundle_video_path))
+        duration_seconds = _video_duration_seconds(str(asset_path))
         render_log["duration_seconds"] = duration_seconds
         if duration_seconds + 0.25 < required_duration_seconds:
             render_log["status"] = "failed"
@@ -19716,7 +19893,7 @@ def _render_mootion_property_flythrough_into_hosted_tour(
                 provider_key="mootion",
             )
             return render_log
-        continuity_ok, continuity_reason, continuity_metrics = _video_continuous_shot_gate(bundle_video_path)
+        continuity_ok, continuity_reason, continuity_metrics = _video_continuous_shot_gate(asset_path)
         render_log["continuous_shot_gate"] = continuity_metrics
         if not continuity_ok:
             render_log["status"] = "failed"
@@ -19735,30 +19912,75 @@ def _render_mootion_property_flythrough_into_hosted_tour(
                 provider_key="mootion",
             )
             return render_log
-        bundle_sidecar_path.write_text(
-            json.dumps(
-                {
-                    "provider": "Mootion",
-                    "provider_key": "mootion",
-                    "composition": "continuous_first_person_walkthrough",
-                    "duration_seconds": duration_seconds,
-                    "required_duration_seconds": required_duration_seconds,
-                    "route_labels": route_labels,
-                    "covered_route_labels": route_labels,
-                    "editor_url": str(worker_payload.get("editor_url") or "").strip(),
-                    "raw_text": str(worker_payload.get("raw_text") or "").strip(),
-                    "tour_context_json": resolved_tour_context,
-                    "structured_output_json": (
-                        dict(worker_payload.get("structured_output_json") or {})
-                        if isinstance(worker_payload.get("structured_output_json"), dict)
-                        else {}
-                    ),
-                },
-                ensure_ascii=False,
-                indent=2,
-            ),
-            encoding="utf-8",
+        bundle_dir.mkdir(parents=True, exist_ok=True)
+        _write_hosted_property_visual_progress(
+            tour_url=tour_url,
+            request_kind="flythrough",
+            status="processing",
+            progress_pct=92,
+            detail="Finalizing walkthrough delivery.",
+            provider_key="mootion",
         )
+        video_relpath = f"tour-mootion-{render_token}{asset_path.suffix.lower() or '.webm'}"
+        sidecar_relpath = f"tour-mootion-{render_token}.json"
+        bundle_video_path = (bundle_dir / video_relpath).resolve()
+        bundle_sidecar_path = (bundle_dir / sidecar_relpath).resolve()
+        staging_video_path = (bundle_dir / f".{video_relpath}.{uuid4().hex}.tmp").resolve()
+        staging_sidecar_path = (bundle_dir / f".{sidecar_relpath}.{uuid4().hex}.tmp").resolve()
+        bundle_root = bundle_dir.resolve()
+        if any(
+            bundle_root not in path.parents
+            for path in (bundle_video_path, bundle_sidecar_path, staging_video_path, staging_sidecar_path)
+        ):
+            return {"status": "missing", "reason": "hosted_tour_bundle_invalid", "provider_key": "mootion"}
+        public_sidecar = {
+            "provider": "Mootion",
+            "provider_key": "mootion",
+            "execution_lane": "browseract_remote" if remote_render_callback is not None else "local_worker",
+            "composition": "continuous_first_person_walkthrough",
+            "duration_seconds": duration_seconds,
+            "required_duration_seconds": required_duration_seconds,
+            "route_labels": route_labels,
+            "covered_route_labels": route_labels,
+            "tour_context_json": resolved_tour_context,
+            "quality_gates": {
+                "duration": "pass",
+                "continuous_shot": "pass",
+                "continuous_shot_metrics": {
+                    key: continuity_metrics[key]
+                    for key in ("scene_threshold", "max_scene_cuts", "scene_cuts", "cut_times")
+                    if key in continuity_metrics
+                },
+            },
+        }
+        try:
+            shutil.copy2(asset_path, staging_video_path)
+            staging_sidecar_path.write_text(
+                json.dumps(public_sidecar, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+            os.replace(staging_video_path, bundle_video_path)
+            os.replace(staging_sidecar_path, bundle_sidecar_path)
+        except Exception as exc:  # noqa: BLE001
+            for path in (staging_video_path, staging_sidecar_path, bundle_video_path, bundle_sidecar_path):
+                with contextlib.suppress(OSError):
+                    path.unlink()
+            render_log["status"] = "failed"
+            render_log["reason"] = "mootion_publish_failed"
+            render_log["error"] = str(exc)
+            _write_hosted_property_visual_progress(
+                tour_url=tour_url,
+                request_kind="flythrough",
+                status="failed",
+                progress_pct=0,
+                detail=_property_visual_unavailable_detail(
+                    request_kind="flythrough",
+                    reason="mootion_publish_failed",
+                ),
+                reason="mootion_publish_failed",
+                provider_key="mootion",
+            )
+            return render_log
         try:
             _update_hosted_property_tour_video_manifest(
                 tour_url=tour_url,
@@ -19772,6 +19994,9 @@ def _render_mootion_property_flythrough_into_hosted_tour(
             render_log["status"] = "failed"
             render_log["reason"] = "mootion_manifest_update_failed"
             render_log["error"] = str(exc)
+            for path in (bundle_video_path, bundle_sidecar_path):
+                with contextlib.suppress(OSError):
+                    path.unlink()
             _write_hosted_property_visual_progress(
                 tour_url=tour_url,
                 request_kind="flythrough",
@@ -20192,6 +20417,7 @@ def _render_property_flythrough_into_hosted_tour(
     diorama_style_hint: str = "",
     preferred_provider_key: str = "",
     tour_context_json: dict[str, object] | None = None,
+    mootion_remote_render_callback: Callable[[dict[str, object]], dict[str, object]] | None = None,
 ) -> dict[str, object]:
     normalized_preferred_provider = _normalize_provider_preference(preferred_provider_key)
     explicit_provider_requested = bool(normalized_preferred_provider)
@@ -20320,6 +20546,7 @@ def _render_property_flythrough_into_hosted_tour(
             person_motion_hint=person_motion_hint,
             diorama_style_hint=diorama_style_hint,
             tour_context_json=tour_context_json,
+            remote_render_callback=mootion_remote_render_callback,
         )
         return {**route_payload, **dict(rendered or {})}
     if route.provider_key == "onemin_i2v":

@@ -186,6 +186,9 @@ def test_property_scene_video_shared_env_passes_through_safe_omagic_runtime_flag
                 "PROPERTYQUARRY_OMAGIC_MODEL_UPLOAD_ENABLED=1",
                 "PROPERTYQUARRY_OMAGIC_TEMPLATE_VARIANT_ID=299",
                 "PROPERTYQUARRY_OMAGIC_TEMPLATE_ARGUMENT_NAME=UserObject",
+                "PROPERTYQUARRY_MOOTION_REMOTE_VIDEO_ALLOWED_HOSTS=cdn.example,media.example",
+                "PROPERTYQUARRY_MOOTION_REMOTE_VIDEO_MAX_BYTES=104857600",
+                "PROPERTYQUARRY_MOOTION_REMOTE_VIDEO_TIMEOUT_SECONDS=120",
             ]
         )
         + "\n",
@@ -205,6 +208,9 @@ def test_property_scene_video_shared_env_passes_through_safe_omagic_runtime_flag
     assert "PROPERTYQUARRY_OMAGIC_MODEL_UPLOAD_ENABLED='1'" in rendered
     assert "PROPERTYQUARRY_OMAGIC_TEMPLATE_VARIANT_ID='299'" in rendered
     assert "PROPERTYQUARRY_OMAGIC_TEMPLATE_ARGUMENT_NAME='UserObject'" in rendered
+    assert "PROPERTYQUARRY_MOOTION_REMOTE_VIDEO_ALLOWED_HOSTS='cdn.example,media.example'" in rendered
+    assert "PROPERTYQUARRY_MOOTION_REMOTE_VIDEO_MAX_BYTES='104857600'" in rendered
+    assert "PROPERTYQUARRY_MOOTION_REMOTE_VIDEO_TIMEOUT_SECONDS='120'" in rendered
 
 
 def test_property_scene_video_shared_env_passes_through_dynamic_onemin_fallback_keys(tmp_path: Path) -> None:

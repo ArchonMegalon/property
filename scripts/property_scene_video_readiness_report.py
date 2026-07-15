@@ -16,6 +16,7 @@ for candidate in (ROOT / "ea", ROOT):
         sys.path.insert(0, str(candidate))
 
 from app.services.scene_video_contract import scene_video_provider_runtime_readiness  # noqa: E402
+from app.mootion_remote_asset_policy import mootion_remote_asset_host_policy_readiness  # noqa: E402
 
 
 DEFAULT_PROVIDERS = ("mootion", "magicfit", "magic", "omagic", "onemin_i2v")
@@ -66,6 +67,11 @@ MOOTION_BROWSERACT_RUN_URL_KEYS = (
     "mootion_movie_run_url",
     "browseract_mootion_movie_run_url",
     "run_url",
+)
+MOOTION_BROWSERACT_PRINCIPAL_ENV_NAMES = (
+    "PROPERTYQUARRY_SCENE_VIDEO_PRINCIPAL_ID",
+    "EA_TELEGRAM_DEFAULT_PRINCIPAL_ID",
+    "EA_DEFAULT_PRINCIPAL_ID",
 )
 TELEGRAM_TOKEN_ENV_NAMES = (
     "PROPERTYQUARRY_TELEGRAM_BOT_TOKEN",
@@ -426,27 +432,71 @@ def _mootion_browseract_target_from_binding(binding: object) -> dict[str, Any]:
 
 
 def mootion_browseract_bridge_readiness() -> dict[str, Any]:
+    configured_principal_env_names = _env_names_configured(MOOTION_BROWSERACT_PRINCIPAL_ENV_NAMES)
+    configured_principal_values = {
+        str(os.getenv(env_name) or "").strip()
+        for env_name in configured_principal_env_names
+        if str(os.getenv(env_name) or "").strip()
+    }
+    if not configured_principal_values:
+        return {
+            "ready": False,
+            "status": "blocked",
+            "reason": "mootion_browseract_principal_scope_missing",
+            "principal_scope_configured": False,
+            "principal_env_names": [],
+            "target_count": 0,
+            "targets": [],
+        }
+    selected_principal_env_name = next(
+        env_name
+        for env_name in MOOTION_BROWSERACT_PRINCIPAL_ENV_NAMES
+        if str(os.getenv(env_name) or "").strip()
+    )
+    principal_id = str(os.getenv(selected_principal_env_name) or "").strip()
     try:
         from app.services.tool_runtime import build_tool_runtime
 
         tool_runtime = build_tool_runtime()
-        bindings = tool_runtime.list_connector_bindings_for_connector("browseract", limit=500)
+        bindings = tool_runtime.list_connector_bindings(principal_id, limit=500)
     except Exception as exc:  # noqa: BLE001
         return {
             "ready": False,
             "status": "unavailable",
+            "reason": "mootion_browseract_principal_binding_probe_failed",
+            "principal_scope_configured": True,
+            "principal_env_names": configured_principal_env_names,
+            "selected_principal_env_name": selected_principal_env_name,
             "target_count": 0,
             "targets": [],
-            "error": str(exc or exc.__class__.__name__)[:240],
+            "error": exc.__class__.__name__[:120],
         }
     targets = [
         target
         for target in (_mootion_browseract_target_from_binding(binding) for binding in bindings)
         if target
     ]
+    asset_host_policy = mootion_remote_asset_host_policy_readiness()
+    blockers: list[str] = []
+    if not targets:
+        blockers.append("mootion_browseract_principal_binding_missing")
+    if not bool(asset_host_policy.get("configured")):
+        blockers.append("mootion_remote_asset_host_allowlist_missing")
+    elif not bool(asset_host_policy.get("valid")):
+        blockers.append("mootion_remote_asset_host_allowlist_invalid")
+    ready = not blockers
+    reason = str(blockers[0] if blockers else "")
     return {
-        "ready": bool(targets),
-        "status": "ready" if targets else "blocked",
+        "ready": ready,
+        "status": "ready" if ready else "blocked",
+        "reason": reason,
+        "blockers": blockers,
+        "principal_scope_configured": True,
+        "principal_env_names": configured_principal_env_names,
+        "selected_principal_env_name": selected_principal_env_name,
+        "asset_host_allowlist_configured": bool(asset_host_policy.get("configured")),
+        "asset_host_allowlist_valid": bool(asset_host_policy.get("valid")),
+        "asset_host_count": int(asset_host_policy.get("host_count") or 0),
         "target_count": len(targets),
         "targets": targets,
     }
@@ -489,12 +539,24 @@ def _provider_row(provider: str) -> dict[str, Any]:
     requested_provider_key = str(provider or "").strip().lower()
     runtime_provider_key = str(readiness.get("provider_key") or "").strip().lower()
     if "mootion" in {requested_provider_key, runtime_provider_key}:
+        checks["mootion_browseract_remote"] = mootion_browseract_bridge_readiness()
         remote_value = checks.get("mootion_browseract_remote")
         remote = remote_value if isinstance(remote_value, dict) else {}
         if execution_lane != "browseract_remote":
             blockers.append("mootion_browseract_remote_lane_missing")
         if remote.get("ready") is not True:
             blockers.append("mootion_browseract_bridge_not_ready")
+            remote_blockers = [
+                str(value or "").strip()
+                for value in list(remote.get("blockers") or [])
+                if str(value or "").strip()
+            ]
+            if remote_blockers:
+                blockers.extend(remote_blockers)
+            else:
+                remote_reason = str(remote.get("reason") or "").strip()
+                if remote_reason:
+                    blockers.append(remote_reason)
         blockers = list(dict.fromkeys(blockers))
         if blockers:
             ready = False
