@@ -2049,6 +2049,95 @@ def test_property_source_preview_prefetch_uses_four_parallel_source_workers(monk
     max_workers = 0
     started_sources: list[str] = []
     finished_sources: list[str] = []
+    source_urls = [f"https://example.test/source/{index}" for index in range(6)]
+    listing_urls_by_source = {
+        source_url: [f"https://example.test/listing/{index}/{ordinal}" for ordinal in range(2)]
+        for index, source_url in enumerate(source_urls)
+    }
+    initial_listing_urls = {
+        listing_urls_by_source[source_url][0]
+        for source_url in source_urls[:4]
+    }
+    initial_worker_barrier = threading.Barrier(4)
+    preview_start_order: list[str] = []
+
+    monkeypatch.setattr(
+        ProductService,
+        "_property_public_preview_cache_lookup",
+        lambda self, *, cache_index, property_url: None,
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_property_public_preview_cache_store",
+        lambda self, *, cache_index, property_url, preview: dict(preview),
+    )
+
+    def _fake_preview(property_url: str, *, prefer_fast: bool = False) -> dict[str, object]:
+        nonlocal current_workers
+        nonlocal max_workers
+        with lock:
+            current_workers += 1
+            max_workers = max(max_workers, current_workers)
+            preview_start_order.append(property_url)
+        try:
+            if property_url in initial_listing_urls:
+                initial_worker_barrier.wait(timeout=2.0)
+            return {
+                "listing_id": property_url,
+                "title": property_url,
+                "summary": "",
+                "property_facts_json": {},
+            }
+        finally:
+            with lock:
+                current_workers -= 1
+
+    monkeypatch.setattr(product_service, "_property_scout_page_preview_with_timeout", _fake_preview)
+
+    result = service._prefetch_property_public_previews_for_sources(
+        source_jobs=[
+            {
+                "platform": f"provider_{index}",
+                "url": source_url,
+                "__listing_urls__": listing_urls_by_source[source_url],
+            }
+            for index, source_url in enumerate(source_urls)
+        ],
+        cache_index={},
+        worker_cap=4,
+        on_source_started=lambda job: started_sources.append(str(job.get("url") or "")),
+        on_source_finished=lambda job, payload: finished_sources.append(str(job.get("url") or "")),
+    )
+
+    assert result["worker_concurrency"] == 4
+    assert result["cache_refresh_total"] == 12
+    assert result["cache_hit_total"] == 0
+    assert len(result["source_results"]) == 6
+    assert max_workers == 4
+    assert started_sources == source_urls
+    assert set(preview_start_order[:4]) == initial_listing_urls
+    assert sorted(finished_sources) == source_urls
+    assert list(result["source_results"]) == [
+        (f"provider_{index}", source_url)
+        for index, source_url in enumerate(source_urls)
+    ]
+    for index, source_url in enumerate(source_urls):
+        source_result = result["source_results"][(f"provider_{index}", source_url)]
+        assert list(source_result["previews"]) == listing_urls_by_source[source_url]
+        assert source_result["errors"] == {}
+
+
+def test_property_source_preview_prefetch_uses_full_worker_cap_for_one_source(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = build_property_client(principal_id="exec-property-source-preview-single-source")
+    service = product_service.build_product_service(client.app.state.container)
+    lock = threading.Lock()
+    current_workers = 0
+    max_workers = 0
+    started_sources: list[str] = []
+    finished_sources: list[str] = []
+    progress_totals: list[int] = []
+    listing_urls = [f"https://example.test/listing/{index}" for index in range(8)]
+    worker_barrier = threading.Barrier(4)
 
     monkeypatch.setattr(
         ProductService,
@@ -2068,7 +2157,7 @@ def test_property_source_preview_prefetch_uses_four_parallel_source_workers(monk
             current_workers += 1
             max_workers = max(max_workers, current_workers)
         try:
-            time.sleep(0.05)
+            worker_barrier.wait(timeout=2.0)
             return {
                 "listing_id": property_url,
                 "title": property_url,
@@ -2083,22 +2172,29 @@ def test_property_source_preview_prefetch_uses_four_parallel_source_workers(monk
 
     result = service._prefetch_property_public_previews_for_sources(
         source_jobs=[
-            {"platform": f"provider_{index}", "url": f"https://example.test/source/{index}", "__listing_urls__": [f"https://example.test/listing/{index}"]}
-            for index in range(6)
+            {
+                "platform": "willhaben",
+                "url": "https://example.test/source/willhaben",
+                "__listing_urls__": listing_urls,
+            }
         ],
         cache_index={},
         worker_cap=4,
         on_source_started=lambda job: started_sources.append(str(job.get("url") or "")),
+        on_source_progress=lambda job, payload: progress_totals.append(int(payload.get("completed_total") or 0)),
         on_source_finished=lambda job, payload: finished_sources.append(str(job.get("url") or "")),
     )
 
+    source_result = result["source_results"][("willhaben", "https://example.test/source/willhaben")]
     assert result["worker_concurrency"] == 4
-    assert result["cache_refresh_total"] == 6
+    assert result["cache_refresh_total"] == len(listing_urls)
     assert result["cache_hit_total"] == 0
-    assert len(result["source_results"]) == 6
     assert max_workers == 4
-    assert len(started_sources) == 6
-    assert len(finished_sources) == 6
+    assert list(source_result["previews"]) == listing_urls
+    assert source_result["errors"] == {}
+    assert started_sources == ["https://example.test/source/willhaben"]
+    assert finished_sources == ["https://example.test/source/willhaben"]
+    assert progress_totals == list(range(1, len(listing_urls) + 1))
 
 
 def test_property_search_run_status_fixes_provider_total_from_source_variants() -> None:

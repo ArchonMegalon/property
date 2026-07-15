@@ -26609,6 +26609,7 @@ class ProductService:
         cache_index: dict[str, dict[str, object]],
         worker_cap: int,
         on_source_started: callable | None = None,
+        on_source_progress: callable | None = None,
         on_source_finished: callable | None = None,
     ) -> dict[str, object]:
         normalized_jobs: list[dict[str, object]] = []
@@ -26639,70 +26640,116 @@ class ProductService:
             }
 
         cache_lock = threading.Lock()
-        source_results: dict[tuple[str, str], dict[str, object]] = {}
-        cache_hit_total = 0
-        cache_refresh_total = 0
+        job_listing_urls = [
+            tuple(str(property_url) for property_url in list(job.get("__listing_urls__") or []))
+            for job in normalized_jobs
+        ]
+        source_outcomes: list[dict[str, object]] = [
+            {
+                "previews": {},
+                "errors": {},
+                "cache_hit_total": 0,
+                "cache_refresh_total": 0,
+                "remaining": len(job_listing_urls[job_index]),
+            }
+            for job_index in range(len(normalized_jobs))
+        ]
+        completed_source_results: dict[int, dict[str, object]] = {}
+        started_source_indexes: set[int] = set()
 
-        def _task(job: dict[str, object]) -> dict[str, object]:
-            previews: dict[str, dict[str, object]] = {}
-            errors: dict[str, str] = {}
-            hit_total = 0
-            refresh_total = 0
-            for property_url in list(job.get("__listing_urls__") or []):
+        def _task(job_index: int, property_url: str) -> tuple[int, str, dict[str, object] | None, str, str]:
+            try:
                 with cache_lock:
                     cached_preview = self._property_public_preview_cache_lookup(
                         cache_index=cache_index,
                         property_url=property_url,
                     )
                 if cached_preview:
-                    previews[property_url] = dict(cached_preview)
-                    hit_total += 1
-                    continue
-                try:
-                    preview = _property_scout_page_preview_with_timeout(property_url, prefer_fast=True)
-                except Exception as exc:
-                    errors[property_url] = compact_text(
-                        str(exc or "property_scout_preview_prefetch_failed"),
-                        fallback="property_scout_preview_prefetch_failed",
-                        limit=200,
-                    )
-                    continue
+                    return job_index, property_url, dict(cached_preview), "hit", ""
+                preview = _property_scout_page_preview_with_timeout(property_url, prefer_fast=True)
                 with cache_lock:
                     self._property_public_preview_cache_store(
                         cache_index=cache_index,
                         property_url=property_url,
                         preview=preview,
                     )
-                previews[property_url] = dict(preview or {})
-                refresh_total += 1
+                return job_index, property_url, dict(preview or {}), "refresh", ""
+            except Exception as exc:
+                return (
+                    job_index,
+                    property_url,
+                    None,
+                    "error",
+                    compact_text(
+                        str(exc or "property_scout_preview_prefetch_failed"),
+                        fallback="property_scout_preview_prefetch_failed",
+                        limit=200,
+                    ),
+                )
+
+        def _source_result(job_index: int) -> dict[str, object]:
+            outcome = source_outcomes[job_index]
+            preview_by_url = dict(outcome.get("previews") or {})
+            error_by_url = dict(outcome.get("errors") or {})
+            listing_urls = job_listing_urls[job_index]
             return {
-                "previews": previews,
-                "errors": errors,
-                "cache_hit_total": hit_total,
-                "cache_refresh_total": refresh_total,
+                "previews": {
+                    property_url: dict(preview_by_url[property_url])
+                    for property_url in listing_urls
+                    if isinstance(preview_by_url.get(property_url), dict)
+                },
+                "errors": {
+                    property_url: str(error_by_url[property_url])
+                    for property_url in listing_urls
+                    if str(error_by_url.get(property_url) or "").strip()
+                },
+                "cache_hit_total": int(outcome.get("cache_hit_total") or 0),
+                "cache_refresh_total": int(outcome.get("cache_refresh_total") or 0),
             }
 
-        max_workers = max(1, min(int(worker_cap or 1), len(normalized_jobs)))
-        queued_jobs = iter(normalized_jobs)
+        max_listing_total = max(
+            len(listing_urls)
+            for listing_urls in job_listing_urls
+        )
 
-        def _submit(executor: concurrent.futures.ThreadPoolExecutor, active: dict[concurrent.futures.Future, dict[str, object]]) -> bool:
+        # Queue one listing per source per pass so a large provider page cannot
+        # monopolize the global preview-worker budget.
+        def _round_robin_tasks():
+            for listing_index in range(max_listing_total):
+                for job_index, listing_urls in enumerate(job_listing_urls):
+                    if listing_index < len(listing_urls):
+                        yield job_index, str(listing_urls[listing_index])
+
+        queued_tasks = iter(_round_robin_tasks())
+        listing_total = sum(
+            len(listing_urls)
+            for listing_urls in job_listing_urls
+        )
+        max_workers = max(1, min(int(worker_cap or 1), listing_total))
+
+        def _submit(
+            executor: concurrent.futures.ThreadPoolExecutor,
+            active: dict[concurrent.futures.Future, tuple[int, str]],
+        ) -> bool:
             try:
-                job = next(queued_jobs)
+                job_index, property_url = next(queued_tasks)
             except StopIteration:
                 return False
-            if callable(on_source_started):
-                try:
-                    on_source_started(dict(job))
-                except Exception:
-                    pass
-            active[executor.submit(_task, dict(job))] = dict(job)
+            if job_index not in started_source_indexes:
+                started_source_indexes.add(job_index)
+                if callable(on_source_started):
+                    try:
+                        on_source_started(dict(normalized_jobs[job_index]))
+                    except Exception:
+                        pass
+            active[executor.submit(_task, job_index, property_url)] = (job_index, property_url)
             return True
 
         with concurrent.futures.ThreadPoolExecutor(
             max_workers=max_workers,
             thread_name_prefix="property-source-preview",
         ) as executor:
-            active: dict[concurrent.futures.Future, dict[str, object]] = {}
+            active: dict[concurrent.futures.Future, tuple[int, str]] = {}
             for _ in range(max_workers):
                 if not _submit(executor, active):
                     break
@@ -26712,34 +26759,76 @@ class ProductService:
                     return_when=concurrent.futures.FIRST_COMPLETED,
                 )
                 for future in done:
-                    job = active.pop(future)
-                    platform = str(job.get("__platform__") or "").strip().lower()
-                    source_url = str(job.get("__source_url__") or "").strip()
-                    result: dict[str, object]
+                    fallback_job_index, fallback_property_url = active.pop(future)
                     try:
-                        result = dict(future.result() or {})
+                        job_index, property_url, preview, status, error_message = future.result()
                     except Exception as exc:
-                        result = {
-                            "previews": {},
-                            "errors": {
-                                source_url or platform or "source": compact_text(
-                                    str(exc or "property_scout_preview_prefetch_failed"),
-                                    fallback="property_scout_preview_prefetch_failed",
-                                    limit=200,
-                                )
-                            },
-                            "cache_hit_total": 0,
-                            "cache_refresh_total": 0,
-                        }
-                    source_results[(platform, source_url)] = result
-                    cache_hit_total += int(result.get("cache_hit_total") or 0)
-                    cache_refresh_total += int(result.get("cache_refresh_total") or 0)
-                    if callable(on_source_finished):
+                        job_index = fallback_job_index
+                        property_url = fallback_property_url
+                        preview = None
+                        status = "error"
+                        error_message = compact_text(
+                            str(exc or "property_scout_preview_prefetch_failed"),
+                            fallback="property_scout_preview_prefetch_failed",
+                            limit=200,
+                        )
+                    outcome = source_outcomes[job_index]
+                    if isinstance(preview, dict):
+                        previews = dict(outcome.get("previews") or {})
+                        previews[property_url] = dict(preview)
+                        outcome["previews"] = previews
+                    if error_message:
+                        errors = dict(outcome.get("errors") or {})
+                        errors[property_url] = error_message
+                        outcome["errors"] = errors
+                    if status == "hit":
+                        outcome["cache_hit_total"] = int(outcome.get("cache_hit_total") or 0) + 1
+                    elif status == "refresh":
+                        outcome["cache_refresh_total"] = int(outcome.get("cache_refresh_total") or 0) + 1
+                    outcome["remaining"] = max(0, int(outcome.get("remaining") or 0) - 1)
+                    completed_total = max(
+                        0,
+                        len(job_listing_urls[job_index]) - int(outcome.get("remaining") or 0),
+                    )
+                    if callable(on_source_progress):
                         try:
-                            on_source_finished(dict(job), dict(result))
+                            on_source_progress(
+                                dict(normalized_jobs[job_index]),
+                                {
+                                    "completed_total": completed_total,
+                                    "listing_total": len(job_listing_urls[job_index]),
+                                    "cache_hit_total": int(outcome.get("cache_hit_total") or 0),
+                                    "cache_refresh_total": int(outcome.get("cache_refresh_total") or 0),
+                                    "error_total": len(dict(outcome.get("errors") or {})),
+                                },
+                            )
                         except Exception:
                             pass
+                    if int(outcome.get("remaining") or 0) == 0:
+                        result = _source_result(job_index)
+                        completed_source_results[job_index] = result
+                        if callable(on_source_finished):
+                            try:
+                                on_source_finished(dict(normalized_jobs[job_index]), dict(result))
+                            except Exception:
+                                pass
                     _submit(executor, active)
+
+        source_results: dict[tuple[str, str], dict[str, object]] = {}
+        for job_index, job in enumerate(normalized_jobs):
+            platform = str(job.get("__platform__") or "").strip().lower()
+            source_url = str(job.get("__source_url__") or "").strip()
+            source_results[(platform, source_url)] = dict(
+                completed_source_results.get(job_index) or _source_result(job_index)
+            )
+        cache_hit_total = sum(
+            int(outcome.get("cache_hit_total") or 0)
+            for outcome in source_outcomes
+        )
+        cache_refresh_total = sum(
+            int(outcome.get("cache_refresh_total") or 0)
+            for outcome in source_outcomes
+        )
 
         return {
             "source_results": source_results,
@@ -43103,6 +43192,30 @@ class ProductService:
                 summary_updates={"sources": source_summaries},
             )
 
+        def _source_preview_prefetch_progress(job: dict[str, object], result: dict[str, object]) -> None:
+            prepared_total = max(0, int(result.get("completed_total") or 0))
+            listing_total_for_source = max(0, int(result.get("listing_total") or 0))
+            if prepared_total >= listing_total_for_source or (prepared_total != 1 and prepared_total % 10 != 0):
+                return
+            source_url = urllib.parse.urldefrag(str(job.get("__source_url__") or job.get("url") or "").strip())[0]
+            source_label = str(job.get("__source_label__") or source_url).strip()
+            _upsert_source_summary(
+                {
+                    "source_url": source_url,
+                    "source_label": source_label,
+                    "preview_prepared_total": prepared_total,
+                    "preview_error_total": max(0, int(result.get("error_total") or 0)),
+                    "status": "warming",
+                }
+            )
+            _report(
+                step="source_preview_prepare",
+                message=f"Prepared {prepared_total} of {listing_total_for_source} listing preview(s) from {source_label}.",
+                status="in_progress",
+                steps_delta=0,
+                summary_updates={"sources": source_summaries},
+            )
+
         def _source_preview_prefetch_finished(job: dict[str, object], result: dict[str, object]) -> None:
             source_url = urllib.parse.urldefrag(str(job.get("__source_url__") or job.get("url") or "").strip())[0]
             source_key = (str(job.get("platform") or "").strip().lower(), source_url)
@@ -43135,6 +43248,7 @@ class ProductService:
             cache_index=public_preview_cache,
             worker_cap=provider_preview_worker_cap,
             on_source_started=_source_preview_prefetch_started if source_preview_jobs else None,
+            on_source_progress=_source_preview_prefetch_progress if source_preview_jobs else None,
             on_source_finished=_source_preview_prefetch_finished if source_preview_jobs else None,
         )
         source_preview_prefetch_results = (
