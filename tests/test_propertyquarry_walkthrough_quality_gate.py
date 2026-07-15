@@ -137,6 +137,28 @@ def _build(root: Path, proof: Path) -> dict[str, object]:
     )
 
 
+def test_walkthrough_quality_reports_missing_tour_manifest(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    slug = "missing-manifest-tour"
+    (tmp_path / slug).mkdir()
+    monkeypatch.setattr(gate, "_copy_runtime_bundle_to_temp_root", lambda slug: None)
+
+    receipt = gate.build_walkthrough_quality_receipt(
+        tour_root=str(tmp_path),
+        demo_slug=slug,
+        max_jump_delta=42.0,
+        min_duration_seconds=30.0,
+    )
+
+    assert receipt["status"] == "fail"
+    manifest_check = next(
+        row for row in receipt["checks"] if row["name"] == "tour_manifest_present"
+    )
+    assert manifest_check["ok"] is False
+
+
 def test_walkthrough_quality_binds_to_exact_magicfit_provider_media(
     tmp_path: Path,
     monkeypatch,

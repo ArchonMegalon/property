@@ -859,7 +859,7 @@ def build_walkthrough_quality_receipt(
             tour_root=str(root),
         )
     )
-    checks.append(_check("tour_manifest_present", bool(payload), manifest=str(bundle / "tour.json")))
+    checks.append(_check("tour_manifest_present", bool(manifest_payload), manifest=str(bundle / "tour.json")))
     if service_receipt_path is not None:
         checks.append(
             _check(
