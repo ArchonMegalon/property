@@ -140,3 +140,4 @@ def test_release_asset_verifier_binds_generated_receipts_to_current_propertyquar
     assert 'assert flagship_receipt["readiness_scope"] == "source_and_browser_proof"' in verifier
     assert '"authority": "_completion/property_gold_status/release-gate.json"' in verifier
     assert '"required_profile": "launch"' in verifier
+    assert '"docs/PROPERTYQUARRY_RELEASE_MANIFEST.md",' in verifier

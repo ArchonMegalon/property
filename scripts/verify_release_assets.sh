@@ -241,6 +241,7 @@ if release_truth_head and current_head and release_truth_head != current_head:
         "RUNBOOK.md",
         "RELEASE_CHECKLIST.md",
         "PRODUCT_RELEASE_CHECKLIST.md",
+        "docs/PROPERTYQUARRY_RELEASE_MANIFEST.md",
         "Makefile",
         "CHANGELOG.md",
         "LTDs.md",
