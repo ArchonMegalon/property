@@ -5421,6 +5421,9 @@ def test_gold_status_blocks_when_performance_receipt_lacks_search_checks(tmp_pat
     ]
     blocker = next(row for row in receipt["blockers"] if row["area"] == "mobile_and_authenticated_surfaces")
     assert "what_matters_distance_controls_compact" in blocker["missing_search_checks"]
+    assert blocker["status"] == "blocked"
+    assert blocker["receipt_status"] == "pass"
+    assert blocker["blocking_reason"] == "required_checks_incomplete"
 
 
 def test_gold_status_blocks_when_performance_receipt_lacks_analytics_privacy_checks(tmp_path: Path) -> None:

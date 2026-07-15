@@ -3998,6 +3998,11 @@ def build_gold_status_receipt(
         normalized_area = str(normalized_row.get("area") or "").strip()
         if normalized_area and not str(normalized_row.get("key") or "").strip():
             normalized_row["key"] = normalized_area
+        raw_status = str(normalized_row.get("status") or "").strip()
+        if raw_status.lower() == "pass":
+            normalized_row["receipt_status"] = raw_status
+            normalized_row["status"] = "blocked"
+            normalized_row.setdefault("blocking_reason", "required_checks_incomplete")
         normalized_blockers.append(normalized_row)
 
     return {
