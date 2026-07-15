@@ -193,13 +193,16 @@ def test_release_hygiene_forbids_tracked_live_env_files() -> None:
     assert '".env.local"' in script
 
 
-def test_release_hygiene_requires_manifest_to_match_current_head() -> None:
+def test_release_hygiene_binds_manifest_to_head_parent_or_metadata_only_ancestor() -> None:
     script = (ROOT / "scripts/check_property_release_hygiene.py").read_text(encoding="utf-8")
 
     assert "release_manifest_runtime_sha" in script
     assert "git_head_sha" in script
     assert "git_head_parent_sha" in script
-    assert "release manifest runtime commit does not match current HEAD or deployed parent" in script
+    assert "git_commit_is_ancestor" in script
+    assert "committed_paths_since" in script
+    assert "RELEASE_METADATA_DESCENDANT_PATHS" in script
+    assert "release manifest runtime commit is not HEAD, its parent, or a metadata-only ancestor" in script
     assert "docs/PROPERTYQUARRY_RELEASE_MANIFEST.md" in script
 
 
