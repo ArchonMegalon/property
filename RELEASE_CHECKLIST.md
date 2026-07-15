@@ -18,11 +18,13 @@
 - [ ] Optional local parity run including legacy migration smoke completed: `make ci-gates-postgres-legacy`.
 - [ ] Optional docs parity run completed: `make docs-verify`.
 - [ ] Optional docs+usage parity run completed: `make release-docs`.
+- [ ] `make propertyquarry-release-protocol-contracts` passes. Treat this only as offline protocol and handoff conformance evidence, never as signature verification, authorization, controller attestation, or a live-release claim.
 - [ ] Docs parity confirms the EA canon, flagship truth plane, gate seed, and generated receipt are present and the browser proof is still green.
 
 ## Build & Deploy
 
 - [ ] Follow `docs/PROPERTYQUARRY_SLO_RELEASE_EVIDENCE.md`; production remains blocked while the tracked external-controller manifest or digest pin is `UNCONFIGURED`. Release control—not the deploy actor—must install the root-owned fixed controller/manifest/pin, canonical Compose plan, v2 keyring, dedicated database policy, monitoring topology/tool pins, secret store, signed genesis, and external monotonic compare-and-swap authority.
+- [ ] Confirm the independent controller implements `docs/PROPERTYQUARRY_RELEASE_CONTROL_PROTOCOL_V1.md`; the repository validator is a conformance aid and has no authentication or deployment authority.
 - [ ] Treat source tests as fail-closed/FD-handoff evidence only. Do not claim containment, fencing, receipt, Gold, or traffic semantics until the installed native controller is independently attested in the target environment.
 - [ ] Confirm the fixed controller lock is acquired and ingress, API, scheduler, render, and any live migrator are contained before journal reads, host-port/provenance checks, or stale/new receipt validation.
 - [ ] Confirm the dedicated target is not the default `postgres` database; control, NOLOGIN owner, migrator, and per-epoch runtime roles are distinct non-superusers, `PUBLIC CONNECT` is revoked, applications have no owner/control/migrator credentials, restart is controller-owned, and zero target backends/prepared transactions/logical writers are proved under the durable fence.
@@ -32,8 +34,8 @@
 - [ ] Confirm the controller's canonical plan binds Cloudflared by immutable image digest and reviewed config hash; mutable tags such as `latest` have no release authority.
 - [ ] Confirm drain-key rotation enforces monotonic epochs, activation, explicit old/new overlap, and revocation; local journal or ledger deletion/restoration must fail against the external generation/hash chain.
 - [ ] On any post-migration or promotion failure, confirm public ingress and candidate API/scheduler/render remain stopped. A consumed receipt cannot be reused.
-- [ ] As an unprivileged operator, run read-only disposition first: `EA_RUNTIME_MODE=prod PROPERTYQUARRY_DEPLOY_SIGNED_REQUEST=/run/user/$(id -u)/propertyquarry-deploy-request.json ./scripts/deploy_propertyquarry.sh --preflight-only`. The request file is private untrusted transport; only the installed controller authenticates it.
-- [ ] Run the same handoff without `--preflight-only`; verify the checkout replaces itself with the installed controller and performs no local Docker, database, receipt, or traffic action.
+- [ ] As an unprivileged operator, run read-only disposition first: `EA_RUNTIME_MODE=prod PROPERTYQUARRY_DEPLOY_SIGNED_REQUEST=/run/user/$(id -u)/propertyquarry-deploy-preflight-request.json ./scripts/deploy_propertyquarry.sh --preflight-only`. The request file is private untrusted transport; only the installed controller authenticates it. It must bind `deploy-preflight`, cannot authorize mutation, and is never reused for deployment.
+- [ ] After reviewing a `READY` disposition, obtain a distinct fresh `deploy-run` request and run the same handoff without `--preflight-only`: `EA_RUNTIME_MODE=prod PROPERTYQUARRY_DEPLOY_SIGNED_REQUEST=/run/user/$(id -u)/propertyquarry-deploy-run-request.json ./scripts/deploy_propertyquarry.sh`. Verify the checkout replaces itself with the installed controller and performs no local Docker, database, receipt, or traffic action.
 
 ## Migrations
 

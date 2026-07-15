@@ -431,6 +431,10 @@ def test_propertyquarry_deploy_wrapper_preflights_prod_and_probes_runtime(
     assert "--forbid-containment" in script
     assert "--forbid-state-mutation" in script
     assert "--require-explicit-preflight-disposition" in script
+    assert "propertyquarry-deploy-preflight-request.json" in script
+    assert "propertyquarry-deploy-run-request.json" in script
+    assert "A preflight request cannot" in script
+    assert "must never be reused for a deploy run" in script
     assert "PROPERTYQUARRY_DEPLOY_PYTHON_BIN" not in script
     assert "docker compose" not in script
 
@@ -1159,19 +1163,90 @@ def test_property_release_gate_sends_gold_notification_when_green() -> None:
     assert "warning: PropertyQuarry gold notification script failed." in release_gate
 
 
-def test_readme_documents_hardened_deploy_and_port_override() -> None:
-    readme = _read("README.md")
+def test_readme_separates_disposable_compose_from_production_handoff() -> None:
+    readme = " ".join(_read("README.md").split())
 
     assert "make deploy" in readme
     assert "scripts/deploy_propertyquarry.sh" in readme
-    assert "EA_HOST_PORT=8097 make deploy" in readme
-    assert "PROPERTYQUARRY_COMPOSE_PROJECT_NAME=propertyquarry-next" in readme
-    assert "PROPERTYQUARRY_API_CONTAINER_NAME=propertyquarry-api-next" in readme
+    assert "## Disposable local development" in readme
+    assert (
+        "EA_RUNTIME_MODE=dev docker compose -f docker-compose.property.yml up -d --build"
+        in readme
+    )
+    assert "## Production release handoff" in readme
+    assert "PROPERTYQUARRY_DEPLOY_SIGNED_REQUEST" in readme
+    assert "propertyquarry-deploy-preflight-request.json" in readme
+    assert "./scripts/deploy_propertyquarry.sh --preflight-only" in readme
+    assert "A preflight request is operation-bound and non-authorizing" in readme
+    assert "propertyquarry-deploy-run-request.json" in readme
+    assert "independently installed release controller" in readme
+    assert "The caller must remain unprivileged, have no Docker daemon authority" in readme
+    assert "docs/PROPERTYQUARRY_RELEASE_CONTROL_PROTOCOL_V1.md" in readme
+    assert "make propertyquarry-release-protocol-contracts" in readme
+    assert "does not verify signatures, establish trust, authorize an operation" in readme
+    assert "There is no local Compose fallback." in readme
     assert "POSTGRES_PASSWORD" in readme
     assert "EA_SIGNING_SECRET" in readme
-    assert "EA_API_TOKEN or Cloudflare Access" in readme
+    assert "EA_API_TOKEN or local access settings" in readme
     assert "PROPERTYQUARRY_RUNTIME_GATES=1" in readme
     assert "PROPERTYQUARRY_LIVE_SMOKE_BASE_URL=http://localhost:8097" in readme
+    assert "EA_HOST_PORT=8097 make deploy" not in readme
+    assert "PROPERTYQUARRY_COMPOSE_PROJECT_NAME=propertyquarry-next" not in readme
+    assert "PROPERTYQUARRY_API_CONTAINER_NAME=propertyquarry-api-next" not in readme
+    assert "PROPERTYQUARRY_DEPLOY_PROVIDER_E2E=1" not in readme
+
+
+def test_schema_migration_docs_reserve_production_for_signed_controller() -> None:
+    migration_docs = _read("docs/PROPERTYQUARRY_SCHEMA_MIGRATIONS.md")
+    production = " ".join(
+        migration_docs.split("## Production deploy phase\n", 1)[1]
+        .split("## Disposable development and test targets\n", 1)[0]
+        .split()
+    )
+    disposable = " ".join(
+        migration_docs.split("## Disposable development and test targets\n", 1)[1]
+        .split("## Runtime readiness\n", 1)[0]
+        .split()
+    )
+
+    assert "candidate checkout has no production migration authority" in production
+    assert "PROPERTYQUARRY_DEPLOY_SIGNED_REQUEST" in production
+    assert "propertyquarry-deploy-preflight-request.json" in production
+    assert "./scripts/deploy_propertyquarry.sh --preflight-only" in production
+    assert "preflight request is operation-bound and cannot authorize mutation" in production
+    assert "distinct, fresh `deploy-run` signed request" in production
+    assert (
+        "Direct Compose and Python migration commands are not a production fallback"
+        in production
+    )
+    assert "docker compose" not in production
+    assert "migrate_property_search_storage.py" not in production
+    assert "disposable local development database" in disposable
+    assert "EA_RUNTIME_MODE=dev" in disposable
+    assert "docker compose -f docker-compose.property.yml up -d --build" in disposable
+    assert "python3 scripts/migrate_property_search_storage.py" in disposable
+    assert "run the candidate release's deploy migration" not in migration_docs
+
+
+def test_environment_matrix_separates_local_compose_from_production_handoff() -> None:
+    matrix = _read("ENVIRONMENT_MATRIX.md")
+
+    assert "docker-compose.property.yml` directly only for a disposable local development target" in matrix
+    assert "EA_RUNTIME_MODE=dev" in matrix
+    assert "`make deploy` invokes the unprivileged production handoff" in matrix
+    assert "operation-bound signed request" in matrix
+    assert "independently installed release controller" in matrix
+    assert "Use `docker-compose.property.yml` or `make deploy`" not in matrix
+
+
+def test_release_checklist_requires_distinct_preflight_and_deploy_requests() -> None:
+    checklist = _read("RELEASE_CHECKLIST.md")
+
+    assert "propertyquarry-deploy-preflight-request.json" in checklist
+    assert "It must bind `deploy-preflight`, cannot authorize mutation" in checklist
+    assert "never reused for deployment" in checklist
+    assert "distinct fresh `deploy-run` request" in checklist
+    assert "propertyquarry-deploy-run-request.json" in checklist
 
 
 def test_runtime_hard_exit_gates_can_extend_into_propertyquarry_live_runtime() -> None:

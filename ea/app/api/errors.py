@@ -81,7 +81,7 @@ def _error_payload(
             type(ValueError()): lambda value: str(value),
         },
     )
-    return JSONResponse(
+    response = JSONResponse(
         status_code=status_code,
         content={
             "error": {
@@ -92,6 +92,8 @@ def _error_payload(
             }
         },
     )
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 def _code_from_http(status_code: int, detail: Any) -> str:
@@ -234,6 +236,7 @@ def _propertyquarry_browser_failure_response(
 </body>
 </html>"""
     response = HTMLResponse(document, status_code=status_code)
+    response.headers["Cache-Control"] = "no-store"
     response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
     return response
 
@@ -421,14 +424,28 @@ def install_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(PermissionError)
     async def permission_exception_handler(request: Request, exc: PermissionError):  # type: ignore[no-untyped-def]
-        detail = str(exc or "forbidden").strip() or "forbidden"
-        return _error_payload(
-            request=request,
-            status_code=403,
-            code=_code_from_http(403, detail),
-            message=detail,
-            details=detail,
+        log_event(
+            _LOG,
+            logging.ERROR,
+            "internal_permission_error",
+            correlation_id=_correlation_id(request),
+            method=request.method,
+            route=route_template(request),
+            error_type=exc.__class__.__name__,
+            **exception_log_fields(exc),
         )
+        response = _propertyquarry_browser_failure_response(request, status_code=500)
+        if response is None:
+            response = _error_payload(
+                request=request,
+                status_code=500,
+                code="internal_error",
+                message="internal server error",
+                details="permission_error",
+            )
+        response.headers["x-correlation-id"] = _correlation_id(request)
+        _apply_default_browser_security_headers(request, response)
+        return response
 
     async def _database_unavailable_handler(request: Request, exc: Exception):  # type: ignore[no-untyped-def]
         correlation_id = _correlation_id(request)

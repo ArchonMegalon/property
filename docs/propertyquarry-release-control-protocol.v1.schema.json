@@ -1,0 +1,674 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://propertyquarry.com/schemas/release-control/protocol.v1.schema.json",
+  "title": "PropertyQuarry release-control protocol v1 documents",
+  "oneOf": [
+    { "$ref": "#/$defs/signedRequestEnvelope" },
+    { "$ref": "#/$defs/preflightDisposition" },
+    { "$ref": "#/$defs/controllerReceiptEnvelope" },
+    { "$ref": "#/$defs/controllerManifest" }
+  ],
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$(?![\\s\\S])",
+      "minLength": 71,
+      "maxLength": 71
+    },
+    "releaseSha": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$(?![\\s\\S])",
+      "minLength": 40,
+      "maxLength": 64
+    },
+    "requestId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$(?![\\s\\S])",
+      "minLength": 36,
+      "maxLength": 36
+    },
+    "nonce": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$(?![\\s\\S])",
+      "minLength": 32,
+      "maxLength": 32
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$(?![\\s\\S])",
+      "minLength": 20,
+      "maxLength": 20
+    },
+    "host": {
+      "type": "string",
+      "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$(?![\\s\\S])",
+      "minLength": 1,
+      "maxLength": 253
+    },
+    "policyDigests": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "canonical_compose_plan",
+        "database_fence_policy",
+        "drain_keyring",
+        "monitoring_tools",
+        "monitoring_topology",
+        "operator_gateway_trust"
+      ],
+      "properties": {
+        "canonical_compose_plan": { "$ref": "#/$defs/digest" },
+        "database_fence_policy": { "$ref": "#/$defs/digest" },
+        "drain_keyring": { "$ref": "#/$defs/digest" },
+        "monitoring_tools": { "$ref": "#/$defs/digest" },
+        "monitoring_topology": { "$ref": "#/$defs/digest" },
+        "operator_gateway_trust": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "releaseBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "release_sha",
+        "candidate_artifact_digest",
+        "web_image_digest",
+        "render_image_digest",
+        "controller_digest",
+        "controller_manifest_digest",
+        "policy_digests"
+      ],
+      "properties": {
+        "release_sha": { "$ref": "#/$defs/releaseSha" },
+        "candidate_artifact_digest": { "$ref": "#/$defs/digest" },
+        "web_image_digest": { "$ref": "#/$defs/digest" },
+        "render_image_digest": { "$ref": "#/$defs/digest" },
+        "controller_digest": { "$ref": "#/$defs/digest" },
+        "controller_manifest_digest": { "$ref": "#/$defs/digest" },
+        "policy_digests": { "$ref": "#/$defs/policyDigests" }
+      }
+    },
+    "signature": {
+      "type": "object",
+      "$comment": "Ed25519 signs canonical JSON for {domain,schema,version,named body,signature_context}; signature_context contains algorithm, key_id, and encoding. signed_preimage_sha256 and value are excluded from that preimage.",
+      "additionalProperties": false,
+      "required": ["algorithm", "key_id", "encoding", "signed_preimage_sha256", "value"],
+      "properties": {
+        "algorithm": { "const": "ed25519" },
+        "key_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$(?![\\s\\S])",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "encoding": { "const": "base64" },
+        "signed_preimage_sha256": { "$ref": "#/$defs/digest" },
+        "value": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9+/]{85}[AQgw]==$(?![\\s\\S])",
+          "minLength": 88,
+          "maxLength": 88
+        }
+      }
+    },
+    "casRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["namespace", "challenge", "expected_counter"],
+      "properties": {
+        "namespace": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._/-]{0,127}$(?![\\s\\S])",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "challenge": { "$ref": "#/$defs/digest" },
+        "expected_counter": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        }
+      }
+    },
+    "requestedEffect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mutation"],
+      "properties": {
+        "mutation": {
+          "enum": ["forbidden", "controller-policy-gated"]
+        }
+      }
+    },
+    "signedRequestPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation",
+        "mode",
+        "audience",
+        "host",
+        "request_id",
+        "nonce",
+        "issued_at",
+        "expires_at",
+        "cas",
+        "release",
+        "requested_effect"
+      ],
+      "properties": {
+        "operation": {
+          "enum": ["deploy-run", "deploy-preflight", "candidate-run", "candidate-preflight"]
+        },
+        "mode": { "enum": ["production", "candidate"] },
+        "audience": { "const": "propertyquarry-release-controller" },
+        "host": { "$ref": "#/$defs/host" },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "nonce": { "$ref": "#/$defs/nonce" },
+        "issued_at": { "$ref": "#/$defs/timestamp" },
+        "expires_at": { "$ref": "#/$defs/timestamp" },
+        "cas": { "$ref": "#/$defs/casRequest" },
+        "release": { "$ref": "#/$defs/releaseBinding" },
+        "requested_effect": { "$ref": "#/$defs/requestedEffect" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "operation": { "enum": ["deploy-run", "deploy-preflight"] } } },
+          "then": { "properties": { "mode": { "const": "production" } } }
+        },
+        {
+          "if": { "properties": { "operation": { "enum": ["candidate-run", "candidate-preflight"] } } },
+          "then": { "properties": { "mode": { "const": "candidate" } } }
+        },
+        {
+          "if": { "properties": { "operation": { "enum": ["deploy-preflight", "candidate-preflight"] } } },
+          "then": {
+            "properties": {
+              "requested_effect": {
+                "properties": { "mutation": { "const": "forbidden" } }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "operation": { "enum": ["deploy-run", "candidate-run"] } } },
+          "then": {
+            "properties": {
+              "requested_effect": {
+                "properties": { "mutation": { "const": "controller-policy-gated" } }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "signedRequestEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "version", "payload", "signature"],
+      "properties": {
+        "schema": { "const": "propertyquarry.release.signed-request" },
+        "version": { "const": 1 },
+        "payload": { "$ref": "#/$defs/signedRequestPayload" },
+        "signature": { "$ref": "#/$defs/signature" }
+      }
+    },
+    "requestBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_transport_sha256",
+        "request_id",
+        "nonce",
+        "operation",
+        "mode",
+        "audience",
+        "host",
+        "cas_namespace",
+        "cas_challenge",
+        "cas_expected_counter",
+        "release"
+      ],
+      "properties": {
+        "request_transport_sha256": { "$ref": "#/$defs/digest" },
+        "request_id": { "$ref": "#/$defs/requestId" },
+        "nonce": { "$ref": "#/$defs/nonce" },
+        "operation": {
+          "enum": ["deploy-run", "deploy-preflight", "candidate-run", "candidate-preflight"]
+        },
+        "mode": { "enum": ["production", "candidate"] },
+        "audience": { "const": "propertyquarry-release-controller" },
+        "host": { "$ref": "#/$defs/host" },
+        "cas_namespace": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._/-]{0,127}$(?![\\s\\S])",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "cas_challenge": { "$ref": "#/$defs/digest" },
+        "cas_expected_counter": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "release": { "$ref": "#/$defs/releaseBinding" }
+      }
+    },
+    "controllerBinding": {
+      "type": "object",
+      "$comment": "The offline semantic validator requires binary_digest == request.release.controller_digest and manifest_digest == request.release.controller_manifest_digest.",
+      "additionalProperties": false,
+      "required": ["controller_id", "manifest_digest", "binary_digest", "protocol_version"],
+      "properties": {
+        "controller_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$(?![\\s\\S])",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "manifest_digest": { "$ref": "#/$defs/digest" },
+        "binary_digest": { "$ref": "#/$defs/digest" },
+        "protocol_version": { "const": 1 }
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "status", "code"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9._-]{0,63}$(?![\\s\\S])",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "status": { "enum": ["pass", "fail", "not-run"] },
+        "code": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]{0,63}$(?![\\s\\S])",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      }
+    },
+    "preflightRequestBinding": {
+      "allOf": [
+        { "$ref": "#/$defs/requestBinding" },
+        {
+          "properties": {
+            "operation": { "enum": ["deploy-preflight", "candidate-preflight"] }
+          }
+        }
+      ]
+    },
+    "preflightPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request",
+        "controller",
+        "evaluated_at",
+        "disposition",
+        "mutation_performed",
+        "cas_consumed",
+        "checks"
+      ],
+      "properties": {
+        "request": { "$ref": "#/$defs/preflightRequestBinding" },
+        "controller": { "$ref": "#/$defs/controllerBinding" },
+        "evaluated_at": { "$ref": "#/$defs/timestamp" },
+        "disposition": { "enum": ["ready", "not-ready", "indeterminate"] },
+        "mutation_performed": { "const": false },
+        "cas_consumed": { "const": false },
+        "checks": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 128,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/check" }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "disposition": { "const": "ready" } } },
+          "then": {
+            "properties": {
+              "checks": {
+                "items": {
+                  "properties": { "status": { "const": "pass" } }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "disposition": { "const": "not-ready" } } },
+          "then": {
+            "properties": {
+              "checks": {
+                "contains": {
+                  "properties": { "status": { "const": "fail" } }
+                },
+                "minContains": 1,
+                "not": {
+                  "contains": {
+                    "properties": { "status": { "const": "not-run" } }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "disposition": { "const": "indeterminate" } } },
+          "then": {
+            "properties": {
+              "checks": {
+                "contains": {
+                  "properties": { "status": { "const": "not-run" } }
+                },
+                "minContains": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "preflightDisposition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "version", "preflight", "signature"],
+      "properties": {
+        "schema": { "const": "propertyquarry.release.preflight-disposition" },
+        "version": { "const": 1 },
+        "preflight": { "$ref": "#/$defs/preflightPayload" },
+        "signature": { "$ref": "#/$defs/signature" }
+      }
+    },
+    "runRequestBinding": {
+      "allOf": [
+        { "$ref": "#/$defs/requestBinding" },
+        {
+          "properties": {
+            "operation": { "enum": ["deploy-run", "candidate-run"] }
+          }
+        }
+      ]
+    },
+    "mutationRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "performed",
+        "containment_before_candidate_validation",
+        "database_changed",
+        "traffic_changed",
+        "rollback_performed"
+      ],
+      "properties": {
+        "performed": { "type": "boolean" },
+        "containment_before_candidate_validation": { "type": "boolean" },
+        "database_changed": { "type": "boolean" },
+        "traffic_changed": { "type": "boolean" },
+        "rollback_performed": { "type": "boolean" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "performed": { "const": false } } },
+          "then": {
+            "properties": {
+              "containment_before_candidate_validation": { "const": false },
+              "database_changed": { "const": false },
+              "traffic_changed": { "const": false },
+              "rollback_performed": { "const": false }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "performed": { "const": true } } },
+          "then": {
+            "properties": {
+              "containment_before_candidate_validation": { "const": true }
+            }
+          }
+        }
+      ]
+    },
+    "casCommit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "committed",
+        "namespace",
+        "challenge",
+        "previous_counter",
+        "committed_counter",
+        "seal_digest"
+      ],
+      "properties": {
+        "committed": { "type": "boolean" },
+        "namespace": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._/-]{0,127}$(?![\\s\\S])",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "challenge": { "$ref": "#/$defs/digest" },
+        "previous_counter": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "committed_counter": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9223372036854775807
+        },
+        "seal_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "evidenceBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "digest"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9._-]{0,63}$(?![\\s\\S])",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "controllerReceiptPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "receipt_id",
+        "request",
+        "controller",
+        "started_at",
+        "finished_at",
+        "outcome",
+        "mutation",
+        "cas_commit",
+        "evidence"
+      ],
+      "properties": {
+        "receipt_id": { "$ref": "#/$defs/requestId" },
+        "request": { "$ref": "#/$defs/runRequestBinding" },
+        "controller": { "$ref": "#/$defs/controllerBinding" },
+        "started_at": { "$ref": "#/$defs/timestamp" },
+        "finished_at": { "$ref": "#/$defs/timestamp" },
+        "outcome": { "enum": ["succeeded", "rejected", "failed", "rolled-back"] },
+        "mutation": { "$ref": "#/$defs/mutationRecord" },
+        "cas_commit": { "$ref": "#/$defs/casCommit" },
+        "evidence": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 128,
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/evidenceBinding" }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "outcome": { "const": "succeeded" } } },
+          "then": {
+            "properties": {
+              "mutation": {
+                "properties": {
+                  "performed": { "const": true },
+                  "containment_before_candidate_validation": { "const": true },
+                  "rollback_performed": { "const": false }
+                }
+              },
+              "cas_commit": {
+                "properties": { "committed": { "const": true } }
+              },
+              "evidence": { "minItems": 1 }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "outcome": { "const": "succeeded" },
+              "request": {
+                "properties": { "operation": { "const": "deploy-run" } }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "mutation": {
+                "properties": { "traffic_changed": { "const": true } }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "outcome": { "const": "rejected" } } },
+          "then": {
+            "properties": {
+              "mutation": {
+                "properties": { "performed": { "const": false } }
+              },
+              "cas_commit": {
+                "properties": { "committed": { "const": false } }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "outcome": { "enum": ["failed", "rolled-back"] } } },
+          "then": {
+            "properties": {
+              "cas_commit": {
+                "properties": { "committed": { "const": true } }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "outcome": { "const": "failed" } } },
+          "then": {
+            "properties": {
+              "mutation": {
+                "properties": { "rollback_performed": { "const": false } }
+              }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "outcome": { "const": "rolled-back" } } },
+          "then": {
+            "properties": {
+              "mutation": {
+                "properties": { "rollback_performed": { "const": true } }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "request": {
+                "properties": { "operation": { "const": "candidate-run" } }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "mutation": {
+                "properties": { "traffic_changed": { "const": false } }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "controllerReceiptEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "version", "receipt", "signature"],
+      "properties": {
+        "schema": { "const": "propertyquarry.release.controller-receipt" },
+        "version": { "const": 1 },
+        "receipt": { "$ref": "#/$defs/controllerReceiptPayload" },
+        "signature": { "$ref": "#/$defs/signature" }
+      }
+    },
+    "controllerManifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema",
+        "version",
+        "controller_id",
+        "protocol_version",
+        "audience",
+        "host",
+        "binary_digest",
+        "build_release_sha",
+        "issued_at",
+        "supported_operations",
+        "supported_signature_algorithms",
+        "request_max_bytes",
+        "request_ttl_max_seconds",
+        "canonicalization",
+        "policy_digests"
+      ],
+      "properties": {
+        "schema": { "const": "propertyquarry.release.controller-manifest" },
+        "version": { "const": 1 },
+        "controller_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$(?![\\s\\S])",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "protocol_version": { "const": 1 },
+        "audience": { "const": "propertyquarry-release-controller" },
+        "host": { "$ref": "#/$defs/host" },
+        "binary_digest": { "$ref": "#/$defs/digest" },
+        "build_release_sha": { "$ref": "#/$defs/releaseSha" },
+        "issued_at": { "$ref": "#/$defs/timestamp" },
+        "supported_operations": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {
+            "enum": ["deploy-run", "deploy-preflight", "candidate-run", "candidate-preflight"]
+          }
+        },
+        "supported_signature_algorithms": { "const": ["ed25519"] },
+        "request_max_bytes": { "const": 1048576 },
+        "request_ttl_max_seconds": { "const": 900 },
+        "canonicalization": { "const": "propertyquarry-json-sort-keys-v1" },
+        "policy_digests": { "$ref": "#/$defs/policyDigests" }
+      }
+    }
+  }
+}

@@ -88,76 +88,96 @@ make runtime-hard-exit-gates
 
 That optional branch runs the public runtime smoke plus the authenticated, seeded all-surface mobile, and provider-catalog smokes against the deployed PropertyQuarry service.
 
-## Run it
+## Disposable local development
+
+Direct Compose commands are for a disposable local development target only.
+They do not produce release evidence and must never point at production
+databases, credentials, containers, or traffic:
 
 ```bash
 cp .env.example .env
-# fill in the runtime credentials you actually use, including POSTGRES_PASSWORD,
-# EA_SIGNING_SECRET, EA_API_TOKEN or Cloudflare Access settings, and a random
-# PROPERTYQUARRY_RECONSTRUCTION_RENDER_BRIDGE_TOKEN
-make deploy
+# Fill .env with local-only values, including POSTGRES_PASSWORD,
+# EA_SIGNING_SECRET, EA_API_TOKEN or local access settings, and a random
+# PROPERTYQUARRY_RECONSTRUCTION_RENDER_BRIDGE_TOKEN.
+EA_RUNTIME_MODE=dev docker compose -f docker-compose.property.yml up -d --build
 ```
 
 The env template uses the literal non-secret sentinel
 `REVIEW_ONLY_NOT_A_SECRET_REPLACE_BEFORE_DEPLOY` for the render-bridge token so
 reviewers can render the Compose model with a disposable `POSTGRES_PASSWORD` and
-no production secret. Replace that sentinel before starting or deploying any
+no production secret. Replace that sentinel before starting even a local
 service. `PROPERTYQUARRY_RENDER_STOP_GRACE_SECONDS=1860` keeps the container stop
 budget above the reconstruction generation ceiling; adjust both budgets together
 if that ceiling changes.
 
-That topology runs `propertyquarry-migrate` as an ephemeral deploy phase, then
-starts the steady-state `propertyquarry-api`, `propertyquarry-scheduler`,
-`propertyquarry-render-tools`, and `propertyquarry-db` services. The migration
-container must exit `0`; it is never counted as a running or healthy runtime
-service. See `docs/PROPERTYQUARRY_SCHEMA_MIGRATIONS.md`.
+The disposable topology runs `propertyquarry-migrate` as an ephemeral phase,
+then starts `propertyquarry-api`, `propertyquarry-scheduler`,
+`propertyquarry-render-tools`, and `propertyquarry-db`. The migration container
+must exit `0`; it is never counted as a running or healthy runtime service. See
+`docs/PROPERTYQUARRY_SCHEMA_MIGRATIONS.md`.
 The API and scheduler build `ea/Dockerfile.property-web`, a lightweight web runtime without Blender, COLMAP, MeshLab, or bundled Playwright browser payloads.
 Native 3D reconstruction and vendor tooling stay in the explicit `render-tools` profile, which builds `ea/Dockerfile.property`.
 Browser-backed PDF/render fallbacks must use MarkupGo or an explicit helper/render lane rather than adding Chromium to the request-serving image.
 Both images omit Docker CLI tooling and run the app process as the non-root `ea` user.
 
-`make deploy` uses `scripts/deploy_propertyquarry.sh`, which preflights the required prod credentials, checks `EA_HOST_PORT` before rebuilding, starts the database, runs and verifies the governed schema migration, then starts the API, scheduler, and render bridge before probing readiness plus the authenticated app boundary.
-It also runs the public route smoke, authenticated route smoke, seeded all-surface mobile smoke with a live research-detail route, and the authenticated provider-catalog smoke against the deployed runtime before reporting success.
-Set `PROPERTYQUARRY_DEPLOY_PROVIDER_E2E=1` when the deploy itself should also run the full all-search-ready provider matrix with strict and soft-filter dispatch/readback checks.
-If `8090` is already occupied, set another host port before deploying:
-
-```bash
-EA_HOST_PORT=8097 make deploy
-```
-
-For a presentation-grade rollout that should include the full narrowed `AT/DE/CR` provider E2E matrix in the deploy path:
-
-```bash
-PROPERTYQUARRY_DEPLOY_PROVIDER_E2E=1 \
-EA_HOST_PORT=8097 \
-make deploy
-```
-
-For blue/green or recovery deploys on a host with stale containers, keep the service names stable and override only the project/container names plus host port:
-
-```bash
-PROPERTYQUARRY_COMPOSE_PROJECT_NAME=propertyquarry-next \
-PROPERTYQUARRY_API_CONTAINER_NAME=propertyquarry-api-next \
-PROPERTYQUARRY_SCHEDULER_CONTAINER_NAME=propertyquarry-scheduler-next \
-PROPERTYQUARRY_DB_CONTAINER_NAME=propertyquarry-db-next \
-PROPERTYQUARRY_RENDER_CONTAINER_NAME=propertyquarry-render-tools-next \
-EA_HOST_PORT=8098 make deploy
-```
-
-`docker-compose.property.yml` defaults `EA_RUNTIME_MODE=prod`, requires `POSTGRES_PASSWORD`, disables public result/tour side surfaces by default, and runs the scheduler with `PROPERTYQUARRY_SCHEDULER_PROFILE=property_only`.
-The inherited generic worker is intentionally not part of the default topology until a dedicated PropertyQuarry job lane exists.
-
-The inherited EA mega-stack deploy script remains in the repo for migration and compatibility work. Do not use it for the standalone public PropertyQuarry runtime unless you explicitly need legacy assistant services:
-
-```bash
-PROPERTYQUARRY_USE_LEGACY_STACK=1 bash scripts/deploy.sh
-```
-
-Then open:
+For the disposable local topology, open:
 
 - `http://localhost:8090/`
 - `http://localhost:8090/register`
 - `http://localhost:8090/app/properties`
+
+## Production release handoff
+
+Production deploy, recovery, and traffic authority belongs to the independently
+installed release controller. The checkout is only an unprivileged handoff
+client. Obtain a short-lived signed request from release control, place it in an
+invoking-user-owned, single-link, mode-`0400` file outside the checkout, and run
+the read-only disposition first:
+
+```bash
+EA_RUNTIME_MODE=prod \
+PROPERTYQUARRY_DEPLOY_SIGNED_REQUEST=/run/user/$(id -u)/propertyquarry-deploy-preflight-request.json \
+  ./scripts/deploy_propertyquarry.sh --preflight-only
+```
+
+A preflight request is operation-bound and non-authorizing; it cannot be reused
+to deploy. After reviewing a `READY` disposition, obtain a distinct, fresh
+`deploy-run` signed request from release control and invoke the handoff without
+`--preflight-only`:
+
+```bash
+EA_RUNTIME_MODE=prod \
+PROPERTYQUARRY_DEPLOY_SIGNED_REQUEST=/run/user/$(id -u)/propertyquarry-deploy-run-request.json \
+  make deploy
+```
+
+The caller must remain unprivileged, have no Docker daemon authority, and must
+not export database or traffic credentials. The handoff rejects caller-selected
+Compose files, Docker contexts, database URLs, tunnel tokens, verifier paths,
+receipt outputs, and trust/key paths. Host ports, project/container identities,
+provider matrices, migrations, health gates, rollback, and traffic selection
+come only from the signed request and the controller's root-managed canonical
+configuration; checkout environment overrides have no production authority.
+
+The closed v1 wire contract is documented in
+[`docs/PROPERTYQUARRY_RELEASE_CONTROL_PROTOCOL_V1.md`](docs/PROPERTYQUARRY_RELEASE_CONTROL_PROTOCOL_V1.md).
+Run `make propertyquarry-release-protocol-contracts` for its offline schema,
+binding, and handoff checks. The validator proves document conformance only; it
+does not verify signatures, establish trust, authorize an operation, or contact
+the release controller.
+
+Until the fixed controller, manifest, digest pin, Compose plan, database fence,
+keyring, gateway trust, monitoring topology/tools, signer, and external
+monotonic authority are independently provisioned and attested, production
+deployment remains blocked. There is no local Compose fallback.
+
+The inherited EA mega-stack deploy script remains in the repo for disposable
+migration and compatibility work. It has no PropertyQuarry production release
+authority:
+
+```bash
+PROPERTYQUARRY_USE_LEGACY_STACK=1 bash scripts/deploy.sh
+```
 
 ## Runtime modes
 
@@ -231,6 +251,7 @@ This bundle includes docs links, runtime security posture, repo-isolation checks
 - decision workbench implementation guide: [docs/PROPERTY_DECISION_WORKBENCH_GUIDE.md](docs/PROPERTY_DECISION_WORKBENCH_GUIDE.md)
 - brand: [docs/BRAND.md](docs/BRAND.md)
 - pricing: [docs/PRICING.md](docs/PRICING.md)
+- release-control wire protocol: [docs/PROPERTYQUARRY_RELEASE_CONTROL_PROTOCOL_V1.md](docs/PROPERTYQUARRY_RELEASE_CONTROL_PROTOCOL_V1.md)
 - domain rollout: [docs/DOMAIN_ROLLOUT.md](docs/DOMAIN_ROLLOUT.md)
 - runbook: [RUNBOOK.md](RUNBOOK.md)
 

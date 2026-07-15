@@ -24,28 +24,58 @@ failed statement rolls back the complete batch. A changed checksum, version
 gap, or unknown future version fails closed; never repair those conditions by
 editing the ledger.
 
-## Deploy phase
+## Production deploy phase
 
-The standalone Compose topology includes a one-shot
-`propertyquarry-migrate` service. Both the API and scheduler require it to
-finish successfully:
+The candidate checkout has no production migration authority. Production
+schema changes run only inside the independently installed release controller,
+under its fixed deploy lock, canonical Compose plan, server-derived database
+identity, durable role fence, signed authorization, and external monotonic
+seal. The controller contains ingress and every writer before it reads
+candidate evidence, commits the ordered DDL, migration ledger, plan binding,
+and result digest atomically, and activates a new runtime-role epoch only after
+the exact result is sealed.
+
+An unprivileged operator first submits the externally issued signed request to
+the controller's read-only disposition:
 
 ```bash
-POSTGRES_PASSWORD='<from-secret-store>' \
+EA_RUNTIME_MODE=prod \
+PROPERTYQUARRY_DEPLOY_SIGNED_REQUEST=/run/user/$(id -u)/propertyquarry-deploy-preflight-request.json \
+  ./scripts/deploy_propertyquarry.sh --preflight-only
+```
+
+The preflight request is operation-bound and cannot authorize mutation. After
+reviewing a `READY` disposition, obtain a distinct, fresh `deploy-run` signed
+request and use the handoff without `--preflight-only`. Do not export a
+production `DATABASE_URL`,
+`POSTGRES_PASSWORD`, owner/migrator credential, or traffic credential to the
+checkout. Direct Compose and Python migration commands are not a production
+fallback and their output is not release evidence.
+
+## Disposable development and test targets
+
+The standalone Compose topology includes a one-shot
+`propertyquarry-migrate` service. It may be used directly only against a
+disposable local development database whose credentials and containers have no
+production reach:
+
+```bash
+EA_RUNTIME_MODE=dev \
+POSTGRES_PASSWORD='<local-disposable-password>' \
   docker compose -f docker-compose.property.yml up -d --build
 ```
 
-For a separately orchestrated deployment, run the same boundary explicitly
-after the database is healthy and before starting any application role:
+For an explicitly disposable, separately orchestrated development database,
+run the same migration boundary before starting any application role:
 
 ```bash
-PYTHONPATH=ea DATABASE_URL='<private-postgres-dsn>' \
+PYTHONPATH=ea DATABASE_URL='<private-disposable-development-dsn>' \
   python3 scripts/migrate_property_search_storage.py
 ```
 
 The command is idempotent. A successful no-op reports the current version and
-`applied=none`. Do not put the database URL in shell history, logs, receipts,
-or checked-in configuration.
+`applied=none`. Do not put even a disposable database URL in shell history,
+logs, receipts, or checked-in configuration.
 
 Verify source contracts without contacting a database:
 
@@ -96,8 +126,9 @@ readiness gate in development.
 
 ## Incident boundary
 
-- `migration_ledger_missing` or `migration_pending`: stop traffic promotion and
-  run the candidate release's deploy migration against the intended database.
+- `migration_ledger_missing` or `migration_pending`: keep traffic contained and
+  require the installed controller to reconcile the fence and execute a newly
+  authorized migration against the server-identified target.
 - `property_search_migration_checksum_drift`: restore the exact released
   migration source and investigate; do not update the stored checksum.
 - `property_search_schema_ahead`: deploy compatible application code; do not

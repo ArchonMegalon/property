@@ -124,6 +124,10 @@ def _error_app() -> FastAPI:
     def boom() -> None:
         raise RuntimeError("private runtime detail")
 
+    @app.get("/permission")
+    def permission() -> None:
+        raise PermissionError(13, "Permission denied", "/data/private/tour/viewer.html")
+
     @app.get("/app/search")
     def auth_required() -> None:
         raise HTTPException(status_code=401, detail="auth_required")
@@ -138,9 +142,12 @@ def test_propertyquarry_document_errors_are_calm_html_while_api_clients_keep_jso
     router_missing = client.get("/does-not-exist", headers={"accept": "text/html"})
     boom = client.get("/boom", headers={"accept": "text/html"})
     api_missing = client.get("/missing", headers={"accept": "application/json"})
+    permission = client.get("/permission", headers={"accept": "text/html"})
+    permission_api = client.get("/permission", headers={"accept": "application/json"})
 
     assert missing.status_code == 404
     assert missing.headers["content-type"].startswith("text/html")
+    assert missing.headers["cache-control"] == "no-store"
     assert 'data-pq-failure-state="not_found"' in missing.text
     assert "private_missing_detail" not in missing.text
     assert router_missing.status_code == 404
@@ -150,7 +157,22 @@ def test_propertyquarry_document_errors_are_calm_html_while_api_clients_keep_jso
     assert 'data-pq-failure-state="internal_error"' in boom.text
     assert "private runtime detail" not in boom.text
     assert api_missing.headers["content-type"].startswith("application/json")
+    assert api_missing.headers["cache-control"] == "no-store"
     assert api_missing.json()["error"]["code"] == "private_missing_detail"
+    assert permission.status_code == 500
+    assert permission.headers["content-type"].startswith("text/html")
+    assert permission.headers["cache-control"] == "no-store"
+    assert 'data-pq-failure-state="internal_error"' in permission.text
+    assert "/data/private/tour/viewer.html" not in permission.text
+    assert permission_api.status_code == 500
+    assert permission_api.headers["cache-control"] == "no-store"
+    assert permission_api.json()["error"] == {
+        "code": "internal_error",
+        "message": "internal server error",
+        "details": "permission_error",
+        "correlation_id": permission_api.headers["x-correlation-id"],
+    }
+    assert "/data/private/tour/viewer.html" not in permission_api.text
 
 
 def test_active_app_auth_redirect_marks_expired_session_with_safe_return_path() -> None:

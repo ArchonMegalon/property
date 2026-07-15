@@ -55,9 +55,15 @@ PROPERTYQUARRY_EXTERNAL_MONITORING_TOOLS="/etc/propertyquarry/monitoring-tools.v
 usage() {
   /usr/bin/cat <<'EOF'
 Usage:
+  # Read-only disposition (non-authorizing request):
   EA_RUNTIME_MODE=prod \
-  PROPERTYQUARRY_DEPLOY_SIGNED_REQUEST="${XDG_RUNTIME_DIR}/propertyquarry-deploy-request.json" \
-    ./scripts/deploy_propertyquarry.sh [--preflight-only]
+  PROPERTYQUARRY_DEPLOY_SIGNED_REQUEST="${XDG_RUNTIME_DIR}/propertyquarry-deploy-preflight-request.json" \
+    ./scripts/deploy_propertyquarry.sh --preflight-only
+
+  # Mutating release (distinct fresh request):
+  EA_RUNTIME_MODE=prod \
+  PROPERTYQUARRY_DEPLOY_SIGNED_REQUEST="${XDG_RUNTIME_DIR}/propertyquarry-deploy-run-request.json" \
+    ./scripts/deploy_propertyquarry.sh
 
 This checkout performs no deployment action itself. It opens the fixed,
 root-controlled external controller, manifest and digest pin, a private
@@ -82,6 +88,8 @@ Environment consumed by this handoff is intentionally narrow:
       Absolute path to an invoking-user-owned, single-link, mode-0400 request
       transport. It is untrusted input; only the installed controller may
       authenticate its signature, challenge, nonce, freshness, and authority.
+      The signature must bind the exact operation. A preflight request cannot
+      authorize mutation and must never be reused for a deploy run.
 
 Caller-selected Compose files, Python interpreters, Docker contexts, database
 URLs, tunnel tokens, verifier paths, receipt outputs, and trust/key paths are
