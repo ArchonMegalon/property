@@ -3,8 +3,20 @@
 <style>
   .pricing-wrap {
     display: grid;
-    gap: 8px;
+    gap: 16px;
     padding-top: 0;
+  }
+  .pricing-intro {
+    display: grid;
+    gap: 6px;
+    max-width: 640px;
+  }
+  .pricing-intro h1,
+  .pricing-intro p {
+    margin: 0;
+  }
+  .pricing-intro p {
+    color: var(--text-soft);
   }
   .tier-grid {
     display: grid;
@@ -79,6 +91,10 @@
     color: var(--text-dim);
     font-size: 0.78rem;
   }
+  .tier-provider a {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
   @media (max-width: 980px) {
     .tier-grid {
       grid-template-columns: 1fr;
@@ -90,27 +106,32 @@
 </style>
 
 <section class="section pricing-wrap">
+  <header class="pricing-intro">
+    <div class="kicker">Pricing</div>
+    <h1>Choose the search depth you need.</h1>
+    <p>Start free. Upgrade for more listing sites, saved searches, and deeper property research.</p>
+  </header>
   <div class="tier-grid">
     {% for plan in plan_catalog %}
     <section class="tier-card{% if plan.is_current %} current{% endif %}">
       <div class="tier-top">
         <h2>{{ plan.display_name }}</h2>
-        <div class="tier-price">{{ plan.checkout_label }}</div>
+        <div class="tier-price">{% if plan.plan_key == "free" %}No charge{% else %}{{ plan.checkout_label }}{% endif %}</div>
       </div>
       <p class="tier-copy">
         {% if plan.plan_key == "free" %}
-        Focused shortlist and property page.
+        Try the complete search-to-shortlist loop.
         {% elif plan.plan_key == "plus" %}
-        More coverage and deeper review.
+        Search more listing sites and research the shortlist more deeply.
         {% else %}
-        Full-depth search for serious buyers.
+        Broad coverage for ongoing, research-heavy searches.
         {% endif %}
       </p>
       <ul class="tier-facts">
-        <li><span>Sources</span><strong>{% if plan.max_platforms > 0 %}{{ plan.max_platforms }}{% else %}All{% endif %}</strong></li>
-        <li><span>3D tour requests</span><strong>{% if plan.auto_tour_policy == 'all_opt_in' %}Every home{% elif plan.auto_tour_policy == 'shortlist_opt_in' %}Shortlist{% else %}Selected homes{% endif %}</strong></li>
-        <li><span>Interior styles</span><strong>{{ plan.furniture_style_limit }}</strong></li>
-        <li><span>Research</span><strong>{{ plan.research_depth }}</strong></li>
+        <li><span>Listing sites / search</span><strong>{% if plan.max_platforms > 0 %}{{ plan.max_platforms }}{% else %}All available{% endif %}</strong></li>
+        <li><span>3D tour scope</span><strong>{% if plan.auto_tour_policy == 'all_opt_in' %}Every match, opt-in{% elif plan.auto_tour_policy == 'shortlist_opt_in' %}Shortlist, opt-in{% else %}Selected homes{% endif %}</strong></li>
+        <li><span>Tour styles</span><strong>{{ plan.furniture_style_limit }}</strong></li>
+        <li><span>Research depth</span><strong>{{ plan.research_depth | capitalize }}</strong></li>
         <li><span>Saved searches</span><strong>{% if plan.search_agent_limit > 0 %}{{ plan.search_agent_limit }}{% else %}Unlimited{% endif %}</strong></li>
       </ul>
       <div class="tier-actions">
@@ -118,8 +139,8 @@
         <a class="btn primary" href="/app/search" data-analytics-event="pricing_open_search" data-rybbit-event="pricing_open_search" data-rybbit-prop-plan="free">Open search</a>
         <span class="tier-provider">Your account is already active.</span>
         {% elif plan.plan_key == 'free' %}
-        <a class="btn primary" href="/sign-in?signing_in=1" data-analytics-event="pricing_start_free" data-rybbit-event="pricing_start_free" data-rybbit-prop-plan="free">Start free</a>
-        <span class="tier-provider">No payment required.</span>
+        <a class="btn primary" href="/register?return_to=%2Fapp%2Fsearch" data-analytics-event="pricing_start_free" data-rybbit-event="pricing_start_free" data-rybbit-prop-plan="free">Start free</a>
+        <span class="tier-provider">No payment required. <a href="/sign-in?signing_in=1&amp;return_to=%2Fapp%2Fsearch">Already have an account?</a></span>
         {% elif pricing_checkout_session_ready and pricing_signed_in_billing_ready %}
         <a class="btn ghost" href="{{ pricing_signed_in_billing_href or '/app/billing' }}" data-analytics-event="pricing_billing_{{ plan.plan_key }}" data-rybbit-event="pricing_open_billing_for_plan" data-rybbit-prop-plan="{{ plan.plan_key }}">{{ pricing_signed_in_billing_label or 'Open billing' }}</a>
         <span class="tier-provider">{{ pricing_signed_in_billing_detail or 'Manage plan and billing.' }}</span>
@@ -143,14 +164,14 @@
           aria-atomic="true"
         >Secure checkout.</span>
         {% elif plan.plan_key in (pricing_checkout_enabled_plans or []) %}
-        <a class="btn primary" href="/sign-in?signing_in=1" data-analytics-event="pricing_sign_in_{{ plan.plan_key }}" data-rybbit-event="pricing_sign_in_to_upgrade" data-rybbit-prop-plan="{{ plan.plan_key }}">Sign in to upgrade</a>
-        <span class="tier-provider">Secure checkout.</span>
+        <a class="btn primary" href="/sign-in?signing_in=1&amp;return_to=%2Fpricing" data-analytics-event="pricing_sign_in_{{ plan.plan_key }}" data-rybbit-event="pricing_sign_in_to_upgrade" data-rybbit-prop-plan="{{ plan.plan_key }}">Sign in to upgrade</a>
+        <span class="tier-provider">New here? <a href="/register?return_to=%2Fpricing">Start with Free.</a></span>
         {% elif pricing_checkout_session_ready %}
         <a class="btn ghost" href="{{ pricing_signed_in_billing_href or '/app/billing' }}" data-analytics-event="pricing_billing_{{ plan.plan_key }}" data-rybbit-event="pricing_open_billing_for_plan" data-rybbit-prop-plan="{{ plan.plan_key }}">{{ pricing_signed_in_billing_label or 'Open billing account' }}</a>
         <span class="tier-provider">{{ pricing_signed_in_billing_detail or 'Use your active billing account.' }}</span>
         {% else %}
-        <a class="btn ghost" href="/sign-in?signing_in=1" data-analytics-event="pricing_account_{{ plan.plan_key }}" data-rybbit-event="pricing_sign_in_for_plan" data-rybbit-prop-plan="{{ plan.plan_key }}">Sign in to start</a>
-        <span class="tier-provider">First sign-in creates the account automatically.</span>
+        <a class="btn ghost" href="/sign-in?signing_in=1&amp;return_to=%2Fpricing" data-analytics-event="pricing_account_{{ plan.plan_key }}" data-rybbit-event="pricing_sign_in_for_plan" data-rybbit-prop-plan="{{ plan.plan_key }}">Sign in to start</a>
+        <span class="tier-provider">New here? <a href="/register?return_to=%2Fpricing">Create an account.</a></span>
         {% endif %}
       </div>
     </section>

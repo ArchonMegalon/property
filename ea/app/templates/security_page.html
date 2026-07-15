@@ -13,7 +13,7 @@
     gap: 8px;
   }
   .trust-hero h1 {
-    max-width: 12ch;
+    max-width: 18ch;
     margin: 0;
     font-size: clamp(2.25rem, 5vw, 4.5rem);
     line-height: 0.98;
@@ -27,8 +27,11 @@
   }
   .trust-grid {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 10px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
   }
   .trust-card {
     min-height: 112px;
@@ -41,8 +44,16 @@
     align-content: start;
     gap: 6px;
   }
-  .trust-card strong {
+  .trust-card h2 {
+    margin: 0;
     font-size: 1rem;
+    line-height: 1.35;
+  }
+  .trust-step {
+    color: var(--text-soft);
+    font-size: 0.76rem;
+    font-weight: 800;
+    letter-spacing: 0.08em;
   }
   .trust-card p {
     margin: 0;
@@ -56,6 +67,27 @@
     gap: 8px;
     padding-top: 4px;
   }
+  .trust-note {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 13px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+  }
+  .trust-note p {
+    margin: 4px 0 0;
+    color: var(--text-soft);
+    font-size: 0.9rem;
+    line-height: 1.38;
+  }
+  .trust-note h2 {
+    margin: 0;
+    font-size: 1rem;
+    line-height: 1.35;
+  }
   html[data-pq-theme="dark"] .trust-card {
     background: var(--panel);
     border-color: var(--line);
@@ -68,40 +100,46 @@
     .trust-card {
       min-height: 0;
     }
+    .trust-note {
+      align-items: stretch;
+      flex-direction: column;
+    }
   }
 </style>
 
-<main class="trust-shell">
+<div class="trust-shell">
   <section class="trust-hero">
     <div class="kicker">How it works</div>
-    <h1>Clear requirements. Calmer search.</h1>
-    <p>Must-haves decide what belongs. Preferences shape the order. Private work stays private until you share it.</p>
+    <h1>Search. Compare. Decide.</h1>
+    <p>Describe the home once. Compare matching homes across selected listing sites. Research the few that deserve a decision.</p>
   </section>
 
-  <section class="trust-grid" aria-label="PropertyQuarry trust basics">
-    <article class="trust-card">
-      <strong>Fit guide</strong>
-      <p>See how must-haves, preferences, missing details, and saved feedback affect the result.</p>
-      <a class="btn ghost" href="/how-it-works/score">Open fit guide</a>
-    </article>
-    <article class="trust-card">
-      <strong>You choose what is shared</strong>
-      <p>Searches, decisions, notes, and private pages stay signed in unless you create a share link.</p>
-    </article>
-    <article class="trust-card">
-      <strong>Actions stay explicit</strong>
-      <p>Messages, public links, generated tours, and account changes remain separate actions.</p>
-    </article>
-    <article class="trust-card">
-      <strong>Account data stays editable</strong>
-      <p>Account holds notification channels, saved preferences, public links, export, and deletion.</p>
-    </article>
+  <ol class="trust-grid" aria-label="How PropertyQuarry works">
+    {% for step in how_steps %}
+    <li class="trust-card">
+      <span class="trust-step" aria-hidden="true">0{{ loop.index }}</span>
+      <h2>{{ step.title }}</h2>
+      <p>{{ step.body }}</p>
+    </li>
+    {% endfor %}
+  </ol>
+
+  <section class="trust-note">
+    <div>
+      <h2>Private until you share</h2>
+      <p>Searches, decisions, notes, and property pages stay signed in. Public links and generated tours remain explicit actions.</p>
+    </div>
+    <a class="btn ghost" href="/how-it-works/score">See the fit guide</a>
   </section>
 
   <div class="trust-actions">
-    <a class="btn primary" href="/app/account">Open account</a>
-    <a class="btn ghost" href="/data-deletion">Delete data</a>
-    <a class="btn ghost" href="/support">Contact support</a>
+    {% if public_signed_in %}
+    <a class="btn primary" href="/app/search">Start a search</a>
+    {% else %}
+    <a class="btn primary" href="/register?return_to=%2Fapp%2Fsearch">Create account</a>
+    <a class="btn ghost" href="/sign-in?signing_in=1&amp;return_to=%2Fapp%2Fsearch">Sign in</a>
+    {% endif %}
+    <a class="btn ghost" href="/privacy">Privacy</a>
   </div>
-</main>
+</div>
 {% endblock %}

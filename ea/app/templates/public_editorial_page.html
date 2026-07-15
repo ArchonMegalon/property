@@ -41,7 +41,7 @@
   }
 </style>
 
-<main class="editorial-shell">
+<div class="editorial-shell">
   <section class="editorial-hero panel">
     <div class="kicker">{{ editorial_kicker }}</div>
     <h1>{{ editorial_title }}</h1>
@@ -49,6 +49,9 @@
     {% if editorial_cta_href and editorial_cta_label %}
     <div class="cta-row">
       <a class="btn primary" href="{{ editorial_cta_href }}"{% if editorial_cta_event %} data-rybbit-event="{{ editorial_cta_event }}"{% endif %}>{{ editorial_cta_label }}</a>
+      {% if editorial_secondary_cta_href and editorial_secondary_cta_label %}
+      <a class="btn ghost" href="{{ editorial_secondary_cta_href }}"{% if editorial_secondary_cta_event %} data-rybbit-event="{{ editorial_secondary_cta_event }}"{% endif %}>{{ editorial_secondary_cta_label }}</a>
+      {% endif %}
     </div>
     {% endif %}
   </section>
@@ -92,5 +95,5 @@
     </div>
   </section>
   {% endif %}
-</main>
+</div>
 {% endblock %}

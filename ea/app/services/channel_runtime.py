@@ -62,6 +62,21 @@ class ChannelRuntimeService:
     def list_recent_observations(self, limit: int = 50, *, principal_id: str | None = None) -> list[ObservationEvent]:
         return self._observations.list_recent(limit=limit, principal_id=principal_id)
 
+    def list_recent_observations_matching(
+        self,
+        limit: int = 50,
+        *,
+        principal_id: str | None = None,
+        channel: str = "",
+        event_types: tuple[str, ...] = (),
+    ) -> list[ObservationEvent]:
+        return self._observations.list_recent_matching(
+            limit=limit,
+            principal_id=principal_id,
+            channel=channel,
+            event_types=event_types,
+        )
+
     def recent_observation_exists(
         self,
         *,

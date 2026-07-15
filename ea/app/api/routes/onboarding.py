@@ -7,12 +7,14 @@ import json
 import os
 import secrets
 import time
+import urllib.parse
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.dependencies import RequestContext, get_container, get_request_context, resolve_principal_id
+from app.api.routes.landing import _normalize_browser_return_to
 from app.container import AppContainer
 from app.product.service import build_product_service
 from app.services.google_oauth import (
@@ -107,6 +109,7 @@ def _registration_base_url(request: Request) -> str:
 
 class RegisterStartIn(BaseModel):
     email: str = Field(min_length=3, max_length=320)
+    return_to: str = Field(default="/app/search", max_length=2048)
 
 
 class RegisterStartOut(BaseModel):
@@ -402,17 +405,25 @@ def register_start(
         raise HTTPException(status_code=400, detail="registration_email_invalid")
     expires_at = int(time.time()) + 15 * 60
     verification_code = f"{secrets.randbelow(1_000_000):06d}"
+    return_to = _normalize_browser_return_to(body.return_to, default="/app/search")
     verification_token = _sign_registration_payload(
         container=container,
         payload={
             "token_kind": "register_challenge",
             "email": email,
             "verification_code": verification_code,
+            "return_to": return_to,
             "expires_at": expires_at,
         },
     )
     runtime_mode = str(getattr(getattr(container.settings, "runtime", None), "mode", "dev") or "dev").strip().lower()
-    magic_link_url = f"/register?token={verification_token}&code={verification_code}"
+    magic_link_url = "/register?" + urllib.parse.urlencode(
+        {
+            "token": verification_token,
+            "code": verification_code,
+            "return_to": return_to,
+        }
+    )
     email_delivery_status = ""
     email_delivery_provider = ""
     email_delivery_id = ""

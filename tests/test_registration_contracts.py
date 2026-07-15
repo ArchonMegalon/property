@@ -56,6 +56,89 @@ def test_register_template_uses_named_secure_verification_links() -> None:
     assert "magic link" not in source.lower()
     assert "verification mail" not in source.lower()
     assert "the secure verification link" in source
+    assert 'data-register-return-to="{{ register_return_to }}"' in source
+    assert 'data-register-progress-summary role="status" aria-live="polite"' in source
+    assert "Step 1 of 4: Email" in source
+    assert "First search checklist" in source
+    assert "First shortlist" not in source
+    assert "node.setAttribute('aria-current', 'step')" in source
+    assert "const registerReturnTo = String(app.dataset.registerReturnTo || '').trim() || '/app/search';" in source
+    assert "brand.key === 'propertyquarry'" not in source
+    assert "@media (max-width: 760px)" in source
+
+
+def test_register_page_preserves_only_safe_internal_return_targets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = _client(monkeypatch)
+
+    safe = client.get("/register?return_to=%2Fpricing")
+    unsafe = client.get("/register?return_to=https%3A%2F%2Fexample.invalid%2Fescape")
+
+    assert safe.status_code == 200
+    assert 'data-register-return-to="/pricing"' in safe.text
+    assert '<a class="btn primary" href="/pricing">Continue</a>' in safe.text
+    assert unsafe.status_code == 200
+    assert 'data-register-return-to="/app/search"' in unsafe.text
+    assert "example.invalid" not in unsafe.text
+
+
+@pytest.mark.parametrize(
+    "unsafe_target",
+    (
+        "https://example.invalid/escape",
+        "//example.invalid/escape",
+        "/\\example.invalid/escape",
+        "/%5Cexample.invalid/escape",
+        "/%255Cexample.invalid/escape",
+        "/%2F%2Fexample.invalid/escape",
+        "/%252F%252Fexample.invalid/escape",
+        "/app/search%0d%0aLocation:%20https://example.invalid/escape",
+    ),
+)
+def test_browser_return_target_rejects_cross_host_and_encoded_variants(
+    unsafe_target: str,
+) -> None:
+    from app.api.routes.landing import _normalize_browser_return_to
+
+    assert _normalize_browser_return_to(unsafe_target, default="/app/search") == "/app/search"
+
+
+def test_browser_return_target_keeps_safe_internal_path_query_and_fragment() -> None:
+    from app.api.routes.landing import _normalize_browser_return_to
+
+    safe_target = "/app/support?source=pricing#new-request"
+    assert _normalize_browser_return_to(safe_target, default="/app/search") == safe_target
+
+
+def test_browser_return_target_rejects_oversized_internal_target() -> None:
+    from app.api.routes.landing import _normalize_browser_return_to
+
+    oversized_target = "/app/search?note=" + ("x" * 2048)
+    assert _normalize_browser_return_to(oversized_target, default="/app/search") == "/app/search"
+
+    oversized_multibyte_target = "/app/search?note=" + ("🏠" * 200)
+    assert _normalize_browser_return_to(oversized_multibyte_target, default="/app/search") == "/app/search"
+
+    oversized_spaced_target = "/app/support?note=" + (" a" * 520)
+    assert _normalize_browser_return_to(oversized_spaced_target, default="/app/search") == "/app/search"
+
+
+@pytest.mark.parametrize(
+    "unsafe_target",
+    (
+        "\n/app/search",
+        "/app/search\r\n",
+        "\t/app/support",
+        (" " * 3000) + "/app/search",
+    ),
+)
+def test_browser_return_target_rejects_surrounding_controls_and_overlong_whitespace(
+    unsafe_target: str,
+) -> None:
+    from app.api.routes.landing import _normalize_browser_return_to
+
+    assert _normalize_browser_return_to(unsafe_target, default="/app/search") == "/app/search"
 
 
 def _id_austria_claims(*, bpk: str = "ZP-MH:test-bpk", subject: str = "id-austria-subject") -> dict[str, object]:
@@ -109,7 +192,10 @@ def test_register_start_uses_absolute_magic_link_when_email_delivery_is_enabled(
 
     monkeypatch.setattr(onboarding_route, "send_registration_email", _fake_send_registration_email)
 
-    response = client.post("/v1/register/start", json={"email": "exec@example.com"})
+    response = client.post(
+        "/v1/register/start",
+        json={"email": "exec@example.com", "return_to": "/pricing"},
+    )
 
     assert response.status_code == 200
     body = response.json()
@@ -118,6 +204,10 @@ def test_register_start_uses_absolute_magic_link_when_email_delivery_is_enabled(
     assert body["email_delivery_id"] == "emailit-message-1"
     assert observed["recipient_email"] == "exec@example.com"
     assert str(observed["magic_link_url"]).startswith("https://propertyquarry.com/register?token=")
+    magic_link_query = urllib.parse.parse_qs(
+        urllib.parse.urlparse(str(observed["magic_link_url"])).query
+    )
+    assert magic_link_query["return_to"] == ["/pricing"]
 
 
 def test_register_start_reports_email_delivery_failure_without_aborting_flow(
@@ -174,13 +264,14 @@ def test_sign_in_email_link_reissues_workspace_access_for_existing_email(
 
     response = client.post(
         "/sign-in/email-link",
-        data={"email": "Founder@Example.com"},
+        data={"email": "Founder@Example.com", "return_to": "/app/support"},
         follow_redirects=False,
     )
 
     assert response.status_code == 303
     assert "link_status=submitted" in response.headers["location"]
     assert "link_count=" not in response.headers["location"]
+    assert "return_to=%2Fapp%2Fsupport" in response.headers["location"]
     followup = client.get(response.headers["location"])
     assert followup.status_code == 200
     assert "Check your inbox." in followup.text
@@ -189,6 +280,10 @@ def test_sign_in_email_link_reissues_workspace_access_for_existing_email(
     assert observed["recipient_email"] == "founder@example.com"
     assert observed["workspace_name"] == "Founder Office"
     assert str(observed["access_url"]).startswith("https://propertyquarry.com/workspace-access/")
+    access_path = urllib.parse.urlparse(str(observed["access_url"])).path
+    opened = client.get(access_path, follow_redirects=False)
+    assert opened.status_code == 303
+    assert opened.headers["location"] == "/app/support"
 
 
 def test_sign_in_email_link_reports_missing_workspace_match(
@@ -199,12 +294,14 @@ def test_sign_in_email_link_reports_missing_workspace_match(
 
     response = client.post(
         "/sign-in/email-link",
-        data={"email": "unknown@example.com"},
+        data={"email": "unknown@example.com", "return_to": "https://example.invalid/escape"},
         follow_redirects=False,
     )
 
     assert response.status_code == 303
     assert "link_status=submitted" in response.headers["location"]
+    redirect_query = urllib.parse.parse_qs(urllib.parse.urlparse(response.headers["location"]).query)
+    assert redirect_query["return_to"] == ["/app/settings/access"]
     followup = client.get(response.headers["location"])
     assert followup.status_code == 200
     assert "Check your inbox." in followup.text
@@ -240,6 +337,33 @@ def test_sign_in_page_offers_google_return_path(monkeypatch: pytest.MonkeyPatch)
     assert "Choose the narrowest sign-in path" not in response.text
 
 
+def test_sign_in_page_uses_one_real_email_action_and_compact_provider_cards(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    _configure_google_sign_in(monkeypatch)
+    client = _client(monkeypatch)
+
+    response = client.get("/sign-in?return_to=%2Fapp%2Fsupport")
+
+    assert response.status_code == 200
+    assert response.text.count('action="/sign-in/email-link"') == 1
+    assert '<input type="hidden" name="return_to" value="/app/support">' in response.text
+    assert "Send secure sign-in link" in response.text
+    assert "Create an account with email." in response.text
+    assert "Sign-in providers open the same account and create it if needed." in response.text
+    assert "Creates account if needed" not in response.text
+    assert 'role="list" aria-label="Sign-in providers"' in response.text
+    assert 'aria-label="Continue with Google"' in response.text
+    assert 'href="/sign-in/google?return_to=%2Fapp%2Fsupport"' in response.text
+    assert 'href="/register?return_to=%2Fapp%2Fsupport"' in response.text
+    assert '<button class="btn primary" type="button" data-focus-sign-in-email>Email sign-in</button>' not in response.text
+
+    unsafe = client.get("/sign-in?return_to=https%3A%2F%2Fexample.invalid%2Fescape")
+    assert '<input type="hidden" name="return_to" value="/app/search">' in unsafe.text
+    assert "example.invalid" not in unsafe.text
+
+
 def test_sign_in_page_shows_google_when_oauth_is_configured(monkeypatch: pytest.MonkeyPatch) -> None:
     _configure_google_sign_in(monkeypatch)
     client = _client(monkeypatch)
@@ -248,10 +372,10 @@ def test_sign_in_page_shows_google_when_oauth_is_configured(monkeypatch: pytest.
 
     assert response.status_code == 200
     assert "Continue with Google" in response.text
-    assert 'href="/sign-in/google"' in response.text
+    assert 'href="/sign-in/google?return_to=%2Fapp%2Fsearch"' in response.text
     assert "Google unavailable" not in response.text
     assert "same account" in response.text.lower()
-    assert "Each sign-in option opens the same account and creates it if needed." in response.text
+    assert "Sign-in providers open the same account and create it if needed." in response.text
 
 
 @pytest.mark.parametrize(
@@ -263,6 +387,7 @@ def test_sign_in_page_shows_google_when_oauth_is_configured(monkeypatch: pytest.
     ),
 )
 def test_sign_in_page_shows_provider_return_status(monkeypatch: pytest.MonkeyPatch, query: str, provider: str) -> None:
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
     client = _client(monkeypatch)
 
     response = client.get(f"/sign-in?{query}")
@@ -283,7 +408,7 @@ def test_sign_in_page_shows_id_austria_when_oidc_is_configured(monkeypatch: pyte
 
     assert response.status_code == 200
     assert "Continue with ID Austria" in response.text
-    assert 'href="/sign-in/id-austria"' in response.text
+    assert 'href="/sign-in/id-austria?return_to=%2Fapp%2Fsearch"' in response.text
 
 
 def test_sign_in_page_hides_id_austria_outside_austria(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -297,6 +422,9 @@ def test_sign_in_page_hides_id_austria_outside_austria(monkeypatch: pytest.Monke
     assert "Continue with ID Austria" not in response.text
     assert direct.status_code == 303
     assert "id_austria_error=id_austria_austria_ip_required" in direct.headers["location"]
+    followup = client.get(direct.headers["location"], headers={"CF-IPCountry": "DE"})
+    assert "ID Austria sign-in is offered only when this request is detected from Austria." in followup.text
+    assert "Retry ID Austria sign-in" not in followup.text
 
 
 def test_sign_in_page_shows_disabled_id_austria_for_austrian_request_when_unconfigured(
@@ -340,7 +468,11 @@ def test_id_austria_unknown_identity_returns_to_sign_in(monkeypatch: pytest.Monk
     _configure_id_austria(monkeypatch)
     client = _client(monkeypatch)
 
-    sign_in_start = client.get("/sign-in/id-austria", headers={"CF-IPCountry": "AT"}, follow_redirects=False)
+    sign_in_start = client.get(
+        "/sign-in/id-austria?return_to=%2Fapp%2Fsupport",
+        headers={"CF-IPCountry": "AT"},
+        follow_redirects=False,
+    )
     assert sign_in_start.status_code == 303
     state = urllib.parse.parse_qs(urllib.parse.urlparse(sign_in_start.headers["location"]).query)["state"][0]
 
@@ -367,7 +499,7 @@ def test_id_austria_unknown_identity_returns_to_sign_in(monkeypatch: pytest.Monk
     assert callback.headers["location"].startswith("/workspace-access/")
     opened = client.get(callback.headers["location"], follow_redirects=False)
     assert opened.status_code == 303
-    assert opened.headers["location"] == "/app/search"
+    assert opened.headers["location"] == "/app/support"
     assert "ea_workspace_session=" in str(opened.headers.get("set-cookie") or "")
 
 
@@ -493,7 +625,7 @@ def test_sign_in_page_shows_facebook_when_oauth_is_configured(monkeypatch: pytes
 
     assert response.status_code == 200
     assert "Continue with Facebook" in response.text
-    assert 'href="/sign-in/facebook"' in response.text
+    assert 'href="/sign-in/facebook?return_to=%2Fapp%2Fsearch"' in response.text
 
 
 def test_sign_in_page_only_shows_facebook_when_configured_and_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -508,7 +640,7 @@ def test_sign_in_page_only_shows_facebook_when_configured_and_enabled(monkeypatc
 
     assert response.status_code == 200
     assert "Continue with Facebook" in response.text
-    assert 'href="/sign-in/facebook"' in response.text
+    assert 'href="/sign-in/facebook?return_to=%2Fapp%2Fsearch"' in response.text
 
 
 def test_sign_in_facebook_requires_dedicated_state_secret(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -610,7 +742,7 @@ def test_sign_in_google_reopens_existing_workspace_after_callback(monkeypatch: p
     )
 
     sign_in_start = client.post(
-        "/sign-in/google",
+        "/sign-in/google?return_to=%2Fapp%2Fsupport",
         follow_redirects=False,
     )
     assert sign_in_start.status_code == 303
@@ -651,7 +783,7 @@ def test_sign_in_google_reopens_existing_workspace_after_callback(monkeypatch: p
 
     opened = client.get(callback.headers["location"], follow_redirects=False)
     assert opened.status_code == 303
-    assert opened.headers["location"] == "/app/search"
+    assert opened.headers["location"] == "/app/support"
     assert "ea_workspace_session=" in str(opened.headers.get("set-cookie") or "")
 
 
@@ -917,16 +1049,63 @@ def test_sign_in_google_callback_google_error_is_returned_to_sign_in(monkeypatch
 
 
 def test_sign_in_page_shows_friendly_identity_only_google_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    _configure_google_sign_in(monkeypatch)
     client = _client(monkeypatch)
+    response = client.get("/sign-in?google_error=Google+Identity-only.&return_to=%2Fapp%2Fsupport")
+
+    assert response.status_code == 200
+    assert "Retry Google." in response.text
+    assert "You can also use a secure email link for the same account." in response.text
+    assert "Google Identity-only." not in response.text
+    assert "Retry Google sign-in" in response.text
+    assert 'href="/sign-in/google?return_to=%2Fapp%2Fsupport"' in response.text
+    assert "data-submitting-label=\"Opening Google...\"" in response.text
+    assert 'action="/sign-in/email-link"' in response.text
+    assert "Send secure sign-in link" in response.text
+
+
+def test_sign_in_error_hides_retry_when_provider_is_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_google_sign_in(monkeypatch)
+    monkeypatch.delenv("EMAILIT_API_KEY", raising=False)
+    client = _client(monkeypatch)
+
     response = client.get("/sign-in?google_error=Google+Identity-only.")
 
     assert response.status_code == 200
-    assert "Retry Google, or use a secure email link for the same account." in response.text
-    assert "Google Identity-only." not in response.text
+    assert "Google is not available right now." in response.text
+    assert "Contact support if you still cannot sign in." in response.text
+    assert "Retry Google sign-in" not in response.text
+    assert 'href="/sign-in/google?' not in response.text
+
+
+def test_sign_in_google_only_error_does_not_invent_another_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    _configure_google_sign_in(monkeypatch)
+    monkeypatch.delenv("EMAILIT_API_KEY", raising=False)
+    client = _client(monkeypatch)
+
+    response = client.get("/sign-in?google_error=Google+Identity-only.")
+    connected = client.get("/sign-in?google_connected=1")
+
+    assert response.status_code == 200
+    assert "Retry Google." in response.text
+    assert "Contact support if you still cannot sign in." in response.text
     assert "Retry Google sign-in" in response.text
-    assert 'href="/sign-in/google"' in response.text
-    assert "data-submitting-label=\"Opening Google...\"" in response.text
-    assert "Email sign-in" in response.text
+    assert "Retry Google. Choose another available sign-in option." not in response.text
+    assert "No other sign-in option is available right now. Contact support if this account did not open." in connected.text
+
+
+def test_sign_in_hides_stale_provider_error_after_account_is_signed_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    _configure_google_sign_in(monkeypatch)
+    client = _client(monkeypatch)
+    client.headers.update({"X-EA-Principal-ID": "signed-in-provider-error"})
+
+    response = client.get("/sign-in?google_error=Google+Identity-only.&return_to=%2Fapp%2Fsupport")
+
+    assert response.status_code == 200
+    assert '<a class="btn primary" href="/app/support">Continue</a>' in response.text
+    assert "Google could not open on this attempt." not in response.text
+    assert "Retry Google sign-in" not in response.text
 
 
 def test_sign_in_google_identity_only_callback_redirects_as_google_identity_only(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1370,7 +1549,7 @@ def test_sign_in_page_does_not_require_email_field_for_google(monkeypatch: pytes
     response = client.get("/sign-in")
 
     assert response.status_code == 200
-    assert 'href="/sign-in/google"' in response.text
+    assert 'href="/sign-in/google?return_to=%2Fapp%2Fsearch"' in response.text
     assert "Continue with Google" in response.text
     assert "Facebook unavailable" not in response.text
     assert "Continue with Facebook" not in response.text

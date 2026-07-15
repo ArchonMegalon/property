@@ -51,7 +51,7 @@
     font-size: clamp(2rem, 3.6vw, 3.25rem);
     line-height: 0.95;
     letter-spacing: -0.04em;
-    max-width: 8.4ch;
+    max-width: 12ch;
     text-wrap: balance;
   }
   .access-panel .lead {
@@ -66,6 +66,12 @@
     color: var(--text-soft);
     font-size: 0.9rem;
     line-height: 1.42;
+  }
+  .access-entry-copy a {
+    color: inherit;
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
   }
   .access-card strong {
     display: block;
@@ -84,6 +90,18 @@
   }
   .access-form input {
     width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--panel-2) 84%, transparent);
+    color: var(--text);
+    padding: 10px 12px;
+    font: inherit;
+  }
+  .access-panel .access-form .cta-row {
+    grid-template-columns: 1fr;
+  }
+  #sign-in-email {
+    scroll-margin-top: 24px;
   }
   .access-feedback {
     margin-top: 0;
@@ -145,12 +163,6 @@
     align-items: center;
     gap: 4px;
     margin: 0;
-  }
-  .auth-provider-card p {
-    margin: 0;
-    color: var(--text-soft);
-    font-size: 11px;
-    line-height: 1.25;
   }
   .auth-provider-card .btn {
     white-space: nowrap;
@@ -323,84 +335,84 @@
     {% set show_facebook_provider = sign_in_facebook_enabled %}
     {% set show_id_austria_provider = sign_in_id_austria_visible and sign_in_id_austria_enabled %}
     {% set has_enabled_sign_in_provider = show_google_provider or show_facebook_provider or show_id_austria_provider %}
+    {% set has_other_google_provider = show_facebook_provider or show_id_austria_provider %}
+    {% set has_other_facebook_provider = show_google_provider or show_id_austria_provider %}
+    {% set has_other_id_austria_provider = show_google_provider or show_facebook_provider %}
+    {% set has_other_connected_provider = (sign_in_connected_provider != 'Google' and show_google_provider) or (sign_in_connected_provider != 'Facebook' and show_facebook_provider) or (sign_in_connected_provider != 'ID Austria' and show_id_austria_provider) %}
     <div class="kicker">Sign in</div>
     <div class="access-shell">
       <div class="access-intro">
-        <h1>{% if brand.key == 'propertyquarry' %}Sign in to continue your property search.{% else %}Sign in if you already have account access.{% endif %}</h1>
-        <p class="lead">Use email or one of the sign-in options below. First sign-in creates the account automatically.</p>
+        <h1>{% if brand.key == 'propertyquarry' %}Continue your property search.{% else %}Sign in if you already have account access.{% endif %}</h1>
+        <p class="lead">Use a secure email link if your address already has access. You can also continue with an available provider.</p>
       </div>
-        <div class="access-entry" id="sign-in-options" role="region" aria-label="Sign-in options" tabindex="-1">
+      <div class="access-entry" id="sign-in-options" role="region" aria-label="Sign-in options" tabindex="-1">
+        {% if public_signed_in %}
         <div class="access-entry-block access-entry-block-cta">
           <div class="cta-row">
-            {% if public_signed_in %}
-            <a class="btn primary" href="{{ brand.app_home or '/app/search' }}">Open search</a>
+            <a class="btn primary" href="{{ sign_in_return_to }}">Continue</a>
             <form method="post" action="/app/actions/sign-out">
               <input type="hidden" name="return_to" value="/sign-in?signing_in=1">
               <button class="btn" type="submit">Log out</button>
             </form>
-            {% else %}
-            {% if sign_in_link_enabled %}
-            <button class="btn primary" type="button" data-focus-sign-in-email>Email sign-in</button>
-            {% endif %}
-            {% endif %}
           </div>
+        </div>
+        {% else %}
+        <div class="access-entry-block" id="sign-in-email">
+          {% if sign_in_link_enabled %}
+          <form class="access-form" method="post" action="/sign-in/email-link">
+            <input type="hidden" name="return_to" value="{{ sign_in_return_to }}">
+            <div>
+              <label for="sign_in_email">Email</label>
+              <input id="sign_in_email" name="email" type="email" value="{{ sign_in_google_prefill_email or sign_in_link_email or '' }}" placeholder="you@example.com" autocomplete="email" required>
+            </div>
+            <div class="cta-row">
+              <button class="btn primary" type="submit">Send secure sign-in link</button>
+            </div>
+          </form>
+          <p class="access-entry-copy">New here? <a href="/register?return_to={{ sign_in_return_to_encoded }}">Create an account with email.</a></p>
+          {% else %}
+          <div class="access-feedback">
+            <strong>Email sign-in is not available right now.</strong>
+            <p class="copy">{% if has_enabled_sign_in_provider %}Use a provider below instead.{% else %}Try again later or ask the account owner for a fresh access link.{% endif %}</p>
+          </div>
+          {% endif %}
         </div>
         {% if has_enabled_sign_in_provider %}
         <div class="access-entry-block">
-          <p class="access-entry-copy">Each sign-in option opens the same account and creates it if needed.</p>
-          <div class="auth-provider-stack" aria-label="Sign-in providers">
+          <p class="access-entry-copy">Sign-in providers open the same account and create it if needed.</p>
+          <div class="auth-provider-stack" role="list" aria-label="Sign-in providers">
             {% if show_google_provider %}
-            <div class="auth-provider-card" data-auth-provider-card data-auth-provider="google" data-auth-provider-state="enabled">
+            <div class="auth-provider-card" role="listitem" data-auth-provider-card data-auth-provider="google" data-auth-provider-state="enabled">
               <span class="auth-provider-icon" aria-hidden="true">G</span>
               <span>
                 <strong>Google</strong>
-                <p>Creates account if needed</p>
               </span>
-              <a class="btn" href="/sign-in/google" data-auth-provider-link data-submitting-label="Opening Google...">Continue with Google</a>
+              <a class="btn" href="/sign-in/google?return_to={{ sign_in_return_to_encoded }}" aria-label="Continue with Google" data-auth-provider-link data-submitting-label="Opening Google...">Continue</a>
             </div>
             {% endif %}
             {% if show_facebook_provider %}
-            <div class="auth-provider-card" data-auth-provider-card data-auth-provider="facebook" data-auth-provider-state="enabled">
+            <div class="auth-provider-card" role="listitem" data-auth-provider-card data-auth-provider="facebook" data-auth-provider-state="enabled">
               <span class="auth-provider-icon" aria-hidden="true">f</span>
               <span>
                 <strong>Facebook</strong>
-                <p>Creates account if needed</p>
               </span>
-              <a class="btn" href="/sign-in/facebook" data-auth-provider-link data-submitting-label="Opening Facebook...">Continue with Facebook</a>
+              <a class="btn" href="/sign-in/facebook?return_to={{ sign_in_return_to_encoded }}" aria-label="Continue with Facebook" data-auth-provider-link data-submitting-label="Opening Facebook...">Continue</a>
             </div>
             {% endif %}
             {% if show_id_austria_provider %}
-            <div class="auth-provider-card" data-auth-provider-card data-auth-provider="id-austria" data-auth-provider-state="enabled">
+            <div class="auth-provider-card" role="listitem" data-auth-provider-card data-auth-provider="id-austria" data-auth-provider-state="enabled">
               <span class="auth-provider-icon" aria-hidden="true">ID</span>
               <span>
                 <strong>ID Austria</strong>
-                <p>Creates account if needed</p>
               </span>
-              <a class="btn" href="/sign-in/id-austria" data-auth-provider-link data-submitting-label="Opening ID Austria...">Continue with ID Austria</a>
+              <a class="btn" href="/sign-in/id-austria?return_to={{ sign_in_return_to_encoded }}" aria-label="Continue with ID Austria" data-auth-provider-link data-submitting-label="Opening ID Austria...">Continue</a>
             </div>
             {% endif %}
             <div class="auth-provider-status" data-auth-provider-status role="status" aria-live="polite"></div>
           </div>
         </div>
         {% endif %}
-        <div class="access-entry-block">
-          {% if sign_in_link_enabled %}
-          <form class="access-form" method="post" action="/sign-in/email-link">
-            <div>
-              <label for="sign_in_email">Email link</label>
-              <input id="sign_in_email" name="email" type="email" value="{{ sign_in_google_prefill_email or sign_in_link_email or '' }}" placeholder="you@company.com" required>
-            </div>
-            <div class="cta-row">
-              <button class="btn" type="submit">Send sign-in link</button>
-            </div>
-          </form>
-        {% else %}
-          <div class="access-feedback">
-            <strong>Email sign-in is not available right now.</strong>
-            <p class="copy">{% if has_enabled_sign_in_provider %}Use another sign-in option instead.{% else %}Try again later or ask the account owner for a fresh access link.{% endif %}</p>
-          </div>
-          {% endif %}
-        </div>
+        {% endif %}
       </div>
     </div>
     {% if sign_in_session_expired %}
@@ -415,9 +427,13 @@
     {% if sign_in_connected_provider %}
     <div class="access-feedback" data-sign-in-provider-connected>
       <strong>{{ sign_in_connected_provider }} returned to PropertyQuarry.</strong>
-      <p class="copy">Use email if you prefer.</p>
+      <p class="copy">{% if public_signed_in %}Your account is ready to continue.{% elif sign_in_link_enabled %}Use email if you prefer.{% elif has_other_connected_provider %}Choose another available sign-in option if needed.{% else %}No other sign-in option is available right now. Contact support if this account did not open.{% endif %}</p>
       <div class="cta-row">
-        <button class="btn primary" type="button" data-focus-sign-in-email>Email sign-in</button>
+        {% if public_signed_in %}
+        <a class="btn primary" href="{{ sign_in_return_to }}">Continue</a>
+        {% elif sign_in_link_enabled %}
+        <button class="btn primary" type="button" data-focus-sign-in-email>Use email instead</button>
+        {% endif %}
       </div>
     </div>
     {% endif %}
@@ -427,59 +443,68 @@
       <p class="copy">Sign in below.</p>
     </div>
     {% endif %}
-    {% if sign_in_google_error %}
+    {% if sign_in_google_error and not public_signed_in %}
     <div class="access-feedback">
       <strong>Google could not open on this attempt.</strong>
       <p class="copy">
         {% if sign_in_google_error == 'workspace_google_sign_in_not_found' %}
-        Retry Google, or use a secure email link for the same account.
+        {% if show_google_provider %}Retry Google.{% else %}Google is not available right now.{% endif %}{% if sign_in_link_enabled %} You can also use a secure email link for the same account.{% elif has_other_google_provider %} Choose another available sign-in option.{% else %} Contact support if you still cannot sign in.{% endif %}
         {% elif sign_in_google_error == 'google_identity_only' or "identity-only" in (sign_in_google_error or "").lower() %}
-        Retry Google, or use a secure email link for the same account.
+        {% if show_google_provider %}Retry Google.{% else %}Google is not available right now.{% endif %}{% if sign_in_link_enabled %} You can also use a secure email link for the same account.{% elif has_other_google_provider %} Choose another available sign-in option.{% else %} Contact support if you still cannot sign in.{% endif %}
         {% elif sign_in_google_error.startswith('google_oauth_') or sign_in_google_error.endswith('config_missing') %}
-        Retry Google, or use a secure email link for the same account.
+        {% if show_google_provider %}Retry Google.{% else %}Google is not available right now.{% endif %}{% if sign_in_link_enabled %} You can also use a secure email link for the same account.{% elif has_other_google_provider %} Choose another available sign-in option.{% else %} Contact support if you still cannot sign in.{% endif %}
         {% else %}
         {{ sign_in_google_error }}
         {% endif %}
       </p>
       <p class="copy">Google opens the same account and creates it if needed.</p>
+      {% if show_google_provider %}
       <div class="cta-row">
-        <a class="btn" href="/sign-in/google" data-auth-provider-link data-submitting-label="Opening Google...">Retry Google sign-in</a>
+        <a class="btn" href="/sign-in/google?return_to={{ sign_in_return_to_encoded }}" data-auth-provider-link data-auth-provider-kind="google" data-submitting-label="Opening Google...">Retry Google sign-in</a>
       </div>
+      {% endif %}
     </div>
     {% endif %}
-    {% if sign_in_facebook_error %}
+    {% if sign_in_facebook_error and not public_signed_in %}
     <div class="access-feedback">
       <strong>Facebook could not open on this attempt.</strong>
       <p class="copy">
         {% if sign_in_facebook_error == 'facebook_sign_in_not_found' %}
-        Retry Facebook, or use a secure email link for the same account.
+        {% if show_facebook_provider %}Retry Facebook.{% else %}Facebook is not available right now.{% endif %}{% if sign_in_link_enabled %} You can also use a secure email link for the same account.{% elif has_other_facebook_provider %} Choose another available sign-in option.{% else %} Contact support if you still cannot sign in.{% endif %}
         {% elif sign_in_facebook_error.startswith('facebook_oauth_') or sign_in_facebook_error.endswith('config_missing') %}
-        Retry Facebook, or use a secure email link for the same account.
+        {% if show_facebook_provider %}Retry Facebook.{% else %}Facebook is not available right now.{% endif %}{% if sign_in_link_enabled %} You can also use a secure email link for the same account.{% elif has_other_facebook_provider %} Choose another available sign-in option.{% else %} Contact support if you still cannot sign in.{% endif %}
         {% else %}
         {{ sign_in_facebook_error }}
         {% endif %}
       </p>
       <p class="copy">Facebook opens the same account and creates it if needed.</p>
+      {% if show_facebook_provider %}
+      <div class="cta-row">
+        <a class="btn" href="/sign-in/facebook?return_to={{ sign_in_return_to_encoded }}" data-auth-provider-link data-auth-provider-kind="facebook" data-submitting-label="Opening Facebook...">Retry Facebook sign-in</a>
+      </div>
+      {% endif %}
     </div>
     {% endif %}
-    {% if sign_in_id_austria_error %}
+    {% if sign_in_id_austria_error and not public_signed_in %}
     <div class="access-feedback">
       <strong>ID Austria could not open on this attempt.</strong>
       <p class="copy">
         {% if sign_in_id_austria_error == 'id_austria_sign_in_not_found' %}
-        Retry ID Austria, or use a secure email link for the same account.
+        {% if show_id_austria_provider %}Retry ID Austria.{% else %}ID Austria is not available for this request.{% endif %}{% if sign_in_link_enabled %} You can also use a secure email link for the same account.{% elif has_other_id_austria_provider %} Choose another available sign-in option.{% else %} Contact support if you still cannot sign in.{% endif %}
         {% elif sign_in_id_austria_error == 'id_austria_austria_ip_required' %}
         ID Austria sign-in is offered only when this request is detected from Austria.
         {% elif sign_in_id_austria_error.startswith('id_austria_') %}
-        Retry ID Austria, or use a secure email link for the same account.
+        {% if show_id_austria_provider %}Retry ID Austria.{% else %}ID Austria is not available for this request.{% endif %}{% if sign_in_link_enabled %} You can also use a secure email link for the same account.{% elif has_other_id_austria_provider %} Choose another available sign-in option.{% else %} Contact support if you still cannot sign in.{% endif %}
         {% else %}
         {{ sign_in_id_austria_error }}
         {% endif %}
       </p>
       <p class="copy">ID Austria opens the same account and creates it if needed.</p>
+      {% if show_id_austria_provider %}
       <div class="cta-row">
-        <a class="btn primary" href="/sign-in/id-austria" data-auth-provider-link data-submitting-label="Opening ID Austria...">Retry ID Austria sign-in</a>
+        <a class="btn primary" href="/sign-in/id-austria?return_to={{ sign_in_return_to_encoded }}" data-auth-provider-link data-auth-provider-kind="id-austria" data-submitting-label="Opening ID Austria...">Retry ID Austria sign-in</a>
       </div>
+      {% endif %}
     </div>
     {% endif %}
     {% if sign_in_link_status %}
@@ -505,6 +530,17 @@
   </section>
 </section>
 <script>
+  const emailSignInAvailable = {{ 'true' if sign_in_link_enabled else 'false' }};
+  const enabledSignInProviders = new Set(
+    [...document.querySelectorAll('[data-auth-provider-card][data-auth-provider]')]
+      .map((card) => String(card.dataset.authProvider || '').trim())
+      .filter(Boolean),
+  );
+  const signInProviderLabels = {
+    google: 'Google',
+    facebook: 'Facebook',
+    'id-austria': 'ID Austria',
+  };
   document.querySelectorAll('[data-auth-provider-link]').forEach((link) => {
     link.addEventListener('click', (event) => {
       if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || link.target && link.target !== '_self') return;
@@ -517,15 +553,33 @@
       link.dataset.originalLabel = link.textContent || '';
       link.textContent = link.dataset.submittingLabel || 'Opening...';
       link.setAttribute('aria-busy', 'true');
-      const provider = (link.textContent || link.dataset.submittingLabel || 'Sign-in provider').replace(/\.\.\.$/, '').trim();
+      const providerKind = String(
+        link.dataset.authProviderKind
+        || link.closest('[data-auth-provider-card]')?.dataset.authProvider
+        || '',
+      ).trim();
+      const provider = signInProviderLabels[providerKind] || 'Sign-in provider';
+      const hasOtherProvider = [...enabledSignInProviders].some((kind) => kind !== providerKind);
       const status = document.querySelector('[data-auth-provider-status]');
-      if (status) status.textContent = `${provider}. If nothing opens, use email instead.`;
+      if (status) {
+        status.textContent = emailSignInAvailable
+          ? `${provider}. If nothing opens, use email instead.`
+          : (hasOtherProvider
+            ? `${provider}. If nothing opens, choose another available sign-in option.`
+            : `${provider}. If nothing opens, try again or contact support.`);
+      }
       window.setTimeout(() => {
         if (document.visibilityState === 'visible' && link.getAttribute('aria-busy') === 'true') {
           link.textContent = link.dataset.originalLabel || 'Try again';
           link.removeAttribute('aria-busy');
           if (card) card.classList.remove('is-submitting');
-          if (status) status.textContent = 'Still here. Try again or use email instead.';
+          if (status) {
+            status.textContent = emailSignInAvailable
+              ? 'Still here. Try again or use email instead.'
+              : (hasOtherProvider
+                ? 'Still here. Try again or choose another available sign-in option.'
+                : 'Still here. Try again or contact support.');
+          }
         }
       }, 3500);
     });

@@ -73,9 +73,18 @@ FEATURE_CARDS = (
 )
 
 HOW_STEPS = (
-    {"title": "Create the account", "body": "Use email first, then optional Google identity so return access stays simple and narrow."},
-    {"title": "Set your search brief", "body": "Define market, budget, household needs, and requirements before the first sweep runs."},
-    {"title": "Review the shortlist", "body": "Keep the first search focused on matching homes, property pages, and visible feedback."},
+    {
+        "title": "Describe the home",
+        "body": "Set the market, budget, must-haves, and preferences once so every listing starts from the same brief.",
+    },
+    {
+        "title": "Compare matching homes",
+        "body": "Search selected listing sites, then compare the strongest matches with fit reasons and missing details in view.",
+    },
+    {
+        "title": "Research before deciding",
+        "body": "Open the homes that deserve attention, verify important facts, and save the next action or decision for later.",
+    },
 )
 
 PERSONAS = (
@@ -269,12 +278,12 @@ PUBLIC_TRUST_PAGES = {
         "path": "/imprint",
         "nav": "imprint",
         "title": "Imprint",
-        "kicker": "Company information",
-        "summary": "Public contact, responsible-party, and escalation information for PropertyQuarry.",
+        "kicker": "Legal notice",
+        "summary": "Contact routes and the current publication status of PropertyQuarry's legal operator details.",
         "band": (
             {
-                "title": "Responsible owner",
-                "body": "PropertyQuarry is responsible for this public product surface and the property-research workflows it offers.",
+                "title": "Operator details incomplete",
+                "body": "The verified legal operator name, service address, company-register details, and tax identifiers are not yet published on this surface.",
             },
             {
                 "title": "Contact",
@@ -283,12 +292,12 @@ PUBLIC_TRUST_PAGES = {
         ),
         "sections": (
             {
-                "eyebrow": "Responsible party",
+                "eyebrow": "Contact",
                 "title": "How to reach PropertyQuarry",
-                "body": "PropertyQuarry keeps the public contact path intentionally narrow so support requests include a traceable search, account, or shared-link reference.",
+                "body": "PropertyQuarry is the product name shown on this site, not a substitute for the legal operator identity. Support remains the narrow contact path while the verified operator fields are completed.",
                 "items": (
-                    "Product, billing, and account requests: /support",
-                    "Security, privacy, deletion, and shared-link revocation: /support",
+                    "Product, billing, and account requests: save a signed-in Support reference to keep the account and search context attached, then email support for a reply.",
+                    "Security, privacy, deletion, and shared-link revocation: email property@propertyquarry.com; a signed-in Support reference can attach safe account context first.",
                     "Search repair reports: include the search ID, listing URL, site, and the expected district or listing mode",
                 ),
             },
@@ -305,12 +314,12 @@ PUBLIC_TRUST_PAGES = {
         ),
         "faqs": (
             {
-                "question": "Why is this page explicit?",
-                "answer": "A paid property product needs a visible responsible-party surface, especially when it handles household preferences and shared pages.",
+                "question": "Is this legal notice complete?",
+                "answer": "No. Do not rely on it as a complete legal notice until the verified operator and registration details appear above.",
             },
             {
                 "question": "Where should urgent data or wrong-area issues go?",
-                "answer": "Use Support and include the affected URL or search ID. That gives the repair workflow enough detail to reproduce the issue.",
+                "answer": "Save a Support reference with the affected URL or search ID, then email property@propertyquarry.com and include that reference.",
             },
         ),
     },
@@ -319,7 +328,7 @@ PUBLIC_TRUST_PAGES = {
         "nav": "support",
         "title": "Support",
         "kicker": "Help",
-        "summary": "Use Support for failed runs, wrong-area matches, missing facts, billing questions, deletion requests, and search repair.",
+        "summary": "Sign in to save a traceable account reference for failed searches, wrong-area matches, missing facts, billing, deletion, or account access, then email support when you need a reply.",
         "band": (
             {
                 "title": "Search problems",
@@ -347,6 +356,7 @@ PUBLIC_TRUST_PAGES = {
                 "body": "Report exposed private data, unsafe public tour assets, or account access issues as security-sensitive support items.",
                 "items": (
                     "Do not paste passwords, access tokens, or full private documents into a public channel.",
+                    "Do not send private share tokens or exact private addresses in an initial email.",
                     "Ask for public share-link revocation if a link was sent to the wrong person.",
                     "Include a correlation ID from an error response when available.",
                 ),
@@ -360,6 +370,10 @@ PUBLIC_TRUST_PAGES = {
             {
                 "question": "What if a listing source keeps failing?",
                 "answer": "A failing source is retried a limited number of times. If it still cannot be reached, the search continues and shows partial coverage.",
+            },
+            {
+                "question": "What if I cannot sign in?",
+                "answer": "Email property@propertyquarry.com with a safe description and correlation ID. Do not include passwords, access tokens, private share tokens, or full documents.",
             },
         ),
     },

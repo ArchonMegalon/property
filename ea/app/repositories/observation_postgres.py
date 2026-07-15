@@ -332,35 +332,24 @@ class PostgresObservationEventRepository:
             dict.fromkeys(str(value or "").strip() for value in event_types if str(value or "").strip())
         )
         query = """
-            WITH recent AS (
-                SELECT observation_id
-                FROM observation_events
+            SELECT observation_id, principal_id, channel, event_type, payload_json,
+                   created_at, source_id, external_id, dedupe_key, auth_context_json,
+                   raw_payload_uri
+            FROM observation_events
+            WHERE TRUE
         """
         params: list[Any] = []
         if normalized_principal:
-            query += " WHERE principal_id = %s"
+            query += " AND principal_id = %s"
             params.append(normalized_principal)
-        query += """
-                ORDER BY created_at DESC, observation_id DESC
-                LIMIT %s
-            )
-            SELECT observation.observation_id, observation.principal_id,
-                   observation.channel, observation.event_type, observation.payload_json,
-                   observation.created_at, observation.source_id, observation.external_id,
-                   observation.dedupe_key, observation.auth_context_json,
-                   observation.raw_payload_uri
-            FROM observation_events AS observation
-            INNER JOIN recent USING (observation_id)
-            WHERE TRUE
-        """
-        params.append(n)
         if normalized_channel:
-            query += " AND observation.channel = %s"
+            query += " AND channel = %s"
             params.append(normalized_channel)
         if normalized_types:
-            query += " AND observation.event_type = ANY(%s)"
+            query += " AND event_type = ANY(%s)"
             params.append(list(normalized_types))
-        query += " ORDER BY observation.created_at DESC, observation.observation_id DESC"
+        query += " ORDER BY created_at DESC, observation_id DESC LIMIT %s"
+        params.append(n)
         with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(query, tuple(params))

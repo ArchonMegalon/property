@@ -35,7 +35,7 @@
   }
   .register-progress {
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 10px;
   }
   .register-pill {
@@ -53,6 +53,16 @@
     border-color: rgba(189, 139, 47, 0.24);
     background: rgba(189, 139, 47, 0.12);
   }
+  .register-progress-summary {
+    display: none;
+    margin: 0;
+    border: 1px solid rgba(189, 139, 47, 0.24);
+    border-radius: 999px;
+    padding: 8px 12px;
+    color: var(--text);
+    background: rgba(189, 139, 47, 0.12);
+    font-size: 13px;
+  }
   .register-wizard {
     display: grid;
     gap: 14px;
@@ -66,8 +76,7 @@
   }
   .register-form,
   .register-grid,
-  .register-preview-grid,
-  .register-milestones {
+  .register-preview-grid {
     display: grid;
     gap: 12px;
   }
@@ -105,19 +114,6 @@
     display: block;
     margin-bottom: 6px;
   }
-  .register-milestone {
-    display: flex;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 12px 14px;
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    background: color-mix(in srgb, var(--panel-2) 74%, transparent);
-  }
-  .register-milestone.done {
-    border-color: rgba(39, 107, 83, 0.24);
-    background: color-mix(in srgb, rgba(39, 107, 83, 0.18) 55%, var(--panel) 45%);
-  }
   .register-status,
   .register-error,
   .register-inline {
@@ -127,6 +123,11 @@
   .register-status,
   .register-inline { color: var(--text-soft); }
   .register-error { color: #a65347; }
+  .register-status:empty,
+  .register-error:empty,
+  .register-inline:empty {
+    display: none;
+  }
   .register-verify-note {
     border: 1px solid var(--line);
     border-radius: 12px;
@@ -165,6 +166,7 @@
   }
   html[data-pq-theme="dark"] .register-wizard .btn {
     background: color-mix(in srgb, var(--panel-2) 82%, var(--bg) 18%);
+    color: var(--text);
   }
   html[data-pq-theme="dark"] .register-wizard .btn.primary {
     background: color-mix(in srgb, var(--accent-soft) 22%, var(--panel) 78%);
@@ -172,29 +174,52 @@
   @media (max-width: 1080px) {
     .register-shell,
     .register-grid,
-    .register-preview-grid,
-    .register-progress {
+    .register-preview-grid {
       grid-template-columns: 1fr;
+    }
+  }
+  @media (max-width: 760px) {
+    .register-hero,
+    .register-wizard,
+    .register-step {
+      padding: 18px;
+    }
+    .register-hero {
+      gap: 10px;
+    }
+    .register-hero h1,
+    .register-hero .lead {
+      margin: 0;
+    }
+    .register-hero h1 {
+      font-size: clamp(2rem, 10vw, 2.6rem);
+      line-height: 1;
+    }
+    .register-progress {
+      display: none;
+    }
+    .register-progress-summary {
+      display: block;
     }
   }
 </style>
 
-<section class="register-stage" data-register-app>
+<section class="register-stage" data-register-app data-register-return-to="{{ register_return_to }}">
   <div class="register-shell">
     <section class="register-hero">
       <div class="kicker">{% if brand.key == 'propertyquarry' %}Property onboarding{% else %}Personal account{% endif %}</div>
-      <h1>{% if brand.key == 'propertyquarry' %}Set up an account that finds and ranks the right properties.{% else %}Set up an account that shows the first useful loop.{% endif %}</h1>
-      <p class="lead">{% if brand.key == 'propertyquarry' %}Finish setup and start the first search.{% else %}Finish setup and start the first search.{% endif %}</p>
+      <h1>{% if brand.key == 'propertyquarry' %}Set up your property search.{% else %}Set up an account that shows the first useful loop.{% endif %}</h1>
+      <p class="lead">{% if brand.key == 'propertyquarry' %}Create an account, then start with your brief.{% else %}Finish setup and start the first search.{% endif %}</p>
     </section>
 
     <section class="register-wizard">
-      <div class="register-progress">
-        <div class="register-pill" data-step-pill="1">1. Email</div>
-        <div class="register-pill" data-step-pill="2">2. Shape</div>
-        <div class="register-pill" data-step-pill="3">3. Google</div>
-        <div class="register-pill" data-step-pill="4">4. Build</div>
-        <div class="register-pill" data-step-pill="5">5. Success</div>
+      <div class="register-progress" role="list" aria-label="Registration progress">
+        <div class="register-pill" role="listitem" data-step-pill="1" data-step-label="Email">1. Email</div>
+        <div class="register-pill" role="listitem" data-step-pill="2" data-step-label="Account details">2. Details</div>
+        <div class="register-pill" role="listitem" data-step-pill="3" data-step-label="Google, optional">3. Access</div>
+        <div class="register-pill" role="listitem" data-step-pill="4" data-step-label="Ready">4. Ready</div>
       </div>
+      <p class="register-progress-summary" data-register-progress-summary role="status" aria-live="polite" aria-atomic="true">Step 1 of 4: Email</p>
 
       <section class="register-step" data-step="1">
         <div>
@@ -218,8 +243,8 @@
       <section class="register-step" data-step="2">
         <div>
           <div class="kicker">Step 2</div>
-          <h2>Account shape</h2>
-          <p class="copy">Keep it simple.</p>
+          <h2>Account details</h2>
+          <p class="copy">Confirm your email and the basics for this account.</p>
         </div>
         <div class="register-verify-note" data-verify-note></div>
         <form class="register-form" data-form="verify">
@@ -252,8 +277,8 @@
       <section class="register-step" data-step="3">
         <div>
           <div class="kicker">Step 3</div>
-          <h2>{% if brand.key == 'propertyquarry' %}Link Google{% else %}Connect Google{% endif %}</h2>
-          <p class="copy">Optional return access. Google sign-in also works as first account creation later.</p>
+          <h2>{% if brand.key == 'propertyquarry' %}Optional Google access{% else %}Connect Google{% endif %}</h2>
+          <p class="copy">Link Google for a faster return, or skip it for now.</p>
         </div>
         <div class="register-choice">
           <strong>{% if brand.key == 'propertyquarry' %}Google sign-in{% else %}Google sign-in{% endif %}<button class="info-tip" type="button" title="Optional return access." aria-label="Optional return access.">?</button></strong>
@@ -262,34 +287,19 @@
         <div class="register-error" data-google-error></div>
         <div class="cta-row">
           <button class="btn primary" type="button" data-action="google-consent">{% if brand.key == 'propertyquarry' %}Link Google account{% else %}Connect Google Core{% endif %}</button>
-          <button class="btn" type="button" data-action="build-brief">{% if brand.key == 'propertyquarry' %}Open PropertyQuarry{% else %}Build first morning memo{% endif %}</button>
+          <button class="btn" type="button" data-action="build-brief">{% if brand.key == 'propertyquarry' %}Skip for now{% else %}Build first morning memo{% endif %}</button>
         </div>
       </section>
 
       <section class="register-step" data-step="4">
         <div>
           <div class="kicker">Step 4</div>
-          <h2>Prepare your account</h2>
-          <p class="copy">Setting things up.</p>
-        </div>
-        <div class="register-milestones">
-          <div class="register-milestone" data-milestone="calendar"><span>Saving your profile</span><strong>Pending</strong></div>
-          <div class="register-milestone" data-milestone="email"><span>{% if brand.key == 'propertyquarry' %}Opening PropertyQuarry{% else %}Finishing Google connect{% endif %}</span><strong>Pending</strong></div>
-          <div class="register-milestone" data-milestone="defaults"><span>{% if brand.key == 'propertyquarry' %}Preparing saved defaults{% else %}Build first morning memo{% endif %}</span><strong>Pending</strong></div>
-          <div class="register-milestone" data-milestone="shortlist"><span>{% if brand.key == 'propertyquarry' %}Getting the first shortlist ready{% else %}Preparing the follow-up queue{% endif %}</span><strong>Pending</strong></div>
-        </div>
-        <div class="register-inline" data-build-inline></div>
-      </section>
-
-      <section class="register-step" data-step="5">
-        <div>
-          <div class="kicker">Step 5</div>
-          <h2>{% if brand.key == 'propertyquarry' %}Your PropertyQuarry account is ready.{% else %}Your account is ready.{% endif %}</h2>
-          <p class="copy">{% if brand.key == 'propertyquarry' %}Start with the search brief and first shortlist.{% else %}Start with the first morning memo, the first queue, and the first visible office loop. Shared review can come later.{% endif %}</p>
+          <h2>{% if brand.key == 'propertyquarry' %}Ready to search.{% else %}Your account is ready.{% endif %}</h2>
+          <p class="copy">{% if brand.key == 'propertyquarry' %}Start with the search brief, then review the first matches.{% else %}Start with the first morning memo, the first queue, and the first visible office loop. Shared review can come later.{% endif %}</p>
         </div>
         <div class="register-preview-grid">
           <section class="register-preview">
-            <strong>{% if brand.key == 'propertyquarry' %}First shortlist{% else %}First results{% endif %}</strong>
+            <strong>{% if brand.key == 'propertyquarry' %}First search checklist{% else %}First results{% endif %}</strong>
             <ul data-preview-brief></ul>
           </section>
           <section class="register-preview">
@@ -298,7 +308,7 @@
           </section>
         </div>
         <div class="cta-row">
-          <a class="btn primary" href="{{ brand.app_home or '/app/search' }}">{% if brand.key == 'propertyquarry' %}Open PropertyQuarry{% else %}Open account{% endif %}</a>
+          <a class="btn primary" href="{{ register_return_to }}">{% if brand.key == 'propertyquarry' and register_return_to == (brand.app_home or '/app/search') %}Open PropertyQuarry{% else %}Continue{% endif %}</a>
           <a class="btn" href="/app/account">Account</a>
         </div>
       </section>
@@ -310,6 +320,7 @@
 (() => {
   const app = document.querySelector('[data-register-app]');
   if (!app) return;
+  const registerReturnTo = String(app.dataset.registerReturnTo || '').trim() || '/app/search';
 
   const params = new URLSearchParams(window.location.search);
   const storageKey = 'ea-register-state';
@@ -339,6 +350,7 @@
   }
 
   const pills = [...document.querySelectorAll('[data-step-pill]')];
+  const progressSummary = document.querySelector('[data-register-progress-summary]');
   const steps = [...document.querySelectorAll('[data-step]')];
   const startForm = document.querySelector('[data-form="start"]');
   const verifyForm = document.querySelector('[data-form="verify"]');
@@ -349,7 +361,6 @@
   const verifyNote = document.querySelector('[data-verify-note]');
   const googleInline = document.querySelector('[data-google-inline]');
   const googleError = document.querySelector('[data-google-error]');
-  const buildInline = document.querySelector('[data-build-inline]');
   const briefList = document.querySelector('[data-preview-brief]');
   const queueList = document.querySelector('[data-preview-queue]');
   let buildInFlight = false;
@@ -369,7 +380,17 @@
       const current = Number(node.dataset.stepPill);
       node.classList.toggle('active', current === step);
       node.classList.toggle('done', current < step);
+      if (current === step) {
+        node.setAttribute('aria-current', 'step');
+      } else {
+        node.removeAttribute('aria-current');
+      }
     });
+    if (progressSummary) {
+      const currentPill = pills.find((node) => Number(node.dataset.stepPill) === step);
+      const label = String(currentPill?.dataset.stepLabel || '').trim() || 'Registration';
+      progressSummary.textContent = `Step ${step} of ${pills.length}: ${label}`;
+    }
   };
 
   const setList = (node, values, fallback) => {
@@ -412,18 +433,6 @@
     verifyNote.innerHTML = `Check ${escapeHtml(email)} for the verification email and either open the secure verification link or enter the 6-digit code from that message here.`;
   };
 
-  const markMilestones = async () => {
-    const milestones = ['calendar', 'email', 'defaults', 'shortlist'];
-    for (const key of milestones) {
-      const row = document.querySelector(`[data-milestone="${key}"]`);
-      if (!row) continue;
-      row.classList.add('done');
-      const strong = row.querySelector('strong');
-      if (strong) strong.textContent = 'Done';
-      await new Promise((resolve) => window.setTimeout(resolve, 180));
-    }
-  };
-
   const applyPrefill = () => {
     if (!state.start || !verifyForm) return;
     verifyForm.elements.workspace_name.value = state.start.workspace_name || '';
@@ -444,9 +453,9 @@
       return;
     }
     if (state.preview.brief.length || state.preview.queue.length) {
-      setList(briefList, state.preview.brief, ['Your first shortlist signals will appear here.']);
+      setList(briefList, state.preview.brief, ['Your first search checklist will appear here.']);
       setList(queueList, state.preview.queue, ['Your next actions will appear here.']);
-      setStep(5);
+      setStep(4);
       return;
     }
     setStep(3);
@@ -461,7 +470,7 @@
       const response = await fetch('/v1/register/start', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, return_to: registerReturnTo }),
       });
       const body = await response.json();
       if (!response.ok) throw new Error((body.detail || 'Could not start registration').toString());
@@ -507,7 +516,8 @@
       state.verified = body;
       setState();
       verifyInline.textContent = 'Account created. Signing you in…';
-      const returnTo = encodeURIComponent('/register?ready=1');
+      const readyParams = new URLSearchParams({ ready: '1', return_to: registerReturnTo });
+      const returnTo = encodeURIComponent(`/register?${readyParams.toString()}`);
       window.location.assign(`${body.access_url}?return_to=${returnTo}`);
     } catch (error) {
       verifyInline.textContent = '';
@@ -528,12 +538,9 @@
     window.open(startUrl, '_blank', 'noopener');
   });
 
-  const buildPropertyWorkspace = async (intro = 'Preparing PropertyQuarry…') => {
+  const buildPropertyWorkspace = async () => {
     if (buildInFlight) return;
     buildInFlight = true;
-    buildInline.textContent = intro;
-    setStep(4);
-    await markMilestones();
     try {
       state.preview = {
         brief: [
@@ -548,22 +555,18 @@
         ],
       };
       setState();
-      setList(briefList, state.preview.brief, ['Your shortlist signals will appear here.']);
+      setList(briefList, state.preview.brief, ['Your search checklist will appear here.']);
       setList(queueList, state.preview.queue, ['Your next actions will appear here.']);
-      buildInline.textContent = brand.key === 'propertyquarry' ? 'PropertyQuarry ready.' : 'Workspace ready.';
-      setStep(5);
+      setStep(4);
     } catch (_error) {
       state.preview = {
-        brief: ['Your shortlist signals will appear after your first property search is configured.'],
+        brief: ['Your search checklist will appear after your first property search is configured.'],
         queue: ['Your next actions will show searches, property pages, and follow-ups in one decision desk.'],
       };
       setState();
-      setList(briefList, state.preview.brief, ['Your shortlist signals will appear here.']);
+      setList(briefList, state.preview.brief, ['Your search checklist will appear here.']);
       setList(queueList, state.preview.queue, ['Your next actions will appear here.']);
-      buildInline.textContent = brand.key === 'propertyquarry'
-        ? 'PropertyQuarry ready. Open the app to continue the first property loop.'
-        : 'Workspace ready. Open the app to continue the first loop.';
-      setStep(5);
+      setStep(4);
     } finally {
       buildInFlight = false;
     }
@@ -598,7 +601,7 @@
     googleError.textContent = '';
     googleInline.textContent = googleSyncSummary(payload);
     if (!state.preview.brief.length && !state.preview.queue.length) {
-      await buildPropertyWorkspace('Google linked. Preparing PropertyQuarry…');
+      await buildPropertyWorkspace();
     }
   };
 
@@ -622,7 +625,7 @@
   };
 
   document.querySelector('[data-action="build-brief"]')?.addEventListener('click', async () => {
-    await buildPropertyWorkspace('Preparing PropertyQuarry…');
+    await buildPropertyWorkspace();
   });
 
   window.addEventListener('storage', (event) => {

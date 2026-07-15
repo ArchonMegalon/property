@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import re
+import urllib.parse
+from html.parser import HTMLParser
 
 import pytest
 
@@ -96,6 +98,25 @@ def _visible_text(html: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", without_script)).strip().lower()
 
 
+class _StartTagParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.tags: list[tuple[str, dict[str, str | None]]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.tags.append((tag, dict(attrs)))
+
+
+def _start_tags(html: str) -> list[tuple[str, dict[str, str | None]]]:
+    parser = _StartTagParser()
+    parser.feed(html)
+    return parser.tags
+
+
+def _has_class(attrs: dict[str, str | None], class_name: str) -> bool:
+    return class_name in str(attrs.get("class") or "").split()
+
+
 def _assert_internal_links_resolve(client: TestClient, *, source_path: str, html: str) -> None:
     for href in _internal_links(html):
         if href.startswith("/app/actions/") or href.startswith("/sign-out"):
@@ -114,6 +135,14 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
         response = client.get(path)
         assert response.status_code == 200, path
         _assert_no_drift(response.text)
+        start_tags = _start_tags(response.text)
+        assert sum(tag == "main" for tag, _attrs in start_tags) == 1, path
+        nav_labels = {
+            attrs.get("aria-label")
+            for tag, attrs in start_tags
+            if tag == "nav"
+        }
+        assert {"Primary navigation", "Mobile navigation", "Legal navigation"} <= nav_labels, path
 
     landing = anonymous_client.get("/", headers={"host": "propertyquarry.com", "accept": "text/html"})
     assert "Search once. See the right homes. Decide faster." in landing.text
@@ -151,7 +180,17 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     assert directory_profile.headers["location"] == "/"
 
     pricing = client.get("/pricing")
-    assert "<h1>Pricing</h1>" not in pricing.text
+    assert "<h1>Choose the search depth you need.</h1>" in pricing.text
+    assert "Listing sites / search" in pricing.text
+    assert "3D tour scope" in pricing.text
+    assert "No charge" in pricing.text
+    assert ">Free</div>" not in pricing.text
+    anonymous_pricing = anonymous_client.get(
+        "/pricing",
+        headers={"host": "propertyquarry.com", "accept": "text/html"},
+    )
+    assert 'href="/register?return_to=%2Fapp%2Fsearch"' in anonymous_pricing.text
+    assert 'href="/sign-in?signing_in=1&amp;return_to=%2Fapp%2Fsearch"' in anonymous_pricing.text
     assert "Choose by sources, shortlist size, and research depth." not in pricing.text
     assert "Upgrade when the current lane is the bottleneck." not in pricing.text
     assert "Typical office path" not in pricing.text
@@ -177,20 +216,32 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     assert "from account, with connections inside it where appropriate" in f"{cookies.text} {refunds.text}".lower()
 
     security = client.get("/how-it-works")
-    assert "Clear requirements. Calmer search." in security.text
-    assert "Fit guide" in security.text
+    assert "Search. Compare. Decide." in security.text
+    assert "Describe the home" in security.text
+    assert "Compare matching homes" in security.text
+    assert "Research before deciding" in security.text
     assert "/how-it-works/score" in security.text
-    assert "Must-haves decide what belongs. Preferences shape the order." in security.text
+    assert "Describe the home once. Compare matching homes across selected listing sites." in security.text
+    assert "Private until you share" in security.text
+    assert "Start a search" in security.text
+    assert '<ol class="trust-grid" aria-label="How PropertyQuarry works">' in security.text
+    assert security.text.count('class="trust-step" aria-hidden="true"') == 3
+    assert "<h2>Describe the home</h2>" in security.text
+    anonymous_security = anonymous_client.get(
+        "/how-it-works",
+        headers={"host": "propertyquarry.com", "accept": "text/html"},
+    )
+    assert 'href="/register?return_to=%2Fapp%2Fsearch"' in anonymous_security.text
+    assert 'href="/sign-in?signing_in=1&amp;return_to=%2Fapp%2Fsearch"' in anonymous_security.text
     assert "Strict rules. Smart ranking." not in security.text
     assert "Score guide" not in security.text
     assert "Hard filters decide eligibility. Optional preferences tune the score." not in security.text
     assert "Private by default." not in security.text
     assert "Automatic digests" not in security.text
     assert "Morning memo schedule" not in security.text
-    assert "You choose what is shared" in security.text
     assert "Security, privacy, and visual quality are reviewed before public changes go live." not in security.text
     assert "Release checks and security review" not in security.text
-    assert "Searches, decisions, notes, and private pages stay signed in unless you create a share link." in security.text
+    assert "Searches, decisions, notes, and property pages stay signed in." in security.text
     assert "EA Postgres" not in security.text
     assert "source of truth" not in security.text.lower()
 
@@ -201,7 +252,8 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     assert "those providers' own account settings" not in deletion.text.lower() and "from preferences" not in deletion.text.lower()
 
     sign_in = client.get("/sign-in")
-    assert "Use email or one of the sign-in options below." in sign_in.text
+    assert "Use a secure email link if your address already has access." in sign_in.text
+    assert "First sign-in creates the account automatically." not in sign_in.text
     assert "Identity only" not in sign_in.text
     assert "Choose the narrowest sign-in path" not in sign_in.text
     assert (
@@ -215,6 +267,41 @@ def test_public_surface_routes_render_and_keep_product_language() -> None:
     assert "verified live provider embed" not in disclaimers.text.lower()
     assert "provider verification" not in disclaimers.text.lower()
     assert "check before deciding" in disclaimers.text.lower()
+
+    imprint = anonymous_client.get(
+        "/imprint",
+        headers={"host": "propertyquarry.com", "accept": "text/html"},
+    )
+    assert "Operator details incomplete" in imprint.text
+    assert "verified legal operator name" in imprint.text.lower()
+    assert "Is this legal notice complete?" in imprint.text
+    assert "PropertyQuarry is responsible for this public product surface" not in imprint.text
+
+    anonymous_support = anonymous_client.get(
+        "/support",
+        headers={"host": "propertyquarry.com", "accept": "text/html"},
+    )
+    assert 'href="/sign-in?signing_in=1&amp;return_to=%2Fapp%2Fsupport"' in anonymous_support.text
+    assert "Sign in to attach account context" in anonymous_support.text
+    assert "Email support" in anonymous_support.text
+    assert "mailto:property@propertyquarry.com" in anonymous_support.text
+    signed_in_support = client.get("/support")
+    assert 'href="/app/support"' in signed_in_support.text
+    assert "Open account support" in signed_in_support.text
+    assert "Email support" in signed_in_support.text
+    assert "mailto:property@propertyquarry.com" in signed_in_support.text
+    signed_in_support_alias = client.get("/app/support", follow_redirects=False)
+    assert signed_in_support_alias.status_code == 307
+    assert signed_in_support_alias.headers["location"] == "/app/settings/support"
+    account_support = client.get("/app/settings/support")
+    assert account_support.status_code == 200
+    support_tags = _start_tags(account_support.text)
+    assert any(tag == "div" and _has_class(attrs, "object-panel-stack") for tag, attrs in support_tags)
+    assert not any(tag == "aside" and _has_class(attrs, "object-panel-stack") for tag, attrs in support_tags)
+    assert not any(
+        _has_class(attrs, "pq-appbar-breadcrumbs") and attrs.get("aria-label")
+        for _tag, attrs in support_tags
+    )
 
     for href in _internal_links(landing.text):
         assert not href.startswith("/tours")
@@ -501,6 +588,241 @@ def test_propertyquarry_core_surface_internal_links_resolve() -> None:
             continue
         assert response.status_code == 200, path
         _assert_internal_links_resolve(client, source_path=path, html=response.text)
+
+
+def test_propertyquarry_support_records_and_reopens_traceable_request() -> None:
+    client = _client(principal_id="exec-property-support-request")
+    headers = {"host": "propertyquarry.com", "accept": "text/html"}
+
+    page = client.get("/app/settings/support", headers=headers)
+    assert page.status_code == 200
+    assert 'action="/app/actions/support/request"' in page.text
+    assert 'name="summary"' in page.text
+    assert 'minlength="5"' in page.text
+    assert 'name="details"' in page.text
+    assert 'maxlength="2000"' in page.text
+    assert "Do not include passwords, payment-card details, identity documents, or private access links." in page.text
+
+    submitted = client.post(
+        "/app/actions/support/request",
+        headers=headers,
+        data={
+            "return_to": "/app/settings/support",
+            "category": "search_results",
+            "summary": "One listing does not open",
+            "details": "The property card stays on the same page after I select Open property.",
+            "context_reference": "listing-42",
+        },
+        follow_redirects=False,
+    )
+    assert submitted.status_code == 303
+    parsed = urllib.parse.urlparse(submitted.headers["location"])
+    query = urllib.parse.parse_qs(parsed.query)
+    assert parsed.path == "/app/settings/support"
+    assert query["support_status"] == ["recorded"]
+    request_id = query["support_request_id"][0]
+    assert re.fullmatch(r"support_[0-9a-f]{12}", request_id)
+    container = client.app.state.container
+    receipt_rows = [
+        row
+        for row in container.channel_runtime.list_recent_observations(
+            principal_id="exec-property-support-request",
+            limit=50,
+        )
+        if str(row.source_id or "") == request_id
+    ]
+    assert len(receipt_rows) == 1
+    assert receipt_rows[0].channel == "support"
+    assert receipt_rows[0].payload["details"] == "The property card stays on the same page after I select Open property."
+    assert container.orchestrator.list_human_tasks(
+        principal_id="exec-property-support-request",
+        role_required="support",
+        limit=10,
+    ) == []
+
+    receipt = client.get(submitted.headers["location"], headers=headers)
+    assert receipt.status_code == 200
+    assert "Support reference saved" in receipt.text
+    assert f"it has not sent a message. Email support and include reference {request_id}." in receipt.text
+    assert "Recent support references" in receipt.text
+    assert "One listing does not open" in receipt.text
+    assert f"Reference {request_id}" in receipt.text
+    assert f"mailto:property@propertyquarry.com?subject=PropertyQuarry%20support%20{request_id}" in receipt.text
+    assert "Human review is pending" not in receipt.text
+
+    for index in range(210):
+        container.channel_runtime.ingest_observation(
+            principal_id="exec-property-support-request",
+            channel="product",
+            event_type="support_history_displacement_probe",
+            payload={"index": index},
+            source_id=f"support-history-noise-{index}",
+        )
+    after_unrelated_activity = client.get(submitted.headers["location"], headers=headers)
+    assert "One listing does not open" in after_unrelated_activity.text
+    assert f"Reference {request_id}" in after_unrelated_activity.text
+
+    other_account = client.get(
+        "/app/settings/support",
+        headers={**headers, "X-EA-Principal-ID": "exec-property-support-other-account"},
+    )
+    assert other_account.status_code == 200
+    assert "One listing does not open" not in other_account.text
+    assert request_id not in other_account.text
+
+
+def test_propertyquarry_support_rejects_invalid_and_external_return_target() -> None:
+    client = _client(principal_id="exec-property-support-invalid")
+    headers = {"host": "propertyquarry.com", "accept": "text/html"}
+
+    rejected = client.post(
+        "/app/actions/support/request",
+        headers=headers,
+        data={
+            "return_to": "https://example.invalid/escape",
+            "category": "unknown",
+            "summary": "No",
+            "details": "Too short",
+        },
+        follow_redirects=False,
+    )
+
+    assert rejected.status_code == 303
+    parsed = urllib.parse.urlparse(rejected.headers["location"])
+    query = urllib.parse.parse_qs(parsed.query)
+    assert parsed.path == "/app/settings/support"
+    assert parsed.netloc == ""
+    assert query["support_error"] == ["support_request_category_invalid"]
+    followup = client.get(rejected.headers["location"], headers=headers)
+    assert "Reference not saved" in followup.text
+    assert "Choose one of the available support categories." in followup.text
+
+
+def test_propertyquarry_support_does_not_trust_forged_receipt_query() -> None:
+    client = _client(principal_id="exec-property-support-forged-receipt")
+    response = client.get(
+        "/app/settings/support?support_status=recorded&support_request_id=support_deadbeefdead",
+        headers={"host": "propertyquarry.com", "accept": "text/html"},
+    )
+
+    assert response.status_code == 200
+    assert "Support reference saved" not in response.text
+    assert "Reference support_deadbeefdead" not in response.text
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "expected_error"),
+    (
+        ("summary", "s" * 121, "support_request_summary_too_long"),
+        ("details", "d" * 2001, "support_request_details_too_long"),
+        ("context_reference", "r" * 241, "support_request_reference_too_long"),
+    ),
+)
+def test_propertyquarry_support_rejects_overlong_fields_without_truncation(
+    field: str,
+    value: str,
+    expected_error: str,
+) -> None:
+    client = _client(principal_id=f"exec-property-support-overlong-{field}")
+    payload = {
+        "return_to": "/app/settings/support",
+        "category": "other",
+        "summary": "A valid summary",
+        "details": "A valid description of the support issue.",
+        "context_reference": "",
+    }
+    payload[field] = value
+
+    response = client.post(
+        "/app/actions/support/request",
+        headers={"host": "propertyquarry.com", "accept": "text/html"},
+        data=payload,
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    query = urllib.parse.parse_qs(urllib.parse.urlparse(response.headers["location"]).query)
+    assert query["support_error"] == [expected_error]
+
+
+def test_propertyquarry_support_stream_caps_body_without_content_length() -> None:
+    client = _client(principal_id="exec-property-support-stream-cap")
+
+    def oversized_chunks():
+        yield b"return_to=%2Fapp%2Fsettings%2Fsupport&category=other&summary=Valid+summary&details="
+        yield b"x" * 33_000
+
+    response = client.post(
+        "/app/actions/support/request",
+        headers={
+            "host": "propertyquarry.com",
+            "accept": "text/html",
+            "content-type": "application/x-www-form-urlencoded",
+        },
+        content=oversized_chunks(),
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    query = urllib.parse.parse_qs(urllib.parse.urlparse(response.headers["location"]).query)
+    assert query["support_error"] == ["support_request_too_large"]
+
+
+def test_propertyquarry_support_accepts_valid_unicode_within_character_limit() -> None:
+    client = _client(principal_id="exec-property-support-unicode")
+    details = "ä" * 1500
+
+    response = client.post(
+        "/app/actions/support/request",
+        headers={"host": "propertyquarry.com", "accept": "text/html"},
+        data={
+            "return_to": "/app/settings/support",
+            "category": "other",
+            "summary": "Unicode details remain valid",
+            "details": details,
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    query = urllib.parse.parse_qs(urllib.parse.urlparse(response.headers["location"]).query)
+    assert query["support_status"] == ["recorded"]
+    request_id = query["support_request_id"][0]
+    receipt = next(
+        row
+        for row in client.app.state.container.channel_runtime.list_recent_observations_matching(
+            principal_id="exec-property-support-unicode",
+            channel="support",
+            event_types=("support_request_created",),
+            limit=10,
+        )
+        if row.source_id == request_id
+    )
+    assert receipt.payload["details"] == details
+
+
+def test_propertyquarry_support_post_requires_authenticated_account() -> None:
+    os.environ["EA_STORAGE_BACKEND"] = "memory"
+    os.environ.pop("EA_LEDGER_BACKEND", None)
+    os.environ["EA_API_TOKEN"] = "test-token"
+    os.environ["EA_RUNTIME_MODE"] = "dev"
+    from app.api.app import create_app
+
+    client = TestClient(create_app())
+    response = client.post(
+        "/app/actions/support/request",
+        headers={"host": "propertyquarry.com", "accept": "text/html"},
+        data={
+            "category": "other",
+            "summary": "A valid summary",
+            "details": "A valid description of the support issue.",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "auth_required"
+    assert client.app.state.container.channel_runtime.list_recent_observations(limit=20) == []
 
 
 def test_register_success_surface_uses_account_cta_not_settings_alias() -> None:

@@ -1348,7 +1348,7 @@
   </section>
 
   {% if has_sidebar_content %}
-  <aside class="{% if settings_surface %}object-panel-stack{% else %}object-panel{% endif %}">
+  <div class="{% if settings_surface %}object-panel-stack{% else %}object-panel{% endif %}">
     {% set sidebar_link_state = namespace(has_links=false) %}
     {% for item in object_sidebar_rows %}
       {% if item.get('href') or item.get('action_href') or item.get('secondary_action_href') or item.get('tertiary_action_href') or item.get('quaternary_action_href') %}
@@ -1484,12 +1484,12 @@
           {% if field.type == 'textarea' %}
           <label class="object-field">
             <span>{{ field.label }}</span>
-            <textarea name="{{ field.name }}" {% if field.placeholder %}placeholder="{{ field.placeholder }}"{% endif %}>{{ field.value or '' }}</textarea>
+            <textarea name="{{ field.name }}" {% if field.placeholder %}placeholder="{{ field.placeholder }}"{% endif %}{% if field.required %} required aria-required="true"{% endif %}{% if field.minlength %} minlength="{{ field.minlength }}"{% endif %}{% if field.maxlength %} maxlength="{{ field.maxlength }}"{% endif %}>{{ field.value or '' }}</textarea>
           </label>
           {% elif field.type == 'select' %}
           <label class="object-field">
             <span>{{ field.label }}</span>
-            <select name="{{ field.name }}">
+            <select name="{{ field.name }}"{% if field.required %} required aria-required="true"{% endif %}>
               {% for option in field.options or [] %}
               <option value="{{ option.value }}" {% if option.selected %}selected{% endif %}>{{ option.label }}</option>
               {% endfor %}
@@ -1498,7 +1498,7 @@
           {% else %}
           <label class="object-field">
             <span>{{ field.label }}</span>
-            <input type="{{ field.type or 'text' }}" name="{{ field.name }}" value="{{ field.value or '' }}" {% if field.placeholder %}placeholder="{{ field.placeholder }}"{% endif %}>
+            <input type="{{ field.type or 'text' }}" name="{{ field.name }}" value="{{ field.value or '' }}" {% if field.placeholder %}placeholder="{{ field.placeholder }}"{% endif %}{% if field.required %} required aria-required="true"{% endif %}{% if field.minlength %} minlength="{{ field.minlength }}"{% endif %}{% if field.maxlength %} maxlength="{{ field.maxlength }}"{% endif %}{% if field.autocomplete %} autocomplete="{{ field.autocomplete }}"{% endif %}>
           </label>
           {% endif %}
           {% endfor %}
@@ -1521,12 +1521,12 @@
       {% if field.type == 'textarea' %}
       <label class="object-field">
         <span>{{ field.label }}</span>
-        <textarea name="{{ field.name }}" {% if field.placeholder %}placeholder="{{ field.placeholder }}"{% endif %}>{{ field.value or '' }}</textarea>
+        <textarea name="{{ field.name }}" {% if field.placeholder %}placeholder="{{ field.placeholder }}"{% endif %}{% if field.required %} required aria-required="true"{% endif %}{% if field.minlength %} minlength="{{ field.minlength }}"{% endif %}{% if field.maxlength %} maxlength="{{ field.maxlength }}"{% endif %}>{{ field.value or '' }}</textarea>
       </label>
       {% elif field.type == 'select' %}
       <label class="object-field">
         <span>{{ field.label }}</span>
-        <select name="{{ field.name }}">
+        <select name="{{ field.name }}"{% if field.required %} required aria-required="true"{% endif %}>
           {% for option in field.options or [] %}
           <option value="{{ option.value }}" {% if option.selected %}selected{% endif %}>{{ option.label }}</option>
           {% endfor %}
@@ -1535,7 +1535,7 @@
       {% else %}
       <label class="object-field">
         <span>{{ field.label }}</span>
-        <input type="{{ field.type or 'text' }}" name="{{ field.name }}" value="{{ field.value or '' }}" {% if field.placeholder %}placeholder="{{ field.placeholder }}"{% endif %}>
+        <input type="{{ field.type or 'text' }}" name="{{ field.name }}" value="{{ field.value or '' }}" {% if field.placeholder %}placeholder="{{ field.placeholder }}"{% endif %}{% if field.required %} required aria-required="true"{% endif %}{% if field.minlength %} minlength="{{ field.minlength }}"{% endif %}{% if field.maxlength %} maxlength="{{ field.maxlength }}"{% endif %}{% if field.autocomplete %} autocomplete="{{ field.autocomplete }}"{% endif %}>
       </label>
       {% endif %}
       {% endfor %}
@@ -1733,7 +1733,7 @@
 	      </details>
 	    </section>
 	    {% endif %}
-	  </aside>
+	  </div>
   {% endif %}
 	</section>
 

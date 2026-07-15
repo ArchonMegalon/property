@@ -25126,6 +25126,71 @@ class ProductService:
             "display_name": str(contact.get("display_name") or "").strip(),
         }
 
+    def create_support_request(
+        self,
+        *,
+        principal_id: str,
+        actor: str,
+        category: str,
+        summary: str,
+        details: str,
+        context_reference: str = "",
+    ) -> dict[str, object]:
+        normalized_category = str(category or "").strip().lower().replace("-", "_")
+        allowed_categories = {"search_results", "account_access", "billing", "privacy", "other"}
+        if normalized_category not in allowed_categories:
+            raise ValueError("support_request_category_invalid")
+
+        def clean_text(value: str, *, multiline: bool = False) -> str:
+            safe = "".join(
+                character
+                for character in str(value or "")
+                if character in {"\n", "\t"} or (ord(character) >= 32 and ord(character) != 127)
+            )
+            if multiline:
+                safe = "\n".join(" ".join(line.split()) for line in safe.splitlines())
+                safe = "\n".join(line for line in safe.splitlines() if line)
+            else:
+                safe = " ".join(safe.split())
+            return safe.strip()
+
+        normalized_summary = clean_text(summary)
+        normalized_details = clean_text(details, multiline=True)
+        normalized_reference = clean_text(context_reference)
+        if len(normalized_summary) < 5:
+            raise ValueError("support_request_summary_too_short")
+        if len(normalized_summary) > 120:
+            raise ValueError("support_request_summary_too_long")
+        if len(normalized_details) < 10:
+            raise ValueError("support_request_details_too_short")
+        if len(normalized_details) > 2000:
+            raise ValueError("support_request_details_too_long")
+        if len(normalized_reference) > 240:
+            raise ValueError("support_request_reference_too_long")
+
+        request_id = f"support_{uuid4().hex[:12]}"
+        requested_by = clean_text(actor)[:160] or "account_user"
+        payload: dict[str, object] = {
+            "request_id": request_id,
+            "category": normalized_category,
+            "summary": normalized_summary,
+            "details": normalized_details,
+            "context_reference": normalized_reference,
+            "status": "recorded",
+            "requested_at": _now_iso(),
+            "requested_by": requested_by,
+        }
+        observation = self._container.channel_runtime.ingest_observation(
+            principal_id=principal_id,
+            channel="support",
+            event_type="support_request_created",
+            payload=payload,
+            source_id=request_id,
+            dedupe_key=f"{principal_id}|{request_id}",
+        )
+        payload["observation_id"] = str(observation.observation_id or "")
+        return payload
+
     def request_support_fix_verification(
         self,
         *,
@@ -53617,6 +53682,7 @@ class ProductService:
         email: str,
         base_url: str = "",
         expires_in_hours: int = 72,
+        default_target: str = "/app/settings/access",
     ) -> dict[str, object]:
         normalized_email = str(email or "").strip().lower()
         if "@" not in normalized_email or "." not in normalized_email.rsplit("@", 1)[-1]:
@@ -53704,7 +53770,7 @@ class ProductService:
                     operator_id=str(candidate.get("operator_id") or "").strip(),
                     source_kind="sign_in_email",
                     expires_in_hours=expires_in_hours,
-                    default_target="/app/settings/access",
+                    default_target=str(default_target or "").strip() or "/app/settings/access",
                 )
                 access_url = str(access_session.get("access_url") or "").strip()
                 absolute_access_url = urllib.parse.urljoin(str(base_url or "").strip(), access_url) if str(base_url or "").strip() else access_url
@@ -53798,6 +53864,7 @@ class ProductService:
         fallback_principal_id: str = "",
         display_name: str = "",
         expires_in_hours: int = 72,
+        default_target: str = "/app/search",
     ) -> dict[str, object]:
         normalized_email = str(google_email or "").strip().lower()
         if "@" not in normalized_email or "." not in normalized_email.rsplit("@", 1)[-1]:
@@ -53875,7 +53942,7 @@ class ProductService:
             operator_id=operator_id,
             source_kind="google_sign_in",
             expires_in_hours=expires_in_hours,
-            default_target="/app/search",
+            default_target=str(default_target or "").strip() or "/app/search",
         )
         self._record_product_event(
             principal_id=principal_id,

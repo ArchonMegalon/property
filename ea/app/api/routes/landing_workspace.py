@@ -31,6 +31,8 @@ from app.services.public_branding import request_brand
 
 router = APIRouter(tags=["landing"])
 
+_PROPERTY_SUPPORT_FORM_BODY_LIMIT_BYTES = 32_768
+
 
 def _property_account_redirect_target(request: Request, *, settings_view: str) -> str:
     query_pairs = [
@@ -1053,6 +1055,88 @@ def settings_usage_detail(
     )
 
 
+@router.post("/app/actions/support/request")
+async def app_create_support_request(
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> RedirectResponse:
+    default_return_to = "/app/settings/support"
+    content_length = str(request.headers.get("content-length") or "").strip()
+    try:
+        declared_length = int(content_length) if content_length else 0
+        body_too_large = declared_length < 0 or declared_length > _PROPERTY_SUPPORT_FORM_BODY_LIMIT_BYTES
+    except ValueError:
+        body_too_large = True
+    body_chunks: list[bytes] = []
+    body_size = 0
+    if not body_too_large:
+        async for chunk in request.stream():
+            body_size += len(chunk)
+            if body_size > _PROPERTY_SUPPORT_FORM_BODY_LIMIT_BYTES:
+                body_too_large = True
+                body_chunks.clear()
+                continue
+            if not body_too_large:
+                body_chunks.append(chunk)
+    raw_body = b"" if body_too_large else b"".join(body_chunks)
+    body = urllib.parse.parse_qs(raw_body.decode("utf-8", errors="ignore"), keep_blank_values=True)
+    return_to = _normalize_browser_return_to(
+        _form_value(body, "return_to", default_return_to),
+        default=default_return_to,
+    )
+    if body_too_large:
+        return RedirectResponse(
+            _browser_return_to_with_params(return_to, support_error="support_request_too_large"),
+            status_code=303,
+        )
+    if request_brand(request)["key"] != "propertyquarry":
+        return RedirectResponse(
+            _browser_return_to_with_params(return_to, support_error="support_request_unavailable"),
+            status_code=303,
+        )
+
+    product = build_product_service(container)
+    actor = str(context.operator_id or context.principal_id or "account_user").strip()
+    try:
+        created = product.create_support_request(
+            principal_id=context.principal_id,
+            actor=actor,
+            category=_form_value(body, "category", ""),
+            summary=_form_value(body, "summary", ""),
+            details=_form_value(body, "details", ""),
+            context_reference=_form_value(body, "context_reference", ""),
+        )
+    except ValueError as exc:
+        error_code = str(exc or "support_request_invalid").strip()
+        if error_code not in {
+            "support_request_category_invalid",
+            "support_request_summary_too_short",
+            "support_request_summary_too_long",
+            "support_request_details_too_short",
+            "support_request_details_too_long",
+            "support_request_reference_too_long",
+        }:
+            error_code = "support_request_invalid"
+        return RedirectResponse(
+            _browser_return_to_with_params(return_to, support_error=error_code),
+            status_code=303,
+        )
+    except Exception:
+        return RedirectResponse(
+            _browser_return_to_with_params(return_to, support_error="support_request_store_failed"),
+            status_code=303,
+        )
+    return RedirectResponse(
+        _browser_return_to_with_params(
+            return_to,
+            support_status=str(created.get("status") or "recorded").strip(),
+            support_request_id=str(created.get("request_id") or "").strip(),
+        ),
+        status_code=303,
+    )
+
+
 @router.get("/app/settings/support", response_class=HTMLResponse)
 def settings_support_detail(
     request: Request,
@@ -1072,34 +1156,91 @@ def settings_support_detail(
     if is_property_brand:
         property_usage = _property_search_usage_state(product, principal_id=context.principal_id, access_email=str(context.access_email or ""))
         billing, commercial = _property_settings_commercial(status)
-        return _render_console_object_detail(
-            request=request,
-            context=context,
-            workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
-            page_title="PropertyQuarry support",
-            current_nav="settings",
-            console_title="Support",
-            console_summary="See what failed, what still works, and the next useful action.",
-            object_kind="Support",
-            object_title=str(property_usage["repair_status"]),
-            object_summary=(
-                f"{property_usage['failed_source_total']} list failures · "
-                f"{property_usage['ranked_total']} matches · "
-                f"{str(billing.get('support_tier') or 'standard').title()} support"
-            ),
-            object_meta=[
-                {"label": "List failures", "value": str(property_usage["failed_source_total"])},
-                {"label": "Lists refreshing", "value": str(property_usage["repairing_source_total"])},
-                {"label": "Partial searches", "value": str(property_usage["partial_total"])},
-                {"label": "Support tier", "value": str(billing.get("support_tier") or "standard").title()},
-            ],
-            object_sidebar_title="Support at a glance",
-            object_sidebar_copy="This view answers what failed, what is still available, and what to do next.",
-            object_sidebar_rows=[
-                _object_detail_row("Latest search", str(property_usage["latest_status"]), "", href=str(property_usage["latest_href"])),
-                _object_detail_row("Support center", "Open the public support page for contact options.", "", action_href="/support", action_label="Open support", action_method="get"),
-            ],
-            object_sections=[
+        support_status = str(request.query_params.get("support_status") or "").strip().lower()
+        support_request_id = str(request.query_params.get("support_request_id") or "").strip()
+        support_error = str(request.query_params.get("support_error") or "").strip().lower()
+        support_error_detail = {
+            "support_request_category_invalid": "Choose one of the available support categories.",
+            "support_request_summary_too_short": "Add a short summary of at least 5 characters.",
+            "support_request_summary_too_long": "Keep the short summary to 120 characters or fewer.",
+            "support_request_details_too_short": "Add at least 10 characters describing what happened and what you expected.",
+            "support_request_details_too_long": "Keep the description to 2,000 characters or fewer.",
+            "support_request_reference_too_long": "Keep the optional reference to 240 characters or fewer.",
+            "support_request_too_large": "That form submission is too large. Shorten the description or reference and try again.",
+            "support_request_store_failed": "The request could not be recorded. Nothing was submitted; try again shortly.",
+            "support_request_unavailable": "Support intake is not available on this surface.",
+            "support_request_invalid": "Check the request fields and try again.",
+        }.get(support_error, "")
+        recent_support_events = container.channel_runtime.list_recent_observations_matching(
+            limit=8,
+            principal_id=context.principal_id,
+            channel="support",
+            event_types=("support_request_created",),
+        )
+        support_history_rows: list[dict[str, str]] = []
+        support_history_ids: set[str] = set()
+        for event in recent_support_events:
+            payload = dict(event.payload or {})
+            request_id = str(payload.get("request_id") or event.source_id or "").strip()
+            if not request_id or request_id in support_history_ids:
+                continue
+            support_history_ids.add(request_id)
+            category_label = str(payload.get("category") or "other").replace("_", " ").title()
+            created_at = str(payload.get("requested_at") or event.created_at or "").strip()
+            created_label = created_at[:16].replace("T", " ") if created_at else "Time recorded"
+            support_history_rows.append(
+                _object_detail_row(
+                    str(payload.get("summary") or "Support request"),
+                    f"{category_label} · {created_label} · Reference {request_id}",
+                    str(payload.get("status") or "recorded").replace("_", " ").title(),
+                )
+            )
+        support_sidebar_rows = [
+            _object_detail_row("Latest search", str(property_usage["latest_status"]), "", href=str(property_usage["latest_href"])),
+        ]
+        if support_status == "recorded" and support_request_id in support_history_ids:
+            support_email_href = "mailto:property@propertyquarry.com?" + urllib.parse.urlencode(
+                {"subject": f"PropertyQuarry support {support_request_id}"},
+                quote_via=urllib.parse.quote,
+            )
+            support_sidebar_rows.insert(
+                0,
+                _object_detail_row(
+                    "Support reference saved",
+                    f"This is saved to your account; it has not sent a message. Email support and include reference {support_request_id}.",
+                    "Recorded",
+                    action_href=support_email_href,
+                    action_label="Email support",
+                    action_method="get",
+                ),
+            )
+        elif support_error_detail:
+            support_sidebar_rows.insert(0, _object_detail_row("Reference not saved", support_error_detail, "Check details"))
+        support_sidebar_rows.append(
+            _object_detail_row(
+                "Contact or locked-out support",
+                "Email property@propertyquarry.com for a reply, or use the public support page when you cannot reach this signed-in form.",
+                "",
+                action_href="mailto:property@propertyquarry.com?subject=PropertyQuarry%20support",
+                action_label="Email support",
+                action_method="get",
+                secondary_action_href="/support",
+                secondary_action_label="Public support page",
+                secondary_action_method="get",
+            )
+        )
+        support_sections: list[dict[str, object]] = []
+        if support_history_rows:
+            support_sections.append(
+                {
+                    "eyebrow": "Requests",
+                    "title": "Recent support references",
+                    "items": support_history_rows,
+                    "open": True,
+                }
+            )
+        support_sections.extend(
+            [
                 {
                     "eyebrow": "Search health",
                     "title": "Search health",
@@ -1132,7 +1273,84 @@ def settings_support_detail(
                         _object_detail_row("Blocked action message", _propertyquarry_copy(commercial.get("blocked_action_message"), fallback="No current commercial blocks."), ""),
                     ],
                 },
+            ]
+        )
+        return _render_console_object_detail(
+            request=request,
+            context=context,
+            workspace_label=str(workspace.get("name") or "PropertyQuarry account"),
+            page_title="PropertyQuarry support",
+            current_nav="settings",
+            console_title="Support",
+            console_summary="See what failed, what still works, and the next useful action.",
+            object_kind="Support",
+            object_title=str(property_usage["repair_status"]),
+            object_summary=(
+                f"{property_usage['failed_source_total']} list failures · "
+                f"{property_usage['ranked_total']} matches · "
+                f"{str(billing.get('support_tier') or 'standard').title()} support"
+            ),
+            object_meta=[
+                {"label": "List failures", "value": str(property_usage["failed_source_total"])},
+                {"label": "Lists refreshing", "value": str(property_usage["repairing_source_total"])},
+                {"label": "Partial searches", "value": str(property_usage["partial_total"])},
+                {"label": "Support tier", "value": str(billing.get("support_tier") or "standard").title()},
             ],
+            object_sidebar_title="Support at a glance",
+            object_sidebar_copy="Save a bounded account reference here, then email support when you need a reply.",
+            object_sidebar_rows=support_sidebar_rows,
+            object_sidebar_form={
+                "eyebrow": "New request",
+                "title": "Save support details",
+                "copy": "This saves a private reference in your account; it does not send a message. To reach support, use Email support after saving. Do not include passwords, payment-card details, identity documents, or private access links.",
+                "action": "/app/actions/support/request",
+                "method": "post",
+                "submit_label": "Save reference",
+                "summary_label": "New reference",
+                "open": bool(support_error_detail) or not support_history_rows,
+                "fields": [
+                    {"type": "hidden", "name": "return_to", "value": "/app/settings/support"},
+                    {
+                        "type": "select",
+                        "name": "category",
+                        "label": "Category",
+                        "required": True,
+                        "options": [
+                            {"value": "search_results", "label": "Search or results", "selected": True},
+                            {"value": "account_access", "label": "Account or access"},
+                            {"value": "billing", "label": "Billing"},
+                            {"value": "privacy", "label": "Privacy"},
+                            {"value": "other", "label": "Other"},
+                        ],
+                    },
+                    {
+                        "type": "text",
+                        "name": "summary",
+                        "label": "Short summary",
+                        "placeholder": "What needs attention?",
+                        "required": True,
+                        "minlength": 5,
+                        "maxlength": 120,
+                    },
+                    {
+                        "type": "textarea",
+                        "name": "details",
+                        "label": "What happened, and what did you expect?",
+                        "placeholder": "Include the visible error and the last action you took.",
+                        "required": True,
+                        "minlength": 10,
+                        "maxlength": 2000,
+                    },
+                    {
+                        "type": "text",
+                        "name": "context_reference",
+                        "label": "Search or property reference (optional)",
+                        "placeholder": "Paste a reference ID, not a private access link.",
+                        "maxlength": 240,
+                    },
+                ],
+            },
+            object_sections=support_sections,
         )
     bundle = product.workspace_support_bundle(principal_id=context.principal_id)
     analytics = dict(bundle.get("analytics") or {})

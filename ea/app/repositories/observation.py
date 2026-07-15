@@ -147,14 +147,23 @@ class InMemoryObservationEventRepository:
         channel: str = "",
         event_types: tuple[str, ...] = (),
     ) -> list[ObservationEvent]:
+        n = max(1, min(5000, int(limit or 50)))
+        principal = str(principal_id or "").strip()
         wanted_channel = str(channel or "").strip()
         wanted_types = {str(value or "").strip() for value in event_types if str(value or "").strip()}
-        return [
-            row
-            for row in self.list_recent(limit=limit, principal_id=principal_id)
-            if (not wanted_channel or row.channel == wanted_channel)
-            and (not wanted_types or row.event_type in wanted_types)
-        ]
+        rows: list[ObservationEvent] = []
+        for observation_id in reversed(self._order):
+            row = self._rows.get(observation_id)
+            if row is None or (principal and row.principal_id != principal):
+                continue
+            if wanted_channel and row.channel != wanted_channel:
+                continue
+            if wanted_types and row.event_type not in wanted_types:
+                continue
+            rows.append(row)
+            if len(rows) >= n:
+                break
+        return rows
 
     def get_by_dedupe(self, dedupe_key: str, *, principal_id: str | None = None) -> ObservationEvent | None:
         key = str(dedupe_key or "").strip()

@@ -108,7 +108,16 @@ def _google_post_connect_sync(
 def _google_stale_redirect_retry(state_payload: dict[str, object]) -> RedirectResponse | None:
     browser_source = str(state_payload.get("browser_source") or "").strip()
     if browser_source == "sign_in":
-        return RedirectResponse("/sign-in/google?restart=stale_redirect", status_code=303)
+        return_to = _normalize_browser_return_to(
+            str(state_payload.get("return_to") or ""),
+            default="/app/search",
+        )
+        return RedirectResponse(
+            "/sign-in/google?" + urllib.parse.urlencode(
+                {"restart": "stale_redirect", "return_to": return_to}
+            ),
+            status_code=303,
+        )
     if browser_source == "settings_google":
         return_to = _normalize_browser_return_to(str(state_payload.get("return_to") or ""), default="/app/settings/google")
         return RedirectResponse(
@@ -183,9 +192,15 @@ def _normalize_google_sign_in_error(error: str) -> str:
     return normalized
 
 
-def _google_sign_in_error_redirect(*, error: str, google_email: str = "") -> RedirectResponse:
+def _google_sign_in_error_redirect(
+    *,
+    error: str,
+    google_email: str = "",
+    return_to: str = "/app/search",
+) -> RedirectResponse:
     query = {
         "google_error": _normalize_google_sign_in_error(error),
+        "return_to": _normalize_browser_return_to(return_to, default="/app/search"),
     }
     normalized_email = str(google_email or "").strip()
     if normalized_email:
@@ -410,6 +425,7 @@ def facebook_oauth_browser_callback(
     error_description: str = "",
     container: AppContainer = Depends(get_container),
 ) -> HTMLResponse | RedirectResponse:
+    state_payload: dict[str, object] = {}
     if str(error or "").strip():
         detail = str(error_description or error or "facebook_oauth_denied").strip()
         browser_source = ""
@@ -420,7 +436,16 @@ def facebook_oauth_browser_callback(
             except Exception:
                 pass
         if browser_source == "sign_in":
-            return RedirectResponse("/sign-in?" + urllib.parse.urlencode({"facebook_error": detail}), status_code=303)
+            return_to = _normalize_browser_return_to(
+                str(state_payload.get("return_to") or ""),
+                default="/app/search",
+            )
+            return RedirectResponse(
+                "/sign-in?" + urllib.parse.urlencode(
+                    {"facebook_error": detail, "return_to": return_to}
+                ),
+                status_code=303,
+            )
         return _render_facebook_oauth_callback_failure(request, detail=detail, status_code=400)
     if not str(code or "").strip() or not str(state or "").strip():
         return _render_facebook_oauth_callback_failure(
@@ -440,18 +465,46 @@ def facebook_oauth_browser_callback(
                 expired_state = {}
             return_to = _normalize_browser_return_to(str(expired_state.get("return_to") or ""), default="")
             if return_to:
+                if str(expired_state.get("browser_source") or "").strip() == "sign_in":
+                    return RedirectResponse(
+                        "/sign-in?" + urllib.parse.urlencode(
+                            {
+                                "facebook_error": "facebook_oauth_state_expired",
+                                "return_to": return_to,
+                            }
+                        ),
+                        status_code=303,
+                    )
                 separator = "&" if "?" in return_to else "?"
                 return RedirectResponse(
                     f"{return_to}{separator}facebook_error=facebook_oauth_state_expired",
                     status_code=303,
                 )
         if str(state_payload.get("browser_source") or "").strip() == "sign_in":
-            return RedirectResponse("/sign-in?" + urllib.parse.urlencode({"facebook_error": detail}), status_code=303)
+            return_to = _normalize_browser_return_to(
+                str(state_payload.get("return_to") or ""),
+                default="/app/search",
+            )
+            return RedirectResponse(
+                "/sign-in?" + urllib.parse.urlencode(
+                    {"facebook_error": detail, "return_to": return_to}
+                ),
+                status_code=303,
+            )
         return _render_facebook_oauth_callback_failure(request, detail=detail, status_code=400)
     except Exception as exc:
         detail = str(exc or "facebook_oauth_callback_failed")
         if str(state_payload.get("browser_source") or "").strip() == "sign_in":
-            return RedirectResponse("/sign-in?" + urllib.parse.urlencode({"facebook_error": detail}), status_code=303)
+            return_to = _normalize_browser_return_to(
+                str(state_payload.get("return_to") or ""),
+                default="/app/search",
+            )
+            return RedirectResponse(
+                "/sign-in?" + urllib.parse.urlencode(
+                    {"facebook_error": detail, "return_to": return_to}
+                ),
+                status_code=303,
+            )
         return _render_facebook_oauth_callback_failure(request, detail=detail, status_code=502)
     product = build_product_service(container)
     product.record_surface_event(
@@ -466,6 +519,10 @@ def facebook_oauth_browser_callback(
         },
     )
     browser_source = str(state_payload.get("browser_source") or "").strip()
+    return_to = _normalize_browser_return_to(
+        str(state_payload.get("return_to") or ""),
+        default="/app/search" if browser_source == "sign_in" else "",
+    )
     if browser_source == "sign_in":
         onboarding_status = container.onboarding.status(principal_id=account.binding.principal_id)
         workspace_name = str(dict(onboarding_status.get("workspace") or {}).get("name") or "").strip() or str(
@@ -477,10 +534,9 @@ def facebook_oauth_browser_callback(
             role="principal",
             display_name=workspace_name,
             source_kind="facebook_sign_in",
-            default_target="/app/search",
+            default_target=return_to,
         )
         return RedirectResponse(str(access.get("access_url") or "/app/search"), status_code=303)
-    return_to = _normalize_browser_return_to(str(state_payload.get("return_to") or ""), default="")
     if return_to:
         separator = "&" if "?" in return_to else "?"
         return RedirectResponse(f"{return_to}{separator}facebook_status=connected", status_code=303)
@@ -526,6 +582,10 @@ def google_oauth_browser_callback(
     except Exception:
         state_payload = {}
     browser_source = str(state_payload.get("browser_source") or "").strip()
+    sign_in_return_to = _normalize_browser_return_to(
+        str(state_payload.get("return_to") or ""),
+        default="/app/search",
+    )
     if str(error or "").strip():
         detail = str(error_description or error or "google_oauth_denied").strip()
         if str(state_payload.get("oauth_lane") or "").strip() == "google_location_history" and str(error or "").strip() == "access_denied":
@@ -535,12 +595,12 @@ def google_oauth_browser_callback(
                 "the Data Portability scope is not approved for this client, or the consent was cancelled."
             )
         if browser_source == "sign_in":
-            return _google_sign_in_error_redirect(error=detail)
+            return _google_sign_in_error_redirect(error=detail, return_to=sign_in_return_to)
         return _render_google_oauth_callback_failure(request, detail=detail, status_code=400)
     if not str(code or "").strip() or not str(state or "").strip():
         detail = "Google did not return a valid OAuth code and state."
         if browser_source == "sign_in":
-            return _google_sign_in_error_redirect(error=detail)
+            return _google_sign_in_error_redirect(error=detail, return_to=sign_in_return_to)
         return _render_google_oauth_callback_failure(request, detail=detail, status_code=400)
     try:
         product = build_product_service(container)
@@ -600,17 +660,25 @@ def google_oauth_browser_callback(
                 expired_state = {}
             return_to = _normalize_browser_return_to(str(expired_state.get("return_to") or ""), default="")
             if return_to:
+                if str(expired_state.get("browser_source") or "").strip() == "sign_in":
+                    return _google_sign_in_error_redirect(
+                        error="google_oauth_state_expired",
+                        return_to=return_to,
+                    )
                 separator = "&" if "?" in return_to else "?"
                 return RedirectResponse(
                     f"{return_to}{separator}google_error=google_oauth_state_expired",
                     status_code=303,
                 )
         if browser_source == "sign_in":
-            return _google_sign_in_error_redirect(error=detail)
+            return _google_sign_in_error_redirect(error=detail, return_to=sign_in_return_to)
         return _render_google_oauth_callback_failure(request, detail=detail, status_code=400)
     except Exception as exc:
         if browser_source == "sign_in":
-            return _google_sign_in_error_redirect(error=str(exc or "google_oauth_callback_failed"))
+            return _google_sign_in_error_redirect(
+                error=str(exc or "google_oauth_callback_failed"),
+                return_to=sign_in_return_to,
+            )
         return _render_google_oauth_callback_failure(request, detail=str(exc or "google_oauth_callback_failed"), status_code=502)
     product = build_product_service(container)
     product.record_surface_event(
@@ -638,6 +706,7 @@ def google_oauth_browser_callback(
                 google_email=account.google_email,
                 fallback_principal_id=account.binding.principal_id,
                 display_name=str(account.google_email or account.binding.principal_id or "PropertyQuarry").strip(),
+                default_target=_normalize_browser_return_to(return_to, default="/app/search"),
             )
         except RuntimeError as exc:
             return RedirectResponse(
@@ -646,6 +715,7 @@ def google_oauth_browser_callback(
                     {
                         "google_error": str(exc or "workspace_google_sign_in_not_found"),
                         "google_prefill_email": str(account.google_email or ""),
+                        "return_to": _normalize_browser_return_to(return_to, default="/app/search"),
                     }
                 ),
                 status_code=303,
@@ -728,15 +798,29 @@ def id_austria_oidc_browser_callback(
     except Exception:
         state_payload = {}
     browser_source = str(state_payload.get("browser_source") or "").strip()
+    sign_in_return_to = _normalize_browser_return_to(
+        str(state_payload.get("return_to") or ""),
+        default="/app/search",
+    )
     if str(error or "").strip():
         detail = str(error_description or error or "id_austria_oidc_denied").strip()
         if browser_source == "sign_in":
-            return RedirectResponse("/sign-in?" + urllib.parse.urlencode({"id_austria_error": detail}), status_code=303)
+            return RedirectResponse(
+                "/sign-in?" + urllib.parse.urlencode(
+                    {"id_austria_error": detail, "return_to": sign_in_return_to}
+                ),
+                status_code=303,
+            )
         return _render_google_oauth_callback_failure(request, detail=detail, status_code=400)
     if not str(code or "").strip() or not str(state or "").strip():
         detail = "ID Austria did not return a valid OIDC code and state."
         if browser_source == "sign_in":
-            return RedirectResponse("/sign-in?" + urllib.parse.urlencode({"id_austria_error": detail}), status_code=303)
+            return RedirectResponse(
+                "/sign-in?" + urllib.parse.urlencode(
+                    {"id_austria_error": detail, "return_to": sign_in_return_to}
+                ),
+                status_code=303,
+            )
         return _render_google_oauth_callback_failure(request, detail=detail, status_code=400)
     try:
         account = complete_id_austria_oidc_callback(container=container, code=code, state=state)
@@ -749,15 +833,35 @@ def id_austria_oidc_browser_callback(
                 expired_state = {}
             return_to = _normalize_browser_return_to(str(expired_state.get("return_to") or ""), default="")
             if return_to:
+                if str(expired_state.get("browser_source") or "").strip() == "sign_in":
+                    return RedirectResponse(
+                        "/sign-in?" + urllib.parse.urlencode(
+                            {
+                                "id_austria_error": "id_austria_state_expired",
+                                "return_to": return_to,
+                            }
+                        ),
+                        status_code=303,
+                    )
                 separator = "&" if "?" in return_to else "?"
                 return RedirectResponse(f"{return_to}{separator}id_austria_error=id_austria_state_expired", status_code=303)
         if browser_source == "sign_in":
-            return RedirectResponse("/sign-in?" + urllib.parse.urlencode({"id_austria_error": detail}), status_code=303)
+            return RedirectResponse(
+                "/sign-in?" + urllib.parse.urlencode(
+                    {"id_austria_error": detail, "return_to": sign_in_return_to}
+                ),
+                status_code=303,
+            )
         return _render_google_oauth_callback_failure(request, detail=detail, status_code=400)
     except Exception as exc:
         detail = str(exc or "id_austria_oidc_callback_failed")
         if browser_source == "sign_in":
-            return RedirectResponse("/sign-in?" + urllib.parse.urlencode({"id_austria_error": detail}), status_code=303)
+            return RedirectResponse(
+                "/sign-in?" + urllib.parse.urlencode(
+                    {"id_austria_error": detail, "return_to": sign_in_return_to}
+                ),
+                status_code=303,
+            )
         return _render_google_oauth_callback_failure(request, detail=detail, status_code=502)
 
     product = build_product_service(container)
@@ -784,7 +888,7 @@ def id_austria_oidc_browser_callback(
             role="principal",
             display_name=display_name,
             source_kind="id_austria_sign_in",
-            default_target="/app/search",
+            default_target=_normalize_browser_return_to(return_to, default="/app/search"),
         )
         return RedirectResponse(str(access.get("access_url") or "/app/search"), status_code=303)
     if return_to:

@@ -3691,13 +3691,30 @@ def _cloudflare_access_logout_url(
 
 
 def _normalize_browser_return_to(raw: str | None, *, default: str) -> str:
-    value = str(raw or "").strip()
-    if not value:
+    value = str(raw or "")
+    if (
+        not value
+        or value != value.strip()
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+        or len(urllib.parse.quote(value, safe="")) > 2048
+    ):
         return default
-    parsed = urllib.parse.urlparse(value)
-    if parsed.scheme or parsed.netloc or value.startswith("//") or not value.startswith("/"):
-        return default
-    return value
+    candidate = value
+    for _ in range(4):
+        if any(ord(character) < 32 or ord(character) == 127 for character in candidate):
+            return default
+        if "\\" in candidate or candidate.startswith("//") or not candidate.startswith("/"):
+            return default
+        parsed = urllib.parse.urlparse(candidate)
+        if parsed.scheme or parsed.netloc:
+            return default
+        decoded = urllib.parse.unquote(candidate)
+        if decoded == candidate:
+            return value
+        candidate = decoded
+    # Deeply nested encodings are unnecessary for browser destinations and
+    # can conceal a protocol-relative or backslash-based cross-host target.
+    return default
 
 
 def _browser_return_to_with_params(return_to: str, **params: object) -> str:
@@ -5708,8 +5725,9 @@ def _how_it_works_page(
             status=status,
             access_identity=access_identity,
             extra={
+                "how_steps": HOW_STEPS,
                 "trust_cards": TRUST_CARDS,
-                "meta_description": "How PropertyQuarry ranks homes, keeps hard filters strict, keeps optional preferences in scoring, and protects private searches.",
+                "meta_description": "How PropertyQuarry turns one search brief into matching homes, clear comparison, focused research, and a saved decision.",
             },
         ),
     )
@@ -5961,6 +5979,27 @@ def _render_public_trust_page(
     if page is None:
         raise HTTPException(status_code=404, detail="public_trust_page_not_found")
     principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
+    editorial_cta_href = ""
+    editorial_cta_label = ""
+    editorial_cta_event = ""
+    editorial_secondary_cta_href = ""
+    editorial_secondary_cta_label = ""
+    editorial_secondary_cta_event = ""
+    if page_key == "support":
+        editorial_cta_href = (
+            "/app/support"
+            if principal_id
+            else "/sign-in?signing_in=1&return_to=%2Fapp%2Fsupport"
+        )
+        editorial_cta_label = "Open account support" if principal_id else "Sign in to attach account context"
+        editorial_cta_event = "support_open_authenticated"
+        editorial_secondary_cta_href = "mailto:property@propertyquarry.com?subject=PropertyQuarry%20support"
+        editorial_secondary_cta_label = "Email support"
+        editorial_secondary_cta_event = "support_email"
+    elif page_key == "imprint":
+        editorial_cta_href = "/support"
+        editorial_cta_label = "Open support"
+        editorial_cta_event = "imprint_open_support"
     return _render_public_template(
         request,
         "public_editorial_page.html",
@@ -5977,9 +6016,12 @@ def _render_public_trust_page(
                 "editorial_kicker": page["kicker"],
                 "editorial_title": page["title"],
                 "editorial_summary": page["summary"],
-                "editorial_cta_href": "",
-                "editorial_cta_label": "",
-                "editorial_cta_event": "",
+                "editorial_cta_href": editorial_cta_href,
+                "editorial_cta_label": editorial_cta_label,
+                "editorial_cta_event": editorial_cta_event,
+                "editorial_secondary_cta_href": editorial_secondary_cta_href,
+                "editorial_secondary_cta_label": editorial_secondary_cta_label,
+                "editorial_secondary_cta_event": editorial_secondary_cta_event,
                 "editorial_band": page["band"],
                 "editorial_sections": page["sections"],
                 "editorial_faqs": page["faqs"],
@@ -6207,11 +6249,16 @@ def sign_in_page(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
+    brand = request_brand(request)
+    sign_in_return_to = _normalize_browser_return_to(
+        request.query_params.get("return_to"),
+        default=str(brand.get("app_home") or "/app/search"),
+    )
     principal_id, status = _load_status(
         container=container,
         access_identity=access_identity,
         request=request,
-        compact=request_brand(request)["key"] == "propertyquarry",
+        compact=brand["key"] == "propertyquarry",
     )
     link_status = str(request.query_params.get("link_status") or "").strip()
     link_email = str(request.query_params.get("link_email") or "").strip()
@@ -6259,6 +6306,8 @@ def sign_in_page(
                 "sign_in_id_austria_visible": id_austria_visible,
                 "sign_in_id_austria_enabled": id_austria_configured and id_austria_country_allowed,
                 "sign_in_session_expired": session_expired,
+                "sign_in_return_to": sign_in_return_to,
+                "sign_in_return_to_encoded": urllib.parse.quote(sign_in_return_to, safe=""),
                 "robots_directive": "noindex, nofollow, noarchive, nosnippet",
             },
         ),
@@ -6288,11 +6337,16 @@ async def sign_in_email_link(
 ) -> RedirectResponse:
     form_data = urllib.parse.parse_qs((await request.body()).decode("utf-8", errors="ignore"), keep_blank_values=True)
     email = _form_value(form_data, "email", "").lower()
+    return_to = _normalize_browser_return_to(
+        _form_value(form_data, "return_to", ""),
+        default="/app/settings/access",
+    )
     product = build_product_service(container)
     try:
         result = product.request_workspace_sign_in_email_links(
             email=email,
             base_url=_public_app_base_url(request),
+            default_target=return_to,
         )
     except ValueError as exc:
         return RedirectResponse(
@@ -6302,6 +6356,7 @@ async def sign_in_email_link(
                     "link_status": "invalid",
                     "link_email": email,
                     "link_error": str(exc or "workspace_sign_in_email_invalid"),
+                    "return_to": return_to,
                 }
             ),
             status_code=303,
@@ -6314,6 +6369,7 @@ async def sign_in_email_link(
                     "link_status": "failed",
                     "link_email": email,
                     "link_error": str(exc or "workspace_sign_in_email_delivery_not_configured"),
+                    "return_to": return_to,
                 }
             ),
             status_code=303,
@@ -6321,6 +6377,7 @@ async def sign_in_email_link(
     query = {
         "link_status": "submitted",
         "link_email": str(result.get("email") or email).strip().lower(),
+        "return_to": return_to,
     }
     return RedirectResponse("/sign-in?" + urllib.parse.urlencode(query), status_code=303)
 
@@ -6332,12 +6389,16 @@ async def sign_in_google(
 ) -> RedirectResponse:
     from app.services.google_oauth import build_google_oauth_start
 
+    return_to = _normalize_browser_return_to(
+        request.query_params.get("return_to"),
+        default=str(request_brand(request).get("app_home") or "/app/search"),
+    )
     try:
         packet = build_google_oauth_start(
             principal_id="",
             scope_bundle="identity",
             redirect_uri_override=f"{_public_app_base_url(request)}/google/callback",
-            return_to="/sign-in?google_connected=1",
+            return_to=return_to,
             browser_source="sign_in",
         )
     except RuntimeError as exc:
@@ -6346,6 +6407,7 @@ async def sign_in_google(
             + urllib.parse.urlencode(
                 {
                     "google_error": str(exc or "google_oauth_not_ready"),
+                    "return_to": return_to,
                 }
             ),
             status_code=303,
@@ -6360,12 +6422,17 @@ async def sign_in_facebook(
 ) -> RedirectResponse:
     from app.services.facebook_oauth import build_facebook_oauth_start
 
+    return_to = _normalize_browser_return_to(
+        request.query_params.get("return_to"),
+        default=str(request_brand(request).get("app_home") or "/app/search"),
+    )
     if not _facebook_sign_in_enabled():
         return RedirectResponse(
             "/sign-in?"
             + urllib.parse.urlencode(
                 {
                     "facebook_error": "facebook_sign_in_disabled",
+                    "return_to": return_to,
                 }
             ),
             status_code=303,
@@ -6374,7 +6441,7 @@ async def sign_in_facebook(
         packet = build_facebook_oauth_start(
             principal_id="",
             redirect_uri_override=f"{_public_app_base_url(request)}/facebook/callback",
-            return_to="/sign-in?facebook_connected=1",
+            return_to=return_to,
             browser_source="sign_in",
         )
     except RuntimeError as exc:
@@ -6383,6 +6450,7 @@ async def sign_in_facebook(
             + urllib.parse.urlencode(
                 {
                     "facebook_error": str(exc or "facebook_oauth_not_ready"),
+                    "return_to": return_to,
                 }
             ),
             status_code=303,
@@ -6397,12 +6465,17 @@ async def sign_in_id_austria(
 ) -> RedirectResponse:
     from app.services.id_austria_oidc import build_id_austria_oidc_start
 
+    return_to = _normalize_browser_return_to(
+        request.query_params.get("return_to"),
+        default=str(request_brand(request).get("app_home") or "/app/search"),
+    )
     if not _request_is_austrian_ip(request):
         return RedirectResponse(
             "/sign-in?"
             + urllib.parse.urlencode(
                 {
                     "id_austria_error": "id_austria_austria_ip_required",
+                    "return_to": return_to,
                 }
             ),
             status_code=303,
@@ -6411,7 +6484,7 @@ async def sign_in_id_austria(
         packet = build_id_austria_oidc_start(
             principal_id="",
             redirect_uri_override=f"{_public_app_base_url(request)}/id-austria/callback",
-            return_to="/sign-in?id_austria_connected=1",
+            return_to=return_to,
             browser_source="sign_in",
         )
     except RuntimeError as exc:
@@ -6420,6 +6493,7 @@ async def sign_in_id_austria(
             + urllib.parse.urlencode(
                 {
                     "id_austria_error": str(exc or "id_austria_oidc_not_ready"),
+                    "return_to": return_to,
                 }
             ),
             status_code=303,
@@ -6433,6 +6507,10 @@ def register_page(
     container: AppContainer = Depends(get_container),
     access_identity: CloudflareAccessIdentity | None = Depends(get_cloudflare_access_identity),
 ) -> HTMLResponse:
+    register_return_to = _normalize_browser_return_to(
+        request.query_params.get("return_to"),
+        default=str(request_brand(request).get("app_home") or "/app/search"),
+    )
     principal_id, status = _load_status(container=container, access_identity=access_identity, request=request)
     if principal_id:
         build_product_service(container).record_surface_event(
@@ -6450,6 +6528,7 @@ def register_page(
             principal_id=principal_id,
             status=status,
             access_identity=access_identity,
+            extra={"register_return_to": register_return_to},
         ),
     )
 
