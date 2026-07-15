@@ -226,7 +226,7 @@ def test_propertyquarry_mobile_flagship_flow_runs_search_opens_research_map_and_
     try:
         response = page.goto(f"{base_url}/sign-in", wait_until="networkidle")
         assert response is not None and response.ok
-        expect(page.get_by_role("heading", name="Sign in to continue your property search.")).to_be_visible()
+        expect(page.get_by_role("heading", name="Continue your property search.")).to_be_visible()
         _assert_no_horizontal_overflow(page)
 
         _issue_browser_workspace_session(client=client, context=context, base_url=base_url)
@@ -352,8 +352,9 @@ def test_propertyquarry_mobile_flagship_flow_runs_search_opens_research_map_and_
         request_walkthrough = page.get_by_role("button", name=re.compile("Request walkthrough", re.I)).first
         expect(request_walkthrough).to_be_visible()
         request_walkthrough.click()
-        _choose_research_visual_style(page)
-        page.wait_for_timeout(500)
+        with page.expect_response("**/app/api/signals/willhaben/property-tour", timeout=5_000) as visual_response:
+            _choose_research_visual_style(page)
+        assert visual_response.value.ok
         assert len(visual_requests) == 1
         payload = visual_requests[0]
         assert payload["request_kind"] == "flythrough"

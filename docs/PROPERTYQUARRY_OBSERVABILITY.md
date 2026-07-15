@@ -100,6 +100,37 @@ scheduler requirement can be stated explicitly with
 state to the required-role gauge, so a deliberately disabled worker does not
 page while an enabled worker still fails closed.
 
+Result finalization is intentionally bounded. In no-send scheduler mode,
+already-ready runs are skipped before notification-event lookups, and tour
+events are loaded once per principal per reconciliation cycle. Storage filters
+known-ready projections before applying the terminal-run limit. Delivery work
+is ordered by compact schema version and then the durable oldest-checked cursor,
+so newer work cannot permanently starve older pending runs. Legacy rows and
+truncated projections each have an independent two-row hydration budget by
+default; compact-only writes use both the full-row timestamp and delivery cursor
+as compare-and-swap fences. Set
+`EA_SCHEDULER_PROPERTY_RESULTS_LEGACY_HYDRATION_LIMIT` between 0 and 10 to tune
+legacy backfill, and set
+`EA_SCHEDULER_PROPERTY_RESULTS_TRUNCATED_HYDRATION_LIMIT` between 0 and 10 to
+tune full-state reconciliation for truncated projections. Delivery projections
+contain at most 256 minimal candidate rows; unresolved truncated projections
+stay on the bounded hydration lane instead of claiming completeness. Compact UI
+candidate arrays contain at most 40 rows, source arrays at most 64 rows, and
+nested fields are cardinality- and text-bounded.
+
+The default global cycle limits are 40 terminal runs, five provider-repair
+tasks, and one tour follow-up task across all principals. Empty or failed
+principal scans consume one unit, and principal order advances each cycle so a
+large tenant set cannot make cycle cost unbounded or permanently favor the
+same tenant. Operators may lower or raise those bounded values with
+`EA_SCHEDULER_PROPERTY_RESULTS_FINALIZE_LIMIT` (maximum 200),
+`EA_SCHEDULER_PROPERTY_PROVIDER_REPAIR_LIMIT` (maximum 40), and
+`EA_SCHEDULER_PROPERTY_TOUR_FOLLOWUP_LIMIT` (maximum 20). Raising them requires
+fresh scheduler-latency, database-load, and heartbeat evidence. Scheduler logs
+use process-local non-reversible references for principals, accounts, chats,
+and messages; formatted logs also redact email addresses from messages and
+exception stacks.
+
 ## Launch SLO and alert evidence
 
 The versioned objective, rule, and synthetic injection contracts are:

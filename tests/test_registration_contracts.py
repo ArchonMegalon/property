@@ -128,9 +128,13 @@ def test_browser_return_target_rejects_oversized_internal_target() -> None:
     "unsafe_target",
     (
         "\n/app/search",
+        "\r/app/search",
+        "\t/app/search",
+        "/app/search\n",
+        "/app/search\r",
+        "/app/search\t",
         "/app/search\r\n",
-        "\t/app/support",
-        (" " * 3000) + "/app/search",
+        (" " * 700) + "/app/search" + (" " * 700),
     ),
 )
 def test_browser_return_target_rejects_surrounding_controls_and_overlong_whitespace(

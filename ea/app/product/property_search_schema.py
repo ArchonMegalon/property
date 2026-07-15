@@ -374,12 +374,41 @@ CREATE INDEX IF NOT EXISTS idx_property_content_webhook_claim
 """
 
 
+_RUN_DELIVERY_PROJECTION_SCHEMA_V6 = r"""
+ALTER TABLE property_search_runs
+    ADD COLUMN IF NOT EXISTS compact_schema_version INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE property_search_runs
+    ADD COLUMN IF NOT EXISTS delivery_pending BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE property_search_runs
+    ADD COLUMN IF NOT EXISTS delivery_checked_at TIMESTAMPTZ;
+
+CREATE INDEX IF NOT EXISTS idx_property_search_runs_delivery_work_updated
+    ON property_search_runs(
+        status,
+        compact_schema_version,
+        delivery_checked_at ASC NULLS FIRST,
+        updated_at ASC
+    )
+    WHERE delivery_pending OR compact_schema_version < 2;
+CREATE INDEX IF NOT EXISTS idx_property_search_runs_principal_delivery_work_updated
+    ON property_search_runs(
+        principal_id,
+        status,
+        compact_schema_version,
+        delivery_checked_at ASC NULLS FIRST,
+        updated_at ASC
+    )
+    WHERE delivery_pending OR compact_schema_version < 2;
+"""
+
+
 PROPERTY_SEARCH_MIGRATIONS: tuple[PropertySearchMigration, ...] = (
     PropertySearchMigration(1, "property_search_runs_tenant_schema", _RUN_SCHEMA_V1),
     PropertySearchMigration(2, "property_search_durable_work_queue", _WORK_QUEUE_SCHEMA_V2),
     PropertySearchMigration(3, "property_source_listing_cache", _SOURCE_CACHE_SCHEMA_V3),
     PropertySearchMigration(4, "replica_safe_delivery_outbox", _DELIVERY_OUTBOX_SCHEMA_V4),
     PropertySearchMigration(5, "durable_property_content_job_ledger", _PROPERTY_CONTENT_LEDGER_SCHEMA_V5),
+    PropertySearchMigration(6, "bounded_run_delivery_projection", _RUN_DELIVERY_PROJECTION_SCHEMA_V6),
 )
 LATEST_PROPERTY_SEARCH_SCHEMA_VERSION = PROPERTY_SEARCH_MIGRATIONS[-1].version
 
@@ -403,6 +432,8 @@ _REQUIRED_RELATIONS = (
     "idx_property_search_runs_principal_updated",
     "idx_property_search_runs_status_updated",
     "idx_property_search_runs_principal_status_updated",
+    "idx_property_search_runs_delivery_work_updated",
+    "idx_property_search_runs_principal_delivery_work_updated",
     "property_search_work_jobs",
     "idx_property_search_work_idempotency",
     "idx_property_search_work_principal_run",

@@ -73,6 +73,451 @@ def test_property_search_compact_record_hydrates_preview_from_provider_media_dia
     assert candidate["preview_image_url"] == "https://cache.example.test/mmo/1/photo.jpg"
 
 
+def test_property_search_compact_record_keeps_bounded_delivery_projection() -> None:
+    compact = property_search_storage._compact_property_search_run_record(
+        {
+            "run_id": "run-delivery-projection",
+            "principal_id": "principal-delivery-projection",
+            "status": "processed",
+            "summary": {
+                "status": "processed",
+                "sources": [
+                    {
+                        "source_label": "Willhaben",
+                        "top_candidates": [
+                            {
+                                "candidate_ref": "candidate-delivery-projection",
+                                "title": "Pending tour",
+                                "property_url": "https://example.test/pending-tour",
+                                "source_ref": "source-delivery-projection",
+                                "tour_status": "pending",
+                                "property_facts": {
+                                    "has_floorplan": True,
+                                    "provider_diagnostics": "drop-me" * 10_000,
+                                },
+                            }
+                        ],
+                    }
+                ],
+            },
+        }
+    )
+
+    summary = dict(compact["summary"])
+    projection = [dict(row) for row in list(summary["_delivery_candidates"])]
+    assert compact["compact_schema_version"] == 2
+    assert summary["eligible_tour_total"] == 1
+    assert summary["pending_tour_total"] == 1
+    assert summary["ready_tour_total"] == 0
+    assert "top_candidates" not in summary["sources"][0]
+    assert projection == [
+        {
+            "candidate_ref": "candidate-delivery-projection",
+            "title": "Pending tour",
+            "property_url": "https://example.test/pending-tour",
+            "source_ref": "source-delivery-projection",
+            "tour_status": "pending",
+            "property_facts": {"has_floorplan": True},
+        }
+    ]
+    assert property_search_storage._property_search_run_compact_supports_delivery(compact) is True
+    legacy = dict(compact)
+    legacy.pop("compact_schema_version")
+    assert property_search_storage._property_search_run_compact_supports_delivery(legacy) is False
+
+
+def test_property_search_truncated_delivery_projection_stays_scheduled_for_hydration() -> None:
+    candidate_limit = property_search_storage._PROPERTY_SEARCH_RUN_COMPACT_DELIVERY_CANDIDATE_LIMIT
+    compact = property_search_storage._compact_property_search_run_record(
+        {
+            "run_id": "run-truncated-delivery-projection",
+            "principal_id": "principal-truncated-delivery-projection",
+            "status": "processed",
+            "summary": {
+                "ranked_candidates": [
+                    {
+                        "candidate_ref": f"candidate-{index}",
+                        "tour_status": "ready" if index < candidate_limit else "pending",
+                    }
+                    for index in range(candidate_limit + 1)
+                ]
+            },
+        }
+    )
+
+    summary = dict(compact["summary"])
+    assert len(summary["_delivery_candidates"]) == candidate_limit
+    assert summary["_delivery_projection_truncated"] is True
+    assert summary["_delivery_projection_total"] == candidate_limit + 1
+    assert summary["eligible_tour_total"] == candidate_limit + 1
+    assert summary["pending_tour_total"] == 1
+    assert compact["delivery_pending"] is True
+    assert property_search_storage._property_search_run_compact_supports_delivery(compact) is False
+    recompacted = property_search_storage._compact_property_search_run_record(compact)
+    assert recompacted["summary"]["_delivery_projection_truncated"] is True
+    assert recompacted["delivery_pending"] is True
+
+
+def test_property_search_compact_ui_arrays_and_sources_are_strictly_bounded() -> None:
+    candidate_total = property_search_storage._PROPERTY_SEARCH_RUN_COMPACT_UI_CANDIDATE_LIMIT + 5
+    source_total = property_search_storage._PROPERTY_SEARCH_RUN_COMPACT_SOURCE_LIMIT + 5
+    oversized_text = "x" * (property_search_storage._PROPERTY_SEARCH_RUN_COMPACT_TEXT_LIMIT + 500)
+
+    compact = property_search_storage._compact_property_search_run_record(
+        {
+            "run_id": "run-bounded-ui",
+            "principal_id": "principal-bounded-ui",
+            "status": "processed",
+            "summary": {
+                "ranked_candidates": [
+                    {
+                        "candidate_ref": f"candidate-{index}",
+                        "title": oversized_text,
+                        "fit_score": 80,
+                    }
+                    for index in range(candidate_total)
+                ],
+                "results": [{"candidate_ref": f"result-{index}"} for index in range(candidate_total)],
+                "top_candidates": [{"candidate_ref": f"top-{index}"} for index in range(candidate_total)],
+                "sources": [{"source_label": f"Source {index}"} for index in range(source_total)],
+            },
+        }
+    )
+
+    summary = dict(compact["summary"])
+    for key in ("ranked_candidates", "results", "top_candidates"):
+        assert len(summary[key]) == property_search_storage._PROPERTY_SEARCH_RUN_COMPACT_UI_CANDIDATE_LIMIT
+    assert len(summary["sources"]) == property_search_storage._PROPERTY_SEARCH_RUN_COMPACT_SOURCE_LIMIT
+    assert len(summary["ranked_candidates"][0]["title"]) == property_search_storage._PROPERTY_SEARCH_RUN_COMPACT_TEXT_LIMIT
+
+
+def test_property_search_compact_record_never_infers_unverified_tour_url_as_ready() -> None:
+    compact = property_search_storage._compact_property_search_run_record(
+        {
+            "run_id": "run-unverified-tour",
+            "principal_id": "principal-unverified-tour",
+            "status": "processed",
+            "summary": {
+                "ranked_candidates": [
+                    {
+                        "candidate_ref": "candidate-unverified-tour",
+                        "property_url": "https://example.test/unverified-tour",
+                        "vendor_tour_url": "https://vendor.example.test/unverified-tour",
+                    }
+                ]
+            },
+        }
+    )
+
+    summary = dict(compact["summary"])
+    assert summary["eligible_tour_total"] == 1
+    assert summary["ready_tour_total"] == 0
+    assert summary["pending_tour_total"] == 1
+
+
+def test_property_search_delivery_work_filter_runs_before_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    registry: dict[str, dict[str, object]] = {}
+    for index in range(40):
+        registry[f"ready-{index}"] = {
+            "run_id": f"ready-{index}",
+            "principal_id": "principal-delivery-work",
+            "status": "processed",
+            "updated_at": f"2026-07-15T10:{59 - index:02d}:00+00:00",
+            "summary": {
+                "eligible_tour_total": 1,
+                "pending_tour_total": 0,
+                "ready_tour_total": 1,
+                "blocked_tour_total": 0,
+            },
+        }
+    registry["older-pending"] = {
+        "run_id": "older-pending",
+        "principal_id": "principal-delivery-work",
+        "status": "processed",
+        "updated_at": "2026-07-14T10:00:00+00:00",
+        "summary": {
+            "eligible_tour_total": 1,
+            "pending_tour_total": 1,
+            "ready_tour_total": 0,
+            "blocked_tour_total": 0,
+        },
+    }
+    registry["newer-pending"] = {
+        "run_id": "newer-pending",
+        "principal_id": "principal-delivery-work",
+        "status": "processed",
+        "updated_at": "2026-07-15T11:00:00+00:00",
+        "summary": {
+            "eligible_tour_total": 1,
+            "pending_tour_total": 1,
+            "ready_tour_total": 0,
+            "blocked_tour_total": 0,
+        },
+    }
+
+    rows = property_search_storage._list_property_search_run_records(
+        limit=1,
+        statuses=("processed",),
+        principal_id="principal-delivery-work",
+        lightweight=True,
+        delivery_work_only=True,
+        registry=registry,
+    )
+
+    assert [row["run_id"] for row in rows] == ["older-pending"]
+
+
+def test_property_search_delivery_work_query_prioritizes_schema_then_durable_cursor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, object] = {}
+
+    class _Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, query, params):
+            observed["query"] = str(query)
+            observed["params"] = params
+
+        def fetchall(self):
+            return []
+
+    class _Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def cursor(self):
+            return _Cursor()
+
+    monkeypatch.setattr(property_search_storage, "_property_search_run_database_url", lambda: "postgresql://test")
+    monkeypatch.setattr(property_search_storage, "_require_property_search_run_schema", lambda: None)
+    monkeypatch.setattr(property_search_storage, "_property_search_run_connect", lambda: _Connection())
+
+    rows = property_search_storage._list_property_search_run_records(
+        limit=40,
+        statuses=("processed",),
+        principal_id="",
+        admin=True,
+        lightweight=True,
+        delivery_work_only=True,
+    )
+
+    assert rows == ()
+    normalized_query = " ".join(str(observed["query"]).split())
+    assert "delivery_checked_at" in normalized_query
+    assert (
+        "ORDER BY compact_schema_version ASC, delivery_checked_at ASC NULLS FIRST, updated_at ASC"
+        in normalized_query
+    )
+    assert observed["params"] == [["processed"], 2, 40]
+
+
+def test_property_search_compact_backfill_uses_updated_at_compare_and_swap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, object] = {}
+
+    class _Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, query, params):
+            observed["query"] = str(query)
+            observed["params"] = params
+
+        def fetchone(self):
+            return None
+
+    class _Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def cursor(self):
+            return _Cursor()
+
+    monkeypatch.setattr(property_search_storage, "_property_search_run_database_url", lambda: "postgresql://test")
+    monkeypatch.setattr(property_search_storage, "_require_property_search_run_schema", lambda: None)
+    monkeypatch.setattr(property_search_storage, "_property_search_run_connect", lambda: _Connection())
+
+    updated = property_search_storage._store_property_search_run_compact_record(
+        {
+            "run_id": "run-cas-loser",
+            "principal_id": "principal-cas-loser",
+            "status": "processed",
+            "updated_at": "2026-07-15T10:00:00+00:00",
+            "summary": {
+                "eligible_tour_total": 0,
+                "pending_tour_total": 0,
+                "ready_tour_total": 0,
+                "blocked_tour_total": 0,
+            },
+        }
+    )
+
+    assert updated is False
+    assert "updated_at = %s::timestamptz" in str(observed["query"])
+    assert "delivery_checked_at IS NOT DISTINCT FROM %s::timestamptz" in str(observed["query"])
+    assert "RETURNING 1" in str(observed["query"])
+    assert observed["params"][5] == "2026-07-15T10:00:00+00:00"
+    assert observed["params"][6] is None
+
+
+def test_property_search_delivery_checked_touch_uses_both_cas_fences(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, object] = {}
+
+    class _Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def execute(self, query, params):
+            observed["query"] = str(query)
+            observed["params"] = params
+
+        def fetchone(self):
+            return (1,)
+
+    class _Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def cursor(self):
+            return _Cursor()
+
+    monkeypatch.setattr(property_search_storage, "_property_search_run_database_url", lambda: "postgresql://test")
+    monkeypatch.setattr(property_search_storage, "_require_property_search_run_schema", lambda: None)
+    monkeypatch.setattr(property_search_storage, "_property_search_run_connect", lambda: _Connection())
+
+    updated = property_search_storage._mark_property_search_run_delivery_checked(
+        {
+            "run_id": "run-delivery-touch",
+            "principal_id": "principal-delivery-touch",
+            "updated_at": "2026-07-15T10:00:00+00:00",
+            "delivery_checked_at": "2026-07-15T10:05:00+00:00",
+        }
+    )
+
+    assert updated is True
+    assert "updated_at = %s::timestamptz" in str(observed["query"])
+    assert "delivery_checked_at IS NOT DISTINCT FROM %s::timestamptz" in str(observed["query"])
+    assert observed["params"] == (
+        "run-delivery-touch",
+        "principal-delivery-touch",
+        "2026-07-15T10:00:00+00:00",
+        "2026-07-15T10:05:00+00:00",
+    )
+
+
+def test_property_search_compact_delivery_projection_refreshes_without_full_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "principal-delivery-refresh"
+    client = build_property_client(principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+    compact = property_search_storage._compact_property_search_run_record(
+        {
+            "run_id": "run-delivery-refresh",
+            "principal_id": principal_id,
+            "status": "processed",
+            "summary": {
+                "sources": [
+                    {
+                        "source_label": "Willhaben",
+                        "top_candidates": [
+                            {
+                                "candidate_ref": "candidate-delivery-refresh",
+                                "property_url": "https://example.test/delivery-refresh",
+                                "source_ref": "source-delivery-refresh",
+                                "tour_status": "pending",
+                                "property_facts": {"has_floorplan": True},
+                            }
+                        ],
+                    }
+                ],
+            },
+        }
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_verified_open_url",
+        lambda value, *, principal_id="": str(value or ""),
+    )
+
+    refreshed = service._refresh_property_search_results_delivery_state(
+        principal_id=principal_id,
+        result=dict(compact["summary"]),
+        tour_events_by_source={
+            "source-delivery-refresh": [
+                {
+                    "event_type": "property_tour_ready",
+                    "payload": {
+                        "property_url": "https://example.test/delivery-refresh",
+                        "tour_url": "https://propertyquarry.com/tours/delivery-refresh",
+                    },
+                }
+            ]
+        },
+    )
+
+    assert refreshed["pending_tour_total"] == 0
+    assert refreshed["ready_tour_total"] == 1
+    assert refreshed["_delivery_candidates"][0]["tour_status"] == "ready"
+    assert refreshed["_delivery_candidates"][0]["tour_url"] == "https://propertyquarry.com/tours/delivery-refresh"
+
+
+def test_property_search_delivery_refresh_does_not_receipt_unresolved_candidate() -> None:
+    principal_id = "principal-unresolved-delivery"
+    client = build_property_client(principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+
+    refreshed = service._refresh_property_search_results_delivery_state(
+        principal_id=principal_id,
+        result={
+            "eligible_tour_total": 1,
+            "pending_tour_total": 1,
+            "ready_tour_total": 0,
+            "blocked_tour_total": 0,
+            "_delivery_candidates": [
+                {
+                    "candidate_ref": "candidate-unresolved-delivery",
+                    "source_ref": "source-unresolved-delivery",
+                    "tour_status": "created",
+                }
+            ],
+            "timing_receipts": {"run_started_at": "2026-07-15T10:00:00+00:00"},
+        },
+        tour_events_by_source={},
+    )
+
+    assert refreshed["eligible_tour_total"] == 1
+    assert refreshed["pending_tour_total"] == 0
+    assert refreshed["ready_tour_total"] == 0
+    assert refreshed["blocked_tour_total"] == 0
+    assert service._property_search_results_delivery_pending(result=refreshed) is True
+    assert "results_delivery_ready_at" not in dict(refreshed.get("timing_receipts") or {})
+
+
 def test_property_search_lightweight_status_hydrates_preview_from_provider_media_diagnostics() -> None:
     candidate = _property_search_lightweight_candidate_payload(
         {
@@ -15829,6 +16274,433 @@ def test_reconcile_property_search_results_delivery_includes_partial_runs(monkey
         "emailed": 0,
         "pending": 0,
     }
+
+
+def test_scheduler_reconcile_persists_compact_delivery_refresh_without_full_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "principal-compact-finalization"
+    run_id = "run-compact-finalization"
+    client = build_property_client(principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+    compact_record = {
+        "run_id": run_id,
+        "principal_id": principal_id,
+        "status": "processed",
+        "updated_at": "2026-07-15T10:00:00+00:00",
+        "compact_schema_version": 2,
+        "delivery_pending": True,
+        "summary": {
+            "eligible_tour_total": 1,
+            "pending_tour_total": 1,
+            "ready_tour_total": 0,
+            "blocked_tour_total": 0,
+            "_delivery_candidates": [
+                {
+                    "candidate_ref": "candidate-compact-finalization",
+                    "source_ref": "source-compact-finalization",
+                    "property_url": "https://example.test/compact-finalization",
+                    "tour_status": "pending",
+                }
+            ],
+        },
+    }
+    stored: list[dict[str, object]] = []
+    monkeypatch.setattr(product_service, "_list_property_search_run_records", lambda **_kwargs: (compact_record,))
+    monkeypatch.setattr(product_service, "_property_search_run_database_url", lambda: "postgresql://test")
+    monkeypatch.setattr(
+        product_service,
+        "_load_property_search_run_record",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("full payload must not be loaded")),
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_property_search_tour_events_by_source",
+        lambda *_args, **_kwargs: {
+            "source-compact-finalization": [
+                {
+                    "event_type": "property_tour_ready",
+                    "payload": {
+                        "property_url": "https://example.test/compact-finalization",
+                        "tour_url": "https://propertyquarry.com/tours/compact-finalization",
+                    },
+                }
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_verified_open_url",
+        lambda value, *, principal_id="": str(value or ""),
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_maybe_advance_property_search_run_finalization",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("full finalization path must not run")),
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_recent_product_event_exists",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("notification lookup must not run")),
+    )
+
+    def _capture_compact_refresh(state: dict[str, object]) -> bool:
+        stored.append(property_search_storage._compact_property_search_run_record(state))
+        return True
+
+    monkeypatch.setattr(product_service, "_store_property_search_run_compact_record", _capture_compact_refresh)
+
+    summary = service.reconcile_property_search_results_delivery(
+        principal_id=principal_id,
+        limit=1,
+        allow_notifications=False,
+    )
+
+    assert summary == {"attempted": 1, "finalized": 1, "emailed": 0, "pending": 0}
+    assert len(stored) == 1
+    assert stored[0]["updated_at"] == "2026-07-15T10:00:00+00:00"
+    assert stored[0]["delivery_pending"] is False
+    stored_summary = dict(stored[0]["summary"])
+    assert stored_summary["pending_tour_total"] == 0
+    assert stored_summary["ready_tour_total"] == 1, stored_summary
+    assert stored_summary["_delivery_candidates"][0]["tour_status"] == "ready"
+
+
+def test_scheduler_reconcile_skips_ready_runs_and_reuses_principal_tour_events(monkeypatch) -> None:
+    client = build_property_client(principal_id="exec-property-search-reconcile-bounded")
+    service = product_service.build_product_service(client.app.state.container)
+    principal_id = "cf-email:person@example.test"
+    pending_summary = {
+        "eligible_tour_total": 1,
+        "pending_tour_total": 1,
+        "ready_tour_total": 0,
+        "blocked_tour_total": 0,
+        "_delivery_candidates": [{"source_ref": "source-1", "tour_status": "pending"}],
+    }
+    ready_summary = {
+        "eligible_tour_total": 1,
+        "pending_tour_total": 0,
+        "ready_tour_total": 1,
+        "blocked_tour_total": 0,
+        "sources": [{"source_ref": "source-ready", "top_candidates": []}],
+    }
+    records = tuple(
+        {
+            "run_id": f"run-ready-{index}",
+            "principal_id": principal_id,
+            "status": "processed",
+            "compact_schema_version": 2,
+            "summary": ready_summary,
+        }
+        for index in range(18)
+    ) + tuple(
+        {
+            "run_id": f"run-pending-{index}",
+            "principal_id": principal_id,
+            "status": "processed",
+            "compact_schema_version": 2,
+            "summary": pending_summary,
+        }
+        for index in range(22)
+    )
+    monkeypatch.setattr(product_service, "_list_property_search_run_records", lambda **_kwargs: records)
+    event_loads: list[str] = []
+    event_indexes: list[dict[str, list[dict[str, object]]]] = []
+
+    def _fake_tour_events(self, *, principal_id: str):
+        event_loads.append(principal_id)
+        return {"source-1": []}
+
+    def _fake_advance(
+        self,
+        *,
+        principal_id: str,
+        run_id: str,
+        state: dict[str, object],
+        allow_notifications: bool = True,
+        tour_events_by_source: dict[str, list[dict[str, object]]] | None = None,
+    ):
+        assert allow_notifications is False
+        event_indexes.append(tour_events_by_source or {})
+        return dict(state)
+
+    monkeypatch.setattr(ProductService, "_property_search_tour_events_by_source", _fake_tour_events)
+    monkeypatch.setattr(ProductService, "_maybe_advance_property_search_run_finalization", _fake_advance)
+    monkeypatch.setattr(
+        ProductService,
+        "_recent_product_event_exists",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("notification lookup must be skipped")),
+    )
+
+    summary = service.reconcile_property_search_results_delivery(limit=40, allow_notifications=False)
+
+    assert summary == {"attempted": 22, "finalized": 0, "emailed": 0, "pending": 22}
+    assert event_loads == [principal_id]
+    assert len(event_indexes) == 22
+    assert all(event_index is event_indexes[0] for event_index in event_indexes)
+
+
+def test_scheduler_reconcile_backfills_only_bounded_legacy_compact_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = build_property_client(principal_id="principal-legacy-finalization")
+    service = product_service.build_product_service(client.app.state.container)
+    principal_id = "principal-legacy-finalization"
+    records = tuple(
+        {
+            "run_id": f"run-legacy-{index}",
+            "principal_id": principal_id,
+            "status": "processed",
+            "summary": {},
+        }
+        for index in range(3)
+    )
+    loaded: list[str] = []
+    compact_updates: list[str] = []
+    monkeypatch.setenv("EA_SCHEDULER_PROPERTY_RESULTS_LEGACY_HYDRATION_LIMIT", "2")
+    monkeypatch.setattr(product_service, "_list_property_search_run_records", lambda **_kwargs: records)
+    monkeypatch.setattr(product_service, "_property_search_run_database_url", lambda: "postgresql://test")
+
+    def _fake_load(*, run_id: str, principal_id: str):
+        loaded.append(run_id)
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "processed",
+            "summary": {
+                "eligible_tour_total": 0,
+                "pending_tour_total": 0,
+                "ready_tour_total": 0,
+                "blocked_tour_total": 0,
+            },
+        }
+
+    monkeypatch.setattr(product_service, "_load_property_search_run_record", _fake_load)
+    monkeypatch.setattr(
+        product_service,
+        "_store_property_search_run_compact_record",
+        lambda state: (compact_updates.append(str(state.get("run_id") or "")) or True),
+    )
+
+    summary = service.reconcile_property_search_results_delivery(
+        principal_id=principal_id,
+        limit=3,
+        allow_notifications=False,
+    )
+
+    assert summary == {"attempted": 0, "finalized": 0, "emailed": 0, "pending": 0}
+    assert loaded == ["run-legacy-0", "run-legacy-1"]
+    assert compact_updates == loaded
+
+
+def test_scheduler_reconcile_separates_legacy_and_truncated_hydration_budgets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "principal-separated-hydration"
+    client = build_property_client(principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+    records = (
+        {
+            "run_id": "run-truncated-0",
+            "principal_id": principal_id,
+            "status": "processed",
+            "updated_at": "2026-07-15T10:00:00+00:00",
+            "compact_schema_version": 2,
+            "summary": {"_delivery_projection_truncated": True},
+        },
+        {
+            "run_id": "run-truncated-1",
+            "principal_id": principal_id,
+            "status": "processed",
+            "updated_at": "2026-07-15T10:01:00+00:00",
+            "compact_schema_version": 2,
+            "summary": {"_delivery_projection_truncated": True},
+        },
+        {
+            "run_id": "run-legacy-0",
+            "principal_id": principal_id,
+            "status": "processed",
+            "updated_at": "2026-07-15T10:02:00+00:00",
+            "summary": {},
+        },
+    )
+    loaded: list[str] = []
+    stored: list[dict[str, object]] = []
+    monkeypatch.setenv("EA_SCHEDULER_PROPERTY_RESULTS_LEGACY_HYDRATION_LIMIT", "1")
+    monkeypatch.setenv("EA_SCHEDULER_PROPERTY_RESULTS_TRUNCATED_HYDRATION_LIMIT", "1")
+    monkeypatch.setattr(product_service, "_list_property_search_run_records", lambda **_kwargs: records)
+    monkeypatch.setattr(product_service, "_property_search_run_database_url", lambda: "postgresql://test")
+
+    def _fake_load(*, run_id: str, principal_id: str):
+        loaded.append(run_id)
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "processed",
+            "summary": {
+                "eligible_tour_total": 0,
+                "pending_tour_total": 0,
+                "ready_tour_total": 0,
+                "blocked_tour_total": 0,
+            },
+        }
+
+    monkeypatch.setattr(product_service, "_load_property_search_run_record", _fake_load)
+    monkeypatch.setattr(
+        product_service,
+        "_store_property_search_run_compact_record",
+        lambda state: (stored.append(dict(state)) or True),
+    )
+
+    summary = service.reconcile_property_search_results_delivery(
+        principal_id=principal_id,
+        limit=3,
+        allow_notifications=False,
+    )
+
+    assert summary == {"attempted": 0, "finalized": 0, "emailed": 0, "pending": 0}
+    assert loaded == ["run-truncated-0", "run-legacy-0"]
+    assert [row["run_id"] for row in stored] == loaded
+    assert [row["updated_at"] for row in stored] == [
+        "2026-07-15T10:00:00+00:00",
+        "2026-07-15T10:02:00+00:00",
+    ]
+
+
+def test_scheduler_reconcile_refreshes_truncated_state_before_failed_compact_cas(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "principal-truncated-cas"
+    client = build_property_client(principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+    lightweight = {
+        "run_id": "run-truncated-cas",
+        "principal_id": principal_id,
+        "status": "processed",
+        "updated_at": "2026-07-15T10:00:00+00:00",
+        "compact_schema_version": 2,
+        "delivery_pending": True,
+        "summary": {"_delivery_projection_truncated": True},
+    }
+    stored: list[dict[str, object]] = []
+    event_loads: list[str] = []
+    monkeypatch.setattr(product_service, "_list_property_search_run_records", lambda **_kwargs: (lightweight,))
+    monkeypatch.setattr(product_service, "_property_search_run_database_url", lambda: "postgresql://test")
+    monkeypatch.setattr(
+        product_service,
+        "_load_property_search_run_record",
+        lambda **_kwargs: {
+            "run_id": "run-truncated-cas",
+            "principal_id": principal_id,
+            "status": "processed",
+            "summary": {
+                "eligible_tour_total": 1,
+                "pending_tour_total": 1,
+                "ready_tour_total": 0,
+                "blocked_tour_total": 0,
+                "_delivery_candidates": [
+                    {
+                        "candidate_ref": "candidate-truncated-cas",
+                        "source_ref": "source-truncated-cas",
+                        "property_url": "https://example.test/truncated-cas",
+                        "tour_status": "pending",
+                    }
+                ],
+            },
+        },
+    )
+
+    def _events(self, *, principal_id: str):
+        event_loads.append(principal_id)
+        return {
+            "source-truncated-cas": [
+                {
+                    "event_type": "property_tour_ready",
+                    "payload": {
+                        "property_url": "https://example.test/truncated-cas",
+                        "tour_url": "https://propertyquarry.com/tours/truncated-cas",
+                    },
+                }
+            ]
+        }
+
+    monkeypatch.setattr(ProductService, "_property_search_tour_events_by_source", _events)
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_verified_open_url",
+        lambda value, *, principal_id="": str(value or ""),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_store_property_search_run_compact_record",
+        lambda state: (stored.append(dict(state)) or False),
+    )
+
+    summary = service.reconcile_property_search_results_delivery(
+        principal_id=principal_id,
+        limit=1,
+        allow_notifications=False,
+    )
+
+    assert summary == {"attempted": 1, "finalized": 0, "emailed": 0, "pending": 1}
+    assert event_loads == [principal_id]
+    assert len(stored) == 1
+    assert stored[0]["updated_at"] == lightweight["updated_at"]
+    assert stored[0]["summary"]["ready_tour_total"] == 1
+    assert stored[0]["summary"]["pending_tour_total"] == 0
+
+
+def test_scheduler_reconcile_touches_fairness_cursor_when_projection_is_unchanged(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "principal-delivery-cursor"
+    client = build_property_client(principal_id=principal_id)
+    service = product_service.build_product_service(client.app.state.container)
+    state = {
+        "run_id": "run-delivery-cursor",
+        "principal_id": principal_id,
+        "status": "processed",
+        "updated_at": "2026-07-15T10:00:00+00:00",
+        "delivery_checked_at": "2026-07-15T10:05:00+00:00",
+        "compact_schema_version": 2,
+        "delivery_pending": True,
+        "summary": {
+            "eligible_tour_total": 1,
+            "pending_tour_total": 1,
+            "ready_tour_total": 0,
+            "blocked_tour_total": 0,
+            "_delivery_candidates": [{"source_ref": "source-delivery-cursor", "tour_status": "pending"}],
+        },
+    }
+    touched: list[dict[str, object]] = []
+    monkeypatch.setattr(product_service, "_list_property_search_run_records", lambda **_kwargs: (state,))
+    monkeypatch.setattr(product_service, "_property_search_run_database_url", lambda: "postgresql://test")
+    monkeypatch.setattr(ProductService, "_property_search_tour_events_by_source", lambda *_args, **_kwargs: {})
+    monkeypatch.setattr(
+        ProductService,
+        "_refresh_property_search_results_delivery_state",
+        lambda _self, *, principal_id, result, tour_events_by_source=None: dict(result),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_store_property_search_run_compact_record",
+        lambda _state: pytest.fail("unchanged projection must use the scalar cursor touch"),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_mark_property_search_run_delivery_checked",
+        lambda record: (touched.append(dict(record)) or True),
+    )
+
+    summary = service.reconcile_property_search_results_delivery(
+        principal_id=principal_id,
+        limit=1,
+        allow_notifications=False,
+    )
+
+    assert summary == {"attempted": 1, "finalized": 0, "emailed": 0, "pending": 1}
+    assert len(touched) == 1
+    assert touched[0]["delivery_checked_at"] == "2026-07-15T10:05:00+00:00"
 
 
 def test_property_search_results_ready_can_send_heyy_digest(monkeypatch: pytest.MonkeyPatch) -> None:

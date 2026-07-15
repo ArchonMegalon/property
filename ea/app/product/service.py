@@ -188,10 +188,12 @@ from app.product.property_search_storage import (
     _load_property_search_run_compact_record as _load_property_search_run_compact_record_storage,
     _load_property_search_run_record as _load_property_search_run_record_storage,
     _property_search_run_database_url,
+    _mark_property_search_run_delivery_checked,
     _property_source_listing_cache_get as _property_source_listing_cache_get_storage,
     _property_source_listing_cache_key,
     _property_source_listing_cache_put as _property_source_listing_cache_put_storage,
     _prune_property_search_run_records,
+    _store_property_search_run_compact_record,
     _store_property_search_run_record,
 )
 from app.product.property_search_work_queue import (
@@ -4395,6 +4397,7 @@ def _list_property_search_run_records(
     principal_id: str = "",
     admin: bool = False,
     lightweight: bool = False,
+    delivery_work_only: bool = False,
 ) -> tuple[dict[str, object], ...]:
     with _PROPERTY_SEARCH_RUN_LOCK:
         registry_snapshot = {
@@ -4409,6 +4412,7 @@ def _list_property_search_run_records(
             principal_id=principal_id,
             admin=admin,
             lightweight=lightweight,
+            delivery_work_only=delivery_work_only,
             registry=registry_snapshot,
         )
     except Exception as exc:
@@ -4431,6 +4435,14 @@ def _list_property_search_run_records(
     rows.sort(key=lambda row: str(row.get("updated_at") or row.get("created_at") or ""), reverse=True)
     if lightweight:
         rows = [_property_search_storage._compact_property_search_run_record(row) for row in rows]  # type: ignore[attr-defined]
+    if delivery_work_only:
+        rows = [
+            row
+            for row in rows
+            if str(row.get("compact_schema_version") or "")
+            != str(_property_search_storage._PROPERTY_SEARCH_RUN_COMPACT_SCHEMA_VERSION)  # type: ignore[attr-defined]
+            or bool(row.get("delivery_pending", True))
+        ]
     return tuple(rows[:normalized_limit])
 
 
@@ -33489,6 +33501,7 @@ class ProductService:
                 break
         return {
             "generated_at": _now_iso(),
+            "attempted_total": matched_total,
             "resolved_total": len(resolved),
             "deferred_total": deferred,
             "resolved": resolved[:20],
@@ -37277,16 +37290,11 @@ class ProductService:
         )
         return {"status": "sent", **payload}
 
-    def _refresh_property_search_results_delivery_state(
+    def _property_search_tour_events_by_source(
         self,
         *,
         principal_id: str,
-        result: dict[str, object],
-    ) -> dict[str, object]:
-        refreshed = dict(result or {})
-        source_rows = [dict(row) for row in list(refreshed.get("sources") or []) if isinstance(row, dict)]
-        if not source_rows:
-            return refreshed
+    ) -> dict[str, list[dict[str, object]]]:
         wanted_tour_event_types = {
             "willhaben_property_tour_created",
             "willhaben_property_tour_email_sent",
@@ -37296,7 +37304,6 @@ class ProductService:
             "generic_property_tour_created",
             "generic_property_tour_blocked",
         }
-        tour_events_by_source: dict[str, list[dict[str, object]]] = {}
         observations: list[object] = []
         matching_query_succeeded = False
         try:
@@ -37328,6 +37335,7 @@ class ProductService:
                 ]
             except Exception:
                 observations = []
+        tour_events_by_source: dict[str, list[dict[str, object]]] = {}
         for row in observations:
             event_type = str(getattr(row, "event_type", "") or "").strip()
             source_id = str(getattr(row, "source_id", "") or "").strip()
@@ -37340,13 +37348,42 @@ class ProductService:
                     "created_at": str(getattr(row, "created_at", "") or "").strip(),
                 }
             )
+        return tour_events_by_source
+
+    def _refresh_property_search_results_delivery_state(
+        self,
+        *,
+        principal_id: str,
+        result: dict[str, object],
+        tour_events_by_source: dict[str, list[dict[str, object]]] | None = None,
+    ) -> dict[str, object]:
+        refreshed = dict(result or {})
+        source_rows = [dict(row) for row in list(refreshed.get("sources") or []) if isinstance(row, dict)]
+        delivery_candidates = [
+            dict(row)
+            for row in list(refreshed.get("_delivery_candidates") or [])
+            if isinstance(row, dict)
+        ]
+        has_source_candidates = any(list(source.get("top_candidates") or []) for source in source_rows)
+        using_delivery_projection = bool(delivery_candidates) and not has_source_candidates
+        if using_delivery_projection:
+            source_rows = [{"top_candidates": delivery_candidates}]
+            if not self._property_search_results_delivery_pending(result=refreshed):
+                return refreshed
+        elif not source_rows or not has_source_candidates:
+            return refreshed
+        event_index = (
+            tour_events_by_source
+            if tour_events_by_source is not None
+            else self._property_search_tour_events_by_source(principal_id=principal_id)
+        )
 
         def _latest_tour_event_for_candidate(source_ref: str, property_url: str) -> dict[str, object] | None:
             wanted_source = str(source_ref or "").strip()
             if not wanted_source:
                 return None
             wanted_property_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
-            for event in tour_events_by_source.get(wanted_source, []):
+            for event in event_index.get(wanted_source, []):
                 payload = dict(event.get("payload") or {})
                 if wanted_property_url:
                     payload_property_url = urllib.parse.urldefrag(str(payload.get("property_url") or "").strip())[0]
@@ -37371,7 +37408,7 @@ class ProductService:
             refreshed_candidates: list[dict[str, object]] = []
             for candidate in list(source_row.get("top_candidates") or []):
                 candidate_row = dict(candidate or {})
-                supports_tour = _property_candidate_supports_live_tour(candidate_row)
+                supports_tour = using_delivery_projection or _property_candidate_supports_live_tour(candidate_row)
                 if supports_tour:
                     eligible_total += 1
                 source_ref = str(candidate_row.get("source_ref") or "").strip()
@@ -37420,16 +37457,24 @@ class ProductService:
                 refreshed_candidates.append(candidate_row)
             source_row["top_candidates"] = refreshed_candidates
             refreshed_sources.append(source_row)
-        refreshed["sources"] = refreshed_sources
-        refreshed_ranked_candidates = _property_search_ranked_candidates_from_sources(refreshed_sources)
-        if refreshed_ranked_candidates or not list(refreshed.get("ranked_candidates") or []):
-            refreshed["ranked_candidates"] = refreshed_ranked_candidates
+        if using_delivery_projection:
+            refreshed["_delivery_candidates"] = [
+                dict(candidate)
+                for source in refreshed_sources
+                for candidate in list(source.get("top_candidates") or [])
+                if isinstance(candidate, dict)
+            ]
+        else:
+            refreshed["sources"] = refreshed_sources
+            refreshed_ranked_candidates = _property_search_ranked_candidates_from_sources(refreshed_sources)
+            if refreshed_ranked_candidates or not list(refreshed.get("ranked_candidates") or []):
+                refreshed["ranked_candidates"] = refreshed_ranked_candidates
         refreshed["ready_tour_total"] = ready_total
         refreshed["pending_tour_total"] = pending_total
         refreshed["blocked_tour_total"] = blocked_total
         refreshed["eligible_tour_total"] = eligible_total
         refreshed["hosted_tour_total"] = ready_total
-        if not pending_total:
+        if not self._property_search_results_delivery_pending(result=refreshed):
             refreshed_receipts = mark_property_search_stage_receipt(
                 dict(refreshed.get("timing_receipts") or {}),
                 "results_delivery_ready_at",
@@ -39856,6 +39901,7 @@ class ProductService:
         run_id: str,
         state: dict[str, object],
         allow_notifications: bool = True,
+        tour_events_by_source: dict[str, list[dict[str, object]]] | None = None,
     ) -> dict[str, object]:
         normalized_status = str(state.get("status") or "").strip().lower()
         if normalized_status not in _PROPERTY_SEARCH_DELIVERABLE_TERMINAL_STATUSES:
@@ -39865,8 +39911,11 @@ class ProductService:
         refreshed_summary = self._refresh_property_search_results_delivery_state(
             principal_id=principal_id,
             result=summary,
+            tour_events_by_source=tour_events_by_source,
         )
         if refreshed_summary != summary:
+            persisted_summary = dict(refreshed_summary)
+            persisted_summary.pop("_delivery_candidates", None)
             self._record_property_search_run_event(
                 run_id=run_id,
                 principal_id=principal_id,
@@ -39878,7 +39927,7 @@ class ProductService:
                 ),
                 status=delivery_status,
                 steps_delta=0,
-                summary_updates=refreshed_summary,
+                summary_updates=persisted_summary,
                 force_status=delivery_status,
             )
             refreshed_state = self._snapshot_property_search_run(
@@ -42028,42 +42077,158 @@ class ProductService:
         finalized = 0
         emailed = 0
         pending = 0
+        tour_event_cache: dict[str, dict[str, list[dict[str, object]]]] = {}
+
+        def _hydration_limit(env_name: str) -> int:
+            try:
+                parsed = int(str(os.getenv(env_name) or "2").strip())
+            except Exception:
+                parsed = 2
+            return max(0, min(parsed, 10))
+
+        legacy_hydration_limit = _hydration_limit(
+            "EA_SCHEDULER_PROPERTY_RESULTS_LEGACY_HYDRATION_LIMIT"
+        )
+        truncated_hydration_limit = _hydration_limit(
+            "EA_SCHEDULER_PROPERTY_RESULTS_TRUNCATED_HYDRATION_LIMIT"
+        )
+        legacy_hydrated = 0
+        truncated_hydrated = 0
         records = _list_property_search_run_records(
             limit=max(int(limit or 0), 1),
             statuses=("processed", "completed", "completed_partial"),
             principal_id=normalized_principal,
             admin=not bool(normalized_principal),
             lightweight=True,
+            delivery_work_only=not allow_notifications,
         )
-        for state in records:
+        database_backed = bool(_property_search_run_database_url())
+        for lightweight_state in records:
+            state = dict(lightweight_state)
             state_principal = str(state.get("principal_id") or "").strip()
             run_id = str(state.get("run_id") or "").strip()
             if not state_principal or not run_id:
                 continue
             if normalized_principal and state_principal != normalized_principal:
                 continue
-            already_sent = self._recent_product_event_exists(
-                principal_id=state_principal,
-                event_type="property_search_results_ready_email_sent",
-                source_id=run_id,
-                dedupe_key=f"{state_principal}|{run_id}|property-search-results-ready-email",
-            )
-            pending_before = self._property_search_results_delivery_pending(result=dict(state.get("summary") or {}))
+            state_was_hydrated = False
+            if not _property_search_storage._property_search_run_compact_supports_delivery(state):  # type: ignore[attr-defined]
+                state_summary = dict(state.get("summary") or {}) if isinstance(state.get("summary"), dict) else {}
+                try:
+                    compact_schema_version = int(state.get("compact_schema_version") or 0)
+                except Exception:
+                    compact_schema_version = 0
+                truncated_projection = bool(
+                    compact_schema_version >= _property_search_storage._PROPERTY_SEARCH_RUN_COMPACT_SCHEMA_VERSION  # type: ignore[attr-defined]
+                    and state_summary.get("_delivery_projection_truncated")
+                )
+                if truncated_projection:
+                    if truncated_hydrated >= truncated_hydration_limit:
+                        continue
+                elif legacy_hydrated >= legacy_hydration_limit:
+                    continue
+                hydrated_state = _load_property_search_run_record(
+                    run_id=run_id,
+                    principal_id=state_principal,
+                )
+                if not isinstance(hydrated_state, dict):
+                    continue
+                if str(hydrated_state.get("principal_id") or "").strip() != state_principal:
+                    continue
+                hydrated_state = dict(hydrated_state)
+                for timestamp_key in ("created_at", "updated_at", "delivery_checked_at"):
+                    if not str(hydrated_state.get(timestamp_key) or "").strip() and str(
+                        state.get(timestamp_key) or ""
+                    ).strip():
+                        hydrated_state[timestamp_key] = state.get(timestamp_key)
+                state = dict(hydrated_state)
+                state_was_hydrated = True
+                if truncated_projection:
+                    truncated_hydrated += 1
+                else:
+                    legacy_hydrated += 1
+                if allow_notifications or not database_backed:
+                    with _PROPERTY_SEARCH_RUN_LOCK:
+                        cached_state = _PROPERTY_SEARCH_RUN_REGISTRY.get(run_id)
+                        if not isinstance(cached_state, dict) or _property_search_run_should_prefer_persisted_state(
+                            cached_state=dict(cached_state),
+                            persisted_state=state,
+                        ):
+                            _PROPERTY_SEARCH_RUN_REGISTRY[run_id] = dict(state)
+                        else:
+                            state = dict(cached_state)
+            state_summary = dict(state.get("summary") or {})
+            pending_before = self._property_search_results_delivery_pending(result=state_summary)
+            # The production scheduler intentionally does not send completion
+            # notifications. Ready runs therefore have no email event to mark
+            # them as reconciled and must be skipped before any event lookup.
+            if not allow_notifications and not pending_before:
+                if database_backed and state_was_hydrated:
+                    try:
+                        compact_refreshed = _store_property_search_run_compact_record(state)
+                    except Exception as exc:
+                        if not _property_search_storage._property_search_run_db_pressure_error(exc):  # type: ignore[attr-defined]
+                            raise
+                        compact_refreshed = False
+                    if not compact_refreshed:
+                        pending += 1
+                continue
+            already_sent = False
+            if allow_notifications:
+                already_sent = self._recent_product_event_exists(
+                    principal_id=state_principal,
+                    event_type="property_search_results_ready_email_sent",
+                    source_id=run_id,
+                    dedupe_key=f"{state_principal}|{run_id}|property-search-results-ready-email",
+                )
             if already_sent and not pending_before:
                 continue
+            tour_events_by_source: dict[str, list[dict[str, object]]] = {}
+            if list(state_summary.get("sources") or []) or list(state_summary.get("_delivery_candidates") or []):
+                if state_principal not in tour_event_cache:
+                    tour_event_cache[state_principal] = self._property_search_tour_events_by_source(
+                        principal_id=state_principal,
+                    )
+                tour_events_by_source = tour_event_cache[state_principal]
             attempted += 1
+            if not allow_notifications and database_backed:
+                refreshed_summary = self._refresh_property_search_results_delivery_state(
+                    principal_id=state_principal,
+                    result=state_summary,
+                    tour_events_by_source=tour_events_by_source,
+                )
+                try:
+                    if refreshed_summary != state_summary or state_was_hydrated:
+                        compact_refreshed = _store_property_search_run_compact_record(
+                            {**dict(state), "summary": refreshed_summary}
+                        )
+                    else:
+                        compact_refreshed = _mark_property_search_run_delivery_checked(state)
+                except Exception as exc:
+                    if not _property_search_storage._property_search_run_db_pressure_error(exc):  # type: ignore[attr-defined]
+                        raise
+                    compact_refreshed = False
+                if not compact_refreshed:
+                    pending += 1
+                    continue
+                if self._property_search_results_delivery_pending(result=refreshed_summary):
+                    pending += 1
+                else:
+                    finalized += 1
+                continue
             updated = self._maybe_advance_property_search_run_finalization(
                 principal_id=state_principal,
                 run_id=run_id,
                 state=dict(state),
                 allow_notifications=allow_notifications,
+                tour_events_by_source=tour_events_by_source,
             )
             pending_after = self._property_search_results_delivery_pending(result=dict(updated.get("summary") or {}))
             if pending_after:
                 pending += 1
             else:
                 finalized += 1
-            if not already_sent and self._recent_product_event_exists(
+            if allow_notifications and not already_sent and self._recent_product_event_exists(
                 principal_id=state_principal,
                 event_type="property_search_results_ready_email_sent",
                 source_id=run_id,

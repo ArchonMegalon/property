@@ -4343,20 +4343,20 @@ def test_browser_landing_exposes_google_onboarding_and_html_callback(monkeypatch
     setup = owner.get("/register")
     assert setup.status_code == 200
     _assert_no_product_drift(setup.text)
-    assert "Set up an account that finds and ranks the right properties." in setup.text
-    assert "Account shape" in setup.text
+    assert "Set up your property search." in setup.text
+    assert "Account details" in setup.text
     assert "Google sign-in" in setup.text
 
     sign_in = owner.get("/sign-in")
     assert sign_in.status_code == 200
     _assert_no_product_drift(sign_in.text)
-    assert "Use email or one of the sign-in options below." in sign_in.text
-    assert "Each sign-in option opens the same account and creates it if needed." in sign_in.text
+    assert "Use a secure email link if your address already has access." in sign_in.text
+    assert "You can also continue with an available provider." in sign_in.text
     assert "Identity only" not in sign_in.text
     assert 'href="/app/search"' in sign_in.text
     assert 'action="/app/actions/sign-out"' in sign_in.text
     assert "Email me a fresh access link" not in sign_in.text
-    assert "Email link" in sign_in.text
+    assert "Open search" in sign_in.text
 
     legacy_setup = owner.get("/setup", follow_redirects=False)
     assert legacy_setup.status_code == 307
@@ -4583,7 +4583,10 @@ def test_browser_google_callback_restarts_sign_in_for_stale_redirect_state(monke
     )
 
     assert callback.status_code == 303
-    assert callback.headers["location"] == "/sign-in/google?restart=stale_redirect"
+    assert (
+        callback.headers["location"]
+        == "/sign-in/google?restart=stale_redirect&return_to=%2Fsign-in%3Fgoogle_connected%3D1"
+    )
 
 
 def test_browser_google_callback_renders_error_page_for_google_error_params(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1890,8 +1890,8 @@ def test_propertyquarry_register_surface_uses_property_search_language() -> None
     assert sign_in.status_code == 200
     assert public_pricing.status_code == 200
     assert signed_in_sign_in.status_code == 200
-    assert "Set up an account that finds and ranks the right properties" in page.text
-    assert "Finish setup and start the first search" in page.text
+    assert "Set up your property search." in page.text
+    assert "Finish setup" in page.text
     assert 'href="/app/search"' in page.text
     assert 'href="/app/search"' not in sign_in.text
     assert 'href="/sign-in/current-session"' not in sign_in.text
@@ -1911,8 +1911,8 @@ def test_propertyquarry_register_surface_uses_property_search_language() -> None
     assert "Create account" not in pricing.text
     assert "Start free" in public_pricing.text
     assert 'href="/sign-in?signing_in=1"' in public_pricing.text
-    assert "Create account" not in public_pricing.text
-    assert "First sign-in creates the account automatically." in public_pricing.text
+    assert "No payment required." in public_pricing.text
+    assert "Already have an account?" in public_pricing.text
     assert 'action="/app/actions/sign-out"' in signed_in_sign_in.text
     assert ">Log out<" in signed_in_sign_in.text
     assert signed_in_sign_in.text.count('action="/app/actions/sign-out"') == 1
@@ -1926,18 +1926,13 @@ def test_propertyquarry_register_surface_uses_property_search_language() -> None
     assert "Use the path that matches how you joined" not in sign_in.text
     assert "Identity only" not in sign_in.text
     assert "Identity-only." not in sign_in.text
-    assert "Use email or one of the sign-in options below." in sign_in.text
-    assert "First sign-in creates the account automatically." in sign_in.text
+    assert "Use a secure email link if your address already has access." in sign_in.text
+    assert "You can also continue with an available provider." in sign_in.text
     assert "Any provider below reopens the same account or creates it automatically on first use." not in sign_in.text
     assert "Connected sign-in opens the same account or creates it the first time." not in sign_in.text
-    if (
-        "Continue with Google" in sign_in.text
-        or "Continue with Facebook" in sign_in.text
-        or "ID Austria" in sign_in.text
-    ):
-        assert "Provider sign-in opens the same account and creates it if needed." in sign_in.text
-    else:
-        assert "Provider sign-in opens the same account and creates it if needed." not in sign_in.text
+    for provider in ("Google", "Facebook", "ID Austria"):
+        if f"Continue with {provider}" in sign_in.text:
+            assert f"{provider} opens the same account and creates it if needed." in sign_in.text
     assert "Trusted device" not in sign_in.text
     assert "Private hardware access stays limited to approved devices." not in sign_in.text
     assert "Private hardware sign-in lane for approved devices." not in sign_in.text
@@ -2019,7 +2014,7 @@ def test_propertyquarry_pricing_exposes_all_request_time_styles_to_every_plan() 
     pricing = client.get("/pricing", headers={"host": "propertyquarry.com"})
 
     assert pricing.status_code == 200
-    assert pricing.text.count("Interior styles</span><strong>5</strong>") == 3
+    assert pricing.text.count("Tour styles</span><strong>5</strong>") == 3
 
 
 def test_propertyquarry_pricing_checkout_failure_copy_is_safe_and_accessible() -> None:
@@ -2098,19 +2093,19 @@ def test_propertyquarry_provider_sign_in_errors_use_customer_safe_language() -> 
     assert google.status_code == 200
 
     assert "Facebook could not open on this attempt." in facebook.text
-    assert "Retry Facebook, or use a secure email link for the same account." in facebook.text
+    assert "Facebook is not available right now. Contact support if you still cannot sign in." in facebook.text
     assert "Facebook opens the same account and creates it if needed." in facebook.text
     assert "Facebook sign-in is not ready on this deployment yet." not in facebook.text
     assert "Facebook sign-in is temporarily unavailable." not in facebook.text
 
     assert "ID Austria could not open on this attempt." in id_austria.text
-    assert "Retry ID Austria, or use a secure email link for the same account." in id_austria.text
+    assert "ID Austria is not available for this request. Contact support if you still cannot sign in." in id_austria.text
     assert "ID Austria opens the same account and creates it if needed." in id_austria.text
     assert "ID Austria sign-in is not ready on this deployment yet." not in id_austria.text
     assert "ID Austria sign-in is temporarily unavailable." not in id_austria.text
 
     assert "Google could not open on this attempt." in google.text
-    assert "Retry Google, or use a secure email link for the same account." in google.text
+    assert "Google is not available right now. Contact support if you still cannot sign in." in google.text
     assert "Google opens the same account and creates it if needed." in google.text
     assert "Google sign-in is temporarily unavailable." not in google.text
 
@@ -17952,10 +17947,10 @@ def test_propertyquarry_public_product_copy_uses_property_page_language() -> Non
     assert "research packets" not in product_page
     assert "research packet" not in pricing_page
     assert "hosted packet" not in pricing_page
-    assert "property page" in product_page
-    assert "property page" in pricing_page
-    assert "<span>3D tour requests</span><strong>{% if plan.auto_tour_policy == 'all_opt_in' %}Every home{% elif plan.auto_tour_policy == 'shortlist_opt_in' %}Shortlist{% else %}Selected homes{% endif %}</strong>" in pricing_page
-    assert "<span>Interior styles</span><strong>{{ plan.furniture_style_limit }}</strong>" in pricing_page
+    assert "property pages" in product_page
+    assert "deeper property research" in pricing_page
+    assert "<span>3D tour scope</span><strong>{% if plan.auto_tour_policy == 'all_opt_in' %}Every match, opt-in{% elif plan.auto_tour_policy == 'shortlist_opt_in' %}Shortlist, opt-in{% else %}Selected homes{% endif %}</strong>" in pricing_page
+    assert "<span>Tour styles</span><strong>{{ plan.furniture_style_limit }}</strong>" in pricing_page
     assert "Score ceiling" not in pricing_page
     assert "<span>Per source</span>" not in pricing_page
 

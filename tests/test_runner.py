@@ -721,7 +721,14 @@ def test_scheduler_pocket_signal_sync_runs_for_default_principal(
 
     summary = runner._run_scheduler_pocket_signal_sync(container, logging.getLogger("test.runner"))
 
-    assert summary == {"ran": True, "attempted": 1, "synced": 3, "errors": 0, "principal_id": "local-user"}
+    assert summary == {
+        "ran": True,
+        "attempted": 1,
+        "synced": 3,
+        "errors": 0,
+        "principal_ref": runner._scheduler_log_ref("local-user"),
+    }
+    assert "local-user" not in str(summary)
     assert calls == ["local-user|scheduler|7"]
 
 
@@ -756,7 +763,7 @@ def test_scheduler_property_scout_runs_for_configured_principals(
         "skipped_active": 0,
         "skipped_not_due": 0,
         "errors": 0,
-        "principals": ["principal-a", "principal-b"],
+        "principal_count": 2,
     }
     assert calls == ["principal-a|scheduler", "principal-b|scheduler"]
 
@@ -777,6 +784,19 @@ def test_scheduler_property_scout_principal_ids_discover_enabled_saved_search_pr
     principals = runner._scheduler_property_scout_principal_ids(container)
 
     assert principals == ("principal-a", "principal-b")
+
+
+def test_scheduler_log_ref_is_stable_without_disclosing_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    runner = _load_runner_module(monkeypatch)
+    principal_id = "cf-email:person@example.test"
+
+    first = runner._scheduler_log_ref(principal_id)
+    second = runner._scheduler_log_ref(principal_id.upper())
+
+    assert first == second
+    assert first.startswith("ref:")
+    assert principal_id not in first
+    assert "person@example.test" not in first
 
 
 def test_scheduler_property_scout_queues_due_search_agents_when_service_supports_it(
@@ -819,7 +839,7 @@ def test_scheduler_property_scout_queues_due_search_agents_when_service_supports
         "skipped_active": 0,
         "skipped_not_due": 0,
         "errors": 0,
-        "principals": ["principal-a", "principal-b"],
+        "principal_count": 2,
     }
     assert calls == ["agents:principal-a|scheduler", "agents:principal-b|scheduler"]
 
@@ -1325,3 +1345,146 @@ def test_scheduler_property_results_finalize_reconciles_ready_runs(monkeypatch: 
         "visual_followup_failed_total": 0,
     }
     assert observed == [{"limit": 40, "allow_notifications": False}]
+
+
+def test_scheduler_property_results_finalize_bounds_maintenance_batches(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = _load_runner_module(monkeypatch)
+    principal_id = "cf-email:person@example.test"
+    monkeypatch.setenv("EA_PROPERTY_SCOUT_PRINCIPAL_IDS", principal_id)
+    monkeypatch.setenv("EA_SCHEDULER_PROPERTY_RESULTS_FINALIZE_LIMIT", "17")
+    monkeypatch.setenv("EA_SCHEDULER_PROPERTY_PROVIDER_REPAIR_LIMIT", "3")
+    monkeypatch.setenv("EA_SCHEDULER_PROPERTY_TOUR_FOLLOWUP_LIMIT", "2")
+    observed: list[tuple[str, str, int]] = []
+
+    class _FakeService:
+        def reconcile_property_search_results_delivery(
+            self,
+            *,
+            principal_id: str = "",
+            limit: int = 20,
+            allow_notifications: bool = True,
+        ):
+            observed.append(("finalize", principal_id, limit))
+            assert allow_notifications is False
+            return {"attempted": 0, "finalized": 0, "emailed": 0, "pending": 0}
+
+        def process_property_provider_repair_tasks(self, *, principal_id: str, actor: str, limit: int):
+            assert actor == "scheduler"
+            observed.append(("repair", principal_id, limit))
+            return {"resolved_total": 1, "deferred_total": 0}
+
+        def process_property_tour_followup_tasks(self, *, principal_id: str, actor: str, limit: int):
+            assert actor == "scheduler"
+            observed.append(("tour", principal_id, limit))
+            return {"resolved_total": 1, "failed_total": 0}
+
+    monkeypatch.setitem(
+        sys.modules,
+        "app.product.service",
+        SimpleNamespace(build_product_service=lambda _container: _FakeService()),
+    )
+
+    summary = runner._run_scheduler_property_results_finalize(
+        SimpleNamespace(),
+        logging.getLogger("test.runner"),
+    )
+
+    assert observed == [
+        ("finalize", "", 17),
+        ("repair", principal_id, 3),
+        ("tour", principal_id, 2),
+    ]
+    assert summary["repair_resolved_total"] == 1
+    assert summary["visual_followup_resolved_total"] == 1
+    assert principal_id not in str(summary)
+
+
+def test_scheduler_property_results_finalize_shares_global_budgets_across_principals(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = _load_runner_module(monkeypatch)
+    principals = ("principal-a", "principal-b", "principal-c", "principal-d")
+    monkeypatch.setattr(runner, "_scheduler_property_scout_principal_ids", lambda _container: principals)
+    monkeypatch.setattr(runner, "_SCHEDULER_PROPERTY_MAINTENANCE_ROTATION", 0)
+    monkeypatch.setenv("EA_SCHEDULER_PROPERTY_PROVIDER_REPAIR_LIMIT", "3")
+    monkeypatch.setenv("EA_SCHEDULER_PROPERTY_TOUR_FOLLOWUP_LIMIT", "2")
+    observed: list[tuple[str, str, int]] = []
+
+    class _FakeService:
+        def reconcile_property_search_results_delivery(self, **_kwargs):
+            return {"attempted": 0, "finalized": 0, "emailed": 0, "pending": 0}
+
+        def process_property_provider_repair_tasks(self, *, principal_id: str, actor: str, limit: int):
+            assert actor == "scheduler"
+            observed.append(("repair", principal_id, limit))
+            attempted = 2 if principal_id == "principal-a" else 1
+            return {"attempted_total": attempted, "resolved_total": attempted, "deferred_total": 0}
+
+        def process_property_tour_followup_tasks(self, *, principal_id: str, actor: str, limit: int):
+            assert actor == "scheduler"
+            observed.append(("tour", principal_id, limit))
+            return {"attempted_total": 1, "resolved_total": 1, "failed_total": 0}
+
+    monkeypatch.setitem(
+        sys.modules,
+        "app.product.service",
+        SimpleNamespace(build_product_service=lambda _container: _FakeService()),
+    )
+
+    summary = runner._run_scheduler_property_results_finalize(
+        SimpleNamespace(),
+        logging.getLogger("test.runner"),
+    )
+
+    assert observed == [
+        ("repair", "principal-a", 3),
+        ("tour", "principal-a", 2),
+        ("repair", "principal-b", 1),
+        ("tour", "principal-b", 1),
+    ]
+    assert summary["repair_resolved_total"] == 3
+    assert summary["visual_followup_resolved_total"] == 2
+
+
+def test_scheduler_property_results_finalize_rotates_maintenance_first_principal_each_cycle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runner = _load_runner_module(monkeypatch)
+    principals = ("principal-a", "principal-b", "principal-c")
+    monkeypatch.setattr(runner, "_scheduler_property_scout_principal_ids", lambda _container: principals)
+    monkeypatch.setattr(runner, "_SCHEDULER_PROPERTY_MAINTENANCE_ROTATION", 0)
+    monkeypatch.setattr(runner, "time", SimpleNamespace(time=lambda: 0.0))
+    monkeypatch.setenv("EA_SCHEDULER_PROPERTY_PROVIDER_REPAIR_LIMIT", "1")
+    monkeypatch.setenv("EA_SCHEDULER_PROPERTY_TOUR_FOLLOWUP_LIMIT", "1")
+    first_principals: list[str] = []
+
+    class _FakeService:
+        def reconcile_property_search_results_delivery(self, **_kwargs):
+            return {"attempted": 0, "finalized": 0, "emailed": 0, "pending": 0}
+
+        def process_property_provider_repair_tasks(self, *, principal_id: str, actor: str, limit: int):
+            assert actor == "scheduler"
+            assert limit == 1
+            first_principals.append(principal_id)
+            return {"attempted_total": 1, "resolved_total": 1, "deferred_total": 0}
+
+        def process_property_tour_followup_tasks(self, *, principal_id: str, actor: str, limit: int):
+            assert actor == "scheduler"
+            assert limit == 1
+            return {"attempted_total": 1, "resolved_total": 1, "failed_total": 0}
+
+    monkeypatch.setitem(
+        sys.modules,
+        "app.product.service",
+        SimpleNamespace(build_product_service=lambda _container: _FakeService()),
+    )
+
+    for _ in range(4):
+        runner._run_scheduler_property_results_finalize(
+            SimpleNamespace(),
+            logging.getLogger("test.runner"),
+        )
+
+    assert first_principals == ["principal-a", "principal-b", "principal-c", "principal-a"]

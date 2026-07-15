@@ -45,6 +45,8 @@ _SCHEDULER_STEP_LOCK = threading.Lock()
 _SCHEDULER_STEP_THREADS: dict[str, dict[str, object]] = {}
 _EXECUTION_INSTANCE_ID = uuid4().hex
 _SCHEDULER_DELIVERY_METRICS_LOCK = threading.Lock()
+_SCHEDULER_PROPERTY_MAINTENANCE_ROTATION_LOCK = threading.Lock()
+_SCHEDULER_PROPERTY_MAINTENANCE_ROTATION = 0
 _SCHEDULER_DELIVERY_METRICS = {
     key: 0
     for key in (
@@ -57,6 +59,16 @@ _SCHEDULER_DELIVERY_METRICS = {
         "failed",
     )
 }
+
+
+def _scheduler_log_ref(value: object) -> str:
+    """Return a process-local correlation reference without logging identity data."""
+
+    normalized = str(value or "").strip().lower()
+    if not normalized:
+        return "none"
+    digest = hashlib.sha256(f"{_EXECUTION_INSTANCE_ID}\0{normalized}".encode("utf-8")).hexdigest()
+    return f"ref:{digest[:12]}"
 
 
 def _record_scheduler_delivery_metrics(summary: dict[str, object]) -> None:
@@ -880,31 +892,31 @@ def _run_scheduler_onemin_billing_refresh(container, log: logging.Logger) -> dic
         error_count += len(fallback_api_errors)
         for row in unrecovered_billing_errors:
             log.warning(
-                "scheduler onemin billing browseract refresh failed principal=%s binding=%s account=%s code=%s error=%s",
-                next((str(job.get("principal_id") or "") for job in browseract_billing_jobs if str(job.get("account_label") or "") == str(row.get("account_label") or "")), ""),
-                row.get("binding_id"),
-                row.get("account_label"),
+                "scheduler onemin billing browseract refresh failed principal_ref=%s binding_ref=%s account_ref=%s code=%s error=%s",
+                _scheduler_log_ref(next((str(job.get("principal_id") or "") for job in browseract_billing_jobs if str(job.get("account_label") or "") == str(row.get("account_label") or "")), "")),
+                _scheduler_log_ref(row.get("binding_id")),
+                _scheduler_log_ref(row.get("account_label")),
                 row.get("failure_code"),
                 row.get("error"),
             )
         for row in unrecovered_member_errors:
             log.warning(
-                "scheduler onemin member reconciliation failed principal=%s binding=%s account=%s code=%s error=%s",
-                next((str(job.get("principal_id") or "") for job in browseract_member_jobs if str(job.get("account_label") or "") == str(row.get("account_label") or "")), ""),
-                row.get("binding_id"),
-                row.get("account_label"),
+                "scheduler onemin member reconciliation failed principal_ref=%s binding_ref=%s account_ref=%s code=%s error=%s",
+                _scheduler_log_ref(next((str(job.get("principal_id") or "") for job in browseract_member_jobs if str(job.get("account_label") or "") == str(row.get("account_label") or "")), "")),
+                _scheduler_log_ref(row.get("binding_id")),
+                _scheduler_log_ref(row.get("account_label")),
                 row.get("failure_code"),
                 row.get("error"),
             )
         if recovered_browseract_labels:
             log.info(
                 "scheduler onemin recovered browseract failures via provider api accounts=%s",
-                ",".join(sorted(recovered_browseract_labels & browseract_failed_labels)),
+                ",".join(_scheduler_log_ref(value) for value in sorted(recovered_browseract_labels & browseract_failed_labels)),
             )
         for row in fallback_api_errors:
             log.warning(
-                "scheduler onemin provider api fallback failed account=%s error=%s",
-                row.get("account_label"),
+                "scheduler onemin provider api fallback failed account_ref=%s error=%s",
+                _scheduler_log_ref(row.get("account_label")),
                 row.get("error"),
             )
 
@@ -951,8 +963,8 @@ def _run_scheduler_google_signal_sync(container, log: logging.Logger) -> dict[st
         if blocked_until > now_epoch:
             skipped += 1
             log.info(
-                "scheduler google signal sync skipped principal=%s reason=http_403_cooldown retry_in=%ss",
-                principal_id,
+                "scheduler google signal sync skipped principal_ref=%s reason=http_403_cooldown retry_in=%ss",
+                _scheduler_log_ref(principal_id),
                 max(1, int(blocked_until - now_epoch)),
             )
             continue
@@ -980,8 +992,8 @@ def _run_scheduler_google_signal_sync(container, log: logging.Logger) -> dict[st
         except RuntimeError as exc:
             error_count += 1
             log.info(
-                "scheduler google signal sync skipped principal=%s reason=%s",
-                principal_id,
+                "scheduler google signal sync skipped principal_ref=%s reason=%s",
+                _scheduler_log_ref(principal_id),
                 str(exc or "unknown_error"),
             )
         except urllib.error.HTTPError as exc:
@@ -990,16 +1002,16 @@ def _run_scheduler_google_signal_sync(container, log: logging.Logger) -> dict[st
                 blocked_until = time.time() + forbidden_cooldown_seconds
                 _SCHEDULER_GOOGLE_SIGNAL_SYNC_FORBIDDEN_COOLDOWNS[principal_id] = blocked_until
                 log.warning(
-                    "scheduler google signal sync auth blocked principal=%s status=%s cooldown_until=%s",
-                    principal_id,
+                    "scheduler google signal sync auth blocked principal_ref=%s status=%s cooldown_until=%s",
+                    _scheduler_log_ref(principal_id),
                     exc.code,
                     datetime.fromtimestamp(blocked_until, timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
                 )
                 continue
-            log.exception("scheduler google signal sync failed principal=%s", principal_id)
+            log.exception("scheduler google signal sync failed principal_ref=%s", _scheduler_log_ref(principal_id))
         except Exception:
             error_count += 1
-            log.exception("scheduler google signal sync failed principal=%s", principal_id)
+            log.exception("scheduler google signal sync failed principal_ref=%s", _scheduler_log_ref(principal_id))
     result = {
         "ran": True,
         "attempted": attempted,
@@ -1061,6 +1073,31 @@ def _scheduler_property_results_finalize_interval_seconds() -> float:
 
 def _scheduler_property_results_finalize_timeout_seconds() -> float:
     return max(30.0, _env_float("EA_SCHEDULER_PROPERTY_RESULTS_FINALIZE_TIMEOUT_SECONDS", 240.0))
+
+
+def _scheduler_property_results_finalize_limit() -> int:
+    return max(1, min(_env_int("EA_SCHEDULER_PROPERTY_RESULTS_FINALIZE_LIMIT", 40), 200))
+
+
+def _scheduler_property_provider_repair_limit() -> int:
+    return max(1, min(_env_int("EA_SCHEDULER_PROPERTY_PROVIDER_REPAIR_LIMIT", 5), 40))
+
+
+def _scheduler_property_tour_followup_limit() -> int:
+    return max(1, min(_env_int("EA_SCHEDULER_PROPERTY_TOUR_FOLLOWUP_LIMIT", 1), 20))
+
+
+def _scheduler_property_maintenance_order(principal_ids: tuple[str, ...]) -> tuple[str, ...]:
+    global _SCHEDULER_PROPERTY_MAINTENANCE_ROTATION
+
+    if not principal_ids:
+        return principal_ids
+    with _SCHEDULER_PROPERTY_MAINTENANCE_ROTATION_LOCK:
+        rotation = _SCHEDULER_PROPERTY_MAINTENANCE_ROTATION % len(principal_ids)
+        _SCHEDULER_PROPERTY_MAINTENANCE_ROTATION += 1
+    if not rotation:
+        return principal_ids
+    return principal_ids[rotation:] + principal_ids[:rotation]
 
 
 def _scheduler_property_search_recovery_interval_seconds() -> float:
@@ -1145,7 +1182,7 @@ def _run_scheduler_property_scout(container, log: logging.Logger) -> dict[str, o
                 )
         except Exception:
             errors += 1
-            log.exception("scheduler property scout failed principal=%s", principal_id)
+            log.exception("scheduler property scout failed principal_ref=%s", _scheduler_log_ref(principal_id))
     return {
         "ran": True,
         "attempted": attempted,
@@ -1155,7 +1192,7 @@ def _run_scheduler_property_scout(container, log: logging.Logger) -> dict[str, o
         "skipped_active": skipped_active,
         "skipped_not_due": skipped_not_due,
         "errors": errors,
-        "principals": list(principals),
+        "principal_count": len(principals),
     }
 
 
@@ -1171,7 +1208,10 @@ def _run_scheduler_property_search_recovery(container, log: logging.Logger) -> d
                 summary = service.reconcile_stale_property_search_runs(principal_id=principal_id, limit=80)
             except Exception:
                 aggregate["errors"] += 1
-                log.exception("scheduler property search recovery failed principal=%s", principal_id)
+                log.exception(
+                    "scheduler property search recovery failed principal_ref=%s",
+                    _scheduler_log_ref(principal_id),
+                )
                 continue
             for key in ("scanned", "stale_total", "repaired", "replacement_started", "errors"):
                 aggregate[key] += int(summary.get(key) or 0)
@@ -1198,7 +1238,10 @@ def _run_scheduler_property_results_finalize(container, log: logging.Logger) -> 
 
     service = build_product_service(container)
     try:
-        summary = service.reconcile_property_search_results_delivery(limit=40, allow_notifications=False)
+        summary = service.reconcile_property_search_results_delivery(
+            limit=_scheduler_property_results_finalize_limit(),
+            allow_notifications=False,
+        )
     except Exception:
         log.exception("scheduler property results finalize failed")
         return {"ran": True, "attempted": 0, "finalized": 0, "emailed": 0, "pending": 0, "errors": 1}
@@ -1207,29 +1250,62 @@ def _run_scheduler_property_results_finalize(container, log: logging.Logger) -> 
     repair_errors = 0
     visual_followup_resolved_total = 0
     visual_followup_failed_total = 0
-    for principal_id in _scheduler_property_scout_principal_ids(container):
-        try:
-            repair_summary = service.process_property_provider_repair_tasks(
-                principal_id=principal_id,
-                actor="scheduler",
-                limit=40,
-            )
-            repair_resolved_total += int(repair_summary.get("resolved_total") or 0)
-            repair_deferred_total += int(repair_summary.get("deferred_total") or 0)
-        except Exception:
-            repair_errors += 1
-            log.exception("scheduler property provider repair processing failed principal=%s", principal_id)
-        try:
-            visual_summary = service.process_property_tour_followup_tasks(
-                principal_id=principal_id,
-                actor="scheduler",
-                limit=20,
-            )
-            visual_followup_resolved_total += int(visual_summary.get("resolved_total") or 0)
-            visual_followup_failed_total += int(visual_summary.get("failed_total") or 0)
-        except Exception:
-            visual_followup_failed_total += 1
-            log.exception("scheduler property tour followup processing failed principal=%s", principal_id)
+    principal_ids = _scheduler_property_maintenance_order(
+        tuple(_scheduler_property_scout_principal_ids(container))
+    )
+    repair_remaining = _scheduler_property_provider_repair_limit()
+    tour_remaining = _scheduler_property_tour_followup_limit()
+    for principal_id in principal_ids:
+        if repair_remaining <= 0 and tour_remaining <= 0:
+            break
+        if repair_remaining > 0:
+            try:
+                repair_summary = service.process_property_provider_repair_tasks(
+                    principal_id=principal_id,
+                    actor="scheduler",
+                    limit=repair_remaining,
+                )
+                repair_resolved = int(repair_summary.get("resolved_total") or 0)
+                repair_deferred = int(repair_summary.get("deferred_total") or 0)
+                repair_resolved_total += repair_resolved
+                repair_deferred_total += repair_deferred
+                repair_consumed = int(
+                    repair_summary.get("attempted_total")
+                    or repair_resolved + repair_deferred
+                    or 1
+                )
+                repair_remaining = max(0, repair_remaining - repair_consumed)
+            except Exception:
+                repair_errors += 1
+                repair_remaining = max(0, repair_remaining - 1)
+                log.exception(
+                    "scheduler property provider repair processing failed principal_ref=%s",
+                    _scheduler_log_ref(principal_id),
+                )
+        if tour_remaining > 0:
+            try:
+                visual_summary = service.process_property_tour_followup_tasks(
+                    principal_id=principal_id,
+                    actor="scheduler",
+                    limit=tour_remaining,
+                )
+                visual_resolved = int(visual_summary.get("resolved_total") or 0)
+                visual_failed = int(visual_summary.get("failed_total") or 0)
+                visual_followup_resolved_total += visual_resolved
+                visual_followup_failed_total += visual_failed
+                visual_consumed = int(
+                    visual_summary.get("attempted_total")
+                    or visual_resolved + visual_failed
+                    or 1
+                )
+                tour_remaining = max(0, tour_remaining - visual_consumed)
+            except Exception:
+                visual_followup_failed_total += 1
+                tour_remaining = max(0, tour_remaining - 1)
+                log.exception(
+                    "scheduler property tour followup processing failed principal_ref=%s",
+                    _scheduler_log_ref(principal_id),
+                )
     return {
         "ran": True,
         "attempted": int(summary.get("attempted") or 0),
@@ -1264,18 +1340,30 @@ def _run_scheduler_pocket_signal_sync(container, log: logging.Logger) -> dict[st
             "attempted": 1,
             "synced": synced_total,
             "errors": failed_total,
-            "principal_id": principal_id,
+            "principal_ref": _scheduler_log_ref(principal_id),
         }
     except RuntimeError as exc:
         log.info(
-            "scheduler pocket signal sync skipped principal=%s reason=%s",
-            principal_id,
+            "scheduler pocket signal sync skipped principal_ref=%s reason=%s",
+            _scheduler_log_ref(principal_id),
             str(exc or "unknown_error"),
         )
-        return {"ran": True, "attempted": 1, "synced": 0, "errors": 1, "principal_id": principal_id}
+        return {
+            "ran": True,
+            "attempted": 1,
+            "synced": 0,
+            "errors": 1,
+            "principal_ref": _scheduler_log_ref(principal_id),
+        }
     except Exception:
-        log.exception("scheduler pocket signal sync failed principal=%s", principal_id)
-        return {"ran": True, "attempted": 1, "synced": 0, "errors": 1, "principal_id": principal_id}
+        log.exception("scheduler pocket signal sync failed principal_ref=%s", _scheduler_log_ref(principal_id))
+        return {
+            "ran": True,
+            "attempted": 1,
+            "synced": 0,
+            "errors": 1,
+            "principal_ref": _scheduler_log_ref(principal_id),
+        }
 
 
 def _scheduled_morning_memo_idempotency_keys(
@@ -1795,7 +1883,10 @@ def _run_scheduler_morning_memo_delivery(
             )
         except Exception:
             error_count += 1
-            log.exception("scheduler morning memo delivery failed principal=%s", principal_id)
+            log.exception(
+                "scheduler morning memo delivery failed principal_ref=%s",
+                _scheduler_log_ref(principal_id),
+            )
     summary = {
         "ran": True,
         "configured": configured,
@@ -1897,10 +1988,10 @@ def _run_scheduler_telegram_async_recovery(container, log: logging.Logger) -> di
         except Exception:
             errors += 1
             log.exception(
-                "scheduler telegram async outbox drain failed principal=%s chat=%s message=%s",
-                principal_id,
-                chat_id,
-                current_message_id,
+                "scheduler telegram async outbox drain failed principal_ref=%s chat_ref=%s message_ref=%s",
+                _scheduler_log_ref(principal_id),
+                _scheduler_log_ref(chat_id),
+                _scheduler_log_ref(current_message_id),
             )
     return {
         "ran": True,
@@ -2187,14 +2278,14 @@ def _run_execution_worker(role: str) -> None:
                             "attempted": 0,
                             "synced": 0,
                             "errors": 1,
-                            "principals": [],
+                            "principal_count": 0,
                         },
                         log=log,
                         fn=lambda: _run_scheduler_property_scout(container, log),
                     )
                     last_property_scout_at = now
                     log.info(
-                        "role=%s scheduler property scout attempted=%s synced=%s launched=%s due=%s skipped_active=%s skipped_not_due=%s errors=%s principals=%s timeout=%s",
+                        "role=%s scheduler property scout attempted=%s synced=%s launched=%s due=%s skipped_active=%s skipped_not_due=%s errors=%s principal_count=%s timeout=%s",
                         role,
                         scout_summary.get("attempted"),
                         scout_summary.get("synced"),
@@ -2203,7 +2294,7 @@ def _run_execution_worker(role: str) -> None:
                         scout_summary.get("skipped_active"),
                         scout_summary.get("skipped_not_due"),
                         scout_summary.get("errors"),
-                        ",".join(list(scout_summary.get("principals") or [])),
+                        scout_summary.get("principal_count"),
                         scout_summary.get("timeout"),
                     )
                 except Exception:
@@ -2255,12 +2346,12 @@ def _run_execution_worker(role: str) -> None:
                     sync_summary = _run_scheduler_pocket_signal_sync(container, log)
                     last_pocket_signal_sync_at = now
                     log.info(
-                        "role=%s scheduler pocket signal sync attempted=%s synced=%s errors=%s principal=%s",
+                        "role=%s scheduler pocket signal sync attempted=%s synced=%s errors=%s principal_ref=%s",
                         role,
                         sync_summary.get("attempted"),
                         sync_summary.get("synced"),
                         sync_summary.get("errors"),
-                        sync_summary.get("principal_id", ""),
+                        sync_summary.get("principal_ref", "none"),
                     )
                 except Exception:
                     log.exception("role=%s scheduler pocket signal sync failed", role)

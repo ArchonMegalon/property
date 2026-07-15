@@ -922,7 +922,8 @@ def test_propertyquarry_support_page_hides_fix_verification_flow_in_real_browser
     content = page.content()
     assert "Support" in content
     assert "See what failed, what still works, and the next useful action." in content
-    assert "Open support" in content
+    assert "Email support" in content
+    assert "Public support page" in content
     assert "Fix verification" not in content
     assert "Channel receipt" not in content
     assert "Install receipt" not in content

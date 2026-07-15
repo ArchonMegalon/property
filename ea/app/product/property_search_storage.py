@@ -15,6 +15,12 @@ from uuid import uuid4
 _PROPERTY_SEARCH_RUN_TTL_SECONDS = 90 * 24 * 60 * 60
 _PROPERTY_SEARCH_RUN_DB_CONNECT_RETRY_SECONDS = 45.0
 _PROPERTY_SEARCH_RUN_DB_CONNECT_TIMEOUT_SECONDS = 3
+_PROPERTY_SEARCH_RUN_COMPACT_SCHEMA_VERSION = 2
+_PROPERTY_SEARCH_RUN_COMPACT_DELIVERY_CANDIDATE_LIMIT = 256
+_PROPERTY_SEARCH_RUN_COMPACT_UI_CANDIDATE_LIMIT = 40
+_PROPERTY_SEARCH_RUN_COMPACT_SOURCE_LIMIT = 64
+_PROPERTY_SEARCH_RUN_COMPACT_NESTED_LIST_LIMIT = 32
+_PROPERTY_SEARCH_RUN_COMPACT_TEXT_LIMIT = 2048
 
 
 def _property_search_run_db_max_connections() -> int:
@@ -122,9 +128,6 @@ _PROPERTY_SEARCH_RUN_COMPACT_SUMMARY_KEYS = (
     "started_at",
     "completed_at",
     "updated_at",
-    "ranked_candidates",
-    "results",
-    "top_candidates",
     "filtered_breakdown",
     "relaxation_suggestions",
     "repair_status",
@@ -142,6 +145,13 @@ _PROPERTY_SEARCH_RUN_COMPACT_SUMMARY_KEYS = (
     "can_auto_repair",
     "repair_parent_run_id",
     "repair_parent_run_ids",
+    "eligible_tour_total",
+    "pending_tour_total",
+    "ready_tour_total",
+    "blocked_tour_total",
+    "hosted_tour_total",
+    "timing_ms",
+    "timing_receipts",
 )
 
 _PROPERTY_SEARCH_RUN_COMPACT_SOURCE_KEYS = (
@@ -202,6 +212,91 @@ _PROPERTY_SEARCH_RUN_COMPACT_PROVIDER_REPAIR_TASK_KEYS = (
     "reason",
     "repair_owner",
     "repair_workflow",
+)
+
+_PROPERTY_SEARCH_RUN_COMPACT_DELIVERY_CANDIDATE_KEYS = (
+    "candidate_ref",
+    "research_candidate_ref",
+    "title",
+    "property_url",
+    "review_url",
+    "source_ref",
+    "source_label",
+    "source_url",
+    "external_id",
+    "listing_id",
+    "listing_uuid",
+    "source_virtual_tour_url",
+    "floorplan_url",
+    "floorplan_urls_json",
+    "tour_url",
+    "vendor_tour_url",
+    "tour_status",
+    "blocked_reason",
+)
+
+_PROPERTY_SEARCH_RUN_COMPACT_DELIVERY_FACT_KEYS = (
+    "source_virtual_tour_url",
+    "has_360",
+    "has_floorplan",
+    "floorplan_count",
+    "floorplan_urls_json",
+)
+
+_PROPERTY_SEARCH_RUN_COMPACT_UI_CANDIDATE_KEYS = (
+    "candidate_ref",
+    "research_candidate_ref",
+    "title",
+    "property_url",
+    "review_url",
+    "source_ref",
+    "source_label",
+    "source_url",
+    "platform",
+    "provider_family",
+    "provider_trust_tier",
+    "external_id",
+    "listing_id",
+    "listing_uuid",
+    "status",
+    "review_status",
+    "filter_status",
+    "fit_score",
+    "prefilter_score",
+    "score",
+    "fit_label",
+    "price",
+    "price_text",
+    "monthly_rent",
+    "purchase_price",
+    "currency",
+    "area_m2",
+    "area_sqm",
+    "rooms",
+    "bedrooms",
+    "bathrooms",
+    "floor",
+    "location",
+    "address",
+    "district",
+    "postal_code",
+    "property_type",
+    "listing_mode",
+    "availability",
+    "description",
+    "summary",
+    "preview_image_url",
+    "thumbnail_url",
+    "image_url",
+    "media_urls_json",
+    "floorplan_url",
+    "floorplan_urls_json",
+    "source_virtual_tour_url",
+    "tour_url",
+    "vendor_tour_url",
+    "tour_status",
+    "blocked_reason",
+    "property_facts",
 )
 
 
@@ -639,10 +734,31 @@ def _property_search_run_canonicalize_record(record: dict[str, object]) -> dict[
 
 
 def _compact_property_search_run_record(record: dict[str, object]) -> dict[str, object]:
+    def _bounded_compact_value(value: object, *, depth: int = 0) -> object:
+        if isinstance(value, str):
+            return value[:_PROPERTY_SEARCH_RUN_COMPACT_TEXT_LIMIT]
+        if value is None or isinstance(value, (bool, int, float)):
+            return value
+        if isinstance(value, dict):
+            if depth >= 3:
+                return {}
+            return {
+                str(key)[:160]: _bounded_compact_value(item, depth=depth + 1)
+                for key, item in list(value.items())[:_PROPERTY_SEARCH_RUN_COMPACT_NESTED_LIST_LIMIT]
+            }
+        if isinstance(value, (list, tuple, set)):
+            if depth >= 3:
+                return []
+            return [
+                _bounded_compact_value(item, depth=depth + 1)
+                for item in list(value)[:_PROPERTY_SEARCH_RUN_COMPACT_NESTED_LIST_LIMIT]
+            ]
+        return str(value)[:_PROPERTY_SEARCH_RUN_COMPACT_TEXT_LIMIT]
+
     def _compact_provider_cache_row(value: object) -> dict[str, object]:
         payload = dict(value or {}) if isinstance(value, dict) else {}
         return {
-            key: payload[key]
+            key: _bounded_compact_value(payload[key])
             for key in _PROPERTY_SEARCH_RUN_COMPACT_PROVIDER_CACHE_KEYS
             if key in payload
         }
@@ -650,15 +766,61 @@ def _compact_property_search_run_record(record: dict[str, object]) -> dict[str, 
     def _compact_provider_repair_task_row(value: object) -> dict[str, object]:
         payload = dict(value or {}) if isinstance(value, dict) else {}
         return {
-            key: payload[key]
+            key: _bounded_compact_value(payload[key])
             for key in _PROPERTY_SEARCH_RUN_COMPACT_PROVIDER_REPAIR_TASK_KEYS
             if key in payload
         }
 
+    def _compact_delivery_candidate_row(value: object) -> dict[str, object]:
+        payload = dict(value or {}) if isinstance(value, dict) else {}
+        compact_candidate = {
+            key: _bounded_compact_value(payload[key])
+            for key in _PROPERTY_SEARCH_RUN_COMPACT_DELIVERY_CANDIDATE_KEYS
+            if payload.get(key) not in (None, "", [], {})
+        }
+        facts = dict(payload.get("property_facts") or {}) if isinstance(payload.get("property_facts"), dict) else {}
+        compact_facts = {
+            key: _bounded_compact_value(facts[key])
+            for key in _PROPERTY_SEARCH_RUN_COMPACT_DELIVERY_FACT_KEYS
+            if facts.get(key) not in (None, "", [], {})
+        }
+        if compact_facts:
+            compact_candidate["property_facts"] = compact_facts
+        return compact_candidate
+
+    def _compact_ui_candidate_row(value: object) -> dict[str, object]:
+        payload = dict(value or {}) if isinstance(value, dict) else {}
+        compact_candidate = {
+            key: _bounded_compact_value(payload[key])
+            for key in _PROPERTY_SEARCH_RUN_COMPACT_UI_CANDIDATE_KEYS
+            if payload.get(key) not in (None, "", [], {})
+        }
+        if not str(compact_candidate.get("preview_image_url") or "").strip():
+            preview_url = _property_search_compact_candidate_preview_url(payload)
+            if preview_url:
+                compact_candidate["preview_image_url"] = _bounded_compact_value(preview_url)
+        return compact_candidate
+
+    def _candidate_has_delivery_signal(value: object) -> bool:
+        payload = dict(value or {}) if isinstance(value, dict) else {}
+        facts = dict(payload.get("property_facts") or {}) if isinstance(payload.get("property_facts"), dict) else {}
+        return bool(
+            str(payload.get("tour_status") or "").strip()
+            or str(payload.get("tour_url") or "").strip()
+            or str(payload.get("vendor_tour_url") or "").strip()
+            or str(payload.get("source_virtual_tour_url") or facts.get("source_virtual_tour_url") or "").strip()
+            or payload.get("floorplan_url")
+            or payload.get("floorplan_urls_json")
+            or facts.get("has_360")
+            or facts.get("has_floorplan")
+            or facts.get("floorplan_count")
+            or facts.get("floorplan_urls_json")
+        )
+
     def _compact_source_row(value: object) -> dict[str, object]:
         payload = dict(value or {}) if isinstance(value, dict) else {}
         compact_row = {
-            key: payload[key]
+            key: _bounded_compact_value(payload[key])
             for key in _PROPERTY_SEARCH_RUN_COMPACT_SOURCE_KEYS
             if key in payload
         }
@@ -693,7 +855,7 @@ def _compact_property_search_run_record(record: dict[str, object]) -> dict[str, 
 
     payload = _property_search_run_canonicalize_record(dict(record or {}))
     compact = {
-        key: payload[key]
+        key: _bounded_compact_value(payload[key])
         for key in _PROPERTY_SEARCH_RUN_COMPACT_TOP_LEVEL_KEYS
         if key in payload
     }
@@ -706,25 +868,145 @@ def _compact_property_search_run_record(record: dict[str, object]) -> dict[str, 
     summary = dict(payload.get("summary") or {}) if isinstance(payload.get("summary"), dict) else {}
     if summary:
         compact_summary = {
-            key: summary[key]
+            key: _bounded_compact_value(summary[key])
             for key in _PROPERTY_SEARCH_RUN_COMPACT_SUMMARY_KEYS
             if key in summary
         }
+        for candidate_key in ("ranked_candidates", "results", "top_candidates"):
+            candidate_rows = summary.get(candidate_key)
+            if isinstance(candidate_rows, (list, tuple)):
+                compact_summary[candidate_key] = [
+                    _compact_ui_candidate_row(row)
+                    for row in list(candidate_rows)[:_PROPERTY_SEARCH_RUN_COMPACT_UI_CANDIDATE_LIMIT]
+                    if isinstance(row, dict)
+                ]
         if isinstance(summary.get("sources"), list):
             compact_summary["sources"] = [
                 _compact_source_row(row)
-                for row in summary.get("sources") or []
+                for row in list(summary.get("sources") or [])[:_PROPERTY_SEARCH_RUN_COMPACT_SOURCE_LIMIT]
                 if isinstance(row, dict)
             ]
         if compact_summary:
             compact["summary"] = compact_summary
+        delivery_candidates: list[dict[str, object]] = []
+        seen_delivery_candidates: set[str] = set()
+        inferred_eligible = 0
+        inferred_pending = 0
+        inferred_ready = 0
+        inferred_blocked = 0
+        candidate_groups: list[object] = [
+            summary.get("_delivery_candidates"),
+            summary.get("top_candidates"),
+        ]
+        for source in list(summary.get("sources") or []):
+            if not isinstance(source, dict):
+                continue
+            candidate_groups.append(source.get("top_candidates"))
+        if not any(isinstance(group, (list, tuple)) and group for group in candidate_groups):
+            candidate_groups.append(summary.get("ranked_candidates"))
+        delivery_projection_truncated = bool(summary.get("_delivery_projection_truncated"))
+        for candidate_group in candidate_groups:
+            for candidate in list(candidate_group or []) if isinstance(candidate_group, (list, tuple)) else []:
+                if not isinstance(candidate, dict) or not _candidate_has_delivery_signal(candidate):
+                    continue
+                compact_candidate = _compact_delivery_candidate_row(candidate)
+                identity = "|".join(
+                    str(compact_candidate.get(key) or "").strip()
+                    for key in ("candidate_ref", "source_ref", "property_url", "review_url", "title")
+                )
+                if not identity.strip("|") or identity in seen_delivery_candidates:
+                    continue
+                seen_delivery_candidates.add(identity)
+                inferred_eligible += 1
+                candidate_status = str(compact_candidate.get("tour_status") or "").strip().lower()
+                if candidate_status in {"blocked", "failed", "skipped", "not_applicable"} or str(
+                    compact_candidate.get("blocked_reason") or ""
+                ).strip():
+                    inferred_blocked += 1
+                elif candidate_status == "ready":
+                    inferred_ready += 1
+                else:
+                    inferred_pending += 1
+                if len(delivery_candidates) >= _PROPERTY_SEARCH_RUN_COMPACT_DELIVERY_CANDIDATE_LIMIT:
+                    delivery_projection_truncated = True
+                    continue
+                delivery_candidates.append(compact_candidate)
+        if delivery_candidates:
+            compact_summary["_delivery_candidates"] = delivery_candidates
+        if delivery_projection_truncated:
+            compact_summary["_delivery_projection_truncated"] = True
+            try:
+                prior_projection_total = max(0, int(summary.get("_delivery_projection_total") or 0))
+            except Exception:
+                prior_projection_total = 0
+            if prior_projection_total <= 0 and inferred_eligible <= len(delivery_candidates):
+                prior_projection_total = len(delivery_candidates) + 1
+            compact_summary["_delivery_projection_total"] = max(inferred_eligible, prior_projection_total)
+        def _merge_inferred_count(key: str, inferred_value: int) -> None:
+            try:
+                existing_value = max(0, int(float(str(compact_summary.get(key) or "0").strip())))
+            except Exception:
+                existing_value = 0
+            compact_summary[key] = max(existing_value, inferred_value)
+
+        _merge_inferred_count("eligible_tour_total", inferred_eligible)
+        _merge_inferred_count("pending_tour_total", inferred_pending)
+        _merge_inferred_count("ready_tour_total", inferred_ready)
+        _merge_inferred_count("blocked_tour_total", inferred_blocked)
+        _merge_inferred_count("hosted_tour_total", inferred_ready)
+        compact["summary"] = compact_summary
     if "run_id" not in compact and payload.get("run_id"):
         compact["run_id"] = payload.get("run_id")
     if "principal_id" not in compact and payload.get("principal_id"):
         compact["principal_id"] = payload.get("principal_id")
     if "status" not in compact and summary.get("status"):
         compact["status"] = summary.get("status")
+    compact["compact_schema_version"] = _PROPERTY_SEARCH_RUN_COMPACT_SCHEMA_VERSION
+    compact_summary = dict(compact.get("summary") or {}) if isinstance(compact.get("summary"), dict) else {}
+
+    def _summary_count(key: str) -> int:
+        try:
+            return max(0, int(float(str(compact_summary.get(key) or "0").strip())))
+        except Exception:
+            return 0
+
+    eligible_tour_total = _summary_count("eligible_tour_total")
+    pending_tour_total = _summary_count("pending_tour_total")
+    ready_tour_total = _summary_count("ready_tour_total")
+    blocked_tour_total = _summary_count("blocked_tour_total")
+    delivery_projection_total = _summary_count("_delivery_projection_total")
+    compact["delivery_pending"] = bool(
+        pending_tour_total > 0
+        or ready_tour_total + blocked_tour_total < eligible_tour_total
+        or (
+            bool(compact_summary.get("_delivery_projection_truncated"))
+            and delivery_projection_total > eligible_tour_total
+        )
+    )
     return compact
+
+
+def _property_search_run_compact_supports_delivery(record: object) -> bool:
+    if not isinstance(record, dict):
+        return False
+    try:
+        version = int(record.get("compact_schema_version") or 0)
+    except Exception:
+        version = 0
+    if version < _PROPERTY_SEARCH_RUN_COMPACT_SCHEMA_VERSION:
+        return False
+    summary = dict(record.get("summary") or {}) if isinstance(record.get("summary"), dict) else {}
+    if bool(summary.get("_delivery_projection_truncated")):
+        return False
+    return all(
+        key in summary
+        for key in (
+            "eligible_tour_total",
+            "pending_tour_total",
+            "ready_tour_total",
+            "blocked_tour_total",
+        )
+    )
 
 
 def _compact_property_search_run_record_with_row_timestamps(
@@ -732,6 +1014,7 @@ def _compact_property_search_run_record_with_row_timestamps(
     *,
     created_at: object = "",
     updated_at: object = "",
+    delivery_checked_at: object = "",
 ) -> dict[str, object] | None:
     if not isinstance(payload, dict):
         return None
@@ -744,10 +1027,13 @@ def _compact_property_search_run_record_with_row_timestamps(
 
     row_created_at = _timestamp_text(created_at)
     row_updated_at = _timestamp_text(updated_at)
+    row_delivery_checked_at = _timestamp_text(delivery_checked_at)
     if not str(compact.get("created_at") or "").strip() and row_created_at:
         compact["created_at"] = row_created_at
     if not str(compact.get("updated_at") or "").strip() and row_updated_at:
         compact["updated_at"] = row_updated_at
+    if row_delivery_checked_at:
+        compact["delivery_checked_at"] = row_delivery_checked_at
     summary = compact.get("summary")
     if isinstance(summary, dict):
         compact_summary = dict(summary)
@@ -827,16 +1113,34 @@ def _store_property_search_run_record(record: dict[str, object]) -> None:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO property_search_runs (run_id, principal_id, payload_json, status, compact_json, created_at, updated_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO property_search_runs (
+                    run_id,
+                    principal_id,
+                    payload_json,
+                    status,
+                    compact_json,
+                    compact_schema_version,
+                    delivery_pending,
+                    created_at,
+                    updated_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (principal_id, run_id) DO UPDATE
                 SET payload_json = EXCLUDED.payload_json,
                     status = EXCLUDED.status,
                     compact_json = EXCLUDED.compact_json,
+                    compact_schema_version = EXCLUDED.compact_schema_version,
+                    delivery_pending = EXCLUDED.delivery_pending,
+                    delivery_checked_at = CASE
+                        WHEN EXCLUDED.delivery_pending THEN NULL
+                        ELSE property_search_runs.delivery_checked_at
+                    END,
                     updated_at = EXCLUDED.updated_at
                 WHERE property_search_runs.payload_json IS DISTINCT FROM EXCLUDED.payload_json
                    OR property_search_runs.status IS DISTINCT FROM EXCLUDED.status
                    OR property_search_runs.compact_json IS DISTINCT FROM EXCLUDED.compact_json
+                   OR property_search_runs.compact_schema_version IS DISTINCT FROM EXCLUDED.compact_schema_version
+                   OR property_search_runs.delivery_pending IS DISTINCT FROM EXCLUDED.delivery_pending
                 """,
                 (
                     run_id,
@@ -844,10 +1148,84 @@ def _store_property_search_run_record(record: dict[str, object]) -> None:
                     Json(normalized_record),
                     status_value,
                     Json(compact_record),
+                    _PROPERTY_SEARCH_RUN_COMPACT_SCHEMA_VERSION,
+                    bool(compact_record.get("delivery_pending", True)),
                     str(normalized_record.get("created_at") or _now_iso()).strip() or _now_iso(),
                     str(normalized_record.get("updated_at") or _now_iso()).strip() or _now_iso(),
                 ),
             )
+
+
+def _store_property_search_run_compact_record(record: dict[str, object]) -> bool:
+    """Refresh the bounded scheduler/UI projection without rewriting the full payload."""
+    if not _property_search_run_database_url():
+        return False
+    _require_property_search_run_schema()
+    normalized_record = _property_search_run_canonicalize_record(dict(record or {}))
+    run_id = str(normalized_record.get("run_id") or "").strip()
+    principal_id = str(normalized_record.get("principal_id") or "").strip()
+    if not run_id or not principal_id:
+        return False
+    expected_updated_at = str(normalized_record.get("updated_at") or "").strip()
+    if not expected_updated_at:
+        return False
+    expected_delivery_checked_at = str(normalized_record.get("delivery_checked_at") or "").strip() or None
+    from psycopg.types.json import Json
+
+    compact_record = _compact_property_search_run_record(normalized_record)
+    with _property_search_run_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE property_search_runs
+                SET compact_json = %s,
+                    compact_schema_version = %s,
+                    delivery_pending = %s,
+                    delivery_checked_at = CURRENT_TIMESTAMP
+                WHERE run_id = %s AND principal_id = %s
+                  AND updated_at = %s::timestamptz
+                  AND delivery_checked_at IS NOT DISTINCT FROM %s::timestamptz
+                RETURNING 1
+                """,
+                (
+                    Json(compact_record),
+                    _PROPERTY_SEARCH_RUN_COMPACT_SCHEMA_VERSION,
+                    bool(compact_record.get("delivery_pending", True)),
+                    run_id,
+                    principal_id,
+                    expected_updated_at,
+                    expected_delivery_checked_at,
+                ),
+            )
+            return cur.fetchone() is not None
+
+
+def _mark_property_search_run_delivery_checked(record: dict[str, object]) -> bool:
+    """Advance the durable delivery fairness cursor without rewriting JSON."""
+    if not _property_search_run_database_url():
+        return False
+    _require_property_search_run_schema()
+    normalized_record = _property_search_run_canonicalize_record(dict(record or {}))
+    run_id = str(normalized_record.get("run_id") or "").strip()
+    principal_id = str(normalized_record.get("principal_id") or "").strip()
+    expected_updated_at = str(normalized_record.get("updated_at") or "").strip()
+    if not run_id or not principal_id or not expected_updated_at:
+        return False
+    expected_delivery_checked_at = str(normalized_record.get("delivery_checked_at") or "").strip() or None
+    with _property_search_run_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE property_search_runs
+                SET delivery_checked_at = CURRENT_TIMESTAMP
+                WHERE run_id = %s AND principal_id = %s
+                  AND updated_at = %s::timestamptz
+                  AND delivery_checked_at IS NOT DISTINCT FROM %s::timestamptz
+                RETURNING 1
+                """,
+                (run_id, principal_id, expected_updated_at, expected_delivery_checked_at),
+            )
+            return cur.fetchone() is not None
 
 
 def _load_property_search_run_record(*, run_id: str, principal_id: str) -> dict[str, object] | None:
@@ -897,7 +1275,8 @@ def _load_property_search_run_compact_record(*, run_id: str, principal_id: str) 
                     )
                 ),
                 created_at,
-                updated_at
+                updated_at,
+                delivery_checked_at
                 FROM property_search_runs
                 WHERE run_id = %s AND principal_id = %s
                 """,
@@ -910,6 +1289,7 @@ def _load_property_search_run_compact_record(*, run_id: str, principal_id: str) 
         row[0],
         created_at=row[1] if len(row) > 1 else "",
         updated_at=row[2] if len(row) > 2 else "",
+        delivery_checked_at=row[3] if len(row) > 3 else "",
     )
 
 
@@ -920,6 +1300,7 @@ def _list_property_search_run_records(
     principal_id: str = "",
     admin: bool = False,
     lightweight: bool = False,
+    delivery_work_only: bool = False,
     registry: dict[str, dict[str, object]] | None = None,
 ) -> tuple[dict[str, object], ...]:
     normalized_limit = max(int(limit or 0), 1)
@@ -935,9 +1316,25 @@ def _list_property_search_run_records(
             rows = [row for row in rows if str(row.get("principal_id") or "").strip() == normalized_principal_id]
         if normalized_statuses:
             rows = [row for row in rows if str(row.get("status") or "").strip().lower() in normalized_statuses]
-        rows.sort(key=lambda row: str(row.get("updated_at") or row.get("created_at") or ""), reverse=True)
         if lightweight:
             rows = [_compact_property_search_run_record(row) for row in rows]
+        if delivery_work_only:
+            rows = [
+                row
+                for row in rows
+                if str(row.get("compact_schema_version") or "") != str(_PROPERTY_SEARCH_RUN_COMPACT_SCHEMA_VERSION)
+                or bool(row.get("delivery_pending", True))
+            ]
+            rows.sort(
+                key=lambda row: (
+                    int(row.get("compact_schema_version") or 0),
+                    1 if str(row.get("delivery_checked_at") or "").strip() else 0,
+                    str(row.get("delivery_checked_at") or ""),
+                    str(row.get("updated_at") or row.get("created_at") or ""),
+                )
+            )
+        else:
+            rows.sort(key=lambda row: str(row.get("updated_at") or row.get("created_at") or ""), reverse=True)
         return tuple(rows[:normalized_limit])
     _require_property_search_run_schema()
     query = (
@@ -953,7 +1350,8 @@ def _list_property_search_run_records(
             )
         ),
         created_at,
-        updated_at
+        updated_at,
+        delivery_checked_at
         FROM property_search_runs
         """
         if lightweight
@@ -967,9 +1365,20 @@ def _list_property_search_run_records(
     if normalized_statuses:
         where_clauses.append("status = ANY(%s)")
         params.append(list(normalized_statuses))
+    if delivery_work_only:
+        where_clauses.append(
+            "(compact_schema_version < %s OR delivery_pending)"
+        )
+        params.append(_PROPERTY_SEARCH_RUN_COMPACT_SCHEMA_VERSION)
     if where_clauses:
         query += " WHERE " + " AND ".join(where_clauses)
-    query += " ORDER BY updated_at DESC LIMIT %s"
+    if delivery_work_only:
+        query += (
+            " ORDER BY compact_schema_version ASC,"
+            " delivery_checked_at ASC NULLS FIRST, updated_at ASC LIMIT %s"
+        )
+    else:
+        query += " ORDER BY updated_at DESC LIMIT %s"
     params.append(normalized_limit)
     with _property_search_run_connect() as conn:
         with conn.cursor() as cur:
@@ -982,6 +1391,7 @@ def _list_property_search_run_records(
             payload,
             created_at=row[1] if len(row) > 1 else "",
             updated_at=row[2] if len(row) > 2 else "",
+            delivery_checked_at=row[3] if len(row) > 3 else "",
         )
         if compact is not None:
             results.append(compact)

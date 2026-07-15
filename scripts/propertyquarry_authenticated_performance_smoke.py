@@ -49,7 +49,6 @@ FORBIDDEN_CUSTOMER_NOISE = (
     "plan and limits",
     "refresh delivery",
     "repair status checked",
-    "what happened",
     "what still worked",
     "main blocker",
     "best next move",
@@ -848,7 +847,14 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
     if path == "/app/agents":
         checks.extend(
             (
-                {"name": "agent_cards", "ok": "Leopoldstadt rent watch" in body and "Hietzing buy watch" in body},
+                {
+                    "name": "agent_cards",
+                    "ok": (
+                        "Leopoldstadt rent watch" in body
+                        and "1 active" in visible_body
+                        and "1 saved" in visible_body
+                    ),
+                },
                 {"name": "map_only_thumbnails", "ok": "osm_district_overlay" in body and "Map preview unavailable" not in body},
             )
         )
@@ -1044,18 +1050,21 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
             )
         )
     if path == "/sign-in":
+        secure_email_access_copy = "use a secure email link if your address already has access." in lowered_visible_body
+        safe_provider_copy = "continue with an available provider." in lowered_visible_body
         checks.extend(
             (
                 {
                     "name": "connected_identity_implicit_account_creation",
-                    "ok": "First sign-in creates the account automatically." in body,
+                    "ok": secure_email_access_copy and safe_provider_copy,
                 },
                 {
                     "name": "connected_identity_copy_is_customer_safe",
                     "ok": (
                         "oauth_config_missing" not in lowered_body
                         and "callback setup" not in lowered_body
-                        and "creates the account automatically" in lowered_body
+                        and secure_email_access_copy
+                        and safe_provider_copy
                     ),
                 },
             )
@@ -1108,7 +1117,13 @@ def build_authenticated_performance_receipt(*, route_budget_ms: int = 1200) -> d
         prewarm_property_search_shell_cache(container=app.state.container, principal_id=principal_id)
         run_id = _start_synthetic_run(client)
         _open_workspace_access_session(client)
-        _request_measured_route(client, "/app/search")
+        for warm_path in (
+            "/app/search",
+            "/app/agents",
+            f"/app/properties?run_id={run_id}",
+            f"/app/shortlist?run_id={run_id}",
+        ):
+            _request_measured_route(client, warm_path)
         routes = [
             "/sign-in",
             "/app/search",

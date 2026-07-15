@@ -19,6 +19,7 @@ from app.services.property_billing import (  # noqa: E402
 )
 
 EXPECTED_PLAN_STYLE_COUNTS = {"free": 5, "plus": 5, "agent": 5}
+PRICING_STYLE_COUNT_TOKENS = ("Tour styles", "{{ plan.furniture_style_limit }}")
 
 REQUIRED_STYLES = {
     "warm_scandi": ("Warm Scandinavian", "warm Scandinavian staging"),
@@ -70,7 +71,7 @@ def build_furniture_style_contract_receipt() -> dict[str, object]:
             "property plan catalog must expose all five request-time styles "
             f"for every tier; got {catalog_plan_caps}"
         )
-    for token in ("Interior styles", "{{ plan.furniture_style_limit }}"):
+    for token in PRICING_STYLE_COUNT_TOKENS:
         if token not in pricing:
             failures.append(f"pricing surface missing live request-time style count token {token}")
     for token in ('name="furniture_style"', "data-furniture-style-select", "data-furniture-style-card", "field.name == 'furniture_style'"):
@@ -106,7 +107,7 @@ def build_furniture_style_contract_receipt() -> dict[str, object]:
         "helper_plan_caps": helper_plan_caps,
         "pricing_surface_bound": all(
             token in pricing
-            for token in ("Interior styles", "{{ plan.furniture_style_limit }}")
+            for token in PRICING_STYLE_COUNT_TOKENS
         ),
         "failure_count": len(failures),
         "failures": failures,

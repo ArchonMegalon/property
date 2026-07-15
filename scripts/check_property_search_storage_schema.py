@@ -82,6 +82,7 @@ def _check_source_contracts() -> None:
         "PropertySearchMigration(3, \"property_source_listing_cache\"",
         "PropertySearchMigration(4, \"replica_safe_delivery_outbox\"",
         "PropertySearchMigration(5, \"durable_property_content_job_ledger\"",
+        "PropertySearchMigration(6, \"bounded_run_delivery_projection\"",
         "property_search_migration_checksum_drift",
         "required_relation_missing",
     )

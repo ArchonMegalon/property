@@ -16,6 +16,9 @@ _URI_CREDENTIAL_RE = re.compile(
     r"(?P<scheme>[a-zA-Z][a-zA-Z0-9+.-]*://)[^\s/@:]+(?::[^\s/@]*)?@"
 )
 _BEARER_RE = re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=-]+")
+_EMAIL_ADDRESS_RE = re.compile(
+    r"(?i)(?<![a-z0-9._%+-])[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,63}(?![a-z0-9.-])"
+)
 _SENSITIVE_INLINE_RE = re.compile(
     r"(?i)\b(?P<key>authorization|cookie|set-cookie|[a-z0-9_.-]*(?:token|password|passwd|secret|api[_-]?key|database[_-]?url)[a-z0-9_.-]*)"
     r"(?P<separator>\s*[:=]\s*)(?P<value>\"[^\"]*\"|'[^']*'|[^\s,;]+)"
@@ -45,7 +48,8 @@ def redact_log_text(value: object) -> str:
     def _replace_sensitive(match: re.Match[str]) -> str:
         return f"{match.group('key')}{match.group('separator')}***"
 
-    return _SENSITIVE_INLINE_RE.sub(_replace_sensitive, text)
+    text = _SENSITIVE_INLINE_RE.sub(_replace_sensitive, text)
+    return _EMAIL_ADDRESS_RE.sub("[redacted-email]", text)
 
 
 def redact_log_value(value: Any, *, key: str = "") -> Any:

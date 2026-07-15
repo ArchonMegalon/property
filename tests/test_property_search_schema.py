@@ -51,6 +51,11 @@ def _relations_for(version: int) -> set[str]:
             "idx_property_content_webhook_status_updated",
             "idx_property_content_webhook_claim",
         }
+    if version == 6:
+        return {
+            "idx_property_search_runs_delivery_work_updated",
+            "idx_property_search_runs_principal_delivery_work_updated",
+        }
     raise AssertionError(f"unexpected migration version: {version}")
 
 
@@ -170,10 +175,10 @@ def test_clean_install_is_transactional_ordered_and_advisory_locked() -> None:
 
     assert result.previous_version == 0
     assert result.current_version == schema.LATEST_PROPERTY_SEARCH_SCHEMA_VERSION
-    assert result.applied_versions == (1, 2, 3, 4, 5)
+    assert result.applied_versions == (1, 2, 3, 4, 5, 6)
     assert database.commits == 1
     assert database.rollbacks == 0
-    assert tuple(database.ledger) == (1, 2, 3, 4, 5)
+    assert tuple(database.ledger) == (1, 2, 3, 4, 5, 6)
     assert "pg_advisory_xact_lock" in database.executed[0][0]
     assert database.executed[0][1] == (schema.SCHEMA_LOCK_ID,)
     for migration in schema.PROPERTY_SEARCH_MIGRATIONS:
@@ -198,8 +203,8 @@ def test_upgrade_from_run_schema_applies_queue_and_cache_once() -> None:
     )
 
     assert first.previous_version == 1
-    assert first.applied_versions == (2, 3, 4, 5)
-    assert second.previous_version == 5
+    assert first.applied_versions == (2, 3, 4, 5, 6)
+    assert second.previous_version == 6
     assert second.applied_versions == ()
     assert not any(
         sql == " ".join(migration.sql.split())
@@ -208,7 +213,7 @@ def test_upgrade_from_run_schema_applies_queue_and_cache_once() -> None:
     )
 
 
-def test_upgrade_from_schema_v4_installs_only_durable_content_ledger() -> None:
+def test_upgrade_from_schema_v4_installs_content_ledger_and_delivery_projection() -> None:
     database = _FakeDatabase()
     for version in (1, 2, 3, 4):
         database.seed_migration(version)
@@ -219,16 +224,17 @@ def test_upgrade_from_schema_v4_installs_only_durable_content_ledger() -> None:
     )
 
     assert result.previous_version == 4
-    assert result.current_version == 5
-    assert result.applied_versions == (5,)
+    assert result.current_version == 6
+    assert result.applied_versions == (5, 6)
     assert _relations_for(5).issubset(database.relations)
+    assert _relations_for(6).issubset(database.relations)
     executed_migrations = {
         migration.version
         for sql, _params in database.executed
         for migration in schema.PROPERTY_SEARCH_MIGRATIONS
         if sql == " ".join(migration.sql.split())
     }
-    assert executed_migrations == {5}
+    assert executed_migrations == {5, 6}
 
 
 def test_checksum_drift_and_version_gaps_fail_before_any_migration() -> None:
@@ -299,7 +305,7 @@ def test_readiness_reports_missing_pending_drift_relation_and_ready() -> None:
     assert status.reason == "property_search_migration_checksum_drift:1"
 
     database = _FakeDatabase()
-    for version in (1, 2, 3, 4, 5):
+    for version in (1, 2, 3, 4, 5, 6):
         database.seed_migration(version)
     database.relations.remove("idx_property_search_work_claim")
     status = schema.inspect_property_search_schema(
@@ -331,7 +337,7 @@ def test_readiness_reports_missing_pending_drift_relation_and_ready() -> None:
     )
     assert status.ready is True
     assert status.reason == "schema_ready"
-    assert status.current_version == 5
+    assert status.current_version == 6
 
 
 def test_runtime_schema_access_fails_closed_without_running_ddl() -> None:
@@ -409,21 +415,22 @@ def test_container_readiness_requires_current_schema_in_prod(
     assert ready is False
     assert reason == "property_search_schema_not_ready:migration_ledger_missing"
 
-    for version in (1, 2, 3, 4, 5):
+    for version in (1, 2, 3, 4, 5, 6):
         database.seed_migration(version)
     ready, reason = readiness._probe_database()
     assert ready is True
-    assert reason == "postgres_ready:property_search_schema_v5"
+    assert reason == "postgres_ready:property_search_schema_v6"
 
 
 def test_migration_checksums_are_stable_and_unique() -> None:
     checksums = [migration.checksum for migration in schema.PROPERTY_SEARCH_MIGRATIONS]
 
-    assert [migration.version for migration in schema.PROPERTY_SEARCH_MIGRATIONS] == [1, 2, 3, 4, 5]
+    assert [migration.version for migration in schema.PROPERTY_SEARCH_MIGRATIONS] == [1, 2, 3, 4, 5, 6]
     assert checksums == [
         "4938925d3679ca592f67de1fb5f5c5538ce0e2c93dd2435ffe1204674d02a37e",
         "9beb0cbc778018c9ea7ee5939cbd25a86830a904a8c2bfe8454a022219a078a6",
         "f89e047a0ed002e2da26884077001a91c7f69faa57e5719ac73881d68a14d93a",
         "b4a28da18a3d31d328ffa13c67b90a8ae1b1c3b1920c980dafc2343d226a20c3",
         "4f54431f5a138f03d697837b2c0940462a51ed3b6bafae754f316a4757edfe23",
+        "5d3855e9cdbfc2b82b97f5be9101188e0a2907ed9ca080f39c533abbae143008",
     ]
