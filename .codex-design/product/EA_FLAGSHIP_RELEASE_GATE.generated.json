@@ -3,12 +3,12 @@
   "surface": "propertyquarry_flagship_release_control",
   "version": 1,
   "kind": "release_receipt",
-  "generated_at": "2026-07-15T02:52:01Z",
+  "generated_at": "2026-07-15T11:09:33Z",
   "generated_by": "scripts/materialize_ea_flagship_release_gate.py",
   "status": "pass",
   "source_binding": {
     "version": 1,
-    "code_commit": "698c5881984a7e9d252e470c8f2889ed4c8a330a",
+    "code_commit": "e494c6279463ea52bbbd6e71fc782e92b21917bf",
     "seed": {
       "path": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
       "sha256": "542cd03e2ea8ca3432f8be73a4b37dd2b58c52dd92cd8726375db507e09ebf07",
@@ -17,20 +17,20 @@
     "required_test_sources": [
       {
         "path": "tests/test_propertyquarry_workspace_redesign.py",
-        "sha256": "bb9e93b474f5d52c90bc0e3c0271378feb6fdd6e9c0932ef6b226b694815bfd8",
-        "git_blob_oid": "f80656e327119c4ba28a11c1cfa275d4442a0866"
+        "sha256": "15ca733b3745a01032169f18e2bdc7d71678309f90977cb2a3fb3dfafd3f2e0c",
+        "git_blob_oid": "a15715d853923237554571b8e5143dfe0e4abbf0"
       },
       {
         "path": "tests/e2e/test_propertyquarry_greenfield_browser.py",
-        "sha256": "eb02e752bcb6d75e1cf92aee7d97d7562cf70cca4c2cf4682fecdb1f527ddc87",
-        "git_blob_oid": "4f0515e9914652fc38d224a84455b9845add14f9"
+        "sha256": "aee1bd6207b38a20fde01c30d23a5f967338d141b6f7624458adec7ce0fb286f",
+        "git_blob_oid": "5556e76fe6951ef8fe36384d76fe14fd0b2a7aba"
       }
     ]
   },
   "browser_receipt_binding": {
     "path": ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json",
-    "sha256": "c19a175873c8d7b09923132f9907df9e53705dd51404126754485836a39babb5",
-    "git_blob_oid": "302d0501d0fe162db1c2f2f9c605f90c55c39d9e"
+    "sha256": "7b42ff452106289217b6308f41e1084bce0e78f6782d7977170a74070f7d420f",
+    "git_blob_oid": "a9897cdda10c670b92b5a28d441a1c5ae3366829"
   },
   "operator_summary": "PropertyQuarry flagship release truth is published as a machine-readable receipt and currently green.",
   "truth_plane": {

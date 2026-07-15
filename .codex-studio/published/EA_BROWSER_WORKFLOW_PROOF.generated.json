@@ -5,7 +5,7 @@
   "proof_target": "propertyquarry",
   "version": 1,
   "kind": "proof_receipt",
-  "generated_at": "2026-07-15T02:52:01Z",
+  "generated_at": "2026-07-15T11:09:33Z",
   "generated_by": "scripts/materialize_ea_browser_workflow_proof.py",
   "status": "pass",
   "operator_summary": "PropertyQuarry browser workflow proof is published and green across both source-backed journeys and real-browser E2E.",
@@ -20,7 +20,7 @@
   ],
   "source_binding": {
     "version": 1,
-    "code_commit": "698c5881984a7e9d252e470c8f2889ed4c8a330a",
+    "code_commit": "e494c6279463ea52bbbd6e71fc782e92b21917bf",
     "seed": {
       "path": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
       "sha256": "542cd03e2ea8ca3432f8be73a4b37dd2b58c52dd92cd8726375db507e09ebf07",
@@ -29,20 +29,20 @@
     "required_test_sources": [
       {
         "path": "tests/test_propertyquarry_workspace_redesign.py",
-        "sha256": "bb9e93b474f5d52c90bc0e3c0271378feb6fdd6e9c0932ef6b226b694815bfd8",
-        "git_blob_oid": "f80656e327119c4ba28a11c1cfa275d4442a0866"
+        "sha256": "15ca733b3745a01032169f18e2bdc7d71678309f90977cb2a3fb3dfafd3f2e0c",
+        "git_blob_oid": "a15715d853923237554571b8e5143dfe0e4abbf0"
       },
       {
         "path": "tests/e2e/test_propertyquarry_greenfield_browser.py",
-        "sha256": "eb02e752bcb6d75e1cf92aee7d97d7562cf70cca4c2cf4682fecdb1f527ddc87",
-        "git_blob_oid": "4f0515e9914652fc38d224a84455b9845add14f9"
+        "sha256": "aee1bd6207b38a20fde01c30d23a5f967338d141b6f7624458adec7ce0fb286f",
+        "git_blob_oid": "5556e76fe6951ef8fe36384d76fe14fd0b2a7aba"
       }
     ]
   },
   "source_backed_journey_proof": {
     "status": "pass",
     "command": "/usr/bin/python3 -m pytest -q tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_workspace_routes_render_greenfield_surfaces tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_failed_run_stays_on_activity_surface",
-    "cwd": "/tmp/propertyquarry-release-integration-20260715",
+    "cwd": "/tmp/propertyquarry-polish-20260715",
     "python_bin": "/usr/bin/python3",
     "test_file": "tests/test_propertyquarry_workspace_redesign.py",
     "cases": [
@@ -50,10 +50,10 @@
       "test_propertyquarry_failed_run_stays_on_activity_surface"
     ],
     "exit_code": 0,
-    "duration_seconds": 122.208,
+    "duration_seconds": 30.095,
     "output_excerpt": [
       "..                                                                       [100%]",
-      "2 passed in 115.41s (0:01:55)"
+      "2 passed in 26.61s"
     ],
     "limitations": [],
     "outcome_counts": {
@@ -71,7 +71,7 @@
   "real_browser_e2e_proof": {
     "status": "pass",
     "command": "/usr/bin/python3 -m pytest -q tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_greenfield_workspace_in_real_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_greenfield_workspace_is_mobile_usable -rs",
-    "cwd": "/tmp/propertyquarry-release-integration-20260715",
+    "cwd": "/tmp/propertyquarry-polish-20260715",
     "python_bin": "/usr/bin/python3",
     "test_file": "tests/e2e/test_propertyquarry_greenfield_browser.py",
     "cases": [
@@ -79,10 +79,10 @@
       "test_propertyquarry_greenfield_workspace_is_mobile_usable"
     ],
     "exit_code": 0,
-    "duration_seconds": 63.295,
+    "duration_seconds": 47.302,
     "output_excerpt": [
       "..                                                                       [100%]",
-      "2 passed in 54.63s"
+      "2 passed in 40.55s"
     ],
     "limitations": [],
     "outcome_counts": {
