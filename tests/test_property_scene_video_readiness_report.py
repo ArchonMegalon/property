@@ -140,7 +140,7 @@ def test_scene_video_readiness_report_promotes_mootion_when_browseract_bridge_re
     assert report["summary"]["ready_count"] == 1
 
 
-def test_scene_video_readiness_report_actions_missing_mootion_remote_lane(monkeypatch) -> None:
+def test_scene_video_readiness_report_blocks_missing_mootion_remote_lane(monkeypatch) -> None:
     module = _load_script()
     monkeypatch.setattr(
         module,
@@ -169,8 +169,19 @@ def test_scene_video_readiness_report_actions_missing_mootion_remote_lane(monkey
     row = report["providers"][0]
     reasons = {(action["provider"], action["reason"]) for action in report["next_actions"]}
 
-    assert row["ready"] is True
+    assert row["ready"] is False
+    assert row["status"] == "blocked"
+    assert row["blockers"] == [
+        "mootion_browseract_remote_lane_missing",
+        "mootion_browseract_bridge_not_ready",
+    ]
     assert "execution_lane" not in row
+    assert report["summary"] == {
+        "provider_count": 1,
+        "ready_count": 0,
+        "blocked_count": 1,
+        "blocked_providers": ["mootion"],
+    }
     assert ("mootion", "mootion_browseract_remote_lane_missing") in reasons
     assert ("mootion", "mootion_browseract_bridge_not_ready") in reasons
     lane_action = next(
@@ -179,6 +190,46 @@ def test_scene_video_readiness_report_actions_missing_mootion_remote_lane(monkey
         if action["provider"] == "mootion" and action["reason"] == "mootion_browseract_remote_lane_missing"
     )
     assert lane_action["current_execution_lane"] == "local_worker_or_unset"
+
+
+def test_scene_video_readiness_report_blocks_requested_mootion_with_invalid_runtime_identity(monkeypatch) -> None:
+    module = _load_script()
+
+    for runtime_provider_key in (None, "unexpected-provider"):
+        monkeypatch.setattr(
+            module,
+            "scene_video_provider_runtime_readiness",
+            lambda provider, key=runtime_provider_key: {
+                "provider_key": key,
+                "provider_backend_key": key,
+                "ready": True,
+                "status": "ready",
+                "blockers": [],
+                "checks": {
+                    "mootion_browseract_remote": {
+                        "ready": False,
+                        "status": "blocked",
+                        "target_count": 0,
+                        "targets": [],
+                    },
+                },
+            },
+        )
+
+        report = module.build_report(providers=("mootion",))
+        row = report["providers"][0]
+        reasons = {(action["provider"], action["reason"]) for action in report["next_actions"]}
+
+        assert row["ready"] is False
+        assert row["status"] == "blocked"
+        assert row["blockers"] == [
+            "mootion_browseract_remote_lane_missing",
+            "mootion_browseract_bridge_not_ready",
+        ]
+        assert report["summary"]["ready_count"] == 0
+        assert report["summary"]["blocked_providers"] == ["mootion"]
+        assert ("mootion", "mootion_browseract_remote_lane_missing") in reasons
+        assert ("mootion", "mootion_browseract_bridge_not_ready") in reasons
 
 
 def test_scene_video_readiness_report_records_expected_account_visibility_gaps(monkeypatch) -> None:

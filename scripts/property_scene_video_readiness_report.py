@@ -486,6 +486,19 @@ def _provider_row(provider: str) -> dict[str, Any]:
     ready = bool(readiness.get("ready"))
     status = str(readiness.get("status") or "blocked")
     execution_lane = str(readiness.get("execution_lane") or "").strip()
+    requested_provider_key = str(provider or "").strip().lower()
+    runtime_provider_key = str(readiness.get("provider_key") or "").strip().lower()
+    if "mootion" in {requested_provider_key, runtime_provider_key}:
+        remote_value = checks.get("mootion_browseract_remote")
+        remote = remote_value if isinstance(remote_value, dict) else {}
+        if execution_lane != "browseract_remote":
+            blockers.append("mootion_browseract_remote_lane_missing")
+        if remote.get("ready") is not True:
+            blockers.append("mootion_browseract_bridge_not_ready")
+        blockers = list(dict.fromkeys(blockers))
+        if blockers:
+            ready = False
+            status = "blocked"
     return {
         "requested_provider": provider,
         "provider_key": readiness.get("provider_key"),
@@ -543,11 +556,12 @@ def _provider_next_actions(rows: list[dict[str, Any]], telegram_readiness: dict[
         requested_provider = str(row.get("requested_provider") or row.get("provider_key") or "").strip()
         provider_key = str(row.get("provider_key") or "").strip()
         provider_label = requested_provider or provider_key or "unknown"
+        is_mootion = "mootion" in {requested_provider.lower(), provider_key.lower()}
         blockers = [str(value or "").strip() for value in list(row.get("blockers") or []) if str(value or "").strip()]
         checks = dict(row.get("checks") or {})
         account_inventory = dict(row.get("account_inventory") or {})
         gap = int(account_inventory.get("visible_account_gap") or 0)
-        if provider_key == "mootion":
+        if is_mootion:
             remote = dict(checks.get("mootion_browseract_remote") or {})
             execution_lane = str(row.get("execution_lane") or "").strip()
             if execution_lane != "browseract_remote":
@@ -635,7 +649,7 @@ def _provider_next_actions(rows: list[dict[str, Any]], telegram_readiness: dict[
                 "Configure PROPERTYQUARRY_OMAGIC_RENDER_ENDPOINT or PROPERTYQUARRY_OMAGIC_RENDER_COMMAND for the deployed model-upload adapter before claiming OMagic runtime readiness.",
                 severity="high",
             )
-        if provider_key == "mootion" and row.get("ready") is not True:
+        if is_mootion and row.get("ready") is not True:
             add_action(
                 "mootion",
                 "mootion_not_ready",
