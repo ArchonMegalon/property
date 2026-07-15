@@ -339,6 +339,7 @@
     {% set has_other_facebook_provider = show_google_provider or show_id_austria_provider %}
     {% set has_other_id_austria_provider = show_google_provider or show_facebook_provider %}
     {% set has_other_connected_provider = (sign_in_connected_provider != 'Google' and show_google_provider) or (sign_in_connected_provider != 'Facebook' and show_facebook_provider) or (sign_in_connected_provider != 'ID Austria' and show_id_austria_provider) %}
+    {% set signed_in_continue_label = 'Open search' if sign_in_return_to == '/app/search' else 'Continue' %}
     <div class="kicker">Sign in</div>
     <div class="access-shell">
       <div class="access-intro">
@@ -349,7 +350,7 @@
         {% if public_signed_in %}
         <div class="access-entry-block access-entry-block-cta">
           <div class="cta-row">
-            <a class="btn primary" href="{{ sign_in_return_to }}">Continue</a>
+            <a class="btn primary" href="{{ sign_in_return_to }}">{{ signed_in_continue_label }}</a>
             <form method="post" action="/app/actions/sign-out">
               <input type="hidden" name="return_to" value="/sign-in?signing_in=1">
               <button class="btn" type="submit">Log out</button>
@@ -430,7 +431,7 @@
       <p class="copy">{% if public_signed_in %}Your account is ready to continue.{% elif sign_in_link_enabled %}Use email if you prefer.{% elif has_other_connected_provider %}Choose another available sign-in option if needed.{% else %}No other sign-in option is available right now. Contact support if this account did not open.{% endif %}</p>
       <div class="cta-row">
         {% if public_signed_in %}
-        <a class="btn primary" href="{{ sign_in_return_to }}">Continue</a>
+        <a class="btn primary" href="{{ sign_in_return_to }}">{{ signed_in_continue_label }}</a>
         {% elif sign_in_link_enabled %}
         <button class="btn primary" type="button" data-focus-sign-in-email>Use email instead</button>
         {% endif %}

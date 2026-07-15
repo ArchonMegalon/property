@@ -918,12 +918,16 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
 
         response = desktop_page.goto(f"{base_url}/sign-in", wait_until="networkidle")
         assert response is not None and response.ok
-        expect(desktop_page.get_by_role("heading", name="Sign in to continue your property search.")).to_be_visible()
-        expect(desktop_page.get_by_text("Use email or one of the sign-in options below.")).to_be_visible()
+        expect(desktop_page.get_by_role("heading", name="Continue your property search.")).to_be_visible()
+        expect(
+            desktop_page.get_by_text(
+                "Use a secure email link if your address already has access. You can also continue with an available provider."
+            )
+        ).to_be_visible()
         assert desktop_page.get_by_role("link", name="Open current session").count() == 0
         assert (
             desktop_page.get_by_role("button", name="Email sign-in").count()
-            or desktop_page.get_by_role("button", name="Send sign-in link").count()
+            or desktop_page.get_by_role("button", name="Send secure sign-in link").count()
             or desktop_page.get_by_text("Email sign-in is not available right now.").count()
         )
         google_link = desktop_page.get_by_role("link", name="Continue with Google")
@@ -975,11 +979,11 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
 
         response = mobile_page.goto(f"{base_url}/sign-in", wait_until="networkidle")
         assert response is not None and response.ok
-        expect(mobile_page.get_by_role("heading", name="Sign in to continue your property search.")).to_be_visible()
+        expect(mobile_page.get_by_role("heading", name="Continue your property search.")).to_be_visible()
         assert mobile_page.get_by_role("link", name="Open current session").count() == 0
         assert (
             mobile_page.get_by_role("button", name="Email sign-in").count()
-            or mobile_page.get_by_role("button", name="Send sign-in link").count()
+            or mobile_page.get_by_role("button", name="Send secure sign-in link").count()
             or mobile_page.get_by_text("Email sign-in is not available right now.").count()
         )
         _assert_no_horizontal_overflow(mobile_page)
@@ -992,10 +996,10 @@ def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
         expect(mobile_page.get_by_role("heading", name="Free")).to_be_visible()
         expect(mobile_page.get_by_role("heading", name="Plus")).to_be_visible()
         expect(mobile_page.get_by_role("heading", name="Agent")).to_be_visible()
-        expect(mobile_page.get_by_text("3D tour requests").first).to_be_visible()
+        expect(mobile_page.get_by_text("3D tour scope").first).to_be_visible()
         expect(mobile_page.get_by_text("Selected homes", exact=True)).to_be_visible()
-        expect(mobile_page.get_by_text("Shortlist", exact=True)).to_be_visible()
-        expect(mobile_page.get_by_text("Every home", exact=True)).to_be_visible()
+        expect(mobile_page.get_by_text("Shortlist, opt-in", exact=True)).to_be_visible()
+        expect(mobile_page.get_by_text("Every match, opt-in", exact=True)).to_be_visible()
         _assert_no_horizontal_overflow(mobile_page)
         mobile_pricing_shot = tmp_path / "propertyquarry-pricing-mobile.png"
         mobile_page.screenshot(path=str(mobile_pricing_shot), full_page=True)
@@ -1016,17 +1020,17 @@ def test_propertyquarry_sign_in_desktop_uses_balanced_two_column_entry_surface(
     try:
         response = page.goto(f"{base_url}/sign-in?signing_in=1", wait_until="networkidle")
         assert response is not None and response.ok
-        expect(page.get_by_role("heading", name="Sign in to continue your property search.")).to_be_visible()
+        expect(page.get_by_role("heading", name="Continue your property search.")).to_be_visible()
         assert page.get_by_role("link", name="Open current session").count() == 0
         assert (
             page.get_by_role("button", name="Email sign-in").count()
-            or page.get_by_role("button", name="Send sign-in link").count()
+            or page.get_by_role("button", name="Send secure sign-in link").count()
             or page.get_by_text("Email sign-in is not available right now.").count()
         )
         if page.get_by_role("link", name="Continue with Google").count() or page.get_by_role("link", name="Continue with Facebook").count() or page.get_by_role("link", name="Continue with ID Austria").count():
-            expect(page.get_by_text("Provider sign-in opens the same account and creates it if needed.")).to_be_visible()
+            expect(page.get_by_text("Sign-in providers open the same account and create it if needed.")).to_be_visible()
         else:
-            assert page.get_by_text("Provider sign-in opens the same account and creates it if needed.").count() == 0
+            assert page.get_by_text("Sign-in providers open the same account and create it if needed.").count() == 0
             assert page.get_by_text("Trusted device").count() == 0
             assert page.get_by_text("Private hardware access stays limited to approved devices.").count() == 0
         _assert_no_horizontal_overflow(page)
