@@ -178,6 +178,13 @@ flagship_receipt = json.loads(Path(".codex-design/product/EA_FLAGSHIP_RELEASE_GA
 assert flagship_receipt["status"] in {"blocked", "preview_only", "pass"}
 assert flagship_receipt["product"] == gate["product"]
 assert flagship_receipt["surface"] == gate["surface"]
+assert flagship_receipt["readiness_scope"] == "source_and_browser_proof"
+assert flagship_receipt["live_readiness"] == {
+    "status": "not_evaluated",
+    "authority": "_completion/property_gold_status/release-gate.json",
+    "required_profile": "launch",
+}
+assert "final live readiness is not evaluated" in flagship_receipt["operator_summary"].lower()
 assert flagship_receipt["browser_workflow_proof"]["proof_target"] == gate["browser_workflow_proof"]["proof_target"]
 if flagship_receipt["status"] == "pass":
     assert browser_receipt["status"] == "pass", (

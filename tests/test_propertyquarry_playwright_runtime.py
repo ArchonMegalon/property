@@ -50,3 +50,87 @@ def test_playwright_runtime_does_not_fallback_from_invalid_configured_executable
     monkeypatch.setenv("PROPERTYQUARRY_PLAYWRIGHT_FIREFOX_EXECUTABLE", "/missing/firefox")
     with pytest.raises(FileNotFoundError, match="PROPERTYQUARRY_PLAYWRIGHT_FIREFOX_EXECUTABLE"):
         runtime.playwright_engine_executable(SimpleNamespace(), engine="firefox")
+
+
+class TargetClosedError(Exception):
+    pass
+
+
+def test_playwright_runtime_relaunches_once_after_native_browser_crash() -> None:
+    launched_browser = object()
+    launches: list[dict[str, object]] = []
+
+    def _launch(**kwargs: object) -> object:
+        launches.append(kwargs)
+        if len(launches) == 1:
+            raise TargetClosedError("Received signal 11; process did exit: signal=SIGSEGV")
+        return launched_browser
+
+    browser_type = SimpleNamespace(executable_path="", launch=_launch)
+    playwright = SimpleNamespace(chromium=browser_type)
+
+    assert runtime.playwright_engine_launch_browser(
+        playwright,
+        args=["--no-sandbox"],
+    ) is launched_browser
+    assert launches == [
+        {"headless": True, "args": ["--no-sandbox"]},
+        {"headless": True, "args": ["--no-sandbox"]},
+    ]
+
+
+def test_playwright_runtime_recognizes_installed_target_closed_error() -> None:
+    playwright_errors = pytest.importorskip("playwright._impl._errors")
+    launches = 0
+
+    def _launch(**_kwargs: object) -> object:
+        nonlocal launches
+        launches += 1
+        if launches == 1:
+            raise playwright_errors.TargetClosedError("Received signal 11; signal=SIGSEGV")
+        return object()
+
+    browser_type = SimpleNamespace(executable_path="", launch=_launch)
+    playwright = SimpleNamespace(chromium=browser_type)
+
+    runtime.playwright_engine_launch_browser(playwright)
+    assert launches == 2
+
+
+def test_playwright_runtime_second_native_browser_crash_still_fails() -> None:
+    launches = 0
+
+    def _launch(**_kwargs: object) -> object:
+        nonlocal launches
+        launches += 1
+        raise TargetClosedError("General protection fault; signal=SIGSEGV")
+
+    browser_type = SimpleNamespace(executable_path="", launch=_launch)
+    playwright = SimpleNamespace(chromium=browser_type)
+
+    with pytest.raises(TargetClosedError, match="signal=SIGSEGV"):
+        runtime.playwright_engine_launch_browser(playwright)
+    assert launches == 2
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        TargetClosedError("Target page, context or browser has been closed"),
+        RuntimeError("Received signal 11; signal=SIGSEGV"),
+    ],
+)
+def test_playwright_runtime_does_not_relaunch_unrelated_failures(error: Exception) -> None:
+    launches = 0
+
+    def _launch(**_kwargs: object) -> object:
+        nonlocal launches
+        launches += 1
+        raise error
+
+    browser_type = SimpleNamespace(executable_path="", launch=_launch)
+    playwright = SimpleNamespace(chromium=browser_type)
+
+    with pytest.raises(type(error)):
+        runtime.playwright_engine_launch_browser(playwright)
+    assert launches == 1

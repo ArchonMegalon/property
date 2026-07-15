@@ -377,11 +377,20 @@ def build_receipt(
     current_limitations = list(dict.fromkeys(current_limitations))
 
     if status == "pass":
-        operator_summary = f"{proof_label} flagship release truth is published as a machine-readable receipt and currently green."
+        operator_summary = (
+            f"{proof_label} source/browser flagship proof is published and green; "
+            "final live readiness is not evaluated by this receipt."
+        )
     elif status == "preview_only":
-        operator_summary = f"{proof_label} flagship release truth is materialized as a machine-readable receipt, but the current claim is preview_only until browser execution proof is published."
+        operator_summary = (
+            f"{proof_label} source/browser flagship proof is materialized, but the current claim is preview_only "
+            "until browser execution proof is published; final live readiness is not evaluated by this receipt."
+        )
     else:
-        operator_summary = f"{proof_label} flagship release truth is materialized, but the current browser-proof or release-doc state still blocks the claim."
+        operator_summary = (
+            f"{proof_label} source/browser flagship proof is materialized, but the current browser-proof or "
+            "release-doc state still blocks the claim; final live readiness is not evaluated by this receipt."
+        )
 
     receipt: dict[str, Any] = {
         "product": str(seed.get("product") or "propertyquarry"),
@@ -391,6 +400,12 @@ def build_receipt(
         "generated_at": _utc_now(),
         "generated_by": "scripts/materialize_ea_flagship_release_gate.py",
         "status": status,
+        "readiness_scope": "source_and_browser_proof",
+        "live_readiness": {
+            "status": "not_evaluated",
+            "authority": "_completion/property_gold_status/release-gate.json",
+            "required_profile": "launch",
+        },
         "source_binding": source_binding,
         "browser_receipt_binding": browser_receipt_binding,
         "operator_summary": operator_summary,

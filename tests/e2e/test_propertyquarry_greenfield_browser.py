@@ -31,8 +31,7 @@ from app.product.models import HandoffNote
 from app.product.service import ProductService
 from scripts.propertyquarry_playwright_runtime import (
     normalize_playwright_engine,
-    playwright_browser_type,
-    playwright_engine_launch_kwargs,
+    playwright_engine_launch_browser,
 )
 
 
@@ -722,10 +721,8 @@ def browser() -> Iterator[Browser]:
             "--no-proxy-server",
             "--autoplay-policy=no-user-gesture-required",
         ]
-        launch_kwargs = playwright_engine_launch_kwargs(playwright, engine=engine, args=browser_args)
-        browser_type = playwright_browser_type(playwright, engine=engine)
         try:
-            browser = browser_type.launch(**launch_kwargs)
+            browser = playwright_engine_launch_browser(playwright, engine=engine, args=browser_args)
         except Exception as exc:
             raise RuntimeError(f"playwright_browser_engine_unavailable:{engine}:{type(exc).__name__}: {exc}") from exc
         try:

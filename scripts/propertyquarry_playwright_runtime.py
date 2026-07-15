@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Any, Callable
+
+
+if TYPE_CHECKING:
+    from playwright.sync_api import Browser
+else:
+    Browser = Any
 
 
 CHROMIUM_EXECUTABLE_ENV = "PROPERTYQUARRY_PLAYWRIGHT_CHROMIUM_EXECUTABLE"
@@ -12,6 +18,12 @@ PLAYWRIGHT_EXECUTABLE_ENV_BY_ENGINE = {
     "firefox": "PROPERTYQUARRY_PLAYWRIGHT_FIREFOX_EXECUTABLE",
     "webkit": "PROPERTYQUARRY_PLAYWRIGHT_WEBKIT_EXECUTABLE",
 }
+_PLAYWRIGHT_NATIVE_LAUNCH_CRASH_SIGNATURES = (
+    "general protection fault",
+    "received signal 11",
+    "segmentation fault",
+    "signal=sigsegv",
+)
 
 
 def normalize_playwright_engine(value: object) -> str:
@@ -63,6 +75,36 @@ def playwright_engine_launch_kwargs(
     if args and normalized_engine == "chromium":
         launch_kwargs["args"] = list(args)
     return launch_kwargs
+
+
+def _is_retryable_playwright_native_launch_crash(exc: Exception) -> bool:
+    if type(exc).__name__ != "TargetClosedError":
+        return False
+    message = str(exc).lower()
+    return any(signature in message for signature in _PLAYWRIGHT_NATIVE_LAUNCH_CRASH_SIGNATURES)
+
+
+def playwright_engine_launch_browser(
+    playwright: object,
+    *,
+    engine: str = "chromium",
+    args: list[str] | None = None,
+) -> Browser:
+    """Launch once more only when the first browser process dies from a native crash."""
+
+    normalized_engine = normalize_playwright_engine(engine)
+    browser_type: Any = playwright_browser_type(playwright, engine=normalized_engine)
+    launch_kwargs = playwright_engine_launch_kwargs(
+        playwright,
+        engine=normalized_engine,
+        args=args,
+    )
+    try:
+        return browser_type.launch(**launch_kwargs)
+    except Exception as exc:
+        if not _is_retryable_playwright_native_launch_crash(exc):
+            raise
+    return browser_type.launch(**launch_kwargs)
 
 
 def playwright_engine_capture_available(

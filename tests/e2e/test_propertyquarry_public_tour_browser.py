@@ -28,7 +28,7 @@ Server = uvicorn.Server
 
 from app.api.app import create_app
 from scripts import generate_property_reconstruction as reconstruction_script
-from scripts.propertyquarry_playwright_runtime import playwright_chromium_launch_kwargs
+from scripts.propertyquarry_playwright_runtime import playwright_engine_launch_browser
 
 
 def _free_port() -> int:
@@ -1834,7 +1834,7 @@ def generated_reconstruction_expanded_walkthrough_server(
 @pytest.fixture()
 def browser() -> Iterator[Browser]:
     with sync_playwright() as playwright:
-        launch_kwargs = playwright_chromium_launch_kwargs(
+        browser = playwright_engine_launch_browser(
             playwright,
             args=[
                 "--no-sandbox",
@@ -1846,7 +1846,6 @@ def browser() -> Iterator[Browser]:
                 "--autoplay-policy=no-user-gesture-required",
             ],
         )
-        browser = playwright.chromium.launch(**launch_kwargs)
         try:
             yield browser
         finally:

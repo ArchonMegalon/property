@@ -108,6 +108,15 @@ def test_flagship_release_docs_cite_the_truth_plane_instead_of_milestone_as_orac
 
 def test_flagship_release_receipt_is_materialized_or_expected_to_materialize() -> None:
     assert GENERATED_GATE_PATH.exists()
+    receipt = json.loads(GENERATED_GATE_PATH.read_text(encoding="utf-8"))
+
+    assert receipt["readiness_scope"] == "source_and_browser_proof"
+    assert receipt["live_readiness"] == {
+        "status": "not_evaluated",
+        "authority": "_completion/property_gold_status/release-gate.json",
+        "required_profile": "launch",
+    }
+    assert "final live readiness is not evaluated" in receipt["operator_summary"].lower()
 
 
 def test_flagship_closeout_claim_is_scoped_to_the_proven_propertyquarry_surface() -> None:
@@ -128,3 +137,6 @@ def test_release_asset_verifier_binds_generated_receipts_to_current_propertyquar
     assert 'browser_receipt_pass_blockers(browser_receipt, gate)' in verifier
     assert 'assert browser_receipt["product"] == gate["product"]' in verifier
     assert 'assert flagship_receipt["product"] == gate["product"]' in verifier
+    assert 'assert flagship_receipt["readiness_scope"] == "source_and_browser_proof"' in verifier
+    assert '"authority": "_completion/property_gold_status/release-gate.json"' in verifier
+    assert '"required_profile": "launch"' in verifier
