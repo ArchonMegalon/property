@@ -374,7 +374,7 @@ fi
 echo "openapi ok"
 
 echo "== smoke: registration + workspace access =="
-REGISTER_EMAIL="smoke-register-${SMOKE_RUN_TOKEN}@example.com"
+REGISTER_EMAIL="smoke-register-${SMOKE_RUN_TOKEN,,}@example.com"
 REGISTER_START_JSON="$(curl -fsS -X POST "${BASE}/v1/register/start" -H 'content-type: application/json' -d "{\"email\":\"${REGISTER_EMAIL}\"}")"
 REGISTER_START_FIELDS="$(python3 -c "import json,sys,urllib.parse; body=json.loads(sys.stdin.read() or '{}'); status=str(body.get('email_delivery_status','')); link=str(body.get('magic_link_url','')); parsed=urllib.parse.urlparse(link); code=str(body.get('verification_code') or urllib.parse.parse_qs(parsed.query).get('code',[''])[0]); print('{}|{}|{}|{}|{}|{}|{}'.format(body.get('email',''), len(code), bool(body.get('verification_token','')), link.startswith('/register?token='), bool(body.get('workspace_name','')), status in {'', 'sent', 'failed'}, status != 'failed' or bool(body.get('email_delivery_error',''))))" <<<"${REGISTER_START_JSON}")"
 if [[ "${REGISTER_START_FIELDS}" != "${REGISTER_EMAIL}|6|True|True|True|True|True" ]]; then
