@@ -3,7 +3,7 @@
   "surface": "propertyquarry_flagship_release_control",
   "version": 1,
   "kind": "release_receipt",
-  "generated_at": "2026-07-16T12:17:34Z",
+  "generated_at": "2026-07-16T12:50:46Z",
   "generated_by": "scripts/materialize_ea_flagship_release_gate.py",
   "status": "pass",
   "readiness_scope": "source_and_browser_proof",
@@ -14,7 +14,7 @@
   },
   "source_binding": {
     "version": 1,
-    "code_commit": "b43dde0815ede9fab8948bb5363ec9427e70576a",
+    "code_commit": "5b67d241ccb7d36368d03bc2e649789e3f93ef4a",
     "seed": {
       "path": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
       "sha256": "3fb0eef6a4b17835643e61a6d422f4802182f67f3c4aae88000062e4a671d163",
@@ -23,20 +23,20 @@
     "required_test_sources": [
       {
         "path": "tests/test_propertyquarry_workspace_redesign.py",
-        "sha256": "26a01ea510a06b7d3d072070e2bf3ed3f13d3c9c8e932e252e090b47920f81c7",
-        "git_blob_oid": "d5dba49d86d65fbcbe149a1da36654d3ddbb62b1"
+        "sha256": "ae982184840943b92e48aa9497fc8629279817ce8bde915109357b6f10ab257d",
+        "git_blob_oid": "f8b4e9b67e4a76e66df5240b3eb0886eb5bc2885"
       },
       {
         "path": "tests/e2e/test_propertyquarry_greenfield_browser.py",
-        "sha256": "d84c99fa0993a5a60f03d17e56d9944a7182001ddf77e580cdc6b4c2b032fe15",
-        "git_blob_oid": "9199b025602cf52bea79fa0365c4871d698b5c73"
+        "sha256": "66733e06a6b6d1af2383fca7a5e9f9618cf66fff68d04d522f4673b9250ac157",
+        "git_blob_oid": "ecec6fc44570585ffa62a348a7e553c4ad5e5f5c"
       }
     ]
   },
   "browser_receipt_binding": {
     "path": ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json",
-    "sha256": "5b6713ab3c30198eff945184eaf335fdd1b47e9128a132d1d86282d950c812af",
-    "git_blob_oid": "3e134753ddd75e4dfd8e4c383d9435aaab3560f7"
+    "sha256": "b789e42fc1e1cf9d3ab51558627d1b52604aa1c4e8f2f8e96d43a188e9e21286",
+    "git_blob_oid": "1eed070b22a002d46d4cd2b818d7aa59eb221164"
   },
   "operator_summary": "PropertyQuarry source/browser flagship proof is published and green; final live readiness is not evaluated by this receipt.",
   "truth_plane": {
@@ -181,7 +181,7 @@
     "version": 1,
     "status": "pass",
     "readiness_scope": "candidate_source_and_browser_proof",
-    "runtime_commit_sha": "b43dde0815ede9fab8948bb5363ec9427e70576a",
+    "runtime_commit_sha": "5b67d241ccb7d36368d03bc2e649789e3f93ef4a",
     "required_journey_ids": [
       "public_entry",
       "onboarding_auth",

@@ -20,7 +20,7 @@ PropertyQuarry is a source/browser candidate, not a production launch:
 | Product | PropertyQuarry |
 | Status | `source-browser-candidate-pending-protected-live-evidence` |
 | Branch | `main` |
-| Runtime commit SHA | `b43dde0815ede9fab8948bb5363ec9427e70576a` |
+| Runtime commit SHA | `5b67d241ccb7d36368d03bc2e649789e3f93ef4a` |
 | Release envelope | tracked `main`; protected receipts record the workflow-head SHA separately |
 | Public domain | `https://propertyquarry.com` |
 | Deployment ID | `pending-governed-production-deploy` |
