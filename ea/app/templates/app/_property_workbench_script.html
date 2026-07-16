@@ -1950,7 +1950,9 @@
         .replace(/\blists left\b/ig, 'checks waiting')
         .replace(/\blists open\b/ig, 'checks still running')
         .replace(/\bprovider update\b/ig, 'search update')
-        .replace(/\blist update\b/ig, 'search update');
+        .replace(/\blist update\b/ig, 'search update')
+        .replace(/\bproviders\b/ig, 'sources')
+        .replace(/\bprovider\b/ig, 'source');
       const candidateMatch = text.match(/(?:Reviewing(?: candidate)?|Scoring enriched candidate|Ranked|Scored)\s+(\d+)\s+(?:of)\s+(\d+)/i);
       if (candidateMatch) return `Checking home details ${candidateMatch[1]} / ${candidateMatch[2]}`;
       const shortlistMatch = text.match(/^Built shortlist of\s+\d+\s+listing\(s\)\s+for\s+(.+)\.$/i);

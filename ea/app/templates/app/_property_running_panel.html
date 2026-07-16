@@ -95,7 +95,7 @@
     {% set run_has_repair_copy = status|lower == 'failed' or run_repair_status in ['repairing', 'repair failed', 'degraded', 'failed'] %}
     {% set run_safe_message = (run_reliability.get('customer_status_message') or run_summary.get('customer_status_message') or '')|trim %}
     {% set run_message_display = run_safe_message if run_has_repair_copy and run_safe_message else run_message_raw %}
-    {% set run_message_display = run_message_display|replace('left to sort', 'to review')|replace('Left to sort', 'To review')|replace('lists left', 'checks waiting')|replace('Lists left', 'Checks waiting')|replace('lists open', 'checks still running')|replace('Lists open', 'Checks still running') %}
+    {% set run_message_display = run_message_display|replace('left to sort', 'to review')|replace('Left to sort', 'To review')|replace('lists left', 'checks waiting')|replace('Lists left', 'Checks waiting')|replace('lists open', 'checks still running')|replace('Lists open', 'Checks still running')|replace('providers', 'sources')|replace('Providers', 'Sources')|replace('provider', 'source')|replace('Provider', 'Source') %}
     {% set run_message_display_lower = run_message_display|lower %}
     {% set run_prepared_total = ((run_summary.get('review_created_total') or 0)|int) + ((run_summary.get('review_existing_total') or 0)|int) %}
     {% if run_found_total > 0 and run_prepared_total <= 0 and ('review page preparation timed out' in run_message_display_lower or 'reviewing candidate' in run_message_display_lower or (run_summary.get('current_step') or run.get('current_step') or '')|lower == 'source_review_packet') %}
@@ -136,7 +136,7 @@
         {% set event_step = (event.get('step') or '')|lower %}
         {% set event_message = event.get('message') or '' %}
         {% set event_message_lower = event_message|lower %}
-        {% set event_message_display = event_message|replace('homes reviewed', 'homes found')|replace('home reviewed', 'home found')|replace('reviewed so far', 'checked so far')|replace('list update', 'search update')|replace('search pages', 'checks') %}
+        {% set event_message_display = event_message|replace('homes reviewed', 'homes found')|replace('home reviewed', 'home found')|replace('reviewed so far', 'checked so far')|replace('list update', 'search update')|replace('search pages', 'checks')|replace('providers', 'sources')|replace('Providers', 'Sources')|replace('provider', 'source')|replace('Provider', 'Source') %}
         {% if visible_event_count.value < 10 and not ('suppressed_generic_listing_page' in event_message_lower or 'could not load property search status' in event_message_lower or 'checking run status' in event_message_lower or 'starting property search run' in event_message_lower or (event_step == 'status_refresh')) %}
         {% set visible_event_count.value = visible_event_count.value + 1 %}
         {% if event_step in ['queued', 'starting', 'sources_resolved', 'source_catalog_loading', 'source_started'] %}

@@ -341,7 +341,7 @@
 {% set source_check_total = source_check_total if source_check_total > 0 else provider_display_total %}
 {% set source_check_done = source_done_total if source_done_total > 0 else 0 %}
 {% set source_check_done = source_check_done if source_check_total <= 0 or source_check_done < source_check_total else source_check_total %}
-{% set source_unit = 'checks' if source_variant_total > provider_display_total and provider_display_total > 0 else 'providers' %}
+{% set source_unit = 'checks' if source_variant_total > provider_display_total and provider_display_total > 0 else 'sources' %}
 {% set source_check_label = source_check_done|string ~ ' / ' ~ source_check_total|string ~ ' ' ~ source_unit if source_check_total > 0 and source_variant_total > 0 else '' %}
 {% set raw_listing_total = (summary.get('found_listing_total') if summary.get('found_listing_total') is not none else (summary.get('raw_listing_total') or 0))|int %}
 {% set listing_total = (summary.get('listing_total') or 0)|int %}
@@ -381,7 +381,7 @@
 {% set progress_has_repair_copy = status|lower == 'failed' or progress_repair_status in ['repairing', 'repair failed', 'degraded', 'failed'] %}
 {% set progress_customer_message = (reliability.get('customer_status_message') or summary.get('customer_status_message') or '')|trim %}
 {% set progress_message_display = progress_customer_message if progress_has_repair_copy and progress_customer_message else progress_message_raw %}
-{% set progress_message_display = progress_message_display|replace('left to sort', 'to review')|replace('Left to sort', 'To review')|replace('lists left', 'checks waiting')|replace('Lists left', 'Checks waiting')|replace('lists open', 'checks still running')|replace('Lists open', 'Checks still running') %}
+{% set progress_message_display = progress_message_display|replace('left to sort', 'to review')|replace('Left to sort', 'To review')|replace('lists left', 'checks waiting')|replace('Lists left', 'Checks waiting')|replace('lists open', 'checks still running')|replace('Lists open', 'Checks still running')|replace('providers', 'sources')|replace('Providers', 'Sources')|replace('provider', 'source')|replace('Provider', 'Source') %}
 {% set progress_message_display_lower = progress_message_display|lower %}
 {% set progress_current_step = (summary.get('current_step') or run.get('current_step') or '')|lower %}
 {% set progress_detail_preparing = found_total > 0 and ('review page preparation timed out' in progress_message_display_lower or 'reviewing candidate' in progress_message_display_lower or progress_current_step in ['source_review_packet', 'source_review_packet_failed']) %}
@@ -480,7 +480,7 @@
 	  <div class="pqx-reliability-strip" data-pqx-run-reliability>
     <div class="pqx-reliability-head">
       <span class="pqx-pill {{ reliability.get('health_tone') }}">{{ reliability.get('health_label') or 'Working' }}</span>
-      {% if reliability.get('repair_step_label') %}<strong>Refreshing affected providers</strong>{% endif %}
+      {% if reliability.get('repair_step_label') %}<strong>Refreshing affected sources</strong>{% endif %}
       {% if reliability.get('next_useful_update_eta_label') %}<span class="pqx-small">Next useful update: {{ reliability.get('next_useful_update_eta_label') }}</span>{% endif %}
       {% if reliability.get('final_eta_label') %}<span class="pqx-small">Finish: {{ reliability.get('final_eta_label') }}</span>{% endif %}
     </div>

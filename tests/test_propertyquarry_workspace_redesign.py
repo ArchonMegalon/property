@@ -4007,7 +4007,7 @@ def test_propertyquarry_running_panel_ignores_preseeded_completed_source_overcou
     )
     assert source_match
     visible_source = html.unescape(re.sub(r"<[^>]+>", " ", source_match.group("source")))
-    assert re.search(r"6\s*/\s*\d+\s+(?:checks|providers)", visible_source)
+    assert re.search(r"6\s*/\s*\d+\s+(?:checks|sources)", visible_source)
     assert not re.search(r"(\d+)\s*/\s*\1\s+(?:checks|providers)", visible_source)
     assert "left" in visible_source
 

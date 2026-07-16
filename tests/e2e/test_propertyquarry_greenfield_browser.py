@@ -3538,7 +3538,19 @@ def test_propertyquarry_mobile_shortlist_keeps_one_focus_and_opens_the_property_
         page.screenshot(path=str(screenshot_path), full_page=True, animations="disabled", caret="hide")
         assert screenshot_path.exists() and screenshot_path.stat().st_size > 20_000
 
-        page.locator("[data-workbench-row]", has_text="Altbau near U6").first.locator(".pqx-result-title").click()
+        altbau_row = page.locator("[data-workbench-row]", has_text="Altbau near U6").first
+        altbau_ref = str(altbau_row.get_attribute("data-candidate-ref") or "").strip()
+        assert altbau_ref
+        altbau_row.locator(".pqx-result-title").click()
+        expect(page.locator("[data-pw-title]").first).to_have_text("Altbau near U6")
+        selected_url = urllib.parse.urlparse(page.url)
+        selected_query = urllib.parse.parse_qs(selected_url.query)
+        assert selected_url.path == "/app/shortlist"
+        assert selected_query["run_id"] == ["run-42"]
+        assert selected_query["candidate"] == [altbau_ref]
+        assert page.evaluate("window.history.state?.propertyquarryCandidate || ''") == altbau_ref
+
+        altbau_row.get_by_role("link", name="Open property", exact=True).click()
         page.wait_for_url(re.compile(r".*/app/research/[^?]+.*"), wait_until="commit", timeout=5000)
         expect(page.locator("[data-property-research-detail]")).to_be_visible()
     finally:
