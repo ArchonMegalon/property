@@ -21,6 +21,12 @@ from scripts.propertyquarry_release_receipt_binding import (
     file_digest_binding,
     sha256_bytes,
 )
+from scripts.verify_generated_release_artifacts_clean import (
+    RELEASE_ARTIFACT_SET_PREFIX,
+    RELEASE_MANIFEST_JSON_END,
+    RELEASE_MANIFEST_JSON_START,
+    RELEASE_MANIFEST_STATIC_VALUES,
+)
 from scripts.verify_propertyquarry_deploy_receipts import verify_deploy_receipts
 
 
@@ -47,6 +53,7 @@ BROWSER_CASES = [
     "test_propertyquarry_greenfield_workspace_in_real_browser",
     "test_propertyquarry_greenfield_workspace_is_mobile_usable",
     "test_propertyquarry_expired_session_next_action_moves_keyboard_focus_to_sign_in_options",
+    "test_propertyquarry_workbench_candidate_history_stays_in_place",
     "test_propertyquarry_flagship_operating_loop_in_browser",
     "test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser",
     "test_propertyquarry_packet_tracks_followup_state_in_browser",
@@ -195,7 +202,8 @@ def _seed() -> dict[str, Any]:
                         {
                             "file": BROWSER_FILE,
                             "cases": [
-                                "test_propertyquarry_greenfield_workspace_is_mobile_usable"
+                                "test_propertyquarry_greenfield_workspace_is_mobile_usable",
+                                "test_propertyquarry_workbench_candidate_history_stays_in_place",
                             ],
                         },
                     ],
@@ -374,13 +382,31 @@ def _canonical_receipt_repo(
     _git(root, "commit", "-q", "-m", "canonical release receipt metadata")
     receipt_commit = _git(root, "rev-parse", "HEAD")
     assert _git(root, "rev-parse", "HEAD^") == code_parent
-    manifest = f"""# PropertyQuarry Release Manifest
-
-| Field | Value |
-| --- | --- |
-| Product | PropertyQuarry |
-| Runtime commit SHA | `{receipt_commit}` |
-"""
+    manifest_authority = dict(RELEASE_MANIFEST_STATIC_VALUES)
+    manifest_authority.update(
+        {
+            "release_commit_sha": receipt_commit,
+            "release_artifact_set": f"{RELEASE_ARTIFACT_SET_PREFIX}{'0' * 64}",
+            "release_label": (
+                f"propertyquarry-source-browser-candidate-{receipt_commit[:12]}"
+            ),
+            "release_generated_at": datetime.now(timezone.utc)
+            .replace(microsecond=0)
+            .isoformat()
+            .replace("+00:00", "Z"),
+            "release_deployment_id": (
+                f"propertyquarry-governed-deploy-{receipt_commit[:12]}"
+            ),
+        }
+    )
+    manifest = (
+        "# PropertyQuarry Release Manifest\n\n"
+        f"{RELEASE_MANIFEST_JSON_START}\n"
+        "```json\n"
+        f"{json.dumps(manifest_authority, indent=2, sort_keys=True)}\n"
+        "```\n"
+        f"{RELEASE_MANIFEST_JSON_END}\n"
+    )
     _write_text(root / CANONICAL_RELEASE_MANIFEST, manifest)
     flagship_bytes = (root / CANONICAL_FLAGSHIP_RECEIPT).read_bytes()
     pulse = {

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -29,6 +28,7 @@ if __package__:
         resolve_commit,
         sha256_bytes,
     )
+    from .verify_generated_release_artifacts_clean import load_release_manifest
 else:
     from materialize_ea_flagship_release_gate import browser_receipt_pass_blockers
     from propertyquarry_release_receipt_binding import (
@@ -50,6 +50,7 @@ else:
         resolve_commit,
         sha256_bytes,
     )
+    from verify_generated_release_artifacts_clean import load_release_manifest
 
 
 REQUIRED_RELEASE_DOCS = (
@@ -60,10 +61,6 @@ REQUIRED_RELEASE_DOCS = (
 )
 MAX_RECEIPT_AGE_SECONDS = 86_400
 MAX_FUTURE_SKEW_SECONDS = 300
-MANIFEST_RUNTIME_COMMIT_RE = re.compile(
-    r"^\|\s*Runtime commit SHA\s*\|\s*`?([0-9a-fA-F]{40,64})`?\s*\|",
-    flags=re.MULTILINE,
-)
 
 
 def _load_canonical_json(root: Path, relative_path: Path, *, label: str, issues: list[str]) -> dict[str, Any]:
@@ -334,12 +331,12 @@ def verify_deploy_receipts(
         issues=issues,
     )
     try:
-        release_manifest_text = canonical_regular_file(root, CANONICAL_RELEASE_MANIFEST).read_text(
-            encoding="utf-8"
+        release_manifest = load_release_manifest(
+            canonical_regular_file(root, CANONICAL_RELEASE_MANIFEST)
         )
-    except (OSError, UnicodeError, ReleaseBindingError) as exc:
-        issues.append(f"release manifest is not a canonical regular text file: {exc}")
-        release_manifest_text = ""
+    except (OSError, UnicodeError, ValueError, ReleaseBindingError) as exc:
+        issues.append(f"release manifest canonical authority is invalid: {exc}")
+        release_manifest = {}
     git_envelope = _verify_git_envelope(
         root=root,
         expected_head=expected_head,
@@ -347,7 +344,7 @@ def verify_deploy_receipts(
         expected_code_parent=expected_code_parent,
         issues=issues,
     )
-    if not seed or not browser or not flagship or not pulse or not release_manifest_text or git_envelope is None:
+    if not seed or not browser or not flagship or not pulse or not release_manifest or git_envelope is None:
         return list(dict.fromkeys(issues))
     head, receipt_commit, code_parent, receipt_time, deploy_metadata_time = git_envelope
 
@@ -411,8 +408,7 @@ def verify_deploy_receipts(
             if expected_browser_binding.get("sha256") != sha256_bytes(head_browser_bytes):
                 issues.append("browser receipt SHA-256 binding does not match deploy HEAD")
 
-    manifest_match = MANIFEST_RUNTIME_COMMIT_RE.search(release_manifest_text)
-    manifest_runtime_commit = str(manifest_match.group(1) if manifest_match else "").lower()
+    manifest_runtime_commit = str(release_manifest.get("release_commit_sha") or "").lower()
     if manifest_runtime_commit != receipt_commit:
         issues.append("release manifest Runtime commit SHA must equal the canonical receipt commit")
     if str(pulse.get("contract_name") or "").strip() != "ea.weekly_product_pulse":

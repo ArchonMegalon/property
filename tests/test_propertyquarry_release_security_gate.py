@@ -472,13 +472,25 @@ def test_ci_flagship_security_job_is_focused_protected_and_blocks_live_gate() ->
     assert "--severity-threshold HIGH" in job
     assert "--flagship" in job
     assert "propertyquarry_security_waivers.json" in job
-    assert "actions/upload-artifact@v4" in job
+    assert (
+        "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4"
+        in job
+    )
     assert "pip install" not in job
     assert "apt-get" not in job
     assert "docker pull" not in job
     assert "docker compose" not in job
     assert "ea-api" not in job
-    assert "needs:\n      - propertyquarry-flagship-security\n      - propertyquarry-continuous-ux" in live_job
+    assert (
+        "needs:\n"
+        "      - propertyquarry-ordinary-ci-success\n"
+        "      - propertyquarry-flagship-security\n"
+        "      - propertyquarry-continuous-ux"
+        in live_job
+    )
+    assert "needs['propertyquarry-ordinary-ci-success'].result == 'success'" in live_job
+    assert "needs['propertyquarry-flagship-security'].result == 'success'" in live_job
+    assert "needs['propertyquarry-continuous-ux'].result == 'success'" in live_job
     assert "PROPERTYQUARRY_WORKFLOW_HEAD_SHA: ${{ github.sha }}" in job
     assert "release_manifest_runtime_sha" in job
     assert "workflow-binding.json" in job

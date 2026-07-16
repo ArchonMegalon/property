@@ -317,19 +317,18 @@ def test_weekly_product_pulse_missing_incomplete_external_snapshot_never_reports
     )
 
 
-def test_weekly_product_pulse_keeps_allowed_provenance_only_head_change(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_weekly_product_pulse_keeps_release_metadata_envelope_provenance_only_head_change(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     module = _load_materializer_module()
     monkeypatch.setattr(
         module,
         "_changed_paths_between_heads",
         lambda old_head, new_head: [
+            ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json",
+            ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
             ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
-            "LTDs.md",
-            "scripts/materialize_ea_browser_workflow_proof.py",
-            "scripts/materialize_weekly_product_pulse.py",
-            "tests/test_ea_browser_workflow_proof_materializer.py",
-            "tests/test_skills.py",
-            "tests/test_weekly_product_pulse_materializer.py",
+            "docs/PROPERTYQUARRY_RELEASE_MANIFEST.md",
         ],
     )
     pulse_path = tmp_path / "pulse.json"

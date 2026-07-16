@@ -20342,9 +20342,8 @@ def test_property_shortlist_surface_keeps_results_first_and_restores_desktop_rev
     assert "candidate_facts.get('price_eur')" in body
     assert "provisional_facts.get('price_eur')" in body
     assert 'data-candidate-listing-url="${escapeHtml(propertyUrl)}"' in body
-    assert "const openRowTarget = () => {" in body
-    assert "window.location.href = packetUrl;" in body
-    assert "window.open(listingUrl, '_blank', 'noopener,noreferrer');" in body
+    assert "const openRowTarget = () => {" not in body
+    assert "selectCandidate(row.getAttribute('data-candidate-ref'));" in body
     assert "event.key !== 'Enter' && event.key !== ' '" in body
     assert 'aria-label="Account navigation"' in body
     assert ">Me<" not in body

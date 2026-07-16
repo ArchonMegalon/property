@@ -77,18 +77,31 @@ def _check_source_contracts() -> None:
         "SCHEMA_LEDGER_TABLE = \"propertyquarry_schema_migrations\"",
         "pg_advisory_xact_lock",
         "checksum_sha256",
-        "PropertySearchMigration(1, \"property_search_runs_tenant_schema\"",
-        "PropertySearchMigration(2, \"property_search_durable_work_queue\"",
-        "PropertySearchMigration(3, \"property_source_listing_cache\"",
-        "PropertySearchMigration(4, \"replica_safe_delivery_outbox\"",
-        "PropertySearchMigration(5, \"durable_property_content_job_ledger\"",
-        "PropertySearchMigration(6, \"bounded_run_delivery_projection\"",
         "property_search_migration_checksum_drift",
         "required_relation_missing",
     )
     for fragment in required_schema_fragments:
         if fragment not in schema:
             raise RuntimeError(f"missing_migration_contract:{fragment[:80]}")
+
+    required_migrations = (
+        (1, "property_search_runs_tenant_schema"),
+        (2, "property_search_durable_work_queue"),
+        (3, "property_source_listing_cache"),
+        (4, "replica_safe_delivery_outbox"),
+        (5, "durable_property_content_job_ledger"),
+        (6, "bounded_run_delivery_projection"),
+        (7, "tenant_scoped_delivery_outbox_idempotency"),
+        (8, "property_evidence_overlay_cached_read_model"),
+        (9, "property_evidence_overlay_staged_snapshot_activation"),
+    )
+    compact_schema = "".join(schema.split())
+    migration_offset = -1
+    for version, name in required_migrations:
+        signature = f'PropertySearchMigration({version},"{name}",'
+        migration_offset = compact_schema.find(signature, migration_offset + 1)
+        if migration_offset < 0:
+            raise RuntimeError(f"missing_or_out_of_order_migration_contract:{version}:{name}")
 
     for fragment in (
         "pg_try_advisory_xact_lock",

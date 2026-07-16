@@ -17942,7 +17942,7 @@ def test_property_search_storage_schema_scripts() -> None:
 
     migrate = subprocess.run(
         ["python3", "scripts/migrate_property_search_storage.py"],
-        cwd="/docker/property",
+        cwd=Path(__file__).resolve().parents[1],
         env=env,
         capture_output=True,
         text=True,
@@ -17952,7 +17952,7 @@ def test_property_search_storage_schema_scripts() -> None:
 
     check = subprocess.run(
         ["python3", "scripts/check_property_search_storage_schema.py"],
-        cwd="/docker/property",
+        cwd=Path(__file__).resolve().parents[1],
         env=env,
         capture_output=True,
         text=True,
@@ -17992,7 +17992,7 @@ def test_property_search_storage_schema_check_runs_source_contracts_without_data
 
     result = subprocess.run(
         ["python3", "scripts/check_property_search_storage_schema.py"],
-        cwd="/docker/property",
+        cwd=Path(__file__).resolve().parents[1],
         env=env,
         capture_output=True,
         text=True,
