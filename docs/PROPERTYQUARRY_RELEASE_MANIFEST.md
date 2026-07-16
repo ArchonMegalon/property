@@ -6,7 +6,7 @@ This file is the concise, current release authority. Detailed dated notes are ar
 
 PropertyQuarry is a source/browser candidate, not a production launch:
 
-- The published candidate receipt covers `7/7` source cases, `9/9` real-browser cases, and all eight required product journeys. The candidate includes in-place shortlist history, protected Telegram delivery proof, production-mode PostgreSQL storage/browser parity with internal-only CI session provisioning, immutable CI actions, and fail-closed production registration delivery.
+- The published candidate receipt covers `7/7` source cases, `9/9` real-browser cases, and all eight required product journeys. The candidate includes in-place shortlist history, protected Telegram delivery proof, production-mode PostgreSQL storage/browser parity with internal-only CI session provisioning, immutable CI actions, fail-closed production registration delivery, and a signed controller profile that preserves the canonical public-tour volume and permits only journaled ownership repair.
 - Candidate/browser proof does not prove deployment, production storage, authentication, external delivery, observability, rollback, or disaster recovery.
 - The public edge returns `403` for `/`. `/health/ready` responds, while `/version` has no release SHA or complete manifest.
 - Production promotion remains blocked on the independent release-controller artifact, an approved `propertyquarry-security` runner, and distinct digest-pinned web/render images.
@@ -20,7 +20,7 @@ PropertyQuarry is a source/browser candidate, not a production launch:
 | Product | PropertyQuarry |
 | Status | `source-browser-candidate-pending-protected-live-evidence` |
 | Branch | `main` |
-| Runtime commit SHA | `5b67d241ccb7d36368d03bc2e649789e3f93ef4a` |
+| Runtime commit SHA | `4930abe789901caf9439224f75b5a5b970b3a74f` |
 | Release envelope | tracked `main`; protected receipts record the workflow-head SHA separately |
 | Public domain | `https://propertyquarry.com` |
 | Deployment ID | `pending-governed-production-deploy` |
@@ -30,10 +30,10 @@ PropertyQuarry is a source/browser candidate, not a production launch:
 Production stays fail-closed until every item is bound to the exact runtime candidate:
 
 1. Both ordinary hosted CI lanes are terminal and green for the final runtime and receipt envelope.
-2. The independently produced `propertyquarry-release-controller-v1` bundle is installed through the governed intake lane.
+2. The independently produced `propertyquarry-release-controller-v1` bundle is installed through the governed intake lane and enforces `PROPERTYQUARRY_PUBLIC_TOUR_VOLUME_PROFILE_V1.md`, including canonical-volume identity, pre/post manifests, ownership-only repair, mode preservation, and rollback evidence.
 3. The protected environment has an approved `propertyquarry-security` runner and distinct digest-pinned `PROPERTYQUARRY_WEB_IMAGE` and `PROPERTYQUARRY_RENDER_IMAGE` inputs.
 4. Dependency, container, policy, and SBOM scans pass without stale databases or weakened gates.
-5. The governed deployment completes; `/version` reports the approved runtime SHA and complete manifest; `/` no longer returns the stale `403`.
+5. The governed deployment preserves the canonical public-tour inventory, repairs only journaled legacy ownership, and completes; `/version` reports the approved runtime SHA and complete manifest; `/` no longer returns the stale `403`.
 6. A supported sign-in path, lifecycle controls, Telegram delivery, PostgreSQL durability, and the customer search-to-decision journeys pass protected live verification.
 7. Observability, alerting, rollback, disaster recovery, post-promotion smoke, and Cloudflare/public-origin receipts pass.
 8. Billing, provider-media, analytics, and Gold limitations are either resolved with evidence or excluded from the launch claim.
