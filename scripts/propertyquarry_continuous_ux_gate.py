@@ -37,6 +37,7 @@ FIRST_VALUE_BASIS = "median_three_warm_dom_content_loaded_visible_structure"
 FIRST_VALUE_ENGINE = "chromium"
 FIRST_VALUE_SAMPLE_COUNT = 3
 FIRST_VALUE_MAX_ATTEMPTS = 2
+VISIBLE_IMAGE_STABILITY_MS = 200
 DEFAULT_ROUTES = (
     "/",
     "/app/search",
@@ -120,7 +121,7 @@ def _continue_with_origin_scoped_headers(
 def _wait_for_visible_image_terminal_state(page: Any, *, timeout_ms: int) -> None:
     page.evaluate(
         """
-        async ({ timeoutMs }) => {
+        async ({ timeoutMs, stabilityMs }) => {
           const visible = (image) => {
             const style = getComputedStyle(image);
             const rect = image.getBoundingClientRect();
@@ -160,10 +161,29 @@ def _wait_for_visible_image_terminal_state(page: Any, *, timeout_ms: int) -> Non
           const signature = (rows) => JSON.stringify(
             rows.map((row) => [row.id, row.source])
           );
-          const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
           const deadline = performance.now() + timeoutMs;
+          const nextFrame = () => new Promise((resolve) => {
+            const remainingMs = Math.max(0, deadline - performance.now());
+            if (remainingMs <= 0) {
+              resolve(false);
+              return;
+            }
+            let settled = false;
+            const timer = setTimeout(() => {
+              if (settled) return;
+              settled = true;
+              resolve(false);
+            }, Math.min(100, remainingMs));
+            requestAnimationFrame(() => {
+              if (settled) return;
+              settled = true;
+              clearTimeout(timer);
+              resolve(true);
+            });
+          });
           let priorSignature = null;
           let stableFrames = 0;
+          let stableSince = null;
 
           while (performance.now() < deadline) {
             const rows = snapshot();
@@ -174,8 +194,14 @@ def _wait_for_visible_image_terminal_state(page: Any, *, timeout_ms: int) -> Non
             } else {
               stableFrames = ready ? 1 : 0;
               priorSignature = currentSignature;
+              stableSince = ready ? performance.now() : null;
             }
-            if (ready && stableFrames >= 2) {
+            if (
+              ready
+              && stableFrames >= 2
+              && stableSince !== null
+              && performance.now() - stableSince >= stabilityMs
+            ) {
               const remainingMs = Math.max(1, deadline - performance.now());
               const decodeResults = await Promise.race([
                 Promise.allSettled(rows.map(({ image }) => (
@@ -184,8 +210,7 @@ def _wait_for_visible_image_terminal_state(page: Any, *, timeout_ms: int) -> Non
                 new Promise((resolve) => setTimeout(() => resolve(null), remainingMs)),
               ]);
               if (decodeResults === null) break;
-              await nextFrame();
-              await nextFrame();
+              if (!(await nextFrame()) || !(await nextFrame())) break;
               const finalRows = snapshot();
               if (
                 finalRows.every((row) => Boolean(row.source) && row.complete)
@@ -195,13 +220,21 @@ def _wait_for_visible_image_terminal_state(page: Any, *, timeout_ms: int) -> Non
               }
               priorSignature = null;
               stableFrames = 0;
+              stableSince = null;
             }
-            await nextFrame();
+            if (!(await nextFrame())) {
+              priorSignature = null;
+              stableFrames = 0;
+              stableSince = null;
+            }
           }
           throw new Error('visible_image_terminal_state_timeout');
         }
         """,
-        {"timeoutMs": max(1_000, min(int(timeout_ms), 10_000))},
+        {
+            "timeoutMs": max(1_000, min(int(timeout_ms), 10_000)),
+            "stabilityMs": VISIBLE_IMAGE_STABILITY_MS,
+        },
     )
 
 

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import base64
+import time
+from io import BytesIO
 from pathlib import Path
 
 import pytest
@@ -171,7 +174,10 @@ def test_visible_image_wait_stabilizes_declared_sources_before_decode() -> None:
     page = FakePage()
     gate._wait_for_visible_image_terminal_state(page, timeout_ms=30_000)
 
-    assert page.argument == {"timeoutMs": 10_000}
+    assert page.argument == {
+        "timeoutMs": 10_000,
+        "stabilityMs": gate.VISIBLE_IMAGE_STABILITY_MS,
+    }
     assert "image.currentSrc" in page.script
     assert "image.getAttribute('src')" in page.script
     assert "image.getAttribute('srcset')" in page.script
@@ -179,6 +185,71 @@ def test_visible_image_wait_stabilizes_declared_sources_before_decode() -> None:
     assert "Promise.allSettled" in page.script
     assert "image.naturalWidth" not in page.script
     assert "visible_image_terminal_state_timeout" in page.script
+
+
+def test_visible_image_wait_handles_hydration_breakage_and_frame_timeout() -> None:
+    playwright_api = pytest.importorskip("playwright.sync_api")
+    from PIL import Image
+
+    buffer = BytesIO()
+    Image.new("RGB", (2, 2), color=(20, 120, 80)).save(buffer, format="PNG")
+    valid_source = "data:image/png;base64," + base64.b64encode(
+        buffer.getvalue()
+    ).decode("ascii")
+    with playwright_api.sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch(
+                args=["--no-sandbox", "--disable-dev-shm-usage"]
+            )
+        except Exception as exc:  # pragma: no cover - developer machines may omit browsers
+            pytest.skip(f"chromium unavailable for continuous UX contract: {type(exc).__name__}")
+        try:
+            page = browser.new_page()
+            page.set_content("<main>hydrating</main><nav aria-label='Primary'>nav</nav>")
+            page.evaluate(
+                """
+                ([source]) => setTimeout(() => {
+                  const image = document.createElement('img');
+                  image.alt = 'delayed';
+                  image.style.cssText = 'width:20px;height:20px';
+                  image.src = source;
+                  document.body.appendChild(image);
+                }, 75)
+                """,
+                [valid_source],
+            )
+            gate._wait_for_visible_image_terminal_state(page, timeout_ms=2_000)
+            delayed = gate._structural_visual_metrics(page)
+            assert delayed["visible_image_count"] == 1
+            assert delayed["terminal_visible_image_count"] == 1
+            assert delayed["broken_visible_image_count"] == 0
+
+            page.set_content(
+                "<main>broken</main><nav aria-label='Primary'>nav</nav>"
+                "<img alt='broken' style='width:20px;height:20px' "
+                "src='data:image/png;base64,broken'>"
+            )
+            gate._wait_for_visible_image_terminal_state(page, timeout_ms=2_000)
+            broken = gate._structural_visual_metrics(page)
+            assert broken["visible_image_count"] == 1
+            assert broken["terminal_visible_image_count"] == 1
+            assert broken["broken_visible_image_count"] == 1
+
+            page.set_content(
+                "<main>missing</main><nav aria-label='Primary'>nav</nav>"
+                "<img alt='missing' style='width:20px;height:20px' src=''>"
+            )
+            with pytest.raises(Exception, match="visible_image_terminal_state_timeout"):
+                gate._wait_for_visible_image_terminal_state(page, timeout_ms=1_000)
+
+            page.set_content("<main>no frames</main><nav aria-label='Primary'>nav</nav>")
+            page.evaluate("window.requestAnimationFrame = () => 0")
+            started = time.monotonic()
+            with pytest.raises(Exception, match="visible_image_terminal_state_timeout"):
+                gate._wait_for_visible_image_terminal_state(page, timeout_ms=1_000)
+            assert time.monotonic() - started < 2.5
+        finally:
+            browser.close()
 
 
 @pytest.mark.parametrize(
