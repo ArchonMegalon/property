@@ -1,8 +1,23 @@
 # PropertyQuarry Release Manifest
 
-This manifest records the last verified runtime candidate for branch/deployment reconciliation and points at the current gold-proof receipts. It remains the operator-facing release manifest rather than the sole gold authority; the current aggregate gold claim lives in `_completion/property_gold_status/latest.json` and `_completion/property_gold_status/release-gate.json`. If tracked `main` moves after the runtime commit below, branch/deployment reconciliation remains open until a fresh deploy receipt updates this manifest.
+This manifest separates candidate proof from production proof. The source/browser receipt may approve a runtime candidate, while tracked `main` may be a later receipt-only envelope commit. Protected receipts must record both identities and prove that the envelope resolves to the approved runtime binding. Production remains blocked when that binding is unapproved or when public `/version` does not report the approved runtime SHA and a complete manifest.
 
-## Current Live Correction
+## Current Release State
+
+As of 2026-07-16, PropertyQuarry is a source/browser candidate and is not production-launch-ready:
+
+- Candidate proof is green: the governed source suite passed `7/7`, the real-browser suite passed `8/8`, the eight required product journeys passed, and the supplemental continuous-UX receipt passed `9/9` isolated Chromium, Firefox, and WebKit samples.
+- Those receipts are explicitly scoped to source and isolated-browser proof. They do not claim a deployed runtime, production storage, live authentication, outbound delivery, observability, rollback, or disaster-recovery proof.
+- The public edge currently returns `403` for `/`. `/health/ready` and `/version` respond, but `/version` has an empty `release_commit_sha` and reports an incomplete manifest. The current candidate is therefore not deployed or reconciled.
+- The protected release cannot run until the independently produced controller bundle is installed, a `propertyquarry-security` runner is available, and digest-pinned web/render image variables are configured. These controls fail closed and must not be bypassed.
+- ID Austria sign-in is currently disabled and unconfigured. ID Austria is optional, not a named launch requirement; it must remain described as unavailable unless activated. A supported alternative sign-in path still needs a protected live activation receipt before launch.
+- External notification delivery, production observability, rollback, disaster recovery, post-promotion smoke, and any customer-facing billing or Gold claim remain unproved on this candidate.
+
+No wording elsewhere in this file overrides this current state or grants production authority.
+
+### Historical live corrections
+
+The dated notes below are retained for audit history. They may describe older candidates or deployments and are non-authoritative unless repeated in the current state above.
 
 The latest live recheck on 2026-06-27 supersedes the earlier provisional Brilliant Directories billing pass. The current edge proof is narrower and more accurate:
 
@@ -29,24 +44,25 @@ The latest live recheck on 2026-06-27 supersedes the earlier provisional Brillia
 
 That means the billing account lane still requires a second vendor login even though the first-party billing host and redirect contract are now correct. Any earlier receipt lines claiming `billing_handoff.account_handoff_usable=true` should be treated as stale; the refreshed gold receipts keep `billing_handoff.status=ready` while recording the separate-login limitation explicitly.
 
-## Candidate
+## Candidate Binding (current)
 
 | Field | Value |
 | --- | --- |
 | Product | PropertyQuarry |
-| Release label | `propertyquarry-gold-board-working-candidate` |
-| Status | `working-candidate-with-current-gold-receipt` |
+| Release label | `propertyquarry-source-browser-candidate` |
+| Status | `source-browser-candidate-pending-protected-live-evidence` |
 | Repository | `/docker/property` |
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `7698f1a466b0e5d9bba664e2a565a03a3e6d2807` |
+| Release envelope | current tracked `main`; exact workflow-head SHA is recorded separately from the runtime binding in hosted and protected receipts |
+| Runtime commit SHA | `f112995837cb1c49f5fc4233642fc689a53ecef7` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
-| Deployment ID | `pending-next-verified-deploy`; current candidate fails optional tour media safely, publishes reconstructed tours through a bounded unprivileged atomic exchange, and verifies browser journeys through explicit user-visible readiness on a reserved branded loopback origin |
+| Deployment ID | `pending-governed-production-deploy`; current public runtime is not reconciled to this candidate |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
-## Latest Verification
+## Verification History (non-authoritative for current launch)
 
 The 2026-07-16 flagship journey and continuous UX hardening candidate verified locally:
 
@@ -912,7 +928,22 @@ Internal payload probes after the latest deploy:
 
 The previous billing payload carried roughly 16.6 MB of account/form state and the previous shortlist payload carried roughly 30.7 MB of raw account/run state. The current runtime trims those hidden payloads while preserving customer-visible account, billing, shortlist, and selected-review state. Saved-shortlist lookup now reuses already-loaded onboarding status and measured 0.012s-0.035s after the cold run. Full-page `/app/shortlist` is much closer to the premium target and now has a Playwright browser performance-budget gate, but the same gate still needs to run against the production public domain after every release candidate before a gold claim.
 
-## Gold Blockers
+## Current Production Launch Blockers
+
+Production promotion remains fail-closed until all of these are evidenced against the exact candidate SHA:
+
+1. Both ordinary hosted CI lanes are terminal and green for the final candidate and receipt-envelope commits.
+2. The independently produced and audited `propertyquarry-release-controller-v1` bundle is installed through the governed intake lane.
+3. The protected GitHub environment has a reviewed self-hosted `propertyquarry-security` runner and digest-pinned `PROPERTYQUARRY_WEB_IMAGE` and `PROPERTYQUARRY_RENDER_IMAGE` inputs.
+4. Protected dependency, container, SBOM, and policy scans pass without weakened gates or stale/offline databases.
+5. The governed deployment completes, `/version` binds the exact approved runtime SHA and a complete manifest, and the public edge no longer returns the current stale `403` entry response.
+6. A supported sign-in path, customer lifecycle controls, notification delivery, production data durability, and customer-visible search-to-decision journeys pass the protected live activation profile. ID Austria may remain disabled if the release manifest names that limitation and another supported sign-in path passes.
+7. Observability, alerting, rollback, disaster recovery, post-promotion smoke, Cloudflare/public-origin behavior, and release-bound audit receipts all pass.
+8. Any remaining billing handoff, provider-media, analytics, or Gold limitation is either resolved and evidenced or explicitly removed from the production claim.
+
+## Historical Gold Backlog (dated; non-authoritative)
+
+The entries below preserve earlier product and provider findings. They do not supersede the current launch-blocker list and may refer to older candidate or deployment state.
 
 - Full-page `/app/shortlist` improved from 7-11s repeated probes to roughly 1.2-2.4s warmed probes after a 3.75s cold request and now has a Playwright browser performance-budget gate; gold still needs the same gate run against the production public domain/Cloudflare after every release candidate.
 - The user-referenced research detail route improved from repeated 21-25s origin responses and a 14.02s post-compact-context cold request to 1.3-1.7s origin responses after removing redundant feedback reads and no-op search-run rewrites, and the shortlist-to-research Playwright budget gate now covers research detail navigation; gold still needs the user-referenced live route to have a verified 360 source or playable walkthrough.

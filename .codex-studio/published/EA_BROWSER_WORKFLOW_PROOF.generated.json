@@ -5,7 +5,7 @@
   "proof_target": "propertyquarry",
   "version": 1,
   "kind": "proof_receipt",
-  "generated_at": "2026-07-16T08:17:58Z",
+  "generated_at": "2026-07-16T08:57:20Z",
   "generated_by": "scripts/materialize_ea_browser_workflow_proof.py",
   "status": "pass",
   "operator_summary": "PropertyQuarry browser workflow proof is published and green across the required journey matrix, source-backed contracts, and real-browser E2E.",
@@ -20,7 +20,7 @@
   ],
   "source_binding": {
     "version": 1,
-    "code_commit": "7698f1a466b0e5d9bba664e2a565a03a3e6d2807",
+    "code_commit": "f112995837cb1c49f5fc4233642fc689a53ecef7",
     "seed": {
       "path": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
       "sha256": "e18d295be88cf84b0e3035bde7f845c74c2fe5153b196d4f8bb34495276bc143",
@@ -55,10 +55,10 @@
       "test_propertyquarry_public_home_survives_unreadable_optional_tour_media"
     ],
     "exit_code": 0,
-    "duration_seconds": 35.816,
+    "duration_seconds": 37.583,
     "output_excerpt": [
       ".......                                                                  [100%]",
-      "7 passed in 32.14s"
+      "7 passed in 33.93s"
     ],
     "limitations": [],
     "outcome_counts": {
@@ -90,10 +90,10 @@
       "test_propertyquarry_browser_alert_button_toggles_enabled_state"
     ],
     "exit_code": 0,
-    "duration_seconds": 186.797,
+    "duration_seconds": 210.502,
     "output_excerpt": [
       "........                                                                 [100%]",
-      "8 passed in 173.60s (0:02:53)"
+      "8 passed in 206.21s (0:03:26)"
     ],
     "limitations": [],
     "outcome_counts": {
@@ -112,7 +112,7 @@
     "version": 1,
     "status": "pass",
     "readiness_scope": "candidate_source_and_browser_proof",
-    "runtime_commit_sha": "7698f1a466b0e5d9bba664e2a565a03a3e6d2807",
+    "runtime_commit_sha": "f112995837cb1c49f5fc4233642fc689a53ecef7",
     "required_journey_ids": [
       "public_entry",
       "onboarding_auth",
