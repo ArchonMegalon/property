@@ -346,6 +346,7 @@ def test_preflight_executes_with_only_read_only_non_mutating_disposition_flags(
         "--forbid-state-mutation",
         "--require-explicit-preflight-disposition",
         "--require-signed-request-fd-stable-read-and-signature",
+        "--require-public-tour-volume-profile-v1",
         "--forbid-caller-compose",
         "--forbid-candidate-output-authority",
     ):
@@ -368,6 +369,7 @@ def test_deploy_executes_with_controller_ownership_and_containment_before_valida
     assert arguments[0] == "deploy-run"
     assert "--controller-owns-all-privileged-actions" in arguments
     assert "--contain-before-candidate-validation" in arguments
+    assert "--require-public-tour-volume-profile-v1" in arguments
     assert "--read-only" not in arguments
     assert "--forbid-state-mutation" not in arguments
 
@@ -395,6 +397,17 @@ def test_rejects_database_and_traffic_credentials(
 
     assert completed.returncode == 2
     assert "Database and traffic credentials belong only to the installed controller." in completed.stderr
+
+
+def test_rejects_caller_selected_public_tour_volume_path(
+    handoff: HandoffSandbox,
+) -> None:
+    completed = handoff.run(
+        env=handoff.environment(EA_PUBLIC_TOUR_DIR="/candidate/controlled/tours")
+    )
+
+    assert completed.returncode == 2
+    assert "public-tour volume path belongs only to the installed controller" in completed.stderr
 
 
 @pytest.mark.parametrize("request_value", [None, "relative-request.json"])
@@ -649,8 +662,36 @@ def test_controller_receives_clean_environment_not_caller_tooling_or_secrets(
 def test_rejects_controller_identity_swap_after_open(
     handoff: HandoffSandbox,
 ) -> None:
-    handoff.set_controller(Path("/usr/bin/echo"), append_bytes=64 * 1024 * 1024)
-    original_identity = (handoff.controller.stat().st_dev, handoff.controller.stat().st_ino)
+    handoff.set_controller(Path("/usr/bin/echo"))
+    ready_marker = handoff.root / "controller-hashed-before-identity-recheck"
+    continue_marker = handoff.root / "controller-swap-complete"
+    assert '"' not in str(ready_marker)
+    assert '"' not in str(continue_marker)
+    source = handoff.script.read_text(encoding="utf-8")
+    # FD visibility can outlive the path recheck and exec. Pause the copied
+    # handoff at the exact post-hash/pre-recheck boundary instead.
+    digest_check = """  if [[ "${actual_controller_sha}" != "${expected_controller_sha}" ]]; then
+    echo "External deploy controller does not match its root-owned digest pin." >&2
+    return 2
+  fi
+"""
+    source = _replace_once(
+        source,
+        digest_check,
+        digest_check
+        + "\n".join(
+            (
+                f'  /usr/bin/touch -- "{ready_marker}"',
+                f'  while [[ ! -e "{continue_marker}" ]]; do',
+                "    /usr/bin/sleep 0.01",
+                "  done",
+                "",
+            )
+        ),
+    )
+    handoff.script.write_text(source, encoding="utf-8")
+    handoff.script.chmod(0o700)
+
     process = subprocess.Popen(
         [str(handoff.script)],
         cwd=handoff.candidate_root,
@@ -660,38 +701,24 @@ def test_rejects_controller_identity_swap_after_open(
         stderr=subprocess.PIPE,
     )
     deadline = time.monotonic() + 10
-    opened = False
-    process_fd_root = Path(f"/proc/{process.pid}/fd")
-    while process.poll() is None and time.monotonic() < deadline:
-        try:
-            descriptors = list(process_fd_root.iterdir())
-        except FileNotFoundError:
-            break
-        for descriptor in descriptors:
-            try:
-                identity = (descriptor.stat().st_dev, descriptor.stat().st_ino)
-            except FileNotFoundError:
-                continue
-            if identity == original_identity:
-                opened = True
-                break
-        if opened:
-            break
+    while (
+        process.poll() is None
+        and time.monotonic() < deadline
+        and not ready_marker.exists()
+    ):
         time.sleep(0.001)
 
-    if not opened:
+    if not ready_marker.exists():
         process.kill()
         process.communicate(timeout=5)
-        pytest.fail("did not observe the controller's stable open file descriptor")
+        pytest.fail("handoff did not reach the post-hash identity-recheck barrier")
 
     replacement = handoff.root / "replacement-controller"
     shutil.copyfile("/usr/bin/echo", replacement)
     replacement.chmod(0o555)
     os.replace(replacement, handoff.controller)
+    continue_marker.touch()
     stdout, stderr = process.communicate(timeout=15)
 
     assert process.returncode == 2, stdout
-    assert (
-        "External handoff file changed while it was opened" in stderr
-        or "External handoff identity changed after hashing" in stderr
-    )
+    assert "External handoff identity changed after hashing" in stderr

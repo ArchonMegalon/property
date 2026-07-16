@@ -92,8 +92,8 @@ Environment consumed by this handoff is intentionally narrow:
       authorize mutation and must never be reused for a deploy run.
 
 Caller-selected Compose files, Python interpreters, Docker contexts, database
-URLs, tunnel tokens, verifier paths, receipt outputs, and trust/key paths are
-ignored or rejected.
+URLs, tunnel tokens, public-tour volume paths, verifier paths, receipt outputs,
+and trust/key paths are ignored or rejected.
 EOF
 }
 
@@ -278,6 +278,10 @@ propertyquarry_exec_external_controller() {
     echo "Database and traffic credentials belong only to the installed controller." >&2
     return 2
   fi
+  if [[ -n "${EA_PUBLIC_TOUR_DIR:-}" ]]; then
+    echo "The public-tour volume path belongs only to the installed controller." >&2
+    return 2
+  fi
   if [[ -z "${signed_request}" || "${signed_request}" != /* ]]; then
     echo "PROPERTYQUARRY_DEPLOY_SIGNED_REQUEST must be an absolute external signed-request path." >&2
     return 2
@@ -358,6 +362,7 @@ propertyquarry_exec_external_controller() {
     --require-server-derived-database-identity \
     --require-signed-disposable-or-allowed-database-target \
     --require-cloudflared-immutable-digest-and-config-binding \
+    --require-public-tour-volume-profile-v1 \
     --forbid-caller-compose \
     --forbid-candidate-output-authority \
     "${mode_args[@]}"

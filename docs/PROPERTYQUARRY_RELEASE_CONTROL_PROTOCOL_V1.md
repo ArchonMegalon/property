@@ -40,6 +40,8 @@ A `VALID` result is conformance evidence only. It grants no authority.
   `docs/propertyquarry-release-control-protocol.v1.schema.json`
 - Dependency-free offline validator:
   `scripts/validate_propertyquarry_release_protocol.py`
+- Production-controller public-tour volume profile:
+  `docs/PROPERTYQUARRY_PUBLIC_TOUR_VOLUME_PROFILE_V1.md`
 
 Run the validator with Python's standard library only:
 
@@ -293,6 +295,13 @@ responsible for all privileged and security-sensitive checks, including:
   immutable Cloudflared image/config binding, migration fencing, health gates,
   promotion, crash reconciliation, and verified rollback; and
 - independently verifiable, content-addressed receipts and monitoring evidence.
+
+The production canonical Compose plan must include the public-tour volume, and
+the installed controller must enforce
+`docs/PROPERTYQUARRY_PUBLIC_TOUR_VOLUME_PROFILE_V1.md`. That profile is bound
+through the existing signed `canonical_compose_plan` digest and defines
+controller behavior and evidence beyond protocol conformance. It adds no field,
+operation, semantic-validator rule, or authority to the closed v1 wire schema.
 
 Failing any one of those checks must fail closed. Protocol conformance must
 never be used as a substitute for them.
