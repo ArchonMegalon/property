@@ -174,7 +174,6 @@ jobs:
     env:
       EA_STORAGE_BACKEND: memory
       EA_API_TOKEN: propertyquarry-continuous-ux-${{ github.run_id }}-${{ github.run_attempt }}
-      EA_PUBLIC_TOUR_DIR: ${{ runner.temp }}/propertyquarry-continuous-ux-tours
       PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES: "1"
     steps:
       - uses: actions/checkout@v4
@@ -213,6 +212,8 @@ jobs:
             tests/test_propertyquarry_gold_status.py
       - name: Run isolated cross-engine continuous UX gate
         shell: bash
+        env:
+          EA_PUBLIC_TOUR_DIR: ${{ runner.temp }}/propertyquarry-continuous-ux-tours
         run: |
           set -euo pipefail
           receipt="_completion/smoke/propertyquarry-continuous-ux-${GITHUB_SHA}.json"
