@@ -166,6 +166,100 @@ jobs:
           PYTHONPATH=ea EA_STORAGE_BACKEND=memory python -m pytest -q \
             tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_flagship_operating_loop_in_browser
 
+  propertyquarry-continuous-ux:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      EA_STORAGE_BACKEND: memory
+      EA_API_TOKEN: propertyquarry-continuous-ux-${{ github.run_id }}-${{ github.run_attempt }}
+      EA_PUBLIC_TOUR_DIR: ${{ runner.temp }}/propertyquarry-continuous-ux-tours
+      PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Bind UX evidence to the manifest runtime candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=ea python scripts/check_property_release_hygiene.py
+          runtime_sha="$(PYTHONPATH=ea python -c 'from scripts.check_property_release_hygiene import release_manifest_runtime_sha; print(release_manifest_runtime_sha())')"
+          if [[ ! "${runtime_sha}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "PropertyQuarry manifest runtime SHA is missing or malformed" >&2
+            exit 1
+          fi
+          git cat-file -e "${runtime_sha}^{commit}"
+          echo "PROPERTYQUARRY_RELEASE_COMMIT_SHA=${runtime_sha}" >> "${GITHUB_ENV}"
+      - name: Install isolated continuous UX dependencies
+        run: |
+          python -m pip install -r ea/requirements.txt -c ea/requirements.lock httpx==0.28.1 pytest==9.0.2
+          python -m playwright install --with-deps chromium firefox webkit
+      - name: Prepare canonical repository path
+        run: |
+          sudo mkdir -p /docker
+          sudo chown "$USER":"$USER" /docker
+          ln -sfn "$GITHUB_WORKSPACE" /docker/property
+      - name: Verify continuous UX receipt contracts
+        run: |
+          PYTHONPATH=ea python -m pytest -q \
+            tests/test_propertyquarry_continuous_ux_gate.py \
+            tests/test_propertyquarry_accessibility_gate.py \
+            tests/test_propertyquarry_gold_status.py
+      - name: Run isolated cross-engine continuous UX gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          receipt="_completion/smoke/propertyquarry-continuous-ux-${GITHUB_SHA}.json"
+          app_log="${RUNNER_TEMP}/propertyquarry-continuous-ux-app.log"
+          mkdir -p "${EA_PUBLIC_TOUR_DIR}"
+          PYTHONPATH=ea python -m uvicorn app.main:app \
+            --host 127.0.0.1 \
+            --port 8097 \
+            >"${app_log}" 2>&1 &
+          app_pid=$!
+          cleanup() {
+            kill "${app_pid}" 2>/dev/null || true
+            wait "${app_pid}" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          ready=0
+          for attempt in $(seq 1 45); do
+            if curl --fail --silent --show-error http://127.0.0.1:8097/sign-in >/dev/null; then
+              ready=1
+              break
+            fi
+            if ! kill -0 "${app_pid}" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          if [[ "${ready}" != "1" ]]; then
+            tail -n 200 "${app_log}" || true
+            exit 1
+          fi
+
+          PYTHONPATH=ea python scripts/propertyquarry_continuous_ux_gate.py \
+            --base-url http://127.0.0.1:8097 \
+            --release-sha "${PROPERTYQUARRY_RELEASE_COMMIT_SHA}" \
+            --storage-backend memory \
+            --browser-engines chromium,firefox,webkit \
+            --write "${receipt}"
+      - name: Preserve isolated continuous UX evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: propertyquarry-continuous-ux-${{ github.sha }}
+          path: _completion/smoke/propertyquarry-continuous-ux-${{ github.sha }}.json
+          if-no-files-found: error
+          retention-days: 30
+
   propertyquarry-accessibility-contracts:
     permissions:
       contents: read
@@ -234,7 +328,9 @@ jobs:
             tests/test_propertyquarry_gold_status.py::test_gold_status_flagship_rejects_stale_activation_evidence
 
   propertyquarry-live-release-gates:
-    needs: propertyquarry-flagship-security
+    needs:
+      - propertyquarry-flagship-security
+      - propertyquarry-continuous-ux
     if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
     environment:
       name: propertyquarry-production
@@ -243,10 +339,16 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PROPERTYQUARRY_LIVE_MOBILE_BASE_URL: ${{ vars.PROPERTYQUARRY_LIVE_MOBILE_BASE_URL }}
+      PROPERTYQUARRY_CONTINUOUS_UX_RECEIPT: _completion/smoke/propertyquarry-continuous-ux-${{ github.sha }}.json
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Restore candidate-bound continuous UX evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: propertyquarry-continuous-ux-${{ github.sha }}
+          path: _completion/smoke
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -258,6 +360,34 @@ jobs:
           python -m pip install -r ea/requirements.txt -c ea/requirements.lock
           python -m playwright install --with-deps chromium firefox webkit
           npm install --no-save --ignore-scripts axe-core@4.10.2
+      - name: Verify candidate-bound continuous UX evidence with Gold policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          runtime_sha="$(PYTHONPATH=ea python -c 'from scripts.check_property_release_hygiene import release_manifest_runtime_sha; print(release_manifest_runtime_sha())')"
+          if [[ ! "${runtime_sha}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "PropertyQuarry manifest runtime SHA is missing or malformed" >&2
+            exit 1
+          fi
+          export PROPERTYQUARRY_MANIFEST_RUNTIME_SHA="${runtime_sha}"
+          PYTHONPATH=ea python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          from scripts.propertyquarry_gold_status import _flagship_continuous_ux_proof
+
+          receipt_path = Path(os.environ["PROPERTYQUARRY_CONTINUOUS_UX_RECEIPT"])
+          payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+          ready, _details = _flagship_continuous_ux_proof(
+              payload,
+              expected_release_commit_sha=os.environ["PROPERTYQUARRY_MANIFEST_RUNTIME_SHA"],
+          )
+          if not ready:
+              raise SystemExit("candidate-bound continuous UX evidence failed Gold policy")
+          print("ok: candidate-bound continuous UX evidence")
+          PY
+          echo "PROPERTYQUARRY_EXPECTED_RELEASE_COMMIT_SHA=${runtime_sha}" >> "${GITHUB_ENV}"
       - name: Require protected live release inputs
         shell: bash
         run: |
@@ -268,7 +398,6 @@ jobs:
           EA_API_TOKEN: ${{ secrets.PROPERTYQUARRY_LIVE_API_TOKEN }}
           PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE: ${{ secrets.PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE }}
           PROPERTYQUARRY_LIVE_PRINCIPAL_ID: ${{ secrets.PROPERTYQUARRY_LIVE_PRINCIPAL_ID }}
-          PROPERTYQUARRY_EXPECTED_RELEASE_COMMIT_SHA: ${{ github.sha }}
           PROPERTYQUARRY_EXPECTED_RELEASE_BRANCH: main
           PROPERTYQUARRY_LIVE_MOBILE_REQUIRED_BROWSER_ENGINES: chromium,firefox,webkit
           PROPERTYQUARRY_AXE_CORE_PATH: node_modules/axe-core/axe.min.js

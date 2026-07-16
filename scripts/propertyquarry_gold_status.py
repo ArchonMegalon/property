@@ -156,6 +156,7 @@ REQUIRED_ACCOUNT_NOTIFICATION_CHECKS = (
     "account_notification_save_action",
 )
 FLAGSHIP_CUSTOMER_UX_RECEIPT_AREAS = (
+    "continuous_ux",
     "public_auth_surfaces",
     "authenticated_customer_surfaces",
     "live_mobile_surfaces",
@@ -184,9 +185,45 @@ REQUIRED_FLAGSHIP_ACCESSIBILITY_CHECKS = (
     "semantic_error_states",
     "semantic_live_progress_states",
     "zoom_200_reflow",
+    "zoom_400_reflow",
     "contrast_signals_clear",
     "reduced_motion_honored",
 )
+REQUIRED_CONTINUOUS_UX_SCHEMA = "propertyquarry.continuous_ux_receipt.v1"
+REQUIRED_CONTINUOUS_UX_PROOF_SCOPE = "isolated_loopback_memory_app"
+REQUIRED_CONTINUOUS_UX_PROOF_MODE = "playwright_browser_all_isolated"
+REQUIRED_CONTINUOUS_UX_ROUTES = (
+    "/",
+    "/app/search",
+    "/app/search?continuous_ux_state=offline",
+)
+REQUIRED_CONTINUOUS_UX_TOP_CHECKS = (
+    "isolated_loopback_origin",
+    "memory_storage_backend",
+    "candidate_sha_bound",
+    "api_token_present_but_not_persisted",
+    "production_claim_false",
+    "real_playwright_browser_evidence",
+    "browser_engine_route_matrix_complete",
+    "loading_error_state_matrix_complete",
+    "structural_visual_matrix_complete",
+    "zoom_400_matrix_complete",
+    "first_value_budget_matrix_complete",
+    "provider_response_mocking_forbidden",
+    "screenshot_pixels_not_used_for_gating",
+)
+REQUIRED_CONTINUOUS_UX_ROW_CHECKS = (
+    "route_document_loaded",
+    "structural_visual_contract",
+    "zoom_400_reflow",
+    "first_value_under_budget",
+    "provider_response_not_mocked",
+)
+REQUIRED_CONTINUOUS_UX_FIRST_VALUE_BUDGET_MS = 3_200.0
+REQUIRED_CONTINUOUS_UX_FIRST_VALUE_BASIS = "median_three_warm_dom_content_loaded_visible_structure"
+REQUIRED_CONTINUOUS_UX_FIRST_VALUE_ENGINE = "chromium"
+REQUIRED_CONTINUOUS_UX_FIRST_VALUE_SAMPLE_COUNT = 3
+REQUIRED_CONTINUOUS_UX_FIRST_VALUE_MAX_ATTEMPTS = 2
 REQUIRED_AXE_CORE_VERSION = "4.10.2"
 REQUIRED_FLAGSHIP_FAILURE_STATES = (
     "not_found",
@@ -265,6 +302,7 @@ PROVIDER_OPERATOR_DROP_README_TOKENS = {
 
 DEFAULT_RECEIPT_PATTERNS = {
     "performance": ("_completion/smoke/property-auth-performance-*.json",),
+    "continuous_ux": ("_completion/smoke/propertyquarry-continuous-ux-*.json",),
     "live_mobile": (
         "state/receipts/propertyquarry_live_mobile*.json",
         "state/receipts/property_live_mobile*.json",
@@ -340,6 +378,7 @@ DEFAULT_RECEIPT_PATTERNS = {
 }
 DEFAULT_RECEIPT_FALLBACKS = {
     "performance": "_completion/smoke/property-auth-performance-latest.json",
+    "continuous_ux": "_completion/smoke/propertyquarry-continuous-ux-latest.json",
     "live_mobile": "_completion/smoke/property-live-mobile-surface-latest.json",
     "public_smoke": "_completion/smoke/property-live-public-latest.json",
     "authenticated_smoke": "_completion/smoke/property-live-authenticated-latest.json",
@@ -1472,6 +1511,435 @@ def _live_mobile_flagship_browser_proof(
     )
 
 
+def _flagship_continuous_ux_proof(
+    continuous_ux: dict[str, Any],
+    *,
+    expected_release_commit_sha: str,
+    required_browser_engines: tuple[str, ...] = DEFAULT_REQUIRED_FLAGSHIP_BROWSER_ENGINES,
+) -> tuple[bool, dict[str, Any]]:
+    engines = _normalize_required_browser_engines(required_browser_engines)
+    engine_set = set(engines)
+    expected_sha = str(expected_release_commit_sha or "").strip().lower()
+    reported_sha = str(continuous_ux.get("release_commit_sha") or "").strip().lower()
+    declared_engines = {
+        str(engine or "").strip().lower()
+        for engine in list(continuous_ux.get("required_browser_engines") or [])
+        if str(engine or "").strip()
+    }
+    declared_routes = {
+        str(route or "").strip()
+        for route in list(continuous_ux.get("required_routes") or [])
+        if str(route or "").strip()
+    }
+    declared_state_kinds = {
+        str(state or "").strip().lower()
+        for state in list(continuous_ux.get("required_state_kinds") or [])
+        if str(state or "").strip()
+    }
+    top_checks = {
+        str(check.get("name") or ""): check.get("ok") is True
+        for check in list(continuous_ux.get("checks") or [])
+        if isinstance(check, dict)
+    }
+    missing_top_checks = [
+        name for name in REQUIRED_CONTINUOUS_UX_TOP_CHECKS
+        if top_checks.get(name) is not True
+    ]
+    rows = [
+        dict(row)
+        for row in list(continuous_ux.get("rows") or [])
+        if isinstance(row, dict)
+    ]
+    present_samples: set[tuple[str, str]] = set()
+    passed_samples: set[tuple[str, str]] = set()
+    row_sample_keys: list[tuple[str, str]] = []
+    failed_rows: list[dict[str, Any]] = []
+    for row in rows:
+        engine = str(row.get("browser_engine") or "").strip().lower()
+        route = str(row.get("route") or "").strip()
+        sample_key = (engine, route)
+        row_sample_keys.append(sample_key)
+        present_samples.add(sample_key)
+        checks = {
+            str(check.get("name") or ""): check.get("ok") is True
+            for check in list(row.get("checks") or [])
+            if isinstance(check, dict)
+        }
+        required_checks = list(REQUIRED_CONTINUOUS_UX_ROW_CHECKS)
+        if route == "/app/search":
+            required_checks.extend(
+                (
+                    "loading_action_available",
+                    "loading_state_visible",
+                    "loading_state_semantic",
+                )
+            )
+        elif route == "/app/search?continuous_ux_state=offline":
+            required_checks.extend(
+                (
+                    "error_state_visible",
+                    "error_state_semantic",
+                    "error_state_recovers_online",
+                )
+            )
+        missing_checks = [name for name in required_checks if checks.get(name) is not True]
+        metrics = dict(row.get("metrics") or {})
+        try:
+            status_code = int(row["status_code"])
+            first_value_ms = float(metrics["first_value_ms"])
+            first_value_cold_ms = float(metrics["first_value_cold_ms"])
+            first_value_samples = [
+                float(value)
+                for value in list(metrics["first_value_samples_ms"])
+            ]
+            first_value_initial_samples = [
+                float(value)
+                for value in list(metrics["first_value_initial_samples_ms"])
+            ]
+            first_value_sample_count = int(metrics["first_value_sample_count"])
+            body_text_length = int(metrics["body_text_length"])
+            visible_interactive_count = int(metrics["visible_interactive_count"])
+            visible_image_count = int(metrics["visible_image_count"])
+            terminal_visible_image_count = int(
+                metrics["terminal_visible_image_count"]
+            )
+            broken_visible_image_count = int(metrics["broken_visible_image_count"])
+            zoom_400_percent = int(metrics["zoom_400_percent"])
+            zoom_400_viewport_width = int(metrics["zoom_400_viewport_width"])
+            zoom_400_scroll_width = int(metrics["zoom_400_scroll_width"])
+            clipped_interactive_count = int(
+                metrics["zoom_400_clipped_interactive_count"]
+            )
+            route_fulfill_count = int(metrics["route_fulfill_count"])
+        except (KeyError, TypeError, ValueError, OverflowError):
+            status_code = 0
+            first_value_ms = 0.0
+            first_value_cold_ms = -1.0
+            first_value_samples = []
+            first_value_initial_samples = []
+            first_value_sample_count = 0
+            body_text_length = -1
+            visible_interactive_count = -1
+            visible_image_count = -1
+            terminal_visible_image_count = -1
+            broken_visible_image_count = -1
+            zoom_400_percent = 0
+            zoom_400_viewport_width = 0
+            zoom_400_scroll_width = 0
+            clipped_interactive_count = -1
+            route_fulfill_count = -1
+        first_value_median = (
+            sorted(first_value_samples)[len(first_value_samples) // 2]
+            if first_value_samples
+            else 0.0
+        )
+        initial_first_value_median = (
+            sorted(first_value_initial_samples)[
+                len(first_value_initial_samples) // 2
+            ]
+            if first_value_initial_samples
+            else 0.0
+        )
+        first_value_retry_used = metrics.get("first_value_retry_used")
+        common_first_value_ok = (
+            math.isfinite(first_value_cold_ms)
+            and first_value_cold_ms >= 0
+            and math.isfinite(first_value_ms)
+            and first_value_ms >= 0
+            and metrics.get("first_value_basis")
+            == REQUIRED_CONTINUOUS_UX_FIRST_VALUE_BASIS
+            and isinstance(first_value_retry_used, bool)
+        )
+        if engine == REQUIRED_CONTINUOUS_UX_FIRST_VALUE_ENGINE:
+            samples_ok = (
+                first_value_sample_count
+                == REQUIRED_CONTINUOUS_UX_FIRST_VALUE_SAMPLE_COUNT
+                and len(first_value_samples)
+                == REQUIRED_CONTINUOUS_UX_FIRST_VALUE_SAMPLE_COUNT
+                and len(first_value_initial_samples)
+                == REQUIRED_CONTINUOUS_UX_FIRST_VALUE_SAMPLE_COUNT
+                and all(
+                    math.isfinite(value) and value > 0
+                    for value in first_value_samples
+                )
+                and all(
+                    math.isfinite(value) and value > 0
+                    for value in first_value_initial_samples
+                )
+            )
+            retry_coherent = (
+                first_value_retry_used is False
+                and first_value_initial_samples == first_value_samples
+            ) or (
+                first_value_retry_used is True
+                and initial_first_value_median
+                > REQUIRED_CONTINUOUS_UX_FIRST_VALUE_BUDGET_MS
+                and 0
+                < first_value_median
+                <= REQUIRED_CONTINUOUS_UX_FIRST_VALUE_BUDGET_MS
+            )
+            first_value_ok = (
+                common_first_value_ok
+                and metrics.get("first_value_gated") is True
+                and samples_ok
+                and retry_coherent
+                and abs(first_value_median - first_value_ms) <= 0.5
+                and first_value_ms
+                <= REQUIRED_CONTINUOUS_UX_FIRST_VALUE_BUDGET_MS
+            )
+        else:
+            first_value_ok = (
+                common_first_value_ok
+                and metrics.get("first_value_gated") is False
+                and first_value_sample_count == 1
+                and len(first_value_samples) == 1
+                and len(first_value_initial_samples) == 1
+                and first_value_retry_used is False
+                and first_value_initial_samples == first_value_samples
+                and all(
+                    math.isfinite(value) and value >= 0
+                    for value in first_value_samples
+                )
+                and abs(first_value_median - first_value_ms) <= 0.5
+            )
+        route_document_ok = (
+            status_code == 200
+            and str(metrics.get("document_ready_state") or "")
+            in {"interactive", "complete"}
+            and str(metrics.get("final_route") or "") == route
+            and row.get("error") == ""
+        )
+        structural_metrics_ok = (
+            body_text_length > 0
+            and visible_interactive_count > 0
+            and visible_image_count >= 0
+            and terminal_visible_image_count == visible_image_count
+            and broken_visible_image_count == 0
+            and metrics.get("navigation_visible") is True
+            and metrics.get("horizontal_overflow") is False
+            and (metrics.get("main_visible") is True or route == REQUIRED_CONTINUOUS_UX_ROUTES[-1])
+        )
+        zoom_metrics_ok = (
+            zoom_400_percent == 400
+            and zoom_400_viewport_width == 320
+            and 0 < zoom_400_scroll_width <= zoom_400_viewport_width + 2
+            and metrics.get("zoom_400_reflow_without_horizontal_scroll") is True
+            and clipped_interactive_count == 0
+        )
+        provider_mocking_metrics_ok = (
+            metrics.get("provider_response_mocked") is False
+            and metrics.get("request_interception_mode")
+            == "origin_scoped_headers_continue_only"
+            and route_fulfill_count == 0
+        )
+        state_metrics_ok = True
+        if route == "/app/search":
+            state_metrics_ok = (
+                metrics.get("loading_action_available") is True
+                and metrics.get("loading_state_visible") is True
+                and metrics.get("loading_state_semantic") is True
+            )
+        elif route == "/app/search?continuous_ux_state=offline":
+            state_metrics_ok = (
+                metrics.get("error_state_visible") is True
+                and metrics.get("error_state_semantic") is True
+                and metrics.get("error_state_recovered_online") is True
+            )
+        metrics_ok = (
+            route_document_ok
+            and structural_metrics_ok
+            and zoom_metrics_ok
+            and first_value_ok
+            and provider_mocking_metrics_ok
+            and state_metrics_ok
+        )
+        row_ok = (
+            row.get("ok") is True
+            and engine in declared_engines
+            and engine in SUPPORTED_FLAGSHIP_BROWSER_ENGINES
+            and route in REQUIRED_CONTINUOUS_UX_ROUTES
+            and not missing_checks
+            and metrics_ok
+        )
+        if row_ok:
+            passed_samples.add((engine, route))
+        else:
+            failed_rows.append(
+                {
+                    "browser_engine": engine or "missing",
+                    "route": route or "missing",
+                    "missing_checks": missing_checks,
+                    "first_value_ms": first_value_ms,
+                    "error": str(row.get("error") or ""),
+                }
+            )
+    expected_samples = {
+        (engine, route)
+        for engine in declared_engines
+        for route in REQUIRED_CONTINUOUS_UX_ROUTES
+    }
+    missing_samples = sorted(expected_samples - passed_samples)
+    missing_present_samples = sorted(expected_samples - present_samples)
+    unexpected_samples = sorted(present_samples - expected_samples)
+    duplicate_samples = sorted(
+        sample for sample in present_samples if row_sample_keys.count(sample) > 1
+    )
+    engine_failures = [
+        dict(failure)
+        for failure in list(continuous_ux.get("engine_failures") or [])
+        if isinstance(failure, dict)
+    ]
+    contract_errors: list[str] = []
+    if continuous_ux.get("schema") != REQUIRED_CONTINUOUS_UX_SCHEMA:
+        contract_errors.append("schema_mismatch")
+    if continuous_ux.get("proof_scope") != REQUIRED_CONTINUOUS_UX_PROOF_SCOPE:
+        contract_errors.append("proof_scope_mismatch")
+    if continuous_ux.get("proof_mode") != REQUIRED_CONTINUOUS_UX_PROOF_MODE:
+        contract_errors.append("proof_mode_not_real_browser")
+    if continuous_ux.get("production_claim") is not False:
+        contract_errors.append("production_claim_must_be_false")
+    if continuous_ux.get("deployed_or_live_proof") is not False:
+        contract_errors.append("deployed_or_live_proof_must_be_false")
+    if str(continuous_ux.get("storage_backend") or "") != "memory":
+        contract_errors.append("memory_storage_required")
+    if continuous_ux.get("provider_response_mocking") is not False:
+        contract_errors.append("provider_response_mocking_forbidden")
+    if continuous_ux.get("screenshot_pixel_comparison") is not False:
+        contract_errors.append("screenshot_pixel_gate_forbidden")
+    if continuous_ux.get("base_origin_kind") != "loopback":
+        contract_errors.append("loopback_origin_kind_required")
+    if continuous_ux.get("first_value_basis") != REQUIRED_CONTINUOUS_UX_FIRST_VALUE_BASIS:
+        contract_errors.append("first_value_basis_mismatch")
+    if (
+        continuous_ux.get("first_value_max_attempts")
+        != REQUIRED_CONTINUOUS_UX_FIRST_VALUE_MAX_ATTEMPTS
+    ):
+        contract_errors.append("first_value_max_attempts_mismatch")
+    try:
+        declared_first_value_budget_ms = float(
+            continuous_ux.get("first_value_budget_ms") or 0.0
+        )
+    except (TypeError, ValueError, OverflowError):
+        declared_first_value_budget_ms = 0.0
+    if not (
+        math.isfinite(declared_first_value_budget_ms)
+        and abs(
+            declared_first_value_budget_ms
+            - REQUIRED_CONTINUOUS_UX_FIRST_VALUE_BUDGET_MS
+        )
+        <= 0.001
+    ):
+        contract_errors.append("first_value_budget_invalid")
+    if not expected_sha or reported_sha != expected_sha:
+        contract_errors.append("release_commit_sha_mismatch")
+    if not engine_set.issubset(declared_engines):
+        contract_errors.append("browser_engine_declaration_incomplete")
+    if not declared_engines.issubset(set(SUPPORTED_FLAGSHIP_BROWSER_ENGINES)):
+        contract_errors.append("browser_engine_declaration_unsupported")
+    if declared_routes != set(REQUIRED_CONTINUOUS_UX_ROUTES):
+        contract_errors.append("route_declaration_mismatch")
+    if declared_state_kinds != {"loading", "error"}:
+        contract_errors.append("state_kind_declaration_mismatch")
+    try:
+        declared_expected_sample_count = int(
+            continuous_ux.get("expected_sample_count") or -1
+        )
+        declared_observed_sample_count = int(
+            continuous_ux.get("observed_sample_count") or -1
+        )
+        declared_passed_sample_count = int(
+            continuous_ux.get("passed_sample_count", -1)
+        )
+        declared_missing_sample_count = int(
+            continuous_ux.get("missing_sample_count", -1)
+        )
+        declared_duplicate_sample_count = int(
+            continuous_ux.get("duplicate_sample_count", -1)
+        )
+        declared_failed_count = int(continuous_ux.get("failed_count", -1))
+    except (TypeError, ValueError, OverflowError):
+        declared_expected_sample_count = -1
+        declared_observed_sample_count = -1
+        declared_passed_sample_count = -1
+        declared_missing_sample_count = -1
+        declared_duplicate_sample_count = -1
+        declared_failed_count = -1
+    if declared_expected_sample_count != len(expected_samples):
+        contract_errors.append("expected_sample_count_mismatch")
+    if declared_observed_sample_count != len(present_samples):
+        contract_errors.append("observed_sample_count_mismatch")
+    if declared_passed_sample_count != len(passed_samples):
+        contract_errors.append("passed_sample_count_mismatch")
+    if declared_missing_sample_count != len(missing_present_samples):
+        contract_errors.append("missing_sample_count_mismatch")
+    if declared_duplicate_sample_count != len(duplicate_samples):
+        contract_errors.append("duplicate_sample_count_mismatch")
+    if declared_failed_count != len(failed_rows) + len(engine_failures):
+        contract_errors.append("failed_count_mismatch")
+    if missing_present_samples:
+        contract_errors.append("observed_sample_matrix_incomplete")
+    if unexpected_samples:
+        contract_errors.append("unexpected_samples_present")
+    if duplicate_samples:
+        contract_errors.append("duplicate_samples_present")
+    if engine_failures:
+        contract_errors.append("browser_engine_failures_present")
+    details = {
+        "schema": str(continuous_ux.get("schema") or ""),
+        "proof_scope": str(continuous_ux.get("proof_scope") or ""),
+        "proof_mode": str(continuous_ux.get("proof_mode") or ""),
+        "production_claim": continuous_ux.get("production_claim"),
+        "deployed_or_live_proof": continuous_ux.get("deployed_or_live_proof"),
+        "expected_release_commit_sha": expected_sha,
+        "reported_release_commit_sha": reported_sha,
+        "required_browser_engines": list(engines),
+        "declared_browser_engines": sorted(declared_engines),
+        "required_routes": list(REQUIRED_CONTINUOUS_UX_ROUTES),
+        "declared_routes": sorted(declared_routes),
+        "declared_state_kinds": sorted(declared_state_kinds),
+        "first_value_budget_ms": REQUIRED_CONTINUOUS_UX_FIRST_VALUE_BUDGET_MS,
+        "declared_first_value_budget_ms": declared_first_value_budget_ms,
+        "first_value_basis": REQUIRED_CONTINUOUS_UX_FIRST_VALUE_BASIS,
+        "first_value_browser_engine": REQUIRED_CONTINUOUS_UX_FIRST_VALUE_ENGINE,
+        "first_value_sample_count": REQUIRED_CONTINUOUS_UX_FIRST_VALUE_SAMPLE_COUNT,
+        "first_value_max_attempts": REQUIRED_CONTINUOUS_UX_FIRST_VALUE_MAX_ATTEMPTS,
+        "declared_expected_sample_count": declared_expected_sample_count,
+        "declared_observed_sample_count": declared_observed_sample_count,
+        "declared_passed_sample_count": declared_passed_sample_count,
+        "declared_missing_sample_count": declared_missing_sample_count,
+        "declared_duplicate_sample_count": declared_duplicate_sample_count,
+        "missing_top_checks": missing_top_checks,
+        "missing_samples": [
+            {"browser_engine": engine, "route": route}
+            for engine, route in missing_samples
+        ],
+        "missing_present_samples": [
+            {"browser_engine": engine, "route": route}
+            for engine, route in missing_present_samples
+        ],
+        "unexpected_samples": [
+            {"browser_engine": engine, "route": route}
+            for engine, route in unexpected_samples
+        ],
+        "duplicate_samples": [
+            {"browser_engine": engine, "route": route}
+            for engine, route in duplicate_samples
+        ],
+        "engine_failures": engine_failures,
+        "failed_rows": failed_rows,
+        "contract_errors": contract_errors,
+    }
+    ready = (
+        continuous_ux.get("status") == "pass"
+        and declared_failed_count == 0
+        and not contract_errors
+        and not missing_top_checks
+        and not missing_samples
+        and not failed_rows
+    )
+    return ready, details
+
+
 def _flagship_accessibility_proof(
     accessibility: dict[str, Any],
     *,
@@ -2389,6 +2857,7 @@ def _operator_drop_readme_status(
 def build_gold_status_receipt(
     *,
     performance_receipt_path: Path,
+    continuous_ux_receipt_path: Path | None = None,
     tour_control_receipt_path: Path,
     export_discovery_receipt_path: Path,
     import_manifest_receipt_path: Path | None = None,
@@ -2451,6 +2920,7 @@ def build_gold_status_receipt(
         else max_receipt_age_hours
     )
     flagship_customer_ux_receipt_paths: dict[str, Path | None] = {
+        "continuous_ux": continuous_ux_receipt_path,
         "public_auth_surfaces": public_smoke_receipt_path,
         "authenticated_customer_surfaces": authenticated_smoke_receipt_path,
         "live_mobile_surfaces": live_mobile_receipt_path,
@@ -2468,6 +2938,11 @@ def build_gold_status_receipt(
         if flagship_customer_ux_receipt_paths.get(area) is None
     ] if flagship_profile else []
     performance = _load_json(performance_receipt_path)
+    continuous_ux = (
+        _load_json(continuous_ux_receipt_path)
+        if continuous_ux_receipt_path is not None
+        else {}
+    )
     live_mobile = _load_json(live_mobile_receipt_path) if live_mobile_receipt_path is not None else {}
     accessibility = _load_json(accessibility_receipt_path) if accessibility_receipt_path is not None else {}
     failure_states = _load_json(failure_state_receipt_path) if failure_state_receipt_path is not None else {}
@@ -2533,6 +3008,7 @@ def build_gold_status_receipt(
     receipt_freshness_ok, stale_receipts = _receipt_freshness_status(
         {
             "performance": performance,
+            **({"continuous_ux": continuous_ux} if continuous_ux_receipt_path is not None else {}),
             "tour_controls": tour_controls,
             "export_discovery": export_discovery,
             **({"billing_handoff": billing_receipt} if billing_receipt_path is not None else {}),
@@ -2641,6 +3117,16 @@ def build_gold_status_receipt(
         and int(performance.get("failed_count") or 0) == 0
         and research_performance_ok
         and search_performance_ok
+    )
+    flagship_continuous_ux_ok, flagship_continuous_ux_details = (
+        _flagship_continuous_ux_proof(
+            continuous_ux,
+            expected_release_commit_sha=expected_release_commit_sha,
+            required_browser_engines=configured_browser_engines,
+        )
+    )
+    continuous_ux_ok = not flagship_profile or (
+        continuous_ux_receipt_path is not None and flagship_continuous_ux_ok
     )
     live_mobile_covered_routes = _covered_live_mobile_routes(live_mobile)
     missing_live_mobile_routes = [
@@ -3088,6 +3574,20 @@ def build_gold_status_receipt(
                 "status": "missing_required_receipts",
                 "missing_receipts": missing_flagship_customer_ux_receipts,
                 "action": "generate every required deployed customer-UX receipt before claiming the PropertyQuarry flagship launch profile",
+            }
+        )
+    if not continuous_ux_ok:
+        blockers.append(
+            {
+                "area": "continuous_ux",
+                "status": continuous_ux.get("status")
+                or (
+                    "not_configured"
+                    if continuous_ux_receipt_path is None
+                    else "missing"
+                ),
+                "proof": flagship_continuous_ux_details,
+                "action": "run propertyquarry_continuous_ux_gate.py against an isolated loopback EA_STORAGE_BACKEND=memory app at the exact candidate SHA; fix cross-engine structural visual, 400% reflow, loading/error semantics, or the 3.2-second three-sample Chromium median first-value budget without treating this local receipt as deployed proof",
             }
         )
     if not performance_ok:
@@ -3980,6 +4480,7 @@ def build_gold_status_receipt(
     flagship_customer_ux_ready = (
         flagship_profile
         and not missing_flagship_customer_ux_receipts
+        and continuous_ux_ok
         and live_mobile_ok
         and accessibility_ok
         and failure_states_ok
@@ -4018,6 +4519,8 @@ def build_gold_status_receipt(
             "research_detail_required": flagship_profile,
             "browser_all_mobile_proof_required": flagship_profile,
             "browser_all_mobile_proof_ready": flagship_live_mobile_browser_ok if flagship_profile else None,
+            "continuous_ux_proof_required": flagship_profile,
+            "continuous_ux_proof_ready": flagship_continuous_ux_ok if flagship_profile else None,
             "accessibility_proof_required": flagship_profile,
             "accessibility_proof_ready": flagship_accessibility_ok if flagship_profile else None,
             "activation_to_value_proof_required": flagship_profile,
@@ -4038,6 +4541,26 @@ def build_gold_status_receipt(
             "search_checks_ok": search_performance_ok,
             "missing_search_checks": missing_search_performance_checks,
             "receipt_path": str(performance_receipt_path),
+        },
+        "continuous_ux": {
+            "status": continuous_ux.get("status")
+            or (
+                "not_configured"
+                if continuous_ux_receipt_path is None
+                else "missing"
+            ),
+            "required": flagship_profile,
+            "supplemental_only": True,
+            "production_claim": continuous_ux.get("production_claim"),
+            "deployed_or_live_proof": continuous_ux.get("deployed_or_live_proof"),
+            "flagship_proof_ok": flagship_continuous_ux_ok if flagship_profile else None,
+            "flagship_proof": flagship_continuous_ux_details if flagship_profile else None,
+            "receipt_path": (
+                str(continuous_ux_receipt_path)
+                if continuous_ux_receipt_path is not None
+                else ""
+            ),
+            "note": "This additive isolated-loopback receipt cannot replace deployed mobile, accessibility, failure-state, activation, SLO, security, or release-hygiene evidence.",
         },
         "analytics": {
             "status": "pass" if analytics_ok else "fail",
@@ -4970,6 +5493,7 @@ def _apply_canonical_launch_evidence(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Summarize current PropertyQuarry gold-readiness receipts.")
     parser.add_argument("--performance-receipt", default="")
+    parser.add_argument("--continuous-ux-receipt", default="")
     parser.add_argument("--live-mobile-receipt", default="")
     parser.add_argument("--accessibility-receipt", default="")
     parser.add_argument("--failure-state-receipt", default="")
@@ -5116,6 +5640,11 @@ def main() -> int:
 
     receipt = build_gold_status_receipt(
         performance_receipt_path=Path(args.performance_receipt) if args.performance_receipt else _default_receipt_path("performance"),
+        continuous_ux_receipt_path=(
+            Path(args.continuous_ux_receipt)
+            if args.continuous_ux_receipt
+            else _default_receipt_path_if_exists("continuous_ux")
+        ),
         live_mobile_receipt_path=Path(args.live_mobile_receipt) if args.live_mobile_receipt else _default_receipt_path("live_mobile"),
         accessibility_receipt_path=(
             Path(args.accessibility_receipt)

@@ -44,6 +44,7 @@ REQUIRED_ACCESSIBILITY_CHECKS = (
     "semantic_error_states",
     "semantic_live_progress_states",
     "zoom_200_reflow",
+    "zoom_400_reflow",
     "contrast_signals_clear",
     "reduced_motion_honored",
 )
@@ -380,6 +381,53 @@ def collect_accessibility_engine_rows(
                                 or {}
                             )
                         )
+                        page.set_viewport_size({"width": 320, "height": 900})
+                        page.wait_for_timeout(100)
+                        metrics.update(
+                            dict(
+                                page.evaluate(
+                                    """
+                                    () => {
+                                      const visible = (node) => {
+                                        if (node.closest('[hidden], [aria-hidden="true"], details:not([open])')) return false;
+                                        const style = getComputedStyle(node);
+                                        const rect = node.getBoundingClientRect();
+                                        return style.display !== 'none' && style.visibility !== 'hidden'
+                                          && rect.width > 0 && rect.height > 0;
+                                      };
+                                      const insideHorizontalScrollRegion = (node) => {
+                                        let current = node.parentElement;
+                                        while (current && current !== document.body) {
+                                          const style = getComputedStyle(current);
+                                          if (['auto', 'scroll'].includes(style.overflowX)
+                                              && current.scrollWidth > current.clientWidth + 2) return true;
+                                          current = current.parentElement;
+                                        }
+                                        return false;
+                                      };
+                                      const viewportWidth = document.documentElement.clientWidth;
+                                      const interactive = Array.from(document.querySelectorAll(
+                                        'a[href], button, input, select, textarea, summary, [role="button"]'
+                                      )).filter(visible);
+                                      const clippedInteractive = interactive.filter((node) => {
+                                        const rect = node.getBoundingClientRect();
+                                        return (rect.left < -2 || rect.right > viewportWidth + 2)
+                                          && !insideHorizontalScrollRegion(node);
+                                      });
+                                      return {
+                                        zoom_400_percent: 400,
+                                        zoom_400_viewport_width: viewportWidth,
+                                        zoom_400_scroll_width: document.documentElement.scrollWidth,
+                                        zoom_400_reflow_without_horizontal_scroll:
+                                          document.documentElement.scrollWidth <= viewportWidth + 2,
+                                        zoom_400_clipped_interactive_count: clippedInteractive.length,
+                                      };
+                                    }
+                                    """
+                                )
+                                or {}
+                            )
+                        )
                     except Exception as exc:
                         metrics = {
                             "browser_engine": engine,
@@ -412,6 +460,18 @@ def evaluate_accessibility_metrics(metrics: dict[str, Any]) -> list[dict[str, An
         and metrics.get("dialog_escape_closes") is True
         and metrics.get("dialog_focus_restored") is True
     )
+    try:
+        zoom_400_percent = int(metrics["zoom_400_percent"])
+        zoom_400_viewport_width = int(metrics["zoom_400_viewport_width"])
+        zoom_400_scroll_width = int(metrics["zoom_400_scroll_width"])
+        zoom_400_clipped_interactive_count = int(
+            metrics["zoom_400_clipped_interactive_count"]
+        )
+    except (KeyError, TypeError, ValueError, OverflowError):
+        zoom_400_percent = 0
+        zoom_400_viewport_width = 0
+        zoom_400_scroll_width = 0
+        zoom_400_clipped_interactive_count = -1
     return [
         {"name": "route_document_loaded", "ok": metrics.get("route_document_loaded") is True},
         {"name": "axe_core_version_pinned", "ok": metrics.get("axe_core_version") == AXE_CORE_VERSION},
@@ -429,6 +489,14 @@ def evaluate_accessibility_metrics(metrics: dict[str, Any]) -> list[dict[str, An
             "name": "zoom_200_reflow",
             "ok": int(metrics.get("zoom_percent") or 0) == 200
             and metrics.get("reflow_without_horizontal_scroll") is True,
+        },
+        {
+            "name": "zoom_400_reflow",
+            "ok": zoom_400_percent == 400
+            and zoom_400_viewport_width == 320
+            and 0 < zoom_400_scroll_width <= zoom_400_viewport_width + 2
+            and metrics.get("zoom_400_reflow_without_horizontal_scroll") is True
+            and zoom_400_clipped_interactive_count == 0,
         },
         {
             "name": "contrast_signals_clear",
@@ -567,6 +635,7 @@ def build_accessibility_receipt(
         "notes": [
             "Axe is injected only from the pinned local input; this gate never downloads scripts or uses a CDN.",
             "The 200% reflow check uses a 640 CSS-pixel viewport as the cross-engine equivalent of zooming a 1280-pixel layout to 200%.",
+            "The 400% reflow check uses a 320 CSS-pixel viewport and rejects horizontal document overflow or unreachable clipped controls while allowing controls inside an explicit horizontal scroll rail.",
             "The route matrix preserves every authenticated app route while also requiring every public sitemap, legal, support, docs, integrations, guide, market, registration, and sign-in page.",
         ],
     }

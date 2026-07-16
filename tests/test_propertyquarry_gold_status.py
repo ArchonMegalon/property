@@ -11,6 +11,7 @@ from scripts.propertyquarry_gold_status import _latest_receipt_path, build_gold_
 
 
 ROOT = Path(__file__).resolve().parents[1]
+_CONTINUOUS_UX_MISSING = object()
 
 
 def _write_json(path: Path, payload: dict[str, object]) -> Path:
@@ -57,6 +58,126 @@ def _minimal_gold_receipt_args(tmp_path: Path, *, generated_at: str) -> dict[str
 
 
 def _flagship_customer_ux_receipt_args(tmp_path: Path, *, generated_at: str) -> dict[str, object]:
+    release_sha = "a" * 40
+    continuous_rows: list[dict[str, object]] = []
+    for browser_engine in gold_status.DEFAULT_REQUIRED_FLAGSHIP_BROWSER_ENGINES:
+        for route in gold_status.REQUIRED_CONTINUOUS_UX_ROUTES:
+            first_value_samples = (
+                [220.0, 240.0, 260.0]
+                if browser_engine
+                == gold_status.REQUIRED_CONTINUOUS_UX_FIRST_VALUE_ENGINE
+                else [240.0]
+            )
+            state_metrics: dict[str, object] = {}
+            checks = [
+                {"name": name, "ok": True}
+                for name in gold_status.REQUIRED_CONTINUOUS_UX_ROW_CHECKS
+            ]
+            if route == "/app/search":
+                state_metrics.update(
+                    {
+                        "loading_action_available": True,
+                        "loading_state_visible": True,
+                        "loading_state_semantic": True,
+                    }
+                )
+                checks.extend(
+                    [
+                        {"name": "loading_action_available", "ok": True},
+                        {"name": "loading_state_visible", "ok": True},
+                        {"name": "loading_state_semantic", "ok": True},
+                    ]
+                )
+            elif route == "/app/search?continuous_ux_state=offline":
+                state_metrics.update(
+                    {
+                        "error_state_visible": True,
+                        "error_state_semantic": True,
+                        "error_state_recovered_online": True,
+                    }
+                )
+                checks.extend(
+                    [
+                        {"name": "error_state_visible", "ok": True},
+                        {"name": "error_state_semantic", "ok": True},
+                        {"name": "error_state_recovers_online", "ok": True},
+                    ]
+                )
+            continuous_rows.append(
+                {
+                    "route": route,
+                    "browser_engine": browser_engine,
+                    "status_code": 200,
+                    "ok": True,
+                    "error": "",
+                    "checks": checks,
+                    "metrics": {
+                        "document_ready_state": "complete",
+                        "final_route": route,
+                        "main_visible": route != "/app/search?continuous_ux_state=offline",
+                        "navigation_visible": True,
+                        "body_text_length": 120,
+                        "visible_interactive_count": 4,
+                        "horizontal_overflow": False,
+                        "visible_image_count": 0,
+                        "terminal_visible_image_count": 0,
+                        "broken_visible_image_count": 0,
+                        "zoom_400_percent": 400,
+                        "zoom_400_viewport_width": 320,
+                        "zoom_400_scroll_width": 320,
+                        "zoom_400_reflow_without_horizontal_scroll": True,
+                        "zoom_400_clipped_interactive_count": 0,
+                        "first_value_ms": 240.0,
+                        "first_value_cold_ms": 280.0,
+                        "first_value_initial_samples_ms": first_value_samples,
+                        "first_value_samples_ms": first_value_samples,
+                        "first_value_sample_count": len(first_value_samples),
+                        "first_value_retry_used": False,
+                        "first_value_gated": (
+                            browser_engine
+                            == gold_status.REQUIRED_CONTINUOUS_UX_FIRST_VALUE_ENGINE
+                        ),
+                        "first_value_basis": gold_status.REQUIRED_CONTINUOUS_UX_FIRST_VALUE_BASIS,
+                        "provider_response_mocked": False,
+                        "request_interception_mode": "origin_scoped_headers_continue_only",
+                        "route_fulfill_count": 0,
+                        **state_metrics,
+                    },
+                }
+            )
+    continuous_ux = {
+        "schema": gold_status.REQUIRED_CONTINUOUS_UX_SCHEMA,
+        "generated_at": generated_at,
+        "status": "pass",
+        "failed_count": 0,
+        "release_commit_sha": release_sha,
+        "proof_scope": gold_status.REQUIRED_CONTINUOUS_UX_PROOF_SCOPE,
+        "proof_mode": gold_status.REQUIRED_CONTINUOUS_UX_PROOF_MODE,
+        "production_claim": False,
+        "deployed_or_live_proof": False,
+        "storage_backend": "memory",
+        "base_origin_kind": "loopback",
+        "provider_response_mocking": False,
+        "screenshot_pixel_comparison": False,
+        "first_value_budget_ms": gold_status.REQUIRED_CONTINUOUS_UX_FIRST_VALUE_BUDGET_MS,
+        "first_value_basis": gold_status.REQUIRED_CONTINUOUS_UX_FIRST_VALUE_BASIS,
+        "first_value_max_attempts": gold_status.REQUIRED_CONTINUOUS_UX_FIRST_VALUE_MAX_ATTEMPTS,
+        "required_browser_engines": list(
+            gold_status.DEFAULT_REQUIRED_FLAGSHIP_BROWSER_ENGINES
+        ),
+        "required_routes": list(gold_status.REQUIRED_CONTINUOUS_UX_ROUTES),
+        "required_state_kinds": ["loading", "error"],
+        "expected_sample_count": len(continuous_rows),
+        "observed_sample_count": len(continuous_rows),
+        "passed_sample_count": len(continuous_rows),
+        "missing_sample_count": 0,
+        "duplicate_sample_count": 0,
+        "checks": [
+            {"name": name, "ok": True}
+            for name in gold_status.REQUIRED_CONTINUOUS_UX_TOP_CHECKS
+        ],
+        "rows": continuous_rows,
+    }
     configured_live_routes = (
         *gold_status.REQUIRED_LIVE_MOBILE_ROUTES,
         "/app/research/current-result?run_id=run-flagship",
@@ -311,7 +432,6 @@ def _flagship_customer_ux_receipt_args(tmp_path: Path, *, generated_at: str) -> 
         "checks": [{"name": "flagship_map_preview", "ok": True}],
         "preview_results": [{"status": "pass", "placeholder": False}],
     }
-    release_sha = "a" * 40
     image_digest = "sha256:" + "b" * 64
     probe_window_end = datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
     probe_window_start = probe_window_end - timedelta(seconds=60)
@@ -368,6 +488,10 @@ def _flagship_customer_ux_receipt_args(tmp_path: Path, *, generated_at: str) -> 
         },
     }
     return {
+        "continuous_ux_receipt_path": _write_json(
+            tmp_path / "continuous-ux.json",
+            continuous_ux,
+        ),
         "live_mobile_receipt_path": _write_json(tmp_path / "live-mobile.json", live_mobile),
         "accessibility_receipt_path": _write_json(tmp_path / "accessibility.json", accessibility),
         "failure_state_receipt_path": _write_json(tmp_path / "failure-states.json", failure_states),
@@ -413,6 +537,8 @@ def test_gold_status_standard_profile_keeps_customer_ux_receipts_optional(tmp_pa
         "research_detail_required": False,
         "browser_all_mobile_proof_required": False,
         "browser_all_mobile_proof_ready": None,
+        "continuous_ux_proof_required": False,
+        "continuous_ux_proof_ready": None,
         "accessibility_proof_required": False,
         "accessibility_proof_ready": None,
         "activation_to_value_proof_required": False,
@@ -596,6 +722,7 @@ def test_gold_status_flagship_profile_passes_with_fresh_customer_ux_evidence(tmp
     assert receipt["flagship_customer_ux_evidence"]["ready"] is True
     assert receipt["flagship_customer_ux_evidence"]["missing_receipts"] == []
     assert receipt["flagship_customer_ux_evidence"]["browser_all_mobile_proof_ready"] is True
+    assert receipt["flagship_customer_ux_evidence"]["continuous_ux_proof_ready"] is True
     assert receipt["flagship_customer_ux_evidence"]["accessibility_proof_ready"] is True
     assert receipt["flagship_customer_ux_evidence"]["activation_to_value_proof_ready"] is True
     assert receipt["accessibility"]["flagship_proof_ok"] is True
@@ -611,6 +738,244 @@ def test_gold_status_flagship_profile_passes_with_fresh_customer_ux_evidence(tmp
     assert receipt["browser_rendered_3d"]["ready"] is True
     assert receipt["map_preview_flagship"]["ready"] is True
     assert receipt["walkthrough_quality"]["ready"] is True
+    assert receipt["continuous_ux"]["flagship_proof_ok"] is True
+    assert receipt["continuous_ux"]["supplemental_only"] is True
+    assert receipt["continuous_ux"]["production_claim"] is False
+
+
+def test_flagship_continuous_ux_accepts_zero_non_gated_browser_diagnostics(
+    tmp_path: Path,
+) -> None:
+    generated_at = "2026-07-13T11:55:00+00:00"
+    flagship_args = _flagship_customer_ux_receipt_args(
+        tmp_path,
+        generated_at=generated_at,
+    )
+    continuous_path = Path(flagship_args["continuous_ux_receipt_path"])
+    continuous = json.loads(continuous_path.read_text(encoding="utf-8"))
+    for row in continuous["rows"]:
+        metrics = row["metrics"]
+        if row["browser_engine"] == gold_status.REQUIRED_CONTINUOUS_UX_FIRST_VALUE_ENGINE:
+            assert metrics["first_value_gated"] is True
+            assert metrics["first_value_cold_ms"] > 0
+            assert metrics["first_value_ms"] > 0
+            assert all(value > 0 for value in metrics["first_value_samples_ms"])
+            continue
+        metrics.update(
+            {
+                "first_value_cold_ms": 0.0,
+                "first_value_ms": 0.0,
+                "first_value_samples_ms": [0.0],
+                "first_value_initial_samples_ms": [0.0],
+            }
+        )
+
+    proof_ok, proof = gold_status._flagship_continuous_ux_proof(
+        continuous,
+        expected_release_commit_sha=continuous["release_commit_sha"],
+    )
+
+    assert proof_ok is True
+    assert proof["failed_rows"] == []
+
+
+def test_flagship_continuous_ux_accepts_one_coherent_bounded_retry(
+    tmp_path: Path,
+) -> None:
+    flagship_args = _flagship_customer_ux_receipt_args(
+        tmp_path,
+        generated_at="2026-07-13T11:55:00+00:00",
+    )
+    continuous_path = Path(flagship_args["continuous_ux_receipt_path"])
+    continuous = json.loads(continuous_path.read_text(encoding="utf-8"))
+    for row in continuous["rows"]:
+        if row["browser_engine"] != gold_status.REQUIRED_CONTINUOUS_UX_FIRST_VALUE_ENGINE:
+            continue
+        row["metrics"].update(
+            {
+                "first_value_initial_samples_ms": [3_300.0, 3_400.0, 3_500.0],
+                "first_value_retry_used": True,
+            }
+        )
+
+    proof_ok, proof = gold_status._flagship_continuous_ux_proof(
+        continuous,
+        expected_release_commit_sha=continuous["release_commit_sha"],
+    )
+
+    assert proof_ok is True
+    assert proof["failed_rows"] == []
+
+
+def test_gold_status_flagship_rejects_continuous_ux_production_claim_or_wrong_sha(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    generated_at = (now - timedelta(minutes=5)).isoformat()
+    flagship_args = _flagship_customer_ux_receipt_args(
+        tmp_path,
+        generated_at=generated_at,
+    )
+    continuous_path = Path(flagship_args["continuous_ux_receipt_path"])
+    continuous = json.loads(continuous_path.read_text(encoding="utf-8"))
+    continuous["production_claim"] = True
+    continuous["release_commit_sha"] = "b" * 40
+    _write_json(continuous_path, continuous)
+
+    receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(tmp_path, generated_at=generated_at),
+        **flagship_args,
+        readiness_profile="flagship",
+        max_receipt_age_hours=1,
+        now=now,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["continuous_ux"]["flagship_proof_ok"] is False
+    assert set(receipt["continuous_ux"]["flagship_proof"]["contract_errors"]) >= {
+        "production_claim_must_be_false",
+        "release_commit_sha_mismatch",
+    }
+    assert any(row["area"] == "continuous_ux" for row in receipt["blockers"])
+
+
+def test_gold_status_flagship_rejects_continuous_ux_mock_or_over_budget_evidence(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    generated_at = (now - timedelta(minutes=5)).isoformat()
+    flagship_args = _flagship_customer_ux_receipt_args(
+        tmp_path,
+        generated_at=generated_at,
+    )
+    continuous_path = Path(flagship_args["continuous_ux_receipt_path"])
+    continuous = json.loads(continuous_path.read_text(encoding="utf-8"))
+    continuous["proof_mode"] = "contract_mock"
+    chromium_row = next(
+        row
+        for row in continuous["rows"]
+        if row["browser_engine"]
+        == gold_status.REQUIRED_CONTINUOUS_UX_FIRST_VALUE_ENGINE
+    )
+    chromium_row["metrics"]["first_value_ms"] = (
+        gold_status.REQUIRED_CONTINUOUS_UX_FIRST_VALUE_BUDGET_MS + 1.0
+    )
+    _write_json(continuous_path, continuous)
+
+    receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(tmp_path, generated_at=generated_at),
+        **flagship_args,
+        readiness_profile="flagship",
+        max_receipt_age_hours=1,
+        now=now,
+    )
+
+    assert receipt["status"] == "blocked"
+    proof = receipt["continuous_ux"]["flagship_proof"]
+    assert "proof_mode_not_real_browser" in proof["contract_errors"]
+    assert proof["failed_rows"][0]["first_value_ms"] == (
+        gold_status.REQUIRED_CONTINUOUS_UX_FIRST_VALUE_BUDGET_MS + 1.0
+    )
+
+
+@pytest.mark.parametrize(
+    ("route", "target", "field", "value"),
+    (
+        ("/app/search", "metrics", "loading_action_available", _CONTINUOUS_UX_MISSING),
+        ("/app/search", "metrics", "loading_state_visible", False),
+        ("/app/search", "metrics", "loading_state_semantic", _CONTINUOUS_UX_MISSING),
+        (
+            "/app/search?continuous_ux_state=offline",
+            "metrics",
+            "error_state_visible",
+            _CONTINUOUS_UX_MISSING,
+        ),
+        (
+            "/app/search?continuous_ux_state=offline",
+            "metrics",
+            "error_state_semantic",
+            False,
+        ),
+        (
+            "/app/search?continuous_ux_state=offline",
+            "metrics",
+            "error_state_recovered_online",
+            _CONTINUOUS_UX_MISSING,
+        ),
+        ("/app/search", "row", "status_code", _CONTINUOUS_UX_MISSING),
+        ("/app/search", "row", "status_code", 503),
+        ("/app/search", "metrics", "document_ready_state", _CONTINUOUS_UX_MISSING),
+        ("/app/search", "metrics", "document_ready_state", "loading"),
+        ("/app/search", "row", "error", _CONTINUOUS_UX_MISSING),
+        ("/app/search", "row", "error", "playwright_timeout"),
+        ("/app/search", "metrics", "first_value_retry_used", _CONTINUOUS_UX_MISSING),
+        ("/app/search", "metrics", "first_value_retry_used", True),
+        ("/app/search", "metrics", "first_value_cold_ms", -1.0),
+        ("/app/search", "metrics", "first_value_cold_ms", float("inf")),
+        (
+            "/app/search",
+            "metrics",
+            "first_value_initial_samples_ms",
+            _CONTINUOUS_UX_MISSING,
+        ),
+        ("/app/search", "metrics", "first_value_initial_samples_ms", [220.0, 240.0]),
+        ("/app/search", "metrics", "zoom_400_viewport_width", _CONTINUOUS_UX_MISSING),
+        ("/app/search", "metrics", "zoom_400_viewport_width", 321),
+        ("/app/search", "metrics", "zoom_400_scroll_width", _CONTINUOUS_UX_MISSING),
+        ("/app/search", "metrics", "horizontal_overflow", _CONTINUOUS_UX_MISSING),
+        ("/app/search", "metrics", "horizontal_overflow", True),
+        ("/app/search", "metrics", "provider_response_mocked", _CONTINUOUS_UX_MISSING),
+        ("/app/search", "metrics", "provider_response_mocked", True),
+        ("/app/search", "metrics", "request_interception_mode", _CONTINUOUS_UX_MISSING),
+        ("/app/search", "metrics", "route_fulfill_count", _CONTINUOUS_UX_MISSING),
+        ("/app/search", "receipt", "provider_response_mocking", _CONTINUOUS_UX_MISSING),
+    ),
+)
+def test_gold_status_rejects_missing_or_tampered_continuous_ux_raw_evidence(
+    tmp_path: Path,
+    route: str,
+    target: str,
+    field: str,
+    value: object,
+) -> None:
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    generated_at = (now - timedelta(minutes=5)).isoformat()
+    flagship_args = _flagship_customer_ux_receipt_args(
+        tmp_path,
+        generated_at=generated_at,
+    )
+    continuous_path = Path(flagship_args["continuous_ux_receipt_path"])
+    continuous = json.loads(continuous_path.read_text(encoding="utf-8"))
+    row = next(
+        candidate
+        for candidate in continuous["rows"]
+        if candidate["browser_engine"]
+        == gold_status.REQUIRED_CONTINUOUS_UX_FIRST_VALUE_ENGINE
+        and candidate["route"] == route
+    )
+    evidence = (
+        continuous
+        if target == "receipt"
+        else row
+        if target == "row"
+        else row["metrics"]
+    )
+    if value is _CONTINUOUS_UX_MISSING:
+        evidence.pop(field)
+    else:
+        evidence[field] = value
+    _write_json(continuous_path, continuous)
+
+    receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(tmp_path, generated_at=generated_at),
+        **flagship_args,
+        readiness_profile="flagship",
+        max_receipt_age_hours=1,
+        now=now,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["continuous_ux"]["flagship_proof_ok"] is False
 
 
 def test_gold_status_blocks_slo_evidence_older_than_fifteen_minutes_even_with_looser_input(

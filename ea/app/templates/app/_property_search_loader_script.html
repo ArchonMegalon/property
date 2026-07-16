@@ -9,6 +9,15 @@
   const eagerWorkbenchSurface = Boolean((surface && surface !== 'search') || eagerWorkbenchRoute);
   const urlParams = new URLSearchParams(window.location.search);
   const deferredSavedSearchIntent = Boolean(String(urlParams.get('load_agent') || urlParams.get('run_agent') || '').trim());
+  const networkState = root.querySelector('[data-pq-network-state]');
+  const syncNetworkState = () => {
+    const offline = navigator.onLine === false;
+    root.dataset.pqNetwork = offline ? 'offline' : 'online';
+    if (networkState) networkState.hidden = !offline;
+  };
+  window.addEventListener('offline', syncNetworkState);
+  window.addEventListener('online', syncNetworkState);
+  syncNetworkState();
 
   let loadPromise = null;
   const actionSelector = [

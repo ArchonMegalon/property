@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from scripts import propertyquarry_accessibility_gate as gate
 
 
 ROOT = Path(__file__).resolve().parents[1]
+_MISSING = object()
 
 
 def _axe_input(tmp_path: Path) -> Path:
@@ -30,6 +33,11 @@ def _passing_metrics(*, engine: str, dialog_applicable: bool) -> dict[str, objec
         "live_progress_semantics_valid": True,
         "zoom_percent": 200,
         "reflow_without_horizontal_scroll": True,
+        "zoom_400_percent": 400,
+        "zoom_400_viewport_width": 320,
+        "zoom_400_scroll_width": 320,
+        "zoom_400_reflow_without_horizontal_scroll": True,
+        "zoom_400_clipped_interactive_count": 0,
         "contrast_violation_count": 0,
         "contrast_incomplete_count": 0,
         "reduced_motion_media_matches": True,
@@ -153,6 +161,8 @@ def test_accessibility_metrics_fail_serious_axe_contrast_reflow_and_motion() -> 
             "axe_serious_critical_count": 2,
             "contrast_violation_count": 1,
             "reflow_without_horizontal_scroll": False,
+            "zoom_400_reflow_without_horizontal_scroll": False,
+            "zoom_400_clipped_interactive_count": 1,
             "active_motion_count": 1,
         }
     )
@@ -165,9 +175,39 @@ def test_accessibility_metrics_fail_serious_axe_contrast_reflow_and_motion() -> 
     assert failed == {
         "axe_no_serious_or_critical_violations",
         "zoom_200_reflow",
+        "zoom_400_reflow",
         "contrast_signals_clear",
         "reduced_motion_honored",
     }
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("zoom_400_viewport_width", _MISSING),
+        ("zoom_400_viewport_width", 319),
+        ("zoom_400_scroll_width", _MISSING),
+        ("zoom_400_scroll_width", 0),
+        ("zoom_400_scroll_width", 323),
+    ),
+)
+def test_accessibility_400_percent_reflow_requires_observed_320px_geometry(
+    field: str,
+    value: object,
+) -> None:
+    metrics = _passing_metrics(engine="chromium", dialog_applicable=True)
+    if value is _MISSING:
+        metrics.pop(field)
+    else:
+        metrics[field] = value
+
+    failed = {
+        check["name"]
+        for check in gate.evaluate_accessibility_metrics(metrics)
+        if check["ok"] is not True
+    }
+
+    assert "zoom_400_reflow" in failed
 
 
 def test_accessibility_gate_is_wired_to_narrow_ci_and_protected_release() -> None:
