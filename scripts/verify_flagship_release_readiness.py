@@ -121,13 +121,19 @@ def verify(
 
     receipt_status = str(receipt.get("status") or "").strip().lower()
     browser_status = str(browser.get("status") or browser.get("receipt_status") or "").strip().lower()
+    release_health_payload = dict(pulse.get("release_health") or {})
+    flagship_readiness_payload = dict(pulse.get("flagship_readiness") or {})
     release_health = _state(pulse, "release_health")
     flagship_readiness = _state(pulse, "flagship_readiness")
     journey_health = _state(pulse, "journey_gate_health")
-    launch_readiness = str(dict(pulse.get("supporting_signals") or {}).get("launch_readiness") or "").strip()
-    journey_state = str(journey_summary.get("overall_state") or "").strip().lower()
-    blocked_count = int(journey_summary.get("blocked_count") or 0)
+    supporting_signals = dict(pulse.get("supporting_signals") or {})
+    launch_readiness = str(supporting_signals.get("launch_readiness") or "").strip()
     pulse_contract = str(pulse.get("contract_name") or "").strip()
+    pulse_contract_version = int(pulse.get("contract_version") or 0)
+    journey_authority = str(pulse.get("journey_gate_authority") or "").strip()
+    journey_scope = str(pulse.get("journey_gate_scope") or "").strip()
+    receipt_scope = str(receipt.get("readiness_scope") or "").strip()
+    receipt_live_status = str(dict(receipt.get("live_readiness") or {}).get("status") or "").strip()
     release_truth_source = str(
         pulse.get("release_truth_source")
         or dict(pulse.get("supporting_signals") or {}).get("flagship_release_receipt_source")
@@ -153,6 +159,16 @@ def verify(
         issues.append("flagship release receipt product does not match the current gate seed")
     if pulse_contract != "ea.weekly_product_pulse":
         issues.append(f"weekly product pulse contract is {pulse_contract or 'missing'}, expected ea.weekly_product_pulse")
+    if pulse_contract_version != 2:
+        issues.append(f"weekly product pulse version is {pulse_contract_version or 'missing'}, expected 2")
+    if receipt_scope != "source_and_browser_proof":
+        issues.append(
+            f"flagship receipt readiness scope is {receipt_scope or 'missing'}, expected source_and_browser_proof"
+        )
+    if receipt_live_status != "not_evaluated":
+        issues.append(
+            f"flagship receipt live readiness is {receipt_live_status or 'missing'}, expected not_evaluated"
+        )
     if release_truth_source != ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json":
         issues.append(
             "weekly product pulse release truth source is "
@@ -163,18 +179,40 @@ def verify(
             "weekly product pulse scorecard source is "
             f"{scorecard_source}, expected .codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml"
         )
-    if release_health not in {"clear", "ready"}:
-        issues.append(f"weekly release_health is {release_health or 'missing'}, expected clear/ready")
-    if flagship_readiness not in {"clear", "ready"}:
-        issues.append(f"weekly flagship_readiness is {flagship_readiness or 'missing'}, expected clear/ready")
-    if journey_health not in {"ready", "clear"}:
-        issues.append(f"weekly journey_gate_health is {journey_health or 'missing'}, expected ready/clear")
-    if journey_state != "ready":
-        issues.append(f"fleet journey gates are {journey_state or 'missing'}, expected ready")
-    if blocked_count != 0:
-        issues.append(f"fleet journey gates still report {blocked_count} blocked journey(s)")
-    if "hold launch expansion" in launch_readiness.lower():
-        issues.append(f"weekly launch_readiness still blocks expansion: {launch_readiness}")
+    if release_health != "blocked":
+        issues.append(f"weekly release_health is {release_health or 'missing'}, expected fail-closed blocked")
+    if flagship_readiness != "blocked":
+        issues.append(f"weekly flagship_readiness is {flagship_readiness or 'missing'}, expected fail-closed blocked")
+    if str(release_health_payload.get("candidate_state") or "").strip() not in {"clear", "ready"}:
+        issues.append("weekly release_health candidate_state is not clear/ready")
+    if str(flagship_readiness_payload.get("candidate_state") or "").strip() not in {"clear", "ready"}:
+        issues.append("weekly flagship_readiness candidate_state is not clear/ready")
+    for label, payload in (
+        ("release_health", release_health_payload),
+        ("flagship_readiness", flagship_readiness_payload),
+    ):
+        if str(payload.get("production_launch_state") or "").strip() != "blocked":
+            issues.append(f"weekly {label} production_launch_state must remain blocked")
+        if str(payload.get("reported_live_readiness_state") or "").strip() != "not_passed":
+            issues.append(f"weekly {label} reported_live_readiness_state must remain not_passed")
+    if journey_health not in {"ready", "clear", "blocked", "watch", "warning"}:
+        issues.append(f"weekly journey_gate_health is {journey_health or 'missing'}, expected an explicit state")
+    if journey_authority != "non_authoritative_for_propertyquarry_launch":
+        issues.append("weekly journey gate is not explicitly non-authoritative for PropertyQuarry launch")
+    if journey_scope != "supporting_external_fleet_context":
+        issues.append("weekly journey gate is not scoped to supporting external Fleet context")
+    if supporting_signals.get("overall_progress_percent") is not None:
+        issues.append("weekly overall_progress_percent must remain unevaluated for production launch")
+    if supporting_signals.get("overall_progress_status") != "production_launch_progress_not_evaluated":
+        issues.append("weekly overall progress lacks the production-launch not-evaluated status")
+    if pulse.get("design_drift_count") is not None or pulse.get("public_promise_drift_count") is not None:
+        issues.append("weekly unmeasured drift counts must remain null")
+    if pulse.get("drift_count_status") != "not_evaluated":
+        issues.append("weekly drift count status is not_evaluated")
+    if pulse.get("oldest_blocker_days") is not None or pulse.get("oldest_blocker_days_status") != "not_evaluated":
+        issues.append("weekly oldest blocker age must remain explicitly not_evaluated")
+    if "hold production launch" not in launch_readiness.lower():
+        issues.append("weekly launch_readiness does not explicitly hold production launch")
     if ".codex-design/ea/*" not in implementation_scope:
         issues.append("implementation scope no longer requires mirrored .codex-design/ea/* canon")
     if "EA product surface canon under `.codex-design/ea/*`" not in implementation_scope:
@@ -197,7 +235,7 @@ def verify(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Fail closed unless PropertyQuarry flagship release readiness is genuinely clear."
+        description="Fail closed unless PropertyQuarry source/browser candidate readiness is clear and production remains held."
     )
     parser.add_argument("--pulse", type=Path, default=DEFAULT_PULSE)
     parser.add_argument("--flagship-receipt", type=Path, default=DEFAULT_FLAGSHIP_RECEIPT)
@@ -220,7 +258,13 @@ def main() -> int:
         return 1
     print(
         json.dumps(
-            {"status": "pass", "message": "PropertyQuarry flagship release readiness is clear."},
+            {
+                "status": "pass",
+                "message": (
+                    "PropertyQuarry source/browser candidate readiness is clear; "
+                    "production remains blocked pending protected live evidence."
+                ),
+            },
             indent=2,
         )
     )

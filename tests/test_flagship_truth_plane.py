@@ -3,12 +3,16 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from scripts.verify_flagship_release_readiness import verify as verify_flagship_candidate
+
 
 ROOT = Path(__file__).resolve().parents[1]
 GATE_PATH = ROOT / ".codex-design" / "repo" / "EA_FLAGSHIP_RELEASE_GATE.json"
 TRUTH_PLANE_PATH = ROOT / ".codex-design" / "repo" / "EA_FLAGSHIP_TRUTH_PLANE.md"
 IMPLEMENTATION_SCOPE_PATH = ROOT / ".codex-design" / "repo" / "IMPLEMENTATION_SCOPE.md"
 GENERATED_GATE_PATH = ROOT / ".codex-design" / "product" / "EA_FLAGSHIP_RELEASE_GATE.generated.json"
+PULSE_PATH = ROOT / ".codex-design" / "product" / "WEEKLY_PRODUCT_PULSE.generated.json"
+BROWSER_PROOF_PATH = ROOT / ".codex-studio" / "published" / "EA_BROWSER_WORKFLOW_PROOF.generated.json"
 RELEASE_CHECKLIST_PATH = ROOT / "RELEASE_CHECKLIST.md"
 PRODUCT_RELEASE_CHECKLIST_PATH = ROOT / "PRODUCT_RELEASE_CHECKLIST.md"
 README_PATH = ROOT / "README.md"
@@ -25,6 +29,20 @@ REQUIRED_JOURNEY_IDS = [
     "feedback",
     "notifications",
 ]
+
+
+def _verify_pulse(tmp_path: Path, pulse: dict[str, object]) -> list[str]:
+    pulse_path = tmp_path / "pulse.json"
+    pulse_path.write_text(json.dumps(pulse, indent=2) + "\n", encoding="utf-8")
+    return verify_flagship_candidate(
+        pulse_path=pulse_path,
+        flagship_receipt_path=GENERATED_GATE_PATH,
+        browser_proof_path=BROWSER_PROOF_PATH,
+        journey_gates_path=Path(str(pulse["journey_gate_source"])),
+        flagship_seed_path=GATE_PATH,
+        implementation_scope_path=IMPLEMENTATION_SCOPE_PATH,
+        required_contract_paths=(),
+    )
 
 
 def test_flagship_truth_plane_seed_points_at_browser_workflow_proof() -> None:
@@ -174,3 +192,38 @@ def test_release_asset_verifier_binds_generated_receipts_to_current_propertyquar
     assert '"authority": "_completion/property_gold_status/release-gate.json"' in verifier
     assert '"required_profile": "launch"' in verifier
     assert '"docs/PROPERTYQUARRY_RELEASE_MANIFEST.md",' in verifier
+
+
+def test_flagship_candidate_verifier_accepts_v2_fail_closed_truth(tmp_path: Path) -> None:
+    pulse = json.loads(PULSE_PATH.read_text(encoding="utf-8"))
+
+    assert _verify_pulse(tmp_path, pulse) == []
+
+    pulse["journey_gate_health"]["state"] = "blocked"
+    pulse["journey_gate_health"]["blocked_count"] = 99
+    assert _verify_pulse(tmp_path, pulse) == []
+
+
+def test_flagship_candidate_verifier_rejects_legacy_production_overclaims(tmp_path: Path) -> None:
+    baseline = json.loads(PULSE_PATH.read_text(encoding="utf-8"))
+    mutations = [
+        ("legacy contract", lambda pulse: pulse.__setitem__("contract_version", 1)),
+        ("clear generic release state", lambda pulse: pulse["release_health"].__setitem__("state", "clear")),
+        ("clear generic flagship state", lambda pulse: pulse["flagship_readiness"].__setitem__("state", "clear")),
+        (
+            "generic fleet-derived progress",
+            lambda pulse: pulse["supporting_signals"].__setitem__("overall_progress_percent", 100),
+        ),
+        ("unmeasured drift zero", lambda pulse: pulse.__setitem__("design_drift_count", 0)),
+        (
+            "unvalidated live pass",
+            lambda pulse: pulse["release_health"].__setitem__(
+                "reported_live_readiness_state", "pass_unverified"
+            ),
+        ),
+    ]
+
+    for label, mutate in mutations:
+        pulse = json.loads(json.dumps(baseline))
+        mutate(pulse)
+        assert _verify_pulse(tmp_path, pulse), label
