@@ -269,6 +269,9 @@ def test_activation_workflow_is_contract_only_by_default_and_live_only_by_explic
     live_job = source.split("  propertyquarry-live-activation-to-value:", 1)[1].split(
         "  smoke-runtime-postgres:", 1
     )[0]
+    live_release_job = source.split("  propertyquarry-live-release-gates:", 1)[1].split(
+        "  propertyquarry-live-activation-to-value:", 1
+    )[0]
 
     assert "tests/test_propertyquarry_activation_to_value_live.py" in contract_job
     assert "PROPERTYQUARRY_ACTIVATION_PERSONA_EMAIL" not in contract_job
@@ -284,4 +287,5 @@ def test_activation_workflow_is_contract_only_by_default_and_live_only_by_explic
     assert "X-EA-Principal-ID" not in live_job
     assert "PROPERTYQUARRY_LIVE_PRINCIPAL_ID" not in live_job
     assert "  propertyquarry-flagship-security:" in source
-    assert "  propertyquarry-live-release-gates:\n    needs: propertyquarry-flagship-security" in source
+    assert "propertyquarry-flagship-security" in live_release_job
+    assert "propertyquarry-continuous-ux" in live_release_job
