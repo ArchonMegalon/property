@@ -23,6 +23,7 @@ The latest live recheck on 2026-06-27 supersedes the earlier provisional Brillia
 - The 2026-07-01 live proof-copy polish deploy removed the default score-guide block, duplicate score explanation cards, visible proof-style selected-property badges, and stale proof-heavy public-tour/dossier/PDF fallback wording.
 - The later 2026-07-01 minimal-copy deploy tightened the packet dashboard, workbench research tasks, save feedback, and public-tour language again: visible `Analytics`, `Engagement`, `Next best action`, `Share state`, `Reviewed feedback`, `Optimization recommendations`, `Saved durably`, and `Watch-outs` labels were replaced with calmer customer-facing labels such as `Views`, `Replies`, `Next step`, `Responses`, `Page ideas`, `Saved`, and `Check first`.
 - The current 2026-07-16 runtime candidate adds a supplemental isolated-loopback continuous UX gate across Chromium, Firefox, and WebKit; it verifies decoded visible images, structural layout, exact routes, loading and offline/recovery semantics, 400% reflow, and a bounded three-sample Chromium first-value budget without claiming deployed or production proof. The protected live workflow now consumes this candidate-bound receipt and uses the manifest runtime SHA for provenance instead of the manifest-only commit.
+- The 2026-07-16 release-evidence closeout candidate makes that two-commit binding explicit across protected security and live verification: security scans bind to the manifest runtime SHA, the GitHub workflow head remains a separate envelope identity, and protected live verification retains its runtime/head binding plus all six production receipts as a 30-day artifact. The standalone product and operator checklists now describe the PropertyQuarry search-to-decision loop instead of inherited Executive Assistant office workflows.
 
 That means the billing account lane still requires a second vendor login even though the first-party billing host and redirect contract are now correct. Any earlier receipt lines claiming `billing_handoff.account_handoff_usable=true` should be treated as stale; the refreshed gold receipts keep `billing_handoff.status=ready` while recording the separate-login limitation explicitly.
 
@@ -37,7 +38,7 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `619682ead31099b88778c385edda601b2ad9d9b7` |
+| Runtime commit SHA | `e83a6a9b4a524104355ae44edde0fe78b3ce8d23` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
 | Deployment ID | `pending-next-verified-deploy`; current candidate fails optional tour media safely, publishes reconstructed tours through a bounded unprivileged atomic exchange, and verifies browser journeys through explicit user-visible readiness on a reserved branded loopback origin |
@@ -47,6 +48,8 @@ That means the billing account lane still requires a second vendor login even th
 
 The 2026-07-16 continuous UX hardening candidate verified locally:
 
+- Later dual-repository hosted API receipts consistently isolated three deterministic stale release-contract assertions: live provenance expected the workflow envelope SHA, the protected-security dependency assertion assumed a scalar `needs`, and the whole-project manifest assertion required superseded wording. The release-evidence closeout corrects those contracts without relaxing their underlying gates; the focused regression selection returned `7 passed`, and the broader release-security, whole-scope, activation, and checklist selection returned `34 passed`.
+- A previously failed Willhaben target-recovery canary was not reproduced: the current source-discovered canary passed in `403.90s`, matching a later hosted pass, so the provider-sensitive proof remains unchanged and fail-closed.
 - The isolated real-browser receipt passed all `9/9` required route/engine samples with zero failed rows, zero engine failures, exact offline recovery, terminal decoded visible images, and no provider response fulfillment or mocking.
 - Gold independently revalidated the raw receipt metrics and candidate binding with no contract errors, failed rows, or missing samples; producer-owned pass booleans alone are insufficient.
 - `pytest -q tests/test_propertyquarry_continuous_ux_gate.py tests/test_propertyquarry_accessibility_gate.py tests/test_propertyquarry_gold_status.py` returned `181 passed`.
