@@ -15,6 +15,7 @@ PropertyQuarry is a standalone product runtime, not a Fleet control plane and no
 The approved local Chummer design mirror under `.codex-design/product/*` supplies cross-repo context only; it does not make PropertyQuarry an owner of Chummer canon.
 The inherited EA product surface canon under `.codex-design/ea/*` remains a bounded input to the current release truth plane for navigation, interaction, copy, accessibility, and operator-governance standards.
 PropertyQuarry must consume mirrored `.codex-design/ea/*` material downstream and must not use it as evidence for Executive Assistant core eligibility.
+The mirrored `.codex-design/review/REVIEW_CONTEXT.md` is the upstream Executive Assistant review checklist. It applies when changing inherited EA mirror material, but it is not PropertyQuarry product canon or local release authority.
 
 That means:
 

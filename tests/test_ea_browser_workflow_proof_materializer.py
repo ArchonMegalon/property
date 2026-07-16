@@ -90,7 +90,10 @@ def _journey_evidence_matrix() -> dict[str, object]:
                     },
                     {
                         "file": browser_file,
-                        "cases": ["test_propertyquarry_greenfield_workspace_is_mobile_usable"],
+                        "cases": [
+                            "test_propertyquarry_greenfield_workspace_is_mobile_usable",
+                            "test_propertyquarry_workbench_candidate_history_stays_in_place",
+                        ],
                     },
                 ],
                 "live_requirement": {
@@ -152,7 +155,7 @@ def _journey_evidence_matrix() -> dict[str, object]:
             },
             {
                 "journey_id": "notifications",
-                "label": "Alert controls, channel preferences, and external delivery",
+                "label": "Alert controls, channel preferences, and external Telegram delivery",
                 "evidence_sources": [
                     {
                         "file": browser_file,
@@ -525,3 +528,62 @@ def test_browser_workflow_proof_current_blocked_receipt_replaces_published_pass_
 
     assert browser_proof_materializer.main() == 0
     assert json.loads(output.read_text(encoding="utf-8")) == blocked
+
+
+def test_browser_workflow_proof_stable_write_ignores_runner_local_metadata_but_keeps_source_identity(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "browser-proof.json"
+    source_binding = {
+        "version": 1,
+        "code_commit": "a" * 40,
+        "seed": {
+            "path": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
+            "git_blob_oid": "b" * 40,
+        },
+        "required_test_sources": [
+            {
+                "path": "tests/test_propertyquarry_workspace_redesign.py",
+                "git_blob_oid": "c" * 40,
+            }
+        ],
+    }
+    local = {
+        "contract_name": "ea.browser_workflow_proof",
+        "generated_at": "2026-07-16T10:00:00Z",
+        "status": "pass",
+        "source_binding": source_binding,
+        "source_backed_journey_proof": {
+            "status": "pass",
+            "command": "/usr/bin/python3 -m pytest -q tests/example.py::test_example",
+            "cwd": "/tmp/propertyquarry-local",
+            "python_bin": "/usr/bin/python3",
+            "duration_seconds": 10.25,
+            "output_excerpt": ["1 passed in 10.00s"],
+            "exit_code": 0,
+        },
+    }
+    output.write_text(json.dumps(local, indent=2) + "\n", encoding="utf-8")
+    original_bytes = output.read_bytes()
+
+    hosted = json.loads(json.dumps(local))
+    hosted["generated_at"] = "2026-07-16T11:00:00Z"
+    hosted_lane = hosted["source_backed_journey_proof"]
+    hosted_lane["command"] = "/opt/hostedtoolcache/Python/3.12/bin/python -m pytest -q tests/example.py::test_example"
+    hosted_lane["cwd"] = "/home/runner/work/property/property"
+    hosted_lane["python_bin"] = "/opt/hostedtoolcache/Python/3.12/bin/python"
+    hosted_lane["duration_seconds"] = 1.5
+    hosted_lane["output_excerpt"] = ["1 passed in 1.00s"]
+
+    browser_proof_materializer._write_json_stable(output, hosted)
+
+    assert output.read_bytes() == original_bytes
+
+    hosted["source_binding"]["required_test_sources"][0]["git_blob_oid"] = "d" * 40
+    browser_proof_materializer._write_json_stable(output, hosted)
+
+    assert output.read_bytes() != original_bytes
+    assert (
+        json.loads(output.read_text(encoding="utf-8"))["source_binding"]["required_test_sources"][0]["git_blob_oid"]
+        == "d" * 40
+    )

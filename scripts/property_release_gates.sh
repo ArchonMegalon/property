@@ -480,6 +480,7 @@ PYTHONPATH=ea "${PYTHON_BIN}" -m pytest -q \
   tests/test_property_live_http_security.py \
   tests/test_property_live_presentation_security.py \
   tests/test_property_live_release_provenance.py \
+  tests/test_propertyquarry_live_telegram_delivery.py \
   tests/test_propertyquarry_postgres_dr.py \
   tests/test_property_public_tour_provider_retirement.py \
   tests/test_property_live_mobile_surface_smoke.py \

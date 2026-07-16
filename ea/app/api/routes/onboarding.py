@@ -428,7 +428,8 @@ def register_start(
     email_delivery_provider = ""
     email_delivery_id = ""
     email_delivery_error = ""
-    if str(os.environ.get("EMAILIT_API_KEY") or "").strip():
+    email_delivery_configured = bool(str(os.environ.get("EMAILIT_API_KEY") or "").strip())
+    if email_delivery_configured:
         try:
             receipt = send_registration_email(
                 recipient_email=email,
@@ -446,7 +447,7 @@ def register_start(
                 actor=email,
                 metadata={"email": email},
             )
-        except RuntimeError as exc:
+        except Exception as exc:
             email_delivery_status = "failed"
             email_delivery_error = str(exc) or "registration_email_send_failed"
             product.record_surface_event(
@@ -454,13 +455,19 @@ def register_start(
                 event_type="registration_email_failed",
                 surface="register_start",
                 actor=email,
-                metadata={"email": email, "error": email_delivery_error},
+                metadata={
+                    "email": email,
+                    "error": type(exc).__name__ if runtime_mode == "prod" else email_delivery_error,
+                },
             )
+    if runtime_mode == "prod" and email_delivery_status != "sent":
+        raise HTTPException(status_code=503, detail="registration_email_delivery_unavailable")
+    expose_local_verification = runtime_mode != "prod"
     return RegisterStartOut(
         email=email,
-        verification_token=verification_token,
-        verification_code="" if runtime_mode == "prod" else verification_code,
-        magic_link_url=magic_link_url,
+        verification_token=verification_token if expose_local_verification else "",
+        verification_code=verification_code if expose_local_verification else "",
+        magic_link_url=magic_link_url if expose_local_verification else "",
         expires_at=expires_at,
         workspace_name=_workspace_name_from_email(email),
         suggested_timezone=default_timezone_for_country("AT"),
@@ -468,7 +475,7 @@ def register_start(
         email_delivery_status=email_delivery_status,
         email_delivery_provider=email_delivery_provider,
         email_delivery_id=email_delivery_id,
-        email_delivery_error=email_delivery_error,
+        email_delivery_error=email_delivery_error if expose_local_verification else "",
     )
 
 

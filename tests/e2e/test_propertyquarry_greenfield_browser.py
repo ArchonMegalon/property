@@ -1724,7 +1724,7 @@ def test_propertyquarry_greenfield_workspace_in_real_browser(
         family_row = page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").first
         selected_candidate_ref = str(family_row.get_attribute("data-candidate-ref") or "").strip()
         assert selected_candidate_ref
-        family_row.locator(".pqx-result-title").click()
+        family_row.click()
         selected_panel = page.get_by_role("region", name="Selected property")
         expect(selected_panel.locator("[data-pw-title]")).to_contain_text("Family flat near Tiergarten")
         before_parts = urllib.parse.urlsplit(before_url)
@@ -10106,6 +10106,71 @@ def test_propertyquarry_packet_dashboard_supports_real_browser_share_and_replica
             assert page.frame_locator("iframe").locator("body", has_text=cta_text).is_visible()
     finally:
         context.close()
+
+
+def test_propertyquarry_workbench_candidate_history_stays_in_place(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    route = f"{base_url}/app/shortlist?run_id=run-42&full=1"
+
+    desktop_context = _new_context(browser, mobile=False)
+    desktop_page: Page = desktop_context.new_page()
+    try:
+        response = desktop_page.goto(route, wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        expect(desktop_page.locator("[data-property-decision-workbench]")).to_be_visible()
+        initial_path = urllib.parse.urlparse(desktop_page.url).path
+        initial_navigation_count = desktop_page.evaluate("performance.getEntriesByType('navigation').length")
+        assert initial_path == "/app/shortlist"
+        assert initial_navigation_count == 1
+
+        family_row = desktop_page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").first
+        loft_row = desktop_page.locator("[data-workbench-row]", has_text="Listing URL only loft").first
+        family_ref = family_row.get_attribute("data-candidate-ref")
+        loft_ref = loft_row.get_attribute("data-candidate-ref")
+        assert family_ref
+        assert loft_ref
+
+        family_row.locator(".pqx-result-title").click()
+        expect(desktop_page.locator("[data-pw-title]").first).to_have_text("Family flat near Tiergarten")
+        assert urllib.parse.urlparse(desktop_page.url).path == initial_path
+        assert urllib.parse.parse_qs(urllib.parse.urlparse(desktop_page.url).query)["candidate"] == [family_ref]
+
+        loft_row.click()
+        expect(desktop_page.locator("[data-pw-title]").first).to_have_text("Listing URL only loft")
+        assert urllib.parse.urlparse(desktop_page.url).path == initial_path
+        assert urllib.parse.parse_qs(urllib.parse.urlparse(desktop_page.url).query)["candidate"] == [loft_ref]
+
+        desktop_page.go_back()
+        expect(desktop_page.locator("[data-pw-title]").first).to_have_text("Family flat near Tiergarten")
+        assert urllib.parse.parse_qs(urllib.parse.urlparse(desktop_page.url).query)["candidate"] == [family_ref]
+        desktop_page.go_forward()
+        expect(desktop_page.locator("[data-pw-title]").first).to_have_text("Listing URL only loft")
+        assert urllib.parse.parse_qs(urllib.parse.urlparse(desktop_page.url).query)["candidate"] == [loft_ref]
+        assert desktop_page.evaluate("performance.getEntriesByType('navigation').length") == initial_navigation_count
+        desktop_page.reload(wait_until="domcontentloaded")
+        expect(desktop_page.locator("[data-pw-title]").first).to_have_text("Listing URL only loft")
+        assert urllib.parse.parse_qs(urllib.parse.urlparse(desktop_page.url).query)["candidate"] == [loft_ref]
+    finally:
+        desktop_context.close()
+
+    mobile_context = _new_context(browser, mobile=True)
+    mobile_page: Page = mobile_context.new_page()
+    try:
+        response = mobile_page.goto(route, wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        family_row = mobile_page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").first
+        family_ref = family_row.get_attribute("data-candidate-ref")
+        assert family_ref
+        family_row.locator(".pqx-result-title").click()
+        expect(mobile_page.locator("[data-pw-title]").first).to_have_text("Family flat near Tiergarten")
+        assert urllib.parse.urlparse(mobile_page.url).path == "/app/shortlist"
+        assert urllib.parse.parse_qs(urllib.parse.urlparse(mobile_page.url).query)["candidate"] == [family_ref]
+        assert mobile_page.evaluate("performance.getEntriesByType('navigation').length") == 1
+    finally:
+        mobile_context.close()
 
 
 def test_propertyquarry_flagship_operating_loop_in_browser(

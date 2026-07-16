@@ -137,6 +137,7 @@ def test_weekly_product_pulse_materializer_uses_current_receipt_product_label(tm
     assert pulse["journey_gate_provenance"]["sha256"]
     assert pulse["journey_gate_scope"] == "supporting_external_fleet_context"
     assert pulse["journey_gate_authority"] == "non_authoritative_for_propertyquarry_launch"
+    assert pulse["journey_gate_snapshot_policy"] == "carry_forward_committed_snapshot_only"
     assert pulse["release_health"]["state"] == "blocked"
     assert pulse["release_health"]["scope"] == "production_launch"
     assert pulse["release_health"]["candidate_state"] == "watch"
@@ -161,6 +162,159 @@ def test_weekly_product_pulse_materializer_uses_current_receipt_product_label(tm
     assert pulse["drift_count_status"] == "not_evaluated"
     assert pulse["governor_decisions"]
     assert len(pulse["governor_decisions"]) == 2
+
+
+@pytest.mark.parametrize(
+    ("state", "blocked", "warning", "ready", "total", "ready_share"),
+    [
+        ("ready", 0, 0, 6, 6, 100),
+        ("blocked", 6, 0, 0, 6, 0),
+    ],
+)
+def test_weekly_product_pulse_missing_external_source_carries_only_explicit_committed_snapshot(
+    tmp_path: Path,
+    state: str,
+    blocked: int,
+    warning: int,
+    ready: int,
+    total: int,
+    ready_share: int,
+) -> None:
+    module = _load_materializer_module()
+    output = tmp_path / module.DEFAULT_OUTPUT
+    output.parent.mkdir(parents=True, exist_ok=True)
+    provenance = {
+        "source_path": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
+        "present": True,
+        "sha256": "a" * 64,
+        "git_head": "b" * 40,
+    }
+    existing = {
+        "journey_gate_source": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
+        "journey_gate_provenance": provenance,
+        "journey_gate_health": {
+            "state": state,
+            "blocked_count": blocked,
+            "warning_count": warning,
+            "recommended_action": "Keep the external snapshot supporting-only.",
+        },
+        "supporting_signals": {
+            "external_fleet_journey_ready_share_percent": ready_share,
+        },
+        "governor_decisions": [
+            {
+                "cited_signals": [
+                    f"supporting_external_fleet_ready_count={ready}",
+                    f"supporting_external_fleet_total_count={total}",
+                    f"supporting_external_fleet_ready_share={ready_share}",
+                ]
+            }
+        ],
+    }
+    output.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
+
+    carried = module._journey_gate_source(
+        tmp_path,
+        tmp_path / "missing-external-journey-gates.generated.json",
+    )
+
+    assert carried["state"] == state
+    assert carried["blocked"] == blocked
+    assert carried["warning"] == warning
+    assert carried["ready"] == ready
+    assert carried["total"] == total
+    assert carried["ready_share"] == ready_share
+    assert carried["provenance"] == provenance
+
+
+def test_weekly_product_pulse_missing_external_source_cannot_infer_ready_from_total(
+    tmp_path: Path,
+) -> None:
+    module = _load_materializer_module()
+    output = tmp_path / module.DEFAULT_OUTPUT
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(
+        json.dumps(
+            {
+                "journey_gate_provenance": {
+                    "source_path": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
+                    "present": True,
+                    "sha256": "a" * 64,
+                    "git_head": "b" * 40,
+                },
+                "journey_gate_health": {
+                    "state": "ready",
+                    "blocked_count": 0,
+                    "warning_count": 0,
+                },
+                "governor_decisions": [
+                    {"cited_signals": ["supporting_external_fleet_total_count=6"]}
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    carried = module._journey_gate_source(
+        tmp_path,
+        tmp_path / "missing-external-journey-gates.generated.json",
+    )
+
+    assert carried["state"] == "unavailable"
+    assert carried["ready"] == 0
+    assert carried["total"] == 6
+    assert carried["ready_share"] == 0
+
+
+def test_weekly_product_pulse_missing_incomplete_external_snapshot_never_reports_ready(
+    tmp_path: Path,
+) -> None:
+    _seed_truth_sources(tmp_path)
+    module = _load_materializer_module()
+    output = tmp_path / module.DEFAULT_OUTPUT
+    output.write_text(
+        json.dumps(
+            {
+                "journey_gate_health": {
+                    "state": "ready",
+                    "blocked_count": 0,
+                    "warning_count": 0,
+                },
+                "governor_decisions": [
+                    {
+                        "cited_signals": [
+                            "supporting_external_fleet_ready_count=6",
+                            "supporting_external_fleet_total_count=6",
+                            "supporting_external_fleet_ready_share=100",
+                        ]
+                    }
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    pulse = module.build_pulse(
+        tmp_path,
+        scorecard_path=SCORECARD_PATH,
+        journey_gates_path=Path("missing/JOURNEY_GATES.generated.json"),
+        flagship_receipt_path=FLAGSHIP_RECEIPT_PATH,
+    )
+
+    assert pulse["release_health"]["state"] == "blocked"
+    assert pulse["flagship_readiness"]["state"] == "blocked"
+    assert pulse["journey_gate_health"]["state"] == "unavailable"
+    assert pulse["supporting_signals"]["external_fleet_journey_ready_share_percent"] == 0
+    assert "unavailable or incomplete" in pulse["top_support_or_feedback_clusters"][1]["summary"]
+    assert "reports ready" not in pulse["top_support_or_feedback_clusters"][1]["summary"]
+    assert any(
+        "supporting_external_fleet_tuple_coverage=unavailable" in decision["cited_signals"]
+        for decision in pulse["governor_decisions"]
+    )
 
 
 def test_weekly_product_pulse_keeps_allowed_provenance_only_head_change(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -1021,6 +1021,17 @@
         });
       });
     });
+    const pushCandidateQueryParam = (candidateRef = '') => {
+      const normalizedRef = String(candidateRef || '').trim();
+      const url = new URL(window.location.href);
+      if (String(url.searchParams.get('candidate') || '').trim() === normalizedRef) return;
+      if (normalizedRef) url.searchParams.set('candidate', normalizedRef);
+      else url.searchParams.delete('candidate');
+      const currentState = window.history.state && typeof window.history.state === 'object'
+        ? window.history.state
+        : {};
+      window.history.pushState({ ...currentState, propertyquarryCandidate: normalizedRef }, '', url);
+    };
     const selectCandidate = (candidateRef, { updateUrl = true } = {}) => {
       const candidate = candidateByRef.get(String(candidateRef || '')) || candidates[0];
       if (!candidate) return;
@@ -1203,11 +1214,7 @@
       if (topPropertyActionsNode && candidates.length) renderTopPropertyActions(topPropertyActionsNode, candidate);
       loadCandidateFeedbackSuggestions(candidate);
       loadPersistedDecisionState(candidate);
-      if (updateUrl) {
-        const url = new URL(window.location.href);
-        url.searchParams.set('candidate', candidate.candidate_ref || '');
-        window.history.replaceState({}, '', url);
-      }
+      if (updateUrl) pushCandidateQueryParam(candidate.candidate_ref || '');
       if (typeof refreshSelectedCandidatePreview === 'function') {
         window.setTimeout(() => {
           refreshSelectedCandidatePreview(String(candidate.candidate_ref || '').trim());
@@ -1236,6 +1243,10 @@
       });
     }
     bindWorkbenchRows(root);
+    window.addEventListener('popstate', () => {
+      const candidateRef = String(new URL(window.location.href).searchParams.get('candidate') || '').trim();
+      selectCandidate(candidateRef || candidates[0]?.candidate_ref || '', { updateUrl: false });
+    });
     const initialRowsPanel = root.querySelector('[data-workbench-row]')?.closest('[data-pqx-mobile-panel]');
     if (initialRowsPanel) {
       setMode(initialRowsPanel.getAttribute('data-pqx-mobile-panel') || 'results');

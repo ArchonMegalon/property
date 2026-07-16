@@ -37,6 +37,7 @@ REAL_BROWSER_CASES = [
     "test_propertyquarry_greenfield_workspace_in_real_browser",
     "test_propertyquarry_greenfield_workspace_is_mobile_usable",
     "test_propertyquarry_expired_session_next_action_moves_keyboard_focus_to_sign_in_options",
+    "test_propertyquarry_workbench_candidate_history_stays_in_place",
     "test_propertyquarry_flagship_operating_loop_in_browser",
     "test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser",
     "test_propertyquarry_packet_tracks_followup_state_in_browser",
@@ -54,6 +55,26 @@ REQUIRED_JOURNEY_IDS = (
     "notifications",
 )
 PYTEST_OUTCOME_KEYS = ("passed", "failed", "skipped", "errors", "xfailed", "xpassed")
+VOLATILE_EXECUTION_KEYS = frozenset(
+    {
+        "as_of",
+        "command",
+        "created_at",
+        "cwd",
+        "duration_seconds",
+        "generated_at",
+        "git_branch",
+        "git_head",
+        "git_repo_root",
+        "mtime_utc",
+        "python_bin",
+        "resolved_path",
+        "review_due",
+        "sha256",
+        "size_bytes",
+        "source_path",
+    }
+)
 PYTEST_OUTCOME_RE = re.compile(
     r"\b(?P<count>\d+)\s+(?P<outcome>passed|failed|skipped|errors?|xfailed|xpassed)\b",
     re.IGNORECASE,
@@ -96,11 +117,9 @@ def _normalize_release_value(value: Any) -> Any:
     if isinstance(value, dict):
         normalized: dict[str, Any] = {}
         for key, item in value.items():
-            if key in {"generated_at", "created_at", "mtime_utc", "size_bytes", "sha256", "duration_seconds", "git_head"}:
+            if key in VOLATILE_EXECUTION_KEYS:
                 continue
             if key.endswith("_git_head"):
-                continue
-            if key == "review_due":
                 continue
             if key == "output_excerpt":
                 normalized[key] = []

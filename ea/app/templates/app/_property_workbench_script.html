@@ -7400,37 +7400,6 @@
         }
       });
     });
-    root.querySelectorAll('[data-workbench-row]').forEach((row) => {
-      const openRowTarget = () => {
-        const packetUrl = String(row.getAttribute('data-candidate-packet-url') || '').trim();
-        const listingUrl = String(row.getAttribute('data-candidate-listing-url') || '').trim();
-        if (packetUrl) {
-          window.location.href = packetUrl;
-          return;
-        }
-        if (listingUrl) {
-          window.open(listingUrl, '_blank', 'noopener,noreferrer');
-        }
-      };
-      const queueRowTargetOpen = () => {
-        window.requestAnimationFrame(() => {
-          openRowTarget();
-        });
-      };
-      const shouldOpenRowTarget = () => window.matchMedia('(max-width: 760px)').matches;
-      row.addEventListener('click', (event) => {
-        if (!shouldOpenRowTarget()) return;
-        if (event.target?.closest?.('a,button,input,select,textarea,label,summary,[data-tooltip-trigger]')) return;
-        queueRowTargetOpen();
-      });
-      row.addEventListener('keydown', (event) => {
-        if (!shouldOpenRowTarget()) return;
-        if (event.target !== row) return;
-        if (event.key !== 'Enter' && event.key !== ' ') return;
-        event.preventDefault();
-        queueRowTargetOpen();
-      });
-    });
     const transitionTerminalSurfaceToLiveRun = (runPayload) => {
       const terminalSurface = root.querySelector('[data-pqx-empty-results]');
       if (!terminalSurface) return false;

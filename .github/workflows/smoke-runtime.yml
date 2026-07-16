@@ -22,8 +22,8 @@ jobs:
   property-security-posture:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
       - name: Check property security posture
@@ -32,11 +32,11 @@ jobs:
   security-static:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           # Release hygiene audits every commit between the manifest candidate and HEAD.
           fetch-depth: 0
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
       - name: Run local release asset and hygiene checks
@@ -56,7 +56,7 @@ jobs:
       PROPERTYQUARRY_WEB_IMAGE: ${{ vars.PROPERTYQUARRY_WEB_IMAGE }}
       PROPERTYQUARRY_RENDER_IMAGE: ${{ vars.PROPERTYQUARRY_RENDER_IMAGE }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -109,7 +109,7 @@ jobs:
             --receipt "${output_root}/receipt.json"
       - name: Preserve PropertyQuarry security evidence
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: propertyquarry-release-security-${{ github.run_id }}-${{ github.run_attempt }}
           path: _completion/propertyquarry_release_security/${{ github.run_id }}-${{ github.run_attempt }}
@@ -120,10 +120,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
       - name: Install runtime dependencies
@@ -145,10 +145,10 @@ jobs:
       contents: read
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
       - name: Install browser dependencies
@@ -177,10 +177,10 @@ jobs:
       matrix:
         browser-engine: [chromium, firefox, webkit]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
       - name: Install ${{ matrix.browser-engine }} core-journey dependencies
@@ -199,7 +199,32 @@ jobs:
           PROPERTYQUARRY_CORE_BROWSER_ENGINE: ${{ matrix.browser-engine }}
         run: |
           PYTHONPATH=ea EA_STORAGE_BACKEND=memory python -m pytest -q \
+            tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_workbench_candidate_history_stays_in_place \
             tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_flagship_operating_loop_in_browser
+
+  propertyquarry-postgres-browser-e2e:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      EA_API_TOKEN: propertyquarry-postgres-browser-${{ github.run_id }}-${{ github.run_attempt }}
+      POSTGRES_PASSWORD: propertyquarry-browser-${{ github.run_id }}-${{ github.run_attempt }}
+      PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES: "0"
+      PROPERTYQUARRY_RECONSTRUCTION_RENDER_BRIDGE_TOKEN: propertyquarry-browser-render-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+      - name: Install PostgreSQL storage-browser dependencies
+        run: |
+          python -m pip install -r ea/requirements.txt -c ea/requirements.lock httpx==0.28.1 pytest==9.0.2
+          python -m playwright install --with-deps chromium
+      - name: Run production-storage PostgreSQL browser lane
+        run: bash scripts/smoke_property_postgres.sh --browser-e2e
 
   propertyquarry-continuous-ux:
     permissions:
@@ -211,11 +236,11 @@ jobs:
       EA_API_TOKEN: propertyquarry-continuous-ux-${{ github.run_id }}-${{ github.run_attempt }}
       PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
       - name: Bind UX evidence to the manifest runtime candidate
@@ -289,7 +314,7 @@ jobs:
             --write "${receipt}"
       - name: Preserve isolated continuous UX evidence
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: propertyquarry-continuous-ux-${{ github.sha }}
           path: _completion/smoke/propertyquarry-continuous-ux-${{ github.sha }}.json
@@ -301,10 +326,10 @@ jobs:
       contents: read
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
       - name: Install accessibility contract dependencies
@@ -323,10 +348,10 @@ jobs:
       contents: read
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
       - name: Install failure-state contract dependencies
@@ -345,10 +370,10 @@ jobs:
       contents: read
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
       - name: Install activation contract dependencies
@@ -378,18 +403,18 @@ jobs:
       PROPERTYQUARRY_CONTINUOUS_UX_RECEIPT: _completion/smoke/propertyquarry-continuous-ux-${{ github.sha }}.json
       PROPERTYQUARRY_WORKFLOW_HEAD_SHA: ${{ github.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
       - name: Restore candidate-bound continuous UX evidence
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: propertyquarry-continuous-ux-${{ github.sha }}
           path: _completion/smoke
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "20"
       - name: Install release gate dependencies
@@ -459,13 +484,15 @@ jobs:
           EA_API_TOKEN: ${{ secrets.PROPERTYQUARRY_LIVE_API_TOKEN }}
           PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE: ${{ secrets.PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE }}
           PROPERTYQUARRY_LIVE_PRINCIPAL_ID: ${{ secrets.PROPERTYQUARRY_LIVE_PRINCIPAL_ID }}
+          PROPERTYQUARRY_LIVE_TELEGRAM_BOT_TOKEN: ${{ secrets.PROPERTYQUARRY_LIVE_TELEGRAM_BOT_TOKEN }}
+          PROPERTYQUARRY_LIVE_TELEGRAM_CHAT_ID: ${{ secrets.PROPERTYQUARRY_LIVE_TELEGRAM_CHAT_ID }}
           PROPERTYQUARRY_EXPECTED_RELEASE_BRANCH: main
           PROPERTYQUARRY_LIVE_MOBILE_REQUIRED_BROWSER_ENGINES: chromium,firefox,webkit
           PROPERTYQUARRY_AXE_CORE_PATH: node_modules/axe-core/axe.min.js
         run: bash scripts/propertyquarry_live_release_gates.sh
       - name: Preserve protected PropertyQuarry live release evidence
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: propertyquarry-live-release-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
@@ -476,6 +503,7 @@ jobs:
             _completion/smoke/property-live-map-preview-flagship-release-gate.json
             _completion/smoke/property-live-public-release-gate.json
             _completion/smoke/property-live-authenticated-release-gate.json
+            _completion/smoke/property-live-notification-delivery.json
           if-no-files-found: error
           retention-days: 30
 
@@ -512,10 +540,10 @@ jobs:
       PROPERTYQUARRY_ACTIVATION_IMAP_USERNAME: ${{ secrets.PROPERTYQUARRY_ACTIVATION_IMAP_USERNAME }}
       PROPERTYQUARRY_ACTIVATION_IMAP_PASSWORD: ${{ secrets.PROPERTYQUARRY_ACTIVATION_IMAP_PASSWORD }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
       - name: Require protected activation inputs
@@ -547,7 +575,7 @@ jobs:
           esac
       - name: Restore activation idempotency marker
         id: activation-state
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: _completion/activation_to_value/run-state.json
           key: propertyquarry-activation-${{ inputs.activation_run_key }}
@@ -563,13 +591,13 @@ jobs:
             --write "_completion/smoke/property-live-activation-to-value-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
       - name: Preserve activation idempotency marker
         if: ${{ always() && steps.activation-state.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: _completion/activation_to_value/run-state.json
           key: propertyquarry-activation-${{ inputs.activation_run_key }}
       - name: Preserve protected activation receipt
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: propertyquarry-live-activation-${{ github.run_id }}-${{ github.run_attempt }}
           path: _completion/smoke/property-live-activation-to-value-*.json
@@ -582,7 +610,7 @@ jobs:
       EA_API_TOKEN: propertyquarry-ci-compose-only-${{ github.run_id }}
       POSTGRES_PASSWORD: propertyquarry-ci-${{ github.run_id }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Prepare external smoke volume
         run: docker volume create property_propertyquarry_public_tours >/dev/null
       - name: Run Postgres runtime smoke
@@ -596,8 +624,8 @@ jobs:
       EA_API_TOKEN: propertyquarry-ci-compose-only-${{ github.run_id }}
       POSTGRES_PASSWORD: propertyquarry-ci-${{ github.run_id }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
       - name: Install Postgres contract dependencies

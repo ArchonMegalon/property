@@ -16,6 +16,8 @@ live_base_url="${PROPERTYQUARRY_LIVE_MOBILE_BASE_URL:-${PROPERTYQUARRY_LIVE_SMOK
 research_detail_route="${PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE:-}"
 live_principal_id="${PROPERTYQUARRY_LIVE_PRINCIPAL_ID:-}"
 expected_release_commit_sha="${PROPERTYQUARRY_EXPECTED_RELEASE_COMMIT_SHA:-}"
+live_telegram_bot_token="${PROPERTYQUARRY_LIVE_TELEGRAM_BOT_TOKEN:-}"
+live_telegram_chat_id="${PROPERTYQUARRY_LIVE_TELEGRAM_CHAT_ID:-}"
 
 if [[ -z "${live_base_url}" ]]; then
   echo "error: set PROPERTYQUARRY_LIVE_MOBILE_BASE_URL or PROPERTYQUARRY_LIVE_SMOKE_BASE_URL" >&2
@@ -35,6 +37,14 @@ if [[ -z "${EA_API_TOKEN:-}" ]]; then
 fi
 if ! [[ "${expected_release_commit_sha}" =~ ^[0-9a-fA-F]{40}$ ]]; then
   echo "error: set PROPERTYQUARRY_EXPECTED_RELEASE_COMMIT_SHA to the manifest runtime full Git commit SHA" >&2
+  exit 2
+fi
+if [[ -z "${live_telegram_bot_token}" ]]; then
+  echo "error: set PROPERTYQUARRY_LIVE_TELEGRAM_BOT_TOKEN for protected notification proof" >&2
+  exit 2
+fi
+if [[ -z "${live_telegram_chat_id}" ]]; then
+  echo "error: set PROPERTYQUARRY_LIVE_TELEGRAM_CHAT_ID for protected notification proof" >&2
   exit 2
 fi
 
@@ -80,4 +90,8 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_live_authenticated_smoke.py
   --principal-id "${live_principal_id}" \
   --expected-plan-label "${PROPERTYQUARRY_LIVE_SMOKE_PLAN_LABEL:-Free}" \
   --write _completion/smoke/property-live-authenticated-release-gate.json \
+  > /dev/null
+PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_live_telegram_delivery.py \
+  --release-commit-sha "${expected_release_commit_sha}" \
+  --write _completion/smoke/property-live-notification-delivery.json \
   > /dev/null

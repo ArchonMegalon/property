@@ -222,7 +222,24 @@ def _receipt_product_label(receipt: dict[str, Any]) -> str:
     }.get(normalized, product)
 
 
-def _existing_cited_signal_int(existing: dict[str, Any], signal_name: str, *, fallback: int = 0) -> int:
+def _optional_int(value: object) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _first_int(*values: object, fallback: int = 0) -> int:
+    for value in values:
+        parsed = _optional_int(value)
+        if parsed is not None:
+            return parsed
+    return fallback
+
+
+def _existing_cited_signal_int(existing: dict[str, Any], signal_name: str) -> int | None:
     prefix = f"{signal_name}="
     signal_sources = [
         existing.get("governor_decisions") or [],
@@ -240,7 +257,7 @@ def _existing_cited_signal_int(existing: dict[str, Any], signal_name: str, *, fa
                     return int(signal_text[len(prefix) :])
                 except ValueError:
                     continue
-    return fallback
+    return None
 
 
 def _resolve_for_read(root: Path, path: Path) -> Path:
@@ -319,31 +336,59 @@ def _journey_gate_source(root: Path, journey_path: Path) -> dict[str, Any]:
         existing_provenance = dict(existing.get("journey_gate_provenance") or {})
         if existing_health or existing_provenance:
             existing_signals = dict(existing.get("supporting_signals") or {})
-            blocked = int(existing_health.get("blocked_count") or 0)
-            warning = int(existing_health.get("warning_count") or 0)
+            blocked = _first_int(existing_health.get("blocked_count"))
+            warning = _first_int(existing_health.get("warning_count"))
             state = str(existing_health.get("state") or "missing").strip() or "missing"
             recommended_action = _compact(
                 existing_health.get("recommended_action") or existing_health.get("reason") or "",
                 fallback="Journey-gate posture is preserved from the last committed external snapshot.",
             )
-            total = int(
-                existing_health.get("total_count")
-                or _existing_cited_signal_int(existing, "journey_gate_total_count")
-                or blocked
+            ready_hint = _first_int(
+                existing_health.get("ready_count"),
+                _existing_cited_signal_int(existing, "supporting_external_fleet_ready_count"),
+                _existing_cited_signal_int(existing, "journey_gate_ready_count"),
+                fallback=0,
             )
-            ready = int(
-                existing_health.get("ready_count")
-                or _existing_cited_signal_int(existing, "journey_gate_ready_count")
-                or max(total - blocked - warning, 0)
+            total = _first_int(
+                existing_health.get("total_count"),
+                _existing_cited_signal_int(existing, "supporting_external_fleet_total_count"),
+                _existing_cited_signal_int(existing, "journey_gate_total_count"),
+                fallback=ready_hint + blocked + warning,
             )
-            ready_share = int(
-                existing_signals.get("overall_progress_percent")
-                or _existing_cited_signal_int(existing, "ready_share")
-                or 0
+            ready = _first_int(
+                existing_health.get("ready_count"),
+                _existing_cited_signal_int(existing, "supporting_external_fleet_ready_count"),
+                _existing_cited_signal_int(existing, "journey_gate_ready_count"),
+                fallback=0,
             )
+            ready_share = _first_int(
+                existing_signals.get("external_fleet_journey_ready_share_percent"),
+                _existing_cited_signal_int(existing, "supporting_external_fleet_ready_share"),
+                existing_signals.get("overall_progress_percent"),
+                _existing_cited_signal_int(existing, "ready_share"),
+            )
+            has_snapshot_provenance = (
+                existing_provenance.get("present") is True
+                and bool(str(existing_provenance.get("source_path") or "").strip())
+                and bool(str(existing_provenance.get("sha256") or "").strip())
+                and bool(str(existing_provenance.get("git_head") or "").strip())
+            )
+            if not has_snapshot_provenance:
+                ready = 0
+                total = max(blocked + warning, 0)
+                ready_share = 0
+            if state == "ready" and not (
+                has_snapshot_provenance
+                and total > 0
+                and ready == total
+                and blocked == 0
+                and warning == 0
+            ):
+                state = "unavailable"
             preserved_path = Path(str(existing.get("journey_gate_source") or journey_path.as_posix()))
             provenance = existing_provenance or _source_provenance(resolved)
-            provenance.setdefault("present", False)
+            if not existing_provenance:
+                provenance["present"] = False
             return {
                 "journey": {},
                 "summary": {},
@@ -495,6 +540,9 @@ def build_pulse(
         "review_due": review_due,
         "next_decision": next_decision,
     }
+    external_tuple_coverage = (
+        "ready" if journey_state == "ready" else "blocked" if journey_state == "blocked" else "unavailable"
+    )
 
     governor_decisions = [
         {
@@ -531,20 +579,26 @@ def build_pulse(
                 f"browser_execution_receipt_present={receipt_info['browser_present']}",
                 f"supporting_external_fleet_blocked_count={blocked_count}",
                 f"live_readiness_status={live_readiness_status}",
-                (
-                    "supporting_external_fleet_tuple_coverage=blocked"
-                    if journey_state == "blocked"
-                    else "supporting_external_fleet_tuple_coverage=ready"
-                ),
+                f"supporting_external_fleet_tuple_coverage={external_tuple_coverage}",
             ],
         },
     ]
 
-    fleet_cluster_summary = (
-        "External Fleet journey context is blocked, but it is supporting evidence only and is not PropertyQuarry launch authority."
-        if journey_state == "blocked"
-        else "External Fleet journey context reports ready; it remains supporting evidence only and cannot prove PropertyQuarry launch readiness."
-    )
+    if journey_state == "blocked":
+        fleet_cluster_summary = (
+            "The last published external Fleet journey snapshot is blocked, but it is carried as supporting-only "
+            "context and is not PropertyQuarry launch authority."
+        )
+    elif journey_state == "ready":
+        fleet_cluster_summary = (
+            "The last published external Fleet journey snapshot reports ready; it is carried as supporting-only "
+            "context and cannot prove PropertyQuarry launch readiness."
+        )
+    else:
+        fleet_cluster_summary = (
+            "The external Fleet journey snapshot is unavailable or incomplete; it remains supporting-only context "
+            "and cannot prove PropertyQuarry launch readiness."
+        )
 
     blocked_reason = journey_info["recommended_action"] or "Resolve the blocking journey gaps before widening publish claims."
     pulse: dict[str, Any] = {
@@ -561,6 +615,7 @@ def build_pulse(
         "journey_gate_provenance": journey_info["provenance"],
         "journey_gate_scope": "supporting_external_fleet_context",
         "journey_gate_authority": "non_authoritative_for_propertyquarry_launch",
+        "journey_gate_snapshot_policy": "carry_forward_committed_snapshot_only",
         "summary": summary,
         "active_wave": f"{product_label} flagship receipt closeout",
         "active_wave_status": "active",

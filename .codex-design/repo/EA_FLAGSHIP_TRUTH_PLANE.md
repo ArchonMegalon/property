@@ -1,20 +1,20 @@
-# EA flagship truth plane
+# PropertyQuarry flagship truth plane
 
 ## Purpose
 
-The EA repository needs its own release truth so flagship claims do not depend on the all-released `MILESTONE.json` plus checklist completion alone. The current standalone proof target is PropertyQuarry; it does not reuse the intentionally skipped legacy Executive Assistant office-loop tests.
+The PropertyQuarry repository needs its own release truth so flagship claims do not depend on the inherited all-released `MILESTONE.json` plus checklist completion alone. The standalone proof target is PropertyQuarry; it does not reuse the intentionally skipped legacy Executive Assistant office-loop tests.
 
-This plane is EA-owned release evidence that sits alongside the EA product canon in `.codex-design/ea/*`.
+This plane is PropertyQuarry-owned release evidence. The inherited EA product canon in `.codex-design/ea/*` is a bounded design input, not the owner of this product or its release claim.
 It sits below `IMPLEMENTATION_SCOPE.md` and above the release checklists.
 
-`EA_FLAGSHIP_TRUTH_PLANE.md` is the human-readable form of this plane.
-`EA_FLAGSHIP_RELEASE_GATE.json` is the machine-readable seed that release verification consumes.
+`EA_FLAGSHIP_TRUTH_PLANE.md` is the human-readable form of this plane and retains its historical filename for compatibility.
+`EA_FLAGSHIP_RELEASE_GATE.json` is the machine-readable seed that release verification consumes and likewise retains its historical filename.
 
 ## What counts as truth
 
 A flagship claim for the current standalone PropertyQuarry surface must be supported by:
 
-1. the EA product canon in `.codex-design/ea/START_HERE.md` and its linked navigation, journey, copy, and LTD maps
+1. the PropertyQuarry implementation scope plus the bounded navigation, journey, copy, and LTD standards inherited from `.codex-design/ea/START_HERE.md`
 2. the browser workflow proof that exercises seeded product objects and real workspace actions
 3. the machine-readable gate seed in `EA_FLAGSHIP_RELEASE_GATE.json`
 4. release asset verification that knows how to validate the gate seed

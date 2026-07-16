@@ -239,6 +239,80 @@ def test_register_start_reports_email_delivery_failure_without_aborting_flow(
     assert len(body["verification_code"]) == 6
 
 
+def test_register_start_prod_sends_email_without_returning_verification_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    client = _client(monkeypatch)
+    object.__setattr__(client.app.state.container.settings.runtime, "mode", "prod")
+
+    from app.api.routes import onboarding as onboarding_route
+    from app.services.registration_email import RegistrationEmailReceipt
+
+    observed: dict[str, object] = {}
+
+    def _fake_send_registration_email(**kwargs) -> RegistrationEmailReceipt:
+        observed.update(kwargs)
+        return RegistrationEmailReceipt(
+            provider="emailit",
+            message_id="emailit-production-1",
+            accepted_at="2026-07-16T11:20:00+00:00",
+        )
+
+    monkeypatch.setattr(onboarding_route, "send_registration_email", _fake_send_registration_email)
+
+    response = client.post("/v1/register/start", json={"email": "prod@example.com"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["email_delivery_status"] == "sent"
+    assert body["verification_token"] == ""
+    assert body["verification_code"] == ""
+    assert body["magic_link_url"] == ""
+    assert body["email_delivery_error"] == ""
+    assert "token=" in str(observed["magic_link_url"])
+    assert "code=" in str(observed["magic_link_url"])
+
+
+def test_register_start_prod_fails_closed_without_email_delivery(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("EMAILIT_API_KEY", raising=False)
+    client = _client(monkeypatch)
+    object.__setattr__(client.app.state.container.settings.runtime, "mode", "prod")
+
+    response = client.post("/v1/register/start", json={"email": "prod@example.com"})
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "registration_email_delivery_unavailable"
+    assert "verification_token" not in response.text
+    assert "verification_code" not in response.text
+    assert "magic_link_url" not in response.text
+
+
+def test_register_start_prod_redacts_email_provider_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
+    client = _client(monkeypatch)
+    object.__setattr__(client.app.state.container.settings.runtime, "mode", "prod")
+
+    from app.api.routes import onboarding as onboarding_route
+
+    provider_detail = "registration_email_send_failed:422:private-provider-detail"
+    monkeypatch.setattr(
+        onboarding_route,
+        "send_registration_email",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError(provider_detail)),
+    )
+
+    response = client.post("/v1/register/start", json={"email": "prod@example.com"})
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "registration_email_delivery_unavailable"
+    assert provider_detail not in response.text
+
+
 def test_sign_in_email_link_reissues_workspace_access_for_existing_email(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

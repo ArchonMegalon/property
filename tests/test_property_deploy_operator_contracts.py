@@ -242,6 +242,11 @@ def test_smoke_runtime_runs_unprivileged_local_propertyquarry_browser_contracts(
     assert "PYTHONPATH=ea EA_STORAGE_BACKEND=memory python -m pytest -q" in product_browser_job
     assert (
         "tests/e2e/test_propertyquarry_greenfield_browser.py::"
+        "test_propertyquarry_workbench_candidate_history_stays_in_place"
+        in product_browser_job
+    )
+    assert (
+        "tests/e2e/test_propertyquarry_greenfield_browser.py::"
         "test_propertyquarry_flagship_operating_loop_in_browser"
         in product_browser_job
     )
@@ -258,6 +263,96 @@ def test_smoke_runtime_runs_unprivileged_local_propertyquarry_browser_contracts(
     assert "\n    environment:" not in product_browser_job
     assert "\n    if:" not in product_browser_job
     assert "propertyquarry-live-release-gates" not in product_browser_job
+
+
+def test_smoke_runtime_runs_fail_closed_postgres_production_storage_browser_lane() -> None:
+    workflow = _read(".github/workflows/smoke-runtime.yml")
+    job = _workflow_job(workflow, "propertyquarry-postgres-browser-e2e")
+    smoke = _read("scripts/smoke_property_postgres.sh")
+    browser_test = _read("tests/e2e/test_propertyquarry_postgres_browser.py")
+    bootstrap = _read("scripts/propertyquarry_postgres_browser_bootstrap.py")
+    property_web_dockerfile = _read("ea/Dockerfile.property-web")
+
+    assert workflow.count("\n  propertyquarry-postgres-browser-e2e:\n") == 1
+    assert "permissions:\n      contents: read" in job
+    assert "runs-on: ubuntu-latest" in job
+    assert "timeout-minutes: 45" in job
+    assert "persist-credentials: false" in job
+    assert "PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES: \"0\"" in job
+    assert "EA_API_TOKEN: propertyquarry-postgres-browser-${{ github.run_id }}-${{ github.run_attempt }}" in job
+    assert "POSTGRES_PASSWORD: propertyquarry-browser-${{ github.run_id }}-${{ github.run_attempt }}" in job
+    assert "python -m playwright install --with-deps chromium" in job
+    assert "bash scripts/smoke_property_postgres.sh --browser-e2e" in job
+    assert "continue-on-error:" not in job
+    assert "|| true" not in job
+    assert "secrets." not in job
+    assert "vars." not in job
+
+    for required in (
+        "set -euo pipefail",
+        "docker-compose.property.yml",
+        'COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-propertyquarry-postgres-smoke-${smoke_suffix}}"',
+        'PROPERTYQUARRY_API_CONTAINER_NAME="${PROPERTYQUARRY_API_CONTAINER_NAME:-propertyquarry-postgres-smoke-api-${smoke_suffix}}"',
+        'PROPERTYQUARRY_DB_CONTAINER_NAME="${PROPERTYQUARRY_DB_CONTAINER_NAME:-propertyquarry-postgres-smoke-db-${smoke_suffix}}"',
+        'PROPERTYQUARRY_MIGRATE_CONTAINER_NAME="${PROPERTYQUARRY_MIGRATE_CONTAINER_NAME:-propertyquarry-postgres-smoke-migrate-${smoke_suffix}}"',
+        'set_env_value "EA_RUNTIME_MODE" "prod"',
+        'set_env_value "EA_STORAGE_BACKEND" "postgres"',
+        'set_env_value "EA_ALLOW_LOOPBACK_NO_AUTH" "0"',
+        'set_env_value "PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES" "0"',
+        'if [[ "${ready_reason}" == "${expected_ready_reason}" ]]',
+        'runtime_mode="$(docker exec',
+        'runtime_storage="$(docker exec',
+        'legacy_runtime_surfaces="$(docker exec',
+        "PROPERTYQUARRY_POSTGRES_BROWSER_E2E=1",
+        "propertyquarry_postgres_browser_bootstrap.py",
+        "PROPERTYQUARRY_POSTGRES_BROWSER_SESSION_FILE",
+        "tests/e2e/test_propertyquarry_postgres_browser.py",
+    ):
+        assert required in smoke
+    assert "postgres_ready*" not in smoke
+    assert "sed -i" not in smoke
+    assert "multiline env values are not supported" in smoke
+
+    for required in (
+        "PROPERTYQUARRY_POSTGRES_BROWSER_BASE_URL",
+        "PROPERTYQUARRY_POSTGRES_BROWSER_EXPECTED_READY_REASON",
+        "PROPERTYQUARRY_POSTGRES_BROWSER_SESSION_FILE",
+        'session_receipt.get("provisioning_scope") == "internal_ci_only"',
+        'client.get("/health/ready")',
+        'ready.get("reason") == expected_ready_reason',
+        'version.get("storage_backend") == "postgres"',
+        'registration.status_code == 503',
+        '"verification_token" not in registration.text',
+        'client.get("/app/properties")',
+        '"X-EA-API-Token": api_token',
+        '"ea_workspace_session": access_token',
+        '"/v1/onboarding/property-search/preferences"',
+        'authenticated_page.goto(f"{base_url}/app/search"',
+        'authenticated_page.goto(f"{base_url}/app/properties"',
+        'authenticated_page.locator("[data-property-decision-workbench]")',
+    ):
+        assert required in browser_test
+    assert "TestClient" not in browser_test
+    assert "create_app" not in browser_test
+    assert 'client.post("/v1/register/verify"' not in browser_test
+
+    for required in (
+        "PROPERTYQUARRY_POSTGRES_BROWSER_E2E",
+        'runtime_mode != "prod" or storage_backend != "postgres"',
+        "container.onboarding.start_workspace",
+        "issue_workspace_access_session",
+        'source_kind="postgres_browser_internal_ci_bootstrap"',
+        '"provisioning_scope": "internal_ci_only"',
+        "_secure_write",
+        "os.O_EXCL",
+        'getattr(os, "O_NOFOLLOW", 0)',
+    ):
+        assert required in bootstrap
+    assert (
+        "COPY scripts/propertyquarry_postgres_browser_bootstrap.py "
+        "/app/scripts/propertyquarry_postgres_browser_bootstrap.py"
+        in property_web_dockerfile
+    )
 
 
 def test_smoke_runtime_bootstraps_clean_runner_dependencies_and_release_parent() -> None:
@@ -283,6 +378,37 @@ def test_smoke_runtime_bootstraps_clean_runner_dependencies_and_release_parent()
     assert "POSTGRES_PASSWORD: propertyquarry-ci-${{ github.run_id }}" in postgres_contract_job
     assert "pytest==9.0.2" in postgres_contract_job
     assert "httpx==0.28.1" in postgres_contract_job
+
+
+def test_smoke_runtime_pins_external_actions_to_immutable_commits() -> None:
+    workflow = _read(".github/workflows/smoke-runtime.yml")
+    action_uses_lines = [
+        line.strip()
+        for line in workflow.splitlines()
+        if re.match(r"^\s*(?:-\s+)?uses:\s+", line)
+    ]
+
+    assert action_uses_lines
+
+    def assert_immutable_action(declaration: str) -> None:
+        action_declaration, _, version_comment = declaration.partition("#")
+        action_ref = action_declaration.split("uses:", 1)[1].strip().strip("'\"")
+        if action_ref.startswith("./"):
+            return
+
+        assert re.fullmatch(
+            r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+@[0-9a-f]{40}",
+            action_ref,
+        ), f"external action must use an immutable 40-hex commit SHA: {action_ref}"
+        assert re.fullmatch(
+            r"v[1-9][0-9]*",
+            version_comment.strip(),
+        ), f"pinned external action must retain its major version comment: {declaration}"
+
+    for action_uses_line in action_uses_lines:
+        assert_immutable_action(action_uses_line)
+
+    assert_immutable_action("uses: ./.github/actions/local-contract")
 
 
 def test_legacy_compose_forwards_postgres_password_into_database_container() -> None:
@@ -313,6 +439,14 @@ def test_smoke_runtime_protects_live_propertyquarry_release_gates() -> None:
         in live_job
     )
     assert "PROPERTYQUARRY_LIVE_PRINCIPAL_ID: ${{ secrets.PROPERTYQUARRY_LIVE_PRINCIPAL_ID }}" in live_job
+    assert (
+        "PROPERTYQUARRY_LIVE_TELEGRAM_BOT_TOKEN: ${{ secrets.PROPERTYQUARRY_LIVE_TELEGRAM_BOT_TOKEN }}"
+        in live_job
+    )
+    assert (
+        "PROPERTYQUARRY_LIVE_TELEGRAM_CHAT_ID: ${{ secrets.PROPERTYQUARRY_LIVE_TELEGRAM_CHAT_ID }}"
+        in live_job
+    )
     assert "EA_API_TOKEN: ${{ secrets.PROPERTYQUARRY_LIVE_API_TOKEN }}" in live_job
     assert "PROPERTYQUARRY_WORKFLOW_HEAD_SHA: ${{ github.sha }}" in live_job
     assert "release_manifest_runtime_sha" in live_job
@@ -324,7 +458,11 @@ def test_smoke_runtime_protects_live_propertyquarry_release_gates() -> None:
     assert "property-live-map-preview-flagship-release-gate.json" in live_job
     assert "property-live-public-release-gate.json" in live_job
     assert "property-live-authenticated-release-gate.json" in live_job
-    assert "actions/upload-artifact@v4" in live_job
+    assert "property-live-notification-delivery.json" in live_job
+    assert (
+        "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4"
+        in live_job
+    )
     assert "if-no-files-found: error" in live_job
     assert "set -euo pipefail" in live_job
     preflight_markers = (
@@ -349,12 +487,16 @@ def test_protected_live_release_gate_is_remote_only_and_fail_closed() -> None:
     assert "PROPERTYQUARRY_LIVE_MOBILE_BASE_URL" in script
     assert "PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE" in script
     assert "PROPERTYQUARRY_LIVE_PRINCIPAL_ID" in script
+    assert "PROPERTYQUARRY_LIVE_TELEGRAM_BOT_TOKEN" in script
+    assert "PROPERTYQUARRY_LIVE_TELEGRAM_CHAT_ID" in script
     assert "EA_API_TOKEN" in script
     assert "--require-research-detail" in script
     assert "propertyquarry_live_mobile_surface_smoke.py" in script
     assert "propertyquarry_map_preview_flagship_gate.py" in script
     assert "propertyquarry_live_public_smoke.py" in script
     assert "propertyquarry_live_authenticated_smoke.py" in script
+    assert "propertyquarry_live_telegram_delivery.py" in script
+    assert "property-live-notification-delivery.json" in script
     assert "propertyquarry_live_release_provenance.py" in script
     assert script.index("propertyquarry_live_release_provenance.py") < script.index(
         "propertyquarry_live_mobile_surface_smoke.py"
@@ -1012,6 +1154,7 @@ def test_property_release_gate_wires_scene_video_refresh_packet_verifier_into_go
     assert "tests/test_property_live_http_security.py" in release_gate
     assert "tests/test_property_live_presentation_security.py" in release_gate
     assert "tests/test_property_live_release_provenance.py" in release_gate
+    assert "tests/test_propertyquarry_live_telegram_delivery.py" in release_gate
     assert "tests/test_property_public_tour_provider_retirement.py" in release_gate
 
 

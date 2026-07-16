@@ -26,6 +26,7 @@ COPY scripts/render_omagic_property_model_walkthrough.py /app/scripts/render_oma
 COPY scripts/render_magicai_model_upload_adapter.py /app/scripts/render_magicai_model_upload_adapter.py
 COPY scripts/property_scene_video_readiness_report.py /app/scripts/property_scene_video_readiness_report.py
 COPY scripts/property_scene_video_runtime_status.py /app/scripts/property_scene_video_runtime_status.py
+COPY scripts/propertyquarry_postgres_browser_bootstrap.py /app/scripts/propertyquarry_postgres_browser_bootstrap.py
 COPY scripts/verify_property_scene_video_readiness.py /app/scripts/verify_property_scene_video_readiness.py
 COPY scripts/materialize_scene_video_provider_refresh_packet.py /app/scripts/materialize_scene_video_provider_refresh_packet.py
 COPY scripts/verify_scene_video_provider_refresh_packet.py /app/scripts/verify_scene_video_provider_refresh_packet.py
