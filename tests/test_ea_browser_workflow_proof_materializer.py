@@ -474,6 +474,22 @@ def test_browser_workflow_proof_blocks_when_journey_matrix_row_is_missing(tmp_pa
     assert any(reason.startswith("journey notifications:") for reason in receipt["blocking_reasons"])
 
 
+def test_browser_workflow_proof_rejects_non_object_journey_rows() -> None:
+    seed = {"journey_evidence_matrix": _journey_evidence_matrix()}
+    seed["journey_evidence_matrix"]["rows"].append("unexpected")
+    passing_lane = {"status": "pass"}
+
+    matrix, blockers = browser_proof_materializer._build_journey_evidence_matrix(
+        seed,
+        source_backed=passing_lane,
+        real_browser=passing_lane,
+        source_binding={"code_commit": "a" * 40},
+    )
+
+    assert matrix["status"] == "blocked"
+    assert "journey evidence matrix rows must contain only objects" in blockers
+
+
 def test_browser_workflow_proof_current_blocked_receipt_replaces_published_pass_in_ci(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

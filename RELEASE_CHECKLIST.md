@@ -18,7 +18,7 @@
 - [ ] Optional docs parity run completed: `make docs-verify`.
 - [ ] Optional docs+usage parity run completed: `make release-docs`.
 - [ ] `make propertyquarry-release-protocol-contracts` passes. Treat this only as offline protocol and handoff conformance evidence, never as signature verification, authorization, controller attestation, or a live-release claim.
-- [ ] Docs parity confirms the standalone implementation scope, flagship truth plane, gate seed, generated receipt, and browser proof are present, current, and PropertyQuarry-bound.
+- [ ] Docs parity confirms the EA canon, flagship truth plane, gate seed, and generated receipt are present and the browser proof is still green. For PropertyQuarry, those assets must remain current, exact-candidate-bound, and scoped to the standalone product.
 
 ## Build & Deploy
 

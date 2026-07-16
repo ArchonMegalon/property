@@ -157,8 +157,14 @@ def _journey_matrix_pass_blockers(receipt: dict[str, Any], seed: dict[str, Any])
         return ["current gate seed lacks the journey evidence matrix"]
     if not isinstance(actual, dict):
         return ["published pass lacks the journey evidence matrix"]
-    expected_ids = [str(item).strip() for item in expected.get("required_journey_ids") or [] if str(item).strip()]
-    actual_ids = [str(item).strip() for item in actual.get("required_journey_ids") or [] if str(item).strip()]
+    expected_id_items = expected.get("required_journey_ids")
+    actual_id_items = actual.get("required_journey_ids")
+    if not isinstance(expected_id_items, list) or not isinstance(actual_id_items, list):
+        blockers.append("published pass journey IDs must be governed lists")
+        expected_id_items = expected_id_items if isinstance(expected_id_items, list) else []
+        actual_id_items = actual_id_items if isinstance(actual_id_items, list) else []
+    expected_ids = [str(item).strip() for item in expected_id_items if str(item).strip()]
+    actual_ids = [str(item).strip() for item in actual_id_items if str(item).strip()]
     if expected_ids != list(REQUIRED_JOURNEY_IDS) or actual_ids != expected_ids:
         blockers.append("published pass journey IDs do not match the complete current matrix")
     if str(actual.get("status") or "").strip().lower() != "pass":
@@ -169,8 +175,14 @@ def _journey_matrix_pass_blockers(receipt: dict[str, Any], seed: dict[str, Any])
     if str(actual.get("runtime_commit_sha") or "").strip().lower() != str(source_binding.get("code_commit") or "").strip().lower():
         blockers.append("published pass journey matrix is not bound to the browser receipt runtime commit")
 
-    expected_row_list = [row for row in expected.get("rows") or [] if isinstance(row, dict)]
-    actual_row_list = [row for row in actual.get("rows") or [] if isinstance(row, dict)]
+    expected_row_items = expected.get("rows")
+    actual_row_items = actual.get("rows")
+    if not isinstance(expected_row_items, list) or not isinstance(actual_row_items, list):
+        blockers.append("published pass journey rows must be governed lists")
+        expected_row_items = expected_row_items if isinstance(expected_row_items, list) else []
+        actual_row_items = actual_row_items if isinstance(actual_row_items, list) else []
+    expected_row_list = [row for row in expected_row_items if isinstance(row, dict)]
+    actual_row_list = [row for row in actual_row_items if isinstance(row, dict)]
     expected_rows = {
         str(row.get("journey_id") or "").strip(): row
         for row in expected_row_list
@@ -183,7 +195,9 @@ def _journey_matrix_pass_blockers(receipt: dict[str, Any], seed: dict[str, Any])
     }
     if (
         len(expected_row_list) != len(REQUIRED_JOURNEY_IDS)
+        or len(expected_row_list) != len(expected_row_items)
         or len(expected_rows) != len(expected_row_list)
+        or len(actual_row_list) != len(actual_row_items)
         or len(actual_row_list) != len(expected_row_list)
         or len(actual_rows) != len(actual_row_list)
         or set(expected_rows) != set(REQUIRED_JOURNEY_IDS)
@@ -196,12 +210,18 @@ def _journey_matrix_pass_blockers(receipt: dict[str, Any], seed: dict[str, Any])
         actual_row = actual_rows[journey_id]
         if str(actual_row.get("label") or "").strip() != str(expected_row.get("label") or "").strip():
             blockers.append(f"published pass journey {journey_id} has stale label metadata")
+        expected_source_items = expected_row.get("evidence_sources")
+        actual_source_items = actual_row.get("evidence_sources")
+        if not isinstance(expected_source_items, list) or not isinstance(actual_source_items, list):
+            blockers.append(f"published pass journey {journey_id} evidence nodes must be governed lists")
+            expected_source_items = expected_source_items if isinstance(expected_source_items, list) else []
+            actual_source_items = actual_source_items if isinstance(actual_source_items, list) else []
         expected_sources = [
             {
                 "file": str(entry.get("file") or "").strip(),
                 "cases": [str(case).strip() for case in entry.get("cases") or [] if str(case).strip()],
             }
-            for entry in expected_row.get("evidence_sources") or []
+            for entry in expected_source_items
             if isinstance(entry, dict)
         ]
         actual_sources = [
@@ -209,10 +229,14 @@ def _journey_matrix_pass_blockers(receipt: dict[str, Any], seed: dict[str, Any])
                 "file": str(entry.get("file") or "").strip(),
                 "cases": [str(case).strip() for case in entry.get("cases") or [] if str(case).strip()],
             }
-            for entry in actual_row.get("evidence_sources") or []
+            for entry in actual_source_items
             if isinstance(entry, dict)
         ]
-        if actual_sources != expected_sources:
+        if (
+            len(expected_sources) != len(expected_source_items)
+            or len(actual_sources) != len(actual_source_items)
+            or actual_sources != expected_sources
+        ):
             blockers.append(f"published pass journey {journey_id} has stale evidence nodes")
         if any(
             str(entry.get("lane_status") or "").strip().lower() != "pass"
@@ -379,9 +403,10 @@ def _project_journey_evidence_matrix(
     seed: dict[str, Any],
     *,
     published_browser_receipt: dict[str, Any] | None,
+    published_browser_receipt_status: str | None,
     source_binding: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    if isinstance(published_browser_receipt, dict):
+    if isinstance(published_browser_receipt, dict) and published_browser_receipt_status == "pass":
         published_matrix = published_browser_receipt.get("journey_evidence_matrix")
         if isinstance(published_matrix, dict):
             return published_matrix
@@ -529,6 +554,7 @@ def build_receipt(
     journey_evidence_matrix = _project_journey_evidence_matrix(
         seed,
         published_browser_receipt=published_browser_receipt,
+        published_browser_receipt_status=browser_receipt_status,
         source_binding=source_binding,
     )
 

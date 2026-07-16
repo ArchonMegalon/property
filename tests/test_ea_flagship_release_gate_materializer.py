@@ -385,6 +385,11 @@ def test_materializer_surfaces_browser_proof_blockers_when_published_receipt_is_
                     "real browser E2E proof is not passing",
                 ],
                 "current_limitations": [],
+                "journey_evidence_matrix": {
+                    "status": "blocked",
+                    "runtime_commit_sha": "0" * 40,
+                    "rows": [],
+                },
             },
             indent=2,
         )
@@ -418,6 +423,8 @@ def test_materializer_surfaces_browser_proof_blockers_when_published_receipt_is_
     assert receipt["status"] == "blocked"
     assert "browser workflow proof: source-backed browser journey proof is not passing" in receipt["blocking_reasons"]
     assert "browser workflow proof: real browser E2E proof is not passing" in receipt["blocking_reasons"]
+    assert receipt["journey_evidence_matrix"]["status"] == "not_evaluated"
+    assert receipt["journey_evidence_matrix"]["runtime_commit_sha"] == receipt["source_binding"]["code_commit"]
 
 
 def test_materializer_blocks_internally_inconsistent_browser_pass_with_all_real_browser_cases_skipped(
@@ -494,6 +501,7 @@ def test_materializer_blocks_stale_pass_that_does_not_match_current_seed_nodes(t
     stale["real_browser_e2e_proof"]["required_case_count"] = 1
     stale["real_browser_e2e_proof"]["executed_count"] = 1
     stale["real_browser_e2e_proof"]["outcome_counts"] = {"passed": 1}
+    stale["journey_evidence_matrix"]["rows"].append("unexpected")
     (tmp_path / BROWSER_PROOF).write_text(json.dumps(stale), encoding="utf-8")
 
     subprocess.run(
@@ -521,6 +529,10 @@ def test_materializer_blocks_stale_pass_that_does_not_match_current_seed_nodes(t
     assert receipt["status"] == "blocked"
     assert (
         "browser workflow proof: published pass lacks completed real browser E2E proof"
+        in receipt["blocking_reasons"]
+    )
+    assert (
+        "browser workflow proof: published pass journey rows do not exactly cover the current matrix"
         in receipt["blocking_reasons"]
     )
 

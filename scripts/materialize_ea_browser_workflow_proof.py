@@ -263,11 +263,21 @@ def _build_journey_evidence_matrix(
     readiness_scope = str(raw_matrix.get("readiness_scope") or "").strip()
     if readiness_scope != "candidate_source_and_browser_proof":
         blockers.append("journey evidence matrix has the wrong readiness scope")
-    required_ids = [str(item).strip() for item in raw_matrix.get("required_journey_ids") or [] if str(item).strip()]
+    raw_required_ids = raw_matrix.get("required_journey_ids")
+    if not isinstance(raw_required_ids, list):
+        raw_required_ids = []
+        blockers.append("journey evidence matrix required IDs must be a list")
+    required_ids = [str(item).strip() for item in raw_required_ids if str(item).strip()]
     if required_ids != list(REQUIRED_JOURNEY_IDS):
         blockers.append("journey evidence matrix required IDs are missing, reordered, or unexpected")
 
-    raw_rows = [row for row in raw_matrix.get("rows") or [] if isinstance(row, dict)]
+    raw_row_items = raw_matrix.get("rows")
+    if not isinstance(raw_row_items, list):
+        raw_row_items = []
+        blockers.append("journey evidence matrix rows must be a list")
+    raw_rows = [row for row in raw_row_items if isinstance(row, dict)]
+    if len(raw_rows) != len(raw_row_items):
+        blockers.append("journey evidence matrix rows must contain only objects")
     rows_by_id: dict[str, dict[str, Any]] = {}
     duplicate_ids: set[str] = set()
     for row in raw_rows:
@@ -297,7 +307,13 @@ def _build_journey_evidence_matrix(
         label = str(row.get("label") or "").strip()
         if not label:
             row_blockers.append("label is missing")
-        evidence_sources = [entry for entry in row.get("evidence_sources") or [] if isinstance(entry, dict)]
+        raw_evidence_sources = row.get("evidence_sources")
+        if not isinstance(raw_evidence_sources, list):
+            raw_evidence_sources = []
+            row_blockers.append("evidence sources must be a list")
+        evidence_sources = [entry for entry in raw_evidence_sources if isinstance(entry, dict)]
+        if len(evidence_sources) != len(raw_evidence_sources):
+            row_blockers.append("evidence sources must contain only objects")
         if not evidence_sources:
             row_blockers.append("evidence sources are missing")
         lane_statuses: list[str] = []
