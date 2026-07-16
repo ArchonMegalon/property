@@ -10294,3 +10294,337 @@ def test_propertyquarry_flagship_operating_loop_in_browser(
         assert page.locator("body", has_text="Follow-up").is_visible()
     finally:
         context.close()
+
+
+_PROPERTYQUARRY_VISUAL_CASES: tuple[tuple[str, tuple[int, int]], ...] = (
+    ("public-home.desktop", (1440, 820)),
+    ("public-home.mobile", (430, 932)),
+    ("sign-in.desktop", (1440, 820)),
+    ("sign-in.mobile", (430, 932)),
+    ("search-setup.desktop", (1600, 1200)),
+    ("search-setup.mobile", (430, 932)),
+    ("results.desktop", (1440, 900)),
+    ("results.mobile", (390, 844)),
+    ("research-no-tour.mobile", (390, 844)),
+    ("empty-results.desktop", (1440, 900)),
+    ("offline.mobile", (390, 844)),
+)
+
+
+def _propertyquarry_visual_output_dir() -> Path:
+    configured = str(os.environ.get("PROPERTYQUARRY_VISUAL_ACTUAL_DIR", "")).strip()
+    if not configured:
+        pytest.skip("PROPERTYQUARRY_VISUAL_ACTUAL_DIR is required for visual baseline capture")
+
+    output_dir = Path(configured).expanduser()
+    if not output_dir.is_absolute():
+        output_dir = Path.cwd() / output_dir
+    for candidate in (output_dir, *output_dir.parents):
+        if candidate.is_symlink():
+            raise AssertionError(f"visual output path must not contain symlinks: {candidate}")
+
+    output_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if not output_dir.is_dir() or output_dir.is_symlink():
+        raise AssertionError(f"visual output path must be a real directory: {output_dir}")
+
+    expected_names = {f"{case_id}.png" for case_id, _viewport in _PROPERTYQUARRY_VISUAL_CASES}
+    for child in output_dir.iterdir():
+        if child.is_symlink():
+            raise AssertionError(f"visual output entries must not be symlinks: {child}")
+        if child.name not in expected_names or not child.is_file():
+            raise AssertionError(f"unexpected visual output entry: {child}")
+    return output_dir
+
+
+def _new_propertyquarry_visual_context(
+    browser: Browser,
+    *,
+    viewport: tuple[int, int],
+    authenticated: bool,
+) -> BrowserContext:
+    assert browser.browser_type.name == "chromium", "visual baselines must be captured with Chromium"
+    kwargs: dict[str, object] = {
+        "viewport": {"width": viewport[0], "height": viewport[1]},
+        "locale": "en-US",
+        "timezone_id": "UTC",
+        "device_scale_factor": 1,
+        "reduced_motion": "reduce",
+        "color_scheme": "light",
+        "service_workers": "block",
+    }
+    if authenticated:
+        kwargs["extra_http_headers"] = {"X-EA-Principal-ID": "pq-greenfield-browser"}
+    return browser.new_context(**kwargs)
+
+
+def _wait_for_propertyquarry_visual_stability(page: Page) -> None:
+    page.wait_for_load_state("domcontentloaded")
+    page.add_style_tag(
+        content="""
+            *, *::before, *::after {
+                animation-delay: 0s !important;
+                animation-duration: 0s !important;
+                caret-color: transparent !important;
+                transition: none !important;
+            }
+            html { scroll-behavior: auto !important; }
+        """
+    )
+    page.evaluate(
+        """async () => {
+            if (document.fonts && document.fonts.ready) {
+                await document.fonts.ready;
+            }
+            window.scrollTo(0, 0);
+            const pendingImages = Array.from(document.images).filter((image) => {
+                if (image.complete) return false;
+                const rect = image.getBoundingClientRect();
+                return rect.bottom > 0 && rect.right > 0
+                    && rect.top < window.innerHeight && rect.left < window.innerWidth;
+            });
+            const imagesReady = Promise.all(pendingImages.map((image) => new Promise((resolve) => {
+                image.addEventListener('load', resolve, { once: true });
+                image.addEventListener('error', resolve, { once: true });
+            })));
+            let imageTimeoutId = 0;
+            const imageTimeout = new Promise((_, reject) => {
+                imageTimeoutId = window.setTimeout(
+                    () => reject(new Error('visible images did not settle within 10 seconds')),
+                    10000,
+                );
+            });
+            try {
+                await Promise.race([imagesReady, imageTimeout]);
+            } finally {
+                window.clearTimeout(imageTimeoutId);
+            }
+            await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        }"""
+    )
+
+
+def _capture_propertyquarry_visual_case(
+    page: Page,
+    *,
+    output_dir: Path,
+    case_id: str,
+    viewport: tuple[int, int],
+) -> None:
+    assert page.viewport_size == {"width": viewport[0], "height": viewport[1]}
+    _wait_for_propertyquarry_visual_stability(page)
+    payload = page.screenshot(
+        animations="disabled",
+        caret="hide",
+        full_page=False,
+        scale="css",
+        type="png",
+    )
+    assert isinstance(payload, bytes)
+    assert payload.startswith(b"\x89PNG\r\n\x1a\n")
+    with Image.open(io.BytesIO(payload)) as image:
+        image.load()
+        assert image.format == "PNG"
+        assert image.size == viewport
+
+    target = output_dir / f"{case_id}.png"
+    if target.is_symlink():
+        raise AssertionError(f"visual output file must not be a symlink: {target}")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(target, flags, 0o600)
+    os.fchmod(descriptor, 0o600)
+    with os.fdopen(descriptor, "wb") as handle:
+        handle.write(payload)
+        handle.flush()
+        os.fsync(handle.fileno())
+    assert target.stat().st_size == len(payload)
+
+
+@pytest.mark.skipif(
+    not str(os.environ.get("PROPERTYQUARRY_VISUAL_ACTUAL_DIR", "")).strip(),
+    reason="PROPERTYQUARRY_VISUAL_ACTUAL_DIR is required for visual baseline capture",
+)
+def test_propertyquarry_deterministic_visual_baseline_capture_matrix(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    output_dir = _propertyquarry_visual_output_dir()
+    base_url = str(propertyquarry_browser_server["base_url"])
+
+    def capture_public(case_id: str, viewport: tuple[int, int], path: str, heading: str) -> None:
+        context = _new_propertyquarry_visual_context(browser, viewport=viewport, authenticated=False)
+        page = context.new_page()
+        try:
+            response = page.goto(f"{base_url}{path}", wait_until="networkidle")
+            assert response is not None and response.ok
+            expect(page.get_by_role("heading", name=heading)).to_be_visible()
+            _capture_propertyquarry_visual_case(
+                page,
+                output_dir=output_dir,
+                case_id=case_id,
+                viewport=viewport,
+            )
+        finally:
+            context.close()
+
+    capture_public(
+        "public-home.desktop",
+        (1440, 820),
+        "/?home=1",
+        "Search once. See the right homes. Decide faster.",
+    )
+    capture_public(
+        "public-home.mobile",
+        (430, 932),
+        "/?home=1",
+        "Search once. See the right homes. Decide faster.",
+    )
+    capture_public("sign-in.desktop", (1440, 820), "/sign-in", "Continue your property search.")
+    capture_public("sign-in.mobile", (430, 932), "/sign-in", "Continue your property search.")
+
+    def capture_authenticated(
+        case_id: str,
+        viewport: tuple[int, int],
+        path: str,
+        ready_selector: str,
+    ) -> None:
+        context = _new_propertyquarry_visual_context(browser, viewport=viewport, authenticated=True)
+        page = context.new_page()
+        try:
+            response = page.goto(f"{base_url}{path}", wait_until="domcontentloaded")
+            assert response is not None and response.ok
+            expect(page.locator(ready_selector).first).to_be_visible(timeout=15_000)
+            _capture_propertyquarry_visual_case(
+                page,
+                output_dir=output_dir,
+                case_id=case_id,
+                viewport=viewport,
+            )
+        finally:
+            context.close()
+
+    capture_authenticated(
+        "search-setup.desktop",
+        (1600, 1200),
+        "/app/search",
+        '[data-console-form-variant="property_search"]',
+    )
+    capture_authenticated(
+        "search-setup.mobile",
+        (430, 932),
+        "/app/search",
+        '[data-console-form-variant="property_search"]',
+    )
+    capture_authenticated(
+        "results.desktop",
+        (1440, 900),
+        "/app/shortlist/run/run-42",
+        "main",
+    )
+    capture_authenticated(
+        "results.mobile",
+        (390, 844),
+        "/app/shortlist?run_id=run-42&full=1",
+        "[data-property-decision-workbench]",
+    )
+
+    research_context = _new_propertyquarry_visual_context(
+        browser,
+        viewport=(390, 844),
+        authenticated=True,
+    )
+    research_page = research_context.new_page()
+    try:
+        response = research_page.goto(
+            f"{base_url}/app/shortlist?run_id=run-42&full=1",
+            wait_until="domcontentloaded",
+        )
+        assert response is not None and response.ok
+        family_row = research_page.locator(
+            "[data-workbench-row]",
+            has_text="Family flat near Tiergarten",
+        ).first
+        expect(family_row).to_be_visible(timeout=15_000)
+        packet_path = family_row.get_attribute("data-candidate-packet-url")
+        assert packet_path
+        separator = "&" if "?" in packet_path else "?"
+        response = research_page.goto(
+            f"{base_url}{packet_path}{separator}run_id=run-42",
+            wait_until="domcontentloaded",
+        )
+        assert response is not None and response.ok
+        expect(research_page.locator("[data-property-research-detail]")).to_be_visible(timeout=15_000)
+        expect(research_page.get_by_role("heading", name="Family flat near Tiergarten", exact=True)).to_be_visible()
+        assert research_page.get_by_text("Open 3D tour", exact=True).count() == 0
+        request_or_retry = research_page.get_by_role(
+            "button",
+            name=re.compile(r"(?:request|retry).*?(?:3d|tour)|(?:3d|tour).*?(?:request|retry)", re.I),
+        )
+        if request_or_retry.count() == 0:
+            request_or_retry = research_page.get_by_role(
+                "link",
+                name=re.compile(r"(?:request|retry).*?(?:3d|tour)|(?:3d|tour).*?(?:request|retry)", re.I),
+            )
+        expect(request_or_retry.first).to_be_visible()
+        _capture_propertyquarry_visual_case(
+            research_page,
+            output_dir=output_dir,
+            case_id="research-no-tour.mobile",
+            viewport=(390, 844),
+        )
+    finally:
+        research_context.close()
+
+    empty_context = _new_propertyquarry_visual_context(
+        browser,
+        viewport=(1440, 900),
+        authenticated=True,
+    )
+    empty_page = empty_context.new_page()
+    try:
+        response = empty_page.goto(
+            f"{base_url}/app/shortlist/run/run-active-empty",
+            wait_until="domcontentloaded",
+        )
+        assert response is not None and response.ok
+        expect(empty_page.get_by_role("heading", name="No matching homes yet", exact=True)).to_be_visible(
+            timeout=15_000
+        )
+        _capture_propertyquarry_visual_case(
+            empty_page,
+            output_dir=output_dir,
+            case_id="empty-results.desktop",
+            viewport=(1440, 900),
+        )
+    finally:
+        empty_context.close()
+
+    offline_context = _new_propertyquarry_visual_context(
+        browser,
+        viewport=(390, 844),
+        authenticated=True,
+    )
+    offline_page = offline_context.new_page()
+    try:
+        response = offline_page.goto(
+            f"{base_url}/app/search?continuous_ux_state=offline",
+            wait_until="domcontentloaded",
+        )
+        assert response is not None and response.ok
+        offline_context.set_offline(True)
+        offline_page.evaluate("window.dispatchEvent(new Event('offline'))")
+        expect(offline_page.locator('[data-pq-failure-state="offline"]')).to_be_visible(timeout=15_000)
+        _capture_propertyquarry_visual_case(
+            offline_page,
+            output_dir=output_dir,
+            case_id="offline.mobile",
+            viewport=(390, 844),
+        )
+    finally:
+        offline_context.set_offline(False)
+        offline_context.close()
+
+    actual_names = {path.name for path in output_dir.iterdir()}
+    expected_names = {f"{case_id}.png" for case_id, _viewport in _PROPERTYQUARRY_VISUAL_CASES}
+    assert actual_names == expected_names

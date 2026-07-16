@@ -262,6 +262,8 @@ jobs:
           echo "PROPERTYQUARRY_RELEASE_COMMIT_SHA=${runtime_sha}" >> "${GITHUB_ENV}"
       - name: Install isolated continuous UX dependencies
         run: |
+          sudo apt-get update
+          sudo apt-get install --yes ffmpeg
           python -m pip install -r ea/requirements.txt -c ea/requirements.lock httpx==0.28.1 pytest==9.0.2
           python -m playwright install --with-deps chromium firefox webkit
       - name: Prepare canonical repository path
@@ -272,9 +274,60 @@ jobs:
       - name: Verify continuous UX receipt contracts
         run: |
           PYTHONPATH=ea python -m pytest -q \
+            tests/test_propertyquarry_visual_baseline.py \
             tests/test_propertyquarry_continuous_ux_gate.py \
             tests/test_propertyquarry_accessibility_gate.py \
             tests/test_propertyquarry_gold_status.py
+      - name: Capture and compare candidate-bound screenshot baselines
+        shell: bash
+        run: |
+          set -euo pipefail
+          visual_root="_completion/smoke/propertyquarry-visual-${GITHUB_SHA}"
+          actual_dir="${visual_root}/actual"
+          diff_dir="${visual_root}/diff"
+          visual_receipt="${visual_root}/receipt.json"
+          source_binding_receipt="${visual_root}/source-binding.json"
+          mkdir -p "${actual_dir}"
+
+          PROPERTYQUARRY_VISUAL_ACTUAL_DIR="${actual_dir}" \
+          PROPERTYQUARRY_CORE_BROWSER_ENGINE=chromium \
+          PYTHONPATH=ea \
+            python -m pytest -q \
+              tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_deterministic_visual_baseline_capture_matrix
+
+          PYTHONPATH=ea python scripts/check_property_release_hygiene.py \
+            --write "${source_binding_receipt}"
+
+          browser_version="$(python - <<'PY'
+          from playwright.sync_api import sync_playwright
+
+          with sync_playwright() as playwright:
+              browser = playwright.chromium.launch(
+                  args=["--no-sandbox", "--disable-dev-shm-usage"]
+              )
+              try:
+                  print(browser.version)
+              finally:
+                  browser.close()
+          PY
+          )"
+          playwright_version="$(python - <<'PY'
+          import importlib.metadata
+
+          print(importlib.metadata.version("playwright"))
+          PY
+          )"
+          python scripts/propertyquarry_visual_baseline.py verify \
+            --manifest tests/e2e/propertyquarry_visual_baselines/manifest.json \
+            --actual-dir "${actual_dir}" \
+            --diff-dir "${diff_dir}" \
+            --receipt "${visual_receipt}" \
+            --release-sha "${PROPERTYQUARRY_RELEASE_COMMIT_SHA}" \
+            --expected-release-sha "${PROPERTYQUARRY_RELEASE_COMMIT_SHA}" \
+            --workflow-head-sha "${GITHUB_SHA}" \
+            --source-binding-receipt "${source_binding_receipt}" \
+            --browser-version "${browser_version}" \
+            --playwright-version "${playwright_version}"
       - name: Run isolated cross-engine continuous UX gate
         shell: bash
         env:
@@ -282,6 +335,7 @@ jobs:
         run: |
           set -euo pipefail
           receipt="_completion/smoke/propertyquarry-continuous-ux-${GITHUB_SHA}.json"
+          visual_receipt="_completion/smoke/propertyquarry-visual-${GITHUB_SHA}/receipt.json"
           app_log="${RUNNER_TEMP}/propertyquarry-continuous-ux-app.log"
           mkdir -p "${EA_PUBLIC_TOUR_DIR}"
           PYTHONPATH=ea python -m uvicorn app.main:app \
@@ -316,13 +370,16 @@ jobs:
             --release-sha "${PROPERTYQUARRY_RELEASE_COMMIT_SHA}" \
             --storage-backend memory \
             --browser-engines chromium,firefox,webkit \
+            --visual-baseline-receipt "${visual_receipt}" \
             --write "${receipt}"
       - name: Preserve isolated continuous UX evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: propertyquarry-continuous-ux-${{ github.sha }}
-          path: _completion/smoke/propertyquarry-continuous-ux-${{ github.sha }}.json
+          path: |
+            _completion/smoke/propertyquarry-continuous-ux-${{ github.sha }}.json
+            _completion/smoke/propertyquarry-visual-${{ github.sha }}
           if-no-files-found: error
           retention-days: 30
 
@@ -512,6 +569,12 @@ jobs:
 
           receipt_path = Path(os.environ["PROPERTYQUARRY_CONTINUOUS_UX_RECEIPT"])
           payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+          visual_baseline = payload.get("visual_baseline")
+          if not isinstance(visual_baseline, dict):
+              raise SystemExit("candidate-bound visual baseline evidence is missing")
+          source_binding = visual_baseline.get("source_binding")
+          if not isinstance(source_binding, dict) or source_binding.get("head_commit") != os.environ["PROPERTYQUARRY_WORKFLOW_HEAD_SHA"]:
+              raise SystemExit("visual capture workflow head does not match this release run")
           ready, _details = _flagship_continuous_ux_proof(
               payload,
               expected_release_commit_sha=os.environ["PROPERTYQUARRY_MANIFEST_RUNTIME_SHA"],

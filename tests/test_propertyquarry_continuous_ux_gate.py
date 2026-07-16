@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import time
 from io import BytesIO
 from pathlib import Path
@@ -80,6 +81,205 @@ def _passing_row(*, engine: str, route: str) -> dict[str, object]:
     return row
 
 
+def _passing_visual_baseline_receipt() -> dict[str, object]:
+    release_sha = "a" * 40
+    case_ids = list(gate.VISUAL_BASELINE_REQUIRED_CASE_IDS)
+    capture = dict(gate.VISUAL_BASELINE_CAPTURE_CONTRACT)
+    browser_version = "Chromium 140.0.7339.16"
+    playwright_version = "1.54.0"
+    expected_actual_pngs = sorted(f"{case_id}.png" for case_id in case_ids)
+    source_binding = {
+        "schema": gate.SOURCE_BINDING_SCHEMA,
+        "generated_at": "2026-07-13T09:59:59+00:00",
+        "status": "pass",
+        "required_checks": list(gate.SOURCE_BINDING_REQUIRED_CHECKS),
+        "failure_count": 0,
+        "failures": [],
+        "manifest_runtime_commit": release_sha,
+        "head_commit": release_sha,
+        "parent_commit": "2" * 40,
+        "manifest_descendant_paths": [],
+        "manifest_metadata_only_ancestor": False,
+        "tracked_dirty_path_count": 0,
+        "untracked_release_source_count": 0,
+        "note": "Repository hygiene and release-manifest authority gate.",
+    }
+    return {
+        "schema": gate.VISUAL_BASELINE_SCHEMA,
+        "generated_at": "2026-07-13T10:00:00+00:00",
+        "status": "pass",
+        "release_commit_sha": release_sha,
+        "expected_release_commit_sha": release_sha,
+        "proof_mode": gate.VISUAL_BASELINE_PROOF_MODE,
+        "screenshot_pixel_comparison": True,
+        "update_mode": False,
+        "receipt_written": True,
+        "source_binding_receipt_sha256": gate.source_binding_payload_sha256(
+            source_binding
+        ),
+        "source_binding": source_binding,
+        "manifest": {
+            "schema": gate.VISUAL_BASELINE_MANIFEST_SCHEMA,
+            "sha256": "b" * 64,
+            "git_blob_sha1": "c" * 40,
+            "case_count": len(case_ids),
+            "error": "",
+        },
+        "browser": {
+            "name": "chromium",
+            "version": browser_version,
+            "playwright_version": playwright_version,
+            "fingerprint_sha256": gate.visual_baseline_payload_sha256(
+                {
+                    "browser_engine": "chromium",
+                    "browser_version": browser_version,
+                    "playwright_version": playwright_version,
+                    "capture": capture,
+                }
+            ),
+            "capture": capture,
+        },
+        "comparison": {
+            "algorithm": gate.VISUAL_BASELINE_ALGORITHM,
+            "pixel_threshold": 0.1,
+            "max_changed_pixel_ratio": 0.005,
+        },
+        "expected_case_ids": case_ids,
+        "observed_case_ids": case_ids,
+        "preflight": {
+            "errors": [],
+            "expected_actual_pngs": expected_actual_pngs,
+            "observed_actual_pngs": expected_actual_pngs,
+            "missing_actual_pngs": [],
+            "extra_actual_pngs": [],
+            "path_graph_safe": True,
+            "actual_workspace_safe": True,
+            "diff_workspace_safe": True,
+        },
+        "outcome_count": len(case_ids),
+        "failed_count": 0,
+        "checks": [
+            {"name": name, "ok": True}
+            for name in gate.VISUAL_BASELINE_REQUIRED_CHECKS
+        ],
+        "outcomes": [
+            {
+                "case_id": case_id,
+                "status": "pass",
+                "reasons": [],
+                "baseline_path": f"images/{case_id}.png",
+                "actual_path": f"{case_id}.png",
+                "diff_path": f"{case_id}.diff.png",
+                "expected_dimensions": {"width": width, "height": height},
+                "baseline_dimensions": {"width": width, "height": height},
+                "actual_dimensions": {"width": width, "height": height},
+                "baseline_sha256": "e" * 64,
+                "expected_baseline_sha256": "e" * 64,
+                "actual_sha256": "f" * 64,
+                "diff_sha256": "1" * 64,
+                "changed_pixel_count": 0,
+                "total_pixel_count": width * height,
+                "changed_pixel_ratio": 0.0,
+                "maximum_yiq_delta": 0.0,
+            }
+            for case_id, width, height in gate.VISUAL_BASELINE_REQUIRED_CASES
+        ],
+    }
+
+
+def test_visual_baseline_receipt_validation_is_candidate_bound_and_fail_closed() -> None:
+    receipt = _passing_visual_baseline_receipt()
+
+    ok, errors = gate.validate_visual_baseline_receipt(
+        receipt,
+        expected_release_commit_sha="a" * 40,
+    )
+
+    assert ok is True
+    assert errors == []
+
+    tampered = dict(receipt)
+    tampered["observed_case_ids"] = list(receipt["observed_case_ids"])[1:]
+    ok, errors = gate.validate_visual_baseline_receipt(
+        tampered,
+        expected_release_commit_sha="a" * 40,
+    )
+    assert ok is False
+    assert "observed_case_matrix_mismatch" in errors
+
+    wrong_candidate = dict(receipt)
+    wrong_candidate["release_commit_sha"] = "b" * 40
+    ok, errors = gate.validate_visual_baseline_receipt(
+        wrong_candidate,
+        expected_release_commit_sha="a" * 40,
+    )
+    assert ok is False
+    assert "release_commit_sha_mismatch" in errors
+
+    coerced_capture = _passing_visual_baseline_receipt()
+    coerced_capture["browser"]["capture"]["device_scale_factor"] = True
+    ok, errors = gate.validate_visual_baseline_receipt(
+        coerced_capture,
+        expected_release_commit_sha="a" * 40,
+    )
+    assert ok is False
+    assert "capture_contract_types_invalid" in errors
+
+    extra_field = _passing_visual_baseline_receipt()
+    extra_field["unbound_claim"] = True
+    ok, errors = gate.validate_visual_baseline_receipt(
+        extra_field,
+        expected_release_commit_sha="a" * 40,
+    )
+    assert ok is False
+    assert "receipt_keys_invalid" in errors
+
+    coerced_ratio = _passing_visual_baseline_receipt()
+    coerced_ratio["outcomes"][0]["changed_pixel_ratio"] = "0.0"
+    ok, errors = gate.validate_visual_baseline_receipt(
+        coerced_ratio,
+        expected_release_commit_sha="a" * 40,
+    )
+    assert ok is False
+    assert "changed_pixel_ratio_invalid" in errors
+
+
+def test_visual_baseline_receipt_loader_rejects_aliases_and_noncanonical_json(
+    tmp_path: Path,
+) -> None:
+    receipt = _passing_visual_baseline_receipt()
+    receipt_path = tmp_path / "visual-receipt.json"
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    loaded, digest = gate.load_visual_baseline_receipt(receipt_path)
+    assert loaded == receipt
+    assert digest == gate.visual_baseline_payload_sha256(receipt)
+
+    alias_path = tmp_path / "visual-receipt-alias.json"
+    alias_path.symlink_to(receipt_path)
+    with pytest.raises(ValueError, match="visual_baseline_receipt_regular_file_required"):
+        gate.load_visual_baseline_receipt(alias_path)
+
+    duplicate_path = tmp_path / "visual-receipt-duplicate.json"
+    duplicate_path.write_text(
+        json.dumps(receipt).replace(
+            '"status": "pass"',
+            '"status": "pass", "status": "pass"',
+            1,
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="visual_baseline_receipt_json_invalid"):
+        gate.load_visual_baseline_receipt(duplicate_path)
+
+    nonfinite_path = tmp_path / "visual-receipt-nonfinite.json"
+    nonfinite_path.write_text(
+        json.dumps(receipt).replace('"failed_count": 0', '"failed_count": NaN', 1),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="visual_baseline_receipt_json_invalid"):
+        gate.load_visual_baseline_receipt(nonfinite_path)
+
+
 def test_continuous_ux_gate_rejects_non_loopback_or_non_memory_before_browser() -> None:
     called = False
 
@@ -133,6 +333,53 @@ def test_continuous_ux_gate_contract_collector_cannot_claim_real_browser_pass() 
     assert receipt["observed_sample_count"] == len(gate.DEFAULT_ROUTES) * 3
     assert receipt["provider_response_mocking"] is False
     assert receipt["screenshot_pixel_comparison"] is False
+
+
+def test_continuous_ux_gate_binds_embedded_visual_receipt_digest() -> None:
+    def fake_collect(**kwargs):
+        return [
+            _passing_row(engine=kwargs["browser_engine"], route=route)
+            for route in kwargs["routes"]
+        ]
+
+    visual = _passing_visual_baseline_receipt()
+    visual_sha = gate.visual_baseline_payload_sha256(visual)
+    receipt = gate.build_continuous_ux_receipt(
+        base_url="http://127.0.0.1:8097",
+        release_commit_sha="a" * 40,
+        api_token="ephemeral-token",
+        storage_backend="memory",
+        browser_engines=("chromium", "firefox", "webkit"),
+        visual_baseline_receipt=visual,
+        visual_baseline_receipt_sha256=visual_sha,
+        collect_engine_rows=fake_collect,
+    )
+    visual_check = next(
+        check
+        for check in receipt["checks"]
+        if check["name"] == "screenshot_pixel_comparison_complete"
+    )
+    assert visual_check["ok"] is True
+    assert visual_check["errors"] == []
+    assert receipt["visual_baseline_receipt_sha256"] == visual_sha
+
+    tampered_binding = gate.build_continuous_ux_receipt(
+        base_url="http://127.0.0.1:8097",
+        release_commit_sha="a" * 40,
+        api_token="ephemeral-token",
+        storage_backend="memory",
+        browser_engines=("chromium", "firefox", "webkit"),
+        visual_baseline_receipt=visual,
+        visual_baseline_receipt_sha256="9" * 64,
+        collect_engine_rows=fake_collect,
+    )
+    visual_check = next(
+        check
+        for check in tampered_binding["checks"]
+        if check["name"] == "screenshot_pixel_comparison_complete"
+    )
+    assert visual_check["ok"] is False
+    assert "receipt_sha256_mismatch" in visual_check["errors"]
 
 
 def test_continuous_ux_row_fails_closed_on_visual_zoom_state_or_budget_regression() -> None:
@@ -354,6 +601,19 @@ def test_continuous_ux_gate_is_additive_push_pr_ci_without_production_environmen
     )[0]
     assert "EA_STORAGE_BACKEND: memory" in job
     assert "python scripts/propertyquarry_continuous_ux_gate.py" in job
+    assert "tests/test_propertyquarry_visual_baseline.py" in job
+    assert "test_propertyquarry_deterministic_visual_baseline_capture_matrix" in job
+    assert "PROPERTYQUARRY_VISUAL_ACTUAL_DIR" in job
+    assert "python scripts/propertyquarry_visual_baseline.py verify" in job
+    assert "tests/e2e/propertyquarry_visual_baselines/manifest.json" in job
+    assert '--release-sha "${PROPERTYQUARRY_RELEASE_COMMIT_SHA}"' in job
+    assert '--expected-release-sha "${PROPERTYQUARRY_RELEASE_COMMIT_SHA}"' in job
+    assert '--workflow-head-sha "${GITHUB_SHA}"' in job
+    assert '--source-binding-receipt "${source_binding_receipt}"' in job
+    assert "check_property_release_hygiene.py" in job
+    assert '--visual-baseline-receipt "${visual_receipt}"' in job
+    assert "propertyquarry-visual-${GITHUB_SHA}" in job
+    assert "propertyquarry_visual_baseline.py update" not in job
     assert "release_manifest_runtime_sha" in job
     assert "PROPERTYQUARRY_RELEASE_COMMIT_SHA=${runtime_sha}" in job
     assert "PROPERTYQUARRY_RELEASE_COMMIT_SHA: ${{ github.sha }}" not in job
@@ -375,6 +635,7 @@ def test_continuous_ux_gate_is_additive_push_pr_ci_without_production_environmen
         "_completion/smoke/propertyquarry-continuous-ux-${{ github.sha }}.json"
     ) in live_job
     assert "_flagship_continuous_ux_proof" in live_job
+    assert 'source_binding.get("head_commit") != os.environ["PROPERTYQUARRY_WORKFLOW_HEAD_SHA"]' in live_job
     assert (
         'echo "PROPERTYQUARRY_EXPECTED_RELEASE_COMMIT_SHA=${runtime_sha}" '
         '>> "${GITHUB_ENV}"'

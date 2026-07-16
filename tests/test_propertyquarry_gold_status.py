@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from scripts import propertyquarry_gold_status as gold_status
+from scripts import propertyquarry_continuous_ux_gate as continuous_ux_gate
 from scripts import property_evidence_overlay_read_model as overlay_read_model
 from scripts import propertyquarry_rybbit_evidence as rybbit_evidence
 from scripts.propertyquarry_gold_status import _latest_receipt_path, build_gold_status_receipt
@@ -184,6 +185,111 @@ def _flagship_customer_ux_receipt_args(tmp_path: Path, *, generated_at: str) -> 
                     },
                 }
             )
+    visual_case_ids = list(continuous_ux_gate.VISUAL_BASELINE_REQUIRED_CASE_IDS)
+    visual_capture = dict(continuous_ux_gate.VISUAL_BASELINE_CAPTURE_CONTRACT)
+    visual_browser_version = "Chromium 140.0.7339.16"
+    visual_playwright_version = "1.54.0"
+    expected_actual_pngs = sorted(f"{case_id}.png" for case_id in visual_case_ids)
+    visual_source_binding = {
+        "schema": continuous_ux_gate.SOURCE_BINDING_SCHEMA,
+        "generated_at": generated_at,
+        "status": "pass",
+        "required_checks": list(continuous_ux_gate.SOURCE_BINDING_REQUIRED_CHECKS),
+        "failure_count": 0,
+        "failures": [],
+        "manifest_runtime_commit": release_sha,
+        "head_commit": release_sha,
+        "parent_commit": "2" * 40,
+        "manifest_descendant_paths": [],
+        "manifest_metadata_only_ancestor": False,
+        "tracked_dirty_path_count": 0,
+        "untracked_release_source_count": 0,
+        "note": "Repository hygiene and release-manifest authority gate.",
+    }
+    visual_outcomes = [
+        {
+            "case_id": case_id,
+            "status": "pass",
+            "reasons": [],
+            "baseline_path": f"images/{case_id}.png",
+            "actual_path": f"{case_id}.png",
+            "diff_path": f"{case_id}.diff.png",
+            "expected_dimensions": {"width": width, "height": height},
+            "baseline_dimensions": {"width": width, "height": height},
+            "actual_dimensions": {"width": width, "height": height},
+            "baseline_sha256": "b" * 64,
+            "expected_baseline_sha256": "b" * 64,
+            "actual_sha256": "c" * 64,
+            "diff_sha256": "d" * 64,
+            "changed_pixel_count": 0,
+            "total_pixel_count": width * height,
+            "changed_pixel_ratio": 0.0,
+            "maximum_yiq_delta": 0.0,
+        }
+        for case_id, width, height in continuous_ux_gate.VISUAL_BASELINE_REQUIRED_CASES
+    ]
+    visual_baseline = {
+        "schema": continuous_ux_gate.VISUAL_BASELINE_SCHEMA,
+        "generated_at": generated_at,
+        "status": "pass",
+        "release_commit_sha": release_sha,
+        "expected_release_commit_sha": release_sha,
+        "proof_mode": continuous_ux_gate.VISUAL_BASELINE_PROOF_MODE,
+        "screenshot_pixel_comparison": True,
+        "update_mode": False,
+        "receipt_written": True,
+        "source_binding_receipt_sha256": (
+            continuous_ux_gate.source_binding_payload_sha256(
+                visual_source_binding
+            )
+        ),
+        "source_binding": visual_source_binding,
+        "manifest": {
+            "schema": continuous_ux_gate.VISUAL_BASELINE_MANIFEST_SCHEMA,
+            "sha256": "e" * 64,
+            "git_blob_sha1": "f" * 40,
+            "case_count": len(visual_case_ids),
+            "error": "",
+        },
+        "browser": {
+            "name": "chromium",
+            "version": visual_browser_version,
+            "playwright_version": visual_playwright_version,
+            "fingerprint_sha256": continuous_ux_gate.visual_baseline_payload_sha256(
+                {
+                    "browser_engine": "chromium",
+                    "browser_version": visual_browser_version,
+                    "playwright_version": visual_playwright_version,
+                    "capture": visual_capture,
+                }
+            ),
+            "capture": visual_capture,
+        },
+        "comparison": {
+            "algorithm": continuous_ux_gate.VISUAL_BASELINE_ALGORITHM,
+            "pixel_threshold": 0.1,
+            "max_changed_pixel_ratio": 0.005,
+        },
+        "expected_case_ids": visual_case_ids,
+        "observed_case_ids": visual_case_ids,
+        "preflight": {
+            "errors": [],
+            "expected_actual_pngs": expected_actual_pngs,
+            "observed_actual_pngs": expected_actual_pngs,
+            "missing_actual_pngs": [],
+            "extra_actual_pngs": [],
+            "path_graph_safe": True,
+            "actual_workspace_safe": True,
+            "diff_workspace_safe": True,
+        },
+        "outcome_count": len(visual_case_ids),
+        "failed_count": 0,
+        "checks": [
+            {"name": name, "ok": True}
+            for name in continuous_ux_gate.VISUAL_BASELINE_REQUIRED_CHECKS
+        ],
+        "outcomes": visual_outcomes,
+    }
     continuous_ux = {
         "schema": gold_status.REQUIRED_CONTINUOUS_UX_SCHEMA,
         "generated_at": generated_at,
@@ -197,7 +303,11 @@ def _flagship_customer_ux_receipt_args(tmp_path: Path, *, generated_at: str) -> 
         "storage_backend": "memory",
         "base_origin_kind": "loopback",
         "provider_response_mocking": False,
-        "screenshot_pixel_comparison": False,
+        "screenshot_pixel_comparison": True,
+        "visual_baseline_receipt_sha256": (
+            continuous_ux_gate.visual_baseline_payload_sha256(visual_baseline)
+        ),
+        "visual_baseline": visual_baseline,
         "first_value_budget_ms": gold_status.REQUIRED_CONTINUOUS_UX_FIRST_VALUE_BUDGET_MS,
         "first_value_basis": gold_status.REQUIRED_CONTINUOUS_UX_FIRST_VALUE_BASIS,
         "first_value_max_attempts": gold_status.REQUIRED_CONTINUOUS_UX_FIRST_VALUE_MAX_ATTEMPTS,
@@ -6584,3 +6694,38 @@ Copy magicfit-walkthrough.mp4 and magicfit-receipt.json into this directory.
     assert receipt["operator_import_manifest"]["missing_prepared_providers"] == []
     assert receipt["operator_import_manifest"]["hardened_readmes_ok"] is True
     assert [row["area"] for row in receipt["blockers"]] == ["verified_tour_provider_modes"]
+
+
+def test_gold_status_flagship_rejects_embedded_visual_receipt_digest_tampering(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    generated_at = (now - timedelta(minutes=5)).isoformat()
+    flagship_args = _flagship_customer_ux_receipt_args(
+        tmp_path,
+        generated_at=generated_at,
+    )
+    continuous_path = Path(flagship_args["continuous_ux_receipt_path"])
+    continuous_payload = json.loads(continuous_path.read_text(encoding="utf-8"))
+    continuous_payload["visual_baseline"]["browser"]["version"] += "-tampered"
+    _write_json(continuous_path, continuous_payload)
+    visual_ready, visual_details = gold_status._flagship_continuous_ux_proof(
+        continuous_payload,
+        expected_release_commit_sha=str(flagship_args["expected_release_commit_sha"]),
+    )
+
+    receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(tmp_path, generated_at=generated_at),
+        **flagship_args,
+        readiness_profile="flagship",
+        max_receipt_age_hours=1,
+        now=now,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["continuous_ux"]["flagship_proof_ok"] is False
+    assert visual_ready is False
+    assert (
+        "visual_baseline_receipt_sha256_mismatch"
+        in visual_details["contract_errors"]
+    )

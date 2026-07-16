@@ -17,6 +17,10 @@ from typing import Any
 
 if __package__:
     from scripts import propertyquarry_evidence_contract as evidence_contract
+    from scripts.propertyquarry_continuous_ux_gate import (
+        validate_visual_baseline_receipt,
+        visual_baseline_payload_sha256,
+    )
     from scripts.property_evidence_overlay_read_model import (
         verify_receipt as verify_evidence_overlay_read_model_receipt,
     )
@@ -40,6 +44,10 @@ if __package__:
     )
 else:
     import propertyquarry_evidence_contract as evidence_contract
+    from propertyquarry_continuous_ux_gate import (
+        validate_visual_baseline_receipt,
+        visual_baseline_payload_sha256,
+    )
     from property_evidence_overlay_read_model import (
         verify_receipt as verify_evidence_overlay_read_model_receipt,
     )
@@ -204,7 +212,7 @@ REQUIRED_FLAGSHIP_ACCESSIBILITY_CHECKS = (
     "contrast_signals_clear",
     "reduced_motion_honored",
 )
-REQUIRED_CONTINUOUS_UX_SCHEMA = "propertyquarry.continuous_ux_receipt.v1"
+REQUIRED_CONTINUOUS_UX_SCHEMA = "propertyquarry.continuous_ux_receipt.v2"
 REQUIRED_CONTINUOUS_UX_PROOF_SCOPE = "isolated_loopback_memory_app"
 REQUIRED_CONTINUOUS_UX_PROOF_MODE = "playwright_browser_all_isolated"
 REQUIRED_CONTINUOUS_UX_ROUTES = (
@@ -225,7 +233,7 @@ REQUIRED_CONTINUOUS_UX_TOP_CHECKS = (
     "zoom_400_matrix_complete",
     "first_value_budget_matrix_complete",
     "provider_response_mocking_forbidden",
-    "screenshot_pixels_not_used_for_gating",
+    "screenshot_pixel_comparison_complete",
 )
 REQUIRED_CONTINUOUS_UX_ROW_CHECKS = (
     "route_document_loaded",
@@ -1806,6 +1814,19 @@ def _flagship_continuous_ux_proof(
         for failure in list(continuous_ux.get("engine_failures") or [])
         if isinstance(failure, dict)
     ]
+    visual_baseline_ok, visual_baseline_errors = validate_visual_baseline_receipt(
+        continuous_ux.get("visual_baseline"),
+        expected_release_commit_sha=expected_sha,
+    )
+    visual_baseline_receipt_sha256 = str(
+        continuous_ux.get("visual_baseline_receipt_sha256") or ""
+    ).strip().lower()
+    try:
+        embedded_visual_baseline_sha256 = visual_baseline_payload_sha256(
+            continuous_ux.get("visual_baseline")
+        )
+    except (TypeError, ValueError):
+        embedded_visual_baseline_sha256 = ""
     contract_errors: list[str] = []
     if continuous_ux.get("schema") != REQUIRED_CONTINUOUS_UX_SCHEMA:
         contract_errors.append("schema_mismatch")
@@ -1821,8 +1842,16 @@ def _flagship_continuous_ux_proof(
         contract_errors.append("memory_storage_required")
     if continuous_ux.get("provider_response_mocking") is not False:
         contract_errors.append("provider_response_mocking_forbidden")
-    if continuous_ux.get("screenshot_pixel_comparison") is not False:
-        contract_errors.append("screenshot_pixel_gate_forbidden")
+    if continuous_ux.get("screenshot_pixel_comparison") is not True:
+        contract_errors.append("screenshot_pixel_gate_required")
+    if not visual_baseline_ok:
+        contract_errors.extend(
+            f"visual_baseline_{error}" for error in visual_baseline_errors
+        )
+    if re.fullmatch(r"[0-9a-f]{64}", visual_baseline_receipt_sha256) is None:
+        contract_errors.append("visual_baseline_receipt_sha256_invalid")
+    elif visual_baseline_receipt_sha256 != embedded_visual_baseline_sha256:
+        contract_errors.append("visual_baseline_receipt_sha256_mismatch")
     if continuous_ux.get("base_origin_kind") != "loopback":
         contract_errors.append("loopback_origin_kind_required")
     if continuous_ux.get("first_value_basis") != REQUIRED_CONTINUOUS_UX_FIRST_VALUE_BASIS:

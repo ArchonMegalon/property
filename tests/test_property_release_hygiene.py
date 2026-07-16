@@ -178,3 +178,25 @@ def test_committed_paths_since_does_not_split_newline_filename(monkeypatch) -> N
         ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json"
     ]
     assert descendant_paths[0] not in release_hygiene.RELEASE_METADATA_DESCENDANT_PATHS
+
+
+def test_manifest_release_binding_audits_direct_parent_commit_paths(monkeypatch) -> None:
+    monkeypatch.setattr(
+        release_hygiene,
+        "git_commit_is_ancestor",
+        lambda manifest, head: True,
+    )
+    monkeypatch.setattr(
+        release_hygiene,
+        "committed_paths_since",
+        lambda manifest, head: ["ea/app/api/routes/landing.py"],
+    )
+
+    accepted, descendant_paths = release_hygiene.manifest_release_binding(
+        "runtime-sha",
+        "envelope-sha",
+        "runtime-sha",
+    )
+
+    assert accepted is False
+    assert descendant_paths == ["ea/app/api/routes/landing.py"]

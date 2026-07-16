@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import argparse
+import errno
+import hashlib
 import json
 import math
 import os
 import re
+import stat
 import statistics
 import sys
 import urllib.parse
@@ -26,12 +29,66 @@ from scripts.propertyquarry_playwright_runtime import (
     playwright_browser_type,
     playwright_engine_launch_kwargs,
 )
+from scripts.propertyquarry_visual_baseline import (
+    RELEASE_METADATA_DESCENDANT_PATHS,
+    SOURCE_BINDING_REQUIRED_CHECKS,
+    SOURCE_BINDING_SCHEMA,
+    source_binding_payload_sha256,
+    validate_source_binding_receipt,
+)
 
 
-SCHEMA = "propertyquarry.continuous_ux_receipt.v1"
+SCHEMA = "propertyquarry.continuous_ux_receipt.v2"
 PROOF_SCOPE = "isolated_loopback_memory_app"
 REAL_PROOF_MODE = "playwright_browser_all_isolated"
 MOCK_PROOF_MODE = "contract_mock"
+VISUAL_BASELINE_SCHEMA = "propertyquarry.visual_baseline_receipt.v1"
+VISUAL_BASELINE_MANIFEST_SCHEMA = "propertyquarry.visual_baseline_manifest.v1"
+VISUAL_BASELINE_PROOF_MODE = "chromium_screenshot_pixel_comparison"
+VISUAL_BASELINE_ALGORITHM = "yiq-perceptual-rgba-on-white.v1"
+VISUAL_BASELINE_REQUIRED_CASES = (
+    ("public-home.desktop", 1440, 820),
+    ("public-home.mobile", 430, 932),
+    ("sign-in.desktop", 1440, 820),
+    ("sign-in.mobile", 430, 932),
+    ("search-setup.desktop", 1600, 1200),
+    ("search-setup.mobile", 430, 932),
+    ("results.desktop", 1440, 900),
+    ("results.mobile", 390, 844),
+    ("research-no-tour.mobile", 390, 844),
+    ("empty-results.desktop", 1440, 900),
+    ("offline.mobile", 390, 844),
+)
+VISUAL_BASELINE_REQUIRED_CASE_IDS = tuple(
+    case_id for case_id, _width, _height in VISUAL_BASELINE_REQUIRED_CASES
+)
+VISUAL_BASELINE_CAPTURE_CONTRACT = {
+    "browser_engine": "chromium",
+    "locale": "en-US",
+    "timezone_id": "UTC",
+    "device_scale_factor": 1,
+    "reduced_motion": "reduce",
+    "color_scheme": "light",
+    "service_workers": "block",
+    "animations": "disabled",
+    "caret": "hidden",
+}
+VISUAL_BASELINE_REQUIRED_CHECKS = (
+    "candidate_sha_matches",
+    "source_checkout_bound",
+    "manifest_schema_valid",
+    "browser_identity_complete",
+    "path_graph_safe",
+    "exact_actual_png_set",
+    "diff_workspace_safe",
+    "ordered_case_matrix_complete",
+    "baseline_integrity_complete",
+    "exact_dimensions_complete",
+    "yiq_pixel_comparison_complete",
+    "verify_did_not_update_baselines",
+    "receipt_path_safe",
+)
+VISUAL_BASELINE_MAX_RECEIPT_BYTES = 16 * 1024 * 1024
 FIRST_VALUE_BUDGET_MS = 3_200.0
 FIRST_VALUE_BASIS = "median_three_warm_dom_content_loaded_visible_structure"
 FIRST_VALUE_ENGINE = "chromium"
@@ -109,6 +166,491 @@ def loopback_origin_error(value: str) -> str:
     if parsed.path not in {"", "/"} or parsed.query or parsed.fragment:
         return "origin_without_path_required"
     return ""
+
+
+def _exact_json_object(raw: str) -> dict[str, Any]:
+    def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        payload: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in payload:
+                raise ValueError("duplicate_json_key")
+            payload[key] = value
+        return payload
+
+    def reject_nonfinite_constant(_value: str) -> None:
+        raise ValueError("nonfinite_json_number")
+
+    parsed = json.loads(
+        raw,
+        object_pairs_hook=reject_duplicate_keys,
+        parse_constant=reject_nonfinite_constant,
+    )
+    if not isinstance(parsed, dict):
+        raise ValueError("json_object_required")
+    return parsed
+
+
+def visual_baseline_payload_sha256(receipt: object) -> str:
+    """Return the stable digest used to bind an embedded visual receipt."""
+
+    payload = json.dumps(
+        receipt,
+        allow_nan=False,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def load_visual_baseline_receipt(path: Path) -> tuple[dict[str, Any], str]:
+    flags = os.O_RDONLY
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(path, flags)
+    except FileNotFoundError as exc:
+        raise ValueError("visual_baseline_receipt_missing") from exc
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise ValueError("visual_baseline_receipt_regular_file_required") from exc
+        raise ValueError("visual_baseline_receipt_unreadable") from exc
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise ValueError("visual_baseline_receipt_regular_file_required")
+        if metadata.st_size < 2 or metadata.st_size > VISUAL_BASELINE_MAX_RECEIPT_BYTES:
+            raise ValueError("visual_baseline_receipt_size_invalid")
+        try:
+            path_metadata_before = path.lstat()
+        except OSError as exc:
+            raise ValueError("visual_baseline_receipt_changed_during_read") from exc
+        if (
+            stat.S_ISLNK(path_metadata_before.st_mode)
+            or not stat.S_ISREG(path_metadata_before.st_mode)
+            or (path_metadata_before.st_dev, path_metadata_before.st_ino)
+            != (metadata.st_dev, metadata.st_ino)
+        ):
+            raise ValueError("visual_baseline_receipt_regular_file_required")
+        with os.fdopen(descriptor, "rb", closefd=True) as handle:
+            descriptor = -1
+            payload = handle.read(VISUAL_BASELINE_MAX_RECEIPT_BYTES + 1)
+        try:
+            path_metadata_after = path.lstat()
+        except OSError as exc:
+            raise ValueError("visual_baseline_receipt_changed_during_read") from exc
+        if (
+            stat.S_ISLNK(path_metadata_after.st_mode)
+            or not stat.S_ISREG(path_metadata_after.st_mode)
+            or (path_metadata_after.st_dev, path_metadata_after.st_ino)
+            != (metadata.st_dev, metadata.st_ino)
+            or path_metadata_after.st_size != metadata.st_size
+            or len(payload) != metadata.st_size
+        ):
+            raise ValueError("visual_baseline_receipt_changed_during_read")
+    except OSError as exc:
+        raise ValueError("visual_baseline_receipt_unreadable") from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    try:
+        receipt = _exact_json_object(payload.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError, ValueError) as exc:
+        raise ValueError("visual_baseline_receipt_json_invalid") from exc
+    return receipt, visual_baseline_payload_sha256(receipt)
+
+
+def validate_visual_baseline_receipt(
+    receipt: object,
+    *,
+    expected_release_commit_sha: str,
+) -> tuple[bool, list[str]]:
+    errors: list[str] = []
+    if not isinstance(receipt, dict):
+        return False, ["receipt_object_required"]
+    required_top_keys = {
+        "schema",
+        "generated_at",
+        "status",
+        "release_commit_sha",
+        "expected_release_commit_sha",
+        "proof_mode",
+        "screenshot_pixel_comparison",
+        "update_mode",
+        "receipt_written",
+        "source_binding_receipt_sha256",
+        "source_binding",
+        "manifest",
+        "browser",
+        "comparison",
+        "expected_case_ids",
+        "observed_case_ids",
+        "preflight",
+        "outcome_count",
+        "failed_count",
+        "checks",
+        "outcomes",
+    }
+    if set(receipt) != required_top_keys:
+        errors.append("receipt_keys_invalid")
+    expected_sha = (
+        expected_release_commit_sha.strip().lower()
+        if type(expected_release_commit_sha) is str
+        else ""
+    )
+    reported_sha = (
+        receipt.get("release_commit_sha")
+        if type(receipt.get("release_commit_sha")) is str
+        else ""
+    )
+    reported_expected_sha = (
+        receipt.get("expected_release_commit_sha")
+        if type(receipt.get("expected_release_commit_sha")) is str
+        else ""
+    )
+    if receipt.get("schema") != VISUAL_BASELINE_SCHEMA:
+        errors.append("schema_mismatch")
+    if receipt.get("status") != "pass":
+        errors.append("status_not_pass")
+    if receipt.get("proof_mode") != VISUAL_BASELINE_PROOF_MODE:
+        errors.append("proof_mode_mismatch")
+    if receipt.get("screenshot_pixel_comparison") is not True:
+        errors.append("pixel_comparison_not_true")
+    if receipt.get("update_mode") is not False:
+        errors.append("update_mode_must_be_false")
+    if receipt.get("receipt_written") is not True:
+        errors.append("receipt_not_written")
+    generated_at = receipt.get("generated_at")
+    try:
+        generated_time = datetime.fromisoformat(
+            generated_at.replace("Z", "+00:00")
+            if type(generated_at) is str
+            else ""
+        )
+    except ValueError:
+        generated_time = None
+    if generated_time is None or generated_time.tzinfo is None:
+        errors.append("generated_at_invalid")
+    if (
+        re.fullmatch(r"[0-9a-f]{40}", expected_sha) is None
+        or reported_sha != expected_sha
+        or reported_expected_sha != expected_sha
+    ):
+        errors.append("release_commit_sha_mismatch")
+
+    source_binding = receipt.get("source_binding")
+    workflow_head_sha = (
+        source_binding.get("head_commit")
+        if isinstance(source_binding, dict)
+        and type(source_binding.get("head_commit")) is str
+        else ""
+    )
+    source_binding_ok, source_binding_errors = validate_source_binding_receipt(
+        source_binding,
+        release_commit_sha=expected_sha,
+        workflow_head_sha=workflow_head_sha,
+    )
+    reported_source_binding_sha = receipt.get("source_binding_receipt_sha256")
+    try:
+        expected_source_binding_sha = source_binding_payload_sha256(source_binding)
+    except (TypeError, ValueError):
+        expected_source_binding_sha = ""
+    if (
+        type(reported_source_binding_sha) is not str
+        or re.fullmatch(r"[0-9a-f]{64}", reported_source_binding_sha) is None
+        or reported_source_binding_sha != expected_source_binding_sha
+    ):
+        source_binding_errors.append("source_binding_receipt_sha256_mismatch")
+        source_binding_ok = False
+    if not source_binding_ok:
+        errors.extend(source_binding_errors)
+
+    expected_case_ids = list(VISUAL_BASELINE_REQUIRED_CASE_IDS)
+    if receipt.get("expected_case_ids") != expected_case_ids:
+        errors.append("expected_case_matrix_mismatch")
+    if receipt.get("observed_case_ids") != expected_case_ids:
+        errors.append("observed_case_matrix_mismatch")
+    outcome_count = receipt.get("outcome_count", -1)
+    failed_count = receipt.get("failed_count", -1)
+    if outcome_count != len(expected_case_ids) or failed_count != 0:
+        errors.append("outcome_counts_invalid")
+    if type(outcome_count) is not int or type(failed_count) is not int:
+        errors.append("outcome_count_types_invalid")
+
+    manifest = receipt.get("manifest")
+    if not isinstance(manifest, dict):
+        errors.append("manifest_evidence_missing")
+    else:
+        if set(manifest) != {
+            "schema",
+            "sha256",
+            "git_blob_sha1",
+            "case_count",
+            "error",
+        }:
+            errors.append("manifest_keys_invalid")
+        if manifest.get("schema") != VISUAL_BASELINE_MANIFEST_SCHEMA:
+            errors.append("manifest_schema_mismatch")
+        if (
+            type(manifest.get("case_count")) is not int
+            or manifest.get("case_count") != len(expected_case_ids)
+        ):
+            errors.append("manifest_case_count_mismatch")
+        if (
+            type(manifest.get("sha256")) is not str
+            or re.fullmatch(r"[0-9a-f]{64}", manifest.get("sha256")) is None
+        ):
+            errors.append("manifest_sha256_invalid")
+        if (
+            type(manifest.get("git_blob_sha1")) is not str
+            or re.fullmatch(r"[0-9a-f]{40}", manifest.get("git_blob_sha1"))
+            is None
+        ):
+            errors.append("manifest_git_blob_invalid")
+        if manifest.get("error") != "":
+            errors.append("manifest_error_present")
+
+    browser = receipt.get("browser")
+    if not isinstance(browser, dict):
+        errors.append("browser_identity_missing")
+    else:
+        if set(browser) != {
+            "name",
+            "version",
+            "playwright_version",
+            "fingerprint_sha256",
+            "capture",
+        }:
+            errors.append("browser_keys_invalid")
+        if browser.get("name") != "chromium":
+            errors.append("browser_name_mismatch")
+        browser_version = browser.get("version")
+        playwright_version = browser.get("playwright_version")
+        if type(browser_version) is not str or not browser_version.strip():
+            errors.append("browser_version_missing")
+        if type(playwright_version) is not str or not playwright_version.strip():
+            errors.append("playwright_version_missing")
+        capture = browser.get("capture")
+        if not isinstance(capture, dict) or capture != VISUAL_BASELINE_CAPTURE_CONTRACT:
+            errors.append("capture_contract_invalid")
+        elif any(
+            type(capture[key]) is not type(expected)
+            for key, expected in VISUAL_BASELINE_CAPTURE_CONTRACT.items()
+        ):
+            errors.append("capture_contract_types_invalid")
+        try:
+            expected_browser_fingerprint = visual_baseline_payload_sha256(
+                {
+                    "browser_engine": "chromium",
+                    "browser_version": browser_version,
+                    "playwright_version": playwright_version,
+                    "capture": capture,
+                }
+            )
+        except (TypeError, ValueError):
+            expected_browser_fingerprint = ""
+        if (
+            type(browser.get("fingerprint_sha256")) is not str
+            or browser.get("fingerprint_sha256") != expected_browser_fingerprint
+        ):
+            errors.append("browser_fingerprint_invalid")
+
+    pixel_threshold = -1.0
+    changed_ratio = -1.0
+    comparison = receipt.get("comparison")
+    if not isinstance(comparison, dict):
+        errors.append("comparison_evidence_missing")
+    else:
+        if set(comparison) != {
+            "algorithm",
+            "pixel_threshold",
+            "max_changed_pixel_ratio",
+        }:
+            errors.append("comparison_keys_invalid")
+        if comparison.get("algorithm") != VISUAL_BASELINE_ALGORITHM:
+            errors.append("comparison_algorithm_mismatch")
+        raw_pixel_threshold = comparison.get("pixel_threshold")
+        raw_changed_ratio = comparison.get("max_changed_pixel_ratio")
+        pixel_threshold = (
+            float(raw_pixel_threshold)
+            if type(raw_pixel_threshold) in {int, float}
+            else -1.0
+        )
+        changed_ratio = (
+            float(raw_changed_ratio)
+            if type(raw_changed_ratio) in {int, float}
+            else -1.0
+        )
+        if not (
+            math.isfinite(pixel_threshold)
+            and pixel_threshold == 0.1
+            and math.isfinite(changed_ratio)
+            and changed_ratio == 0.005
+        ):
+            errors.append("comparison_thresholds_invalid")
+
+    raw_checks_value = receipt.get("checks")
+    raw_checks = (
+        [dict(check) for check in raw_checks_value if isinstance(check, dict)]
+        if isinstance(raw_checks_value, list)
+        else []
+    )
+    check_names = [
+        check.get("name") if type(check.get("name")) is str else ""
+        for check in raw_checks
+    ]
+    if (
+        len(raw_checks) != len(VISUAL_BASELINE_REQUIRED_CHECKS)
+        or check_names != list(VISUAL_BASELINE_REQUIRED_CHECKS)
+        or any(check.get("ok") is not True for check in raw_checks)
+    ):
+        errors.append("verification_checks_incomplete")
+
+    expected_actual_pngs = sorted(f"{case_id}.png" for case_id in expected_case_ids)
+    preflight = receipt.get("preflight")
+    if not isinstance(preflight, dict):
+        errors.append("preflight_evidence_missing")
+    else:
+        if set(preflight) != {
+            "errors",
+            "expected_actual_pngs",
+            "observed_actual_pngs",
+            "missing_actual_pngs",
+            "extra_actual_pngs",
+            "path_graph_safe",
+            "actual_workspace_safe",
+            "diff_workspace_safe",
+        }:
+            errors.append("preflight_keys_invalid")
+        if preflight.get("errors") != []:
+            errors.append("preflight_errors_present")
+        if preflight.get("expected_actual_pngs") != expected_actual_pngs:
+            errors.append("preflight_expected_actual_set_mismatch")
+        if preflight.get("observed_actual_pngs") != expected_actual_pngs:
+            errors.append("preflight_observed_actual_set_mismatch")
+        if preflight.get("missing_actual_pngs") != []:
+            errors.append("preflight_actuals_missing")
+        if preflight.get("extra_actual_pngs") != []:
+            errors.append("preflight_actuals_extra")
+        if any(
+            preflight.get(field) is not True
+            for field in (
+                "path_graph_safe",
+                "actual_workspace_safe",
+                "diff_workspace_safe",
+            )
+        ):
+            errors.append("preflight_workspace_unsafe")
+
+    raw_outcomes = receipt.get("outcomes")
+    outcomes = (
+        [dict(outcome) for outcome in raw_outcomes if isinstance(outcome, dict)]
+        if isinstance(raw_outcomes, list)
+        else []
+    )
+    if [str(outcome.get("case_id") or "") for outcome in outcomes] != expected_case_ids:
+        errors.append("outcome_case_matrix_mismatch")
+    required_outcome_keys = {
+        "case_id",
+        "status",
+        "reasons",
+        "baseline_path",
+        "actual_path",
+        "diff_path",
+        "expected_dimensions",
+        "baseline_dimensions",
+        "actual_dimensions",
+        "baseline_sha256",
+        "expected_baseline_sha256",
+        "actual_sha256",
+        "diff_sha256",
+        "changed_pixel_count",
+        "total_pixel_count",
+        "changed_pixel_ratio",
+        "maximum_yiq_delta",
+    }
+    for outcome, (case_id, width, height) in zip(
+        outcomes,
+        VISUAL_BASELINE_REQUIRED_CASES,
+    ):
+        expected_dimensions = {"width": width, "height": height}
+        if set(outcome) != required_outcome_keys:
+            errors.append("outcome_keys_invalid")
+        if outcome.get("status") != "pass" or outcome.get("reasons") != []:
+            errors.append("outcome_failure_present")
+        if outcome.get("baseline_path") != f"images/{case_id}.png":
+            errors.append("baseline_path_mismatch")
+        if outcome.get("actual_path") != f"{case_id}.png":
+            errors.append("actual_path_mismatch")
+        if outcome.get("diff_path") != f"{case_id}.diff.png":
+            errors.append("diff_path_mismatch")
+        if outcome.get("expected_dimensions") != expected_dimensions:
+            errors.append("expected_dimensions_mismatch")
+        if outcome.get("baseline_dimensions") != expected_dimensions:
+            errors.append("baseline_dimensions_mismatch")
+        if outcome.get("actual_dimensions") != expected_dimensions:
+            errors.append("actual_dimensions_mismatch")
+        baseline_sha = outcome.get("baseline_sha256")
+        expected_baseline_sha = outcome.get("expected_baseline_sha256")
+        actual_sha = outcome.get("actual_sha256")
+        diff_sha = outcome.get("diff_sha256")
+        if (
+            type(baseline_sha) is not str
+            or re.fullmatch(r"[0-9a-f]{64}", baseline_sha) is None
+            or baseline_sha != expected_baseline_sha
+        ):
+            errors.append("baseline_integrity_mismatch")
+        if (
+            type(actual_sha) is not str
+            or re.fullmatch(r"[0-9a-f]{64}", actual_sha) is None
+        ):
+            errors.append("actual_sha256_invalid")
+        if (
+            type(diff_sha) is not str
+            or re.fullmatch(r"[0-9a-f]{64}", diff_sha) is None
+        ):
+            errors.append("diff_sha256_invalid")
+        changed_count = outcome.get("changed_pixel_count")
+        total_count = outcome.get("total_pixel_count")
+        raw_outcome_ratio = outcome.get("changed_pixel_ratio")
+        maximum_delta = outcome.get("maximum_yiq_delta")
+        if (
+            type(changed_count) is not int
+            or type(total_count) is not int
+            or total_count != width * height
+            or not 0 <= changed_count <= total_count
+        ):
+            errors.append("pixel_counts_invalid")
+        if type(raw_outcome_ratio) not in {int, float}:
+            outcome_ratio = -1.0
+        else:
+            outcome_ratio = float(raw_outcome_ratio)
+        if (
+            not math.isfinite(outcome_ratio)
+            or outcome_ratio < 0.0
+            or outcome_ratio > changed_ratio
+            or (
+                type(changed_count) is int
+                and type(total_count) is int
+                and total_count > 0
+                and not math.isclose(
+                    outcome_ratio,
+                    changed_count / total_count,
+                    rel_tol=0.0,
+                    abs_tol=1e-12,
+                )
+            )
+        ):
+            errors.append("changed_pixel_ratio_invalid")
+        if (
+            type(maximum_delta) not in {int, float}
+            or not math.isfinite(float(maximum_delta))
+            or not 0.0 <= float(maximum_delta) <= 1.000001
+        ):
+            errors.append("maximum_yiq_delta_invalid")
+    return not errors, list(dict.fromkeys(errors))
 
 
 def _continue_with_origin_scoped_headers(
@@ -844,12 +1386,33 @@ def build_continuous_ux_receipt(
     browser_engines: tuple[str, ...] = SUPPORTED_PLAYWRIGHT_ENGINES,
     timeout_ms: int = 30_000,
     first_value_budget_ms: float = FIRST_VALUE_BUDGET_MS,
+    visual_baseline_receipt: dict[str, Any] | None = None,
+    visual_baseline_receipt_sha256: str = "",
     collect_engine_rows: Callable[..., list[dict[str, Any]]] = collect_continuous_ux_engine_rows,
 ) -> dict[str, Any]:
     engines = normalize_browser_engines(browser_engines)
     origin_error = loopback_origin_error(base_url)
     release_sha = str(release_commit_sha or "").strip().lower()
     candidate_bound = re.fullmatch(r"[0-9a-f]{40}", release_sha) is not None
+    visual_baseline = dict(visual_baseline_receipt or {})
+    visual_baseline_ok, visual_baseline_errors = validate_visual_baseline_receipt(
+        visual_baseline,
+        expected_release_commit_sha=release_sha,
+    )
+    visual_receipt_sha = str(visual_baseline_receipt_sha256 or "").strip().lower()
+    try:
+        embedded_visual_receipt_sha = visual_baseline_payload_sha256(
+            visual_baseline
+        )
+    except (TypeError, ValueError):
+        embedded_visual_receipt_sha = ""
+    visual_receipt_sha_valid = bool(
+        re.fullmatch(r"[0-9a-f]{64}", visual_receipt_sha)
+        and visual_receipt_sha == embedded_visual_receipt_sha
+    )
+    visual_binding_errors = list(visual_baseline_errors)
+    if not visual_receipt_sha_valid:
+        visual_binding_errors.append("receipt_sha256_mismatch")
     memory_backend = str(storage_backend or "").strip().lower() == "memory"
     proof_mode = (
         REAL_PROOF_MODE
@@ -1030,7 +1593,12 @@ def build_continuous_ux_receipt(
             "ok": proof_mode == REAL_PROOF_MODE
             and provider_response_mocking is False,
         },
-        {"name": "screenshot_pixels_not_used_for_gating", "ok": True},
+        {
+            "name": "screenshot_pixel_comparison_complete",
+            "ok": visual_baseline_ok and visual_receipt_sha_valid,
+            "receipt_sha256": visual_receipt_sha,
+            "errors": visual_binding_errors,
+        },
     ]
     failed_checks = [check for check in checks if check.get("ok") is not True]
     receipt: dict[str, Any] = {
@@ -1053,7 +1621,11 @@ def build_continuous_ux_receipt(
         "storage_backend": "memory" if memory_backend else str(storage_backend or ""),
         "base_origin_kind": "loopback" if not origin_error else "invalid",
         "provider_response_mocking": provider_response_mocking,
-        "screenshot_pixel_comparison": False,
+        "screenshot_pixel_comparison": visual_baseline.get(
+            "screenshot_pixel_comparison"
+        ) is True,
+        "visual_baseline_receipt_sha256": visual_receipt_sha,
+        "visual_baseline": visual_baseline,
         "first_value_budget_ms": float(first_value_budget_ms),
         "first_value_basis": FIRST_VALUE_BASIS,
         "first_value_max_attempts": FIRST_VALUE_MAX_ATTEMPTS,
@@ -1071,7 +1643,7 @@ def build_continuous_ux_receipt(
         "engine_failures": engine_failures,
         "notes": [
             "This receipt proves an isolated loopback in-memory browser gate only and cannot establish deployed or production readiness.",
-            "Visual regression uses stable DOM, overflow, image, clipping, and reflow invariants; screenshot pixels are not a pass/fail input.",
+            "Visual regression combines stable DOM, overflow, image, clipping, and reflow invariants with a candidate-bound Chromium screenshot pixel comparison.",
             "First value gates the median of three warm Chromium DOMContentLoaded samples after observing visible structure, with one bounded retry for transient runner contention; cold and initial samples remain diagnostic, other engines are diagnostic, and first-contentful-paint is retained as diagnostic evidence.",
             "The loading interaction uses the real search launch control; the route handler only continues requests with origin-scoped headers and never fulfills or mocks provider responses.",
             "The error interaction uses the browser's real offline transition and the product's semantic offline marker without mocking a provider response.",
@@ -1117,6 +1689,10 @@ def main() -> int:
     parser.add_argument("--timeout-ms", type=int, default=30_000)
     parser.add_argument("--first-value-budget-ms", type=float, default=FIRST_VALUE_BUDGET_MS)
     parser.add_argument(
+        "--visual-baseline-receipt",
+        default=os.environ.get("PROPERTYQUARRY_VISUAL_BASELINE_RECEIPT", ""),
+    )
+    parser.add_argument(
         "--write",
         default="_completion/smoke/propertyquarry-continuous-ux-latest.json",
     )
@@ -1131,6 +1707,18 @@ def main() -> int:
         )
     except ValueError as exc:
         parser.error(str(exc))
+    visual_baseline_receipt: dict[str, Any] = {}
+    visual_baseline_receipt_sha256 = ""
+    if str(args.visual_baseline_receipt or "").strip():
+        try:
+            (
+                visual_baseline_receipt,
+                visual_baseline_receipt_sha256,
+            ) = load_visual_baseline_receipt(
+                Path(str(args.visual_baseline_receipt).strip())
+            )
+        except ValueError as exc:
+            parser.error(str(exc))
     receipt = build_continuous_ux_receipt(
         base_url=str(args.base_url or "").strip(),
         release_commit_sha=str(args.release_sha or "").strip(),
@@ -1140,6 +1728,8 @@ def main() -> int:
         browser_engines=engines,
         timeout_ms=max(1_000, int(args.timeout_ms)),
         first_value_budget_ms=max(1.0, float(args.first_value_budget_ms)),
+        visual_baseline_receipt=visual_baseline_receipt,
+        visual_baseline_receipt_sha256=visual_baseline_receipt_sha256,
     )
     output = json.dumps(receipt, indent=2, sort_keys=True)
     if args.write:

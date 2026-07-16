@@ -186,8 +186,6 @@ def manifest_release_binding(
     if (
         head_sha.startswith(manifest_sha)
         or manifest_sha.startswith(head_sha)
-        or (parent_sha and parent_sha.startswith(manifest_sha))
-        or (parent_sha and manifest_sha.startswith(parent_sha))
     ):
         return True, []
     if not git_commit_is_ancestor(manifest_sha, head_sha):
