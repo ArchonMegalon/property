@@ -25,6 +25,7 @@ The latest live recheck on 2026-06-27 supersedes the earlier provisional Brillia
 - The current 2026-07-16 runtime candidate adds a supplemental isolated-loopback continuous UX gate across Chromium, Firefox, and WebKit; it verifies decoded visible images, structural layout, exact routes, loading and offline/recovery semantics, 400% reflow, and a bounded three-sample Chromium first-value budget without claiming deployed or production proof. The protected live workflow now consumes this candidate-bound receipt and uses the manifest runtime SHA for provenance instead of the manifest-only commit.
 - The 2026-07-16 release-evidence closeout candidate makes that two-commit binding explicit across protected security and live verification: security scans bind to the manifest runtime SHA, the GitHub workflow head remains a separate envelope identity, and protected live verification retains its runtime/head binding plus all six production receipts as a 30-day artifact. The standalone product and operator checklists now describe the PropertyQuarry search-to-decision loop instead of inherited Executive Assistant office workflows.
 - Runtime commit `953ee1f9` isolates every continuous-UX route in a fresh browser context so the real loading interaction cannot leak cookies, pending requests, or emulated network state into the following Chromium offline observation. Browser failures now retain a bounded, secret-redacted observation stage and detail while the gate continues to fail closed.
+- Runtime commit `bd0eca74` binds an eight-row PropertyQuarry journey matrix to the exact candidate SHA. Its governed receipt passed all `7/7` source-backed cases and `8/8` real-browser cases with zero skips, while authentication activation and external notification delivery remain explicitly unevaluated until their protected launch receipts exist. The public-entry regression also proves unreadable optional tour media falls back to the homepage without exposing a filesystem path; this is candidate proof, not a claim that the currently stale public deployment has been corrected.
 
 That means the billing account lane still requires a second vendor login even though the first-party billing host and redirect contract are now correct. Any earlier receipt lines claiming `billing_handoff.account_handoff_usable=true` should be treated as stale; the refreshed gold receipts keep `billing_handoff.status=ready` while recording the separate-login limitation explicitly.
 
@@ -39,7 +40,7 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `953ee1f9cc8ca5cd14e95a92908bc96a6c207a06` |
+| Runtime commit SHA | `bd0eca746a53d4222d74ceee68a9f2eb231b4c32` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
 | Deployment ID | `pending-next-verified-deploy`; current candidate fails optional tour media safely, publishes reconstructed tours through a bounded unprivileged atomic exchange, and verifies browser journeys through explicit user-visible readiness on a reserved branded loopback origin |
@@ -47,8 +48,10 @@ That means the billing account lane still requires a second vendor login even th
 
 ## Latest Verification
 
-The 2026-07-16 continuous UX hardening candidate verified locally:
+The 2026-07-16 flagship journey and continuous UX hardening candidate verified locally:
 
+- The candidate-bound journey receipt passed all eight required product rows across public entry, onboarding/session handling, search and recovery, shortlist/revisit, account/pricing/privacy, packets/tours, feedback, and notification controls. Live authentication activation and outbound delivery remain governed by their separate protected receipts.
+- The public homepage recovery regression returns customer-safe HTML when optional tour media is unreadable and does not expose the denied path or raw operating-system error. The current public homepage still requires a governed deployment before this correction is live.
 - Later dual-repository hosted API receipts consistently isolated three deterministic stale release-contract assertions: live provenance expected the workflow envelope SHA, the protected-security dependency assertion assumed a scalar `needs`, and the whole-project manifest assertion required superseded wording. The release-evidence closeout corrects those contracts without relaxing their underlying gates; the focused regression selection returned `7 passed`, and the broader release-security, whole-scope, activation, and checklist selection returned `34 passed`.
 - A previously failed Willhaben target-recovery canary was not reproduced: the current source-discovered canary passed in `403.90s`, matching a later hosted pass, so the provider-sensitive proof remains unchanged and fail-closed.
 - Two cold pre-fix receipts repeatedly stopped at the Chromium offline route after the real loading interaction, while the offline route passed in isolation. The collector now gives each route a fresh context and preserves redacted stage/detail diagnostics; `pytest -q` across the continuous-UX, deploy-operator, release-security, whole-project-scope, and release-checklist contracts returned `123 passed`.
