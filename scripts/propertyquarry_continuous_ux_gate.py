@@ -210,7 +210,9 @@ def _wait_for_visible_image_terminal_state(page: Any, *, timeout_ms: int) -> Non
                 ))),
                 new Promise((resolve) => setTimeout(resolve, decodeBudgetMs)),
               ]);
-              if (!(await nextFrame()) || !(await nextFrame())) break;
+              await nextFrame();
+              await nextFrame();
+              if (performance.now() >= deadline) break;
               const finalRows = snapshot();
               if (
                 finalRows.every((row) => Boolean(row.source) && row.complete)
