@@ -37,6 +37,16 @@ PYTEST_OUTCOME_RE = re.compile(
     r"\b(?P<count>\d+)\s+(?P<outcome>passed|failed|skipped|errors?|xfailed|xpassed)\b",
     re.IGNORECASE,
 )
+REQUIRED_JOURNEY_IDS = (
+    "public_entry",
+    "onboarding_auth",
+    "search_ranking",
+    "shortlist_research_revisit",
+    "account_pricing_privacy_recovery",
+    "packets_tours",
+    "feedback",
+    "notifications",
+)
 
 
 def _utc_now() -> str:
@@ -139,6 +149,95 @@ def _browser_lane_pass_is_supported(
     )
 
 
+def _journey_matrix_pass_blockers(receipt: dict[str, Any], seed: dict[str, Any]) -> list[str]:
+    blockers: list[str] = []
+    expected = seed.get("journey_evidence_matrix")
+    actual = receipt.get("journey_evidence_matrix")
+    if not isinstance(expected, dict):
+        return ["current gate seed lacks the journey evidence matrix"]
+    if not isinstance(actual, dict):
+        return ["published pass lacks the journey evidence matrix"]
+    expected_ids = [str(item).strip() for item in expected.get("required_journey_ids") or [] if str(item).strip()]
+    actual_ids = [str(item).strip() for item in actual.get("required_journey_ids") or [] if str(item).strip()]
+    if expected_ids != list(REQUIRED_JOURNEY_IDS) or actual_ids != expected_ids:
+        blockers.append("published pass journey IDs do not match the complete current matrix")
+    if str(actual.get("status") or "").strip().lower() != "pass":
+        blockers.append("published pass journey matrix is not passing")
+    if str(actual.get("readiness_scope") or "").strip() != str(expected.get("readiness_scope") or "").strip():
+        blockers.append("published pass journey matrix has the wrong readiness scope")
+    source_binding = receipt.get("source_binding") if isinstance(receipt.get("source_binding"), dict) else {}
+    if str(actual.get("runtime_commit_sha") or "").strip().lower() != str(source_binding.get("code_commit") or "").strip().lower():
+        blockers.append("published pass journey matrix is not bound to the browser receipt runtime commit")
+
+    expected_row_list = [row for row in expected.get("rows") or [] if isinstance(row, dict)]
+    actual_row_list = [row for row in actual.get("rows") or [] if isinstance(row, dict)]
+    expected_rows = {
+        str(row.get("journey_id") or "").strip(): row
+        for row in expected_row_list
+        if str(row.get("journey_id") or "").strip()
+    }
+    actual_rows = {
+        str(row.get("journey_id") or "").strip(): row
+        for row in actual_row_list
+        if str(row.get("journey_id") or "").strip()
+    }
+    if (
+        len(expected_row_list) != len(REQUIRED_JOURNEY_IDS)
+        or len(expected_rows) != len(expected_row_list)
+        or len(actual_row_list) != len(expected_row_list)
+        or len(actual_rows) != len(actual_row_list)
+        or set(expected_rows) != set(REQUIRED_JOURNEY_IDS)
+        or set(actual_rows) != set(expected_rows)
+    ):
+        blockers.append("published pass journey rows do not exactly cover the current matrix")
+        return blockers
+    for journey_id in REQUIRED_JOURNEY_IDS:
+        expected_row = expected_rows[journey_id]
+        actual_row = actual_rows[journey_id]
+        if str(actual_row.get("label") or "").strip() != str(expected_row.get("label") or "").strip():
+            blockers.append(f"published pass journey {journey_id} has stale label metadata")
+        expected_sources = [
+            {
+                "file": str(entry.get("file") or "").strip(),
+                "cases": [str(case).strip() for case in entry.get("cases") or [] if str(case).strip()],
+            }
+            for entry in expected_row.get("evidence_sources") or []
+            if isinstance(entry, dict)
+        ]
+        actual_sources = [
+            {
+                "file": str(entry.get("file") or "").strip(),
+                "cases": [str(case).strip() for case in entry.get("cases") or [] if str(case).strip()],
+            }
+            for entry in actual_row.get("evidence_sources") or []
+            if isinstance(entry, dict)
+        ]
+        if actual_sources != expected_sources:
+            blockers.append(f"published pass journey {journey_id} has stale evidence nodes")
+        if any(
+            str(entry.get("lane_status") or "").strip().lower() != "pass"
+            for entry in actual_row.get("evidence_sources") or []
+            if isinstance(entry, dict)
+        ):
+            blockers.append(f"published pass journey {journey_id} has an incomplete evidence lane")
+        if str(actual_row.get("proof_status") or "").strip().lower() != "pass":
+            blockers.append(f"published pass journey {journey_id} did not complete")
+        if list(actual_row.get("blocking_reasons") or []):
+            blockers.append(f"published pass journey {journey_id} still reports blockers")
+        expected_live = expected_row.get("live_requirement")
+        if not isinstance(expected_live, dict):
+            expected_live = {}
+        if (
+            str(expected_live.get("status") or "").strip().lower() != "not_evaluated"
+            or not str(expected_live.get("authority") or "").strip()
+            or str(expected_live.get("required_profile") or "").strip() != "launch"
+        ):
+            blockers.append(f"current journey {journey_id} lacks a fail-closed live authority")
+        if actual_row.get("live_requirement") != expected_live:
+            blockers.append(f"published pass journey {journey_id} has stale live requirements")
+    return blockers
+
+
 def browser_receipt_pass_blockers(receipt: dict[str, Any], seed: dict[str, Any]) -> list[str]:
     blockers: list[str] = []
     proof_contract = seed.get("browser_workflow_proof")
@@ -199,6 +298,7 @@ def browser_receipt_pass_blockers(receipt: dict[str, Any], seed: dict[str, Any])
         blockers.append("published pass lacks a governed current_limitations list")
     if receipt_limitations:
         blockers.append("published pass still reports browser limitations: " + "; ".join(receipt_limitations))
+    blockers.extend(_journey_matrix_pass_blockers(receipt, seed))
 
     sources = [entry for entry in proof_contract.get("evidence_sources") or [] if isinstance(entry, dict)]
     source_backed = [entry for entry in sources if "/e2e/" not in str(entry.get("file") or "")]
@@ -273,6 +373,57 @@ def _build_product_canon(root: Path, seed: dict[str, Any]) -> tuple[dict[str, An
         "docs_present": docs_present,
         "all_required_docs_present": not missing_docs,
     }, missing_docs
+
+
+def _project_journey_evidence_matrix(
+    seed: dict[str, Any],
+    *,
+    published_browser_receipt: dict[str, Any] | None,
+    source_binding: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if isinstance(published_browser_receipt, dict):
+        published_matrix = published_browser_receipt.get("journey_evidence_matrix")
+        if isinstance(published_matrix, dict):
+            return published_matrix
+
+    raw_matrix = seed.get("journey_evidence_matrix")
+    if not isinstance(raw_matrix, dict):
+        raw_matrix = {}
+    rendered_rows: list[dict[str, Any]] = []
+    for row in raw_matrix.get("rows") or []:
+        if not isinstance(row, dict):
+            continue
+        rendered_sources: list[dict[str, Any]] = []
+        for entry in row.get("evidence_sources") or []:
+            if not isinstance(entry, dict):
+                continue
+            rendered_sources.append(
+                {
+                    "file": str(entry.get("file") or "").strip(),
+                    "cases": [str(case).strip() for case in entry.get("cases") or [] if str(case).strip()],
+                    "lane_status": "not_evaluated",
+                }
+            )
+        rendered_rows.append(
+            {
+                "journey_id": str(row.get("journey_id") or "").strip(),
+                "label": str(row.get("label") or "").strip(),
+                "proof_status": "not_evaluated",
+                "evidence_sources": rendered_sources,
+                "live_requirement": row.get("live_requirement") if isinstance(row.get("live_requirement"), dict) else {},
+                "blocking_reasons": [],
+            }
+        )
+    return {
+        "version": int(raw_matrix.get("version") or 0),
+        "status": "not_evaluated",
+        "readiness_scope": str(raw_matrix.get("readiness_scope") or "").strip(),
+        "runtime_commit_sha": str((source_binding or {}).get("code_commit") or ""),
+        "required_journey_ids": [
+            str(item).strip() for item in raw_matrix.get("required_journey_ids") or [] if str(item).strip()
+        ],
+        "rows": rendered_rows,
+    }
 
 
 def build_receipt(
@@ -375,6 +526,11 @@ def build_receipt(
     release_summary = str((seed.get("release_claim") or {}).get("summary") or "").strip()
     blockers = list(dict.fromkeys(blockers))
     current_limitations = list(dict.fromkeys(current_limitations))
+    journey_evidence_matrix = _project_journey_evidence_matrix(
+        seed,
+        published_browser_receipt=published_browser_receipt,
+        source_binding=source_binding,
+    )
 
     if status == "pass":
         operator_summary = (
@@ -423,6 +579,7 @@ def build_receipt(
             "published_receipt": browser_receipt_path_value,
             "published_receipt_present": published_browser_receipt is not None,
         },
+        "journey_evidence_matrix": journey_evidence_matrix,
         "verification_binding": {
             "primary_verifier": (seed.get("verification_binding") or {}).get("primary_verifier", "scripts/verify_release_assets.sh"),
             "supporting_test": (seed.get("verification_binding") or {}).get("supporting_test", "tests/test_flagship_truth_plane.py"),

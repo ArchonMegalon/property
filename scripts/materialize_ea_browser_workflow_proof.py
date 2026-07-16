@@ -26,12 +26,33 @@ SOURCE_BACKED_TEST_FILE = "tests/test_propertyquarry_workspace_redesign.py"
 SOURCE_BACKED_CASES = [
     "test_propertyquarry_workspace_routes_render_greenfield_surfaces",
     "test_propertyquarry_failed_run_stays_on_activity_surface",
+    "test_property_workspace_sign_out_clears_workspace_session_cookie",
+    "test_property_saved_shortlist_candidates_persist_across_runs",
+    "test_propertyquarry_account_exposes_working_lifecycle_controls",
+    "test_propertyquarry_pricing_checkout_failure_copy_is_safe_and_accessible",
+    "test_propertyquarry_public_home_survives_unreadable_optional_tour_media",
 ]
 REAL_BROWSER_TEST_FILE = "tests/e2e/test_propertyquarry_greenfield_browser.py"
 REAL_BROWSER_CASES = [
     "test_propertyquarry_greenfield_workspace_in_real_browser",
     "test_propertyquarry_greenfield_workspace_is_mobile_usable",
+    "test_propertyquarry_expired_session_next_action_moves_keyboard_focus_to_sign_in_options",
+    "test_propertyquarry_flagship_operating_loop_in_browser",
+    "test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser",
+    "test_propertyquarry_packet_tracks_followup_state_in_browser",
+    "test_propertyquarry_account_notifications_save_multi_channel_preferences_in_real_browser",
+    "test_propertyquarry_browser_alert_button_toggles_enabled_state",
 ]
+REQUIRED_JOURNEY_IDS = (
+    "public_entry",
+    "onboarding_auth",
+    "search_ranking",
+    "shortlist_research_revisit",
+    "account_pricing_privacy_recovery",
+    "packets_tours",
+    "feedback",
+    "notifications",
+)
 PYTEST_OUTCOME_KEYS = ("passed", "failed", "skipped", "errors", "xfailed", "xpassed")
 PYTEST_OUTCOME_RE = re.compile(
     r"\b(?P<count>\d+)\s+(?P<outcome>passed|failed|skipped|errors?|xfailed|xpassed)\b",
@@ -215,6 +236,154 @@ def _lane_completion(
     return normalized
 
 
+def _build_journey_evidence_matrix(
+    seed: dict[str, Any],
+    *,
+    source_backed: dict[str, Any],
+    real_browser: dict[str, Any],
+    source_binding: dict[str, Any] | None,
+) -> tuple[dict[str, Any], list[str]]:
+    raw_matrix = seed.get("journey_evidence_matrix")
+    blockers: list[str] = []
+    if not isinstance(raw_matrix, dict):
+        return {
+            "version": 1,
+            "status": "blocked",
+            "runtime_commit_sha": str((source_binding or {}).get("code_commit") or ""),
+            "required_journey_ids": list(REQUIRED_JOURNEY_IDS),
+            "rows": [],
+        }, ["journey evidence matrix is missing"]
+
+    try:
+        version = int(raw_matrix.get("version") or 0)
+    except (TypeError, ValueError):
+        version = 0
+    if version != 1:
+        blockers.append("journey evidence matrix version must be 1")
+    readiness_scope = str(raw_matrix.get("readiness_scope") or "").strip()
+    if readiness_scope != "candidate_source_and_browser_proof":
+        blockers.append("journey evidence matrix has the wrong readiness scope")
+    required_ids = [str(item).strip() for item in raw_matrix.get("required_journey_ids") or [] if str(item).strip()]
+    if required_ids != list(REQUIRED_JOURNEY_IDS):
+        blockers.append("journey evidence matrix required IDs are missing, reordered, or unexpected")
+
+    raw_rows = [row for row in raw_matrix.get("rows") or [] if isinstance(row, dict)]
+    rows_by_id: dict[str, dict[str, Any]] = {}
+    duplicate_ids: set[str] = set()
+    for row in raw_rows:
+        journey_id = str(row.get("journey_id") or "").strip()
+        if journey_id in rows_by_id:
+            duplicate_ids.add(journey_id)
+        elif journey_id:
+            rows_by_id[journey_id] = row
+    if duplicate_ids:
+        blockers.append("journey evidence matrix has duplicate IDs: " + ", ".join(sorted(duplicate_ids)))
+    if set(rows_by_id) != set(REQUIRED_JOURNEY_IDS):
+        blockers.append("journey evidence matrix rows do not exactly cover the required journeys")
+
+    lanes = {
+        SOURCE_BACKED_TEST_FILE: source_backed,
+        REAL_BROWSER_TEST_FILE: real_browser,
+    }
+    allowed_cases = {
+        SOURCE_BACKED_TEST_FILE: set(SOURCE_BACKED_CASES),
+        REAL_BROWSER_TEST_FILE: set(REAL_BROWSER_CASES),
+    }
+    mapped_cases = {path: set() for path in allowed_cases}
+    rendered_rows: list[dict[str, Any]] = []
+    for journey_id in REQUIRED_JOURNEY_IDS:
+        row = rows_by_id.get(journey_id, {})
+        row_blockers: list[str] = []
+        label = str(row.get("label") or "").strip()
+        if not label:
+            row_blockers.append("label is missing")
+        evidence_sources = [entry for entry in row.get("evidence_sources") or [] if isinstance(entry, dict)]
+        if not evidence_sources:
+            row_blockers.append("evidence sources are missing")
+        lane_statuses: list[str] = []
+        rendered_sources: list[dict[str, Any]] = []
+        for entry in evidence_sources:
+            test_file = str(entry.get("file") or "").strip()
+            cases = [str(case).strip() for case in entry.get("cases") or [] if str(case).strip()]
+            lane = lanes.get(test_file)
+            if lane is None:
+                row_blockers.append(f"unsupported evidence source: {test_file or 'missing'}")
+                continue
+            if not cases:
+                row_blockers.append(f"evidence source lacks cases: {test_file}")
+                continue
+            unexpected_cases = sorted(set(cases) - allowed_cases[test_file])
+            if unexpected_cases:
+                row_blockers.append(f"evidence source has ungoverned cases: {', '.join(unexpected_cases)}")
+            mapped_cases[test_file].update(cases)
+            lane_status = str(lane.get("status") or "blocked").strip().lower()
+            lane_statuses.append(lane_status)
+            rendered_sources.append(
+                {
+                    "file": test_file,
+                    "cases": cases,
+                    "lane_status": lane_status,
+                }
+            )
+
+        live_requirement = row.get("live_requirement")
+        if not isinstance(live_requirement, dict):
+            live_requirement = {}
+            row_blockers.append("live requirement is missing")
+        live_status = str(live_requirement.get("status") or "").strip().lower()
+        live_authority = str(live_requirement.get("authority") or "").strip()
+        live_profile = str(live_requirement.get("required_profile") or "").strip()
+        if live_status != "not_evaluated" or not live_authority or live_profile != "launch":
+            row_blockers.append("live requirement must remain not_evaluated with a named launch authority")
+
+        if row_blockers or any(status not in {"pass", "preview_only"} for status in lane_statuses):
+            proof_status = "blocked"
+        elif any(status == "preview_only" for status in lane_statuses):
+            proof_status = "preview_only"
+        else:
+            proof_status = "pass"
+        if row_blockers:
+            blockers.extend(f"journey {journey_id}: {reason}" for reason in row_blockers)
+        rendered_rows.append(
+            {
+                "journey_id": journey_id,
+                "label": label,
+                "proof_status": proof_status,
+                "evidence_sources": rendered_sources,
+                "live_requirement": {
+                    "status": live_status,
+                    "authority": live_authority,
+                    "required_profile": live_profile,
+                },
+                "blocking_reasons": row_blockers,
+            }
+        )
+
+    for test_file, expected_cases in allowed_cases.items():
+        missing_cases = sorted(expected_cases - mapped_cases[test_file])
+        extra_cases = sorted(mapped_cases[test_file] - expected_cases)
+        if missing_cases or extra_cases:
+            blockers.append(
+                f"journey evidence matrix does not exactly map {test_file}: "
+                f"missing={','.join(missing_cases) or 'none'}; extra={','.join(extra_cases) or 'none'}"
+            )
+
+    if blockers or any(row["proof_status"] == "blocked" for row in rendered_rows):
+        status = "blocked"
+    elif any(row["proof_status"] == "preview_only" for row in rendered_rows):
+        status = "preview_only"
+    else:
+        status = "pass"
+    return {
+        "version": version,
+        "status": status,
+        "readiness_scope": readiness_scope,
+        "runtime_commit_sha": str((source_binding or {}).get("code_commit") or ""),
+        "required_journey_ids": list(REQUIRED_JOURNEY_IDS),
+        "rows": rendered_rows,
+    }, blockers
+
+
 def _run_pytest_cases(
     root: Path,
     *,
@@ -322,6 +491,13 @@ def build_receipt(
             )
         except (OSError, ReleaseBindingError) as exc:
             blocking_reasons.append(f"immutable source binding failed: {exc}")
+    journey_evidence_matrix, journey_matrix_blockers = _build_journey_evidence_matrix(
+        seed,
+        source_backed=source_backed,
+        real_browser=real_browser,
+        source_binding=source_binding,
+    )
+    blocking_reasons.extend(journey_matrix_blockers)
     if source_backed["status"] != "pass":
         blocking_reasons.append("source-backed browser journey proof is not passing")
         current_limitations.extend(source_backed.get("limitations") or [])
@@ -333,7 +509,10 @@ def build_receipt(
 
     if not blocking_reasons and real_browser["status"] == "pass":
         status = "pass"
-        operator_summary = f"{proof_label} browser workflow proof is published and green across both source-backed journeys and real-browser E2E."
+        operator_summary = (
+            f"{proof_label} browser workflow proof is published and green across the required journey matrix, "
+            "source-backed contracts, and real-browser E2E."
+        )
     elif not blocking_reasons:
         status = "preview_only"
         operator_summary = f"{proof_label} browser workflow proof is published, but it remains preview_only until the real-browser E2E slice runs cleanly."
@@ -358,6 +537,7 @@ def build_receipt(
         "source_binding": source_binding,
         "source_backed_journey_proof": source_backed,
         "real_browser_e2e_proof": real_browser,
+        "journey_evidence_matrix": journey_evidence_matrix,
         "blocking_reasons": blocking_reasons,
         "current_limitations": sorted(set(current_limitations)),
     }

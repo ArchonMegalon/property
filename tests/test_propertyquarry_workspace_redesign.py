@@ -7183,6 +7183,36 @@ def test_propertyquarry_example_shortlist_rows_reuse_cached_media_target_scan(
     assert second_rows[0]["tour_href"] == "/tours/demo-home-tour/control/3dvista"
 
 
+def test_propertyquarry_public_home_survives_unreadable_optional_tour_media(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    blocked_viewer = tmp_path / "public_tours" / "demo" / "generated-reconstruction" / "viewer.html"
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+    monkeypatch.setenv("PROPERTYQUARRY_EXAMPLE_MEDIA_CACHE_TTL_SECONDS", "300")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(blocked_viewer.parents[2]))
+    monkeypatch.setattr(landing_routes.time, "time", lambda: 1_700_000_000.0)
+    landing_routes._propertyquarry_example_media_targets_cached.cache_clear()
+
+    scan_count = {"value": 0}
+
+    def _permission_denied(_root: Path) -> dict[str, str]:
+        scan_count["value"] += 1
+        raise PermissionError(13, "Permission denied", str(blocked_viewer))
+
+    monkeypatch.setattr(landing_routes, "_propertyquarry_example_media_targets_scan", _permission_denied)
+
+    client = build_property_client(principal_id="public-home-media-fallback")
+    response = client.get("/", headers={"accept": "text/html"})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert "PropertyQuarry" in response.text
+    assert str(blocked_viewer) not in response.text
+    assert "Permission denied" not in response.text
+    assert scan_count["value"] == 1
+
+
 def test_propertyquarry_surface_prewarm_populates_example_media_target_cache(
     monkeypatch,
     tmp_path: Path,

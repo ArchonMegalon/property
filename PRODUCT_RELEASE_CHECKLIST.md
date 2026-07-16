@@ -8,10 +8,13 @@ Assistant office workflows part of the release.
 
 A source-level pass is not a production-launch claim. The candidate must also
 satisfy `.codex-design/repo/IMPLEMENTATION_SCOPE.md`,
-`.codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md`, the PropertyQuarry gate seed,
-the candidate-bound browser and flagship receipts, `RELEASE_CHECKLIST.md`, and
-the protected live-release gates. Every receipt must name the same product and
-exact candidate identity.
+`.codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md`,
+`.codex-design/ea/START_HERE.md`,
+`.codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json`, and
+`.codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json`, alongside the
+candidate-bound browser receipt, `RELEASE_CHECKLIST.md`, and the protected
+live-release gates. Every receipt must name the same product and exact candidate
+identity.
 
 ## Product boundary
 

@@ -40,14 +40,25 @@
         "file": "tests/test_propertyquarry_workspace_redesign.py",
         "cases": [
           "test_propertyquarry_workspace_routes_render_greenfield_surfaces",
-          "test_propertyquarry_failed_run_stays_on_activity_surface"
+          "test_propertyquarry_failed_run_stays_on_activity_surface",
+          "test_property_workspace_sign_out_clears_workspace_session_cookie",
+          "test_property_saved_shortlist_candidates_persist_across_runs",
+          "test_propertyquarry_account_exposes_working_lifecycle_controls",
+          "test_propertyquarry_pricing_checkout_failure_copy_is_safe_and_accessible",
+          "test_propertyquarry_public_home_survives_unreadable_optional_tour_media"
         ]
       },
       {
         "file": "tests/e2e/test_propertyquarry_greenfield_browser.py",
         "cases": [
           "test_propertyquarry_greenfield_workspace_in_real_browser",
-          "test_propertyquarry_greenfield_workspace_is_mobile_usable"
+          "test_propertyquarry_greenfield_workspace_is_mobile_usable",
+          "test_propertyquarry_expired_session_next_action_moves_keyboard_focus_to_sign_in_options",
+          "test_propertyquarry_flagship_operating_loop_in_browser",
+          "test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser",
+          "test_propertyquarry_packet_tracks_followup_state_in_browser",
+          "test_propertyquarry_account_notifications_save_multi_channel_preferences_in_real_browser",
+          "test_propertyquarry_browser_alert_button_toggles_enabled_state"
         ]
       }
     ],
@@ -57,6 +68,180 @@
       "selecting a ranked result opens its /app/research/... packet with the 360 stage and preference feedback",
       "the PropertyQuarry mobile workbench exposes results, property detail, and the mobile action dock within the viewport",
       "failed PropertyQuarry runs remain visible on the activity surface with an actionable recovery state"
+    ]
+  },
+  "journey_evidence_matrix": {
+    "version": 1,
+    "readiness_scope": "candidate_source_and_browser_proof",
+    "required_journey_ids": [
+      "public_entry",
+      "onboarding_auth",
+      "search_ranking",
+      "shortlist_research_revisit",
+      "account_pricing_privacy_recovery",
+      "packets_tours",
+      "feedback",
+      "notifications"
+    ],
+    "rows": [
+      {
+        "journey_id": "public_entry",
+        "label": "Public entry and optional media recovery",
+        "evidence_sources": [
+          {
+            "file": "tests/test_propertyquarry_workspace_redesign.py",
+            "cases": [
+              "test_propertyquarry_public_home_survives_unreadable_optional_tour_media"
+            ]
+          }
+        ],
+        "live_requirement": {
+          "status": "not_evaluated",
+          "authority": "_completion/smoke/property-live-public-release-gate.json",
+          "required_profile": "launch"
+        }
+      },
+      {
+        "journey_id": "onboarding_auth",
+        "label": "Onboarding, authentication, session return, and sign-out",
+        "evidence_sources": [
+          {
+            "file": "tests/test_propertyquarry_workspace_redesign.py",
+            "cases": [
+              "test_property_workspace_sign_out_clears_workspace_session_cookie"
+            ]
+          },
+          {
+            "file": "tests/e2e/test_propertyquarry_greenfield_browser.py",
+            "cases": [
+              "test_propertyquarry_expired_session_next_action_moves_keyboard_focus_to_sign_in_options"
+            ]
+          }
+        ],
+        "live_requirement": {
+          "status": "not_evaluated",
+          "authority": "_completion/smoke/property-live-activation-to-value-*.json",
+          "required_profile": "launch"
+        }
+      },
+      {
+        "journey_id": "search_ranking",
+        "label": "Search setup, ranked results, and failed-run recovery",
+        "evidence_sources": [
+          {
+            "file": "tests/test_propertyquarry_workspace_redesign.py",
+            "cases": [
+              "test_propertyquarry_workspace_routes_render_greenfield_surfaces",
+              "test_propertyquarry_failed_run_stays_on_activity_surface"
+            ]
+          },
+          {
+            "file": "tests/e2e/test_propertyquarry_greenfield_browser.py",
+            "cases": [
+              "test_propertyquarry_greenfield_workspace_in_real_browser"
+            ]
+          }
+        ],
+        "live_requirement": {
+          "status": "not_evaluated",
+          "authority": "_completion/smoke/property-live-authenticated-release-gate.json",
+          "required_profile": "launch"
+        }
+      },
+      {
+        "journey_id": "shortlist_research_revisit",
+        "label": "Shortlist, research detail, persistence, and revisit",
+        "evidence_sources": [
+          {
+            "file": "tests/test_propertyquarry_workspace_redesign.py",
+            "cases": [
+              "test_property_saved_shortlist_candidates_persist_across_runs"
+            ]
+          },
+          {
+            "file": "tests/e2e/test_propertyquarry_greenfield_browser.py",
+            "cases": [
+              "test_propertyquarry_greenfield_workspace_is_mobile_usable"
+            ]
+          }
+        ],
+        "live_requirement": {
+          "status": "not_evaluated",
+          "authority": "_completion/smoke/property-live-mobile-release-gate.json",
+          "required_profile": "launch"
+        }
+      },
+      {
+        "journey_id": "account_pricing_privacy_recovery",
+        "label": "Account, pricing, privacy lifecycle, and recovery",
+        "evidence_sources": [
+          {
+            "file": "tests/test_propertyquarry_workspace_redesign.py",
+            "cases": [
+              "test_propertyquarry_account_exposes_working_lifecycle_controls",
+              "test_propertyquarry_pricing_checkout_failure_copy_is_safe_and_accessible"
+            ]
+          }
+        ],
+        "live_requirement": {
+          "status": "not_evaluated",
+          "authority": "_completion/smoke/property-live-authenticated-release-gate.json",
+          "required_profile": "launch"
+        }
+      },
+      {
+        "journey_id": "packets_tours",
+        "label": "Decision packets, sharing, tours, and recovery",
+        "evidence_sources": [
+          {
+            "file": "tests/e2e/test_propertyquarry_greenfield_browser.py",
+            "cases": [
+              "test_propertyquarry_flagship_operating_loop_in_browser"
+            ]
+          }
+        ],
+        "live_requirement": {
+          "status": "not_evaluated",
+          "authority": "_completion/smoke/property-live-public-release-gate.json",
+          "required_profile": "launch"
+        }
+      },
+      {
+        "journey_id": "feedback",
+        "label": "Decision feedback and packet follow-up",
+        "evidence_sources": [
+          {
+            "file": "tests/e2e/test_propertyquarry_greenfield_browser.py",
+            "cases": [
+              "test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser",
+              "test_propertyquarry_packet_tracks_followup_state_in_browser"
+            ]
+          }
+        ],
+        "live_requirement": {
+          "status": "not_evaluated",
+          "authority": "_completion/smoke/property-live-authenticated-release-gate.json",
+          "required_profile": "launch"
+        }
+      },
+      {
+        "journey_id": "notifications",
+        "label": "Alert controls, channel preferences, and external delivery",
+        "evidence_sources": [
+          {
+            "file": "tests/e2e/test_propertyquarry_greenfield_browser.py",
+            "cases": [
+              "test_propertyquarry_account_notifications_save_multi_channel_preferences_in_real_browser",
+              "test_propertyquarry_browser_alert_button_toggles_enabled_state"
+            ]
+          }
+        ],
+        "live_requirement": {
+          "status": "not_evaluated",
+          "authority": "_completion/smoke/property-live-notification-delivery.json",
+          "required_profile": "launch"
+        }
+      }
     ]
   },
   "verification_binding": {

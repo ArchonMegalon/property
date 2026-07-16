@@ -25,6 +25,16 @@ PRODUCT_CANON_DOCS = [
     Path(".codex-design/ea/METRICS_AND_SLOS.yaml"),
     Path(".codex-design/ea/LTD_INTEGRATION_MAP.md"),
 ]
+JOURNEY_IDS = [
+    "public_entry",
+    "onboarding_auth",
+    "search_ranking",
+    "shortlist_research_revisit",
+    "account_pricing_privacy_recovery",
+    "packets_tours",
+    "feedback",
+    "notifications",
+]
 
 
 def _git(root: Path, *args: str) -> str:
@@ -92,6 +102,61 @@ def _passing_browser_lane(root: Path, *, test_file: str, cases: list[str]) -> di
     }
 
 
+def _journey_matrix(
+    *,
+    source_file: str,
+    source_case: str,
+    browser_file: str,
+    browser_case: str,
+    receipt: bool = False,
+    runtime_commit_sha: str = "",
+) -> dict[str, object]:
+    row_sources = {
+        "public_entry": [(source_file, [source_case])],
+        "onboarding_auth": [(source_file, [source_case])],
+        "search_ranking": [(source_file, [source_case]), (browser_file, [browser_case])],
+        "shortlist_research_revisit": [(browser_file, [browser_case])],
+        "account_pricing_privacy_recovery": [(source_file, [source_case])],
+        "packets_tours": [(browser_file, [browser_case])],
+        "feedback": [(browser_file, [browser_case])],
+        "notifications": [(browser_file, [browser_case])],
+    }
+    rows: list[dict[str, object]] = []
+    for journey_id in JOURNEY_IDS:
+        sources = [
+            {
+                "file": test_file,
+                "cases": cases,
+                **({"lane_status": "pass"} if receipt else {}),
+            }
+            for test_file, cases in row_sources[journey_id]
+        ]
+        row: dict[str, object] = {
+            "journey_id": journey_id,
+            "label": journey_id.replace("_", " ").title(),
+            "evidence_sources": sources,
+            "live_requirement": {
+                "status": "not_evaluated",
+                "authority": f"_completion/smoke/property-live-{journey_id}.json",
+                "required_profile": "launch",
+            },
+        }
+        if receipt:
+            row["proof_status"] = "pass"
+            row["blocking_reasons"] = []
+        rows.append(row)
+    matrix: dict[str, object] = {
+        "version": 1,
+        "readiness_scope": "candidate_source_and_browser_proof",
+        "required_journey_ids": JOURNEY_IDS,
+        "rows": rows,
+    }
+    if receipt:
+        matrix["status"] = "pass"
+        matrix["runtime_commit_sha"] = runtime_commit_sha
+    return matrix
+
+
 def _write_minimal_flagship_tree(
     root: Path,
     *,
@@ -148,6 +213,13 @@ def _write_minimal_flagship_tree(
             "supporting_test": "tests/test_flagship_truth_plane.py",
         },
     }
+    sources = seed["browser_workflow_proof"]["evidence_sources"]
+    seed["journey_evidence_matrix"] = _journey_matrix(
+        source_file=sources[0]["file"],
+        source_case=sources[0]["cases"][0],
+        browser_file=sources[1]["file"],
+        browser_case=sources[1]["cases"][0],
+    )
     (root / SEED).write_text(json.dumps(seed, indent=2) + "\n", encoding="utf-8")
     (root / TRUTH_PLANE).write_text("# EA flagship truth plane\n", encoding="utf-8")
     for rel in ("README.md", "RUNBOOK.md", "RELEASE_CHECKLIST.md", "PRODUCT_RELEASE_CHECKLIST.md"):
@@ -168,7 +240,6 @@ def _write_minimal_flagship_tree(
         (root / rel).write_text("# browser proof source\n", encoding="utf-8")
     source_binding = _commit_flagship_sources(root)
     if browser_proof_status is not None:
-        sources = seed["browser_workflow_proof"]["evidence_sources"]
         browser_proof: dict[str, object] = {
             "contract_name": "ea.browser_workflow_proof",
             "kind": "proof_receipt",
@@ -184,6 +255,14 @@ def _write_minimal_flagship_tree(
                 "expected_browser_signals"
             ],
             "source_binding": source_binding,
+            "journey_evidence_matrix": _journey_matrix(
+                source_file=sources[0]["file"],
+                source_case=sources[0]["cases"][0],
+                browser_file=sources[1]["file"],
+                browser_case=sources[1]["cases"][0],
+                receipt=True,
+                runtime_commit_sha=str(source_binding["code_commit"]),
+            ),
             "blocking_reasons": [],
             "current_limitations": [],
         }
@@ -245,6 +324,10 @@ def test_materializer_writes_preview_only_receipt_without_browser_execution_rece
     assert receipt["browser_workflow_proof"]["published_receipt_present"] is False
     assert receipt["browser_workflow_proof"]["source_files_present"][0]["present"] is True
     assert receipt["browser_workflow_proof"]["source_files_present"][1]["present"] is True
+    assert receipt["journey_evidence_matrix"]["status"] == "not_evaluated"
+    assert receipt["journey_evidence_matrix"]["runtime_commit_sha"] == receipt["source_binding"]["code_commit"]
+    assert receipt["journey_evidence_matrix"]["required_journey_ids"] == JOURNEY_IDS
+    assert all(row["proof_status"] == "not_evaluated" for row in receipt["journey_evidence_matrix"]["rows"])
     assert "no published browser execution receipt is attached yet" in receipt["current_limitations"]
     assert receipt["blocking_reasons"] == []
     assert "preview_only" in receipt["operator_summary"]
@@ -285,6 +368,9 @@ def test_materializer_can_publish_pass_when_browser_execution_receipt_exists(tmp
     assert receipt["current_limitations"] == []
     assert receipt["blocking_reasons"] == []
     assert receipt["ea_product_canon"]["all_required_docs_present"] is True
+    assert receipt["journey_evidence_matrix"]["status"] == "pass"
+    assert receipt["journey_evidence_matrix"]["runtime_commit_sha"] == receipt["source_binding"]["code_commit"]
+    assert all(row["proof_status"] == "pass" for row in receipt["journey_evidence_matrix"]["rows"])
     assert "green" in receipt["operator_summary"]
 
 
@@ -435,5 +521,40 @@ def test_materializer_blocks_stale_pass_that_does_not_match_current_seed_nodes(t
     assert receipt["status"] == "blocked"
     assert (
         "browser workflow proof: published pass lacks completed real browser E2E proof"
+        in receipt["blocking_reasons"]
+    )
+
+
+def test_materializer_blocks_pass_with_a_tampered_journey_runtime_binding(tmp_path: Path) -> None:
+    _write_minimal_flagship_tree(tmp_path, browser_proof_status="pass")
+    tampered = json.loads((tmp_path / BROWSER_PROOF).read_text(encoding="utf-8"))
+    tampered["journey_evidence_matrix"]["runtime_commit_sha"] = "0" * 40
+    (tmp_path / BROWSER_PROOF).write_text(json.dumps(tampered), encoding="utf-8")
+
+    subprocess.run(
+        [
+            "python3",
+            str(SCRIPT),
+            "--root",
+            str(tmp_path),
+            "--seed",
+            SEED.as_posix(),
+            "--truth-plane",
+            TRUTH_PLANE.as_posix(),
+            "--output",
+            OUTPUT.as_posix(),
+            "--browser-proof-receipt",
+            BROWSER_PROOF.as_posix(),
+        ],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    receipt = json.loads((tmp_path / OUTPUT).read_text(encoding="utf-8"))
+    assert receipt["status"] == "blocked"
+    assert (
+        "browser workflow proof: published pass journey matrix is not bound to the browser receipt runtime commit"
         in receipt["blocking_reasons"]
     )

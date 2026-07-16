@@ -15,6 +15,16 @@ README_PATH = ROOT / "README.md"
 RUNBOOK_PATH = ROOT / "RUNBOOK.md"
 CLOSEOUT_PLAN_PATH = ROOT / "FLAGSHIP_CLOSEOUT_PLAN.md"
 VERIFY_RELEASE_ASSETS_PATH = ROOT / "scripts" / "verify_release_assets.sh"
+REQUIRED_JOURNEY_IDS = [
+    "public_entry",
+    "onboarding_auth",
+    "search_ranking",
+    "shortlist_research_revisit",
+    "account_pricing_privacy_recovery",
+    "packets_tours",
+    "feedback",
+    "notifications",
+]
 
 
 def test_flagship_truth_plane_seed_points_at_browser_workflow_proof() -> None:
@@ -47,6 +57,22 @@ def test_flagship_truth_plane_seed_points_at_browser_workflow_proof() -> None:
         "test_propertyquarry_greenfield_workspace_is_mobile_usable"
         in evidence_index["tests/e2e/test_propertyquarry_greenfield_browser.py"]
     )
+
+    journey_matrix = gate["journey_evidence_matrix"]
+    assert journey_matrix["version"] == 1
+    assert journey_matrix["readiness_scope"] == "candidate_source_and_browser_proof"
+    assert journey_matrix["required_journey_ids"] == REQUIRED_JOURNEY_IDS
+    assert [row["journey_id"] for row in journey_matrix["rows"]] == REQUIRED_JOURNEY_IDS
+    mapped_cases: dict[str, set[str]] = {test_file: set() for test_file in evidence_index}
+    for row in journey_matrix["rows"]:
+        assert row["label"]
+        assert row["evidence_sources"]
+        assert row["live_requirement"]["status"] == "not_evaluated"
+        assert row["live_requirement"]["authority"]
+        assert row["live_requirement"]["required_profile"] == "launch"
+        for source in row["evidence_sources"]:
+            mapped_cases[source["file"]].update(source["cases"])
+    assert mapped_cases == evidence_index
 
     conditions = gate["release_claim"]["required_conditions"]
     assert any("EA product surface canon exists" in condition for condition in conditions)
@@ -117,6 +143,13 @@ def test_flagship_release_receipt_is_materialized_or_expected_to_materialize() -
         "required_profile": "launch",
     }
     assert "final live readiness is not evaluated" in receipt["operator_summary"].lower()
+    matrix = receipt["journey_evidence_matrix"]
+    assert matrix["status"] == "pass"
+    assert matrix["runtime_commit_sha"] == receipt["source_binding"]["code_commit"]
+    assert matrix["required_journey_ids"] == REQUIRED_JOURNEY_IDS
+    assert [row["journey_id"] for row in matrix["rows"]] == REQUIRED_JOURNEY_IDS
+    assert all(row["proof_status"] == "pass" for row in matrix["rows"])
+    assert all(row["live_requirement"]["status"] == "not_evaluated" for row in matrix["rows"])
 
 
 def test_flagship_closeout_claim_is_scoped_to_the_proven_propertyquarry_surface() -> None:
