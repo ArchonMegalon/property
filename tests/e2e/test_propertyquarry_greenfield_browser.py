@@ -2343,10 +2343,16 @@ def test_propertyquarry_greenfield_workspace_is_mobile_usable(
             assert mode_box is not None and mode_box["width"] <= 430
         _assert_mobile_topnav_tap_targets(page)
         _assert_property_shell_visual_gates(page, max_appbar_height=130)
-        page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").locator(".pqx-result-title").click()
-        page.wait_for_url(re.compile(r".*/app/research/[^?]+.*"), wait_until="commit", timeout=5000)
-        assert "run_id=run-42" in page.url
-        assert page.locator("body", has_text="Family flat near Tiergarten").is_visible()
+        family_row = page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").first
+        family_ref = str(family_row.get_attribute("data-candidate-ref") or "").strip()
+        assert family_ref
+        family_row.locator(".pqx-result-title").click()
+        expect(page.locator("[data-pw-title]").first).to_have_text("Family flat near Tiergarten")
+        current_url = urllib.parse.urlparse(page.url)
+        current_query = urllib.parse.parse_qs(current_url.query)
+        assert current_url.path == "/app/shortlist"
+        assert current_query["run_id"] == ["run-42"]
+        assert current_query["candidate"] == [family_ref]
     finally:
         context.close()
 
