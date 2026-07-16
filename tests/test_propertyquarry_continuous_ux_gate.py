@@ -159,6 +159,28 @@ def test_continuous_ux_row_fails_closed_on_visual_zoom_state_or_budget_regressio
     }
 
 
+def test_visible_image_wait_stabilizes_declared_sources_before_decode() -> None:
+    class FakePage:
+        script = ""
+        argument: dict[str, int] = {}
+
+        def evaluate(self, script: str, argument: dict[str, int]) -> None:
+            self.script = script
+            self.argument = argument
+
+    page = FakePage()
+    gate._wait_for_visible_image_terminal_state(page, timeout_ms=30_000)
+
+    assert page.argument == {"timeoutMs": 10_000}
+    assert "image.currentSrc" in page.script
+    assert "image.getAttribute('src')" in page.script
+    assert "image.getAttribute('srcset')" in page.script
+    assert "requestAnimationFrame" in page.script
+    assert "Promise.allSettled" in page.script
+    assert "image.naturalWidth" not in page.script
+    assert "visible_image_terminal_state_timeout" in page.script
+
+
 @pytest.mark.parametrize(
     ("route", "target", "field", "value"),
     (

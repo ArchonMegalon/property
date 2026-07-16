@@ -118,35 +118,90 @@ def _continue_with_origin_scoped_headers(
 
 
 def _wait_for_visible_image_terminal_state(page: Any, *, timeout_ms: int) -> None:
-    page.wait_for_function(
-        """
-        () => {
-          const visible = (image) => {
-            const style = getComputedStyle(image);
-            const rect = image.getBoundingClientRect();
-            return style.display !== 'none' && style.visibility !== 'hidden'
-              && rect.width > 0 && rect.height > 0;
-          };
-          return Array.from(document.images).filter(visible).every((image) => image.complete);
-        }
-        """,
-        timeout=max(1_000, min(int(timeout_ms), 10_000)),
-    )
     page.evaluate(
         """
-        async () => {
+        async ({ timeoutMs }) => {
           const visible = (image) => {
             const style = getComputedStyle(image);
             const rect = image.getBoundingClientRect();
             return style.display !== 'none' && style.visibility !== 'hidden'
               && rect.width > 0 && rect.height > 0;
           };
-          const decodes = Array.from(document.images)
-            .filter((image) => visible(image) && image.complete && image.naturalWidth > 0)
-            .map((image) => typeof image.decode === 'function' ? image.decode() : Promise.resolve());
-          await Promise.allSettled(decodes);
+          const sourceToken = (image) => {
+            const current = String(image.currentSrc || '').trim();
+            if (current) return `current:${current}`;
+            const declared = String(image.getAttribute('src') || '').trim();
+            if (declared) return `src:${declared}`;
+            const srcset = String(image.getAttribute('srcset') || '').trim();
+            if (srcset) return `srcset:${srcset}`;
+            const picture = image.closest('picture');
+            const pictureSources = picture
+              ? Array.from(picture.querySelectorAll('source'))
+                .map((source) => String(source.getAttribute('srcset') || '').trim())
+                .filter(Boolean)
+                .join('|')
+              : '';
+            return pictureSources ? `picture:${pictureSources}` : '';
+          };
+          const imageIds = new WeakMap();
+          let nextImageId = 1;
+          const imageId = (image) => {
+            if (!imageIds.has(image)) imageIds.set(image, nextImageId++);
+            return imageIds.get(image);
+          };
+          const snapshot = () => Array.from(document.images)
+            .filter(visible)
+            .map((image) => ({
+              image,
+              id: imageId(image),
+              source: sourceToken(image),
+              complete: image.complete,
+            }));
+          const signature = (rows) => JSON.stringify(
+            rows.map((row) => [row.id, row.source])
+          );
+          const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
+          const deadline = performance.now() + timeoutMs;
+          let priorSignature = null;
+          let stableFrames = 0;
+
+          while (performance.now() < deadline) {
+            const rows = snapshot();
+            const ready = rows.every((row) => Boolean(row.source) && row.complete);
+            const currentSignature = ready ? signature(rows) : null;
+            if (ready && currentSignature === priorSignature) {
+              stableFrames += 1;
+            } else {
+              stableFrames = ready ? 1 : 0;
+              priorSignature = currentSignature;
+            }
+            if (ready && stableFrames >= 2) {
+              const remainingMs = Math.max(1, deadline - performance.now());
+              const decodeResults = await Promise.race([
+                Promise.allSettled(rows.map(({ image }) => (
+                  typeof image.decode === 'function' ? image.decode() : Promise.resolve()
+                ))),
+                new Promise((resolve) => setTimeout(() => resolve(null), remainingMs)),
+              ]);
+              if (decodeResults === null) break;
+              await nextFrame();
+              await nextFrame();
+              const finalRows = snapshot();
+              if (
+                finalRows.every((row) => Boolean(row.source) && row.complete)
+                && signature(finalRows) === currentSignature
+              ) {
+                return;
+              }
+              priorSignature = null;
+              stableFrames = 0;
+            }
+            await nextFrame();
+          }
+          throw new Error('visible_image_terminal_state_timeout');
         }
-        """
+        """,
+        {"timeoutMs": max(1_000, min(int(timeout_ms), 10_000))},
     )
 
 
