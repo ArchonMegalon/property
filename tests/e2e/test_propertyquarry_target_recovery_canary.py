@@ -1352,6 +1352,82 @@ def _probe_diagnostics(
     )
 
 
+def _target_recovery_run_timeout_diagnostics(
+    status_payload: dict[str, object],
+    *,
+    elapsed_seconds: float,
+    scan_cap_per_source: int,
+) -> str:
+    summary = (
+        dict(status_payload.get("summary") or {})
+        if isinstance(status_payload.get("summary"), dict)
+        else {}
+    )
+    events = [
+        dict(row)
+        for row in list(status_payload.get("events") or [])
+        if isinstance(row, dict)
+    ]
+    return json.dumps(
+        {
+            "timeout_kind": "bounded_timeout",
+            "elapsed_seconds": round(max(0.0, elapsed_seconds), 2),
+            "scan_cap_per_source": int(scan_cap_per_source),
+            "status": str(status_payload.get("status") or "").strip(),
+            "progress": int(status_payload.get("progress") or summary.get("progress") or 0),
+            "current_step": str(
+                status_payload.get("current_step") or summary.get("current_step") or ""
+            ).strip(),
+            "updated_at": str(
+                status_payload.get("updated_at") or summary.get("updated_at") or ""
+            ).strip(),
+            "sources_total": int(summary.get("sources_total") or 0),
+            "raw_listing_total": int(
+                summary.get("raw_listing_total") or summary.get("listing_total") or 0
+            ),
+            "current_source_reviewed_total": int(
+                summary.get("current_source_reviewed_total") or 0
+            ),
+            "current_source_candidate_total": int(
+                summary.get("current_source_candidate_total") or 0
+            ),
+            "recent_events": events[-5:],
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        default=str,
+    )
+
+
+def _target_recovery_scan_cap(case: TargetListing, *, rank_threshold: int) -> int:
+    # Discovery only chooses targets from the rank window this canary promises
+    # to recover. Scan that complete window (and the chosen target position),
+    # not the product-wide 80-listing background-search default.
+    return max(1, int(rank_threshold), int(case.picked_index) + 1)
+
+
+def test_target_recovery_scan_cap_covers_rank_window_and_target_position() -> None:
+    case = _target_listing_from_payload(
+        {
+            "canonical_url": "https://www.willhaben.at/iad/object?adId=123456",
+            "title": "Target listing",
+            "listing_mode": "rent",
+            "property_type": "apartment",
+            "location_query": "Wien",
+        },
+        provider="willhaben",
+        country_code="AT",
+        selected_platforms=("willhaben",),
+        pool_size=80,
+        picked_index=3,
+    )
+
+    assert _target_recovery_scan_cap(case, rank_threshold=5) == 5
+
+    case.picked_index = 7
+    assert _target_recovery_scan_cap(case, rank_threshold=5) == 8
+
+
 def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     principal = PrincipalContext(
         principal_id=str(
@@ -1402,6 +1478,8 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
         soft_filters, default_soft_filters = _variant_soft_filter_mode(variant)
         rank_threshold = _rank_threshold()
         assert rank_threshold > 0, "PROPERTYQUARRY_TARGET_RECOVERY_TARGET_RANK_MAX must be a positive integer"
+        scan_cap_per_source = _target_recovery_scan_cap(case, rank_threshold=rank_threshold)
+        monkeypatch.setenv("EA_PROPERTY_SEARCH_SCAN_CAP_PER_SOURCE", str(scan_cap_per_source))
         max_attempts = 5
         eligibility_brief = _synthesize_search_preferences(
             case,
@@ -1453,8 +1531,9 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
             last_status: dict[str, object] = {}
             target_match = IdentityMatch(matched=False)
             repair_trace = RepairTrace()
-            deadline = time.time() + timeout_seconds
-            while time.time() < deadline:
+            run_started_at = time.monotonic()
+            deadline = run_started_at + timeout_seconds
+            while time.monotonic() < deadline:
                 status_response = client.get(f"/app/api/property/search-runs/{run_id}")
                 assert status_response.status_code == 200, status_response.text
                 last_status = status_response.json()
@@ -1485,10 +1564,22 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
 
                 if str(last_status.get("status") or "").strip().lower() in TERMINAL_RUN_STATUSES:
                     break
-                time.sleep(poll_interval)
+                remaining_seconds = deadline - time.monotonic()
+                if remaining_seconds <= 0.0:
+                    break
+                time.sleep(min(poll_interval, remaining_seconds))
 
             status_value = str(last_status.get("status") or "").strip().lower()
-            assert status_value in TERMINAL_RUN_STATUSES, f"{case.title}: run did not reach terminal status before timeout"
+            observed_at = time.monotonic()
+            timeout_diagnostics = _target_recovery_run_timeout_diagnostics(
+                last_status,
+                elapsed_seconds=observed_at - run_started_at,
+                scan_cap_per_source=scan_cap_per_source,
+            )
+            assert status_value in TERMINAL_RUN_STATUSES, (
+                f"{case.title}: run did not reach terminal status before bounded timeout; "
+                f"{timeout_diagnostics}"
+            )
             assert status_value != "failed", f"{case.title}: run failed unrepaired"
 
             summary = dict(last_status.get("summary") or {}) if isinstance(last_status.get("summary"), dict) else {}
