@@ -22,6 +22,7 @@ The latest live recheck on 2026-06-27 supersedes the earlier provisional Brillia
 - The current 2026-07-07 gold-status proof still fails closed on the same external-state `magicfit`, `magic`, and `omagic` provider-runtime blockers, but the deployed gold receipt can now surface them through nested `scene_video_readiness.runtime_status` data instead of relying on a separate standalone runtime-status report.
 - The 2026-07-01 live proof-copy polish deploy removed the default score-guide block, duplicate score explanation cards, visible proof-style selected-property badges, and stale proof-heavy public-tour/dossier/PDF fallback wording.
 - The later 2026-07-01 minimal-copy deploy tightened the packet dashboard, workbench research tasks, save feedback, and public-tour language again: visible `Analytics`, `Engagement`, `Next best action`, `Share state`, `Reviewed feedback`, `Optimization recommendations`, `Saved durably`, and `Watch-outs` labels were replaced with calmer customer-facing labels such as `Views`, `Replies`, `Next step`, `Responses`, `Page ideas`, `Saved`, and `Check first`.
+- The current 2026-07-16 runtime candidate adds a supplemental isolated-loopback continuous UX gate across Chromium, Firefox, and WebKit; it verifies decoded visible images, structural layout, exact routes, loading and offline/recovery semantics, 400% reflow, and a bounded three-sample Chromium first-value budget without claiming deployed or production proof. The protected live workflow now consumes this candidate-bound receipt and uses the manifest runtime SHA for provenance instead of the manifest-only commit.
 
 That means the billing account lane still requires a second vendor login even though the first-party billing host and redirect contract are now correct. Any earlier receipt lines claiming `billing_handoff.account_handoff_usable=true` should be treated as stale; the refreshed gold receipts keep `billing_handoff.status=ready` while recording the separate-login limitation explicitly.
 
@@ -36,13 +37,20 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `9a733b2fa101e8a64c4b33a77a3559a66ac2db77` |
+| Runtime commit SHA | `7ea77cd6258b142499af6e6516328f386388f9e7` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
 | Deployment ID | `pending-next-verified-deploy`; current candidate fails optional tour media safely, publishes reconstructed tours through a bounded unprivileged atomic exchange, and verifies browser journeys through explicit user-visible readiness on a reserved branded loopback origin |
 | Artifact set | app runtime, templates, tests, docs, compose deployment, smoke scripts |
 
 ## Latest Verification
+
+The 2026-07-16 continuous UX hardening candidate verified locally:
+
+- The isolated real-browser receipt passed all `9/9` required route/engine samples with zero failed rows, zero engine failures, exact offline recovery, terminal decoded visible images, and no provider response fulfillment or mocking.
+- Gold independently revalidated the raw receipt metrics and candidate binding with no contract errors, failed rows, or missing samples; producer-owned pass booleans alone are insufficient.
+- `pytest -q tests/test_propertyquarry_continuous_ux_gate.py tests/test_propertyquarry_accessibility_gate.py tests/test_propertyquarry_gold_status.py` returned `179 passed`.
+- Python compilation, workflow YAML parsing, and `git diff --check` passed. Remote candidate CI and deployed/live receipts remain required before launch authority can be granted.
 
 The live gold-proof wiring deploy on 2026-07-07 verified:
 
@@ -905,7 +913,7 @@ The previous billing payload carried roughly 16.6 MB of account/form state and t
 - The documentation.ai whole-project audit P0/P1 findings remain in scope: runtime privilege, branch/deployment authority, reproducible builds, durable RBAC/session hardening, CI/security/accessibility/visual gates, public-network posture, documentation separation, and current-HEAD release evidence.
 - Evidence-map overlays remain a whole-project gold blocker until environmental quality, summer heat, traffic/noise, public mobility, school context, official aggregate safety context, media-attention statistics with article links, and fiber/broadband coverage are implemented from source registries through Teable ingestion, cached read models, unavailable/stale/verified UI states, and search-performance receipts proving no inline source indexing.
 - Rybbit remains a whole-project gold blocker until dashboard/API receipts prove the approved taxonomy arrives for public conversion, authenticated product engagement, billing handoff, tour/walkthrough interaction, support/recovery, and search activation without private candidate/listing/contact payloads.
-- Release hardening remains a whole-project gold blocker until visual regression, axe/accessibility, keyboard/focus, high-zoom/mobile, empty/error/loading state, and first-value performance-budget gates run as continuous CI or release gates.
+- Release hardening now has candidate-bound continuous visual, axe/accessibility, keyboard/focus, 400%-reflow/mobile, loading/offline-recovery, and first-value budget coverage. Gold remains blocked until the new candidate workflow is terminal and the protected deployed/live gates produce current release-bound receipts.
 - Production security remains a whole-project gold blocker until default runtime/container hardening, locked supply chain, dependency/container scans, SBOM, durable RBAC/session revocation, key rotation posture, and disabled production loopback/principal-header override receipts are current.
 - The gold-status receipt now consumes current machine-readable `propertyquarry.security_posture_receipt.v1` and `propertyquarry.release_hygiene_receipt.v1` outputs, so security posture and release-manifest authority regressions are explicit gold blockers rather than documentation-only scope.
 - The public domain has a current Cloudflare smoke receipt from 2026-06-25, but must still be re-smoked through Cloudflare after each deploy.
