@@ -70,6 +70,9 @@ def _passing_row(*, engine: str, route: str) -> dict[str, object]:
         "status_code": gate.ERROR_EXPECTED_STATUS if route == gate.ERROR_ROUTE else 200,
         "metrics": metrics,
         "error": "",
+        "error_type": "",
+        "error_stage": "",
+        "error_detail": "",
     }
     checks = gate.evaluate_continuous_ux_row(row)
     row["checks"] = checks
@@ -187,6 +190,20 @@ def test_visible_image_wait_stabilizes_declared_sources_before_decode() -> None:
     assert "visible_image_terminal_state_timeout" in page.script
 
 
+def test_browser_error_detail_is_bounded_and_redacts_sensitive_values() -> None:
+    secret = "local-super-secret-token"
+    detail = gate._redacted_browser_error_detail(
+        RuntimeError(f"first line\nBearer {secret} second line {secret}"),
+        sensitive_values=[f"Bearer {secret}", secret],
+        limit=48,
+    )
+
+    assert secret not in detail
+    assert "\n" not in detail
+    assert "[redacted]" in detail
+    assert len(detail) <= 48
+
+
 def test_visible_image_wait_handles_hydration_breakage_and_frame_timeout() -> None:
     playwright_api = pytest.importorskip("playwright.sync_api")
     from PIL import Image
@@ -286,6 +303,9 @@ def test_visible_image_wait_handles_hydration_breakage_and_frame_timeout() -> No
         (gate.SEARCH_ROUTE, "metrics", "document_ready_state", "loading"),
         (gate.SEARCH_ROUTE, "row", "error", _MISSING),
         (gate.SEARCH_ROUTE, "row", "error", "playwright_timeout"),
+        (gate.SEARCH_ROUTE, "row", "error_type", _MISSING),
+        (gate.SEARCH_ROUTE, "row", "error_stage", "route_navigation"),
+        (gate.SEARCH_ROUTE, "row", "error_detail", "net::ERR_ABORTED"),
         (gate.SEARCH_ROUTE, "metrics", "first_value_retry_used", _MISSING),
         (gate.SEARCH_ROUTE, "metrics", "first_value_retry_used", True),
         (gate.SEARCH_ROUTE, "metrics", "first_value_cold_ms", -1.0),

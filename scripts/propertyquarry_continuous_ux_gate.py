@@ -78,6 +78,22 @@ def _relative_route(value: str) -> str:
     return urllib.parse.urlunsplit(("", "", parsed.path or "/", parsed.query, ""))
 
 
+def _redacted_browser_error_detail(
+    exc: Exception,
+    *,
+    sensitive_values: tuple[str, ...] | list[str] = (),
+    limit: int = 1_000,
+) -> str:
+    detail = re.sub(r"\s+", " ", str(exc or "")).strip()
+    for sensitive in sorted(
+        {str(value) for value in sensitive_values if str(value)},
+        key=len,
+        reverse=True,
+    ):
+        detail = detail.replace(sensitive, "[redacted]")
+    return detail[: max(1, int(limit))]
+
+
 def loopback_origin_error(value: str) -> str:
     try:
         parsed = urllib.parse.urlsplit(str(value or ""))
@@ -454,27 +470,32 @@ def collect_continuous_ux_engine_rows(
             )
         )
         try:
-            context = browser.new_context(
-                viewport={"width": 1280, "height": 900},
-                service_workers="block",
-            )
             auth_enabled = {"value": True}
             routing_evidence = {
                 "continued_request_count": 0,
                 "route_fulfill_count": 0,
             }
-            context.route(
-                "**/*",
-                lambda route: _continue_with_origin_scoped_headers(
-                    route,
-                    authorized_origin=authorized_origin,
-                    headers=headers,
-                    auth_enabled=auth_enabled,
-                    routing_evidence=routing_evidence,
-                ),
-            )
+
+            def new_isolated_context() -> Any:
+                isolated_context = browser.new_context(
+                    viewport={"width": 1280, "height": 900},
+                    service_workers="block",
+                )
+                isolated_context.route(
+                    "**/*",
+                    lambda route: _continue_with_origin_scoped_headers(
+                        route,
+                        authorized_origin=authorized_origin,
+                        headers=headers,
+                        auth_enabled=auth_enabled,
+                        routing_evidence=routing_evidence,
+                    ),
+                )
+                return isolated_context
+
+            context = new_isolated_context()
             try:
-                for route in routes:
+                for route_index, route in enumerate(routes):
                     auth_enabled["value"] = route != "/"
                     routing_evidence["continued_request_count"] = 0
                     routing_evidence["route_fulfill_count"] = 0
@@ -485,6 +506,8 @@ def collect_continuous_ux_engine_rows(
                     metrics: dict[str, Any] = {}
                     error = ""
                     error_type = ""
+                    error_detail = ""
+                    observation_stage = "route_navigation"
                     try:
                         response = page.goto(
                             normalized_base + "/" + route.lstrip("/"),
@@ -492,11 +515,14 @@ def collect_continuous_ux_engine_rows(
                             timeout=timeout_ms,
                         )
                         status_code = int(response.status) if response is not None else 0
+                        observation_stage = "body_visible"
                         page.locator("body").wait_for(state="visible", timeout=timeout_ms)
+                        observation_stage = "visible_images_terminal"
                         _wait_for_visible_image_terminal_state(
                             page,
                             timeout_ms=timeout_ms,
                         )
+                        observation_stage = "structural_visual_metrics"
                         visual_metrics = _structural_visual_metrics(page)
                         first_value_cold_ms = float(
                             visual_metrics.get("first_value_ms") or 0.0
@@ -508,7 +534,11 @@ def collect_continuous_ux_engine_rows(
                             first_value_samples = []
                             for attempt_index in range(FIRST_VALUE_MAX_ATTEMPTS):
                                 attempt_samples: list[float] = []
-                                for _sample_index in range(FIRST_VALUE_SAMPLE_COUNT):
+                                for sample_index in range(FIRST_VALUE_SAMPLE_COUNT):
+                                    observation_stage = (
+                                        "first_value_reload_"
+                                        f"{attempt_index + 1}_{sample_index + 1}"
+                                    )
                                     response = page.reload(
                                         wait_until="domcontentloaded",
                                         timeout=timeout_ms,
@@ -551,12 +581,16 @@ def collect_continuous_ux_engine_rows(
                                 "final_route": _relative_route(str(page.url or "")),
                             }
                         )
+                        observation_stage = "zoom_400_metrics"
                         metrics.update(_zoom_400_metrics(page))
                         if route == ERROR_ROUTE:
+                            observation_stage = "offline_transition"
                             context.set_offline(True)
                             try:
+                                observation_stage = "offline_event"
                                 page.evaluate("window.dispatchEvent(new Event('offline'))")
                                 page.wait_for_timeout(150)
+                                observation_stage = "offline_state_metrics"
                                 error_state = _error_state_metrics(page)
                                 metrics.update(
                                     {
@@ -567,13 +601,16 @@ def collect_continuous_ux_engine_rows(
                                 )
                             finally:
                                 context.set_offline(False)
+                            observation_stage = "online_event"
                             page.evaluate("window.dispatchEvent(new Event('online'))")
                             page.wait_for_timeout(100)
+                            observation_stage = "online_recovery_metrics"
                             recovered_state = _error_state_metrics(page)
                             metrics["error_state_recovered_online"] = (
                                 recovered_state.get("visible") is False
                             )
                         if route == SEARCH_ROUTE:
+                            observation_stage = "loading_state_metrics"
                             loading_state = _loading_state_metrics(page)
                             metrics.update(
                                 {
@@ -582,6 +619,7 @@ def collect_continuous_ux_engine_rows(
                                     "loading_state_semantic": loading_state.get("semantic") is True,
                                 }
                             )
+                        observation_stage = "routing_evidence"
                         route_fulfill_count = int(
                             routing_evidence.get("route_fulfill_count") or 0
                         )
@@ -598,6 +636,10 @@ def collect_continuous_ux_engine_rows(
                     except Exception as exc:
                         error = "browser_observation_failed"
                         error_type = type(exc).__name__
+                        error_detail = _redacted_browser_error_detail(
+                            exc,
+                            sensitive_values=list(headers.values()),
+                        )
                     row = {
                         "route": route,
                         "browser_engine": engine,
@@ -605,12 +647,17 @@ def collect_continuous_ux_engine_rows(
                         "metrics": metrics,
                         "error": error,
                         "error_type": error_type,
+                        "error_stage": observation_stage if error else "",
+                        "error_detail": error_detail,
                     }
                     checks = evaluate_continuous_ux_row(row)
                     row["checks"] = checks
                     row["ok"] = all(check.get("ok") is True for check in checks)
                     rows.append(row)
                     page.close()
+                    if route_index + 1 < len(routes):
+                        context.close()
+                        context = new_isolated_context()
             finally:
                 context.close()
         finally:
@@ -720,7 +767,10 @@ def evaluate_continuous_ux_row(
             "ok": status_code == expected_status
             and str(metrics.get("final_route") or "") == route
             and str(metrics.get("document_ready_state") or "") in {"interactive", "complete"}
-            and row.get("error") == "",
+            and row.get("error") == ""
+            and row.get("error_type") == ""
+            and row.get("error_stage") == ""
+            and row.get("error_detail") == "",
         },
         {
             "name": "structural_visual_contract",
@@ -840,6 +890,10 @@ def build_continuous_ux_receipt(
                         "browser_engine": engine,
                         "error": "browser_engine_failed",
                         "error_type": type(exc).__name__,
+                        "error_detail": _redacted_browser_error_detail(
+                            exc,
+                            sensitive_values=list(headers.values()),
+                        ),
                     }
                 )
     expected_samples = {(engine, route) for engine in engines for route in routes}
@@ -1021,6 +1075,7 @@ def build_continuous_ux_receipt(
             "First value gates the median of three warm Chromium DOMContentLoaded samples after observing visible structure, with one bounded retry for transient runner contention; cold and initial samples remain diagnostic, other engines are diagnostic, and first-contentful-paint is retained as diagnostic evidence.",
             "The loading interaction uses the real search launch control; the route handler only continues requests with origin-scoped headers and never fulfills or mocks provider responses.",
             "The error interaction uses the browser's real offline transition and the product's semantic offline marker without mocking a provider response.",
+            "Each route runs in a fresh browser context so cookies, pending requests, and emulated network state cannot bleed between observations.",
         ],
     }
     serialized = json.dumps(receipt, sort_keys=True)
