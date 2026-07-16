@@ -37,7 +37,7 @@ That means the billing account lane still requires a second vendor login even th
 | Public origin | `https://github.com/ArchonMegalon/property.git` |
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
-| Runtime commit SHA | `7ea77cd6258b142499af6e6516328f386388f9e7` |
+| Runtime commit SHA | `152af2a1bd4ab4e7eb1f7bdaeecd6ce117b10b8a` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
 | Deployment ID | `pending-next-verified-deploy`; current candidate fails optional tour media safely, publishes reconstructed tours through a bounded unprivileged atomic exchange, and verifies browser journeys through explicit user-visible readiness on a reserved branded loopback origin |
@@ -50,6 +50,7 @@ The 2026-07-16 continuous UX hardening candidate verified locally:
 - The isolated real-browser receipt passed all `9/9` required route/engine samples with zero failed rows, zero engine failures, exact offline recovery, terminal decoded visible images, and no provider response fulfillment or mocking.
 - Gold independently revalidated the raw receipt metrics and candidate binding with no contract errors, failed rows, or missing samples; producer-owned pass booleans alone are insufficient.
 - `pytest -q tests/test_propertyquarry_continuous_ux_gate.py tests/test_propertyquarry_accessibility_gate.py tests/test_propertyquarry_gold_status.py` returned `179 passed`.
+- The first remote workflow parse at manifest commit `46b19f65` created no jobs because the new job referenced the `runner` context from job-level `env`. Commit `152af2a1` moves that temporary-directory value to step scope; `actionlint` then passed with only the known protected-runner label warning and the pre-existing shell diagnostic excluded.
 - Python compilation, workflow YAML parsing, and `git diff --check` passed. Remote candidate CI and deployed/live receipts remain required before launch authority can be granted.
 
 The live gold-proof wiring deploy on 2026-07-07 verified:
