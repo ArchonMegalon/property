@@ -1,7 +1,7 @@
 {
   "contract_name": "ea.weekly_product_pulse",
   "contract_version": 2,
-  "generated_at": "2026-07-16T10:01:04Z",
+  "generated_at": "2026-07-16T12:08:07Z",
   "as_of": "2026-07-16",
   "scorecard_source": ".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml",
   "release_truth_source": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
@@ -9,11 +9,11 @@
     "source_path": "/tmp/propertyquarry-polish-20260715/.codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
     "resolved_path": "/tmp/propertyquarry-polish-20260715/.codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
     "present": true,
-    "size_bytes": 15985,
-    "mtime_utc": "2026-07-16T10:00:54Z",
-    "sha256": "50d3ab01d47547c0e5f09b2fab18123e97c32f6584b424b34a0f656957e118f3",
+    "size_bytes": 16226,
+    "mtime_utc": "2026-07-16T12:08:07Z",
+    "sha256": "a839b435bfb92767d2a30ebd4dce68b1d7186ccb3d87ddfec4b9e089583539cb",
     "git_repo_root": "/tmp/propertyquarry-polish-20260715",
-    "git_head": "58e34fad3486eca8a3dc720286efba902ffb1418",
+    "git_head": "8bd00001c7edc5026cf9c021a77fa0dbc7650073",
     "git_branch": "harden/propertyquarry-release-controller-20260716",
     "repo_relative_path": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
   },
@@ -38,6 +38,7 @@
   },
   "journey_gate_scope": "supporting_external_fleet_context",
   "journey_gate_authority": "non_authoritative_for_propertyquarry_launch",
+  "journey_gate_snapshot_policy": "carry_forward_committed_snapshot_only",
   "summary": "PropertyQuarry source/browser candidate proof is green, but protected live readiness is not_evaluated; this pulse does not support a production launch claim.",
   "active_wave": "PropertyQuarry flagship receipt closeout",
   "active_wave_status": "active",
@@ -87,7 +88,7 @@
     },
     {
       "cluster_id": "fleet_journey_coverage",
-      "summary": "External Fleet journey context reports ready; it remains supporting evidence only and cannot prove PropertyQuarry launch readiness.",
+      "summary": "The last published external Fleet journey snapshot reports ready; it is carried as supporting-only context and cannot prove PropertyQuarry launch readiness.",
       "source_paths": [
         "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
         "scripts/verify_release_assets.sh"
@@ -154,13 +155,13 @@
     "provider_route_stewardship": {
       "default_status": "PropertyQuarry routes are governed by local truth surfaces.",
       "canary_status": "Browser execution proof is published for the source/browser candidate; protected live evidence remains separate.",
-      "review_due": "2026-07-23T10:01:04Z",
+      "review_due": "2026-07-23T12:08:07Z",
       "next_decision": "Complete the protected launch profile and live receipts, then re-materialize this pulse."
     },
     "journey_gate_source": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
     "journey_gate_git_head": "99f7fc42bac6a172d4ec2c02ed59807461d10038",
     "flagship_release_receipt_source": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
-    "flagship_release_receipt_git_head": "58e34fad3486eca8a3dc720286efba902ffb1418",
+    "flagship_release_receipt_git_head": "8bd00001c7edc5026cf9c021a77fa0dbc7650073",
     "scorecard_source": ".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml",
     "release_pipeline_source": ".codex-design/product/RELEASE_PIPELINE.md",
     "governor_loop_source": ".codex-design/product/PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md",
@@ -215,7 +216,7 @@
       },
       {
         "cluster_id": "fleet_journey_coverage",
-        "summary": "External Fleet journey context reports ready; it remains supporting evidence only and cannot prove PropertyQuarry launch readiness.",
+        "summary": "The last published external Fleet journey snapshot reports ready; it is carried as supporting-only context and cannot prove PropertyQuarry launch readiness.",
         "source_paths": [
           "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
           "scripts/verify_release_assets.sh"

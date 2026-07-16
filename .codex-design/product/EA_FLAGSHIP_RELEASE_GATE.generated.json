@@ -3,7 +3,7 @@
   "surface": "propertyquarry_flagship_release_control",
   "version": 1,
   "kind": "release_receipt",
-  "generated_at": "2026-07-16T10:00:54Z",
+  "generated_at": "2026-07-16T12:08:07Z",
   "generated_by": "scripts/materialize_ea_flagship_release_gate.py",
   "status": "pass",
   "readiness_scope": "source_and_browser_proof",
@@ -14,11 +14,11 @@
   },
   "source_binding": {
     "version": 1,
-    "code_commit": "58e34fad3486eca8a3dc720286efba902ffb1418",
+    "code_commit": "8bd00001c7edc5026cf9c021a77fa0dbc7650073",
     "seed": {
       "path": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
-      "sha256": "e18d295be88cf84b0e3035bde7f845c74c2fe5153b196d4f8bb34495276bc143",
-      "git_blob_oid": "035453f1f6d568937124a9b77aa901cb1161386c"
+      "sha256": "3fb0eef6a4b17835643e61a6d422f4802182f67f3c4aae88000062e4a671d163",
+      "git_blob_oid": "fbe346b12714eed275586f904e2d6f4dbeff1eec"
     },
     "required_test_sources": [
       {
@@ -28,15 +28,15 @@
       },
       {
         "path": "tests/e2e/test_propertyquarry_greenfield_browser.py",
-        "sha256": "63632ed500856414b9f90e278ca29359c29a6996ebd1cfe83d2592bbdf5d8954",
-        "git_blob_oid": "ed8275cda717cfd30ab05ef72ea1ad32400fd9b1"
+        "sha256": "d84c99fa0993a5a60f03d17e56d9944a7182001ddf77e580cdc6b4c2b032fe15",
+        "git_blob_oid": "9199b025602cf52bea79fa0365c4871d698b5c73"
       }
     ]
   },
   "browser_receipt_binding": {
     "path": ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json",
-    "sha256": "e9d0bd6ac6c85b7dbf1c42d7ca491eff728c82edf01842a5e96a7c1f64b768ab",
-    "git_blob_oid": "f8175482ce33252fa47234df2699362f5fd80e45"
+    "sha256": "0920d238e9dc04ca131c16b87029d23fce8265093dd2a07d61e249c6e368f37c",
+    "git_blob_oid": "711de1b10f40dfa6caa232c86e0869076dd481e4"
   },
   "operator_summary": "PropertyQuarry source/browser flagship proof is published and green; final live readiness is not evaluated by this receipt.",
   "truth_plane": {
@@ -135,6 +135,7 @@
           "test_propertyquarry_greenfield_workspace_in_real_browser",
           "test_propertyquarry_greenfield_workspace_is_mobile_usable",
           "test_propertyquarry_expired_session_next_action_moves_keyboard_focus_to_sign_in_options",
+          "test_propertyquarry_workbench_candidate_history_stays_in_place",
           "test_propertyquarry_flagship_operating_loop_in_browser",
           "test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser",
           "test_propertyquarry_packet_tracks_followup_state_in_browser",
@@ -164,6 +165,7 @@
           "test_propertyquarry_greenfield_workspace_in_real_browser",
           "test_propertyquarry_greenfield_workspace_is_mobile_usable",
           "test_propertyquarry_expired_session_next_action_moves_keyboard_focus_to_sign_in_options",
+          "test_propertyquarry_workbench_candidate_history_stays_in_place",
           "test_propertyquarry_flagship_operating_loop_in_browser",
           "test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser",
           "test_propertyquarry_packet_tracks_followup_state_in_browser",
@@ -179,7 +181,7 @@
     "version": 1,
     "status": "pass",
     "readiness_scope": "candidate_source_and_browser_proof",
-    "runtime_commit_sha": "58e34fad3486eca8a3dc720286efba902ffb1418",
+    "runtime_commit_sha": "8bd00001c7edc5026cf9c021a77fa0dbc7650073",
     "required_journey_ids": [
       "public_entry",
       "onboarding_auth",
@@ -281,7 +283,8 @@
           {
             "file": "tests/e2e/test_propertyquarry_greenfield_browser.py",
             "cases": [
-              "test_propertyquarry_greenfield_workspace_is_mobile_usable"
+              "test_propertyquarry_greenfield_workspace_is_mobile_usable",
+              "test_propertyquarry_workbench_candidate_history_stays_in_place"
             ],
             "lane_status": "pass"
           }
@@ -357,7 +360,7 @@
       },
       {
         "journey_id": "notifications",
-        "label": "Alert controls, channel preferences, and external delivery",
+        "label": "Alert controls, channel preferences, and external Telegram delivery",
         "proof_status": "pass",
         "evidence_sources": [
           {

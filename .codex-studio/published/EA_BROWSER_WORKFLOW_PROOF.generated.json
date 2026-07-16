@@ -5,7 +5,7 @@
   "proof_target": "propertyquarry",
   "version": 1,
   "kind": "proof_receipt",
-  "generated_at": "2026-07-16T10:00:41Z",
+  "generated_at": "2026-07-16T12:08:05Z",
   "generated_by": "scripts/materialize_ea_browser_workflow_proof.py",
   "status": "pass",
   "operator_summary": "PropertyQuarry browser workflow proof is published and green across the required journey matrix, source-backed contracts, and real-browser E2E.",
@@ -14,17 +14,18 @@
   "expected_browser_signals": [
     "/app/properties renders the standalone PropertyQuarry search setup and ranked decision workbench",
     "/app/properties?run_id=... renders shortlist rows, 360 readiness, decision reasons, and OODA evidence",
-    "selecting a ranked result opens its /app/research/... packet with the 360 stage and preference feedback",
+    "ranked-row selection updates the dossier and candidate URL in place, including browser back and forward on desktop and mobile",
+    "the explicit Open property action opens the selected result's /app/research/... packet with the 360 stage and preference feedback",
     "the PropertyQuarry mobile workbench exposes results, property detail, and the mobile action dock within the viewport",
     "failed PropertyQuarry runs remain visible on the activity surface with an actionable recovery state"
   ],
   "source_binding": {
     "version": 1,
-    "code_commit": "58e34fad3486eca8a3dc720286efba902ffb1418",
+    "code_commit": "8bd00001c7edc5026cf9c021a77fa0dbc7650073",
     "seed": {
       "path": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
-      "sha256": "e18d295be88cf84b0e3035bde7f845c74c2fe5153b196d4f8bb34495276bc143",
-      "git_blob_oid": "035453f1f6d568937124a9b77aa901cb1161386c"
+      "sha256": "3fb0eef6a4b17835643e61a6d422f4802182f67f3c4aae88000062e4a671d163",
+      "git_blob_oid": "fbe346b12714eed275586f904e2d6f4dbeff1eec"
     },
     "required_test_sources": [
       {
@@ -34,8 +35,8 @@
       },
       {
         "path": "tests/e2e/test_propertyquarry_greenfield_browser.py",
-        "sha256": "63632ed500856414b9f90e278ca29359c29a6996ebd1cfe83d2592bbdf5d8954",
-        "git_blob_oid": "ed8275cda717cfd30ab05ef72ea1ad32400fd9b1"
+        "sha256": "d84c99fa0993a5a60f03d17e56d9944a7182001ddf77e580cdc6b4c2b032fe15",
+        "git_blob_oid": "9199b025602cf52bea79fa0365c4871d698b5c73"
       }
     ]
   },
@@ -55,10 +56,10 @@
       "test_propertyquarry_public_home_survives_unreadable_optional_tour_media"
     ],
     "exit_code": 0,
-    "duration_seconds": 172.422,
+    "duration_seconds": 84.094,
     "output_excerpt": [
       ".......                                                                  [100%]",
-      "7 passed in 148.07s (0:02:28)"
+      "7 passed in 77.09s (0:01:17)"
     ],
     "limitations": [],
     "outcome_counts": {
@@ -75,7 +76,7 @@
   },
   "real_browser_e2e_proof": {
     "status": "pass",
-    "command": "/usr/bin/python3 -m pytest -q tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_greenfield_workspace_in_real_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_greenfield_workspace_is_mobile_usable tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_expired_session_next_action_moves_keyboard_focus_to_sign_in_options tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_flagship_operating_loop_in_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_packet_tracks_followup_state_in_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_account_notifications_save_multi_channel_preferences_in_real_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_browser_alert_button_toggles_enabled_state -rs",
+    "command": "/usr/bin/python3 -m pytest -q tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_greenfield_workspace_in_real_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_greenfield_workspace_is_mobile_usable tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_expired_session_next_action_moves_keyboard_focus_to_sign_in_options tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_workbench_candidate_history_stays_in_place tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_flagship_operating_loop_in_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_packet_tracks_followup_state_in_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_account_notifications_save_multi_channel_preferences_in_real_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_browser_alert_button_toggles_enabled_state -rs",
     "cwd": "/tmp/propertyquarry-polish-20260715",
     "python_bin": "/usr/bin/python3",
     "test_file": "tests/e2e/test_propertyquarry_greenfield_browser.py",
@@ -83,6 +84,7 @@
       "test_propertyquarry_greenfield_workspace_in_real_browser",
       "test_propertyquarry_greenfield_workspace_is_mobile_usable",
       "test_propertyquarry_expired_session_next_action_moves_keyboard_focus_to_sign_in_options",
+      "test_propertyquarry_workbench_candidate_history_stays_in_place",
       "test_propertyquarry_flagship_operating_loop_in_browser",
       "test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser",
       "test_propertyquarry_packet_tracks_followup_state_in_browser",
@@ -90,29 +92,29 @@
       "test_propertyquarry_browser_alert_button_toggles_enabled_state"
     ],
     "exit_code": 0,
-    "duration_seconds": 194.538,
+    "duration_seconds": 317.524,
     "output_excerpt": [
-      "........                                                                 [100%]",
-      "8 passed in 190.24s (0:03:10)"
+      ".........                                                                [100%]",
+      "9 passed in 310.31s (0:05:10)"
     ],
     "limitations": [],
     "outcome_counts": {
-      "passed": 8,
+      "passed": 9,
       "failed": 0,
       "skipped": 0,
       "errors": 0,
       "xfailed": 0,
       "xpassed": 0
     },
-    "required_case_count": 8,
-    "selected_count": 8,
-    "executed_count": 8
+    "required_case_count": 9,
+    "selected_count": 9,
+    "executed_count": 9
   },
   "journey_evidence_matrix": {
     "version": 1,
     "status": "pass",
     "readiness_scope": "candidate_source_and_browser_proof",
-    "runtime_commit_sha": "58e34fad3486eca8a3dc720286efba902ffb1418",
+    "runtime_commit_sha": "8bd00001c7edc5026cf9c021a77fa0dbc7650073",
     "required_journey_ids": [
       "public_entry",
       "onboarding_auth",
@@ -214,7 +216,8 @@
           {
             "file": "tests/e2e/test_propertyquarry_greenfield_browser.py",
             "cases": [
-              "test_propertyquarry_greenfield_workspace_is_mobile_usable"
+              "test_propertyquarry_greenfield_workspace_is_mobile_usable",
+              "test_propertyquarry_workbench_candidate_history_stays_in_place"
             ],
             "lane_status": "pass"
           }
@@ -290,7 +293,7 @@
       },
       {
         "journey_id": "notifications",
-        "label": "Alert controls, channel preferences, and external delivery",
+        "label": "Alert controls, channel preferences, and external Telegram delivery",
         "proof_status": "pass",
         "evidence_sources": [
           {
