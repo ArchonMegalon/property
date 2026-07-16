@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 pytest.importorskip("playwright.sync_api")
 from playwright.sync_api import Browser, expect
 
+from app.api.routes import landing_view_models
 from app.product.service import ProductService
 
 
@@ -30,6 +31,7 @@ _assert_no_horizontal_overflow = _GREENFIELD_MODULE._assert_no_horizontal_overfl
 _choose_research_visual_style = _GREENFIELD_MODULE._choose_research_visual_style
 _issue_browser_workspace_session = _GREENFIELD_MODULE._issue_browser_workspace_session
 _new_context = _GREENFIELD_MODULE._new_context
+_remote_png_bytes = _GREENFIELD_MODULE._remote_png_bytes
 _video_frame_brightness = _GREENFIELD_MODULE._video_frame_brightness
 
 
@@ -41,6 +43,14 @@ def test_propertyquarry_mobile_flagship_flow_runs_search_opens_research_map_and_
     observed: dict[str, object] = {}
     family_diorama_url = "/static/property/home/example-shortlist-home-1.png"
     family_listing_photo_url = "/static/property/home/example-shortlist-home-2.png"
+    family_map_preview_url = "/app/api/property/map-previews/" + ("f" * 40) + ".png"
+    family_map_overlay = [
+        {
+            "label": "Tiergarten",
+            "selected": True,
+            "path": "M92 74 L548 74 L548 294 L92 294 Z",
+        }
+    ]
 
     def _fake_sync_direct_property_scout(
         self,
@@ -160,6 +170,10 @@ def test_propertyquarry_mobile_flagship_flow_runs_search_opens_research_map_and_
     page = context.new_page()
     visual_requests: list[dict[str, object]] = []
     visual_status_polls = 0
+    family_map_preview_bytes = _remote_png_bytes(
+        label="Tiergarten map",
+        size=(640, 368),
+    )
 
     def _capture_visual_request(route) -> None:
         payload = route.request.post_data_json or {}
@@ -223,6 +237,14 @@ def test_propertyquarry_mobile_flagship_flow_runs_search_opens_research_map_and_
 
     page.route("**/app/api/signals/willhaben/property-tour", _capture_visual_request)
     page.route("**/app/api/signals/property/visual-status?**", _capture_visual_status)
+    page.route(
+        f"**{family_map_preview_url}",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="image/png",
+            body=family_map_preview_bytes,
+        ),
+    )
     try:
         response = page.goto(f"{base_url}/sign-in", wait_until="networkidle")
         assert response is not None and response.ok
@@ -283,10 +305,14 @@ def test_propertyquarry_mobile_flagship_flow_runs_search_opens_research_map_and_
         expect(final_search_button).to_be_visible()
         expect(final_search_button).to_have_text("Search")
 
-        with page.expect_response("**/app/api/property/search-runs") as start_response:
-            final_search_button.click()
+        with page.expect_navigation(
+            url=re.compile(r".*/app/properties\?run_id=.*"),
+            wait_until="commit",
+            timeout=30_000,
+        ):
+            with page.expect_response("**/app/api/property/search-runs") as start_response:
+                final_search_button.click()
         assert start_response.value.ok
-        page.wait_for_url(re.compile(r".*/app/properties\?run_id=.*"), wait_until="commit", timeout=10_000)
         run_id = urllib.parse.parse_qs(urllib.parse.urlparse(page.url).query).get("run_id", [""])[0]
         assert run_id
         page.wait_for_selector(
@@ -330,6 +356,20 @@ def test_propertyquarry_mobile_flagship_flow_runs_search_opens_research_map_and_
         finally:
             tour_page.close()
 
+        monkeypatch.setattr(
+            landing_view_models,
+            "_forward_geocode_preview_point",
+            lambda label: None,
+        )
+        monkeypatch.setattr(
+            landing_view_models,
+            "_build_scope_boundary_preview",
+            lambda **kwargs: {
+                "image_url": family_map_preview_url,
+                "summary": "Tiergarten",
+                "district_rows": family_map_overlay,
+            },
+        )
         family_row = page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").first
         expect(family_row).to_be_visible()
         family_row.locator(".pqx-result-title").click()
@@ -341,9 +381,21 @@ def test_propertyquarry_mobile_flagship_flow_runs_search_opens_research_map_and_
 
         map_open = page.locator("[data-prd-map-open]").first
         expect(map_open).to_be_visible()
+        page.wait_for_function(
+            """() => {
+                const image = document.querySelector('[data-prd-map-open] img');
+                return Boolean(image && image.complete && image.naturalWidth > 0);
+            }"""
+        )
         map_open.click()
         map_lightbox = page.locator("[data-prd-map-lightbox]").first
         expect(map_lightbox).to_be_visible()
+        page.wait_for_function(
+            """() => {
+                const image = document.querySelector('[data-prd-map-lightbox-image]');
+                return Boolean(image && image.complete && image.naturalWidth > 0);
+            }"""
+        )
         page.wait_for_function("""() => document.querySelectorAll('[data-prd-map-lightbox-overlay] path').length > 0""")
         assert page.locator("[data-prd-map-lightbox-overlay] path").count() >= 1
         page.locator("[data-prd-map-close]").click()
@@ -364,11 +416,10 @@ def test_propertyquarry_mobile_flagship_flow_runs_search_opens_research_map_and_
         assert "urban jungle" in str(payload.get("diorama_style_hint") or "").lower()
         expect(page.locator("[data-prd-visual-status]")).to_contain_text("queued after your request", timeout=5_000)
         expect(page.locator("[data-prd-visual-eta]")).to_contain_text("about 8 min", timeout=5_000)
-        page.wait_for_timeout(1_300)
-        assert visual_status_polls >= 1
 
         open_walkthrough = page.get_by_role("button", name=re.compile("Open walkthrough", re.I)).first
-        expect(open_walkthrough).to_be_visible()
+        expect(open_walkthrough).to_be_visible(timeout=5_000)
+        assert visual_status_polls >= 1
         walkthrough_href = str(open_walkthrough.get_attribute("data-pw-visual-href") or "").strip()
         assert walkthrough_href.endswith("/tours/altbau-u6?pane=flythrough-pane&autoplay=1")
         open_walkthrough.click()
