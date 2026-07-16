@@ -68,6 +68,12 @@ def _seed_truth_sources(root: Path) -> None:
             "published_receipt": ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json",
             "published_receipt_present": False,
         },
+        "readiness_scope": "source_and_browser_proof",
+        "live_readiness": {
+            "status": "not_evaluated",
+            "authority": "_completion/property_gold_status/release-gate.json",
+            "required_profile": "launch",
+        },
         "status": "preview_only",
         "current_limitations": ["no published browser execution receipt is attached yet"],
     }
@@ -117,7 +123,8 @@ def test_weekly_product_pulse_materializer_uses_current_receipt_product_label(tm
     pulse = json.loads((tmp_path / PULSE_PATH).read_text(encoding="utf-8"))
 
     assert pulse["contract_name"] == "ea.weekly_product_pulse"
-    assert pulse["summary"].startswith("PropertyQuarry remains in preview-only flagship posture:")
+    assert pulse["contract_version"] == 2
+    assert pulse["summary"].startswith("PropertyQuarry source/browser candidate proof remains preview_only;")
     assert pulse["active_wave"] == "PropertyQuarry flagship receipt closeout"
     assert pulse["release_health"]["reason"].startswith("The PropertyQuarry flagship receipt")
     assert "Executive Assistant" not in json.dumps(pulse)
@@ -128,16 +135,30 @@ def test_weekly_product_pulse_materializer_uses_current_receipt_product_label(tm
     assert pulse["release_truth_provenance"]["sha256"]
     assert pulse["journey_gate_provenance"]["present"] is True
     assert pulse["journey_gate_provenance"]["sha256"]
+    assert pulse["journey_gate_scope"] == "supporting_external_fleet_context"
+    assert pulse["journey_gate_authority"] == "non_authoritative_for_propertyquarry_launch"
     assert pulse["release_health"]["state"] == "blocked"
-    assert pulse["flagship_readiness"]["state"] == "watch"
+    assert pulse["release_health"]["scope"] == "production_launch"
+    assert pulse["release_health"]["candidate_state"] == "watch"
+    assert pulse["release_health"]["production_launch_state"] == "blocked"
+    assert pulse["flagship_readiness"]["state"] == "blocked"
+    assert pulse["flagship_readiness"]["candidate_state"] == "watch"
     assert pulse["journey_gate_health"]["state"] == "blocked"
     assert pulse["journey_gate_health"]["blocked_count"] == 3
+    assert pulse["journey_gate_health"]["authority"] == "non_authoritative_for_propertyquarry_launch"
     assert pulse["supporting_signals"]["journey_gate_source"] == str(JOURNEY_GATES_PATH)
     assert pulse["supporting_signals"]["flagship_release_receipt_source"] == FLAGSHIP_RECEIPT_PATH.as_posix()
     assert pulse["supporting_signals"]["journey_gate_git_head"] == ""
     assert pulse["supporting_signals"]["flagship_release_receipt_git_head"] == ""
-    assert pulse["supporting_signals"]["launch_readiness"].startswith("Hold launch expansion")
-    assert pulse["supporting_signals"]["overall_progress_percent"] == 50
+    assert pulse["supporting_signals"]["launch_readiness"].startswith("Hold production launch")
+    assert pulse["supporting_signals"]["overall_progress_percent"] is None
+    assert pulse["supporting_signals"]["overall_progress_status"] == "production_launch_progress_not_evaluated"
+    assert pulse["supporting_signals"]["external_fleet_journey_ready_share_percent"] == 50
+    assert pulse["oldest_blocker_days"] is None
+    assert pulse["oldest_blocker_days_status"] == "not_evaluated"
+    assert pulse["design_drift_count"] is None
+    assert pulse["public_promise_drift_count"] is None
+    assert pulse["drift_count_status"] == "not_evaluated"
     assert pulse["governor_decisions"]
     assert len(pulse["governor_decisions"]) == 2
 
@@ -233,18 +254,20 @@ def test_weekly_product_pulse_does_not_claim_missing_browser_proof_after_pass_re
 
     pulse = json.loads((tmp_path / PULSE_PATH).read_text(encoding="utf-8"))
 
-    assert pulse["supporting_signals"]["launch_readiness"] == "Hold launch expansion pending cross-host journey coverage."
+    assert pulse["supporting_signals"]["launch_readiness"] == (
+        "Source/browser candidate proof is green; hold production launch until protected live readiness passes."
+    )
     assert (
         pulse["supporting_signals"]["provider_route_stewardship"]["canary_status"]
-        == "Browser execution proof is published, but cross-host journey coverage remains blocked."
+        == "Browser execution proof is published for the source/browser candidate; protected live evidence remains separate."
     )
     assert (
         pulse["supporting_signals"]["provider_route_stewardship"]["next_decision"]
-        == "Ingest the remaining cross-host journey receipts, then re-materialize the weekly pulse and release receipt."
+        == "Complete the protected launch profile and live receipts, then re-materialize this pulse."
     )
 
 
-def test_weekly_product_pulse_claims_ready_when_pass_receipt_and_journey_gate_ready(tmp_path: Path) -> None:
+def test_weekly_product_pulse_does_not_promote_fleet_ready_context_to_launch_authority(tmp_path: Path) -> None:
     _seed_truth_sources(tmp_path)
 
     receipt = json.loads((tmp_path / FLAGSHIP_RECEIPT_PATH).read_text(encoding="utf-8"))
@@ -282,9 +305,88 @@ def test_weekly_product_pulse_claims_ready_when_pass_receipt_and_journey_gate_re
     pulse = json.loads((tmp_path / PULSE_PATH).read_text(encoding="utf-8"))
 
     assert pulse["summary"] == (
-        "PropertyQuarry has a green flagship receipt, the fleet journey gate is ready, "
-        "and no journeys block wider release claims."
+        "PropertyQuarry source/browser candidate proof is green, but protected live readiness is "
+        "not_evaluated; this pulse does not support a production launch claim."
     )
-    assert pulse["release_health"]["state"] == "clear"
+    assert pulse["release_health"]["state"] == "blocked"
+    assert pulse["release_health"]["scope"] == "production_launch"
+    assert pulse["release_health"]["candidate_state"] == "clear"
+    assert pulse["release_health"]["production_launch_state"] == "blocked"
     assert pulse["journey_gate_health"]["state"] == "ready"
-    assert pulse["supporting_signals"]["launch_readiness"] == "Release truth is clear enough to widen claims."
+    assert pulse["journey_gate_health"]["scope"] == "supporting_external_fleet_context"
+    assert pulse["journey_gate_health"]["authority"] == "non_authoritative_for_propertyquarry_launch"
+    assert pulse["supporting_signals"]["launch_readiness"] == (
+        "Source/browser candidate proof is green; hold production launch until protected live readiness passes."
+    )
+    assert pulse["supporting_signals"]["longest_pole"] == "protected live production evidence"
+    assert pulse["supporting_signals"]["overall_progress_percent"] is None
+    assert pulse["supporting_signals"]["external_fleet_journey_ready_share_percent"] == 100
+    assert pulse["next_checkpoint_question"] == (
+        "Which protected production receipt or deployment input is the next blocker to clear?"
+    )
+    assert "cannot prove PropertyQuarry launch readiness" in pulse["top_support_or_feedback_clusters"][1]["summary"]
+
+
+def test_weekly_product_pulse_cannot_authorize_production_from_nested_live_status(tmp_path: Path) -> None:
+    _seed_truth_sources(tmp_path)
+
+    receipt = json.loads((tmp_path / FLAGSHIP_RECEIPT_PATH).read_text(encoding="utf-8"))
+    receipt["status"] = "pass"
+    receipt["browser_workflow_proof"]["published_receipt_present"] = True
+    receipt["live_readiness"] = {"status": "pass"}
+    (tmp_path / FLAGSHIP_RECEIPT_PATH).write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+
+    subprocess.run(
+        [
+            "python3",
+            str(SCRIPT),
+            "--root",
+            str(tmp_path),
+            "--scorecard",
+            SCORECARD_PATH.as_posix(),
+            "--journey-gates",
+            str(JOURNEY_GATES_PATH),
+            "--flagship-receipt",
+            FLAGSHIP_RECEIPT_PATH.as_posix(),
+            "--output",
+            PULSE_PATH.as_posix(),
+        ],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    pulse = json.loads((tmp_path / PULSE_PATH).read_text(encoding="utf-8"))
+
+    assert pulse["release_health"]["reported_live_readiness_state"] == "pass_unverified"
+    assert pulse["flagship_readiness"]["reported_live_readiness_state"] == "pass_unverified"
+    assert pulse["release_health"]["production_launch_state"] == "blocked"
+    assert pulse["flagship_readiness"]["production_launch_state"] == "blocked"
+    assert pulse["supporting_signals"]["launch_readiness"].endswith(
+        "reconcile the current deployment before widening production claims."
+    )
+
+
+@pytest.mark.parametrize("unsafe_alias", ["ready", "clear"])
+def test_weekly_product_pulse_does_not_accept_live_readiness_aliases(
+    tmp_path: Path, unsafe_alias: str
+) -> None:
+    _seed_truth_sources(tmp_path)
+
+    receipt = json.loads((tmp_path / FLAGSHIP_RECEIPT_PATH).read_text(encoding="utf-8"))
+    receipt["status"] = "pass"
+    receipt["browser_workflow_proof"]["published_receipt_present"] = True
+    receipt["live_readiness"]["status"] = unsafe_alias
+    (tmp_path / FLAGSHIP_RECEIPT_PATH).write_text(json.dumps(receipt, indent=2) + "\n", encoding="utf-8")
+
+    module = _load_materializer_module()
+    pulse = module.build_pulse(
+        tmp_path,
+        scorecard_path=SCORECARD_PATH,
+        journey_gates_path=JOURNEY_GATES_PATH,
+        flagship_receipt_path=FLAGSHIP_RECEIPT_PATH,
+    )
+
+    assert pulse["release_health"]["reported_live_readiness_state"] == "not_passed"
+    assert pulse["release_health"]["production_launch_state"] == "blocked"

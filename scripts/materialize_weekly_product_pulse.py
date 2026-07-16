@@ -389,12 +389,18 @@ def _flagship_receipt_source(root: Path, receipt_path: Path) -> dict[str, Any]:
     status = str(receipt.get("status") or "missing").strip() or "missing"
     truth_plane = dict(receipt.get("truth_plane") or {})
     browser = dict(receipt.get("browser_workflow_proof") or {})
+    live_readiness = dict(receipt.get("live_readiness") or {})
     return {
         "receipt": receipt,
         "product_label": _receipt_product_label(receipt),
         "path": receipt_path,
         "status": status,
         "truth_plane": truth_plane,
+        "readiness_scope": str(receipt.get("readiness_scope") or "source_and_browser_proof").strip()
+        or "source_and_browser_proof",
+        "live_readiness": live_readiness,
+        "live_readiness_status": str(live_readiness.get("status") or "not_evaluated").strip()
+        or "not_evaluated",
         "browser_present": bool(browser.get("published_receipt_present")),
         "browser_receipt": str(browser.get("published_receipt") or "").strip(),
         "limitations": [str(item) for item in list(receipt.get("current_limitations") or []) if str(item).strip()],
@@ -426,54 +432,62 @@ def build_pulse(
     scorecard_metric_count = sum(len(list(dict(row).get("metrics") or [])) for row in scorecard_metrics if isinstance(row, dict))
     product_label = str(receipt_info["product_label"])
     release_truth_state = receipt_info["status"]
+    readiness_scope = str(receipt_info["readiness_scope"])
+    live_readiness = dict(receipt_info["live_readiness"])
+    live_readiness_status = str(receipt_info["live_readiness_status"])
+    live_readiness_pass = live_readiness_status == "pass"
     journey_state = journey_info["state"]
     blocked_count = int(journey_info["blocked"])
     ready_count = int(journey_info["ready"])
     total_count = int(journey_info["total"])
     readiness_share = int(journey_info["ready_share"])
-    release_health_state = "blocked" if journey_state == "blocked" or release_truth_state != "pass" else "clear"
+    candidate_readiness_state = (
+        "clear" if release_truth_state == "pass" else "watch" if release_truth_state == "preview_only" else "blocked"
+    )
+    reported_live_readiness_state = "pass_unverified" if live_readiness_pass else "not_passed"
+    # This pulse does not consume deployment-controller or public /version reconciliation evidence.
+    # It therefore cannot authorize production even when a nested protected-live status reports pass.
+    production_launch_state = "blocked"
 
-    if release_truth_state == "pass" and journey_state == "blocked":
+    if release_truth_state == "pass" and live_readiness_pass:
         summary = (
-            f"{product_label} has a green flagship receipt, but the fleet journey gate is "
-            f"{journey_state}, and {blocked_count} journey(s) still block wider claims."
+            f"{product_label} source/browser candidate proof is green and its nested live-readiness signal reports "
+            f"{live_readiness_status}, but this pulse does not validate that authority or authorize production."
         )
     elif release_truth_state == "pass":
         summary = (
-            f"{product_label} has a green flagship receipt, the fleet journey gate is "
-            f"{journey_state}, and no journeys block wider release claims."
+            f"{product_label} source/browser candidate proof is green, but protected live readiness is "
+            f"{live_readiness_status}; this pulse does not support a production launch claim."
         )
     elif release_truth_state == "preview_only":
         summary = (
-            f"{product_label} remains in preview-only flagship posture: the machine-readable flagship receipt is "
-            f"{release_truth_state}, the fleet journey gate is {journey_state}, and {blocked_count} journey(s) still block wider claims."
+            f"{product_label} source/browser candidate proof remains {release_truth_state}; protected live readiness is "
+            f"{live_readiness_status}, so production launch remains blocked."
         )
     else:
         summary = (
-            f"{product_label} is blocked on flagship release truth: the machine-readable flagship receipt is "
-            f"{release_truth_state}, the fleet journey gate is {journey_state}, and {blocked_count} journey(s) still block wider claims."
+            f"{product_label} source/browser candidate proof is {release_truth_state}; protected live readiness is "
+            f"{live_readiness_status}, so production launch remains blocked."
         )
 
     launch_readiness = (
-        "Hold launch expansion pending browser execution proof and cross-host journey coverage."
+        "Hold production launch pending complete source/browser candidate proof and protected live evidence."
         if release_truth_state != "pass"
-        else "Hold launch expansion pending cross-host journey coverage."
-        if journey_state == "blocked"
-        else "Release truth is clear enough to widen claims."
+        else "Source/browser candidate proof is green; hold production launch until protected live readiness passes."
+        if not live_readiness_pass
+        else "Source/browser candidate and protected live readiness report pass; reconcile the current deployment before widening production claims."
     )
     canary_status = (
-        "Browser execution proof is still missing; cross-host journey coverage remains blocked."
+        "Source/browser candidate proof is still missing or incomplete."
         if release_truth_state != "pass"
-        else "Browser execution proof is published, but cross-host journey coverage remains blocked."
-        if journey_state == "blocked"
-        else "Browser execution proof is published and routes are aligned to local truth surfaces."
+        else "Browser execution proof is published for the source/browser candidate; protected live evidence remains separate."
     )
     next_decision = (
-        "Publish browser execution proof, then re-materialize the weekly pulse and release receipt."
+        "Publish complete browser execution proof, then re-materialize the weekly pulse and release receipt."
         if release_truth_state != "pass"
-        else "Ingest the remaining cross-host journey receipts, then re-materialize the weekly pulse and release receipt."
-        if journey_state == "blocked"
-        else "Re-materialize the weekly pulse after the next meaningful release or journey-truth change."
+        else "Complete the protected launch profile and live receipts, then re-materialize this pulse."
+        if not live_readiness_pass
+        else "Reconcile the deployed runtime and re-materialize after the next meaningful release-truth change."
     )
     provider_route_stewardship = {
         "default_status": f"{product_label} routes are governed by local truth surfaces.",
@@ -487,71 +501,77 @@ def build_pulse(
             "decision_id": "2026-04-10-focus-ea-flagship-receipt-closeout",
             "action": "focus_shift",
             "reason": (
-                f"Keep the weekly pulse anchored to the {product_label} flagship receipt and fleet journey truth. "
-                f"The receipt is {release_truth_state}, journey gates are {journey_state}, and the ready share is {readiness_share}%."
+                f"Keep the weekly pulse anchored to the {product_label} source/browser receipt without treating external "
+                f"fleet journey context as launch authority. The receipt is {release_truth_state} and protected live readiness is {live_readiness_status}."
             ),
             "cited_signals": [
                 f"flagship_receipt_status={release_truth_state}",
-                f"journey_gate_state={journey_state}",
-                f"journey_gate_blocked_count={blocked_count}",
-                f"journey_gate_ready_count={ready_count}",
-                f"journey_gate_total_count={total_count}",
-                f"ready_share={readiness_share}",
+                f"supporting_external_fleet_journey_state={journey_state}",
+                f"supporting_external_fleet_blocked_count={blocked_count}",
+                f"supporting_external_fleet_ready_count={ready_count}",
+                f"supporting_external_fleet_total_count={total_count}",
+                f"supporting_external_fleet_ready_share={readiness_share}",
+                "journey_gate_authority=non_authoritative_for_propertyquarry_launch",
+                f"readiness_scope={readiness_scope}",
+                f"live_readiness_status={live_readiness_status}",
             ],
         },
         {
             "decision_id": "2026-04-10-freeze-launch-expansion",
-            "action": (
-                "freeze_launch"
-                if release_truth_state != "pass" or journey_state == "blocked"
-                else "hold_truth_line"
-            ),
+            "action": "freeze_launch",
             "reason": (
-                "Freeze launch expansion until browser execution proof is published and the blocked journey tuples are cleared."
+                "Freeze production launch until source/browser candidate proof and protected live readiness both pass."
                 if release_truth_state != "pass"
-                else "Freeze launch expansion until the blocked journey tuples are cleared."
-                if journey_state == "blocked"
-                else "Launch expansion can proceed because browser proof is published and blocked journey tuples are cleared."
+                else "Freeze production launch until protected live readiness passes."
+                if not live_readiness_pass
+                else "Keep production claims constrained until the current deployed runtime is reconciled to the approved candidate."
             ),
             "cited_signals": [
                 f"flagship_receipt_status={release_truth_state}",
                 f"browser_execution_receipt_present={receipt_info['browser_present']}",
-                f"journey_gate_blocked_count={blocked_count}",
+                f"supporting_external_fleet_blocked_count={blocked_count}",
+                f"live_readiness_status={live_readiness_status}",
                 (
-                    "cross_host_tuple_coverage=blocked"
+                    "supporting_external_fleet_tuple_coverage=blocked"
                     if journey_state == "blocked"
-                    else "cross_host_tuple_coverage=ready"
+                    else "supporting_external_fleet_tuple_coverage=ready"
                 ),
             ],
         },
     ]
 
     fleet_cluster_summary = (
-        "Fleet journey gates still block the install/claim/restore/continue story on cross-host coverage, "
-        "so wider publish claims should stay constrained."
+        "External Fleet journey context is blocked, but it is supporting evidence only and is not PropertyQuarry launch authority."
         if journey_state == "blocked"
-        else "Fleet journey gates are ready across the install/claim/restore/continue story, "
-        "so wider publish claims can follow the current release truth."
+        else "External Fleet journey context reports ready; it remains supporting evidence only and cannot prove PropertyQuarry launch readiness."
     )
 
     blocked_reason = journey_info["recommended_action"] or "Resolve the blocking journey gaps before widening publish claims."
     pulse: dict[str, Any] = {
         "contract_name": "ea.weekly_product_pulse",
-        "contract_version": 1,
+        "contract_version": 2,
         "generated_at": generated_at,
         "as_of": generated_at[:10],
         "scorecard_source": scorecard_path.as_posix(),
         "release_truth_source": flagship_receipt_path.as_posix(),
         "release_truth_provenance": receipt_info["provenance"],
+        "readiness_scope": readiness_scope,
+        "live_readiness": live_readiness,
         "journey_gate_source": journey_source_path.as_posix(),
         "journey_gate_provenance": journey_info["provenance"],
+        "journey_gate_scope": "supporting_external_fleet_context",
+        "journey_gate_authority": "non_authoritative_for_propertyquarry_launch",
         "summary": summary,
         "active_wave": f"{product_label} flagship receipt closeout",
         "active_wave_status": "active",
         "release_health": {
-            "state": release_health_state,
+            "state": "blocked",
+            "scope": "production_launch",
+            "candidate_state": candidate_readiness_state,
+            "reported_live_readiness_state": reported_live_readiness_state,
+            "production_launch_state": production_launch_state,
             "reason": (
-                f"The {product_label} flagship receipt is published and current."
+                f"The {product_label} source/browser candidate receipt is published, but protected live and deployment authority are not validated by this pulse."
                 if release_truth_state == "pass"
                 else f"The {product_label} flagship receipt is materialized, but it is still preview_only until browser execution proof is published."
                 if release_truth_state == "preview_only"
@@ -560,9 +580,13 @@ def build_pulse(
             "flagship_receipt_status": release_truth_state,
         },
         "flagship_readiness": {
-            "state": "clear" if release_truth_state == "pass" else "watch" if release_truth_state == "preview_only" else "blocked",
+            "state": "blocked",
+            "scope": "production_launch",
+            "candidate_state": candidate_readiness_state,
+            "reported_live_readiness_state": reported_live_readiness_state,
+            "production_launch_state": production_launch_state,
             "reason": (
-                "Flagship receipt and browser proof are aligned."
+                "Source/browser candidate receipt and browser proof are aligned; protected live and deployment authority are not validated by this pulse."
                 if release_truth_state == "pass"
                 else "Browser execution proof is missing or incomplete, so the flagship receipt cannot yet claim pass status."
                 if release_truth_state == "preview_only"
@@ -570,10 +594,10 @@ def build_pulse(
             ),
         },
         "rule_environment_trust": {
-            "state": "watch" if journey_state == "blocked" else "monitor",
-            "reason": "Install/update trust still depends on the blocked cross-host journey set."
-            if journey_state == "blocked"
-            else "Rule-environment trust is governed by the current release receipt.",
+            "state": "monitor",
+            "reason": (
+                "External Fleet journey context is supporting-only and does not determine PropertyQuarry rule-environment trust."
+            ),
         },
         "edition_authorship_and_import_confidence": {
             "state": "monitor",
@@ -581,6 +605,8 @@ def build_pulse(
         },
         "journey_gate_health": {
             "state": journey_state,
+            "scope": "supporting_external_fleet_context",
+            "authority": "non_authoritative_for_propertyquarry_launch",
             "reason": _compact(blocked_reason, fallback="Journey-gate posture is not available."),
             "blocked_count": blocked_count,
             "warning_count": int(journey_info["warning"]),
@@ -624,22 +650,29 @@ def build_pulse(
                 ],
             },
         ],
-        "oldest_blocker_days": 0,
-        "design_drift_count": 0,
-        "public_promise_drift_count": 0,
+        "oldest_blocker_days": None,
+        "oldest_blocker_days_status": "not_evaluated",
+        "oldest_blocker_scope": "protected_live_blocker_age_not_evaluated",
+        "design_drift_count": None,
+        "public_promise_drift_count": None,
+        "drift_count_status": "not_evaluated",
         "governor_decisions": governor_decisions,
         "next_checkpoint_question": (
-            "What is the smallest cross-host coverage slice that can clear the remaining blocked journey tuples?"
+            "Which protected production receipt or deployment input is the next blocker to clear?"
             if release_truth_state == "pass"
-            else f"What is the smallest browser-execution receipt and cross-host coverage slice that can promote the {product_label} flagship receipt from preview_only to pass?"
+            else f"What source/browser evidence is still needed to promote the {product_label} candidate receipt to pass?"
         ),
         "supporting_signals": {
             "current_recommended_wave": f"{product_label} flagship receipt closeout",
-            "overall_progress_percent": readiness_share,
-            "phase_label": "Journey coverage closeout" if release_truth_state == "pass" else "Preview-only flagship closeout",
+            "overall_progress_percent": None,
+            "overall_progress_status": "production_launch_progress_not_evaluated",
+            "external_fleet_journey_ready_share_percent": readiness_share,
+            "phase_label": "Protected live evidence closeout" if release_truth_state == "pass" else "Source/browser candidate closeout",
             "history_snapshot_count": 1,
-            "longest_pole": "cross-host journey coverage" if release_truth_state == "pass" else "browser execution proof",
+            "longest_pole": "protected live production evidence" if release_truth_state == "pass" and not live_readiness_pass else "deployment reconciliation" if release_truth_state == "pass" else "browser execution proof",
             "launch_readiness": launch_readiness,
+            "readiness_scope": readiness_scope,
+            "live_readiness_status": live_readiness_status,
             "provider_route_stewardship": provider_route_stewardship,
             "journey_gate_source": journey_source_path.as_posix(),
             "journey_gate_git_head": str(journey_info["provenance"].get("git_head") or "").strip(),
@@ -654,27 +687,35 @@ def build_pulse(
         },
         "snapshot": {
             "release_health": {
-                "state": release_health_state,
+                "state": "blocked",
+                "scope": "production_launch",
+                "candidate_state": candidate_readiness_state,
+                "reported_live_readiness_state": reported_live_readiness_state,
+                "production_launch_state": production_launch_state,
                 "reason": (
                     f"The {product_label} flagship receipt is materialized, but it is still preview_only until browser execution proof is published."
                     if release_truth_state != "pass"
-                    else f"The {product_label} flagship receipt is published and current."
+                    else f"The {product_label} source/browser candidate receipt is published, but protected live and deployment authority are not validated by this pulse."
                 ),
                 "flagship_receipt_status": release_truth_state,
             },
             "flagship_readiness": {
-                "state": "watch" if release_truth_state != "pass" else "clear",
+                "state": "blocked",
+                "scope": "production_launch",
+                "candidate_state": candidate_readiness_state,
+                "reported_live_readiness_state": reported_live_readiness_state,
+                "production_launch_state": production_launch_state,
                 "reason": (
                     "Browser execution proof is missing or incomplete, so the flagship receipt cannot yet claim pass status."
                     if release_truth_state != "pass"
-                    else "Flagship receipt and browser proof are aligned."
+                    else "Source/browser candidate receipt and browser proof are aligned; protected live and deployment authority are not validated by this pulse."
                 ),
             },
             "rule_environment_trust": {
-                "state": "watch" if journey_state == "blocked" else "monitor",
-                "reason": "Install/update trust still depends on the blocked cross-host journey set."
-                if journey_state == "blocked"
-                else "Rule-environment trust is governed by the current release receipt.",
+                "state": "monitor",
+                "reason": (
+                    "External Fleet journey context is supporting-only and does not determine PropertyQuarry rule-environment trust."
+                ),
             },
             "edition_authorship_and_import_confidence": {
                 "state": "monitor",
@@ -682,6 +723,8 @@ def build_pulse(
             },
             "journey_gate_health": {
                 "state": journey_state,
+                "scope": "supporting_external_fleet_context",
+                "authority": "non_authoritative_for_propertyquarry_launch",
                 "reason": _compact(blocked_reason, fallback="Journey-gate posture is not available."),
                 "blocked_count": blocked_count,
                 "warning_count": int(journey_info["warning"]),
@@ -725,16 +768,17 @@ def build_pulse(
                     ],
                 },
             ],
-            "oldest_blocker_days": 0,
-            "design_drift_count": 0,
-            "public_promise_drift_count": 0,
+            "oldest_blocker_days": None,
+            "oldest_blocker_days_status": "not_evaluated",
+            "oldest_blocker_scope": "protected_live_blocker_age_not_evaluated",
+            "design_drift_count": None,
+            "public_promise_drift_count": None,
+            "drift_count_status": "not_evaluated",
             "governor_decisions": governor_decisions,
             "next_checkpoint_question": (
-                "What is the next meaningful release or journey-truth change that should trigger pulse re-materialization?"
-                if release_truth_state == "pass" and journey_state != "blocked"
-                else "What is the smallest cross-host coverage slice that can clear the remaining blocked journey tuples?"
+                "Which protected production receipt or deployment input is the next blocker to clear?"
                 if release_truth_state == "pass"
-                else f"What is the smallest browser-execution receipt and cross-host coverage slice that can promote the {product_label} flagship receipt from preview_only to pass?"
+                else f"What source/browser evidence is still needed to promote the {product_label} candidate receipt to pass?"
             ),
         },
         "release_wave": {
