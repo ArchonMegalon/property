@@ -2,14 +2,18 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from datetime import datetime, timezone
 from email.message import EmailMessage
 from pathlib import Path
+
+import pytest
 
 from scripts import propertyquarry_activation_to_value_live as activation
 
 
 ROOT = Path(__file__).resolve().parents[1]
+RELEASE_SHA = "a" * 40
 
 
 def _valid_config(tmp_path: Path, **overrides) -> activation.ActivationJourneyConfig:
@@ -18,6 +22,7 @@ def _valid_config(tmp_path: Path, **overrides) -> activation.ActivationJourneyCo
         "persona_id": "activation-persona-01",
         "persona_email": "activation@example.com",
         "run_key": "activation-run-20260713-01",
+        "release_commit_sha": RELEASE_SHA,
         "auth_mode": "google",
         "provider_password": "provider-password-secret",
         "state_path": tmp_path / "activation-state.json",
@@ -87,15 +92,23 @@ def test_activation_journey_rejects_unapproved_external_host_before_runner(tmp_p
 
 def test_activation_journey_mock_boundary_builds_secret_safe_passing_receipt(tmp_path: Path) -> None:
     config = _valid_config(tmp_path)
+
+    def passing_runner(_config):
+        reserved = json.loads(config.state_path.read_text(encoding="utf-8"))
+        assert reserved["status"] == "reserved"
+        assert reserved["release_commit_sha"] == RELEASE_SHA
+        return _passing_result()
+
     receipt = activation.build_activation_to_value_receipt(
         config=config,
-        journey_runner=lambda observed: _passing_result(),
+        journey_runner=passing_runner,
     )
     serialized = json.dumps(receipt, sort_keys=True)
 
     assert receipt["status"] == "pass"
     assert receipt["failed_count"] == 0
     assert receipt["proof_mode"] == "contract_mock"
+    assert receipt["release_commit_sha"] == RELEASE_SHA
     assert [row["name"] for row in receipt["steps"]] == list(activation.REQUIRED_JOURNEY_STEPS)
     assert receipt["live_contract"] == {
         "explicit_persona": True,
@@ -110,7 +123,40 @@ def test_activation_journey_mock_boundary_builds_secret_safe_passing_receipt(tmp
     assert config.provider_password not in serialized
     state = json.loads(config.state_path.read_text(encoding="utf-8"))
     assert state["status"] == "pass"
+    assert state["release_commit_sha"] == RELEASE_SHA
     assert state["persona_digest"] == config.persona_digest
+
+
+@pytest.mark.parametrize(
+    "release_sha",
+    ("", "HEAD", "a" * 39, "A" * 40, "g" * 40),
+)
+def test_activation_journey_requires_exact_full_lowercase_release_sha_before_runner(
+    tmp_path: Path,
+    release_sha: str,
+) -> None:
+    called = False
+
+    def forbidden_runner(_config):
+        nonlocal called
+        called = True
+        raise AssertionError("invalid candidate must never reach browser or providers")
+
+    receipt = activation.build_activation_to_value_receipt(
+        config=_valid_config(tmp_path, release_commit_sha=release_sha),
+        journey_runner=forbidden_runner,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["release_commit_sha"] == release_sha
+    assert called is False
+    assert receipt["checks"] == [
+        {
+            "name": "protected_live_configuration",
+            "ok": False,
+            "reason": "activation_release_commit_sha_missing_or_invalid",
+        }
+    ]
 
 
 def test_activation_journey_run_key_is_fail_closed_against_duplicate_external_actions(tmp_path: Path) -> None:
@@ -163,6 +209,30 @@ def test_activation_journey_run_key_cannot_be_reused_for_a_different_persona(tmp
     assert second["status"] == "blocked"
     assert called is False
     assert "activation_run_key_already_used" in second["checks"][0]["reason"]
+
+
+def test_activation_journey_run_key_cannot_cross_release_candidates(tmp_path: Path) -> None:
+    first_config = _valid_config(tmp_path)
+    activation.build_activation_to_value_receipt(
+        config=first_config,
+        journey_runner=lambda _config: _passing_result(),
+    )
+    called = False
+
+    def duplicate_runner(_config):
+        nonlocal called
+        called = True
+        return _passing_result()
+
+    second = activation.build_activation_to_value_receipt(
+        config=_valid_config(tmp_path, release_commit_sha="b" * 40),
+        journey_runner=duplicate_runner,
+    )
+
+    assert second["status"] == "blocked"
+    assert called is False
+    assert second["release_commit_sha"] == "b" * 40
+    assert "activation_run_key_candidate_mismatch" in second["checks"][0]["reason"]
 
 
 def test_activation_journey_corrupt_idempotency_state_fails_closed(tmp_path: Path) -> None:
@@ -251,6 +321,44 @@ def test_activation_walkthrough_readiness_rejects_placeholder_links() -> None:
     assert activation._walkthrough_href_ready("https://tour-provider.example/ready") is True
 
 
+def test_activation_cli_release_sha_precedence_and_explicit_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: list[str] = []
+
+    def receipt_builder(*, config):
+        observed.append(config.release_commit_sha)
+        return {"status": "pass"}
+
+    monkeypatch.setattr(activation, "build_activation_to_value_receipt", receipt_builder)
+    monkeypatch.setenv("PROPERTYQUARRY_RELEASE_COMMIT_SHA", "a" * 40)
+    monkeypatch.setenv("PROPERTYQUARRY_EXPECTED_RELEASE_COMMIT_SHA", "b" * 40)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["propertyquarry_activation_to_value_live.py", "--write", ""],
+    )
+    assert activation.main() == 0
+
+    monkeypatch.delenv("PROPERTYQUARRY_RELEASE_COMMIT_SHA")
+    assert activation.main() == 0
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "propertyquarry_activation_to_value_live.py",
+            "--release-sha",
+            "c" * 40,
+            "--write",
+            "",
+        ],
+    )
+    assert activation.main() == 0
+
+    assert observed == ["a" * 40, "b" * 40, "c" * 40]
+
+
 def test_activation_live_source_forbids_test_auth_and_provider_mock_boundaries() -> None:
     source = (ROOT / "scripts/propertyquarry_activation_to_value_live.py").read_text(encoding="utf-8")
 
@@ -268,7 +376,7 @@ def test_activation_workflow_is_contract_only_by_default_and_live_only_by_explic
         "  propertyquarry-live-release-gates:", 1
     )[0]
     live_job = source.split("  propertyquarry-live-activation-to-value:", 1)[1].split(
-        "  smoke-runtime-postgres:", 1
+        "  propertyquarry-launch-controller-preflight:", 1
     )[0]
     live_release_job = source.split("  propertyquarry-live-release-gates:", 1)[1].split(
         "  propertyquarry-live-activation-to-value:", 1
@@ -279,10 +387,12 @@ def test_activation_workflow_is_contract_only_by_default_and_live_only_by_explic
     assert "github.event_name == 'workflow_dispatch'" in live_job
     assert "inputs.run_activation_journey == true" in live_job
     assert "name: propertyquarry-production" in live_job
-    assert "needs: propertyquarry-flagship-security" in live_job
+    assert "needs: propertyquarry-live-release-gates" in live_job
     assert "PROPERTYQUARRY_ACTIVATION_LIVE_RUN: \"1\"" in live_job
     assert "PROPERTYQUARRY_ACTIVATION_ALLOW_ACCOUNT_CREATE: \"0\"" in live_job
+    assert "PROPERTYQUARRY_RELEASE_COMMIT_SHA=${runtime_sha}" in live_job
     assert "--confirm-live" in live_job
+    assert '--release-sha "${PROPERTYQUARRY_RELEASE_COMMIT_SHA}"' in live_job
     assert re.search(r"actions/cache/restore@[0-9a-f]{40}\s+# v4", live_job)
     assert re.search(r"actions/cache/save@[0-9a-f]{40}\s+# v4", live_job)
     assert "X-EA-Principal-ID" not in live_job

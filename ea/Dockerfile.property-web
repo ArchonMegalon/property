@@ -16,7 +16,7 @@ COPY ea/requirements.lock /app/requirements.lock
 RUN python -m pip install --no-cache-dir --upgrade pip==26.1.2 && \
     pip install --no-cache-dir -r requirements.txt -c requirements.lock
 
-RUN mkdir -p /app/scripts /data/artifacts /data/public_property_tours /data/provider-ledger /home/ea
+RUN mkdir -p /app/scripts /app/docs /data/artifacts /data/public_property_tours /data/provider-ledger /home/ea
 COPY scripts/willhaben_property_packet.py /app/scripts/willhaben_property_packet.py
 COPY scripts/property_magicfit_env.py /app/scripts/property_magicfit_env.py
 COPY scripts/mootion_movie_worker.py /app/scripts/mootion_movie_worker.py
@@ -45,6 +45,7 @@ COPY scripts/verify_property_tour_controls.py /app/scripts/verify_property_tour_
 COPY scripts/intake_3dvista_gold_artifact.py /app/scripts/intake_3dvista_gold_artifact.py
 COPY vendor/three /app/vendor/three
 COPY ea/app /app/app
+COPY docs/PROPERTYQUARRY_RELEASE_MANIFEST.md /app/docs/PROPERTYQUARRY_RELEASE_MANIFEST.md
 COPY ea/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 COPY LTDs.md /app/LTDs.md
 

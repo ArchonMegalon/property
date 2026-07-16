@@ -4,13 +4,13 @@ import json
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[3]
 REGISTRY_PATH = ROOT / "docs" / "PROPERTYQUARRY_EVIDENCE_OVERLAY_REGISTRY.json"
 DEFAULT_ROLLUP_PATH = Path("/data/artifacts/property-evidence-overlay-rollups.json")
 REQUIRED_UI_STATES = {"unavailable", "stale", "verified"}
+READ_MODEL_MODES = {"auto", "postgres", "file"}
 
 
 def _now() -> datetime:
@@ -76,6 +76,17 @@ def evidence_overlay_rollup_path() -> Path:
     return Path(configured).expanduser() if configured else DEFAULT_ROLLUP_PATH
 
 
+def evidence_overlay_read_model_mode() -> str:
+    configured = _string(os.getenv("PROPERTYQUARRY_EVIDENCE_OVERLAY_READ_MODEL")).casefold() or "auto"
+    if configured not in READ_MODEL_MODES:
+        return "postgres" if _string(os.getenv("EA_RUNTIME_MODE")).casefold() == "prod" else "file"
+    if _string(os.getenv("EA_RUNTIME_MODE")).casefold() == "prod":
+        return "postgres"
+    if configured == "auto":
+        return "postgres" if _string(os.getenv("DATABASE_URL")) else "file"
+    return configured
+
+
 def _rollup_rows(payload: dict[str, object]) -> list[dict[str, object]]:
     rows = payload.get("rows")
     if isinstance(rows, list):
@@ -89,6 +100,22 @@ def _rollup_rows(payload: dict[str, object]) -> list[dict[str, object]]:
                     flattened.append({"layer_key": str(layer_key), **dict(row)})
         return flattened
     return []
+
+
+def _postgres_rollup_rows(lookup_values: dict[str, str]) -> list[dict[str, object]]:
+    database_url = _string(os.getenv("DATABASE_URL"))
+    if not database_url or not lookup_values:
+        return []
+    try:
+        from app.repositories.property_evidence_overlays_postgres import (
+            PostgresPropertyEvidenceOverlayRepository,
+        )
+
+        return PostgresPropertyEvidenceOverlayRepository(database_url).lookup(lookup_values)
+    except Exception:
+        # Customer pages degrade to explicit unavailable states. Readiness and
+        # launch Gold fail closed on missing/broken persistent read-model proof.
+        return []
 
 
 def _facts_with_snapshot(facts: dict[str, object]) -> dict[str, object]:
@@ -107,7 +134,17 @@ def _candidate_lookup_values(facts: dict[str, object], candidate: dict[str, obje
         value = _string(candidate.get(key) or merged_facts.get(key))
         if value:
             values[key] = value.casefold()
-    for key in ("postal_code", "postal_name", "district", "neighborhood", "street", "street_address", "address"):
+    for key in (
+        "postal_code",
+        "postal_name",
+        "district",
+        "district_polygon",
+        "neighborhood",
+        "school_catchment",
+        "street",
+        "street_address",
+        "address",
+    ):
         value = _string(merged_facts.get(key) or candidate.get(key))
         if value:
             values[key] = value.casefold()
@@ -175,6 +212,9 @@ def _unavailable_overlay(layer: dict[str, object]) -> dict[str, object]:
         "teable_table": _string(layer.get("teable_table")),
         "read_model": _string(layer.get("read_model")),
         "search_policy": _string(layer.get("search_policy")),
+        "read_model_source": "postgres_cached_rollup_unavailable"
+        if evidence_overlay_read_model_mode() == "postgres"
+        else "file_rollup_unavailable",
     }
 
 
@@ -210,6 +250,7 @@ def _overlay_from_rollup(layer: dict[str, object], row: dict[str, object], *, st
         "teable_table": _string(layer.get("teable_table")),
         "read_model": _string(layer.get("read_model")),
         "search_policy": _string(layer.get("search_policy")),
+        "read_model_source": _string(row.get("read_model_source")) or "file_cached_rollup",
     }
 
 
@@ -274,6 +315,7 @@ def _derived_summer_heat_overlay(layer: dict[str, object], facts: dict[str, obje
         "teable_table": _string(layer.get("teable_table")),
         "read_model": _string(layer.get("read_model")),
         "search_policy": _string(layer.get("search_policy")),
+        "read_model_source": "derived_candidate_facts_non_production",
     }
 
 
@@ -293,9 +335,13 @@ def build_property_evidence_overlay_rows(
 ) -> list[dict[str, object]]:
     registry = evidence_overlay_registry()
     layers = [dict(layer) for layer in list(registry.get("layers") or []) if isinstance(layer, dict)]
-    rollup_payload = _load_json(rollup_path or evidence_overlay_rollup_path())
-    rollups = _rollup_rows(rollup_payload)
     lookup_values = _candidate_lookup_values(dict(facts or {}), dict(candidate or {}))
+    read_model_mode = evidence_overlay_read_model_mode()
+    if read_model_mode == "postgres":
+        rollups = _postgres_rollup_rows(lookup_values)
+    else:
+        rollup_payload = _load_json(rollup_path or evidence_overlay_rollup_path())
+        rollups = _rollup_rows(rollup_payload)
     rows: list[dict[str, object]] = []
     for layer in layers:
         layer_key = _string(layer.get("layer_key"))
@@ -310,5 +356,6 @@ def build_property_evidence_overlay_rows(
         if matched:
             rows.append(_overlay_from_rollup(layer, matched, stale_after_days=stale_after_days))
         else:
-            rows.append(_derived_overlay_for_layer(layer, facts) or _unavailable_overlay(layer))
+            derived = None if read_model_mode == "postgres" else _derived_overlay_for_layer(layer, facts)
+            rows.append(derived or _unavailable_overlay(layer))
     return rows

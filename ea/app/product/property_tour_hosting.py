@@ -221,8 +221,144 @@ def _public_tour_private_receipt(payload: dict[str, object]) -> dict[str, object
     return PrivateTourReceipt.from_payload(payload).as_dict()
 
 
+def _validate_hosted_property_tour_private_receipt_target(private_manifest_path: Path) -> None:
+    try:
+        target_stat = private_manifest_path.stat(follow_symlinks=False)
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise RuntimeError("hosted_property_tour_private_receipt_invalid") from exc
+    if stat.S_ISLNK(target_stat.st_mode) or not stat.S_ISREG(target_stat.st_mode):
+        raise RuntimeError("hosted_property_tour_private_receipt_invalid")
+
+
+def _write_hosted_property_tour_private_receipt_atomic(
+    bundle_dir: Path,
+    private_payload: dict[str, object],
+) -> None:
+    private_name = _PROPERTY_PUBLIC_TOUR_PRIVATE_MANIFEST
+    temporary_name = f".{private_name}.{uuid4().hex}.tmp"
+    directory_fd = -1
+    temporary_fd = -1
+    final_fd = -1
+    temporary_created = False
+    replaced = False
+    try:
+        directory_flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_DIRECTORY", 0)
+        directory_flags |= getattr(os, "O_NOFOLLOW", 0)
+        directory_fd = os.open(bundle_dir, directory_flags)
+        try:
+            existing_stat = os.stat(private_name, dir_fd=directory_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            existing_stat = None
+        if existing_stat is not None and (
+            stat.S_ISLNK(existing_stat.st_mode) or not stat.S_ISREG(existing_stat.st_mode)
+        ):
+            raise RuntimeError("hosted_property_tour_private_receipt_invalid")
+
+        temporary_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0)
+        temporary_flags |= getattr(os, "O_NOFOLLOW", 0)
+        temporary_fd = os.open(temporary_name, temporary_flags, 0o600, dir_fd=directory_fd)
+        temporary_created = True
+        os.fchmod(temporary_fd, 0o600)
+        encoded = json.dumps(private_payload, ensure_ascii=False, indent=2).encode("utf-8")
+        remaining = memoryview(encoded)
+        while remaining:
+            written = os.write(temporary_fd, remaining)
+            if written <= 0:
+                raise OSError("private_receipt_short_write")
+            remaining = remaining[written:]
+        os.fsync(temporary_fd)
+        temporary_stat = os.fstat(temporary_fd)
+
+        try:
+            replacement_stat = os.stat(private_name, dir_fd=directory_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            replacement_stat = None
+        if replacement_stat is not None and (
+            stat.S_ISLNK(replacement_stat.st_mode) or not stat.S_ISREG(replacement_stat.st_mode)
+        ):
+            raise RuntimeError("hosted_property_tour_private_receipt_invalid")
+        os.replace(
+            temporary_name,
+            private_name,
+            src_dir_fd=directory_fd,
+            dst_dir_fd=directory_fd,
+        )
+        replaced = True
+        final_flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        final_fd = os.open(private_name, final_flags, dir_fd=directory_fd)
+        final_stat = os.fstat(final_fd)
+        if (
+            not stat.S_ISREG(final_stat.st_mode)
+            or final_stat.st_dev != temporary_stat.st_dev
+            or final_stat.st_ino != temporary_stat.st_ino
+            or stat.S_IMODE(final_stat.st_mode) != 0o600
+        ):
+            raise RuntimeError("hosted_property_tour_private_receipt_verification_failed")
+        os.fsync(directory_fd)
+    except RuntimeError:
+        raise
+    except OSError as exc:
+        raise RuntimeError("hosted_property_tour_private_receipt_write_failed") from exc
+    finally:
+        if final_fd >= 0:
+            os.close(final_fd)
+        if temporary_fd >= 0:
+            os.close(temporary_fd)
+        if directory_fd >= 0:
+            if temporary_created and not replaced:
+                try:
+                    os.unlink(temporary_name, dir_fd=directory_fd)
+                except FileNotFoundError:
+                    pass
+                except OSError:
+                    pass
+            os.close(directory_fd)
+
+
+def _normalize_generated_reconstruction_bundle_permissions(bundle_dir: Path) -> None:
+    reconstruction_dir = bundle_dir / "generated-reconstruction"
+    public_manifest_path = bundle_dir / "tour.json"
+
+    def _chmod_if_needed(path: Path, expected_mode: int) -> None:
+        current_mode = stat.S_IMODE(path.stat(follow_symlinks=False).st_mode)
+        if current_mode != expected_mode:
+            path.chmod(expected_mode, follow_symlinks=False)
+
+    try:
+        if bundle_dir.is_symlink() or not bundle_dir.is_dir():
+            raise RuntimeError("property_reconstruction_bundle_invalid")
+        if public_manifest_path.is_symlink() or not public_manifest_path.is_file():
+            raise RuntimeError("property_reconstruction_manifest_invalid")
+        if reconstruction_dir.is_symlink() or not reconstruction_dir.is_dir():
+            raise RuntimeError("property_reconstruction_directory_invalid")
+
+        _chmod_if_needed(bundle_dir, 0o755)
+        _chmod_if_needed(public_manifest_path, 0o644)
+        for root, directory_names, filenames in os.walk(reconstruction_dir, followlinks=False):
+            root_path = Path(root)
+            if root_path.is_symlink():
+                raise RuntimeError("property_reconstruction_asset_symlink_forbidden")
+            _chmod_if_needed(root_path, 0o755)
+            for directory_name in directory_names:
+                directory_path = root_path / directory_name
+                if directory_path.is_symlink() or not directory_path.is_dir():
+                    raise RuntimeError("property_reconstruction_asset_symlink_forbidden")
+                _chmod_if_needed(directory_path, 0o755)
+            for filename in filenames:
+                asset_path = root_path / filename
+                if asset_path.is_symlink() or not asset_path.is_file():
+                    raise RuntimeError("property_reconstruction_asset_symlink_forbidden")
+                _chmod_if_needed(asset_path, 0o644)
+    except OSError as exc:
+        raise RuntimeError("property_reconstruction_permissions_failed") from exc
+
+
 def _write_hosted_property_tour_payload(bundle_dir: Path, payload: dict[str, object]) -> None:
     incoming_owner = str(payload.get("principal_id") or "").strip()
+    private_manifest_path = _public_tour_private_manifest_path(bundle_dir)
+    _validate_hosted_property_tour_private_receipt_target(private_manifest_path)
     if (bundle_dir / "tour.json").exists() or _public_tour_private_manifest_path(bundle_dir).exists():
         existing_private = _load_hosted_property_tour_private_receipt(bundle_dir)
         existing_owner = str(existing_private.get("principal_id") or "").strip()
@@ -234,19 +370,33 @@ def _write_hosted_property_tour_payload(bundle_dir: Path, payload: dict[str, obj
     bundle_dir.mkdir(parents=True, exist_ok=True)
     public_payload = _public_tour_public_payload(payload)
     private_payload = _public_tour_private_receipt(payload)
+    _write_hosted_property_tour_private_receipt_atomic(bundle_dir, private_payload)
     (bundle_dir / "tour.json").write_text(json.dumps(public_payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    _public_tour_private_manifest_path(bundle_dir).write_text(
-        json.dumps(private_payload, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
 
 
 def _load_hosted_property_tour_private_receipt(bundle_dir: Path) -> dict[str, object]:
     private_manifest_path = _public_tour_private_manifest_path(bundle_dir)
+    descriptor = -1
     try:
-        private_payload = json.loads(private_manifest_path.read_text(encoding="utf-8"))
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(private_manifest_path, flags)
+        descriptor_stat = os.fstat(descriptor)
+        if not stat.S_ISREG(descriptor_stat.st_mode) or descriptor_stat.st_size > 1_048_576:
+            return {}
+        chunks: list[bytes] = []
+        remaining = int(descriptor_stat.st_size)
+        while remaining > 0:
+            chunk = os.read(descriptor, min(remaining, 65_536))
+            if not chunk:
+                return {}
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        private_payload = json.loads(b"".join(chunks).decode("utf-8"))
     except Exception:
         return {}
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
     if not isinstance(private_payload, dict):
         return {}
     return {

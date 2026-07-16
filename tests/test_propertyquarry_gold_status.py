@@ -1,17 +1,56 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
 from scripts import propertyquarry_gold_status as gold_status
+from scripts import property_evidence_overlay_read_model as overlay_read_model
+from scripts import propertyquarry_rybbit_evidence as rybbit_evidence
 from scripts.propertyquarry_gold_status import _latest_receipt_path, build_gold_status_receipt
 
 
 ROOT = Path(__file__).resolve().parents[1]
 _CONTINUOUS_UX_MISSING = object()
+
+
+def test_gold_cli_requires_launch_profile_for_canonical_launch_authority(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["propertyquarry_gold_status.py", "--require-launch-evidence", "--profile", "standard"],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        gold_status.main()
+
+    assert exc_info.value.code == 2
+
+
+@pytest.mark.parametrize(
+    ("option", "value"),
+    (
+        ("--max-receipt-age-hours", "nan"),
+        ("--evidence-overlay-max-age-hours", "inf"),
+        ("--rybbit-evidence-max-age-minutes", "-inf"),
+    ),
+)
+def test_gold_cli_rejects_nonfinite_age_policies(
+    monkeypatch: pytest.MonkeyPatch,
+    option: str,
+    value: str,
+) -> None:
+    monkeypatch.setattr(sys, "argv", ["propertyquarry_gold_status.py", option, value])
+
+    with pytest.raises(SystemExit) as exc_info:
+        gold_status.main()
+
+    assert exc_info.value.code == 2
 
 
 def _write_json(path: Path, payload: dict[str, object]) -> Path:
@@ -339,6 +378,7 @@ def _flagship_customer_ux_receipt_args(tmp_path: Path, *, generated_at: str) -> 
         "generated_at": generated_at,
         "status": "pass",
         "failed_count": 0,
+        "release_commit_sha": release_sha,
         "auth_mode": "google",
         "browser_engine": "chromium",
         "proof_mode": "deployed_playwright",
@@ -524,6 +564,207 @@ def _flagship_customer_ux_receipt_args(tmp_path: Path, *, generated_at: str) -> 
     }
 
 
+def _launch_product_data_receipt_args(tmp_path: Path, *, generated_at: str) -> dict[str, object]:
+    candidate_sha = "a" * 40
+    registry = json.loads(overlay_read_model.REGISTRY_PATH.read_text(encoding="utf-8"))
+    layers = [dict(row) for row in registry["layers"]]
+    table_names = sorted(str(row["teable_table"]) for row in layers)
+    layer_keys = sorted(str(row["layer_key"]) for row in layers)
+    table_counts = {name: 1 for name in table_names}
+    source_tables = {
+        name: {
+            "table_id_sha256": f"{index + 1:064x}",
+            "record_count": 1,
+            "page_count": 1,
+            "pages": [
+                {
+                    "status_code": 200,
+                    "response_sha256": f"{index + 101:064x}",
+                    "size_bytes": 128,
+                }
+            ],
+        }
+        for index, name in enumerate(table_names)
+    }
+    overlay_receipt: dict[str, object] = {
+        "schema": overlay_read_model.RECEIPT_SCHEMA,
+        "status": "pass",
+        "generated_at": generated_at,
+        "candidate_sha": candidate_sha,
+        "snapshot_id": "1" * 64,
+        "source_schema": overlay_read_model.EXPORT_SCHEMA,
+        "source_generated_at": generated_at,
+        "source_payload_sha256": "2" * 64,
+        "registry_payload_sha256": overlay_read_model._sha256(registry),
+        "source_evidence": {
+            "mode": "authenticated_teable_api",
+            "auth_kind": "bearer_api_key",
+            "secret_in_export": False,
+            "base_origin": "https://app.teable.io",
+            "base_id_sha256": "3" * 64,
+            "redirects_followed": False,
+            "table_discovery": {
+                "status_code": 200,
+                "response_sha256": "4" * 64,
+                "size_bytes": 256,
+            },
+            "tables": source_tables,
+        },
+        "source_authority": {
+            "bound_independently": True,
+            "expected_origin": "https://app.teable.io",
+            "expected_base_id_sha256": "3" * 64,
+        },
+        "ingestion": {
+            "source": "authenticated_teable_api_export",
+            "target": "postgres_cached_geo_rollup",
+            "mode": "launch_authenticated_fetch",
+            "transaction": "staged_validate_benchmark_atomic_pointer_switch",
+            "table_count": 8,
+            "layer_count": 8,
+            "record_count": 8,
+            "table_counts": table_counts,
+            "layer_keys": layer_keys,
+            "table_names": table_names,
+        },
+        "activation": {
+            "phase": "staged",
+            "candidate_snapshot_id": "1" * 64,
+            "candidate_staged": True,
+            "previous_active_snapshot_id": "f" * 64,
+            "activated_snapshot_id": "",
+            "activation_performed": False,
+            "active_snapshot_unchanged": True,
+            "active_snapshot_preserved_on_failure": True,
+            "active_revalidation_performed": False,
+            "active_revalidation_query_sample_count": 0,
+            "active_pointer_switch": "atomic_final_transaction",
+        },
+        "freshness": {
+            "max_age_policy_hours": 48.0,
+            "latest_cache_by_layer": {key: generated_at for key in layer_keys},
+        },
+        "read_model": {
+            "source_fetch_during_search": False,
+            "lookup_policy": "indexed_postgres_cached_rollup_only",
+            "coverage": [
+                {
+                    "layer_key": str(row["layer_key"]),
+                    "teable_table": str(row["teable_table"]),
+                    "record_count": 1,
+                    "latest_cache_updated_at": generated_at,
+                    "latest_ingested_at": generated_at,
+                }
+                for row in layers
+            ],
+            "sample_layer_count": 8,
+            "query_sample_count": 24,
+            "query_p95_ms": 4.0,
+            "query_budget_ms": 100.0,
+        },
+        "privacy": {
+            "area_context_only": True,
+            "person_scoring": False,
+            "raw_article_bodies_stored": False,
+            "match_key_allowlist": sorted(overlay_read_model.ALLOWED_MATCH_KEYS),
+        },
+        "failures": [],
+    }
+
+    public_origin = "https://propertyquarry.com"
+    analytics_origin = "https://app.rybbit.io"
+    site_id = "propertyquarry-production"
+    browser = {
+        "script": {
+            "url": f"{analytics_origin}/api/script.js",
+            "status_code": 200,
+            "sha256": "5" * 64,
+            "size_bytes": 42_000,
+            "site_id_bound": True,
+        },
+        "collector": {
+            "url_origin": analytics_origin,
+            "url_path": "/api/track",
+            "url_sha256": "6" * 64,
+            "method": "POST",
+            "status_code": 204,
+            "response_sha256": "7" * 64,
+            "size_bytes": 0,
+            "request_payload_sha256": "b" * 64,
+            "request_payload_size_bytes": 128,
+            "event_name_bound": True,
+            "observed_at": generated_at,
+        },
+        "event": {
+            "name": rybbit_evidence.PROBE_EVENT_NAME,
+            "sent_at": generated_at,
+            "anonymous": True,
+            "attribute_count": 0,
+        },
+        "privacy": {check: True for check in rybbit_evidence.REQUIRED_PRIVACY_CHECKS},
+    }
+    def api_response_provenance(url_sha256: str) -> dict[str, object]:
+        return {
+            "response_size_bytes": 128,
+            "response_limit_bytes": rybbit_evidence.MAX_RYBBIT_API_RESPONSE_BYTES,
+            "content_type": "application/json",
+            "requested_url_origin": analytics_origin,
+            "final_url_origin": analytics_origin,
+            "requested_url_sha256": url_sha256,
+            "final_url_sha256": url_sha256,
+            "same_request_url": True,
+            "redirected": False,
+        }
+
+    api = {
+        "auth": {"kind": "bearer_api_key", "secret_in_receipt": False},
+        "site": {
+            "status_code": 200,
+            "response_sha256": "8" * 64,
+            **api_response_provenance("c" * 64),
+            "site_id_bound": True,
+        },
+        "has_data": {
+            "status_code": 200,
+            "response_sha256": "9" * 64,
+            **api_response_provenance("d" * 64),
+            "has_data": True,
+        },
+        "events": {
+            "status_code": 200,
+            "response_sha256": "a" * 64,
+            **api_response_provenance("e" * 64),
+            "event_name": rybbit_evidence.PROBE_EVENT_NAME,
+            "event_count": 1,
+            "last_seen_at": generated_at,
+            "observed_after_probe": True,
+        },
+    }
+    rybbit_receipt = rybbit_evidence.build_receipt(
+        candidate_sha=candidate_sha,
+        public_origin=public_origin,
+        analytics_origin=analytics_origin,
+        site_id=site_id,
+        browser=browser,
+        api=api,
+        generated_at=datetime.fromisoformat(generated_at),
+    )
+    return {
+        "evidence_overlay_receipt_path": _write_json(
+            tmp_path / "evidence-overlay-read-model.json", overlay_receipt
+        ),
+        "rybbit_evidence_receipt_path": _write_json(
+            tmp_path / "rybbit-delivery.json", rybbit_receipt
+        ),
+        "expected_public_origin": public_origin,
+        "expected_teable_origin": "https://app.teable.io",
+        "expected_teable_base_id_sha256": "3" * 64,
+        "expected_evidence_overlay_phase": "staged",
+        "expected_rybbit_origin": analytics_origin,
+        "expected_rybbit_site_id_sha256": rybbit_evidence._sha256_text(site_id),
+    }
+
+
 def test_gold_status_standard_profile_keeps_customer_ux_receipts_optional(tmp_path: Path) -> None:
     receipt = build_gold_status_receipt(**_minimal_gold_receipt_args(tmp_path, generated_at="2026-07-13T10:00:00+00:00"))
 
@@ -686,7 +927,7 @@ def test_gold_status_treats_intentionally_disabled_billing_as_named_launch_block
     assert "enable billing" in blocker["action"]
 
 
-def test_gold_status_flagship_profile_blocks_missing_customer_ux_receipts(tmp_path: Path) -> None:
+def test_gold_status_launch_profile_blocks_missing_customer_and_product_data_receipts(tmp_path: Path) -> None:
     now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
     receipt = build_gold_status_receipt(
         **_minimal_gold_receipt_args(tmp_path, generated_at=(now - timedelta(minutes=5)).isoformat()),
@@ -695,7 +936,7 @@ def test_gold_status_flagship_profile_blocks_missing_customer_ux_receipts(tmp_pa
     )
 
     assert receipt["status"] == "blocked"
-    assert receipt["readiness_profile"] == "flagship"
+    assert receipt["readiness_profile"] == "launch"
     assert receipt["flagship_customer_ux_evidence"]["ready"] is False
     assert receipt["flagship_customer_ux_evidence"]["missing_receipts"] == list(
         gold_status.FLAGSHIP_CUSTOMER_UX_RECEIPT_AREAS
@@ -704,6 +945,10 @@ def test_gold_status_flagship_profile_blocks_missing_customer_ux_receipts(tmp_pa
     blocker = next(row for row in receipt["blockers"] if row["area"] == "flagship_customer_ux_evidence")
     assert blocker["status"] == "missing_required_receipts"
     assert blocker["missing_receipts"] == list(gold_status.FLAGSHIP_CUSTOMER_UX_RECEIPT_AREAS)
+    assert receipt["launch_product_data_evidence"]["required"] is True
+    assert receipt["launch_product_data_evidence"]["ready"] is False
+    blocker_areas = {str(row["area"]) for row in receipt["blockers"]}
+    assert {"evidence_overlay_read_model", "rybbit_delivery"}.issubset(blocker_areas)
 
 
 def test_gold_status_flagship_profile_passes_with_fresh_customer_ux_evidence(tmp_path: Path) -> None:
@@ -741,6 +986,65 @@ def test_gold_status_flagship_profile_passes_with_fresh_customer_ux_evidence(tmp
     assert receipt["continuous_ux"]["flagship_proof_ok"] is True
     assert receipt["continuous_ux"]["supplemental_only"] is True
     assert receipt["continuous_ux"]["production_claim"] is False
+
+
+def test_gold_status_flagship_activation_proof_rejects_another_release_candidate(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    generated_at = (now - timedelta(minutes=5)).isoformat()
+    flagship_args = _flagship_customer_ux_receipt_args(
+        tmp_path,
+        generated_at=generated_at,
+    )
+    activation_path = Path(flagship_args["activation_to_value_receipt_path"])
+    activation_receipt = json.loads(activation_path.read_text(encoding="utf-8"))
+    activation_receipt["release_commit_sha"] = "b" * 40
+    _write_json(activation_path, activation_receipt)
+
+    receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(tmp_path, generated_at=generated_at),
+        **flagship_args,
+        readiness_profile="flagship",
+        max_receipt_age_hours=1,
+        now=now,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["flagship_customer_ux_evidence"]["activation_to_value_proof_ready"] is False
+    proof = receipt["activation_to_value"]["flagship_proof"]
+    assert proof["expected_release_commit_sha"] == "a" * 40
+    assert proof["reported_release_commit_sha"] == "b" * 40
+    assert proof["release_commit_sha_matches"] is False
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "activation_to_value")
+    assert blocker["proof"]["release_commit_sha_matches"] is False
+
+
+def test_gold_status_launch_profile_requires_and_consumes_real_product_data_receipts(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    generated_at = (now - timedelta(minutes=5)).isoformat()
+
+    receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(tmp_path, generated_at=generated_at),
+        **_flagship_customer_ux_receipt_args(tmp_path, generated_at=generated_at),
+        **_launch_product_data_receipt_args(tmp_path, generated_at=generated_at),
+        readiness_profile="launch",
+        max_receipt_age_hours=1,
+        now=now,
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["readiness_profile"] == "launch"
+    assert receipt["launch_product_data_evidence"]["ready"] is True
+    assert receipt["launch_product_data_evidence"]["evidence_overlay_read_model"]["source"] == (
+        "authenticated_teable_api_export"
+    )
+    assert receipt["launch_product_data_evidence"]["evidence_overlay_read_model"]["layer_count"] == 8
+    assert receipt["launch_product_data_evidence"]["rybbit_delivery"]["collector_status_code"] == 204
+    pass_areas = {str(row["area"]) for row in receipt["pass_areas"]}
+    assert {"evidence_overlay_read_model", "rybbit_delivery"}.issubset(pass_areas)
 
 
 def test_flagship_continuous_ux_accepts_zero_non_gated_browser_diagnostics(
@@ -1364,7 +1668,7 @@ def test_gold_status_provider_matrix_default_finds_live_e2e_receipts(tmp_path: P
         tmp_path / "_completion" / "provider_smoke" / "all-search-ready-current-resumed.json",
         {"generated_at": "2026-06-26T09:00:00+00:00", "status": "pass"},
     )
-    live_e2e = _write_json(
+    _write_json(
         tmp_path / "_completion" / "smoke" / "property-provider-e2e-at-de-cr-latest.json",
         {"generated_at": "2026-06-26T11:07:15+00:00", "status": "pass"},
     )
@@ -3897,7 +4201,11 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
     assert provider_runtime_blocked_receipt["scene_video_readiness"]["actionability_ready"] is True
     assert provider_runtime_blocked_receipt["scene_video_readiness"]["provider_runtime_ready"] is False
     assert provider_runtime_blocked_receipt["scene_video_readiness"]["provider_action_required"] is True
-    assert provider_runtime_blocked_receipt["scene_video_readiness"]["blocked_providers"] == ["magicfit", "magic", "omagic"]
+    assert provider_runtime_blocked_receipt["scene_video_readiness"]["blocked_providers"] == [
+        "magicfit",
+        "magic",
+        "omagic",
+    ]
     assert provider_runtime_blocker["provider_blocked_count"] == 3
     assert provider_runtime_blocker["blocked_providers"] == ["magicfit", "magic", "omagic"]
     assert scene_video_action["reason"] == "provider_account_visibility_gap"
@@ -5879,7 +6187,12 @@ def test_gold_status_blocks_when_operator_drop_readmes_are_stale(tmp_path: Path)
     assert receipt["status"] == "blocked"
     assert receipt["operator_import_manifest"]["ready_for_exports"] is False
     assert receipt["operator_import_manifest"]["hardened_readmes_ok"] is False
-    assert sorted(receipt["operator_import_manifest"]["missing_hardened_readme_providers"]) == ["3dvista", "krpano", "magicfit", "pano2vr"]
+    assert sorted(receipt["operator_import_manifest"]["missing_hardened_readme_providers"]) == [
+        "3dvista",
+        "krpano",
+        "magicfit",
+        "pano2vr",
+    ]
     blocker = next(row for row in receipt["blockers"] if row["area"] == "tour_operator_drop_readmes")
     assert blocker["status"] == "stale_or_missing"
     assert blocker["failures"][0]["status"] == "stale_readme"

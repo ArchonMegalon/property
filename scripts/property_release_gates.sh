@@ -27,7 +27,7 @@ Runs the focused PropertyQuarry release bundle:
   - phase and master exit-gate specs plus flagship browser workflows
   - property workspace real-browser greenfield checks
   - property search run contracts
-  - cached evidence-overlay contracts for unavailable/stale/verified states and no inline source indexing
+  - authenticated eight-table Teable to atomic Postgres evidence-overlay receipt, cached unavailable/stale/verified states, and no inline source indexing
   - offline ranking benchmark for hard filters, soft scoring, ordering, and scout thresholds
   - property search storage schema guard
   - fresh authenticated private SLO metrics evidence bound to the exact release image and API replica set
@@ -50,7 +50,7 @@ Runs the focused PropertyQuarry release bundle:
   - required live mobile surface smoke: scripts/propertyquarry_live_mobile_surface_smoke.py against a deployed stack, including a current /app/research/{id} detail route
   - property artifact provider and sent-link manifest contracts
   - Brilliant Directories public-directory projection contracts
-  - privacy-safe Rybbit analytics snippet contracts
+  - privacy-safe Rybbit contracts plus real browser collector and authenticated site/data/event-arrival receipt
   - Telegram titled-link delivery contracts
   - property browser journey contracts
   - dossier writer, Dadan video request, media factory, and premium dossier screenshot/quality contracts
@@ -73,6 +73,17 @@ monitoring_runtime_receipt="${PROPERTYQUARRY_MONITORING_RUNTIME_RECEIPT:-}"
 prometheus_range_receipt="${PROPERTYQUARRY_PROMETHEUS_RANGE_RECEIPT:-}"
 prometheus_range_response="${PROPERTYQUARRY_PROMETHEUS_RANGE_RESPONSE:-}"
 alert_delivery_receipt="${PROPERTYQUARRY_ALERT_DELIVERY_RECEIPT:-}"
+continuous_ux_receipt="${PROPERTYQUARRY_CONTINUOUS_UX_RECEIPT:-}"
+failure_state_receipt="${PROPERTYQUARRY_FAILURE_STATE_RECEIPT:-}"
+activation_to_value_receipt="${PROPERTYQUARRY_ACTIVATION_TO_VALUE_RECEIPT:-}"
+provider_catalog_receipt="${PROPERTYQUARRY_PROVIDER_CATALOG_RECEIPT:-}"
+evidence_overlay_receipt="${PROPERTYQUARRY_EVIDENCE_OVERLAY_RECEIPT:-}"
+rybbit_evidence_receipt="${PROPERTYQUARRY_RYBBIT_EVIDENCE_RECEIPT:-}"
+expected_public_origin="${PROPERTYQUARRY_PUBLIC_ORIGIN:-${PROPERTYQUARRY_EXPECTED_RELEASE_PUBLIC_ORIGIN:-}}"
+expected_teable_origin="${PROPERTYQUARRY_EXPECTED_TEABLE_ORIGIN:-}"
+expected_teable_base_id_sha256="${PROPERTYQUARRY_EXPECTED_TEABLE_BASE_ID_SHA256:-}"
+expected_rybbit_origin="${PROPERTYQUARRY_RYBBIT_ORIGIN:-}"
+expected_rybbit_site_id_sha256="${PROPERTYQUARRY_RYBBIT_SITE_ID_SHA256:-}"
 if [[ -z "${dr_backup_receipt}" || -z "${dr_restore_receipt}" ]]; then
   echo "error: PROPERTYQUARRY_DR_BACKUP_RECEIPT and PROPERTYQUARRY_DR_RESTORE_RECEIPT are required." >&2
   exit 2
@@ -90,6 +101,27 @@ if [[ -z "${monitoring_runtime_receipt}" || -z "${prometheus_range_receipt}" || 
   -z "${prometheus_range_response}" || -z "${alert_delivery_receipt}" ]]; then
   echo "error: PROPERTYQUARRY_MONITORING_RUNTIME_RECEIPT, PROPERTYQUARRY_PROMETHEUS_RANGE_RECEIPT," >&2
   echo "PROPERTYQUARRY_PROMETHEUS_RANGE_RESPONSE, and PROPERTYQUARRY_ALERT_DELIVERY_RECEIPT are required." >&2
+  exit 2
+fi
+for required_launch_receipt in \
+  "${continuous_ux_receipt}" \
+  "${failure_state_receipt}" \
+  "${activation_to_value_receipt}" \
+  "${provider_catalog_receipt}" \
+  "${evidence_overlay_receipt}" \
+  "${rybbit_evidence_receipt}"; do
+  if [[ -z "${required_launch_receipt}" || ! -f "${required_launch_receipt}" ]]; then
+    echo "error: launch-profile UX and provider receipt inputs must be explicit regular files." >&2
+    echo "Set PROPERTYQUARRY_CONTINUOUS_UX_RECEIPT, PROPERTYQUARRY_FAILURE_STATE_RECEIPT," >&2
+    echo "PROPERTYQUARRY_ACTIVATION_TO_VALUE_RECEIPT, PROPERTYQUARRY_PROVIDER_CATALOG_RECEIPT," >&2
+    echo "PROPERTYQUARRY_EVIDENCE_OVERLAY_RECEIPT, and PROPERTYQUARRY_RYBBIT_EVIDENCE_RECEIPT." >&2
+    exit 2
+  fi
+done
+if [[ -z "${expected_public_origin}" || -z "${expected_teable_origin}" || -z "${expected_teable_base_id_sha256}" || -z "${expected_rybbit_origin}" || -z "${expected_rybbit_site_id_sha256}" ]]; then
+  echo "error: PROPERTYQUARRY_PUBLIC_ORIGIN (or PROPERTYQUARRY_EXPECTED_RELEASE_PUBLIC_ORIGIN), PROPERTYQUARRY_EXPECTED_TEABLE_ORIGIN," >&2
+  echo "PROPERTYQUARRY_EXPECTED_TEABLE_BASE_ID_SHA256, PROPERTYQUARRY_RYBBIT_ORIGIN, and" >&2
+  echo "PROPERTYQUARRY_RYBBIT_SITE_ID_SHA256 are required for launch-bound Rybbit evidence." >&2
   exit 2
 fi
 mkdir -p _completion/disaster_recovery
@@ -158,10 +190,14 @@ docker_exec_scene_video_python() {
 }
 
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_docs_links.py
-PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_security_posture.py
+mkdir -p _completion/security _completion/release_hygiene _completion/whole_project_scope
+PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_security_posture.py \
+  --write _completion/security/property-security-posture-release-gate.json
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_repo_isolation.py
-PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_release_hygiene.py
-PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_whole_project_scope.py
+PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_release_hygiene.py \
+  --write _completion/release_hygiene/property-release-hygiene-release-gate.json
+PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_whole_project_scope.py \
+  --write _completion/whole_project_scope/property-whole-project-scope-release-gate.json
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_surface_accessibility.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_provider_governance.py
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/check_property_ranking_benchmark.py
@@ -403,7 +439,12 @@ case "${scene_video_refresh_notification_enabled,,}" in
 esac
 
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_gold_status.py \
+  --profile launch \
   --performance-receipt _completion/smoke/property-auth-performance-release-gate.json \
+  --continuous-ux-receipt "${continuous_ux_receipt}" \
+  --accessibility-receipt _completion/smoke/property-live-accessibility-release-gate.json \
+  --failure-state-receipt "${failure_state_receipt}" \
+  --activation-to-value-receipt "${activation_to_value_receipt}" \
   --tour-control-receipt _completion/property_tour_controls/release-gate.json \
   --export-discovery-receipt _completion/property_tour_exports/release-gate-discovery.json \
   --import-manifest-receipt _completion/property_tour_exports/release-gate-import-manifest.json \
@@ -412,9 +453,13 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_gold_status.py \
   --live-mobile-receipt _completion/smoke/property-live-mobile-release-gate.json \
   --public-smoke-receipt _completion/smoke/property-live-public-release-gate.json \
   --authenticated-smoke-receipt _completion/smoke/property-live-authenticated-release-gate.json \
+  --billing-receipt _completion/brilliant_directories/BRILLIANT_DIRECTORIES_PROVIDER_VERIFICATION.generated.json \
   --map-preview-flagship-receipt _completion/smoke/property-live-map-preview-flagship-release-gate.json \
   --tour-provider-ownership-receipt _completion/property_tour_ownership/release-gate.json \
   --vendor-tooling-receipt _completion/tours/property-tour-vendor-tooling-current.json \
+  --whole-project-scope-receipt _completion/whole_project_scope/property-whole-project-scope-release-gate.json \
+  --security-posture-receipt _completion/security/property-security-posture-release-gate.json \
+  --release-hygiene-receipt _completion/release_hygiene/property-release-hygiene-release-gate.json \
   --furniture-style-contract-receipt _completion/furniture_styles/property-furniture-style-contract-release-gate.json \
   --bts-methodology-contract-receipt _completion/bts_methodology/property-bts-methodology-contract-release-gate.json \
   --tour-delivery-contract-receipt _completion/tour_delivery/property-tour-delivery-contract-release-gate.json \
@@ -435,9 +480,19 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_gold_status.py \
   --prometheus-range-receipt "${prometheus_range_receipt}" \
   --prometheus-range-response "${prometheus_range_response}" \
   --alert-delivery-receipt "${alert_delivery_receipt}" \
+  --id-austria-receipt _completion/id_austria/ID_AUSTRIA_PROVIDER_VERIFICATION.generated.json \
+  --provider-catalog-receipt "${provider_catalog_receipt}" \
+  --evidence-overlay-receipt "${evidence_overlay_receipt}" \
+  --rybbit-evidence-receipt "${rybbit_evidence_receipt}" \
   --require-launch-evidence \
   --expected-release-sha "${dr_release_commit_sha}" \
   --expected-image-digest "${dr_release_image_digest}" \
+  --expected-public-origin "${expected_public_origin}" \
+  --expected-teable-origin "${expected_teable_origin}" \
+  --expected-teable-base-id-sha256 "${expected_teable_base_id_sha256}" \
+  --expected-evidence-overlay-phase staged \
+  --expected-rybbit-origin "${expected_rybbit_origin}" \
+  --expected-rybbit-site-id-sha256 "${expected_rybbit_site_id_sha256}" \
   --write _completion/property_gold_status/release-gate.json \
   --fail-on-blocked
 gold_notification_principal_id="${PROPERTYQUARRY_GOLD_NOTIFICATION_PRINCIPAL_ID:-${EA_PRINCIPAL_ID:-propertyquarry-operator}}"

@@ -11,6 +11,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SCOPE_DOC = ROOT / "docs" / "PROPERTYQUARRY_WHOLE_PROJECT_SCOPE.md"
 OVERLAY_REGISTRY = ROOT / "docs" / "PROPERTYQUARRY_EVIDENCE_OVERLAY_REGISTRY.json"
+OVERLAY_PRODUCT = ROOT / "ea" / "app" / "product" / "property_evidence_overlays.py"
+OVERLAY_POSTGRES_REPOSITORY = (
+    ROOT / "ea" / "app" / "repositories" / "property_evidence_overlays_postgres.py"
+)
+OVERLAY_READ_MODEL_GATE = ROOT / "scripts" / "property_evidence_overlay_read_model.py"
+RYBBIT_DELIVERY_GATE = ROOT / "scripts" / "propertyquarry_rybbit_evidence.py"
+GOLD_STATUS_GATE = ROOT / "scripts" / "propertyquarry_gold_status.py"
 
 REQUIRED_OVERLAY_LAYERS = {
     "environmental_quality",
@@ -68,6 +75,19 @@ def _check_overlay_registry(failures: list[str]) -> None:
         failures.append("evidence overlay registry must forbid inline source indexing during search")
     if policy.get("ingestion_policy") != "async_teable_first_then_cached_read_model":
         failures.append("evidence overlay registry must require async Teable-first ingestion")
+    if policy.get("protected_ingestion_producer") != "scripts/property_evidence_overlay_read_model.py":
+        failures.append("evidence overlay registry must bind the protected ingestion producer")
+    if policy.get("launch_receipt_schema") != "propertyquarry.evidence_overlay_read_model_receipt.v2":
+        failures.append("evidence overlay registry must bind the two-phase launch receipt schema")
+    if policy.get("launch_source_evidence") != "authenticated_teable_api_response_table_page_digests":
+        failures.append("evidence overlay registry must require authenticated Teable API response evidence")
+    if (
+        policy.get("launch_read_model_evidence")
+        != "staged_snapshot_validate_benchmark_atomic_pointer_switch_and_indexed_lookup_p95"
+    ):
+        failures.append(
+            "evidence overlay registry must require staged validation, atomic pointer activation, and indexed lookup evidence"
+        )
     layers = [row for row in list(registry.get("layers") or []) if isinstance(row, dict)]
     by_key = {str(row.get("layer_key") or "").strip(): row for row in layers}
     missing_layers = sorted(REQUIRED_OVERLAY_LAYERS - set(by_key))
@@ -118,9 +138,53 @@ def build_scope_receipt() -> dict[str, object]:
 
     _check_overlay_registry(failures)
 
+    required_implementation_tokens = {
+        OVERLAY_PRODUCT: (
+            "PostgresPropertyEvidenceOverlayRepository",
+            "postgres_cached_rollup_unavailable",
+            "derived_candidate_facts_non_production",
+        ),
+        OVERLAY_POSTGRES_REPOSITORY: (
+            "property_evidence_overlay_rollups",
+            "pg_advisory_xact_lock",
+            "property_evidence_overlay_active_snapshot",
+        ),
+        OVERLAY_READ_MODEL_GATE: (
+            "authenticated_teable_api_export",
+            "staged_validate_benchmark_atomic_pointer_switch",
+            "indexed_postgres_cached_rollup_only",
+            "propertyquarry.evidence_overlay_read_model_receipt.v2",
+        ),
+        RYBBIT_DELIVERY_GATE: (
+            "propertyquarry.rybbit_delivery_receipt.v1",
+            "propertyquarry_launch_probe",
+            "collector",
+            "observed_after_probe",
+        ),
+        GOLD_STATUS_GATE: (
+            "--evidence-overlay-receipt",
+            "--rybbit-evidence-receipt",
+            "verify_evidence_overlay_read_model_receipt",
+            "verify_rybbit_delivery_receipt",
+        ),
+    }
+    for path, tokens in required_implementation_tokens.items():
+        if not path.exists():
+            failures.append(f"missing launch implementation: {path.relative_to(ROOT)}")
+            continue
+        body = path.read_text(encoding="utf-8")
+        for token in tokens:
+            if token not in body:
+                failures.append(
+                    f"{path.relative_to(ROOT)} must bind launch implementation token: {token}"
+                )
+
     release_gate = (ROOT / "scripts" / "property_release_gates.sh").read_text(encoding="utf-8")
     if "scripts/check_property_whole_project_scope.py" not in release_gate:
         failures.append("property_release_gates.sh must run check_property_whole_project_scope.py")
+    for required_flag in ("--profile launch", "--evidence-overlay-receipt", "--rybbit-evidence-receipt"):
+        if required_flag not in release_gate:
+            failures.append(f"property_release_gates.sh must require {required_flag}")
 
     return {
         "schema": "propertyquarry.whole_project_scope_receipt.v1",
@@ -128,14 +192,23 @@ def build_scope_receipt() -> dict[str, object]:
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "scope_doc": str(SCOPE_DOC.relative_to(ROOT)),
         "evidence_overlay_registry": str(OVERLAY_REGISTRY.relative_to(ROOT)),
+        "evidence_overlay_product": str(OVERLAY_PRODUCT.relative_to(ROOT)),
+        "evidence_overlay_postgres_repository": str(
+            OVERLAY_POSTGRES_REPOSITORY.relative_to(ROOT)
+        ),
+        "evidence_overlay_read_model_gate": str(
+            OVERLAY_READ_MODEL_GATE.relative_to(ROOT)
+        ),
+        "rybbit_delivery_gate": str(RYBBIT_DELIVERY_GATE.relative_to(ROOT)),
+        "gold_status_gate": str(GOLD_STATUS_GATE.relative_to(ROOT)),
         "required_overlay_layers": sorted(REQUIRED_OVERLAY_LAYERS),
         "required_phrase_count": len(REQUIRED_PHRASES),
         "forbidden_phrase_count": len(FORBIDDEN_PHRASES),
         "release_gate": "scripts/property_release_gates.sh",
         "failures": failures,
         "notes": [
-            "This receipt proves the whole-project scope contract and evidence-overlay registry shape.",
-            "It does not replace runtime/mobile/provider/tour receipts; gold status must combine all gates.",
+            "This receipt proves the whole-project scope, exact overlay registry, production Postgres read path, protected Teable ingestion gate, real Rybbit delivery gate, and Gold consumption wiring.",
+            "It does not claim live delivery by itself; launch Gold still requires fresh candidate-bound receipts from both protected producers alongside runtime/mobile/provider/tour evidence.",
         ],
     }
 

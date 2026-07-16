@@ -170,6 +170,7 @@ from app.product.property_tour_hosting import (
     _is_crezlo_tour_host,
     _load_hosted_property_tour_payload,
     _matterport_thumb_url,
+    _normalize_generated_reconstruction_bundle_permissions,
     _prefer_hosted_live_360_embed,
     _property_public_app_base_url,
     _property_public_tour_base_url,
@@ -15320,6 +15321,8 @@ def _property_tour_followup_telegram_text(
         next_action = "Next: reconnect the tour path and regenerate the tour."
     elif str(blocked_reason or "").strip() == "property_tour_execution_failed":
         next_action = "Next: retry the tour generation path for this listing."
+    elif str(blocked_reason or "").strip() == "listing_expired":
+        next_action = "Next: choose an active listing; this source page is no longer available."
     elif str(blocked_reason or "").strip() == "property_tour_delivery_failed":
         next_action = "Next: reopen the listing and retry the delivery path."
     elif str(blocked_reason or "").strip() == "property_tour_video_delivery_failed":
@@ -15338,6 +15341,7 @@ def _property_tour_followup_is_customer_actionable(blocked_reason: str) -> bool:
         return False
     return normalized not in {
         "browseract_connector_unconfigured",
+        "listing_expired",
         "listing_360_media_missing",
         "property_tour_execution_failed",
         "property_tour_delivery_failed",
@@ -15353,6 +15357,8 @@ def _property_tour_followup_is_customer_actionable(blocked_reason: str) -> bool:
 def _property_visual_unavailable_detail(*, request_kind: str, reason: str = "") -> str:
     normalized_kind = _normalize_property_visual_request_kind(request_kind)
     normalized_reason = str(reason or "").strip().lower()
+    if normalized_reason == "listing_expired":
+        return "This listing has expired and its source page is no longer available."
     if normalized_reason in {
         "",
         "none",
@@ -15423,6 +15429,7 @@ def _property_visual_terminal_status_for_reason(*, request_kind: str, reason: st
     if (
         normalized_reason not in {
             "fit_below_threshold",
+            "listing_expired",
             "provider_export_missing",
             "listing_360_media_missing",
             "pure_360_assets_unavailable",
@@ -17238,6 +17245,7 @@ def _write_generated_reconstruction_property_tour_bundle(
         and _hosted_property_tour_generated_reconstruction_bundle_ready(tour_url)
         and str(existing_reconstruction.get("viewer_version") or "").strip() == _PROPERTY_RECONSTRUCTION_VIEWER_VERSION
     ):
+        _normalize_generated_reconstruction_bundle_permissions(bundle_dir)
         return existing_payload
     bundle_dir.mkdir(parents=True, exist_ok=True)
     facts = dict(property_facts_json or {})
@@ -17435,6 +17443,7 @@ def _write_generated_reconstruction_property_tour_bundle(
     viewer_path = (bundle_dir / viewer_relpath).resolve() if viewer_relpath else bundle_dir / "__missing_viewer__"
     if not viewer_relpath or bundle_root not in viewer_path.parents or not viewer_path.is_file():
         raise RuntimeError("property_reconstruction_viewer_missing")
+    _normalize_generated_reconstruction_bundle_permissions(bundle_dir)
     return _load_hosted_property_tour_payload(
         bundle_dir,
         principal_id=normalized_principal,
@@ -32009,6 +32018,8 @@ class ProductService:
 
     def _property_tour_execution_error_reason(self, exc: Exception) -> str:
         detail = str(exc or "").strip().lower()
+        if "willhaben_listing_expired" in detail:
+            return "listing_expired"
         if any(
             marker in detail
             for marker in (
@@ -49892,9 +49903,14 @@ class ProductService:
                 allow_floorplan_only=True,
             )
         except Exception as exc:
+            classified_reason = self._property_tour_execution_error_reason(exc)
             return {
                 "status": "failed",
-                "blocked_reason": compact_text(str(exc or ""), fallback="property_tour_auto_failed", limit=200),
+                "blocked_reason": (
+                    classified_reason
+                    if classified_reason == "listing_expired"
+                    else compact_text(str(exc or ""), fallback="property_tour_auto_failed", limit=200)
+                ),
                 "tour_url": "",
                 "vendor_tour_url": "",
             }

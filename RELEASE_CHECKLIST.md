@@ -61,7 +61,8 @@
 
 ## Observability
 
-- [ ] Check `docker compose logs --tail 200 ea-api ea-db` for errors.
+- [ ] For PropertyQuarry, review the installed controller's release-bound, sanitized API/database log receipt and monitoring evidence. The checkout has no Docker authority, and direct Compose logs are not PropertyQuarry release evidence.
+- [ ] Only when separately diagnosing the legacy EA development stack, `docker compose logs --tail 200 ea-api ea-db` may be used as a legacy-only local check; keep its output outside the PropertyQuarry release path.
 - [ ] Verify no repeated fallback warnings in postgres-required environments.
 - [ ] Follow `docs/PROPERTYQUARRY_OBSERVABILITY.md`; confirm production application and Uvicorn logs parse as one-line JSON and correlation IDs appear on requests and 500s.
 - [ ] Confirm an unauthenticated `/internal/metrics` scrape is rejected and a private system-token scrape returns Prometheus text with `Cache-Control: no-store`.
@@ -75,6 +76,10 @@
 - [ ] Require gold `--require-launch-evidence` to invoke both canonical validators from the raw artifacts; never promote from producer booleans or a copied green verification receipt.
 - [ ] Require availability/error-rate, p95/p99 latency, readiness, required worker/scheduler heartbeat, provider/quota, and conditional DB/queue evidence to pass.
 - [ ] Preserve the atomic SLO evidence receipt and follow `docs/PROPERTYQUARRY_SLO_ALERT_RUNBOOK.md` for any firing condition.
+- [ ] Run `scripts/property_evidence_overlay_read_model.py --stage-only` from the protected release lane with the Teable HTTPS origin, bearer credential, overlay base ID, production Postgres URL, exact candidate SHA, and independently configured `PROPERTYQUARRY_EXPECTED_TEABLE_ORIGIN` plus `PROPERTYQUARRY_EXPECTED_TEABLE_BASE_ID_SHA256`. Require authenticated API response/table/page digests, exact eight-layer staged coverage, fresh source rows, three indexed candidate lookups per layer, p95 at or below the fixed 100 ms ceiling, and a mode-`0600` v2 staged receipt. Launch mode must reject `--teable-export` and prefetched fixtures.
+- [ ] Run launch Gold against the staged overlay receipt while the old active pointer is unchanged. Only after staged Gold passes, run explicit receipt-bound `--activate-snapshot` with a mode-`0600` rollback token, require compare-and-switch against the receipt's prior active pointer, revalidate the active snapshot, and require the updated receipt to prove `activation.phase=active`. Arm the workflow ERR trap to run the idempotent compare-and-restore command; restore must refuse when the active pointer no longer equals the just-activated snapshot.
+- [ ] Run `scripts/propertyquarry_rybbit_evidence.py` against the exact public candidate. Require the non-empty tracking script, anonymous attribute-free collector POST/2xx, authenticated site/has-data/events API confirmation, matching hashed site identity, no private payload fields, and a receipt no more than 15 minutes old.
+- [ ] Export `PROPERTYQUARRY_EVIDENCE_OVERLAY_RECEIPT`, `PROPERTYQUARRY_RYBBIT_EVIDENCE_RECEIPT`, `PROPERTYQUARRY_PUBLIC_ORIGIN`, `PROPERTYQUARRY_RYBBIT_ORIGIN`, and `PROPERTYQUARRY_RYBBIT_SITE_ID_SHA256`; launch-profile Gold must consume both receipts and fail closed on a missing or mismatched binding.
 
 ## Dependency, image, and SBOM security
 
@@ -108,6 +113,7 @@
 - [ ] Run deterministic scheduler replica-race, email crash/retry, Telegram ambiguous-outcome dead-letter, and bounded-attempt contracts; never exercise a real provider during release tests.
 - [ ] Scrape `propertyquarry_scheduler_delivery_outbox_events_total` and alert on increasing `dead_lettered`, `failed`, or sustained `claim_conflicts` outcomes.
 - [ ] Confirm schema v5 includes `property_content_jobs`, ordered `property_content_job_events`, and unique `property_content_webhook_events`; runtime content-ledger repositories must contain no DDL.
+- [ ] Confirm schema v8 includes the original overlay rollups/snapshots and schema v9 adds snapshot-keyed rollups, staged/active/retired status, the singleton active pointer, and snapshot lookup/freshness indexes. The overlay ingestion and runtime repositories must fail closed when the governed migration is pending and must contain no schema DDL or destructive active-row replacement.
 - [ ] Run deterministic content-job/webhook replica races, payload-conflict replay, corruption preservation, and expired-lease crash recovery contracts without contacting Subscribr.
 - [ ] Scrape `propertyquarry_content_ledger_events_total`; investigate increasing `replay_conflict`, `failed`, or `corruption` outcomes before promotion.
 - [ ] Run the source-only schema contract check without `DATABASE_URL`; use only an explicitly disposable test database for PostgreSQL contracts.

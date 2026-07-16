@@ -422,7 +422,10 @@ def test_smoke_runtime_protects_live_propertyquarry_release_gates() -> None:
     live_job = _workflow_job(workflow, "propertyquarry-live-release-gates")
 
     assert (
-        "if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}"
+        "if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' "
+        "&& needs['propertyquarry-ordinary-ci-success'].result == 'success' "
+        "&& needs['propertyquarry-flagship-security'].result == 'success' "
+        "&& needs['propertyquarry-continuous-ux'].result == 'success' }}"
         in live_job
     )
     assert live_job.count("if:") == 2
@@ -481,6 +484,139 @@ def test_smoke_runtime_protects_live_propertyquarry_release_gates() -> None:
     assert "|| true" not in live_job
 
 
+def test_smoke_runtime_requires_ordinary_ci_before_live_release_and_live_release_before_activation() -> None:
+    workflow = _read(".github/workflows/smoke-runtime.yml")
+    aggregate_job = _workflow_job(workflow, "propertyquarry-ordinary-ci-success")
+    live_job = _workflow_job(workflow, "propertyquarry-live-release-gates")
+    activation_job = _workflow_job(workflow, "propertyquarry-live-activation-to-value")
+
+    for required_job in (
+        "property-security-posture",
+        "security-static",
+        "smoke-runtime-api",
+        "propertyquarry-browser-contracts",
+        "product-browser-e2e",
+        "propertyquarry-postgres-browser-e2e",
+        "propertyquarry-continuous-ux",
+        "propertyquarry-accessibility-contracts",
+        "propertyquarry-failure-state-contracts",
+        "propertyquarry-activation-contracts",
+        "smoke-runtime-postgres",
+        "postgres-runtime-contracts",
+    ):
+        assert f"      - {required_job}\n" in aggregate_job
+    assert "if: ${{ always() }}" in aggregate_job
+    assert "details.get(\"result\") != \"success\"" in aggregate_job
+    assert "secrets." not in aggregate_job
+    assert "      - propertyquarry-ordinary-ci-success\n" in live_job
+    assert "needs: propertyquarry-live-release-gates" in activation_job
+    assert "needs['propertyquarry-live-release-gates'].result == 'success'" in activation_job
+    assert "fetch-depth: 0" in activation_job
+    assert "Bind activation to the immutable manifest runtime candidate" in activation_job
+    assert "release_manifest_runtime_sha" in activation_job
+    assert '--release-sha "${PROPERTYQUARRY_RELEASE_COMMIT_SHA}"' in activation_job
+
+    assert "propertyquarry-release-security-${{ github.run_id }}-${{ github.run_attempt }}" in live_job
+    assert "PROPERTYQUARRY_EXPECTED_RELEASE_REPOSITORY: ArchonMegalon/property" in live_job
+    assert "PROPERTYQUARRY_EXPECTED_RELEASE_PUBLIC_ORIGIN" in live_job
+    assert "PROPERTYQUARRY_EXPECTED_RELEASE_DEPLOYMENT_ID" in live_job
+    assert "PROPERTYQUARRY_RELEASE_DEPLOYMENT_ID" not in live_job
+    assert (
+        "PROPERTYQUARRY_EXPECTED_RELEASE_DEPLOYMENT_ID=propertyquarry-governed-deploy-"
+        "${runtime_sha:0:12}"
+    ) in live_job
+    assert "PROPERTYQUARRY_EXPECTED_RELEASE_ARTIFACT_SET" in live_job
+    assert "PROPERTYQUARRY_EXPECTED_RELEASE_LABEL" in live_job
+    assert "PROPERTYQUARRY_EXPECTED_RELEASE_GENERATED_AT" in live_job
+    assert "PROPERTYQUARRY_EXPECTED_REPLICA_ID" in live_job
+    assert "PROPERTYQUARRY_EXPECTED_WEB_IMAGE" in live_job
+    assert "PROPERTYQUARRY_EXPECTED_RENDER_IMAGE" in live_job
+    assert "PROPERTYQUARRY_RELEASE_SECURITY_RECEIPT" in live_job
+    assert "PROPERTYQUARRY_RELEASE_SECURITY_WORKFLOW_BINDING" in live_job
+    assert "PROPERTYQUARRY_EXPECTED_RELEASE_IMAGE_DIGEST=" in live_job
+
+
+def test_smoke_runtime_withholds_launch_authority_without_same_run_activation_and_attested_controller() -> None:
+    workflow = _read(".github/workflows/smoke-runtime.yml")
+    preflight = _workflow_job(workflow, "propertyquarry-launch-controller-preflight")
+    launch_gold = _workflow_job(workflow, "propertyquarry-launch-gold")
+
+    assert "run_launch_authority:" in workflow
+    assert "type: boolean" in workflow.split("run_launch_authority:", 1)[1].split("jobs:", 1)[0]
+    assert "      - propertyquarry-live-release-gates\n" in preflight
+    assert "      - propertyquarry-live-activation-to-value\n" in preflight
+    assert "always()" in preflight
+    assert "inputs.run_launch_authority == true" in preflight
+    assert '[[ "${PROPERTYQUARRY_LIVE_RELEASE_RESULT}" != "success" ]]' in preflight
+    assert '[[ "${PROPERTYQUARRY_LIVE_ACTIVATION_RESULT}" != "success" ]]' in preflight
+    assert '[[ "${PROPERTYQUARRY_RELEASE_CONTROLLER_READY}" != "true" ]]' in preflight
+    assert "PROPERTYQUARRY_RELEASE_CONTROLLER_BUNDLE_SHA256" in preflight
+    assert "^[0-9a-f]{64}$" in preflight
+    assert "|| true" not in preflight
+    assert "needs: propertyquarry-launch-controller-preflight" in launch_gold
+    assert "needs['propertyquarry-launch-controller-preflight'].result == 'success'" in launch_gold
+    assert "runs-on: [self-hosted, propertyquarry-release-controller]" in launch_gold
+    assert "environment:\n      name: propertyquarry-production" in launch_gold
+    assert "propertyquarry-release-security-${{ github.run_id }}-${{ github.run_attempt }}" in launch_gold
+    assert "propertyquarry-continuous-ux-${{ github.sha }}" in launch_gold
+    assert "propertyquarry-live-activation-${{ github.run_id }}-${{ github.run_attempt }}" in launch_gold
+    assert (
+        "propertyquarry-live-release-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}"
+        in launch_gold
+    )
+    assert "PROPERTYQUARRY_RELEASE_CONTROLLER_BUNDLE_PATH" in launch_gold
+    assert "bash scripts/property_release_gates.sh" in launch_gold
+    assert "--activate-snapshot" in launch_gold
+    assert "--restore-activation" in launch_gold
+    assert "trap 'rollback_overlay $?' ERR" in launch_gold
+    assert "trap 'rollback_overlay 130' INT" in launch_gold
+    assert "trap 'rollback_overlay 143' TERM" in launch_gold
+    assert "scripts/propertyquarry_launch_authority.py" in launch_gold
+    for required_authority_flag in (
+        "--candidate-sha",
+        "--workflow-head-sha",
+        "--workflow-run-id",
+        "--workflow-run-attempt",
+        "--authority-phase",
+        "--activation-authority",
+        "--gold-status",
+        "--live-provenance",
+        "--activation-receipt",
+        "--overlay-receipt",
+        "--expected-teable-origin",
+        "--expected-teable-base-id-sha256",
+        "--expected-rybbit-public-origin",
+        "--expected-rybbit-analytics-origin",
+        "--expected-rybbit-site-id-sha256",
+        "--rybbit-receipt",
+        "--security-receipt",
+        "--security-workflow-binding",
+        "--controller-bundle",
+        "--expected-controller-bundle-sha256",
+    ):
+        assert required_authority_flag in launch_gold
+    preactivation = launch_gold.index("--authority-phase preactivation")
+    pointer_activation = launch_gold.index("--activate-snapshot")
+    final_authority = launch_gold.index("--authority-phase final")
+    assert launch_gold.index("bash scripts/property_release_gates.sh") < preactivation
+    assert preactivation < pointer_activation < final_authority
+    assert launch_gold.count("--activation-authority") >= 2
+    assert launch_gold.count("bash scripts/property_release_gates.sh") == 1
+    assert "_completion/property_gold_status/activation-authority.json" in launch_gold
+    assert "propertyquarry-launch-authority-${{ github.sha }}-${{ github.run_id }}" in launch_gold
+    assert "if-no-files-found: error" in launch_gold
+    assert "|| true" not in launch_gold
+
+
+def test_property_web_image_contains_the_canonical_release_manifest() -> None:
+    dockerfile = _read("ea/Dockerfile.property-web")
+
+    assert (
+        "COPY docs/PROPERTYQUARRY_RELEASE_MANIFEST.md "
+        "/app/docs/PROPERTYQUARRY_RELEASE_MANIFEST.md"
+    ) in dockerfile
+
+
 def test_protected_live_release_gate_is_remote_only_and_fail_closed() -> None:
     script = _read("scripts/propertyquarry_live_release_gates.sh")
 
@@ -509,6 +645,31 @@ def test_protected_live_release_gate_is_remote_only_and_fail_closed() -> None:
     assert "compose" not in script
     assert "POSTGRES_PASSWORD" not in script
     assert "ensure_propertyquarry_render_bridge_runtime.py" not in script
+    assert "--stage-only" in script
+    assert "--activate-snapshot" not in script
+    assert "PROPERTYQUARRY_EXPECTED_TEABLE_ORIGIN" in script
+    assert "PROPERTYQUARRY_EXPECTED_TEABLE_BASE_ID_SHA256" in script
+    assert 'expected_phase="staged"' in script
+    for required_option in (
+        "--expected-repository",
+        "--expected-public-origin",
+        "--expected-branch",
+        "--expected-commit-sha",
+        "--expected-deployment-id",
+        "--expected-artifact-set",
+        "--expected-release-label",
+        "--expected-release-generated-at",
+        "--expected-image-digest",
+        "--expected-replica-id",
+        "--expected-web-image",
+        "--expected-render-image",
+        "--security-receipt",
+        "--security-workflow-binding",
+        "--expected-workflow-head-sha",
+        "--expected-workflow-run-id",
+        "--expected-workflow-run-attempt",
+    ):
+        assert required_option in script
 
     release_bundle = _read("scripts/property_release_gates.sh")
     assert 'PYTHON_BIN="${PYTHON_BIN}" bash scripts/propertyquarry_live_release_gates.sh' in release_bundle
@@ -996,7 +1157,10 @@ def test_propertyquarry_release_and_deploy_fail_closed_on_release_bound_dr_evide
 def test_property_release_gate_runs_cached_evidence_overlay_contracts() -> None:
     release_gate = _read("scripts/property_release_gates.sh")
 
-    assert "cached evidence-overlay contracts for unavailable/stale/verified states and no inline source indexing" in release_gate
+    assert (
+        "authenticated eight-table Teable to atomic Postgres evidence-overlay receipt, cached "
+        "unavailable/stale/verified states, and no inline source indexing"
+    ) in release_gate
     assert "tests/test_property_evidence_overlays.py" in release_gate
 
 
@@ -1296,6 +1460,66 @@ def test_property_release_gate_binds_quality_to_provider_proof_on_one_tour_root(
         "--provider-proof-receipt _completion/smoke/"
         "property-live-walkthrough-provider-proof-release-gate.json"
     ) in release_gate
+
+
+def test_property_release_gate_invokes_launch_gold_with_full_explicit_receipts() -> None:
+    release_gate = _read("scripts/property_release_gates.sh")
+    gold_call = release_gate.split(
+        'PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_gold_status.py \\\n',
+        1,
+    )[1].split("  --fail-on-blocked", 1)[0]
+
+    for required_flag in (
+        "--profile launch",
+        "--performance-receipt",
+        "--continuous-ux-receipt",
+        "--live-mobile-receipt",
+        "--accessibility-receipt",
+        "--failure-state-receipt",
+        "--activation-to-value-receipt",
+        "--public-smoke-receipt",
+        "--authenticated-smoke-receipt",
+        "--billing-receipt",
+        "--whole-project-scope-receipt",
+        "--security-posture-receipt",
+        "--release-hygiene-receipt",
+        "--id-austria-receipt",
+        "--provider-catalog-receipt",
+        "--provider-matrix-receipt",
+        "--slo-metrics-snapshot",
+        "--slo-metrics-probe",
+        "--monitoring-runtime-receipt",
+        "--prometheus-range-receipt",
+        "--prometheus-range-response",
+        "--alert-delivery-receipt",
+        "--require-launch-evidence",
+        "--expected-release-sha",
+        "--expected-image-digest",
+        "--expected-teable-origin",
+        "--expected-teable-base-id-sha256",
+        "--expected-evidence-overlay-phase",
+    ):
+        assert required_flag in gold_call
+    for required_env in (
+        "PROPERTYQUARRY_CONTINUOUS_UX_RECEIPT",
+        "PROPERTYQUARRY_FAILURE_STATE_RECEIPT",
+        "PROPERTYQUARRY_ACTIVATION_TO_VALUE_RECEIPT",
+        "PROPERTYQUARRY_PROVIDER_CATALOG_RECEIPT",
+    ):
+        assert required_env in release_gate
+    assert (
+        'expected_public_origin="${PROPERTYQUARRY_PUBLIC_ORIGIN:-'
+        '${PROPERTYQUARRY_EXPECTED_RELEASE_PUBLIC_ORIGIN:-}}"'
+    ) in release_gate
+    assert "PROPERTYQUARRY_EXPECTED_TEABLE_ORIGIN" in release_gate
+    assert "PROPERTYQUARRY_EXPECTED_TEABLE_BASE_ID_SHA256" in release_gate
+    gold_index = release_gate.index("scripts/propertyquarry_gold_status.py")
+    for receipt_writer in (
+        "property-security-posture-release-gate.json",
+        "property-release-hygiene-release-gate.json",
+        "property-whole-project-scope-release-gate.json",
+    ):
+        assert release_gate.index(receipt_writer) < gold_index
 
 
 def test_property_deploy_refreshes_service_generated_reconstruction_before_gold_status() -> None:

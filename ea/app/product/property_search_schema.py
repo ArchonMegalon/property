@@ -411,17 +411,204 @@ DROP INDEX IF EXISTS idx_delivery_outbox_idempotency_key_unique;
 """
 
 
+_EVIDENCE_OVERLAY_READ_MODEL_SCHEMA_V8 = r"""
+CREATE TABLE IF NOT EXISTS property_evidence_overlay_rollups (
+    layer_key TEXT NOT NULL,
+    record_key CHAR(64) NOT NULL,
+    match_key TEXT NOT NULL,
+    match_value TEXT NOT NULL,
+    teable_table TEXT NOT NULL,
+    teable_record_id TEXT NOT NULL,
+    source_updated_at TIMESTAMPTZ NOT NULL,
+    cache_updated_at TIMESTAMPTZ NOT NULL,
+    ingested_at TIMESTAMPTZ NOT NULL,
+    payload_sha256 CHAR(64) NOT NULL,
+    payload_json JSONB NOT NULL,
+    PRIMARY KEY (layer_key, record_key, match_key, match_value),
+    CHECK (layer_key <> ''),
+    CHECK (record_key ~ '^[0-9a-f]{64}$'),
+    CHECK (match_key <> ''),
+    CHECK (match_value <> ''),
+    CHECK (teable_table <> ''),
+    CHECK (teable_record_id <> ''),
+    CHECK (payload_sha256 ~ '^[0-9a-f]{64}$')
+);
+
+CREATE INDEX IF NOT EXISTS idx_property_evidence_overlay_lookup
+    ON property_evidence_overlay_rollups(
+        match_key,
+        match_value,
+        layer_key,
+        cache_updated_at DESC
+    );
+CREATE INDEX IF NOT EXISTS idx_property_evidence_overlay_freshness
+    ON property_evidence_overlay_rollups(layer_key, cache_updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS property_evidence_overlay_snapshots (
+    snapshot_id CHAR(64) PRIMARY KEY,
+    source_schema TEXT NOT NULL,
+    source_generated_at TIMESTAMPTZ NOT NULL,
+    ingested_at TIMESTAMPTZ NOT NULL,
+    candidate_sha CHAR(40) NOT NULL,
+    payload_sha256 CHAR(64) NOT NULL,
+    table_counts_json JSONB NOT NULL,
+    schema_version INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    CHECK (snapshot_id ~ '^[0-9a-f]{64}$'),
+    CHECK (source_schema <> ''),
+    CHECK (candidate_sha ~ '^[0-9a-f]{40}$'),
+    CHECK (payload_sha256 ~ '^[0-9a-f]{64}$'),
+    CHECK (schema_version >= 1),
+    CHECK (status IN ('pass', 'retired'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_property_evidence_overlay_snapshots_ingested
+    ON property_evidence_overlay_snapshots(ingested_at DESC);
+"""
+
+
+_EVIDENCE_OVERLAY_STAGED_ACTIVATION_SCHEMA_V9 = r"""
+ALTER TABLE property_evidence_overlay_rollups
+    ADD COLUMN IF NOT EXISTS snapshot_id CHAR(64);
+
+ALTER TABLE property_evidence_overlay_snapshots
+    ADD COLUMN IF NOT EXISTS activated_at TIMESTAMPTZ;
+ALTER TABLE property_evidence_overlay_snapshots
+    DROP CONSTRAINT IF EXISTS property_evidence_overlay_snapshots_status_check;
+
+WITH ranked_snapshots AS (
+    SELECT snapshot_id,
+           ROW_NUMBER() OVER (ORDER BY ingested_at DESC, snapshot_id DESC) AS rank
+    FROM property_evidence_overlay_snapshots
+    WHERE status = 'pass'
+)
+UPDATE property_evidence_overlay_snapshots AS snapshots
+SET status = CASE WHEN ranked.rank = 1 THEN 'active' ELSE 'retired' END,
+    activated_at = CASE
+        WHEN ranked.rank = 1 THEN COALESCE(snapshots.activated_at, snapshots.ingested_at)
+        ELSE snapshots.activated_at
+    END
+FROM ranked_snapshots AS ranked
+WHERE snapshots.snapshot_id = ranked.snapshot_id;
+
+ALTER TABLE property_evidence_overlay_snapshots
+    ADD CONSTRAINT property_evidence_overlay_snapshots_status_check
+    CHECK (status IN ('staged', 'active', 'retired'));
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM property_evidence_overlay_rollups
+        WHERE snapshot_id IS NULL
+    ) AND NOT EXISTS (
+        SELECT 1
+        FROM property_evidence_overlay_snapshots
+        WHERE status = 'active'
+    ) THEN
+        RAISE EXCEPTION 'property evidence overlay rows have no authoritative snapshot';
+    END IF;
+END
+$$;
+
+UPDATE property_evidence_overlay_rollups
+SET snapshot_id = (
+    SELECT snapshot_id
+    FROM property_evidence_overlay_snapshots
+    WHERE status = 'active'
+    ORDER BY ingested_at DESC, snapshot_id DESC
+    LIMIT 1
+)
+WHERE snapshot_id IS NULL;
+
+ALTER TABLE property_evidence_overlay_rollups
+    ALTER COLUMN snapshot_id SET NOT NULL;
+ALTER TABLE property_evidence_overlay_rollups
+    ADD CONSTRAINT property_evidence_overlay_rollups_snapshot_id_check
+    CHECK (snapshot_id ~ '^[0-9a-f]{64}$');
+ALTER TABLE property_evidence_overlay_rollups
+    DROP CONSTRAINT property_evidence_overlay_rollups_pkey;
+ALTER TABLE property_evidence_overlay_rollups
+    ADD CONSTRAINT property_evidence_overlay_rollups_pkey
+    PRIMARY KEY (snapshot_id, layer_key, record_key, match_key, match_value);
+ALTER TABLE property_evidence_overlay_rollups
+    ADD CONSTRAINT property_evidence_overlay_rollups_snapshot_id_fkey
+    FOREIGN KEY (snapshot_id)
+    REFERENCES property_evidence_overlay_snapshots(snapshot_id)
+    ON DELETE CASCADE;
+
+CREATE TABLE IF NOT EXISTS property_evidence_overlay_active_snapshot (
+    pointer_key TEXT PRIMARY KEY,
+    snapshot_id CHAR(64) NOT NULL,
+    activated_at TIMESTAMPTZ NOT NULL,
+    CHECK (pointer_key = 'active'),
+    CHECK (snapshot_id ~ '^[0-9a-f]{64}$'),
+    FOREIGN KEY (snapshot_id)
+        REFERENCES property_evidence_overlay_snapshots(snapshot_id)
+        ON DELETE RESTRICT
+);
+
+INSERT INTO property_evidence_overlay_active_snapshot (
+    pointer_key, snapshot_id, activated_at
+)
+SELECT 'active', snapshot_id, COALESCE(activated_at, ingested_at)
+FROM property_evidence_overlay_snapshots
+WHERE status = 'active'
+ORDER BY ingested_at DESC, snapshot_id DESC
+LIMIT 1
+ON CONFLICT (pointer_key) DO NOTHING;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_property_evidence_overlay_single_active
+    ON property_evidence_overlay_snapshots ((status))
+    WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_property_evidence_overlay_snapshot_lookup
+    ON property_evidence_overlay_rollups(
+        snapshot_id,
+        match_key,
+        match_value,
+        layer_key,
+        cache_updated_at DESC
+    );
+CREATE INDEX IF NOT EXISTS idx_property_evidence_overlay_snapshot_freshness
+    ON property_evidence_overlay_rollups(
+        snapshot_id,
+        layer_key,
+        cache_updated_at DESC
+    );
+"""
+
+
 PROPERTY_SEARCH_MIGRATIONS: tuple[PropertySearchMigration, ...] = (
     PropertySearchMigration(1, "property_search_runs_tenant_schema", _RUN_SCHEMA_V1),
-    PropertySearchMigration(2, "property_search_durable_work_queue", _WORK_QUEUE_SCHEMA_V2),
-    PropertySearchMigration(3, "property_source_listing_cache", _SOURCE_CACHE_SCHEMA_V3),
-    PropertySearchMigration(4, "replica_safe_delivery_outbox", _DELIVERY_OUTBOX_SCHEMA_V4),
-    PropertySearchMigration(5, "durable_property_content_job_ledger", _PROPERTY_CONTENT_LEDGER_SCHEMA_V5),
-    PropertySearchMigration(6, "bounded_run_delivery_projection", _RUN_DELIVERY_PROJECTION_SCHEMA_V6),
+    PropertySearchMigration(
+        2, "property_search_durable_work_queue", _WORK_QUEUE_SCHEMA_V2
+    ),
+    PropertySearchMigration(
+        3, "property_source_listing_cache", _SOURCE_CACHE_SCHEMA_V3
+    ),
+    PropertySearchMigration(
+        4, "replica_safe_delivery_outbox", _DELIVERY_OUTBOX_SCHEMA_V4
+    ),
+    PropertySearchMigration(
+        5, "durable_property_content_job_ledger", _PROPERTY_CONTENT_LEDGER_SCHEMA_V5
+    ),
+    PropertySearchMigration(
+        6, "bounded_run_delivery_projection", _RUN_DELIVERY_PROJECTION_SCHEMA_V6
+    ),
     PropertySearchMigration(
         7,
         "tenant_scoped_delivery_outbox_idempotency",
         _TENANT_SCOPED_OUTBOX_IDEMPOTENCY_SCHEMA_V7,
+    ),
+    PropertySearchMigration(
+        8,
+        "property_evidence_overlay_cached_read_model",
+        _EVIDENCE_OVERLAY_READ_MODEL_SCHEMA_V8,
+    ),
+    PropertySearchMigration(
+        9,
+        "property_evidence_overlay_staged_snapshot_activation",
+        _EVIDENCE_OVERLAY_STAGED_ACTIVATION_SCHEMA_V9,
     ),
 )
 LATEST_PROPERTY_SEARCH_SCHEMA_VERSION = PROPERTY_SEARCH_MIGRATIONS[-1].version
@@ -468,11 +655,18 @@ _REQUIRED_RELATIONS = (
     "idx_property_content_job_events_packet_sequence",
     "idx_property_content_webhook_status_updated",
     "idx_property_content_webhook_claim",
+    "property_evidence_overlay_rollups",
+    "idx_property_evidence_overlay_lookup",
+    "idx_property_evidence_overlay_freshness",
+    "property_evidence_overlay_snapshots",
+    "idx_property_evidence_overlay_snapshots_ingested",
+    "property_evidence_overlay_active_snapshot",
+    "idx_property_evidence_overlay_single_active",
+    "idx_property_evidence_overlay_snapshot_lookup",
+    "idx_property_evidence_overlay_snapshot_freshness",
 )
 
-_FORBIDDEN_RELATIONS = (
-    "idx_delivery_outbox_idempotency_key_unique",
-)
+_FORBIDDEN_RELATIONS = ("idx_delivery_outbox_idempotency_key_unique",)
 
 _SCHEMA_READY_LOCK = threading.Lock()
 _SCHEMA_READY_DATABASES: set[str] = set()
@@ -733,7 +927,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
-    database_url = str(args.database_url or os.environ.get("DATABASE_URL") or "").strip()
+    database_url = str(
+        args.database_url or os.environ.get("DATABASE_URL") or ""
+    ).strip()
     if not database_url:
         print(json.dumps({"status": "failed", "reason": "database_url_missing"}))
         return 2
@@ -766,7 +962,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(json.dumps({"status": "migrated", **result.as_dict()}, sort_keys=True))
         return 0
     status = inspect_property_search_schema(database_url)
-    print(json.dumps({"status": "ready" if status.ready else "not_ready", **status.as_dict()}, sort_keys=True))
+    print(
+        json.dumps(
+            {"status": "ready" if status.ready else "not_ready", **status.as_dict()},
+            sort_keys=True,
+        )
+    )
     return 0 if status.ready else 2
 
 

@@ -1643,7 +1643,12 @@ def _propertyquarry_example_media_targets_scan(root: Path) -> dict[str, str]:
             continue
         bundle_tour_url = _propertyquarry_absolute_public_url(bundle_tour_href)
         slug = str(payload.get("slug") or bundle_dir.name).strip()
-        resolved_tour_href = property_tour_hosting._hosted_property_tour_verified_open_url(bundle_tour_url)
+        try:
+            resolved_tour_href = property_tour_hosting._hosted_property_tour_verified_open_url(bundle_tour_url)
+        except Exception:
+            # Example media is optional; an unreadable or partial bundle must
+            # not break the public landing page or expose its filesystem path.
+            continue
         tour_label = "3D tour available" if resolved_tour_href else ""
         if not resolved_tour_href:
             continue
@@ -1688,20 +1693,23 @@ def _propertyquarry_example_media_targets_scan(root: Path) -> dict[str, str]:
                 )
             )
 
-        diorama_preview_href = _scene_preview_href("diorama")
-        preview_image_href = diorama_preview_href
-        if not preview_image_href:
-            for candidate_preview_href in (
-                _hosted_property_tour_telegram_preview_image_url_for_style(bundle_tour_url),
-                property_tour_hosting._hosted_property_tour_preview_image_url(bundle_tour_url),
-                _scene_preview_href("photo", "hero", "staging"),
-            ):
-                if _preview_asset_is_diorama_like(candidate_preview_href):
-                    preview_image_href = candidate_preview_href
-                    break
+        try:
+            diorama_preview_href = _scene_preview_href("diorama")
+            preview_image_href = diorama_preview_href
+            if not preview_image_href:
+                for candidate_preview_href in (
+                    _hosted_property_tour_telegram_preview_image_url_for_style(bundle_tour_url),
+                    property_tour_hosting._hosted_property_tour_preview_image_url(bundle_tour_url),
+                    _scene_preview_href("photo", "hero", "staging"),
+                ):
+                    if _preview_asset_is_diorama_like(candidate_preview_href):
+                        preview_image_href = candidate_preview_href
+                        break
+            walkthrough_open_href = property_tour_hosting._hosted_property_tour_walkthrough_open_url(bundle_tour_url)
+        except Exception:
+            continue
         if preview_image_href:
             targets["preview_image_url"] = _propertyquarry_public_href(preview_image_href)
-        walkthrough_open_href = property_tour_hosting._hosted_property_tour_walkthrough_open_url(bundle_tour_url)
         if walkthrough_open_href:
             targets["walkthrough_href"] = _propertyquarry_public_href(walkthrough_open_href)
             targets["walkthrough_label"] = "Walkthrough available"

@@ -55,6 +55,8 @@ def test_manifest_release_binding_accepts_only_named_metadata_descendants(monkey
         "committed_paths_since",
         lambda manifest, head: [
             "docs/PROPERTYQUARRY_RELEASE_MANIFEST.md",
+            ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json",
+            ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
             ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
         ],
     )
@@ -68,7 +70,25 @@ def test_manifest_release_binding_accepts_only_named_metadata_descendants(monkey
     assert accepted is True
     assert descendant_paths == [
         "docs/PROPERTYQUARRY_RELEASE_MANIFEST.md",
+        ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json",
+        ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
         ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
+    ]
+
+
+def test_release_manifest_runtime_sha_reads_canonical_json_authority(monkeypatch) -> None:
+    expected = "a" * 40
+    observed_paths = []
+
+    def fake_load(path):
+        observed_paths.append(path)
+        return {"release_commit_sha": expected}
+
+    monkeypatch.setattr(release_hygiene, "load_release_manifest", fake_load)
+
+    assert release_hygiene.release_manifest_runtime_sha() == expected
+    assert observed_paths == [
+        release_hygiene.ROOT / "docs/PROPERTYQUARRY_RELEASE_MANIFEST.md"
     ]
 
 

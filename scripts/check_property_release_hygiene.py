@@ -9,6 +9,11 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+if __package__:
+    from scripts.verify_generated_release_artifacts_clean import load_release_manifest
+else:
+    from verify_generated_release_artifacts_clean import load_release_manifest
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -90,7 +95,9 @@ BEARER_LITERAL_RE = re.compile(
 MANIFEST_RUNTIME_COMMIT_RE = re.compile(r"^\|\s*Runtime commit SHA\s*\|\s*`?([0-9a-f]{7,40})`?\s*\|", flags=re.MULTILINE)
 
 RELEASE_METADATA_DESCENDANT_PATHS = {
+    ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
     ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
+    ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json",
     "docs/PROPERTYQUARRY_RELEASE_MANIFEST.md",
 }
 
@@ -205,11 +212,10 @@ def _git_status_rows() -> list[str]:
 def release_manifest_runtime_sha() -> str:
     manifest = ROOT / "docs/PROPERTYQUARRY_RELEASE_MANIFEST.md"
     try:
-        body = manifest.read_text(encoding="utf-8")
-    except FileNotFoundError:
+        values = load_release_manifest(manifest)
+    except (OSError, ValueError):
         return ""
-    match = MANIFEST_RUNTIME_COMMIT_RE.search(body)
-    return match.group(1).strip() if match else ""
+    return str(values.get("release_commit_sha") or "").strip()
 
 
 def looks_like_text(path: Path) -> bool:

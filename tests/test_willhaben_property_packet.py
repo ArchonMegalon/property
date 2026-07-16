@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import json
 import sys
 from pathlib import Path
 from types import ModuleType
-import json
 
 from PIL import Image
 
@@ -24,6 +24,35 @@ def _jpeg_bytes(width: int, height: int) -> bytes:
     buffer = io.BytesIO()
     Image.new("RGB", (width, height), color=(64, 96, 128)).save(buffer, format="JPEG")
     return buffer.getvalue()
+
+
+def test_main_reports_expired_listing_with_stable_error(monkeypatch, capsys) -> None:
+    module = _load_module()
+    monkeypatch.setattr(
+        module,
+        "fetch_html",
+        lambda _url: (
+            '<script id="__NEXT_DATA__" type="application/json">'
+            + json.dumps(
+                {
+                    "props": {
+                        "pageProps": {
+                            "fromExpiredAdId": "123456789",
+                            "searchResult": {"advertSummaryList": []},
+                        }
+                    }
+                }
+            )
+            + "</script>"
+        ),
+    )
+
+    result = module.main(["https://www.willhaben.at/iad/immobilien/d/expired-listing-123456789"])
+
+    captured = capsys.readouterr()
+    assert result == 2
+    assert captured.out == ""
+    assert captured.err == "willhaben_listing_expired\n"
 
 
 def test_inspect_panorama_signal_accepts_wide_two_to_one_images(monkeypatch) -> None:

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -76,3 +79,167 @@ def test_generated_release_artifact_normalizer_preserves_source_blob_drift() -> 
     materialized = {"required_test_sources": [{"git_blob_oid": "b" * 40}]}
 
     assert module._normalize(head) != module._normalize(materialized)
+
+
+def test_release_manifest_matches_complete_immutable_authority_envelope() -> None:
+    module = _load_module()
+
+    assert module.verify_release_manifest(ROOT) == []
+
+
+def test_release_manifest_authority_fails_closed_on_missing_and_mismatched_fields() -> None:
+    module = _load_module()
+    expected = {
+        "release_repository": "ArchonMegalon/property",
+        "release_mirror_repository": "ArchonMegalon/propertyquarry",
+        "release_commit_sha": "a" * 40,
+    }
+    observed = {
+        "release_repository": "wrong/repository",
+        "release_commit_sha": "a" * 40,
+        "unreviewed_field": "unexpected",
+    }
+
+    assert module._validate_release_manifest_values(observed, expected) == [
+        "release manifest authority field mismatches current evidence: release_repository",
+        "release manifest authority field is missing: release_mirror_repository",
+        "release manifest authority field is unexpected: unreviewed_field",
+    ]
+
+
+def _manifest_values(module: Any) -> dict[str, str]:
+    values = dict(module.RELEASE_MANIFEST_STATIC_VALUES)
+    values.update(
+        {
+            "release_commit_sha": "a" * 40,
+            "release_artifact_set": (
+                module.RELEASE_ARTIFACT_SET_PREFIX + "b" * 64
+            ),
+            "release_label": "propertyquarry-source-browser-candidate-aaaaaaaaaaaa",
+            "release_generated_at": "2026-07-16T14:30:00Z",
+            "release_deployment_id": "propertyquarry-governed-deploy-aaaaaaaaaaaa",
+        }
+    )
+    return {field: values[field] for field in module.RELEASE_MANIFEST_FIELDS}
+
+
+def _manifest_document(module: Any, body: str) -> str:
+    return (
+        "# Release manifest\n\n"
+        f"{module.RELEASE_MANIFEST_JSON_START}\n"
+        "```json\n"
+        f"{body}\n"
+        "```\n"
+        f"{module.RELEASE_MANIFEST_JSON_END}\n"
+    )
+
+
+def test_release_manifest_parser_rejects_duplicate_authority_fields() -> None:
+    module = _load_module()
+    values, issues = module._parse_release_manifest(
+        _manifest_document(
+            module,
+            '{"release_product":"PropertyQuarry",'
+            '"release_product":"Duplicate"}',
+        )
+    )
+
+    assert values == {}
+    assert issues == ["release manifest authority field is duplicated: release_product"]
+
+
+@pytest.mark.parametrize(
+    ("mutation", "error_fragment"),
+    (
+        ("missing", "authority field is missing: release_product"),
+        ("unexpected", "authority field is unexpected: unreviewed_field"),
+        ("non_string", "authority field must be a string: release_product"),
+        (
+            "surrounding_whitespace",
+            "authority field contains surrounding whitespace: release_product",
+        ),
+    ),
+)
+def test_release_manifest_loader_rejects_non_exact_authority_shape(
+    tmp_path: Path,
+    mutation: str,
+    error_fragment: str,
+) -> None:
+    module = _load_module()
+    values: dict[str, object] = _manifest_values(module)
+    if mutation == "missing":
+        values.pop("release_product")
+    elif mutation == "unexpected":
+        values["unreviewed_field"] = "unexpected"
+    elif mutation == "surrounding_whitespace":
+        values["release_product"] = " PropertyQuarry"
+    else:
+        values["release_product"] = 1
+    path = tmp_path / "release-manifest.md"
+    path.write_text(
+        _manifest_document(module, json.dumps(values, sort_keys=True)),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=error_fragment):
+        module.load_release_manifest(path)
+
+
+def test_release_manifest_parser_rejects_reversed_authority_markers() -> None:
+    module = _load_module()
+
+    values, issues = module._parse_release_manifest(
+        f"{module.RELEASE_MANIFEST_JSON_END}\n"
+        f"{module.RELEASE_MANIFEST_JSON_START}\n"
+    )
+
+    assert values == {}
+    assert issues == ["release manifest canonical JSON markers are out of order"]
+
+
+def test_release_manifest_loader_and_digest_use_the_same_canonical_object(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    values = _manifest_values(module)
+    path = tmp_path / "release-manifest.md"
+    path.write_text(
+        _manifest_document(module, json.dumps(values, indent=2, sort_keys=False)),
+        encoding="utf-8",
+    )
+
+    loaded = module.load_release_manifest(path)
+    reordered = dict(reversed(tuple(loaded.items())))
+    changed = {**loaded, "release_label": loaded["release_label"] + "-changed"}
+
+    assert loaded == values
+    assert module.release_manifest_sha256(reordered) == module.release_manifest_sha256(
+        loaded
+    )
+    assert module.release_manifest_sha256(changed) != module.release_manifest_sha256(
+        loaded
+    )
+
+
+def test_release_manifest_loader_fails_closed_on_invalid_utf8(tmp_path: Path) -> None:
+    module = _load_module()
+    path = tmp_path / "release-manifest.md"
+    path.write_bytes(b"\xff")
+
+    with pytest.raises(ValueError, match="missing or unreadable: UnicodeDecodeError"):
+        module.load_release_manifest(path)
+
+
+def test_release_artifact_set_identity_changes_when_any_member_changes(tmp_path: Path) -> None:
+    module = _load_module()
+    for index, relative_path in enumerate(module.GENERATED_ARTIFACTS):
+        path = tmp_path / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(f"artifact-{index}".encode("utf-8"))
+
+    initial = module._release_artifact_set_identity(tmp_path)
+    changed_path = tmp_path / module.GENERATED_ARTIFACTS[-1]
+    changed_path.write_bytes(b"changed")
+
+    assert initial.startswith(module.RELEASE_ARTIFACT_SET_PREFIX)
+    assert module._release_artifact_set_identity(tmp_path) != initial

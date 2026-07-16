@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 from copy import deepcopy
 from pathlib import Path
@@ -58,6 +59,21 @@ def _relations_for(version: int) -> set[str]:
         }
     if version == 7:
         return {"idx_delivery_outbox_principal_idempotency_unique"}
+    if version == 8:
+        return {
+            "property_evidence_overlay_rollups",
+            "idx_property_evidence_overlay_lookup",
+            "idx_property_evidence_overlay_freshness",
+            "property_evidence_overlay_snapshots",
+            "idx_property_evidence_overlay_snapshots_ingested",
+        }
+    if version == 9:
+        return {
+            "property_evidence_overlay_active_snapshot",
+            "idx_property_evidence_overlay_single_active",
+            "idx_property_evidence_overlay_snapshot_lookup",
+            "idx_property_evidence_overlay_snapshot_freshness",
+        }
     raise AssertionError(f"unexpected migration version: {version}")
 
 
@@ -135,7 +151,9 @@ class _FakeCursor:
         if "pg_advisory_xact_lock" in normalized:
             self._rows = [(None,)]
             return
-        if normalized.startswith("CREATE TABLE IF NOT EXISTS propertyquarry_schema_migrations"):
+        if normalized.startswith(
+            "CREATE TABLE IF NOT EXISTS propertyquarry_schema_migrations"
+        ):
             self.database.relations.add(schema.SCHEMA_LEDGER_TABLE)
             return
         if normalized.startswith("SELECT version, migration_name, checksum_sha256"):
@@ -155,7 +173,9 @@ class _FakeCursor:
         for migration in schema.PROPERTY_SEARCH_MIGRATIONS:
             if str(sql) == migration.sql:
                 if self.database.fail_migration_version == migration.version:
-                    raise RuntimeError(f"synthetic migration {migration.version} failure")
+                    raise RuntimeError(
+                        f"synthetic migration {migration.version} failure"
+                    )
                 self.database.relations.update(_relations_for(migration.version))
                 if migration.version == 7:
                     self.database.relations.discard(
@@ -181,10 +201,10 @@ def test_clean_install_is_transactional_ordered_and_advisory_locked() -> None:
 
     assert result.previous_version == 0
     assert result.current_version == schema.LATEST_PROPERTY_SEARCH_SCHEMA_VERSION
-    assert result.applied_versions == (1, 2, 3, 4, 5, 6, 7)
+    assert result.applied_versions == (1, 2, 3, 4, 5, 6, 7, 8, 9)
     assert database.commits == 1
     assert database.rollbacks == 0
-    assert tuple(database.ledger) == (1, 2, 3, 4, 5, 6, 7)
+    assert tuple(database.ledger) == (1, 2, 3, 4, 5, 6, 7, 8, 9)
     assert "pg_advisory_xact_lock" in database.executed[0][0]
     assert database.executed[0][1] == (schema.SCHEMA_LOCK_ID,)
     for migration in schema.PROPERTY_SEARCH_MIGRATIONS:
@@ -209,8 +229,8 @@ def test_upgrade_from_run_schema_applies_queue_and_cache_once() -> None:
     )
 
     assert first.previous_version == 1
-    assert first.applied_versions == (2, 3, 4, 5, 6, 7)
-    assert second.previous_version == 7
+    assert first.applied_versions == (2, 3, 4, 5, 6, 7, 8, 9)
+    assert second.previous_version == 9
     assert second.applied_versions == ()
     assert not any(
         sql == " ".join(migration.sql.split())
@@ -219,7 +239,9 @@ def test_upgrade_from_run_schema_applies_queue_and_cache_once() -> None:
     )
 
 
-def test_upgrade_from_schema_v4_installs_content_ledger_and_delivery_projection() -> None:
+def test_upgrade_from_schema_v4_installs_content_ledger_and_delivery_projection() -> (
+    None
+):
     database = _FakeDatabase()
     for version in (1, 2, 3, 4):
         database.seed_migration(version)
@@ -230,17 +252,19 @@ def test_upgrade_from_schema_v4_installs_content_ledger_and_delivery_projection(
     )
 
     assert result.previous_version == 4
-    assert result.current_version == 7
-    assert result.applied_versions == (5, 6, 7)
+    assert result.current_version == 9
+    assert result.applied_versions == (5, 6, 7, 8, 9)
     assert _relations_for(5).issubset(database.relations)
     assert _relations_for(6).issubset(database.relations)
+    assert _relations_for(8).issubset(database.relations)
+    assert _relations_for(9).issubset(database.relations)
     executed_migrations = {
         migration.version
         for sql, _params in database.executed
         for migration in schema.PROPERTY_SEARCH_MIGRATIONS
         if sql == " ".join(migration.sql.split())
     }
-    assert executed_migrations == {5, 6, 7}
+    assert executed_migrations == {5, 6, 7, 8, 9}
 
 
 def test_upgrade_from_schema_v6_removes_legacy_global_outbox_idempotency() -> None:
@@ -255,12 +279,15 @@ def test_upgrade_from_schema_v6_removes_legacy_global_outbox_idempotency() -> No
     )
 
     assert result.previous_version == 6
-    assert result.current_version == 7
-    assert result.applied_versions == (7,)
+    assert result.current_version == 9
+    assert result.applied_versions == (7, 8, 9)
     assert "idx_delivery_outbox_idempotency_key_unique" not in database.relations
     assert "idx_delivery_outbox_principal_idempotency_unique" in database.relations
-    migration_sql = " ".join(schema.PROPERTY_SEARCH_MIGRATIONS[-1].sql.split())
-    assert "DROP INDEX IF EXISTS idx_delivery_outbox_idempotency_key_unique" in migration_sql
+    migration_sql = " ".join(schema.PROPERTY_SEARCH_MIGRATIONS[6].sql.split())
+    assert (
+        "DROP INDEX IF EXISTS idx_delivery_outbox_idempotency_key_unique"
+        in migration_sql
+    )
 
 
 def test_replayable_legacy_outbox_migration_preserves_tenant_scope() -> None:
@@ -349,7 +376,7 @@ def test_readiness_reports_missing_pending_drift_relation_and_ready() -> None:
     assert status.reason == "property_search_migration_checksum_drift:1"
 
     database = _FakeDatabase()
-    for version in (1, 2, 3, 4, 5, 6, 7):
+    for version in (1, 2, 3, 4, 5, 6, 7, 8, 9):
         database.seed_migration(version)
     database.relations.remove("idx_property_search_work_claim")
     status = schema.inspect_property_search_schema(
@@ -372,7 +399,9 @@ def test_readiness_reports_missing_pending_drift_relation_and_ready() -> None:
         "postgresql://test/property",
         connect=database.connect,
     )
-    assert status.reason == "required_relation_missing:idx_property_content_webhook_claim"
+    assert (
+        status.reason == "required_relation_missing:idx_property_content_webhook_claim"
+    )
 
     database.relations.add("idx_property_content_webhook_claim")
     database.relations.add("idx_delivery_outbox_idempotency_key_unique")
@@ -391,7 +420,7 @@ def test_readiness_reports_missing_pending_drift_relation_and_ready() -> None:
     )
     assert status.ready is True
     assert status.reason == "schema_ready"
-    assert status.current_version == 7
+    assert status.current_version == 9
 
 
 def test_runtime_schema_access_fails_closed_without_running_ddl() -> None:
@@ -415,12 +444,33 @@ def test_runtime_schema_access_fails_closed_without_running_ddl() -> None:
         Path("ea/app/product/property_search_storage.py"),
         Path("ea/app/product/property_search_work_queue.py"),
         Path("ea/app/repositories/delivery_outbox_postgres.py"),
+        Path("ea/app/repositories/property_evidence_overlays_postgres.py"),
         Path("ea/app/services/property_content_job_ledger.py"),
     ):
         runtime_source = path.read_text(encoding="utf-8").upper()
         assert "CREATE TABLE" not in runtime_source
         assert "ALTER TABLE" not in runtime_source
         assert "CREATE INDEX" not in runtime_source
+
+
+def test_schema_v9_installs_staged_snapshot_pointer_without_runtime_ddl() -> None:
+    migration = schema.PROPERTY_SEARCH_MIGRATIONS[8]
+    migration_sql = " ".join(migration.sql.split())
+
+    assert migration.version == 9
+    assert migration.name == "property_evidence_overlay_staged_snapshot_activation"
+    assert "ADD COLUMN IF NOT EXISTS snapshot_id CHAR(64)" in migration_sql
+    assert (
+        "PRIMARY KEY (snapshot_id, layer_key, record_key, match_key, match_value)"
+        in migration_sql
+    )
+    assert (
+        "CREATE TABLE IF NOT EXISTS property_evidence_overlay_active_snapshot"
+        in migration_sql
+    )
+    assert "CHECK (status IN ('staged', 'active', 'retired'))" in migration_sql
+    assert "idx_property_evidence_overlay_snapshot_lookup" in migration_sql
+    assert "idx_property_evidence_overlay_snapshot_freshness" in migration_sql
 
 
 def test_schema_readiness_is_mandatory_in_prod_and_opt_in_for_dev() -> None:
@@ -469,17 +519,122 @@ def test_container_readiness_requires_current_schema_in_prod(
     assert ready is False
     assert reason == "property_search_schema_not_ready:migration_ledger_missing"
 
-    for version in (1, 2, 3, 4, 5, 6, 7):
+    for version in (1, 2, 3, 4, 5, 6, 7, 8, 9):
         database.seed_migration(version)
     ready, reason = readiness._probe_database()
     assert ready is True
-    assert reason == "postgres_ready:property_search_schema_v7"
+    assert reason == "postgres_ready:property_search_schema_v9"
+
+
+def test_health_ready_reports_authoritative_property_search_schema_version() -> None:
+    from app.api.routes.health import health_ready
+
+    container = SimpleNamespace(
+        readiness=SimpleNamespace(
+            check=lambda: (True, "postgres_ready:property_search_schema_v9")
+        )
+    )
+
+    payload = asyncio.run(health_ready(container))
+
+    assert payload == {
+        "status": "ready",
+        "reason": "postgres_ready:property_search_schema_v9",
+        "property_search_schema_version": schema.LATEST_PROPERTY_SEARCH_SCHEMA_VERSION,
+    }
+
+
+def test_release_manifest_parser_maps_complete_authority_envelope() -> None:
+    from app.api.routes.health import (
+        _load_release_manifest_values,
+        _release_manifest_sha256,
+    )
+    from scripts.verify_generated_release_artifacts_clean import (
+        RELEASE_MANIFEST_FIELDS,
+        release_manifest_sha256,
+    )
+
+    _load_release_manifest_values.cache_clear()
+    values, errors = _load_release_manifest_values()
+
+    assert errors == ()
+    assert tuple(values) == RELEASE_MANIFEST_FIELDS
+    assert _release_manifest_sha256(values) == release_manifest_sha256(values)
+
+
+def test_release_manifest_status_fails_closed_on_runtime_override_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes.health import _load_release_manifest_values, _release_manifest
+
+    for name in (
+        "PROPERTYQUARRY_RELEASE_REPOSITORY",
+        "PROPERTYQUARRY_RELEASE_REPOSITORY_ORIGIN",
+        "PROPERTYQUARRY_RELEASE_MIRROR_REPOSITORY",
+        "PROPERTYQUARRY_RELEASE_MIRROR_ORIGIN",
+        "PROPERTYQUARRY_RELEASE_BRANCH",
+        "PROPERTYQUARRY_RELEASE_COMMIT_SHA",
+        "PROPERTYQUARRY_RELEASE_DEPLOYMENT_ID",
+        "PROPERTYQUARRY_RELEASE_PUBLIC_ORIGIN",
+        "PROPERTYQUARRY_PUBLIC_BASE_URL",
+        "EA_PUBLIC_APP_BASE_URL",
+        "PROPERTYQUARRY_RELEASE_ARTIFACT_SET",
+        "PROPERTYQUARRY_RELEASE_LABEL",
+        "PROPERTYQUARRY_RELEASE_GENERATED_AT",
+        "PROPERTYQUARRY_RELEASE_VERIFICATION_COMMANDS",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    _load_release_manifest_values.cache_clear()
+
+    assert _release_manifest()["release_manifest_status"] == "complete"
+
+    monkeypatch.setenv("PROPERTYQUARRY_RELEASE_REPOSITORY", "wrong/repository")
+    mismatched = _release_manifest()
+    assert mismatched["release_manifest_status"] == "mismatch"
+    assert mismatched["release_manifest_mismatch_fields"] == "release_repository"
+
+
+def test_release_manifest_missing_field_cannot_be_filled_from_runtime_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.api.routes import health as health_module
+
+    manifest_values, _errors = health_module._load_release_manifest_values()
+    incomplete = dict(manifest_values)
+    incomplete.pop("release_repository")
+    monkeypatch.setattr(
+        health_module,
+        "_load_release_manifest_values",
+        lambda: (incomplete, ("missing_field:release_repository",)),
+    )
+    monkeypatch.setenv(
+        "PROPERTYQUARRY_RELEASE_REPOSITORY",
+        manifest_values["release_repository"],
+    )
+
+    payload = health_module._release_manifest()
+
+    assert payload["release_manifest_status"] == "invalid"
+    assert payload["release_repository"] == ""
+    assert payload["release_manifest_sha256"] == ""
+    assert payload["release_manifest_mismatch_fields"] == "release_repository"
+    assert payload["release_manifest_errors"] == "missing_field:release_repository"
 
 
 def test_migration_checksums_are_stable_and_unique() -> None:
     checksums = [migration.checksum for migration in schema.PROPERTY_SEARCH_MIGRATIONS]
 
-    assert [migration.version for migration in schema.PROPERTY_SEARCH_MIGRATIONS] == [1, 2, 3, 4, 5, 6, 7]
+    assert [migration.version for migration in schema.PROPERTY_SEARCH_MIGRATIONS] == [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+    ]
     assert checksums == [
         "4938925d3679ca592f67de1fb5f5c5538ce0e2c93dd2435ffe1204674d02a37e",
         "9beb0cbc778018c9ea7ee5939cbd25a86830a904a8c2bfe8454a022219a078a6",
@@ -488,4 +643,6 @@ def test_migration_checksums_are_stable_and_unique() -> None:
         "4f54431f5a138f03d697837b2c0940462a51ed3b6bafae754f316a4757edfe23",
         "5d3855e9cdbfc2b82b97f5be9101188e0a2907ed9ca080f39c533abbae143008",
         "5d7ac5e0d805546f2f4e282323c3ba5dcda1c25f7e5947b1b13ad6df590a93e3",
+        "0a7159b3a8c03c070c7158578d4d55549e1dbb43957d035e00a1e7e91f0de956",
+        "ab63b9217f8c6da7e4ef6d82af9ebc91723e261e3c9f1edba17ea0fd49ce19c4",
     ]

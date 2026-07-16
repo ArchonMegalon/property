@@ -25,7 +25,7 @@ if str(ROOT) not in sys.path:
 if str(EA_ROOT) not in sys.path:
     sys.path.insert(0, str(EA_ROOT))
 
-from scripts.propertyquarry_playwright_runtime import (
+from scripts.propertyquarry_playwright_runtime import (  # noqa: E402
     normalize_playwright_engine,
     playwright_browser_type,
     playwright_engine_launch_kwargs,
@@ -63,6 +63,7 @@ class ActivationJourneyConfig:
     persona_id: str
     persona_email: str
     run_key: str
+    release_commit_sha: str
     auth_mode: str = "google"
     browser_engine: str = "chromium"
     expected_account_state: str = "existing"
@@ -150,6 +151,8 @@ def validate_live_config(config: ActivationJourneyConfig) -> list[str]:
         failures.append("activation_persona_email_missing_or_invalid")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{7,127}", config.run_key.strip()):
         failures.append("activation_run_key_missing_or_invalid")
+    if re.fullmatch(r"[0-9a-f]{40}", str(config.release_commit_sha or "")) is None:
+        failures.append("activation_release_commit_sha_missing_or_invalid")
     auth_mode = config.auth_mode.strip().lower()
     if auth_mode not in SUPPORTED_AUTH_MODES:
         failures.append(f"activation_auth_mode_unsupported:{auth_mode or 'missing'}")
@@ -210,11 +213,16 @@ def reserve_run_key(config: ActivationJourneyConfig) -> dict[str, Any]:
             str(existing.get("run_key") or "") == config.run_key
             and str(existing.get("status") or "") in {"reserved", "running", "pass", "fail"}
         ):
+            if str(existing.get("release_commit_sha") or "") != config.release_commit_sha:
+                raise RuntimeError(
+                    f"activation_run_key_candidate_mismatch:{config.run_key}"
+                )
             raise RuntimeError(f"activation_run_key_already_used:{config.run_key}")
     state = {
         "status": "reserved",
         "reserved_at": datetime.now(timezone.utc).isoformat(),
         "run_key": config.run_key,
+        "release_commit_sha": config.release_commit_sha,
         "persona_digest": config.persona_digest,
         "base_origin": urllib.parse.urlunparse(
             (*urllib.parse.urlparse(config.normalized_base_url)[:2], "", "", "", "")
@@ -693,6 +701,7 @@ def build_activation_to_value_receipt(
         "base_url": config.normalized_base_url,
         "persona_digest": config.persona_digest,
         "run_key": config.run_key,
+        "release_commit_sha": config.release_commit_sha,
         "auth_mode": config.auth_mode,
         "browser_engine": str(config.browser_engine or "chromium").strip().lower(),
         "expected_account_state": config.expected_account_state,
@@ -781,6 +790,7 @@ def build_activation_to_value_receipt(
         "status": receipt["status"],
         "completed_at": datetime.now(timezone.utc).isoformat(),
         "run_key": config.run_key,
+        "release_commit_sha": config.release_commit_sha,
         "persona_digest": config.persona_digest,
     }
     receipt["generated_at"] = state["completed_at"]
@@ -795,6 +805,13 @@ def main() -> int:
     parser.add_argument("--base-url", default=os.environ.get("PROPERTYQUARRY_ACTIVATION_BASE_URL", ""))
     parser.add_argument("--persona-id", default=os.environ.get("PROPERTYQUARRY_ACTIVATION_PERSONA_ID", ""))
     parser.add_argument("--run-key", default=os.environ.get("PROPERTYQUARRY_ACTIVATION_RUN_KEY", ""))
+    parser.add_argument(
+        "--release-sha",
+        default=(
+            os.environ.get("PROPERTYQUARRY_RELEASE_COMMIT_SHA", "")
+            or os.environ.get("PROPERTYQUARRY_EXPECTED_RELEASE_COMMIT_SHA", "")
+        ),
+    )
     parser.add_argument(
         "--auth-mode",
         choices=SUPPORTED_AUTH_MODES,
@@ -815,6 +832,7 @@ def main() -> int:
         persona_id=str(args.persona_id or ""),
         persona_email=str(os.environ.get("PROPERTYQUARRY_ACTIVATION_PERSONA_EMAIL") or ""),
         run_key=str(args.run_key or ""),
+        release_commit_sha=str(args.release_sha or ""),
         auth_mode=str(args.auth_mode or "google"),
         browser_engine=str(args.browser_engine or "chromium"),
         expected_account_state=str(os.environ.get("PROPERTYQUARRY_ACTIVATION_EXPECTED_ACCOUNT_STATE") or "existing"),

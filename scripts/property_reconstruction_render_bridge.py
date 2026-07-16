@@ -10,6 +10,7 @@ import math
 import os
 import re
 import signal
+import stat
 import subprocess
 import sys
 import threading
@@ -28,6 +29,20 @@ DEFAULT_MAX_GENERATION_SECONDS = 1_800
 MIN_MAX_GENERATION_SECONDS = 120
 MAX_MAX_GENERATION_SECONDS = 7_200
 PROCESS_CLOSE_MARGIN_SECONDS = 30
+_GENERATED_BUNDLE_SLUG_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+
+
+class _GeneratedBundlePublishError(RuntimeError):
+    """Stable, path-free failure raised while publishing a generated bundle."""
+
+
+def _generated_bundle_publish_failure(detail: str) -> dict[str, object]:
+    return {
+        "status": "failed",
+        "reason": "generated_bundle_publish_failed",
+        "detail": str(detail or "generated_bundle_publish_failed").strip()
+        or "generated_bundle_publish_failed",
+    }
 
 
 def _required_container_stop_grace_seconds(
@@ -272,6 +287,168 @@ def _public_tour_dir() -> Path:
     return Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/data/public_property_tours")).expanduser().resolve()
 
 
+def _generated_bundle_target(slug: object, *, require_exists: bool) -> Path:
+    normalized_slug = str(slug or "").strip()
+    if not _GENERATED_BUNDLE_SLUG_PATTERN.fullmatch(normalized_slug):
+        raise _GeneratedBundlePublishError("generated_bundle_slug_invalid")
+    root = _public_tour_dir()
+    try:
+        root_stat = root.stat(follow_symlinks=False)
+    except OSError as exc:
+        raise _GeneratedBundlePublishError("generated_bundle_root_invalid") from exc
+    if not stat.S_ISDIR(root_stat.st_mode):
+        raise _GeneratedBundlePublishError("generated_bundle_root_invalid")
+    bundle_dir = root / normalized_slug
+    if bundle_dir.parent != root:
+        raise _GeneratedBundlePublishError("generated_bundle_target_invalid")
+    try:
+        bundle_stat = bundle_dir.stat(follow_symlinks=False)
+    except FileNotFoundError:
+        if require_exists:
+            raise _GeneratedBundlePublishError("generated_bundle_missing")
+        return bundle_dir
+    except OSError as exc:
+        raise _GeneratedBundlePublishError("generated_bundle_target_invalid") from exc
+    if stat.S_ISLNK(bundle_stat.st_mode):
+        raise _GeneratedBundlePublishError("generated_bundle_symlink_forbidden")
+    if not stat.S_ISDIR(bundle_stat.st_mode):
+        raise _GeneratedBundlePublishError("generated_bundle_target_invalid")
+    return bundle_dir
+
+
+def _open_generated_bundle_entry(
+    name: str,
+    *,
+    directory_fd: int,
+    expected_stat: os.stat_result,
+    directory: bool,
+) -> int:
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    if directory:
+        flags |= getattr(os, "O_DIRECTORY", 0)
+    descriptor = os.open(name, flags, dir_fd=directory_fd)
+    try:
+        opened_stat = os.fstat(descriptor)
+        expected_kind = stat.S_ISDIR if directory else stat.S_ISREG
+        if (
+            not expected_kind(opened_stat.st_mode)
+            or opened_stat.st_dev != expected_stat.st_dev
+            or opened_stat.st_ino != expected_stat.st_ino
+        ):
+            raise _GeneratedBundlePublishError("generated_bundle_entry_changed")
+    except Exception:
+        os.close(descriptor)
+        raise
+    return descriptor
+
+
+def _fchmod_if_needed(descriptor: int, expected_mode: int) -> None:
+    current_mode = stat.S_IMODE(os.fstat(descriptor).st_mode)
+    if current_mode != expected_mode:
+        os.fchmod(descriptor, expected_mode)
+
+
+def _normalize_generated_reconstruction_tree(directory_fd: int) -> None:
+    _fchmod_if_needed(directory_fd, 0o755)
+    try:
+        names = sorted(os.listdir(directory_fd))
+    except OSError as exc:
+        raise _GeneratedBundlePublishError("generated_reconstruction_directory_invalid") from exc
+    for name in names:
+        try:
+            entry_stat = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+        except OSError as exc:
+            raise _GeneratedBundlePublishError("generated_reconstruction_asset_invalid") from exc
+        if stat.S_ISLNK(entry_stat.st_mode):
+            raise _GeneratedBundlePublishError("generated_reconstruction_asset_symlink_forbidden")
+        if stat.S_ISDIR(entry_stat.st_mode):
+            try:
+                child_fd = _open_generated_bundle_entry(
+                    name,
+                    directory_fd=directory_fd,
+                    expected_stat=entry_stat,
+                    directory=True,
+                )
+            except OSError as exc:
+                raise _GeneratedBundlePublishError("generated_reconstruction_asset_invalid") from exc
+            try:
+                _normalize_generated_reconstruction_tree(child_fd)
+            finally:
+                os.close(child_fd)
+            continue
+        if not stat.S_ISREG(entry_stat.st_mode):
+            raise _GeneratedBundlePublishError("generated_reconstruction_asset_invalid")
+        try:
+            asset_fd = _open_generated_bundle_entry(
+                name,
+                directory_fd=directory_fd,
+                expected_stat=entry_stat,
+                directory=False,
+            )
+        except OSError as exc:
+            raise _GeneratedBundlePublishError("generated_reconstruction_asset_invalid") from exc
+        try:
+            _fchmod_if_needed(asset_fd, 0o644)
+        finally:
+            os.close(asset_fd)
+
+
+def _publish_generated_bundle_permissions(slug: object) -> None:
+    bundle_dir = _generated_bundle_target(slug, require_exists=True)
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        bundle_fd = os.open(bundle_dir, flags | getattr(os, "O_DIRECTORY", 0))
+    except OSError as exc:
+        raise _GeneratedBundlePublishError("generated_bundle_target_invalid") from exc
+    manifest_fd = -1
+    reconstruction_fd = -1
+    try:
+        _fchmod_if_needed(bundle_fd, 0o755)
+        try:
+            manifest_stat = os.stat("tour.json", dir_fd=bundle_fd, follow_symlinks=False)
+        except OSError as exc:
+            raise _GeneratedBundlePublishError("generated_bundle_manifest_invalid") from exc
+        if stat.S_ISLNK(manifest_stat.st_mode) or not stat.S_ISREG(manifest_stat.st_mode):
+            raise _GeneratedBundlePublishError("generated_bundle_manifest_invalid")
+        try:
+            manifest_fd = _open_generated_bundle_entry(
+                "tour.json",
+                directory_fd=bundle_fd,
+                expected_stat=manifest_stat,
+                directory=False,
+            )
+        except OSError as exc:
+            raise _GeneratedBundlePublishError("generated_bundle_manifest_invalid") from exc
+        _fchmod_if_needed(manifest_fd, 0o644)
+
+        try:
+            reconstruction_stat = os.stat(
+                "generated-reconstruction",
+                dir_fd=bundle_fd,
+                follow_symlinks=False,
+            )
+        except OSError as exc:
+            raise _GeneratedBundlePublishError("generated_reconstruction_directory_invalid") from exc
+        if stat.S_ISLNK(reconstruction_stat.st_mode) or not stat.S_ISDIR(reconstruction_stat.st_mode):
+            raise _GeneratedBundlePublishError("generated_reconstruction_directory_invalid")
+        try:
+            reconstruction_fd = _open_generated_bundle_entry(
+                "generated-reconstruction",
+                directory_fd=bundle_fd,
+                expected_stat=reconstruction_stat,
+                directory=True,
+            )
+        except OSError as exc:
+            raise _GeneratedBundlePublishError("generated_reconstruction_directory_invalid") from exc
+        _normalize_generated_reconstruction_tree(reconstruction_fd)
+    finally:
+        if reconstruction_fd >= 0:
+            os.close(reconstruction_fd)
+        if manifest_fd >= 0:
+            os.close(manifest_fd)
+        os.close(bundle_fd)
+
+
 def _script_path() -> Path:
     return Path("/app/scripts/generate_property_reconstruction.py").resolve()
 
@@ -461,6 +638,12 @@ def run_generation_request(
 ) -> dict[str, object]:
     runtime_config = config or _load_bridge_config()
     _validate_generation_cost(payload, config=runtime_config)
+    try:
+        _generated_bundle_target(payload.get("slug"), require_exists=False)
+    except _GeneratedBundlePublishError as exc:
+        return _generated_bundle_publish_failure(str(exc))
+    except Exception:
+        return _generated_bundle_publish_failure("generated_bundle_target_invalid")
     command = _build_generator_command(payload)
     timeout_seconds = _generation_timeout_seconds(
         payload.get("timeout_seconds"),
@@ -515,6 +698,16 @@ def run_generation_request(
             "detail": str(result.get("reason") or result.get("status") or "generator_reported_non_generated_status")[:500],
             "result": result,
         }
+    try:
+        _publish_generated_bundle_permissions(payload.get("slug"))
+    except PermissionError:
+        return _generated_bundle_publish_failure("generated_bundle_permissions_denied")
+    except _GeneratedBundlePublishError as exc:
+        return _generated_bundle_publish_failure(str(exc))
+    except OSError:
+        return _generated_bundle_publish_failure("generated_bundle_permissions_failed")
+    except Exception:
+        return _generated_bundle_publish_failure("generated_bundle_publish_failed")
     return {
         "status": "generated",
         "result": result,

@@ -18275,6 +18275,206 @@ def test_property_tour_execution_error_reason_treats_missing_crezlo_workspace_as
 
     assert reason == "crezlo_property_tour_not_configured"
 
+    expired_reason = service._property_tour_execution_error_reason(  # noqa: SLF001
+        RuntimeError("willhaben_property_packet_failed:willhaben_listing_expired")
+    )
+
+    assert expired_reason == "listing_expired"
+
+
+def test_expired_listing_visual_state_is_explicit_and_terminal() -> None:
+    assert (
+        product_service._property_visual_unavailable_detail(  # noqa: SLF001
+            request_kind="tour",
+            reason="listing_expired",
+        )
+        == "This listing has expired and its source page is no longer available."
+    )
+    assert (
+        product_service._property_visual_terminal_status_for_reason(  # noqa: SLF001
+            request_kind="tour",
+            reason="listing_expired",
+        )
+        == "blocked"
+    )
+    assert product_service._property_tour_followup_is_customer_actionable("listing_expired") is False  # noqa: SLF001
+
+
+def test_generated_reconstruction_bundle_permissions_are_publicly_readable(tmp_path: Path) -> None:
+    bundle_dir = tmp_path / "generated-tour"
+    reconstruction_dir = bundle_dir / "generated-reconstruction"
+    nested_dir = reconstruction_dir / "assets"
+    nested_dir.mkdir(parents=True)
+    manifest_path = bundle_dir / "tour.json"
+    viewer_path = reconstruction_dir / "viewer.html"
+    asset_path = nested_dir / "scene.bin"
+    manifest_path.write_text("{}", encoding="utf-8")
+    viewer_path.write_text("viewer", encoding="utf-8")
+    asset_path.write_bytes(b"scene")
+    bundle_dir.chmod(0o700)
+    reconstruction_dir.chmod(0o700)
+    nested_dir.chmod(0o700)
+    manifest_path.chmod(0o600)
+    viewer_path.chmod(0o600)
+    asset_path.chmod(0o600)
+
+    property_tour_hosting._normalize_generated_reconstruction_bundle_permissions(bundle_dir)  # noqa: SLF001
+
+    assert bundle_dir.stat().st_mode & 0o777 == 0o755
+    assert reconstruction_dir.stat().st_mode & 0o777 == 0o755
+    assert nested_dir.stat().st_mode & 0o777 == 0o755
+    assert manifest_path.stat().st_mode & 0o777 == 0o644
+    assert viewer_path.stat().st_mode & 0o777 == 0o644
+    assert asset_path.stat().st_mode & 0o777 == 0o644
+
+
+def test_generated_reconstruction_correct_permissions_do_not_require_owner_chmod(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    bundle_dir = tmp_path / "generated-tour"
+    reconstruction_dir = bundle_dir / "generated-reconstruction"
+    nested_dir = reconstruction_dir / "assets"
+    nested_dir.mkdir(parents=True)
+    manifest_path = bundle_dir / "tour.json"
+    viewer_path = reconstruction_dir / "viewer.html"
+    asset_path = nested_dir / "scene.bin"
+    manifest_path.write_text("{}", encoding="utf-8")
+    viewer_path.write_text("viewer", encoding="utf-8")
+    asset_path.write_bytes(b"scene")
+    bundle_dir.chmod(0o755)
+    reconstruction_dir.chmod(0o755)
+    nested_dir.chmod(0o755)
+    manifest_path.chmod(0o644)
+    viewer_path.chmod(0o644)
+    asset_path.chmod(0o644)
+
+    chmod_calls: list[tuple[Path, int]] = []
+
+    def _unexpected_chmod(path: Path, mode: int, **_kwargs) -> None:
+        chmod_calls.append((path, mode))
+        raise PermissionError("already-correct cross-owner path must not be chmodded")
+
+    monkeypatch.setattr(Path, "chmod", _unexpected_chmod)
+
+    property_tour_hosting._normalize_generated_reconstruction_bundle_permissions(bundle_dir)  # noqa: SLF001
+
+    assert chmod_calls == []
+
+
+def test_hosted_property_tour_private_receipt_remains_owner_only_after_public_mode_normalization(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    slug = "private-receipt-modes"
+    bundle_dir = tmp_path / slug
+    reconstruction_dir = bundle_dir / "generated-reconstruction"
+    reconstruction_dir.mkdir(parents=True)
+    (reconstruction_dir / "viewer.html").write_text("viewer", encoding="utf-8")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    property_tour_hosting._write_hosted_property_tour_payload(  # noqa: SLF001
+        bundle_dir,
+        {
+            "slug": slug,
+            "principal_id": "private-receipt-owner",
+            "property_url": "https://example.test/listing/1",
+            "public_url": f"https://propertyquarry.com/tours/{slug}",
+            "hosted_url": f"https://propertyquarry.com/tours/{slug}",
+            "title": "Private receipt mode proof",
+            "scenes": [],
+        },
+    )
+    property_tour_hosting._normalize_generated_reconstruction_bundle_permissions(bundle_dir)  # noqa: SLF001
+
+    private_manifest_path = bundle_dir / "tour.private.json"
+    assert bundle_dir.stat().st_mode & 0o777 == 0o755
+    assert (bundle_dir / "tour.json").stat().st_mode & 0o777 == 0o644
+    assert reconstruction_dir.stat().st_mode & 0o777 == 0o755
+    assert (reconstruction_dir / "viewer.html").stat().st_mode & 0o777 == 0o644
+    assert private_manifest_path.stat().st_mode & 0o777 == 0o600
+    assert json.loads(private_manifest_path.read_text(encoding="utf-8"))["principal_id"] == "private-receipt-owner"
+
+
+def test_hosted_property_tour_private_receipt_refuses_symlink_target(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    slug = "private-receipt-symlink"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir()
+    outside_receipt = tmp_path / "outside-private.json"
+    outside_receipt.write_text('{"principal_id":"outside"}', encoding="utf-8")
+    outside_receipt.chmod(0o600)
+    (bundle_dir / "tour.private.json").symlink_to(outside_receipt)
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    with pytest.raises(RuntimeError, match="hosted_property_tour_private_receipt_invalid"):
+        property_tour_hosting._write_hosted_property_tour_payload(  # noqa: SLF001
+            bundle_dir,
+            {
+                "slug": slug,
+                "principal_id": "private-receipt-owner",
+                "property_url": "https://example.test/listing/2",
+                "public_url": f"https://propertyquarry.com/tours/{slug}",
+                "hosted_url": f"https://propertyquarry.com/tours/{slug}",
+                "title": "Private receipt symlink proof",
+                "scenes": [],
+            },
+        )
+
+    assert outside_receipt.read_text(encoding="utf-8") == '{"principal_id":"outside"}'
+    assert outside_receipt.stat().st_mode & 0o777 == 0o600
+    assert not (bundle_dir / "tour.json").exists()
+
+
+def test_propertyquarry_example_media_skips_unreadable_bundle(monkeypatch, tmp_path: Path) -> None:
+    for slug in ("broken", "readable"):
+        bundle_dir = tmp_path / slug
+        bundle_dir.mkdir()
+        (bundle_dir / "tour.json").write_text(
+            json.dumps(
+                {
+                    "slug": slug,
+                    "public_url": f"https://propertyquarry.com/tours/{slug}",
+                    "scene_strategy": "generated_reconstruction",
+                    "scenes": [],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    def _verified_open_url(tour_url: str) -> str:
+        if tour_url.endswith("/broken"):
+            raise PermissionError("/data/private/generated-reconstruction/viewer.html")
+        return tour_url
+
+    monkeypatch.setattr(
+        landing_routes.property_tour_hosting,
+        "_hosted_property_tour_verified_open_url",
+        _verified_open_url,
+    )
+    monkeypatch.setattr(
+        landing_routes,
+        "_hosted_property_tour_telegram_preview_image_url_for_style",
+        lambda _tour_url: "",
+    )
+    monkeypatch.setattr(
+        landing_routes.property_tour_hosting,
+        "_hosted_property_tour_preview_image_url",
+        lambda _tour_url: "",
+    )
+    monkeypatch.setattr(
+        landing_routes.property_tour_hosting,
+        "_hosted_property_tour_walkthrough_open_url",
+        lambda _tour_url: "",
+    )
+
+    targets = landing_routes._propertyquarry_example_media_targets_scan(tmp_path)  # noqa: SLF001
+
+    assert targets["tour_href"].endswith("/tours/readable")
+    assert "/data/private" not in json.dumps(targets)
+
 
 def test_property_tour_followup_force_repair_reissues_fresh_processing_visual(monkeypatch) -> None:
     principal_id = "property-tour-followup-force-processing"

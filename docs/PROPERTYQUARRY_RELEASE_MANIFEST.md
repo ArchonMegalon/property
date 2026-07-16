@@ -8,22 +8,38 @@ PropertyQuarry is a source/browser candidate, not a production launch:
 
 - The published candidate receipt covers `7/7` source cases, `9/9` real-browser cases, and all eight required product journeys. The candidate includes in-place shortlist history, protected Telegram delivery proof, production-mode PostgreSQL storage/browser parity with internal-only CI session provisioning, immutable CI actions, fail-closed production registration delivery, and a signed controller profile that preserves the canonical public-tour volume and permits only journaled ownership repair.
 - Candidate/browser proof does not prove deployment, production storage, authentication, external delivery, observability, rollback, or disaster recovery.
-- The public edge returns `403` for `/`. `/health/ready` responds, while `/version` has no release SHA or complete manifest.
+- The public edge currently returns `200` for `/` after a narrow generated-tour permission repair. `/health/ready` responds, while `/version` still reports an incomplete release manifest without canonical release identity; those runtime checks are not deployment proof for this candidate.
 - Production promotion remains blocked on the independent release-controller artifact, an approved `propertyquarry-security` runner, and distinct digest-pinned web/render images.
 - ID Austria is optional and unconfigured. Another supported sign-in path still needs protected live activation proof.
 - External notification release evidence is Telegram-only. WhatsApp is outside the current launch evidence.
 
 ## Candidate binding
 
-| Field | Value |
-| --- | --- |
-| Product | PropertyQuarry |
-| Status | `source-browser-candidate-pending-protected-live-evidence` |
-| Branch | `main` |
-| Runtime commit SHA | `4930abe789901caf9439224f75b5a5b970b3a74f` |
-| Release envelope | tracked `main`; protected receipts record the workflow-head SHA separately |
-| Public domain | `https://propertyquarry.com` |
-| Deployment ID | `pending-governed-production-deploy` |
+The marked JSON object is the single canonical release authority consumed by the runtime and release verifier. Its exact field set and canonical SHA-256 fail closed on missing, duplicate, unexpected, empty, or mismatched fields.
+
+<!-- propertyquarry-release-manifest-json:start -->
+```json
+{
+  "release_artifact_set": "propertyquarry-generated-release-artifacts-v1@sha256:fc19fcbcc6a036eeaec781eab044775734913c2cebea1f6d6033b234fbdabd99",
+  "release_branch": "main",
+  "release_candidate_status": "source-browser-candidate-pending-protected-live-evidence",
+  "release_commit_sha": "4930abe789901caf9439224f75b5a5b970b3a74f",
+  "release_deployment_id": "propertyquarry-governed-deploy-4930abe78990",
+  "release_generated_at": "2026-07-16T13:42:58Z",
+  "release_label": "propertyquarry-source-browser-candidate-4930abe78990",
+  "release_manifest_schema": "propertyquarry.release_manifest.v1",
+  "release_mirror_origin": "https://github.com/ArchonMegalon/propertyquarry.git",
+  "release_mirror_repository": "ArchonMegalon/propertyquarry",
+  "release_product": "PropertyQuarry",
+  "release_public_origin": "https://propertyquarry.com",
+  "release_repository": "ArchonMegalon/property",
+  "release_repository_origin": "https://github.com/ArchonMegalon/property.git",
+  "release_verification_commands": "bash scripts/verify_release_assets.sh && python3 scripts/verify_flagship_release_readiness.py && python3 scripts/verify_generated_release_artifacts_clean.py"
+}
+```
+<!-- propertyquarry-release-manifest-json:end -->
+
+The artifact-set identity covers the exact tracked bytes of the flagship release receipt, weekly product pulse, and browser workflow proof named by the verifier. The runtime SHA is the source candidate recorded by the flagship receipt; it is intentionally not a self-reference to the later documentation/envelope commit. Any missing, duplicate, empty, or mismatched authority field blocks verification.
 
 ## Launch blockers
 
@@ -33,7 +49,7 @@ Production stays fail-closed until every item is bound to the exact runtime cand
 2. The independently produced `propertyquarry-release-controller-v1` bundle is installed through the governed intake lane and enforces `PROPERTYQUARRY_PUBLIC_TOUR_VOLUME_PROFILE_V1.md`, including canonical-volume identity, pre/post manifests, ownership-only repair, mode preservation, and rollback evidence.
 3. The protected environment has an approved `propertyquarry-security` runner and distinct digest-pinned `PROPERTYQUARRY_WEB_IMAGE` and `PROPERTYQUARRY_RENDER_IMAGE` inputs.
 4. Dependency, container, policy, and SBOM scans pass without stale databases or weakened gates.
-5. The governed deployment preserves the canonical public-tour inventory, repairs only journaled legacy ownership, and completes; `/version` reports the approved runtime SHA and complete manifest; `/` no longer returns the stale `403`.
+5. The governed deployment preserves the canonical public-tour inventory, repairs only journaled legacy ownership, and completes; `/version` reports the approved runtime SHA and complete manifest; `/` remains healthy without generated-bundle permission errors or path disclosure.
 6. A supported sign-in path, lifecycle controls, Telegram delivery, PostgreSQL durability, and the customer search-to-decision journeys pass protected live verification.
 7. Observability, alerting, rollback, disaster recovery, post-promotion smoke, and Cloudflare/public-origin receipts pass.
 8. Billing, provider-media, analytics, and Gold limitations are either resolved with evidence or excluded from the launch claim.

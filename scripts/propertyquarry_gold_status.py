@@ -7,6 +7,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import stat
 import sys
 import tempfile
@@ -16,6 +17,9 @@ from typing import Any
 
 if __package__:
     from scripts import propertyquarry_evidence_contract as evidence_contract
+    from scripts.property_evidence_overlay_read_model import (
+        verify_receipt as verify_evidence_overlay_read_model_receipt,
+    )
     from scripts.propertyquarry_observability_receipts import (
         ReceiptValidationError as ObservabilityReceiptValidationError,
         atomic_write_json as write_observability_verification,
@@ -31,8 +35,14 @@ if __package__:
         RANGE_RECEIPT_SCHEMA,
         run_evidence_gate,
     )
+    from scripts.propertyquarry_rybbit_evidence import (
+        verify_receipt as verify_rybbit_delivery_receipt,
+    )
 else:
     import propertyquarry_evidence_contract as evidence_contract
+    from property_evidence_overlay_read_model import (
+        verify_receipt as verify_evidence_overlay_read_model_receipt,
+    )
     from propertyquarry_observability_receipts import (
         ReceiptValidationError as ObservabilityReceiptValidationError,
         atomic_write_json as write_observability_verification,
@@ -47,6 +57,9 @@ else:
         EvidenceConfig,
         RANGE_RECEIPT_SCHEMA,
         run_evidence_gate,
+    )
+    from propertyquarry_rybbit_evidence import (
+        verify_receipt as verify_rybbit_delivery_receipt,
     )
 
 
@@ -169,6 +182,8 @@ FLAGSHIP_CUSTOMER_UX_RECEIPT_AREAS = (
     "walkthrough_quality",
 )
 DEFAULT_FLAGSHIP_MAX_RECEIPT_AGE_HOURS = 24.0
+DEFAULT_EVIDENCE_OVERLAY_MAX_AGE_HOURS = 48.0
+DEFAULT_RYBBIT_EVIDENCE_MAX_AGE_MINUTES = 15.0
 DEFAULT_SLO_EVIDENCE_MAX_AGE_SECONDS = 900
 SLO_EVIDENCE_RECEIPT_SCHEMA = "propertyquarry.slo_evidence_receipt.v2"
 REQUIRED_FLAGSHIP_ACCESSIBILITY_ROUTES = (
@@ -1105,8 +1120,10 @@ def _normalize_readiness_profile(value: str) -> str:
     normalized = str(value or "standard").strip().lower().replace("-", "_")
     if normalized in {"", "standard", "development", "default"}:
         return "standard"
-    if normalized in {"flagship", "launch"}:
+    if normalized == "flagship":
         return "flagship"
+    if normalized == "launch":
+        return "launch"
     raise ValueError(f"unsupported_propertyquarry_readiness_profile:{normalized}")
 
 
@@ -2136,7 +2153,16 @@ def _flagship_failure_state_proof(
 
 def _flagship_activation_to_value_proof(
     activation: dict[str, Any],
+    *,
+    expected_release_commit_sha: str,
 ) -> tuple[bool, dict[str, Any]]:
+    expected_release_sha = str(expected_release_commit_sha or "")
+    reported_release_sha = str(activation.get("release_commit_sha") or "")
+    release_sha_matches = (
+        re.fullmatch(r"[0-9a-f]{40}", expected_release_sha) is not None
+        and re.fullmatch(r"[0-9a-f]{40}", reported_release_sha) is not None
+        and reported_release_sha == expected_release_sha
+    )
     steps = [dict(row) for row in list(activation.get("steps") or []) if isinstance(row, dict)]
     step_by_name = {str(row.get("name") or ""): row for row in steps}
     missing_steps = [
@@ -2176,6 +2202,9 @@ def _flagship_activation_to_value_proof(
         "auth_mode": str(activation.get("auth_mode") or ""),
         "browser_engine": str(activation.get("browser_engine") or ""),
         "proof_mode": str(activation.get("proof_mode") or ""),
+        "expected_release_commit_sha": expected_release_sha,
+        "reported_release_commit_sha": reported_release_sha,
+        "release_commit_sha_matches": release_sha_matches,
         "persona_digest_present": bool(str(activation.get("persona_digest") or "").strip()),
         "run_key_present": bool(str(activation.get("run_key") or "").strip()),
         "missing_steps": missing_steps,
@@ -2192,6 +2221,7 @@ def _flagship_activation_to_value_proof(
         and int(activation.get("failed_count") or 0) == 0
         and str(activation.get("auth_mode") or "") in {"google", "email_link"}
         and details["proof_mode"] == "deployed_playwright"
+        and details["release_commit_sha_matches"]
         and details["persona_digest_present"]
         and details["run_key_present"]
         and not missing_steps
@@ -2520,8 +2550,7 @@ def _walkthrough_quality_provider_binding_status(
             provenance_row.get("evidence_video_relpath")
         ),
         "bundle_media_path": (
-            f"{_walkthrough_safe_slug(provenance_row.get('evidence_bundle_slug'))}/"
-            f"{_walkthrough_safe_relpath(provenance_row.get('evidence_video_relpath'))}"
+            f"{_walkthrough_safe_slug(provenance_row.get('evidence_bundle_slug'))}/{_walkthrough_safe_relpath(provenance_row.get('evidence_video_relpath'))}"
             if provenance_row
             else ""
         ),
@@ -2854,6 +2883,141 @@ def _operator_drop_readme_status(
     return (not failures and not missing_providers, len(verified_providers), missing_providers, failures[:8])
 
 
+def _evidence_overlay_launch_status(
+    receipt: dict[str, Any],
+    *,
+    receipt_present: bool,
+    expected_release_commit_sha: str,
+    expected_teable_origin: str,
+    expected_teable_base_id_sha256: str,
+    expected_phase: str,
+    max_age_hours: float,
+    now: datetime | None,
+) -> tuple[bool, dict[str, Any]]:
+    errors: list[str] = []
+    if not receipt_present:
+        errors.append("evidence overlay read-model receipt is required")
+    elif not expected_release_commit_sha:
+        errors.append("evidence overlay validation requires the expected release SHA")
+    else:
+        try:
+            errors.extend(
+                verify_evidence_overlay_read_model_receipt(
+                    receipt,
+                    expected_candidate_sha=expected_release_commit_sha,
+                    max_age_hours=max_age_hours,
+                    expected_teable_origin=expected_teable_origin,
+                    expected_teable_base_id_sha256=expected_teable_base_id_sha256,
+                    expected_phase=expected_phase,
+                    now=now,
+                )
+            )
+        except Exception as exc:
+            errors.append(
+                f"evidence overlay read-model verifier could not complete: {type(exc).__name__}"
+            )
+    ingestion = dict(receipt.get("ingestion") or {}) if isinstance(receipt.get("ingestion"), dict) else {}
+    read_model = dict(receipt.get("read_model") or {}) if isinstance(receipt.get("read_model"), dict) else {}
+    source_evidence = dict(receipt.get("source_evidence") or {}) if isinstance(receipt.get("source_evidence"), dict) else {}
+    source_authority = dict(receipt.get("source_authority") or {}) if isinstance(receipt.get("source_authority"), dict) else {}
+    activation = dict(receipt.get("activation") or {}) if isinstance(receipt.get("activation"), dict) else {}
+    return (
+        not errors,
+        {
+            "status": "pass" if not errors else "blocked",
+            "errors": errors,
+            "candidate_sha": str(receipt.get("candidate_sha") or ""),
+            "snapshot_id": str(receipt.get("snapshot_id") or ""),
+            "source_payload_sha256": str(receipt.get("source_payload_sha256") or ""),
+            "registry_payload_sha256": str(receipt.get("registry_payload_sha256") or ""),
+            "source": str(ingestion.get("source") or ""),
+            "target": str(ingestion.get("target") or ""),
+            "layer_count": ingestion.get("layer_count"),
+            "record_count": ingestion.get("record_count"),
+            "query_p95_ms": read_model.get("query_p95_ms"),
+            "query_budget_ms": read_model.get("query_budget_ms"),
+            "expected_teable_origin": expected_teable_origin,
+            "expected_teable_base_id_sha256": expected_teable_base_id_sha256,
+            "teable_origin": str(source_evidence.get("base_origin") or ""),
+            "teable_base_id_sha256": str(source_evidence.get("base_id_sha256") or ""),
+            "source_evidence": {
+                "base_origin": str(source_evidence.get("base_origin") or ""),
+                "base_id_sha256": str(source_evidence.get("base_id_sha256") or ""),
+            },
+            "source_authority": {
+                "expected_origin": str(source_authority.get("expected_origin") or ""),
+                "expected_base_id_sha256": str(
+                    source_authority.get("expected_base_id_sha256") or ""
+                ),
+                "bound_independently": source_authority.get("bound_independently") is True,
+            },
+            "activation_phase": str(activation.get("phase") or ""),
+        },
+    )
+
+
+def _rybbit_launch_status(
+    receipt: dict[str, Any],
+    *,
+    receipt_present: bool,
+    expected_release_commit_sha: str,
+    expected_public_origin: str,
+    expected_analytics_origin: str,
+    expected_site_id_sha256: str,
+    max_age_minutes: float,
+    now: datetime | None,
+) -> tuple[bool, dict[str, Any]]:
+    errors: list[str] = []
+    expected_bindings = {
+        "release SHA": expected_release_commit_sha,
+        "public origin": expected_public_origin,
+        "analytics origin": expected_analytics_origin,
+        "site ID SHA-256": expected_site_id_sha256,
+    }
+    if not receipt_present:
+        errors.append("Rybbit delivery receipt is required")
+    missing_bindings = [name for name, value in expected_bindings.items() if not str(value or "").strip()]
+    if receipt_present and missing_bindings:
+        errors.append("Rybbit validation requires explicit " + ", ".join(missing_bindings))
+    if receipt_present and not missing_bindings:
+        try:
+            errors.extend(
+                verify_rybbit_delivery_receipt(
+                    receipt,
+                    expected_candidate_sha=expected_release_commit_sha,
+                    expected_public_origin=expected_public_origin,
+                    expected_analytics_origin=expected_analytics_origin,
+                    expected_site_id_sha256=expected_site_id_sha256,
+                    max_age_minutes=max_age_minutes,
+                    now=now,
+                )
+            )
+        except Exception as exc:
+            errors.append(
+                "Rybbit delivery verifier could not complete: "
+                f"{type(exc).__name__}"
+            )
+    browser = dict(receipt.get("browser") or {}) if isinstance(receipt.get("browser"), dict) else {}
+    collector = dict(browser.get("collector") or {}) if isinstance(browser.get("collector"), dict) else {}
+    api = dict(receipt.get("api") or {}) if isinstance(receipt.get("api"), dict) else {}
+    events = dict(api.get("events") or {}) if isinstance(api.get("events"), dict) else {}
+    return (
+        not errors,
+        {
+            "status": "pass" if not errors else "blocked",
+            "errors": errors,
+            "candidate_sha": str(receipt.get("candidate_sha") or ""),
+            "public_origin": str(receipt.get("public_origin") or ""),
+            "analytics_origin": str(receipt.get("analytics_origin") or ""),
+            "site_id_sha256": str(receipt.get("site_id_sha256") or ""),
+            "collector_status_code": collector.get("status_code"),
+            "event_name": str(events.get("event_name") or ""),
+            "event_count": events.get("event_count"),
+            "observed_after_probe": events.get("observed_after_probe") is True,
+        },
+    )
+
+
 def build_gold_status_receipt(
     *,
     performance_receipt_path: Path,
@@ -2890,9 +3054,19 @@ def build_gold_status_receipt(
     scene_video_provider_refresh_packet_path: Path | None = None,
     scene_video_provider_refresh_packet_verifier_receipt_path: Path | None = None,
     slo_evidence_receipt_path: Path | None = None,
+    evidence_overlay_receipt_path: Path | None = None,
+    rybbit_evidence_receipt_path: Path | None = None,
     expected_release_commit_sha: str = "",
     expected_release_image_digest: str = "",
+    expected_public_origin: str = "",
+    expected_teable_origin: str = "",
+    expected_teable_base_id_sha256: str = "",
+    expected_evidence_overlay_phase: str = "staged",
+    expected_rybbit_origin: str = "",
+    expected_rybbit_site_id_sha256: str = "",
     slo_evidence_max_age_seconds: int = DEFAULT_SLO_EVIDENCE_MAX_AGE_SECONDS,
+    evidence_overlay_max_age_hours: float = DEFAULT_EVIDENCE_OVERLAY_MAX_AGE_HOURS,
+    rybbit_evidence_max_age_minutes: float = DEFAULT_RYBBIT_EVIDENCE_MAX_AGE_MINUTES,
     id_austria_receipt_path: Path | None = None,
     max_receipt_age_hours: float | None = None,
     provider_catalog_receipt_path: Path | None = None,
@@ -2901,7 +3075,8 @@ def build_gold_status_receipt(
     now: datetime | None = None,
 ) -> dict[str, Any]:
     normalized_readiness_profile = _normalize_readiness_profile(readiness_profile)
-    flagship_profile = normalized_readiness_profile == "flagship"
+    flagship_profile = normalized_readiness_profile in {"flagship", "launch"}
+    launch_profile = normalized_readiness_profile == "launch"
     configured_browser_engines = _normalize_required_browser_engines(
         required_browser_engines
         if required_browser_engines is not None
@@ -2914,11 +3089,14 @@ def build_gold_status_receipt(
             if engine.strip()
         )
     )
-    effective_max_receipt_age_hours = (
-        DEFAULT_FLAGSHIP_MAX_RECEIPT_AGE_HOURS
-        if flagship_profile and (max_receipt_age_hours is None or max_receipt_age_hours <= 0)
-        else max_receipt_age_hours
-    )
+    if max_receipt_age_hours is not None and not math.isfinite(float(max_receipt_age_hours)):
+        effective_max_receipt_age_hours = 0.0
+    else:
+        effective_max_receipt_age_hours = (
+            DEFAULT_FLAGSHIP_MAX_RECEIPT_AGE_HOURS
+            if flagship_profile and (max_receipt_age_hours is None or max_receipt_age_hours <= 0)
+            else max_receipt_age_hours
+        )
     flagship_customer_ux_receipt_paths: dict[str, Path | None] = {
         "continuous_ux": continuous_ux_receipt_path,
         "public_auth_surfaces": public_smoke_receipt_path,
@@ -3001,6 +3179,16 @@ def build_gold_status_receipt(
         if slo_evidence_receipt_path is not None
         else {}
     )
+    evidence_overlay_receipt = (
+        _load_json(evidence_overlay_receipt_path)
+        if evidence_overlay_receipt_path is not None
+        else {}
+    )
+    rybbit_evidence_receipt = (
+        _load_json(rybbit_evidence_receipt_path)
+        if rybbit_evidence_receipt_path is not None
+        else {}
+    )
     id_austria_receipt = _load_json(id_austria_receipt_path) if id_austria_receipt_path is not None else {}
     repair_canary = _load_json(repair_canary_receipt_path)
     provider_catalog = _load_json(provider_catalog_receipt_path) if provider_catalog_receipt_path is not None else {}
@@ -3062,6 +3250,56 @@ def build_gold_status_receipt(
         max_age_seconds=slo_evidence_max_age_seconds,
     )
     slo_evidence_required = flagship_profile or slo_evidence_receipt_path is not None
+    evidence_overlay_required = launch_profile or evidence_overlay_receipt_path is not None
+    requested_evidence_overlay_max_age_hours = float(evidence_overlay_max_age_hours)
+    effective_evidence_overlay_max_age_hours = (
+        min(
+            requested_evidence_overlay_max_age_hours,
+            DEFAULT_EVIDENCE_OVERLAY_MAX_AGE_HOURS,
+        )
+        if math.isfinite(requested_evidence_overlay_max_age_hours)
+        and requested_evidence_overlay_max_age_hours > 0
+        else 0.0
+    )
+    evidence_overlay_ok, evidence_overlay_details = (
+        _evidence_overlay_launch_status(
+            evidence_overlay_receipt,
+            receipt_present=evidence_overlay_receipt_path is not None,
+            expected_release_commit_sha=expected_release_commit_sha,
+            expected_teable_origin=expected_teable_origin,
+            expected_teable_base_id_sha256=expected_teable_base_id_sha256,
+            expected_phase=expected_evidence_overlay_phase,
+            max_age_hours=effective_evidence_overlay_max_age_hours,
+            now=now,
+        )
+        if evidence_overlay_required
+        else (True, {"status": "not_required", "errors": []})
+    )
+    rybbit_evidence_required = launch_profile or rybbit_evidence_receipt_path is not None
+    requested_rybbit_evidence_max_age_minutes = float(rybbit_evidence_max_age_minutes)
+    effective_rybbit_evidence_max_age_minutes = (
+        min(
+            requested_rybbit_evidence_max_age_minutes,
+            DEFAULT_RYBBIT_EVIDENCE_MAX_AGE_MINUTES,
+        )
+        if math.isfinite(requested_rybbit_evidence_max_age_minutes)
+        and requested_rybbit_evidence_max_age_minutes > 0
+        else 0.0
+    )
+    rybbit_evidence_ok, rybbit_evidence_details = (
+        _rybbit_launch_status(
+            rybbit_evidence_receipt,
+            receipt_present=rybbit_evidence_receipt_path is not None,
+            expected_release_commit_sha=expected_release_commit_sha,
+            expected_public_origin=expected_public_origin,
+            expected_analytics_origin=expected_rybbit_origin,
+            expected_site_id_sha256=expected_rybbit_site_id_sha256,
+            max_age_minutes=effective_rybbit_evidence_max_age_minutes,
+            now=now,
+        )
+        if rybbit_evidence_required
+        else (True, {"status": "not_required", "errors": []})
+    )
 
     missing_provider_modes = _missing_provider_modes(tour_controls)
     magicfit_playback = dict(tour_controls.get("magicfit_playback") or {})
@@ -3171,7 +3409,8 @@ def build_gold_status_receipt(
         failure_state_receipt_path is not None and flagship_failure_states_ok
     )
     flagship_activation_to_value_ok, flagship_activation_to_value_details = _flagship_activation_to_value_proof(
-        activation_to_value
+        activation_to_value,
+        expected_release_commit_sha=expected_release_commit_sha,
     )
     activation_to_value_ok = not flagship_profile or (
         activation_to_value_receipt_path is not None and flagship_activation_to_value_ok
@@ -3565,6 +3804,33 @@ def build_gold_status_receipt(
                 "replica_id": str(slo_evidence_details.get("replica_id") or ""),
                 "replica_count": slo_evidence_details.get("replica_count"),
                 "action": "capture fresh authenticated private /internal/metrics evidence for the exact release image and replica set, then rerun propertyquarry_slo_evidence.py --flagship before promotion",
+            }
+        )
+    if evidence_overlay_required and not evidence_overlay_ok:
+        blockers.append(
+            {
+                "area": "evidence_overlay_read_model",
+                "status": evidence_overlay_details.get("status") or "blocked",
+                "errors": list(evidence_overlay_details.get("errors") or []),
+                "candidate_sha": evidence_overlay_details.get("candidate_sha") or "",
+                "layer_count": evidence_overlay_details.get("layer_count"),
+                "record_count": evidence_overlay_details.get("record_count"),
+                "query_p95_ms": evidence_overlay_details.get("query_p95_ms"),
+                "query_budget_ms": evidence_overlay_details.get("query_budget_ms"),
+                "action": "ingest a fresh exact eight-table Teable export into the indexed Postgres cached read model for this candidate, then supply its mode-600 receipt",
+            }
+        )
+    if rybbit_evidence_required and not rybbit_evidence_ok:
+        blockers.append(
+            {
+                "area": "rybbit_delivery",
+                "status": rybbit_evidence_details.get("status") or "blocked",
+                "errors": list(rybbit_evidence_details.get("errors") or []),
+                "candidate_sha": rybbit_evidence_details.get("candidate_sha") or "",
+                "collector_status_code": rybbit_evidence_details.get("collector_status_code"),
+                "event_name": rybbit_evidence_details.get("event_name") or "",
+                "event_count": rybbit_evidence_details.get("event_count"),
+                "action": "run the protected Rybbit browser and authenticated API probe for this candidate until script delivery, collector acceptance, dashboard data, and launch-event arrival all pass",
             }
         )
     if missing_flagship_customer_ux_receipts:
@@ -4366,6 +4632,28 @@ def build_gold_status_receipt(
         }
         if slo_evidence_required and slo_evidence_ok
         else None,
+        {
+            "area": "evidence_overlay_read_model",
+            "status": "pass",
+            "candidate_sha": evidence_overlay_details.get("candidate_sha"),
+            "snapshot_id": evidence_overlay_details.get("snapshot_id"),
+            "layer_count": evidence_overlay_details.get("layer_count"),
+            "record_count": evidence_overlay_details.get("record_count"),
+            "receipt_path": str(evidence_overlay_receipt_path),
+        }
+        if evidence_overlay_required and evidence_overlay_ok
+        else None,
+        {
+            "area": "rybbit_delivery",
+            "status": "pass",
+            "candidate_sha": rybbit_evidence_details.get("candidate_sha"),
+            "collector_status_code": rybbit_evidence_details.get("collector_status_code"),
+            "event_name": rybbit_evidence_details.get("event_name"),
+            "event_count": rybbit_evidence_details.get("event_count"),
+            "receipt_path": str(rybbit_evidence_receipt_path),
+        }
+        if rybbit_evidence_required and rybbit_evidence_ok
+        else None,
         {"area": "receipt_freshness", "status": "pass"}
         if receipt_freshness_ok
         else None,
@@ -4405,6 +4693,8 @@ def build_gold_status_receipt(
             and scene_video_readiness_verifier_ok
             and scene_video_provider_refresh_packet_verifier_ok
             and (not slo_evidence_required or slo_evidence_ok)
+            and (not evidence_overlay_required or evidence_overlay_ok)
+            and (not rybbit_evidence_required or rybbit_evidence_ok)
             and receipt_freshness_ok
         )
         else "blocked"
@@ -4430,8 +4720,7 @@ def build_gold_status_receipt(
                 ),
                 "Self-healing canary is current and proves repair-or-quarantine behavior for failed provider sources.",
                 (
-                    "Prepared operator import folders can still wait for future verified asset drops without blocking the "
-                    "current release."
+                    "Prepared operator import folders can still wait for future verified asset drops without blocking the current release."
                     if operator_import_manifest_ready and export_repair_sample
                     else "Prepared operator import folders are aligned with the active verified release."
                 ),
@@ -4452,6 +4741,14 @@ def build_gold_status_receipt(
         if not release_hygiene_ok:
             notes.append(
                 "Release-manifest authority is blocked until /version matches the candidate commit; PropertyQuarry API and render containers run image-baked /app code, so host worktree changes do not count as runtime proof until rebuild/recreate."
+            )
+        if evidence_overlay_required and not evidence_overlay_ok:
+            notes.append(
+                "Evidence overlays are blocked until a fresh candidate-bound Teable export is atomically materialized and benchmarked through the exact eight-layer Postgres read model."
+            )
+        if rybbit_evidence_required and not rybbit_evidence_ok:
+            notes.append(
+                "Rybbit is blocked until the protected browser event is accepted by the collector and appears through the authenticated site/data/events APIs."
             )
         if billing_readiness.get("provider_disabled") is True:
             notes.append("Paid-persona billing is intentionally disabled, so flagship launch readiness remains blocked until a no-second-login account handoff is enabled and verified live.")
@@ -4529,6 +4826,31 @@ def build_gold_status_receipt(
             "live_mobile_billing_available": live_mobile_billing_availability.get("available") if flagship_profile else None,
             "authenticated_billing_available": authenticated_billing_availability.get("available") if flagship_profile else None,
             "max_receipt_age_hours": effective_max_receipt_age_hours if flagship_profile else max_receipt_age_hours,
+        },
+        "launch_product_data_evidence": {
+            "required": launch_profile,
+            "ready": (
+                evidence_overlay_ok and rybbit_evidence_ok
+                if launch_profile
+                else None
+            ),
+            "evidence_overlay_read_model": {
+                **evidence_overlay_details,
+                "required": evidence_overlay_required,
+                "max_age_hours": effective_evidence_overlay_max_age_hours,
+                "receipt_path": str(evidence_overlay_receipt_path)
+                if evidence_overlay_receipt_path is not None
+                else "",
+            },
+            "rybbit_delivery": {
+                **rybbit_evidence_details,
+                "required": rybbit_evidence_required,
+                "max_age_minutes": effective_rybbit_evidence_max_age_minutes,
+                "receipt_path": str(rybbit_evidence_receipt_path)
+                if rybbit_evidence_receipt_path is not None
+                else "",
+            },
+            "note": "Launch requires a candidate-bound Teable-to-Postgres eight-layer read model and real Rybbit collector/dashboard delivery proof; registry fixtures and markup checks are supplemental only.",
         },
         "performance": {
             "status": performance.get("status"),
@@ -4610,6 +4932,7 @@ def build_gold_status_receipt(
             "status": activation_to_value.get("status")
             or ("not_configured" if activation_to_value_receipt_path is None else "missing"),
             "failed_count": activation_to_value.get("failed_count"),
+            "release_commit_sha": str(activation_to_value.get("release_commit_sha") or ""),
             "auth_mode": str(activation_to_value.get("auth_mode") or ""),
             "browser_engine": str(activation_to_value.get("browser_engine") or ""),
             "proof_mode": str(activation_to_value.get("proof_mode") or ""),
@@ -4966,7 +5289,7 @@ def build_gold_status_receipt(
             "failure_count": len(list(whole_project_scope.get("failures") or [])) if whole_project_scope_receipt_path is not None else None,
             "failures": list(whole_project_scope.get("failures") or [])[:12] if whole_project_scope_receipt_path is not None else [],
             "receipt_path": str(whole_project_scope_receipt_path) if whole_project_scope_receipt_path is not None else "",
-            "note": "Whole-project scope covers evidence-overlay registry shape, async Teable-first ingestion policy, cached-read-model search policy, and whole-product boundary language.",
+            "note": "Whole-project scope binds the overlay registry, authenticated Teable ingestion producer, atomic Postgres cached read model, real Rybbit delivery producer, Gold receipt consumption, and whole-product boundary language.",
         },
         "production_security_posture": {
             "status": security_posture.get("status") or ("not_configured" if security_posture_receipt_path is None else "missing"),
@@ -5524,6 +5847,8 @@ def main() -> int:
     parser.add_argument("--scene-video-provider-refresh-packet", default="")
     parser.add_argument("--scene-video-provider-refresh-packet-verifier-receipt", default="")
     parser.add_argument("--slo-evidence-receipt", default="")
+    parser.add_argument("--evidence-overlay-receipt", default="")
+    parser.add_argument("--rybbit-evidence-receipt", default="")
     parser.add_argument("--slo-metrics-snapshot", default="")
     parser.add_argument("--slo-metrics-probe", default="")
     parser.add_argument("--monitoring-runtime-receipt", default="")
@@ -5553,10 +5878,50 @@ def main() -> int:
         default=os.environ.get("PROPERTYQUARRY_RELEASE_IMAGE_DIGEST", ""),
     )
     parser.add_argument(
+        "--expected-public-origin",
+        default=(
+            os.environ.get("PROPERTYQUARRY_PUBLIC_ORIGIN", "")
+            or os.environ.get("PROPERTYQUARRY_EXPECTED_RELEASE_PUBLIC_ORIGIN", "")
+        ),
+    )
+    parser.add_argument(
+        "--expected-rybbit-origin",
+        default=os.environ.get("PROPERTYQUARRY_RYBBIT_ORIGIN", ""),
+    )
+    parser.add_argument(
+        "--expected-teable-origin",
+        default=os.environ.get("PROPERTYQUARRY_EXPECTED_TEABLE_ORIGIN", ""),
+    )
+    parser.add_argument(
+        "--expected-teable-base-id-sha256",
+        default=os.environ.get("PROPERTYQUARRY_EXPECTED_TEABLE_BASE_ID_SHA256", ""),
+    )
+    parser.add_argument(
+        "--expected-evidence-overlay-phase",
+        choices=("staged", "active"),
+        default="staged",
+    )
+    parser.add_argument(
+        "--expected-rybbit-site-id-sha256",
+        default=os.environ.get("PROPERTYQUARRY_RYBBIT_SITE_ID_SHA256", ""),
+    )
+    parser.add_argument(
         "--slo-evidence-max-age-seconds",
         type=int,
         default=DEFAULT_SLO_EVIDENCE_MAX_AGE_SECONDS,
         help="Maximum private metrics probe age; values above 900 remain capped at 900.",
+    )
+    parser.add_argument(
+        "--evidence-overlay-max-age-hours",
+        type=float,
+        default=DEFAULT_EVIDENCE_OVERLAY_MAX_AGE_HOURS,
+        help="Maximum Teable/Postgres proof age; values above 48 remain capped at 48.",
+    )
+    parser.add_argument(
+        "--rybbit-evidence-max-age-minutes",
+        type=float,
+        default=DEFAULT_RYBBIT_EVIDENCE_MAX_AGE_MINUTES,
+        help="Maximum real Rybbit delivery proof age; values above 15 remain capped at 15.",
     )
     parser.add_argument("--id-austria-receipt", default="")
     parser.add_argument("--repair-canary-receipt", default="")
@@ -5580,12 +5945,40 @@ def main() -> int:
     )
     parser.add_argument("--fail-on-blocked", action="store_true")
     args = parser.parse_args()
+    if args.require_launch_evidence and args.profile != "launch":
+        parser.error("--require-launch-evidence requires --profile launch")
+    for option, value in (
+        ("--max-receipt-age-hours", args.max_receipt_age_hours),
+        ("--evidence-overlay-max-age-hours", args.evidence_overlay_max_age_hours),
+        ("--rybbit-evidence-max-age-minutes", args.rybbit_evidence_max_age_minutes),
+    ):
+        if not math.isfinite(value) or value <= 0:
+            parser.error(f"{option} must be a finite positive number")
     try:
         configured_browser_engines = _normalize_required_browser_engines(
             tuple(engine.strip() for engine in str(args.required_browser_engines or "").split(",") if engine.strip())
         )
     except ValueError as exc:
         parser.error(str(exc))
+
+    if args.profile == "launch":
+        launch_product_arguments = {
+            "--evidence-overlay-receipt": args.evidence_overlay_receipt,
+            "--rybbit-evidence-receipt": args.rybbit_evidence_receipt,
+            "--expected-public-origin": args.expected_public_origin,
+            "--expected-teable-origin": args.expected_teable_origin,
+            "--expected-teable-base-id-sha256": args.expected_teable_base_id_sha256,
+            "--expected-rybbit-origin": args.expected_rybbit_origin,
+            "--expected-rybbit-site-id-sha256": args.expected_rybbit_site_id_sha256,
+        }
+        missing_launch_product_arguments = [
+            name for name, value in launch_product_arguments.items() if not str(value or "").strip()
+        ]
+        if missing_launch_product_arguments:
+            parser.error(
+                "launch product-data evidence requires "
+                + ", ".join(missing_launch_product_arguments)
+            )
 
     raw_launch_arguments = {
         "--slo-metrics-snapshot": args.slo_metrics_snapshot,
@@ -5721,9 +6114,27 @@ def main() -> int:
         slo_evidence_receipt_path=(
             Path(args.slo_evidence_receipt) if args.slo_evidence_receipt else None
         ),
+        evidence_overlay_receipt_path=(
+            Path(args.evidence_overlay_receipt)
+            if args.evidence_overlay_receipt
+            else None
+        ),
+        rybbit_evidence_receipt_path=(
+            Path(args.rybbit_evidence_receipt)
+            if args.rybbit_evidence_receipt
+            else None
+        ),
         expected_release_commit_sha=args.expected_release_sha,
         expected_release_image_digest=args.expected_image_digest,
+        expected_public_origin=args.expected_public_origin,
+        expected_teable_origin=args.expected_teable_origin,
+        expected_teable_base_id_sha256=args.expected_teable_base_id_sha256,
+        expected_evidence_overlay_phase=args.expected_evidence_overlay_phase,
+        expected_rybbit_origin=args.expected_rybbit_origin,
+        expected_rybbit_site_id_sha256=args.expected_rybbit_site_id_sha256,
         slo_evidence_max_age_seconds=args.slo_evidence_max_age_seconds,
+        evidence_overlay_max_age_hours=args.evidence_overlay_max_age_hours,
+        rybbit_evidence_max_age_minutes=args.rybbit_evidence_max_age_minutes,
         id_austria_receipt_path=Path(args.id_austria_receipt) if args.id_austria_receipt else _default_receipt_path("id_austria"),
         repair_canary_receipt_path=Path(args.repair_canary_receipt) if args.repair_canary_receipt else _default_receipt_path("repair_canary"),
         provider_catalog_receipt_path=(

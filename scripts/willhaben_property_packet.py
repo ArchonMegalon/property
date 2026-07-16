@@ -154,12 +154,19 @@ def normalize_attribute_value(raw: object) -> list[str]:
     return [text] if text else []
 
 
-def load_advert(url: str) -> dict[str, object]:
-    next_data = extract_next_data(fetch_html(url))
-    advert = deep_get(next_data, "props", "pageProps", "advertDetails")
+def extract_advert_details(next_data: dict[str, object]) -> dict[str, object]:
+    page_props = deep_get(next_data, "props", "pageProps")
+    advert = page_props.get("advertDetails") if isinstance(page_props, dict) else None
     if not isinstance(advert, dict):
+        expired_ad_id = page_props.get("fromExpiredAdId") if isinstance(page_props, dict) else None
+        if as_text(expired_ad_id):
+            raise RuntimeError("willhaben_listing_expired")
         raise RuntimeError("willhaben_advert_details_missing")
     return advert
+
+
+def load_advert(url: str) -> dict[str, object]:
+    return extract_advert_details(extract_next_data(fetch_html(url)))
 
 
 def extract_attributes(advert: dict[str, object]) -> dict[str, list[str]]:
@@ -1130,9 +1137,7 @@ def build_variants(*, title: str, floorplan_count: int, photo_count: int, facts:
 def summarize_listing(url: str) -> dict[str, object]:
     listing_html = fetch_html(url)
     next_data = extract_next_data(listing_html)
-    advert = deep_get(next_data, "props", "pageProps", "advertDetails")
-    if not isinstance(advert, dict):
-        raise RuntimeError("willhaben_advert_details_missing")
+    advert = extract_advert_details(next_data)
     attributes = extract_attributes(advert)
     photos, floorplans, assets, panoramas = extract_media(advert)
     html_floorplans = extract_html_floorplan_refs(listing_html)
@@ -1284,7 +1289,11 @@ def load_urls(args: argparse.Namespace) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv or sys.argv[1:])
-    payload = [summarize_listing(url) for url in load_urls(args)]
+    try:
+        payload = [summarize_listing(url) for url in load_urls(args)]
+    except RuntimeError as exc:
+        sys.stderr.write(f"{exc}\n")
+        return 2
     text = json.dumps(payload, ensure_ascii=True, indent=2 if args.pretty else None)
     if args.output:
         with open(args.output, "w", encoding="utf-8") as handle:

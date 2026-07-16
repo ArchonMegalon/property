@@ -3,6 +3,10 @@
   "gold_policy": {
     "search_execution_policy": "cached_rollups_only_no_inline_source_indexing",
     "ingestion_policy": "async_teable_first_then_cached_read_model",
+    "protected_ingestion_producer": "scripts/property_evidence_overlay_read_model.py",
+    "launch_receipt_schema": "propertyquarry.evidence_overlay_read_model_receipt.v2",
+    "launch_source_evidence": "authenticated_teable_api_response_table_page_digests",
+    "launch_read_model_evidence": "staged_snapshot_validate_benchmark_atomic_pointer_switch_and_indexed_lookup_p95",
     "ui_state_policy": "each layer must render unavailable, stale, and verified states",
     "privacy_policy": "area context only; no person scoring, no exact private notes, no raw article bodies"
   },
