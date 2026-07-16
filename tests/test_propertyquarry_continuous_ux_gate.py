@@ -236,6 +236,25 @@ def test_visible_image_wait_handles_hydration_breakage_and_frame_timeout() -> No
             assert broken["broken_visible_image_count"] == 1
 
             page.set_content(
+                "<main>decode stall</main><nav aria-label='Primary'>nav</nav>"
+                f"<img id='decode-stall' alt='valid' style='width:20px;height:20px' "
+                f"src='{valid_source}'>"
+            )
+            page.locator("#decode-stall").wait_for(state="visible")
+            page.wait_for_function(
+                "document.querySelector('#decode-stall').naturalWidth > 0"
+            )
+            page.evaluate(
+                "document.querySelector('#decode-stall').decode = () => "
+                "new Promise((resolve) => setTimeout(resolve, 2000))"
+            )
+            gate._wait_for_visible_image_terminal_state(page, timeout_ms=1_500)
+            stalled_decode = gate._structural_visual_metrics(page)
+            assert stalled_decode["visible_image_count"] == 1
+            assert stalled_decode["terminal_visible_image_count"] == 1
+            assert stalled_decode["broken_visible_image_count"] == 0
+
+            page.set_content(
                 "<main>missing</main><nav aria-label='Primary'>nav</nav>"
                 "<img alt='missing' style='width:20px;height:20px' src=''>"
             )

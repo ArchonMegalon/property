@@ -203,13 +203,13 @@ def _wait_for_visible_image_terminal_state(page: Any, *, timeout_ms: int) -> Non
               && performance.now() - stableSince >= stabilityMs
             ) {
               const remainingMs = Math.max(1, deadline - performance.now());
-              const decodeResults = await Promise.race([
+              const decodeBudgetMs = Math.min(1_000, Math.max(1, remainingMs / 2));
+              await Promise.race([
                 Promise.allSettled(rows.map(({ image }) => (
                   typeof image.decode === 'function' ? image.decode() : Promise.resolve()
                 ))),
-                new Promise((resolve) => setTimeout(() => resolve(null), remainingMs)),
+                new Promise((resolve) => setTimeout(resolve, decodeBudgetMs)),
               ]);
-              if (decodeResults === null) break;
               if (!(await nextFrame()) || !(await nextFrame())) break;
               const finalRows = snapshot();
               if (
