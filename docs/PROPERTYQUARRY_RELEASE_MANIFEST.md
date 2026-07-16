@@ -56,7 +56,7 @@ That means the billing account lane still requires a second vendor login even th
 | Secondary origin | `https://github.com/ArchonMegalon/propertyquarry.git` |
 | Branch | `main` |
 | Release envelope | current tracked `main`; exact workflow-head SHA is recorded separately from the runtime binding in hosted and protected receipts |
-| Runtime commit SHA | `f112995837cb1c49f5fc4233642fc689a53ecef7` |
+| Runtime commit SHA | `8a3c355730f619b4e136b89dda0c476ee5758ebc` |
 | Deployment endpoint | `http://127.0.0.1:8097` with `Host: propertyquarry.com` origin smoke |
 | Public domain | `https://propertyquarry.com` |
 | Deployment ID | `pending-governed-production-deploy`; current public runtime is not reconciled to this candidate |
