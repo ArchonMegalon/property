@@ -3,7 +3,7 @@
   "surface": "propertyquarry_flagship_release_control",
   "version": 1,
   "kind": "release_receipt",
-  "generated_at": "2026-07-16T20:26:12Z",
+  "generated_at": "2026-07-16T22:34:14Z",
   "generated_by": "scripts/materialize_ea_flagship_release_gate.py",
   "status": "pass",
   "readiness_scope": "source_and_browser_proof",
@@ -14,7 +14,7 @@
   },
   "source_binding": {
     "version": 1,
-    "code_commit": "8dc002fdef3dbab38891efc0aef85c8a840efdbb",
+    "code_commit": "e8236e716e296ad0d65475bce68ce88c3f143b18",
     "seed": {
       "path": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
       "sha256": "3fb0eef6a4b17835643e61a6d422f4802182f67f3c4aae88000062e4a671d163",
@@ -28,15 +28,15 @@
       },
       {
         "path": "tests/e2e/test_propertyquarry_greenfield_browser.py",
-        "sha256": "66733e06a6b6d1af2383fca7a5e9f9618cf66fff68d04d522f4673b9250ac157",
-        "git_blob_oid": "ecec6fc44570585ffa62a348a7e553c4ad5e5f5c"
+        "sha256": "20bca0ac810725961b3ba2db7069121919bca0856e74fe8422760cec24f997e0",
+        "git_blob_oid": "e2ce6d1ca31515f420139d11744110ea06852412"
       }
     ]
   },
   "browser_receipt_binding": {
     "path": ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json",
-    "sha256": "7cd076114483a7d1521e29c308eecc61e6d51e6443862b85437bce74a94ffe35",
-    "git_blob_oid": "49199f85133487c68931df7aeafb758baecd3748"
+    "sha256": "09855c11e36920f95a03ea1470dbd2c2486adf47dc2e927d34439df435a2b460",
+    "git_blob_oid": "e2ebf27aff0f3942e1756a4302bde468b378d35f"
   },
   "operator_summary": "PropertyQuarry source/browser flagship proof is published and green; final live readiness is not evaluated by this receipt.",
   "truth_plane": {
@@ -181,7 +181,7 @@
     "version": 1,
     "status": "pass",
     "readiness_scope": "candidate_source_and_browser_proof",
-    "runtime_commit_sha": "8dc002fdef3dbab38891efc0aef85c8a840efdbb",
+    "runtime_commit_sha": "e8236e716e296ad0d65475bce68ce88c3f143b18",
     "required_journey_ids": [
       "public_entry",
       "onboarding_auth",

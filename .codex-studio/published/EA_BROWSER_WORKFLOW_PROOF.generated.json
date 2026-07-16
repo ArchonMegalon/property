@@ -5,7 +5,7 @@
   "proof_target": "propertyquarry",
   "version": 1,
   "kind": "proof_receipt",
-  "generated_at": "2026-07-16T20:26:12Z",
+  "generated_at": "2026-07-16T22:34:14Z",
   "generated_by": "scripts/materialize_ea_browser_workflow_proof.py",
   "status": "pass",
   "operator_summary": "PropertyQuarry browser workflow proof is published and green across the required journey matrix, source-backed contracts, and real-browser E2E.",
@@ -21,7 +21,7 @@
   ],
   "source_binding": {
     "version": 1,
-    "code_commit": "8dc002fdef3dbab38891efc0aef85c8a840efdbb",
+    "code_commit": "e8236e716e296ad0d65475bce68ce88c3f143b18",
     "seed": {
       "path": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
       "sha256": "3fb0eef6a4b17835643e61a6d422f4802182f67f3c4aae88000062e4a671d163",
@@ -35,8 +35,8 @@
       },
       {
         "path": "tests/e2e/test_propertyquarry_greenfield_browser.py",
-        "sha256": "66733e06a6b6d1af2383fca7a5e9f9618cf66fff68d04d522f4673b9250ac157",
-        "git_blob_oid": "ecec6fc44570585ffa62a348a7e553c4ad5e5f5c"
+        "sha256": "20bca0ac810725961b3ba2db7069121919bca0856e74fe8422760cec24f997e0",
+        "git_blob_oid": "e2ce6d1ca31515f420139d11744110ea06852412"
       }
     ]
   },
@@ -56,10 +56,10 @@
       "test_propertyquarry_public_home_survives_unreadable_optional_tour_media"
     ],
     "exit_code": 0,
-    "duration_seconds": 17.729,
+    "duration_seconds": 20.348,
     "output_excerpt": [
       ".......                                                                  [100%]",
-      "7 passed in 16.18s"
+      "7 passed in 18.81s"
     ],
     "limitations": [],
     "outcome_counts": {
@@ -92,10 +92,10 @@
       "test_propertyquarry_browser_alert_button_toggles_enabled_state"
     ],
     "exit_code": 0,
-    "duration_seconds": 42.909,
+    "duration_seconds": 46.498,
     "output_excerpt": [
       ".........                                                                [100%]",
-      "9 passed in 40.73s"
+      "9 passed in 44.54s"
     ],
     "limitations": [],
     "outcome_counts": {
@@ -114,7 +114,7 @@
     "version": 1,
     "status": "pass",
     "readiness_scope": "candidate_source_and_browser_proof",
-    "runtime_commit_sha": "8dc002fdef3dbab38891efc0aef85c8a840efdbb",
+    "runtime_commit_sha": "e8236e716e296ad0d65475bce68ce88c3f143b18",
     "required_journey_ids": [
       "public_entry",
       "onboarding_auth",
