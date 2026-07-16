@@ -25,7 +25,7 @@ def test_whole_project_scope_tracks_gold_blocker_extensions() -> None:
     required_manifest_tokens = (
         "Evidence-map overlays remain a whole-project gold blocker",
         "Rybbit remains a whole-project gold blocker",
-        "Release hardening remains a whole-project gold blocker",
+        "Remote candidate CI and deployed/live receipts remain required before launch authority can be granted.",
         "Production security remains a whole-project gold blocker",
         "SBOM",
         "durable RBAC/session revocation",

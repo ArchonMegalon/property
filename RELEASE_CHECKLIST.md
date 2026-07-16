@@ -6,9 +6,8 @@
 - [ ] For a PropertyQuarry release, do not export checkout-local database, traffic, owner, migrator, or controller credentials. The independently installed release controller owns its root-managed secret store and canonical runtime configuration.
 - [ ] If separately validating the legacy EA stack, keep its `.env`, `EA_STORAGE_BACKEND`, and `DATABASE_URL` work outside the PropertyQuarry release path and do not treat it as PropertyQuarry deployment evidence.
 - [ ] `PRODUCT_RELEASE_CHECKLIST.md` is fully satisfied for the current product wedge.
-- [ ] `FLAGSHIP_CLOSEOUT_PLAN.md` blocker set is green enough to support the intended release claim.
-- [ ] `.codex-design/ea/START_HERE.md` and the linked EA canon docs still match the shipped public/app surface.
-- [ ] `EA_FLAGSHIP_TRUTH_PLANE.md`, `EA_FLAGSHIP_RELEASE_GATE.json`, and `EA_FLAGSHIP_RELEASE_GATE.generated.json` agree with the browser workflow proof.
+- [ ] `.codex-design/repo/IMPLEMENTATION_SCOPE.md`, `docs/PRODUCT_BRIEF.md`, and `docs/PROPERTY_DECISION_WORKBENCH_GUIDE.md` still match the shipped public/app surface.
+- [ ] `.codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md`, `.codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json`, and `.codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json` agree with the PropertyQuarry browser workflow proof and exact candidate identity.
 - [ ] `make verify-flagship-release-readiness` passes, confirming the weekly pulse, browser proof, flagship receipt, and Fleet journey gate are all clear for wider release claims.
 - [ ] Product boundary reviewed: non-core public utility routes are disabled unless intentionally required (`EA_ENABLE_PUBLIC_RESULTS`, `EA_ENABLE_PUBLIC_TOURS`).
 - [ ] CI smoke workflow is green.
@@ -19,7 +18,7 @@
 - [ ] Optional docs parity run completed: `make docs-verify`.
 - [ ] Optional docs+usage parity run completed: `make release-docs`.
 - [ ] `make propertyquarry-release-protocol-contracts` passes. Treat this only as offline protocol and handoff conformance evidence, never as signature verification, authorization, controller attestation, or a live-release claim.
-- [ ] Docs parity confirms the EA canon, flagship truth plane, gate seed, and generated receipt are present and the browser proof is still green.
+- [ ] Docs parity confirms the standalone implementation scope, flagship truth plane, gate seed, generated receipt, and browser proof are present, current, and PropertyQuarry-bound.
 
 ## Build & Deploy
 
@@ -53,12 +52,12 @@
 
 - [ ] Optional one-command release bundle: `make release-preflight` (includes flagship release-readiness verification)
 - [ ] `make release-smoke`
-- [ ] The core workspace proves one real memo -> queue -> draft/approval -> follow-up loop on durable product objects.
+- [ ] The product proves one durable brief -> search dispatch -> ranked results -> property dossier -> shortlist or feedback -> revisit loop.
 - [ ] Browser surface contract tests confirm no product-surface links to experimental routes in product mode.
 - [ ] `make operator-help` (manual spot-check of script usage contracts)
 - [ ] Optional combined local mirror: `make ci-gates`
 - [ ] Confirm blocked-policy path returns `403`.
-- [ ] Confirm `/v1/policy/decisions/recent` includes new entries after rewrite call.
+- [ ] Confirm delayed, partial, failed, and offline search states retain customer-safe recovery and candidate-bound evidence without contacting a real provider during release tests.
 
 ## Observability
 

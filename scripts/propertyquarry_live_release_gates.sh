@@ -34,7 +34,7 @@ if [[ -z "${EA_API_TOKEN:-}" ]]; then
   exit 2
 fi
 if ! [[ "${expected_release_commit_sha}" =~ ^[0-9a-fA-F]{40}$ ]]; then
-  echo "error: set PROPERTYQUARRY_EXPECTED_RELEASE_COMMIT_SHA to the dispatched full Git commit SHA" >&2
+  echo "error: set PROPERTYQUARRY_EXPECTED_RELEASE_COMMIT_SHA to the manifest runtime full Git commit SHA" >&2
   exit 2
 fi
 

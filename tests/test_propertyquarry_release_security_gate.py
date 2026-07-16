@@ -478,4 +478,7 @@ def test_ci_flagship_security_job_is_focused_protected_and_blocks_live_gate() ->
     assert "docker pull" not in job
     assert "docker compose" not in job
     assert "ea-api" not in job
-    assert "needs: propertyquarry-flagship-security" in live_job
+    assert "needs:\n      - propertyquarry-flagship-security\n      - propertyquarry-continuous-ux" in live_job
+    assert "PROPERTYQUARRY_WORKFLOW_HEAD_SHA: ${{ github.sha }}" in job
+    assert "release_manifest_runtime_sha" in job
+    assert "workflow-binding.json" in job

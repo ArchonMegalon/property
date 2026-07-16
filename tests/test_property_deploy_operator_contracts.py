@@ -299,7 +299,8 @@ def test_smoke_runtime_protects_live_propertyquarry_release_gates() -> None:
         "if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}"
         in live_job
     )
-    assert live_job.count("if:") == 1
+    assert live_job.count("if:") == 2
+    assert "if: ${{ always() }}" in live_job
     assert "environment:\n      name: propertyquarry-production" in live_job
     assert "permissions:\n      contents: read" in live_job
     assert "persist-credentials: false" in live_job
@@ -313,7 +314,18 @@ def test_smoke_runtime_protects_live_propertyquarry_release_gates() -> None:
     )
     assert "PROPERTYQUARRY_LIVE_PRINCIPAL_ID: ${{ secrets.PROPERTYQUARRY_LIVE_PRINCIPAL_ID }}" in live_job
     assert "EA_API_TOKEN: ${{ secrets.PROPERTYQUARRY_LIVE_API_TOKEN }}" in live_job
-    assert "PROPERTYQUARRY_EXPECTED_RELEASE_COMMIT_SHA: ${{ github.sha }}" in live_job
+    assert "PROPERTYQUARRY_WORKFLOW_HEAD_SHA: ${{ github.sha }}" in live_job
+    assert "release_manifest_runtime_sha" in live_job
+    assert 'echo "PROPERTYQUARRY_EXPECTED_RELEASE_COMMIT_SHA=${runtime_sha}" >> "${GITHUB_ENV}"' in live_job
+    assert "property-live-workflow-binding.json" in live_job
+    assert "property-live-release-provenance.json" in live_job
+    assert "property-live-mobile-release-gate.json" in live_job
+    assert "property-live-accessibility-release-gate.json" in live_job
+    assert "property-live-map-preview-flagship-release-gate.json" in live_job
+    assert "property-live-public-release-gate.json" in live_job
+    assert "property-live-authenticated-release-gate.json" in live_job
+    assert "actions/upload-artifact@v4" in live_job
+    assert "if-no-files-found: error" in live_job
     assert "set -euo pipefail" in live_job
     preflight_markers = (
         ': "${PROPERTYQUARRY_LIVE_MOBILE_BASE_URL:?Missing GitHub environment variable '

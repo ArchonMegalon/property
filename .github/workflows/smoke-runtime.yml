@@ -52,13 +52,48 @@ jobs:
       contents: read
     runs-on: [self-hosted, propertyquarry-security]
     env:
-      PROPERTYQUARRY_RELEASE_COMMIT_SHA: ${{ github.sha }}
+      PROPERTYQUARRY_WORKFLOW_HEAD_SHA: ${{ github.sha }}
       PROPERTYQUARRY_WEB_IMAGE: ${{ vars.PROPERTYQUARRY_WEB_IMAGE }}
       PROPERTYQUARRY_RENDER_IMAGE: ${{ vars.PROPERTYQUARRY_RENDER_IMAGE }}
     steps:
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           persist-credentials: false
+      - name: Bind security evidence to the manifest runtime candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          PYTHONPATH=ea python3 scripts/check_property_release_hygiene.py
+          runtime_sha="$(PYTHONPATH=ea python3 -c 'from scripts.check_property_release_hygiene import release_manifest_runtime_sha; print(release_manifest_runtime_sha())')"
+          if [[ ! "${runtime_sha}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "PropertyQuarry manifest runtime SHA is missing or malformed" >&2
+            exit 1
+          fi
+          git cat-file -e "${runtime_sha}^{commit}"
+          export PROPERTYQUARRY_RELEASE_COMMIT_SHA="${runtime_sha}"
+          echo "PROPERTYQUARRY_RELEASE_COMMIT_SHA=${runtime_sha}" >> "${GITHUB_ENV}"
+          output_root="_completion/propertyquarry_release_security/${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p "${output_root}"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = {
+              "contract_name": "propertyquarry.workflow_runtime_binding",
+              "version": 1,
+              "product": "PropertyQuarry",
+              "runtime_commit_sha": os.environ["PROPERTYQUARRY_RELEASE_COMMIT_SHA"],
+              "workflow_head_sha": os.environ["PROPERTYQUARRY_WORKFLOW_HEAD_SHA"],
+              "run_id": os.environ["GITHUB_RUN_ID"],
+              "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+          }
+          output = Path("_completion/propertyquarry_release_security") / (
+              f"{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}"
+          ) / "workflow-binding.json"
+          output.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+          PY
       - name: Gate PropertyQuarry dependencies, images, and SBOMs
         run: |
           set -euo pipefail
@@ -341,6 +376,7 @@ jobs:
     env:
       PROPERTYQUARRY_LIVE_MOBILE_BASE_URL: ${{ vars.PROPERTYQUARRY_LIVE_MOBILE_BASE_URL }}
       PROPERTYQUARRY_CONTINUOUS_UX_RECEIPT: _completion/smoke/propertyquarry-continuous-ux-${{ github.sha }}.json
+      PROPERTYQUARRY_WORKFLOW_HEAD_SHA: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -389,6 +425,30 @@ jobs:
           print("ok: candidate-bound continuous UX evidence")
           PY
           echo "PROPERTYQUARRY_EXPECTED_RELEASE_COMMIT_SHA=${runtime_sha}" >> "${GITHUB_ENV}"
+      - name: Record workflow and runtime candidate binding
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p _completion/smoke
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = {
+              "contract_name": "propertyquarry.workflow_runtime_binding",
+              "version": 1,
+              "product": "PropertyQuarry",
+              "runtime_commit_sha": os.environ["PROPERTYQUARRY_EXPECTED_RELEASE_COMMIT_SHA"],
+              "workflow_head_sha": os.environ["PROPERTYQUARRY_WORKFLOW_HEAD_SHA"],
+              "run_id": os.environ["GITHUB_RUN_ID"],
+              "run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+          }
+          Path("_completion/smoke/property-live-workflow-binding.json").write_text(
+              json.dumps(payload, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+          PY
       - name: Require protected live release inputs
         shell: bash
         run: |
@@ -403,6 +463,21 @@ jobs:
           PROPERTYQUARRY_LIVE_MOBILE_REQUIRED_BROWSER_ENGINES: chromium,firefox,webkit
           PROPERTYQUARRY_AXE_CORE_PATH: node_modules/axe-core/axe.min.js
         run: bash scripts/propertyquarry_live_release_gates.sh
+      - name: Preserve protected PropertyQuarry live release evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: propertyquarry-live-release-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            _completion/smoke/property-live-workflow-binding.json
+            _completion/smoke/property-live-release-provenance.json
+            _completion/smoke/property-live-mobile-release-gate.json
+            _completion/smoke/property-live-accessibility-release-gate.json
+            _completion/smoke/property-live-map-preview-flagship-release-gate.json
+            _completion/smoke/property-live-public-release-gate.json
+            _completion/smoke/property-live-authenticated-release-gate.json
+          if-no-files-found: error
+          retention-days: 30
 
   propertyquarry-live-activation-to-value:
     needs: propertyquarry-flagship-security
