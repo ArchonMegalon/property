@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from email.message import EmailMessage
 from pathlib import Path
@@ -282,8 +283,8 @@ def test_activation_workflow_is_contract_only_by_default_and_live_only_by_explic
     assert "PROPERTYQUARRY_ACTIVATION_LIVE_RUN: \"1\"" in live_job
     assert "PROPERTYQUARRY_ACTIVATION_ALLOW_ACCOUNT_CREATE: \"0\"" in live_job
     assert "--confirm-live" in live_job
-    assert "actions/cache/restore@v4" in live_job
-    assert "actions/cache/save@v4" in live_job
+    assert re.search(r"actions/cache/restore@[0-9a-f]{40}\s+# v4", live_job)
+    assert re.search(r"actions/cache/save@[0-9a-f]{40}\s+# v4", live_job)
     assert "X-EA-Principal-ID" not in live_job
     assert "PROPERTYQUARRY_LIVE_PRINCIPAL_ID" not in live_job
     assert "  propertyquarry-flagship-security:" in source
