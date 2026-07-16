@@ -1401,9 +1401,11 @@ def _target_recovery_run_timeout_diagnostics(
 
 def _target_recovery_scan_cap(case: TargetListing, *, rank_threshold: int) -> int:
     # Discovery only chooses targets from the rank window this canary promises
-    # to recover. Scan that complete window (and the chosen target position),
-    # not the product-wide 80-listing background-search default.
-    return max(1, int(rank_threshold), int(case.picked_index) + 1)
+    # to recover. The exact no-store probe refreshes the provider list after
+    # discovery, so reserve one adjacent slot for an insertion at the window
+    # boundary while keeping the scan tightly bounded instead of falling back
+    # to the product-wide 80-listing background-search default.
+    return max(1, int(rank_threshold) + 1, int(case.picked_index) + 1)
 
 
 def test_target_recovery_scan_cap_covers_rank_window_and_target_position() -> None:
@@ -1422,7 +1424,7 @@ def test_target_recovery_scan_cap_covers_rank_window_and_target_position() -> No
         picked_index=3,
     )
 
-    assert _target_recovery_scan_cap(case, rank_threshold=5) == 5
+    assert _target_recovery_scan_cap(case, rank_threshold=5) == 6
 
     case.picked_index = 7
     assert _target_recovery_scan_cap(case, rank_threshold=5) == 8

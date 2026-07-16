@@ -36,11 +36,22 @@ SOURCE_FILE = "tests/test_propertyquarry_workspace_redesign.py"
 SOURCE_CASES = [
     "test_propertyquarry_workspace_routes_render_greenfield_surfaces",
     "test_propertyquarry_failed_run_stays_on_activity_surface",
+    "test_property_workspace_sign_out_clears_workspace_session_cookie",
+    "test_property_saved_shortlist_candidates_persist_across_runs",
+    "test_propertyquarry_account_exposes_working_lifecycle_controls",
+    "test_propertyquarry_pricing_checkout_failure_copy_is_safe_and_accessible",
+    "test_propertyquarry_public_home_survives_unreadable_optional_tour_media",
 ]
 BROWSER_FILE = "tests/e2e/test_propertyquarry_greenfield_browser.py"
 BROWSER_CASES = [
     "test_propertyquarry_greenfield_workspace_in_real_browser",
     "test_propertyquarry_greenfield_workspace_is_mobile_usable",
+    "test_propertyquarry_expired_session_next_action_moves_keyboard_focus_to_sign_in_options",
+    "test_propertyquarry_flagship_operating_loop_in_browser",
+    "test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser",
+    "test_propertyquarry_packet_tracks_followup_state_in_browser",
+    "test_propertyquarry_account_notifications_save_multi_channel_preferences_in_real_browser",
+    "test_propertyquarry_browser_alert_button_toggles_enabled_state",
 ]
 
 
@@ -92,6 +103,180 @@ def _seed() -> dict[str, Any]:
                 {"file": BROWSER_FILE, "cases": BROWSER_CASES},
             ],
             "expected_browser_signals": ["/app/properties", "/app/research", "mobile"],
+        },
+        "journey_evidence_matrix": {
+            "version": 1,
+            "readiness_scope": "candidate_source_and_browser_proof",
+            "required_journey_ids": [
+                "public_entry",
+                "onboarding_auth",
+                "search_ranking",
+                "shortlist_research_revisit",
+                "account_pricing_privacy_recovery",
+                "packets_tours",
+                "feedback",
+                "notifications",
+            ],
+            "rows": [
+                {
+                    "journey_id": "public_entry",
+                    "label": "Public entry and optional media recovery",
+                    "evidence_sources": [
+                        {
+                            "file": SOURCE_FILE,
+                            "cases": [
+                                "test_propertyquarry_public_home_survives_unreadable_optional_tour_media"
+                            ],
+                        }
+                    ],
+                    "live_requirement": {
+                        "status": "not_evaluated",
+                        "authority": "_completion/smoke/property-live-public-release-gate.json",
+                        "required_profile": "launch",
+                    },
+                },
+                {
+                    "journey_id": "onboarding_auth",
+                    "label": "Onboarding, authentication, session return, and sign-out",
+                    "evidence_sources": [
+                        {
+                            "file": SOURCE_FILE,
+                            "cases": [
+                                "test_property_workspace_sign_out_clears_workspace_session_cookie"
+                            ],
+                        },
+                        {
+                            "file": BROWSER_FILE,
+                            "cases": [
+                                "test_propertyquarry_expired_session_next_action_moves_keyboard_focus_to_sign_in_options"
+                            ],
+                        },
+                    ],
+                    "live_requirement": {
+                        "status": "not_evaluated",
+                        "authority": "_completion/smoke/property-live-activation-to-value-*.json",
+                        "required_profile": "launch",
+                    },
+                },
+                {
+                    "journey_id": "search_ranking",
+                    "label": "Search setup, ranked results, and failed-run recovery",
+                    "evidence_sources": [
+                        {
+                            "file": SOURCE_FILE,
+                            "cases": [
+                                "test_propertyquarry_workspace_routes_render_greenfield_surfaces",
+                                "test_propertyquarry_failed_run_stays_on_activity_surface",
+                            ],
+                        },
+                        {
+                            "file": BROWSER_FILE,
+                            "cases": [
+                                "test_propertyquarry_greenfield_workspace_in_real_browser"
+                            ],
+                        },
+                    ],
+                    "live_requirement": {
+                        "status": "not_evaluated",
+                        "authority": "_completion/smoke/property-live-authenticated-release-gate.json",
+                        "required_profile": "launch",
+                    },
+                },
+                {
+                    "journey_id": "shortlist_research_revisit",
+                    "label": "Shortlist, research detail, persistence, and revisit",
+                    "evidence_sources": [
+                        {
+                            "file": SOURCE_FILE,
+                            "cases": [
+                                "test_property_saved_shortlist_candidates_persist_across_runs"
+                            ],
+                        },
+                        {
+                            "file": BROWSER_FILE,
+                            "cases": [
+                                "test_propertyquarry_greenfield_workspace_is_mobile_usable"
+                            ],
+                        },
+                    ],
+                    "live_requirement": {
+                        "status": "not_evaluated",
+                        "authority": "_completion/smoke/property-live-mobile-release-gate.json",
+                        "required_profile": "launch",
+                    },
+                },
+                {
+                    "journey_id": "account_pricing_privacy_recovery",
+                    "label": "Account, pricing, privacy lifecycle, and recovery",
+                    "evidence_sources": [
+                        {
+                            "file": SOURCE_FILE,
+                            "cases": [
+                                "test_propertyquarry_account_exposes_working_lifecycle_controls",
+                                "test_propertyquarry_pricing_checkout_failure_copy_is_safe_and_accessible",
+                            ],
+                        }
+                    ],
+                    "live_requirement": {
+                        "status": "not_evaluated",
+                        "authority": "_completion/smoke/property-live-authenticated-release-gate.json",
+                        "required_profile": "launch",
+                    },
+                },
+                {
+                    "journey_id": "packets_tours",
+                    "label": "Decision packets, sharing, tours, and recovery",
+                    "evidence_sources": [
+                        {
+                            "file": BROWSER_FILE,
+                            "cases": [
+                                "test_propertyquarry_flagship_operating_loop_in_browser"
+                            ],
+                        }
+                    ],
+                    "live_requirement": {
+                        "status": "not_evaluated",
+                        "authority": "_completion/smoke/property-live-public-release-gate.json",
+                        "required_profile": "launch",
+                    },
+                },
+                {
+                    "journey_id": "feedback",
+                    "label": "Decision feedback and packet follow-up",
+                    "evidence_sources": [
+                        {
+                            "file": BROWSER_FILE,
+                            "cases": [
+                                "test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser",
+                                "test_propertyquarry_packet_tracks_followup_state_in_browser",
+                            ],
+                        }
+                    ],
+                    "live_requirement": {
+                        "status": "not_evaluated",
+                        "authority": "_completion/smoke/property-live-authenticated-release-gate.json",
+                        "required_profile": "launch",
+                    },
+                },
+                {
+                    "journey_id": "notifications",
+                    "label": "Alert controls, channel preferences, and external delivery",
+                    "evidence_sources": [
+                        {
+                            "file": BROWSER_FILE,
+                            "cases": [
+                                "test_propertyquarry_account_notifications_save_multi_channel_preferences_in_real_browser",
+                                "test_propertyquarry_browser_alert_button_toggles_enabled_state",
+                            ],
+                        }
+                    ],
+                    "live_requirement": {
+                        "status": "not_evaluated",
+                        "authority": "_completion/smoke/property-live-notification-delivery.json",
+                        "required_profile": "launch",
+                    },
+                },
+            ],
         },
         "verification_binding": {
             "primary_verifier": "scripts/verify_release_assets.sh",
@@ -233,6 +418,7 @@ def _canonical_receipt_repo(
 
 def _unbound_browser_receipt(seed: dict[str, Any]) -> dict[str, Any]:
     sources = seed["browser_workflow_proof"]["evidence_sources"]
+    seed_matrix = seed["journey_evidence_matrix"]
 
     def lane(source: dict[str, Any]) -> dict[str, Any]:
         cases = list(source["cases"])
@@ -254,6 +440,25 @@ def _unbound_browser_receipt(seed: dict[str, Any]) -> dict[str, Any]:
             "limitations": [],
         }
 
+    journey_rows = [
+        {
+            "journey_id": row["journey_id"],
+            "label": row["label"],
+            "proof_status": "pass",
+            "evidence_sources": [
+                {
+                    "file": source["file"],
+                    "cases": list(source["cases"]),
+                    "lane_status": "pass",
+                }
+                for source in row["evidence_sources"]
+            ],
+            "live_requirement": dict(row["live_requirement"]),
+            "blocking_reasons": [],
+        }
+        for row in seed_matrix["rows"]
+    ]
+
     return {
         "contract_name": "ea.browser_workflow_proof",
         "product": seed["product"],
@@ -267,6 +472,14 @@ def _unbound_browser_receipt(seed: dict[str, Any]) -> dict[str, Any]:
         "expected_browser_signals": seed["browser_workflow_proof"]["expected_browser_signals"],
         "source_backed_journey_proof": lane(sources[0]),
         "real_browser_e2e_proof": lane(sources[1]),
+        "journey_evidence_matrix": {
+            "version": seed_matrix["version"],
+            "status": "pass",
+            "readiness_scope": seed_matrix["readiness_scope"],
+            "runtime_commit_sha": "",
+            "required_journey_ids": list(seed_matrix["required_journey_ids"]),
+            "rows": journey_rows,
+        },
         "blocking_reasons": [],
         "current_limitations": [],
     }
