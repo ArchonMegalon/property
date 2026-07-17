@@ -7452,7 +7452,7 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
     assert payload_body["hosted_url"] == f"/tours/{slug}"
     assert payload_body["tour_privacy_mode"] == "anonymous_public"
     assert payload_body["scenes"][0]["image_url"] == f"/tours/files/{slug}/scene-01.jpg"
-    assert payload_body["facts"]["personal_fit_assessment"]["fit_score"] == 81
+    assert "personal_fit_assessment" not in payload_body["facts"]
     assert payload_body["facts"]["postal_name"] == "1190 Wien"
     assert payload_body["public_assets"] == [
         {
@@ -7474,6 +7474,7 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
         "external-private-id",
         "runtime_inputs_json",
         "public_preference_snapshot",
+        "personal_fit_assessment",
         "preference_nodes",
         "debug-token",
         "Kahlenberger Strasse",

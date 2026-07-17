@@ -107,17 +107,28 @@ def _write_owned_verified_3dvista_tour(
 ) -> Path:
     bundle_dir = public_root / slug
     bundle_dir.mkdir(parents=True, exist_ok=True)
+    extra_payload = dict(extra_manifest or {})
+    private_extra = {
+        key: extra_payload.pop(key)
+        for key in tuple(extra_payload)
+        if key in property_tour_hosting._PROPERTY_PUBLIC_TOUR_PRIVATE_RECEIPT_MERGE_KEYS
+    }
     manifest = {
         "slug": slug,
-        **_write_clean_3dvista_export(bundle_dir),
-        **dict(extra_manifest or {}),
+        **extra_payload,
     }
     (bundle_dir / "tour.json").write_text(
         json.dumps(manifest),
         encoding="utf-8",
     )
     (bundle_dir / "tour.private.json").write_text(
-        json.dumps({"principal_id": principal_id}),
+        json.dumps(
+            {
+                "principal_id": principal_id,
+                **_write_clean_3dvista_export(bundle_dir),
+                **private_extra,
+            }
+        ),
         encoding="utf-8",
     )
     return bundle_dir
@@ -10280,13 +10291,14 @@ def test_profile_followup_resolution_suppression_expires(monkeypatch) -> None:
     ) is True
 
 
-def test_signal_ingest_willhaben_search_agent_mail_can_auto_create_and_send_to_tibor(monkeypatch) -> None:
+def test_signal_ingest_willhaben_search_agent_mail_can_auto_create_and_send_to_tibor(monkeypatch, tmp_path: Path) -> None:
     from app.domain.models import Artifact
     from app.services.registration_email import RegistrationEmailReceipt
 
     monkeypatch.setenv("EA_WILLHABEN_SEARCH_AGENT_AUTO_CREATE_PROPERTY_TOUR", "1")
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_DEFAULT_RECIPIENT_EMAIL", "owner@example.test")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     monkeypatch.setenv(
         "EA_WILLHABEN_PROPERTY_TOUR_RECIPIENT_MAP_JSON",
         '{"scout@example.test":"owner@example.test"}',
@@ -10297,15 +10309,28 @@ def test_signal_ingest_willhaben_search_agent_mail_can_auto_create_and_send_to_t
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Willhaben Auto Tour Office")
 
+    panorama_url = "https://cache.willhaben.at/mmo/1/1739164555.jpg"
     monkeypatch.setattr(
         product_service,
         "_load_willhaben_property_packet",
         lambda url: {
             "property_url": url,
-            "listing_id": "listing-auto-555",
+            "listing_id": "1739164555",
             "title": "Search agent apartment",
             "property_facts_json": {},
-            "media_urls_json": ["https://cdn.example.com/apartment-auto/photo-1.jpg"],
+            "media_urls_json": [panorama_url],
+            "panorama_media_urls_json": [panorama_url],
+            "media_assets_json": [
+                {
+                    "url": panorama_url,
+                    "role": "photo",
+                    "panorama_candidate": True,
+                    "panorama_reason": "xmp_equirectangular",
+                    "width": 4096,
+                    "height": 2048,
+                    "aspect_ratio": 2.0,
+                }
+            ],
             "floorplan_urls_json": [],
             "tour_variants_json": [
                 {
@@ -10334,6 +10359,11 @@ def test_signal_ingest_willhaben_search_agent_mail_can_auto_create_and_send_to_t
         )
 
     monkeypatch.setattr(product_service, "send_property_tour_email", _fake_send_property_tour_email)
+    _write_owned_verified_3dvista_tour(
+        tmp_path,
+        slug="search-agent-apartment",
+        principal_id=principal_id,
+    )
 
     def _fake_execute_task_artifact(request):  # type: ignore[no-untyped-def]
         assert request.input_json["binding_id"] == "browseract-binding-auto-agent"
@@ -10368,7 +10398,7 @@ def test_signal_ingest_willhaben_search_agent_mail_can_auto_create_and_send_to_t
                 "account_email": "scout@example.test",
                 "body_text_excerpt": (
                     "Neue Anzeige gefunden. "
-                    "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/search-agent-apartment-555"
+                    "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/search-agent-apartment-1739164555"
                 ),
                 "binding_id": "browseract-binding-auto-agent",
                 "labels": ["CATEGORY_UPDATES", "INBOX"],
@@ -10381,7 +10411,7 @@ def test_signal_ingest_willhaben_search_agent_mail_can_auto_create_and_send_to_t
     assert body["draft_count"] == 0
     assert observed_email["recipient_email"] == "owner@example.test"
     assert observed_email["property_url"] == (
-        "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/search-agent-apartment-555"
+        "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/search-agent-apartment-1739164555"
     )
     automated_actions = body["ooda_loop"]["act"]["automated_actions"]
     assert not any(item.get("task_type") == "property_alert_review" for item in automated_actions)
@@ -15399,20 +15429,28 @@ def test_property_scout_tour_auto_create_skips_existing_vendor_url(monkeypatch) 
     assert len(create_calls) == 1
 
 
-def test_property_scout_tour_auto_create_reuses_existing_branded_url(monkeypatch) -> None:
+def test_property_scout_tour_auto_create_reuses_existing_branded_url(monkeypatch, tmp_path: Path) -> None:
     principal_id = "cf-email:owner@example.test"
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Scout Office")
     service = ProductService(client.app.state.container)
     source_ref = "gmail-thread:owner@example.test:branded-tourexisting"
 
+    provider_url = "https://storage.net-fs.com/hosting/123456/789012/index.htm"
+    _write_owned_verified_3dvista_tour(
+        tmp_path,
+        slug="brigittenau-apartment-a",
+        principal_id=principal_id,
+        extra_manifest={"three_d_vista_url": provider_url},
+    )
     service._record_product_event(
         principal_id=principal_id,
         event_type="generic_property_tour_created",
         source_id=source_ref,
         payload={
             "tour_url": "https://myexternalbrain.com/tours/brigittenau-apartment-a",
-            "vendor_tour_url": "https://vendor.example.com/tours/brigittenau-apartment-a",
+            "vendor_tour_url": provider_url,
         },
     )
 
@@ -15439,7 +15477,7 @@ def test_property_scout_tour_auto_create_reuses_existing_branded_url(monkeypatch
 
     assert result["status"] == "existing"
     assert result["tour_url"] == "https://myexternalbrain.com/tours/brigittenau-apartment-a"
-    assert result["vendor_tour_url"] == "https://vendor.example.com/tours/brigittenau-apartment-a"
+    assert result["vendor_tour_url"] == provider_url
     assert not create_calls
 
 
@@ -23690,12 +23728,13 @@ def test_google_signal_sync_marks_pdf_attachment_pending_when_answerly_training_
     assert "answerly_onedrive_pdf_import_pending" in event_types
 
 
-def test_google_willhaben_signal_sync_targets_secondary_account_and_auto_sends_to_tibor(monkeypatch) -> None:
+def test_google_willhaben_signal_sync_targets_secondary_account_and_auto_sends_to_tibor(monkeypatch, tmp_path: Path) -> None:
     from app.domain.models import Artifact
 
     monkeypatch.setenv("EA_WILLHABEN_SEARCH_AGENT_AUTO_CREATE_PROPERTY_TOUR", "1")
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_DEFAULT_RECIPIENT_EMAIL", "owner@example.test")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     monkeypatch.setenv(
         "EA_WILLHABEN_PROPERTY_TOUR_RECIPIENT_MAP_JSON",
         '{"scout@example.test":"owner@example.test"}',
@@ -23720,7 +23759,7 @@ def test_google_willhaben_signal_sync_targets_secondary_account_and_auto_sends_t
                     channel="gmail",
                     title='"Mietwohnungen 2,20, 09" hat 1 neue Anzeige für dich gefunden',
                     summary='"Mietwohnungen 2,20, 09" hat 1 neue Anzeige für dich gefunden',
-                    text="Neue Anzeige gefunden. https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/google-sync-apartment-777",
+                    text="Neue Anzeige gefunden. https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/google-sync-apartment-1739164777",
                     source_ref="gmail-thread:scout@example.test:google-sync-willhaben-1",
                     external_id="gmail-message:scout@example.test:google-sync-willhaben-1",
                     counterparty="willhaben-Suchagent",
@@ -23731,7 +23770,7 @@ def test_google_willhaben_signal_sync_targets_secondary_account_and_auto_sends_t
                         "account_email": "scout@example.test",
                         "body_text_excerpt": (
                             "Neue Anzeige gefunden. "
-                            "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/google-sync-apartment-777"
+                            "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/google-sync-apartment-1739164777"
                         ),
                         "binding_id": "browseract-binding-google-sync",
                         "labels": ["CATEGORY_UPDATES", "INBOX"],
@@ -23741,15 +23780,28 @@ def test_google_willhaben_signal_sync_targets_secondary_account_and_auto_sends_t
         )
 
     monkeypatch.setattr(google_oauth_service, "list_recent_workspace_signals", _fake_list_recent_workspace_signals)
+    panorama_url = "https://cache.willhaben.at/mmo/1/1739164777.jpg"
     monkeypatch.setattr(
         product_service,
         "_load_willhaben_property_packet",
         lambda url: {
             "property_url": url,
-            "listing_id": "listing-google-sync-777",
+            "listing_id": "1739164777",
             "title": "Google sync apartment",
             "property_facts_json": {},
-            "media_urls_json": ["https://cdn.example.com/apartment-google-sync/photo-1.jpg"],
+            "media_urls_json": [panorama_url],
+            "panorama_media_urls_json": [panorama_url],
+            "media_assets_json": [
+                {
+                    "url": panorama_url,
+                    "role": "photo",
+                    "panorama_candidate": True,
+                    "panorama_reason": "xmp_equirectangular",
+                    "width": 4096,
+                    "height": 2048,
+                    "aspect_ratio": 2.0,
+                }
+            ],
             "floorplan_urls_json": [],
             "tour_variants_json": [
                 {
@@ -23792,6 +23844,11 @@ def test_google_willhaben_signal_sync_targets_secondary_account_and_auto_sends_t
             )
         ],
     )
+    _write_owned_verified_3dvista_tour(
+        tmp_path,
+        slug="google-sync-apartment",
+        principal_id=principal_id,
+    )
 
     def _fake_execute_task_artifact(request):  # type: ignore[no-untyped-def]
         assert request.input_json["binding_id"] == "browseract-binding-google-sync"
@@ -23823,7 +23880,7 @@ def test_google_willhaben_signal_sync_targets_secondary_account_and_auto_sends_t
     assert observed_email["binding_id"] == "google-binding-elisabeth"
     google_body = str(observed_email["body_text"])
     assert "Open the titled review button" in google_body
-    assert "google-sync-apartment-777" not in google_body
+    assert "google-sync-apartment-1739164777" not in google_body
     assert observed_sync_kwargs["account_email_filter"] == "scout@example.test"
     assert observed_sync_kwargs["gmail_query"] == (
         "from:("

@@ -29,14 +29,27 @@ def test_telegram_outbound_workflow_property_tour_sent(monkeypatch: pytest.Monke
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Telegram Outbound Tour Office")
 
+    panorama_url = "https://cache.willhaben.at/mmo/1/1739164131.jpg"
     packet = {
-        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/outbound-tour-001",
-        "listing_id": "listing-123",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/outbound-tour-1739164131",
+        "listing_id": "1739164131",
         "title": "Bright Brigittenau apartment",
         "listing_uuid": "listing-uuid-123",
         "property_facts_json": {},
-        "media_urls_json": ["https://cdn.example.com/apartment-a/photo-1.jpg"],
-        "floorplan_urls_json": ["https://cdn.example.com/apartment-a/floorplan-1.jpg"],
+        "media_urls_json": [panorama_url],
+        "panorama_media_urls_json": [panorama_url],
+        "media_assets_json": [
+            {
+                "url": panorama_url,
+                "role": "photo",
+                "panorama_candidate": True,
+                "panorama_reason": "xmp_equirectangular",
+                "width": 4096,
+                "height": 2048,
+                "aspect_ratio": 2.0,
+            }
+        ],
+        "floorplan_urls_json": [],
         "tour_variants_json": [
             {
                 "variant_key": "layout_first",
@@ -115,6 +128,11 @@ def test_telegram_outbound_workflow_property_tour_sent(monkeypatch: pytest.Monke
     (bundle_dir / "tour.mp4").write_bytes(b"fake-video")
     (bundle_dir / "tour.json").write_text(
         '{"slug":"brigittenau-apartment-a","video_relpath":"tour.mp4",'
+        '"scenes":[{"asset_relpath":"scene-01.jpg"}]}',
+        encoding="utf-8",
+    )
+    (bundle_dir / "tour.private.json").write_text(
+        '{"principal_id":"cf-email:tibor.girschele@gmail.com",'
         '"three_d_vista_entry_relpath":"3dvista/index.htm",'
         '"three_d_vista_import":{"source_project":"propertyquarry"},'
         '"three_d_vista_white_label_proof":{"source_project":"propertyquarry",'
@@ -122,7 +140,7 @@ def test_telegram_outbound_workflow_property_tour_sent(monkeypatch: pytest.Monke
         '"propertyquarry_tour_metadata":true,"trial_branding_checked":true,'
         '"trial_branding_present":false},'
         '"three_d_vista_browser_render_proof":{"provider":"3dvista","status":"pass",'
-        '"rendered_viewer":true},"scenes":[{"asset_relpath":"scene-01.jpg"}]}',
+        '"rendered_viewer":true}}',
         encoding="utf-8",
     )
     (bundle_dir / "scene-01.jpg").write_bytes(b"scene")
@@ -160,14 +178,27 @@ def test_telegram_outbound_workflow_blocked_property_tour_sends_scout_update(mon
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Telegram Outbound Followup Office")
 
+    panorama_url = "https://cache.willhaben.at/mmo/1/1739164132.jpg"
     packet = {
-        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/outbound-followup-001",
-        "listing_id": "listing-followup-001",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/outbound-followup-1739164132",
+        "listing_id": "1739164132",
         "title": "Quiet district apartment",
         "listing_uuid": "listing-followup-uuid-001",
         "property_facts_json": {},
-        "media_urls_json": ["https://cdn.example.com/apartment-c/photo-1.jpg"],
-        "floorplan_urls_json": ["https://cdn.example.com/apartment-c/floorplan-1.jpg"],
+        "media_urls_json": [panorama_url],
+        "panorama_media_urls_json": [panorama_url],
+        "media_assets_json": [
+            {
+                "url": panorama_url,
+                "role": "photo",
+                "panorama_candidate": True,
+                "panorama_reason": "xmp_equirectangular",
+                "width": 4096,
+                "height": 2048,
+                "aspect_ratio": 2.0,
+            }
+        ],
+        "floorplan_urls_json": [],
         "tour_variants_json": [
             {
                 "variant_key": "layout_first",
