@@ -29,7 +29,7 @@ from app.repositories.property_evidence_overlays_postgres import (  # noqa: E402
 
 
 EXPORT_SCHEMA = "propertyquarry.evidence_overlay_teable_export.v1"
-RECEIPT_SCHEMA = "propertyquarry.evidence_overlay_read_model_receipt.v2"
+RECEIPT_SCHEMA = "propertyquarry.evidence_overlay_read_model_receipt.v3"
 ROLLBACK_TOKEN_SCHEMA = "propertyquarry.evidence_overlay_activation_rollback.v1"
 ACTIVATION_AUTHORITY_SCHEMA = "propertyquarry.launch_authority_envelope.v1"
 REGISTRY_PATH = ROOT / "docs" / "PROPERTYQUARRY_EVIDENCE_OVERLAY_REGISTRY.json"
@@ -42,6 +42,39 @@ REQUIRED_LAYER_KEYS = {
     "school_context",
     "summer_heat",
     "traffic_noise",
+}
+EXPECTED_SOURCE_CADENCE_BY_LAYER = {
+    "environmental_quality": "live",
+    "fiber_broadband": "reference_dataset",
+    "media_attention": "current_feed",
+    "official_safety_context": "annual_context",
+    "public_mobility": "live_or_reference",
+    "school_context": "reference_dataset",
+    "summer_heat": "reference_dataset",
+    "traffic_noise": "reference_dataset",
+}
+EXPECTED_SOURCE_TEMPORALITIES_BY_LAYER = {
+    "environmental_quality": {"live"},
+    "fiber_broadband": {"reference"},
+    "media_attention": {"current_feed"},
+    "official_safety_context": {"reference"},
+    "public_mobility": {"live", "reference"},
+    "school_context": {"reference"},
+    "summer_heat": {"reference"},
+    "traffic_noise": {"reference"},
+}
+SOURCE_TEMPORALITIES_WITH_MAX_AGE = {"current_feed", "live"}
+ALLOWED_MEDIA_SOURCE_CLASSES = {
+    "independent_press",
+    "licensed_news_index",
+    "municipal_rss",
+    "public_broadcaster",
+    "publisher_feed",
+}
+ALLOWED_SAFETY_GEOGRAPHIC_SCOPES = {
+    "citywide",
+    "district_aggregate",
+    "neighborhood_aggregate",
 }
 MAX_ACCEPTED_QUERY_BUDGET_MS = 100.0
 MAX_TEABLE_RESPONSE_BYTES = 4 * 1024 * 1024
@@ -62,8 +95,17 @@ ALLOWED_PAYLOAD_FIELDS = {
     "article_url",
     "cache_updated_at",
     "fixed_or_mobile",
+    "geographic_scope",
     "headline",
+    "independent_press",
+    "media_source_class",
+    "person_scoring",
+    "property_scoring",
+    "reference_period",
+    "rights_caveat",
     "source_name",
+    "source_checked_at",
+    "source_temporality",
     "source_updated_at",
     "source_url",
     "speed_band",
@@ -75,6 +117,11 @@ ALLOWED_PAYLOAD_FIELDS = {
     "ui_state",
     "value_label",
 }
+
+_REFERENCE_PERIOD_PART = r"[0-9]{4}(?:-(?:0[1-9]|1[0-2])(?:-(?:0[1-9]|[12][0-9]|3[01]))?)?"
+REFERENCE_PERIOD_PATTERN = re.compile(
+    rf"^(?:{_REFERENCE_PERIOD_PART})(?:/(?:{_REFERENCE_PERIOD_PART}))?$"
+)
 
 
 def _text(value: object) -> str:
@@ -98,6 +145,29 @@ def _string_set(value: object) -> set[str]:
     return {_text(item) for item in value if _text(item)}
 
 
+def _positive_count_map(
+    value: object,
+    *,
+    allow_empty: bool = False,
+) -> dict[str, int] | None:
+    if not isinstance(value, dict):
+        return None
+    if not value:
+        return {} if allow_empty else None
+    normalized: dict[str, int] = {}
+    for key, count in value.items():
+        normalized_key = _text(key)
+        if (
+            not normalized_key
+            or normalized_key in normalized
+            or type(count) is not int
+            or count < 1
+        ):
+            return None
+        normalized[normalized_key] = count
+    return normalized
+
+
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -116,9 +186,34 @@ def _parse_datetime(value: object) -> datetime | None:
         parsed = datetime.fromisoformat(text)
     except ValueError:
         return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
     return parsed.astimezone(timezone.utc)
+
+
+def _reference_period_point(value: str) -> datetime | None:
+    try:
+        if len(value) == 4:
+            return datetime(int(value), 1, 1, tzinfo=timezone.utc)
+        if len(value) == 7:
+            year, month = value.split("-", 1)
+            return datetime(int(year), int(month), 1, tzinfo=timezone.utc)
+        if len(value) == 10:
+            parsed = datetime.fromisoformat(value)
+            return parsed.replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    return None
+
+
+def _valid_reference_period(value: object) -> bool:
+    text = _text(value)
+    if not REFERENCE_PERIOD_PATTERN.fullmatch(text):
+        return False
+    start_text, separator, end_text = text.partition("/")
+    start = _reference_period_point(start_text)
+    end = _reference_period_point(end_text) if separator else start
+    return start is not None and end is not None and start <= end
 
 
 def _canonical_json(value: object) -> bytes:
@@ -475,8 +570,32 @@ def _stable_private_json_object(
 
 
 def _registry_layers(registry: dict[str, object]) -> list[dict[str, object]]:
-    if registry.get("contract_name") != "propertyquarry.evidence_overlay_registry.v1":
+    if registry.get("contract_name") != "propertyquarry.evidence_overlay_registry.v2":
         raise ValueError("property evidence overlay registry contract is invalid")
+    gold_policy = _object(registry.get("gold_policy"))
+    if "cache_updated_at" not in _text(gold_policy.get("cache_time_policy")) or (
+        "source freshness"
+        not in _text(gold_policy.get("cache_time_policy")).casefold()
+    ):
+        raise ValueError(
+            "property evidence overlay registry must distinguish cache time from source freshness"
+        )
+    if (
+        "no property or person scoring"
+        not in _text(gold_policy.get("privacy_policy")).casefold()
+    ):
+        raise ValueError(
+            "property evidence overlay registry must forbid property and person scoring"
+        )
+    if (
+        "municipal rss"
+        not in _text(gold_policy.get("media_policy")).casefold()
+        or "independent press"
+        not in _text(gold_policy.get("media_policy")).casefold()
+    ):
+        raise ValueError(
+            "property evidence overlay registry must classify municipal RSS separately from independent press"
+        )
     layers = [
         dict(row) for row in list(registry.get("layers") or []) if isinstance(row, dict)
     ]
@@ -495,6 +614,7 @@ def _registry_layers(registry: dict[str, object]) -> list[dict[str, object]]:
             "property evidence overlay registry requires eight unique Teable tables"
         )
     for layer in layers:
+        layer_key = _text(layer.get("layer_key"))
         if layer.get("ingestion_mode") != "async_teable_job":
             raise ValueError(
                 "property evidence overlay registry ingestion mode must be async_teable_job"
@@ -507,6 +627,117 @@ def _registry_layers(registry: dict[str, object]) -> list[dict[str, object]]:
             raise ValueError(
                 "property evidence overlay registry must forbid request-time source fetches"
             )
+        if _string_set(layer.get("ui_states")) != {
+            "unavailable",
+            "stale",
+            "verified",
+        }:
+            raise ValueError(
+                f"property evidence overlay registry layer {layer_key} has invalid UI states"
+            )
+        cadence_class = _text(layer.get("source_cadence_class"))
+        expected_cadence = EXPECTED_SOURCE_CADENCE_BY_LAYER[layer_key]
+        if cadence_class != expected_cadence:
+            raise ValueError(
+                f"property evidence overlay registry layer {layer_key} must use cadence class {expected_cadence}"
+            )
+        temporalities = _string_set(layer.get("allowed_source_temporalities"))
+        expected_temporalities = EXPECTED_SOURCE_TEMPORALITIES_BY_LAYER[layer_key]
+        if temporalities != expected_temporalities:
+            raise ValueError(
+                f"property evidence overlay registry layer {layer_key} has invalid source temporalities"
+            )
+        raw_source_age_policy = _object(
+            layer.get("source_max_age_hours_by_temporality")
+        )
+        source_age_policy = {
+            _text(key): value for key, value in raw_source_age_policy.items()
+        }
+        age_limited_temporalities = (
+            temporalities & SOURCE_TEMPORALITIES_WITH_MAX_AGE
+        )
+        if set(source_age_policy) != age_limited_temporalities:
+            raise ValueError(
+                f"property evidence overlay registry layer {layer_key} must declare source max age only for live/current-feed temporalities"
+            )
+        for temporality, value in source_age_policy.items():
+            _positive_finite(
+                value,
+                name=f"{layer_key}.{temporality}.source_max_age_hours",
+                maximum=168.0,
+            )
+        source_sla_timestamp_fields = {
+            _text(key): _text(value)
+            for key, value in _object(
+                layer.get("source_sla_timestamp_field_by_temporality")
+            ).items()
+        }
+        expected_sla_timestamp_fields = {
+            temporality: (
+                "source_checked_at"
+                if temporality == "current_feed"
+                else "source_updated_at"
+            )
+            for temporality in age_limited_temporalities
+        }
+        if source_sla_timestamp_fields != expected_sla_timestamp_fields:
+            raise ValueError(
+                f"property evidence overlay registry layer {layer_key} has invalid source SLA timestamp fields"
+            )
+        expected_reference_period_modes = (
+            {"reference"} if "reference" in temporalities else set()
+        )
+        if (
+            _string_set(layer.get("reference_period_required_for"))
+            != expected_reference_period_modes
+        ):
+            raise ValueError(
+                f"property evidence overlay registry layer {layer_key} has invalid reference-period policy"
+            )
+        required_provenance = {
+            "cache_updated_at",
+            "source_name",
+            "source_temporality",
+            "source_updated_at",
+            "source_url",
+            "uncertainty_label",
+        }
+        if "reference" in temporalities:
+            required_provenance.add("reference_period")
+        if "current_feed" in temporalities:
+            required_provenance.add("source_checked_at")
+        provenance_fields = _string_set(layer.get("provenance_fields"))
+        if not required_provenance.issubset(provenance_fields):
+            raise ValueError(
+                f"property evidence overlay registry layer {layer_key} lacks temporal provenance fields"
+            )
+        if layer_key == "official_safety_context":
+            if (
+                _string_set(layer.get("allowed_geographic_scopes"))
+                != ALLOWED_SAFETY_GEOGRAPHIC_SCOPES
+                or layer.get("rights_caveat_required") is not True
+                or layer.get("property_scoring") is not False
+                or layer.get("person_scoring") is not False
+                or not {"geographic_scope", "rights_caveat"}.issubset(
+                    provenance_fields
+                )
+            ):
+                raise ValueError(
+                    "official safety overlay registry policy must remain aggregate, rights-caveated, and score-free"
+                )
+        if layer_key == "media_attention":
+            if (
+                _string_set(layer.get("allowed_media_source_classes"))
+                != ALLOWED_MEDIA_SOURCE_CLASSES
+                or layer.get("municipal_rss_independent_press") is not False
+                or layer.get("article_links_required") is not True
+                or not {"media_source_class", "independent_press"}.issubset(
+                    provenance_fields
+                )
+            ):
+                raise ValueError(
+                    "media overlay registry policy must distinguish municipal RSS from independent press"
+                )
     return layers
 
 
@@ -680,9 +911,12 @@ def build_ingestion_plan(
     raw_tables = export.get("tables")
     tables = dict(raw_tables or {}) if isinstance(raw_tables, dict) else {}
     layers = _registry_layers(registry)
+    layer_by_table = {
+        _text(layer.get("teable_table")): layer for layer in layers
+    }
     expected_tables = {
-        _text(layer.get("teable_table")): _text(layer.get("layer_key"))
-        for layer in layers
+        table_name: _text(layer.get("layer_key"))
+        for table_name, layer in layer_by_table.items()
     }
     missing_tables = sorted(set(expected_tables) - set(tables))
     extra_tables = sorted(set(tables) - set(expected_tables))
@@ -697,8 +931,55 @@ def build_ingestion_plan(
 
     normalized_records: list[dict[str, object]] = []
     table_counts: dict[str, int] = {}
+    oldest_cache_by_layer: dict[str, str] = {}
     latest_cache_by_layer: dict[str, str] = {}
+    source_temporal_evidence_by_layer: dict[str, dict[str, object]] = {}
+    for layer in layers:
+        layer_key = _text(layer.get("layer_key"))
+        source_temporal_evidence_by_layer[layer_key] = {
+            "cadence_class": _text(layer.get("source_cadence_class")),
+            "allowed_temporalities": sorted(
+                _string_set(layer.get("allowed_source_temporalities"))
+            ),
+            "source_max_age_hours_by_temporality": {
+                _text(key): float(value)  # registry validation already fail-closes
+                for key, value in _object(
+                    layer.get("source_max_age_hours_by_temporality")
+                ).items()
+            },
+            "source_sla_timestamp_field_by_temporality": {
+                _text(key): _text(value)
+                for key, value in _object(
+                    layer.get("source_sla_timestamp_field_by_temporality")
+                ).items()
+            },
+            "row_counts_by_temporality": {},
+            "source_updated_at_row_counts_by_temporality": {},
+            "oldest_source_updated_at_by_temporality": {},
+            "latest_source_updated_at_by_temporality": {},
+            "source_sla_at_row_counts_by_temporality": {},
+            "oldest_source_sla_at_by_temporality": {},
+            "latest_source_sla_at_by_temporality": {},
+            "reference_periods": [],
+            "reference_period_row_counts": {},
+        }
     for table_name, layer_key in sorted(expected_tables.items()):
+        layer = layer_by_table[table_name]
+        allowed_temporalities = _string_set(
+            layer.get("allowed_source_temporalities")
+        )
+        source_age_policy = {
+            _text(key): float(value)
+            for key, value in _object(
+                layer.get("source_max_age_hours_by_temporality")
+            ).items()
+        }
+        source_sla_timestamp_fields = {
+            _text(key): _text(value)
+            for key, value in _object(
+                layer.get("source_sla_timestamp_field_by_temporality")
+            ).items()
+        }
         raw_rows = tables.get(table_name)
         rows = list(raw_rows or []) if isinstance(raw_rows, list) else []
         table_counts[table_name] = len(rows)
@@ -720,7 +1001,16 @@ def build_ingestion_plan(
             }
             payload["match"] = match
             payload["layer_key"] = layer_key
+            source_temporality = _text(
+                payload.get("source_temporality")
+            ).casefold()
+            if source_temporality not in allowed_temporalities:
+                failures.append(
+                    f"{table_name}/{record_id}: source_temporality must be one of "
+                    f"{', '.join(sorted(allowed_temporalities))}"
+                )
             source_updated_at = _parse_datetime(payload.get("source_updated_at"))
+            source_checked_at = _parse_datetime(payload.get("source_checked_at"))
             cache_updated_at = _parse_datetime(payload.get("cache_updated_at"))
             if source_updated_at is None or cache_updated_at is None:
                 failures.append(
@@ -731,13 +1021,66 @@ def build_ingestion_plan(
                 failures.append(
                     f"{table_name}/{record_id}: evidence timestamps cannot be in the future"
                 )
-            age_hours = max(
+            if cache_updated_at < source_updated_at:
+                failures.append(
+                    f"{table_name}/{record_id}: cache_updated_at cannot predate source_updated_at"
+                )
+            if source_temporality == "current_feed":
+                if source_checked_at is None:
+                    failures.append(
+                        f"{table_name}/{record_id}: current-feed rows require source_checked_at"
+                    )
+                elif (
+                    source_checked_at > observed_at
+                    or source_checked_at > cache_updated_at
+                    or source_checked_at < source_updated_at
+                ):
+                    failures.append(
+                        f"{table_name}/{record_id}: source_checked_at must be between source_updated_at and cache_updated_at"
+                    )
+            elif "source_checked_at" in payload:
+                failures.append(
+                    f"{table_name}/{record_id}: source_checked_at is only valid for current-feed rows"
+                )
+            cache_age_hours = max(
                 (observed_at - cache_updated_at).total_seconds() / 3600.0, 0.0
             )
-            if age_hours > normalized_max_age_hours:
+            if cache_age_hours > normalized_max_age_hours:
                 failures.append(
                     f"{table_name}/{record_id}: cached row is older than "
                     f"{normalized_max_age_hours:g} hours"
+                )
+            source_max_age_hours = source_age_policy.get(source_temporality)
+            source_sla_timestamp_field = source_sla_timestamp_fields.get(
+                source_temporality, ""
+            )
+            source_sla_at = (
+                source_checked_at
+                if source_sla_timestamp_field == "source_checked_at"
+                else (
+                    source_updated_at
+                    if source_sla_timestamp_field == "source_updated_at"
+                    else None
+                )
+            )
+            if source_max_age_hours is not None:
+                if source_sla_at is not None and max(
+                    (observed_at - source_sla_at).total_seconds() / 3600.0,
+                    0.0,
+                ) > source_max_age_hours:
+                    failures.append(
+                        f"{table_name}/{record_id}: {source_temporality} {source_sla_timestamp_field} is older than its "
+                        f"{source_max_age_hours:g}-hour source-check SLA"
+                    )
+            reference_period = _text(payload.get("reference_period"))
+            if source_temporality == "reference":
+                if not _valid_reference_period(reference_period):
+                    failures.append(
+                        f"{table_name}/{record_id}: reference rows require an explicit ISO-8601 reference_period"
+                    )
+            elif reference_period:
+                failures.append(
+                    f"{table_name}/{record_id}: reference_period is only valid for reference rows"
                 )
             if not _text(
                 payload.get("summary")
@@ -759,10 +1102,41 @@ def build_ingestion_plan(
                 failures.append(
                     f"{table_name}/{record_id}: uncertainty_label is required"
                 )
-            ui_state = _text(payload.get("ui_state")).casefold()
-            if ui_state and ui_state not in {"stale", "verified"}:
+            for score_field in ("property_scoring", "person_scoring"):
+                if score_field in payload and payload.get(score_field) is not False:
+                    failures.append(
+                        f"{table_name}/{record_id}: {score_field} must never be enabled"
+                    )
+                if layer_key != "official_safety_context" and score_field in payload:
+                    failures.append(
+                        f"{table_name}/{record_id}: {score_field} is only valid as an explicit safety-layer denial"
+                    )
+            media_only_fields = {
+                "article_url",
+                "independent_press",
+                "media_source_class",
+            }
+            if layer_key != "media_attention" and any(
+                field in payload for field in media_only_fields
+            ):
                 failures.append(
-                    f"{table_name}/{record_id}: ui_state must be stale or verified"
+                    f"{table_name}/{record_id}: media classification fields are only valid for media_attention"
+                )
+            safety_only_fields = {"geographic_scope", "rights_caveat"}
+            if layer_key != "official_safety_context" and any(
+                field in payload for field in safety_only_fields
+            ):
+                failures.append(
+                    f"{table_name}/{record_id}: safety claim fields are only valid for official_safety_context"
+                )
+            ui_state = _text(payload.get("ui_state")).casefold()
+            if ui_state not in {"stale", "verified"}:
+                failures.append(
+                    f"{table_name}/{record_id}: ui_state is required and must be stale or verified"
+                )
+            if ui_state == "stale" and source_max_age_hours is not None:
+                failures.append(
+                    f"{table_name}/{record_id}: stale {source_temporality} rows cannot enter a launch snapshot"
                 )
             if layer_key == "media_attention" and not _safe_http_url(
                 payload.get("article_url")
@@ -774,8 +1148,72 @@ def build_ingestion_plan(
                 failures.append(
                     f"{table_name}/{record_id}: media article_url is required"
                 )
+            if layer_key == "media_attention":
+                media_source_class = _text(
+                    payload.get("media_source_class")
+                ).casefold()
+                independent_press = payload.get("independent_press")
+                if media_source_class not in ALLOWED_MEDIA_SOURCE_CLASSES:
+                    failures.append(
+                        f"{table_name}/{record_id}: media_source_class is required and invalid"
+                    )
+                if not isinstance(independent_press, bool):
+                    failures.append(
+                        f"{table_name}/{record_id}: independent_press must be an explicit boolean"
+                    )
+                elif media_source_class == "municipal_rss" and independent_press:
+                    failures.append(
+                        f"{table_name}/{record_id}: municipal RSS cannot be classified as independent press"
+                    )
+                elif media_source_class == "independent_press" and not independent_press:
+                    failures.append(
+                        f"{table_name}/{record_id}: independent_press classification must be explicit"
+                    )
+                media_claim_text = " ".join(
+                    _text(payload.get(key))
+                    for key in (
+                        "headline",
+                        "source_name",
+                        "summary",
+                        "topic_label",
+                        "uncertainty_label",
+                        "value_label",
+                    )
+                ).casefold()
+                if media_source_class == "municipal_rss" and re.search(
+                    r"\bindependent\s+(?:journalism|media|news|press|reporting)\b",
+                    media_claim_text,
+                ):
+                    failures.append(
+                        f"{table_name}/{record_id}: municipal RSS copy cannot claim independent reporting"
+                    )
+            if layer_key == "official_safety_context":
+                geographic_scope = _text(
+                    payload.get("geographic_scope")
+                ).casefold()
+                if geographic_scope not in ALLOWED_SAFETY_GEOGRAPHIC_SCOPES:
+                    failures.append(
+                        f"{table_name}/{record_id}: safety context must use an approved aggregate geographic_scope"
+                    )
+                if not _text(payload.get("rights_caveat")):
+                    failures.append(
+                        f"{table_name}/{record_id}: safety context requires a source rights_caveat"
+                    )
+                if payload.get("property_scoring") is not False:
+                    failures.append(
+                        f"{table_name}/{record_id}: safety context must explicitly disable property_scoring"
+                    )
+                if payload.get("person_scoring") is not False:
+                    failures.append(
+                        f"{table_name}/{record_id}: safety context must explicitly disable person_scoring"
+                    )
+            payload["source_temporality"] = source_temporality
             payload["source_updated_at"] = _iso(source_updated_at)
+            if source_checked_at is not None:
+                payload["source_checked_at"] = _iso(source_checked_at)
             payload["cache_updated_at"] = _iso(cache_updated_at)
+            if reference_period:
+                payload["reference_period"] = reference_period
             payload_sha256 = _sha256(payload)
             record_key = hashlib.sha256(
                 f"{table_name}\0{record_id}".encode("utf-8")
@@ -789,13 +1227,133 @@ def build_ingestion_plan(
                     "teable_table": table_name,
                     "teable_record_id": record_id,
                     "source_updated_at": _iso(source_updated_at),
+                    "source_checked_at": (
+                        _iso(source_checked_at)
+                        if source_checked_at is not None
+                        else ""
+                    ),
                     "cache_updated_at": _iso(cache_updated_at),
                     "payload_sha256": payload_sha256,
                 }
             )
+            oldest_cache = _parse_datetime(oldest_cache_by_layer.get(layer_key))
+            if oldest_cache is None or cache_updated_at < oldest_cache:
+                oldest_cache_by_layer[layer_key] = _iso(cache_updated_at)
             latest = _parse_datetime(latest_cache_by_layer.get(layer_key))
             if latest is None or cache_updated_at > latest:
                 latest_cache_by_layer[layer_key] = _iso(cache_updated_at)
+            temporal_evidence = source_temporal_evidence_by_layer[layer_key]
+            row_counts = _object(
+                temporal_evidence.get("row_counts_by_temporality")
+            )
+            row_counts[source_temporality] = int(
+                row_counts.get(source_temporality) or 0
+            ) + 1
+            temporal_evidence["row_counts_by_temporality"] = row_counts
+            source_updated_counts = _object(
+                temporal_evidence.get(
+                    "source_updated_at_row_counts_by_temporality"
+                )
+            )
+            source_updated_counts[source_temporality] = int(
+                source_updated_counts.get(source_temporality) or 0
+            ) + 1
+            temporal_evidence[
+                "source_updated_at_row_counts_by_temporality"
+            ] = source_updated_counts
+            oldest_source_by_temporality = _object(
+                temporal_evidence.get(
+                    "oldest_source_updated_at_by_temporality"
+                )
+            )
+            oldest_source = _parse_datetime(
+                oldest_source_by_temporality.get(source_temporality)
+            )
+            if oldest_source is None or source_updated_at < oldest_source:
+                oldest_source_by_temporality[source_temporality] = _iso(
+                    source_updated_at
+                )
+            temporal_evidence[
+                "oldest_source_updated_at_by_temporality"
+            ] = oldest_source_by_temporality
+            latest_source_by_temporality = _object(
+                temporal_evidence.get(
+                    "latest_source_updated_at_by_temporality"
+                )
+            )
+            latest_source = _parse_datetime(
+                latest_source_by_temporality.get(source_temporality)
+            )
+            if latest_source is None or source_updated_at > latest_source:
+                latest_source_by_temporality[source_temporality] = _iso(
+                    source_updated_at
+                )
+            temporal_evidence[
+                "latest_source_updated_at_by_temporality"
+            ] = latest_source_by_temporality
+            if source_sla_at is not None:
+                source_sla_counts = _object(
+                    temporal_evidence.get(
+                        "source_sla_at_row_counts_by_temporality"
+                    )
+                )
+                source_sla_counts[source_temporality] = int(
+                    source_sla_counts.get(source_temporality) or 0
+                ) + 1
+                temporal_evidence[
+                    "source_sla_at_row_counts_by_temporality"
+                ] = source_sla_counts
+                oldest_source_sla_by_temporality = _object(
+                    temporal_evidence.get(
+                        "oldest_source_sla_at_by_temporality"
+                    )
+                )
+                oldest_source_sla = _parse_datetime(
+                    oldest_source_sla_by_temporality.get(source_temporality)
+                )
+                if oldest_source_sla is None or source_sla_at < oldest_source_sla:
+                    oldest_source_sla_by_temporality[source_temporality] = _iso(
+                        source_sla_at
+                    )
+                temporal_evidence[
+                    "oldest_source_sla_at_by_temporality"
+                ] = oldest_source_sla_by_temporality
+                latest_source_sla_by_temporality = _object(
+                    temporal_evidence.get(
+                        "latest_source_sla_at_by_temporality"
+                    )
+                )
+                latest_source_sla = _parse_datetime(
+                    latest_source_sla_by_temporality.get(source_temporality)
+                )
+                if latest_source_sla is None or source_sla_at > latest_source_sla:
+                    latest_source_sla_by_temporality[source_temporality] = _iso(
+                        source_sla_at
+                    )
+                temporal_evidence[
+                    "latest_source_sla_at_by_temporality"
+                ] = latest_source_sla_by_temporality
+            if reference_period:
+                reference_periods = {
+                    _text(value)
+                    for value in list(
+                        temporal_evidence.get("reference_periods") or []
+                    )
+                    if _text(value)
+                }
+                reference_periods.add(reference_period)
+                temporal_evidence["reference_periods"] = sorted(
+                    reference_periods
+                )
+                reference_period_counts = _object(
+                    temporal_evidence.get("reference_period_row_counts")
+                )
+                reference_period_counts[reference_period] = int(
+                    reference_period_counts.get(reference_period) or 0
+                ) + 1
+                temporal_evidence[
+                    "reference_period_row_counts"
+                ] = reference_period_counts
     source_evidence = _object(export.get("source_evidence"))
     failures.extend(
         _teable_source_evidence_failures(
@@ -814,8 +1372,10 @@ def build_ingestion_plan(
         "layer_count": len(
             {str(row.get("layer_key") or "") for row in normalized_records}
         ),
-        "latest_cache_by_layer": latest_cache_by_layer,
-        "max_age_policy_hours": normalized_max_age_hours,
+        "oldest_cache_updated_at_by_layer": oldest_cache_by_layer,
+        "latest_cache_updated_at_by_layer": latest_cache_by_layer,
+        "max_cache_age_policy_hours": normalized_max_age_hours,
+        "source_temporal_evidence_by_layer": source_temporal_evidence_by_layer,
         "source_generated_at": _iso(generated_at),
         "source_payload_sha256": _sha256(export),
         "registry_payload_sha256": _sha256(registry),
@@ -1009,9 +1569,20 @@ def execute_ingestion(
             "layer_keys": list(plan.get("layer_keys") or []),
             "table_names": list(plan.get("table_names") or []),
         },
-        "freshness": {
-            "max_age_policy_hours": float(plan.get("max_age_policy_hours") or 0.0),
-            "latest_cache_by_layer": dict(plan.get("latest_cache_by_layer") or {}),
+        "temporal_evidence": {
+            "cache_max_age_policy_hours": float(
+                plan.get("max_cache_age_policy_hours") or 0.0
+            ),
+            "oldest_cache_updated_at_by_layer": dict(
+                plan.get("oldest_cache_updated_at_by_layer") or {}
+            ),
+            "latest_cache_updated_at_by_layer": dict(
+                plan.get("latest_cache_updated_at_by_layer") or {}
+            ),
+            "source_by_layer": dict(
+                plan.get("source_temporal_evidence_by_layer") or {}
+            ),
+            "cache_updated_at_proves_source_freshness": False,
         },
         "activation": {
             "phase": "active" if activation_performed else "staged",
@@ -1042,9 +1613,15 @@ def execute_ingestion(
         },
         "privacy": {
             "area_context_only": True,
+            "property_scoring": False,
             "person_scoring": False,
             "raw_article_bodies_stored": False,
             "match_key_allowlist": sorted(ALLOWED_MATCH_KEYS),
+        },
+        "claim_safety": {
+            "aggregate_safety_context_only": True,
+            "safety_source_rights_caveat_required": True,
+            "municipal_rss_is_independent_press": False,
         },
         "failures": failures,
     }
@@ -1073,7 +1650,7 @@ def verify_receipt(
         normalized_max_age_hours = 0.0
     if receipt.get("schema") != RECEIPT_SCHEMA or receipt.get("status") != "pass":
         failures.append(
-            "evidence overlay read-model receipt must be a passing v2 receipt"
+            "evidence overlay read-model receipt must be a passing v3 receipt"
         )
     producer_failures = receipt.get("failures")
     if not isinstance(producer_failures, list) or producer_failures:
@@ -1093,6 +1670,7 @@ def verify_receipt(
     except (OSError, json.JSONDecodeError, ValueError):
         failures.append("evidence overlay registry cannot be validated")
         expected_tables: set[str] = set()
+        registry_layers: list[dict[str, object]] = []
     else:
         expected_tables = {_text(row.get("teable_table")) for row in registry_layers}
         if _text(receipt.get("registry_payload_sha256")) != _sha256(registry):
@@ -1103,7 +1681,7 @@ def verify_receipt(
     elif (
         observed_at - generated_at
     ).total_seconds() > normalized_max_age_hours * 3600.0:
-        failures.append("evidence overlay receipt is stale")
+        failures.append("evidence overlay receipt capture is operationally expired")
     if receipt.get("source_schema") != EXPORT_SCHEMA:
         failures.append("evidence overlay receipt source schema mismatch")
     source_generated_at = _parse_datetime(receipt.get("source_generated_at"))
@@ -1112,7 +1690,7 @@ def verify_receipt(
     elif (
         observed_at - source_generated_at
     ).total_seconds() > normalized_max_age_hours * 3600.0:
-        failures.append("evidence overlay source export is stale")
+        failures.append("evidence overlay Teable export capture is operationally expired")
     ingestion = _object(receipt.get("ingestion"))
     if (
         ingestion.get("source") != "authenticated_teable_api_export"
@@ -1132,7 +1710,9 @@ def verify_receipt(
         )
     if _integer(ingestion.get("table_count")) != 8:
         failures.append("evidence overlay receipt must prove all eight Teable tables")
-    if (_integer(ingestion.get("record_count")) or 0) < 8:
+    raw_record_count = ingestion.get("record_count")
+    record_count = raw_record_count if type(raw_record_count) is int else 0
+    if record_count < 8:
         failures.append(
             "evidence overlay receipt must prove at least one row per layer"
         )
@@ -1141,12 +1721,9 @@ def verify_receipt(
     if _string_set(ingestion.get("table_names")) != expected_tables:
         failures.append("evidence overlay receipt Teable table set mismatch")
     table_counts = _object(ingestion.get("table_counts"))
-    try:
-        table_counts_ok = set(table_counts) == expected_tables and all(
-            int(value or 0) >= 1 for value in table_counts.values()
-        )
-    except (TypeError, ValueError):
-        table_counts_ok = False
+    table_counts_ok = set(table_counts) == expected_tables and all(
+        type(value) is int and value >= 1 for value in table_counts.values()
+    )
     if not table_counts_ok:
         failures.append(
             "evidence overlay receipt requires a positive row count for every Teable table"
@@ -1154,6 +1731,10 @@ def verify_receipt(
     normalized_table_counts = {
         str(key): (_integer(value) or 0) for key, value in table_counts.items()
     }
+    if table_counts_ok and sum(normalized_table_counts.values()) != record_count:
+        failures.append(
+            "evidence overlay receipt record count must equal the sum of Teable table counts"
+        )
     failures.extend(
         _teable_source_evidence_failures(
             receipt.get("source_evidence"),
@@ -1175,32 +1756,247 @@ def verify_receipt(
         failures.append(
             "evidence overlay receipt source authority does not match independent launch configuration"
         )
-    freshness = _object(receipt.get("freshness"))
+    temporal_evidence = _object(receipt.get("temporal_evidence"))
     try:
-        source_policy_hours = float(freshness.get("max_age_policy_hours"))
-    except (TypeError, ValueError):
-        source_policy_hours = 0.0
-    if (
-        not math.isfinite(source_policy_hours)
-        or source_policy_hours <= 0
-        or source_policy_hours > normalized_max_age_hours
-    ):
-        failures.append("evidence overlay receipt freshness policy is invalid")
-    latest_cache_by_layer = _object(freshness.get("latest_cache_by_layer"))
-    if set(latest_cache_by_layer) != REQUIRED_LAYER_KEYS:
-        failures.append(
-            "evidence overlay receipt must bind freshness for all eight layers"
+        cache_policy_hours = float(
+            temporal_evidence.get("cache_max_age_policy_hours")
         )
-    for layer_key, value in latest_cache_by_layer.items():
-        cached_at = _parse_datetime(value)
-        if cached_at is None or cached_at > observed_at:
+    except (TypeError, ValueError):
+        cache_policy_hours = 0.0
+    if (
+        not math.isfinite(cache_policy_hours)
+        or cache_policy_hours <= 0
+        or cache_policy_hours > normalized_max_age_hours
+    ):
+        failures.append("evidence overlay receipt cache-age policy is invalid")
+    if temporal_evidence.get("cache_updated_at_proves_source_freshness") is not False:
+        failures.append(
+            "evidence overlay receipt must not represent cache recency as source freshness"
+        )
+    oldest_cache_by_layer = _object(
+        temporal_evidence.get("oldest_cache_updated_at_by_layer")
+    )
+    latest_cache_by_layer = _object(
+        temporal_evidence.get("latest_cache_updated_at_by_layer")
+    )
+    if (
+        set(oldest_cache_by_layer) != REQUIRED_LAYER_KEYS
+        or set(latest_cache_by_layer) != REQUIRED_LAYER_KEYS
+    ):
+        failures.append(
+            "evidence overlay receipt must bind cache recency for all eight layers"
+        )
+    for layer_key in sorted(REQUIRED_LAYER_KEYS):
+        oldest_cached_at = _parse_datetime(oldest_cache_by_layer.get(layer_key))
+        latest_cached_at = _parse_datetime(latest_cache_by_layer.get(layer_key))
+        if (
+            oldest_cached_at is None
+            or latest_cached_at is None
+            or oldest_cached_at > latest_cached_at
+            or latest_cached_at > observed_at
+        ):
             failures.append(
-                f"evidence overlay layer {layer_key} has invalid freshness evidence"
+                f"evidence overlay layer {layer_key} has invalid cache-recency evidence"
             )
         elif (
-            observed_at - cached_at
+            observed_at - oldest_cached_at
         ).total_seconds() > normalized_max_age_hours * 3600.0:
-            failures.append(f"evidence overlay layer {layer_key} is stale")
+            failures.append(
+                f"evidence overlay layer {layer_key} has an expired cached row"
+            )
+    source_by_layer = _object(temporal_evidence.get("source_by_layer"))
+    if set(source_by_layer) != REQUIRED_LAYER_KEYS:
+        failures.append(
+            "evidence overlay receipt must bind source timing for all eight layers"
+        )
+    registry_by_layer = {
+        _text(layer.get("layer_key")): layer for layer in registry_layers
+    }
+    table_name_by_layer = {
+        _text(layer.get("layer_key")): _text(layer.get("teable_table"))
+        for layer in registry_layers
+    }
+    temporal_row_counts_by_layer: dict[str, int] = {}
+    for layer_key in sorted(REQUIRED_LAYER_KEYS):
+        layer = registry_by_layer.get(layer_key, {})
+        source = _object(source_by_layer.get(layer_key))
+        expected_temporalities = _string_set(
+            layer.get("allowed_source_temporalities")
+        )
+        expected_source_age_policy = {
+            _text(key): float(value)
+            for key, value in _object(
+                layer.get("source_max_age_hours_by_temporality")
+            ).items()
+        }
+        expected_sla_timestamp_fields = {
+            _text(key): _text(value)
+            for key, value in _object(
+                layer.get("source_sla_timestamp_field_by_temporality")
+            ).items()
+        }
+        source_age_policy = _object(
+            source.get("source_max_age_hours_by_temporality")
+        )
+        try:
+            normalized_source_age_policy = {
+                _text(key): float(value)
+                for key, value in source_age_policy.items()
+            }
+        except (TypeError, ValueError):
+            normalized_source_age_policy = {}
+        source_sla_timestamp_fields = {
+            _text(key): _text(value)
+            for key, value in _object(
+                source.get("source_sla_timestamp_field_by_temporality")
+            ).items()
+        }
+        if (
+            _text(source.get("cadence_class"))
+            != _text(layer.get("source_cadence_class"))
+            or _string_set(source.get("allowed_temporalities"))
+            != expected_temporalities
+            or normalized_source_age_policy != expected_source_age_policy
+            or source_sla_timestamp_fields != expected_sla_timestamp_fields
+        ):
+            failures.append(
+                f"evidence overlay layer {layer_key} source cadence receipt mismatch"
+            )
+        parsed_row_counts = _positive_count_map(
+            source.get("row_counts_by_temporality")
+        )
+        row_counts = parsed_row_counts or {}
+        temporal_row_count = sum(row_counts.values())
+        temporal_row_counts_by_layer[layer_key] = temporal_row_count
+        table_name = table_name_by_layer.get(layer_key, "")
+        expected_table_count = normalized_table_counts.get(table_name, 0)
+        if (
+            parsed_row_counts is None
+            or set(row_counts) - expected_temporalities
+            or temporal_row_count != expected_table_count
+        ):
+            failures.append(
+                f"evidence overlay layer {layer_key} source temporality counts are invalid"
+            )
+        source_updated_counts = _positive_count_map(
+            source.get("source_updated_at_row_counts_by_temporality")
+        )
+        if source_updated_counts != row_counts:
+            failures.append(
+                f"evidence overlay layer {layer_key} source timestamp row coverage is incomplete"
+            )
+        oldest_source_by_temporality = _object(
+            source.get("oldest_source_updated_at_by_temporality")
+        )
+        latest_source_by_temporality = _object(
+            source.get("latest_source_updated_at_by_temporality")
+        )
+        if (
+            set(oldest_source_by_temporality) != set(row_counts)
+            or set(latest_source_by_temporality) != set(row_counts)
+        ):
+            failures.append(
+                f"evidence overlay layer {layer_key} source timestamp coverage is invalid"
+            )
+        for temporality in sorted(row_counts):
+            oldest_source_at = _parse_datetime(
+                oldest_source_by_temporality.get(temporality)
+            )
+            latest_source_at = _parse_datetime(
+                latest_source_by_temporality.get(temporality)
+            )
+            if (
+                oldest_source_at is None
+                or latest_source_at is None
+                or oldest_source_at > latest_source_at
+                or latest_source_at > observed_at
+            ):
+                failures.append(
+                    f"evidence overlay layer {layer_key} has invalid {temporality} source timestamps"
+                )
+                continue
+        oldest_source_sla_by_temporality = _object(
+            source.get("oldest_source_sla_at_by_temporality")
+        )
+        latest_source_sla_by_temporality = _object(
+            source.get("latest_source_sla_at_by_temporality")
+        )
+        expected_sla_temporalities = set(row_counts) & set(
+            expected_source_age_policy
+        )
+        expected_source_sla_counts = {
+            temporality: row_counts[temporality]
+            for temporality in expected_sla_temporalities
+        }
+        source_sla_counts = _positive_count_map(
+            source.get("source_sla_at_row_counts_by_temporality"),
+            allow_empty=True,
+        )
+        if source_sla_counts != expected_source_sla_counts:
+            failures.append(
+                f"evidence overlay layer {layer_key} source SLA row coverage is incomplete"
+            )
+        if (
+            set(oldest_source_sla_by_temporality)
+            != expected_sla_temporalities
+            or set(latest_source_sla_by_temporality)
+            != expected_sla_temporalities
+        ):
+            failures.append(
+                f"evidence overlay layer {layer_key} source SLA timestamp coverage is invalid"
+            )
+        for temporality in sorted(expected_sla_temporalities):
+            oldest_source_sla_at = _parse_datetime(
+                oldest_source_sla_by_temporality.get(temporality)
+            )
+            latest_source_sla_at = _parse_datetime(
+                latest_source_sla_by_temporality.get(temporality)
+            )
+            source_max_age_hours = expected_source_age_policy[temporality]
+            if (
+                oldest_source_sla_at is None
+                or latest_source_sla_at is None
+                or oldest_source_sla_at > latest_source_sla_at
+                or latest_source_sla_at > observed_at
+            ):
+                failures.append(
+                    f"evidence overlay layer {layer_key} has invalid {temporality} source SLA timestamps"
+                )
+            elif (
+                observed_at - oldest_source_sla_at
+            ).total_seconds() > source_max_age_hours * 3600.0:
+                failures.append(
+                    f"evidence overlay layer {layer_key} has an expired {temporality} source-check SLA"
+                )
+        reference_periods = [
+            _text(value)
+            for value in list(source.get("reference_periods") or [])
+            if _text(value)
+        ]
+        reference_period_counts = _positive_count_map(
+            source.get("reference_period_row_counts"),
+            allow_empty=True,
+        )
+        expected_reference_count = row_counts.get("reference", 0)
+        if row_counts.get("reference", 0) > 0:
+            if (
+                not reference_periods
+                or len(reference_periods) != len(set(reference_periods))
+                or any(
+                    not _valid_reference_period(value) for value in reference_periods
+                )
+                or reference_period_counts is None
+                or set(reference_period_counts) != set(reference_periods)
+                or sum(reference_period_counts.values())
+                != expected_reference_count
+            ):
+                failures.append(
+                    f"evidence overlay layer {layer_key} lacks valid reference-period evidence"
+                )
+        elif reference_periods or reference_period_counts != {}:
+            failures.append(
+                f"evidence overlay layer {layer_key} has reference periods without reference rows"
+            )
     activation = _object(receipt.get("activation"))
     normalized_expected_phase = _text(expected_phase).casefold()
     if normalized_expected_phase not in {"staged", "active"}:
@@ -1290,13 +2086,31 @@ def verify_receipt(
         if isinstance(row, dict)
     ]
     coverage_by_layer = {_text(row.get("layer_key")): row for row in coverage_rows}
-    if set(coverage_by_layer) != REQUIRED_LAYER_KEYS:
+    if (
+        len(coverage_rows) != len(REQUIRED_LAYER_KEYS)
+        or set(coverage_by_layer) != REQUIRED_LAYER_KEYS
+    ):
         failures.append("evidence overlay Postgres coverage layer set mismatch")
     elif any(
-        (_integer(row.get("record_count")) or 0) < 1
+        type(row.get("record_count")) is not int
+        or int(row["record_count"]) < 1
         for row in coverage_by_layer.values()
     ):
         failures.append("evidence overlay Postgres coverage contains an empty layer")
+    else:
+        for layer_key in sorted(REQUIRED_LAYER_KEYS):
+            coverage = coverage_by_layer[layer_key]
+            table_name = table_name_by_layer.get(layer_key, "")
+            coverage_count = int(coverage["record_count"])
+            if (
+                _text(coverage.get("teable_table")) != table_name
+                or coverage_count != normalized_table_counts.get(table_name, 0)
+                or coverage_count
+                != temporal_row_counts_by_layer.get(layer_key, 0)
+            ):
+                failures.append(
+                    f"evidence overlay layer {layer_key} table, Postgres, and temporal row counts do not match"
+                )
     try:
         query_p95_ms = float(read_model.get("query_p95_ms"))
         query_budget_ms = float(read_model.get("query_budget_ms"))
@@ -1335,6 +2149,7 @@ def verify_receipt(
     privacy = _object(receipt.get("privacy"))
     if (
         privacy.get("area_context_only") is not True
+        or privacy.get("property_scoring") is not False
         or privacy.get("person_scoring") is not False
     ):
         failures.append("evidence overlay receipt privacy posture is invalid")
@@ -1344,6 +2159,13 @@ def verify_receipt(
         )
     if _string_set(privacy.get("match_key_allowlist")) != ALLOWED_MATCH_KEYS:
         failures.append("evidence overlay receipt match-key allowlist mismatch")
+    claim_safety = _object(receipt.get("claim_safety"))
+    if claim_safety != {
+        "aggregate_safety_context_only": True,
+        "safety_source_rights_caveat_required": True,
+        "municipal_rss_is_independent_press": False,
+    }:
+        failures.append("evidence overlay receipt claim-safety posture is invalid")
     return failures
 
 
@@ -1819,7 +2641,17 @@ def main() -> int:
     )
     parser.add_argument("--candidate-sha", required=True)
     parser.add_argument("--database-url-env", default="DATABASE_URL")
-    parser.add_argument("--max-age-hours", type=float, default=48.0)
+    parser.add_argument(
+        "--max-cache-age-hours",
+        "--max-age-hours",
+        dest="max_age_hours",
+        type=float,
+        default=48.0,
+        help=(
+            "Maximum operational age for the cache/export/receipt. Source age is "
+            "governed separately by each registry layer."
+        ),
+    )
     parser.add_argument("--max-query-ms", type=float, default=100.0)
     parser.add_argument(
         "--stage-only",

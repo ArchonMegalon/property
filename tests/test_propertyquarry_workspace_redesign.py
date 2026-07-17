@@ -15178,7 +15178,7 @@ def test_property_research_media_uses_generated_reconstruction_layout_tour_when_
     assert payload["primary_href"] == "https://propertyquarry.com/tours/generated-preview"
 
 
-def test_property_research_media_uses_generic_vendor_tour_copy(monkeypatch) -> None:
+def test_property_research_media_rejects_unverified_named_provider_tour() -> None:
     payload = landing_property_research._property_tour_media_payload(
         {
             "vendor_tour_url": "https://viewer.3dvista.com/share/sample-tour",
@@ -15186,9 +15186,11 @@ def test_property_research_media_uses_generic_vendor_tour_copy(monkeypatch) -> N
         }
     )
 
-    assert payload["status_label"] == "Original tour available"
-    assert payload["status_detail"] == "The original tour is available. Open it directly while the in-page 3D tour is still missing."
-    assert payload["primary_label"] == "Open original tour"
+    assert payload["status_label"] == "3D tour unavailable"
+    assert payload["show_status_line"] is False
+    assert payload["primary_label"] == "Open property"
+    assert payload["primary_href"] == "https://propertyquarry.com/app/research/vendor-tour-copy"
+    assert payload["vendor_ready"] is False
 
 
 def test_property_research_media_ignores_unverified_vendor_tour_url() -> None:

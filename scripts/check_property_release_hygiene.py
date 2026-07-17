@@ -41,6 +41,7 @@ IGNORED_UNTRACKED_PREFIXES = (
 )
 
 RELEASE_SOURCE_PREFIXES = (
+    ".github/workflows/",
     "docs/",
     "ea/",
     "scripts/",

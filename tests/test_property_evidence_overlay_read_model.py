@@ -92,8 +92,24 @@ def _valid_export(registry: dict[str, object]) -> dict[str, object]:
             "uncertainty_label": "area-level context",
             "ui_state": "verified",
         }
+        temporalities = set(layer["allowed_source_temporalities"])
+        if "current_feed" in temporalities:
+            fields["source_temporality"] = "current_feed"
+            fields["source_checked_at"] = generated_at
+        elif "live" in temporalities:
+            fields["source_temporality"] = "live"
+        else:
+            fields["source_temporality"] = "reference"
+            fields["reference_period"] = "2025"
         if layer_key == "media_attention":
             fields["article_url"] = "https://news.example.com/article"
+            fields["media_source_class"] = "independent_press"
+            fields["independent_press"] = True
+        if layer_key == "official_safety_context":
+            fields["geographic_scope"] = "district_aggregate"
+            fields["rights_caveat"] = "Reuse subject to the official source terms."
+            fields["property_scoring"] = False
+            fields["person_scoring"] = False
         tables[table_name] = [{"id": f"record-{index}", "fields": fields}]
         evidence[table_name] = {
             "table_id_sha256": f"{index:064x}",
@@ -126,6 +142,25 @@ def _valid_export(registry: dict[str, object]) -> dict[str, object]:
             "tables": evidence,
         },
     }
+
+
+def _layer_fields(
+    export: dict[str, object],
+    registry: dict[str, object],
+    layer_key: str,
+) -> dict[str, object]:
+    layer = next(
+        row
+        for row in overlay._registry_layers(registry)
+        if row["layer_key"] == layer_key
+    )
+    tables = export["tables"]
+    assert isinstance(tables, dict)
+    rows = tables[str(layer["teable_table"])]
+    assert isinstance(rows, list) and isinstance(rows[0], dict)
+    fields = rows[0]["fields"]
+    assert isinstance(fields, dict)
+    return fields
 
 
 def _valid_plan() -> dict[str, object]:
@@ -611,6 +646,217 @@ def test_ingestion_plan_rejects_non_finite_age_threshold(invalid_age: float) -> 
     assert "max_age_hours must be a positive finite number" in plan["failures"]
 
 
+def test_registry_and_receipt_versions_expose_temporal_contract_break() -> None:
+    registry = _registry()
+
+    assert registry["contract_name"] == "propertyquarry.evidence_overlay_registry.v2"
+    assert overlay.RECEIPT_SCHEMA == "propertyquarry.evidence_overlay_read_model_receipt.v3"
+    assert registry["gold_policy"]["launch_receipt_schema"] == overlay.RECEIPT_SCHEMA
+
+
+def test_reference_dataset_uses_period_not_universal_source_age() -> None:
+    registry = _registry()
+    export = _valid_export(registry)
+    fields = _layer_fields(export, registry, "summer_heat")
+    fields["source_updated_at"] = "2020-06-15T00:00:00+00:00"
+    fields["reference_period"] = "2019-06/2020-08"
+
+    plan = overlay.build_ingestion_plan(
+        export=export,
+        registry=registry,
+        candidate_sha=CANDIDATE_SHA,
+        max_age_hours=48.0,
+        expected_teable_origin=EXPECTED_ORIGIN,
+        expected_teable_base_id_sha256=EXPECTED_BASE_ID_SHA256,
+        now=NOW,
+    )
+
+    assert plan["status"] == "pass", plan["failures"]
+    evidence = plan["source_temporal_evidence_by_layer"]["summer_heat"]
+    assert evidence["source_max_age_hours_by_temporality"] == {}
+    assert evidence["reference_periods"] == ["2019-06/2020-08"]
+
+
+@pytest.mark.parametrize(
+    "reference_period",
+    ["", "2026-02-31", "2026-12/2026-01", "calendar-year-2025"],
+)
+def test_reference_period_requires_real_ordered_calendar_values(
+    reference_period: str,
+) -> None:
+    registry = _registry()
+    export = _valid_export(registry)
+    _layer_fields(export, registry, "traffic_noise")[
+        "reference_period"
+    ] = reference_period
+
+    plan = overlay.build_ingestion_plan(
+        export=export,
+        registry=registry,
+        candidate_sha=CANDIDATE_SHA,
+        max_age_hours=48.0,
+        expected_teable_origin=EXPECTED_ORIGIN,
+        expected_teable_base_id_sha256=EXPECTED_BASE_ID_SHA256,
+        now=NOW,
+    )
+
+    assert plan["status"] == "fail"
+    assert any("reference_period" in failure for failure in plan["failures"])
+
+
+def test_live_source_sla_fails_even_when_cache_is_recent() -> None:
+    registry = _registry()
+    export = _valid_export(registry)
+    fields = _layer_fields(export, registry, "environmental_quality")
+    fields["source_updated_at"] = "2026-07-14T00:00:00+00:00"
+
+    plan = overlay.build_ingestion_plan(
+        export=export,
+        registry=registry,
+        candidate_sha=CANDIDATE_SHA,
+        max_age_hours=48.0,
+        expected_teable_origin=EXPECTED_ORIGIN,
+        expected_teable_base_id_sha256=EXPECTED_BASE_ID_SHA256,
+        now=NOW,
+    )
+
+    assert plan["status"] == "fail"
+    assert any("source_updated_at" in failure and "source-check SLA" in failure for failure in plan["failures"])
+
+
+@pytest.mark.parametrize(
+    ("layer_key", "timestamp_field"),
+    [
+        ("summer_heat", "cache_updated_at"),
+        ("environmental_quality", "source_updated_at"),
+        ("media_attention", "source_checked_at"),
+    ],
+)
+def test_temporal_provenance_rejects_timezone_naive_timestamps(
+    layer_key: str,
+    timestamp_field: str,
+) -> None:
+    registry = _registry()
+    export = _valid_export(registry)
+    _layer_fields(export, registry, layer_key)[timestamp_field] = "2026-07-16T11:00:00"
+
+    plan = overlay.build_ingestion_plan(
+        export=export,
+        registry=registry,
+        candidate_sha=CANDIDATE_SHA,
+        max_age_hours=48.0,
+        expected_teable_origin=EXPECTED_ORIGIN,
+        expected_teable_base_id_sha256=EXPECTED_BASE_ID_SHA256,
+        now=NOW,
+    )
+
+    assert plan["status"] == "fail"
+    assert any(timestamp_field in failure for failure in plan["failures"])
+
+
+def test_current_feed_sla_checks_poll_time_not_article_publication_time() -> None:
+    registry = _registry()
+    export = _valid_export(registry)
+    fields = _layer_fields(export, registry, "media_attention")
+    fields["source_updated_at"] = "2026-04-17T12:00:00+00:00"
+
+    current = overlay.build_ingestion_plan(
+        export=export,
+        registry=registry,
+        candidate_sha=CANDIDATE_SHA,
+        max_age_hours=48.0,
+        expected_teable_origin=EXPECTED_ORIGIN,
+        expected_teable_base_id_sha256=EXPECTED_BASE_ID_SHA256,
+        now=NOW,
+    )
+    assert current["status"] == "pass", current["failures"]
+
+    fields["source_checked_at"] = "2026-07-13T12:00:00+00:00"
+    stale_check = overlay.build_ingestion_plan(
+        export=export,
+        registry=registry,
+        candidate_sha=CANDIDATE_SHA,
+        max_age_hours=48.0,
+        expected_teable_origin=EXPECTED_ORIGIN,
+        expected_teable_base_id_sha256=EXPECTED_BASE_ID_SHA256,
+        now=NOW,
+    )
+    assert stale_check["status"] == "fail"
+    assert any("source_checked_at" in failure and "source-check SLA" in failure for failure in stale_check["failures"])
+
+
+def test_scoring_flags_are_rejected_globally_and_layer_claim_fields_are_scoped() -> None:
+    registry = _registry()
+    export = _valid_export(registry)
+    fields = _layer_fields(export, registry, "summer_heat")
+    fields["property_scoring"] = True
+
+    plan = overlay.build_ingestion_plan(
+        export=export,
+        registry=registry,
+        candidate_sha=CANDIDATE_SHA,
+        max_age_hours=48.0,
+        expected_teable_origin=EXPECTED_ORIGIN,
+        expected_teable_base_id_sha256=EXPECTED_BASE_ID_SHA256,
+        now=NOW,
+    )
+
+    assert plan["status"] == "fail"
+    failures = "\n".join(plan["failures"])
+    assert "property_scoring must never be enabled" in failures
+    assert "only valid as an explicit safety-layer denial" in failures
+
+
+@pytest.mark.parametrize(
+    "claim_field",
+    ["summary", "uncertainty_label", "value_label"],
+)
+def test_municipal_rss_cannot_claim_independent_press(claim_field: str) -> None:
+    registry = _registry()
+    export = _valid_export(registry)
+    fields = _layer_fields(export, registry, "media_attention")
+    fields["media_source_class"] = "municipal_rss"
+    fields["independent_press"] = True
+    fields[claim_field] = "Independent reporting from the municipal feed"
+
+    plan = overlay.build_ingestion_plan(
+        export=export,
+        registry=registry,
+        candidate_sha=CANDIDATE_SHA,
+        max_age_hours=48.0,
+        expected_teable_origin=EXPECTED_ORIGIN,
+        expected_teable_base_id_sha256=EXPECTED_BASE_ID_SHA256,
+        now=NOW,
+    )
+
+    assert plan["status"] == "fail"
+    failures = "\n".join(plan["failures"])
+    assert "municipal RSS cannot be classified as independent press" in failures
+    assert "municipal RSS copy cannot claim independent reporting" in failures
+
+
+def test_ingestion_plan_rejects_missing_ui_state() -> None:
+    registry = _registry()
+    export = _valid_export(registry)
+    _layer_fields(export, registry, "summer_heat").pop("ui_state")
+
+    plan = overlay.build_ingestion_plan(
+        export=export,
+        registry=registry,
+        candidate_sha=CANDIDATE_SHA,
+        max_age_hours=48.0,
+        expected_teable_origin=EXPECTED_ORIGIN,
+        expected_teable_base_id_sha256=EXPECTED_BASE_ID_SHA256,
+        now=NOW,
+    )
+
+    assert plan["status"] == "fail"
+    assert any(
+        "ui_state is required and must be stale or verified" in failure
+        for failure in plan["failures"]
+    )
+
+
 @pytest.mark.parametrize("invalid_query", [math.nan, math.inf, -math.inf])
 def test_execute_rejects_non_finite_query_budget_before_staging(
     invalid_query: float,
@@ -634,7 +880,7 @@ def test_execute_rejects_non_finite_query_budget_before_staging(
 
 def test_verifier_rejects_non_finite_receipt_thresholds() -> None:
     receipt, _repository = _staged_receipt()
-    receipt["freshness"]["max_age_policy_hours"] = math.nan
+    receipt["temporal_evidence"]["cache_max_age_policy_hours"] = math.nan
     receipt["read_model"]["query_p95_ms"] = math.inf
     receipt["read_model"]["query_budget_ms"] = math.nan
 
@@ -648,11 +894,140 @@ def test_verifier_rejects_non_finite_receipt_thresholds() -> None:
         now=NOW,
     )
 
-    assert "evidence overlay receipt freshness policy is invalid" in failures
+    assert "evidence overlay receipt cache-age policy is invalid" in failures
     assert (
         "evidence overlay receipt query budget exceeds the launch maximum" in failures
     )
     assert "evidence overlay receipt exceeds its query performance budget" in failures
+
+
+def test_receipt_never_equates_cache_recency_with_source_freshness() -> None:
+    receipt, _repository = _staged_receipt()
+
+    assert "freshness" not in receipt
+    assert (
+        receipt["temporal_evidence"][
+            "cache_updated_at_proves_source_freshness"
+        ]
+        is False
+    )
+    assert set(receipt["temporal_evidence"]["source_by_layer"]) == overlay.REQUIRED_LAYER_KEYS
+
+    receipt["temporal_evidence"][
+        "cache_updated_at_proves_source_freshness"
+    ] = True
+    failures = overlay.verify_receipt(
+        receipt,
+        expected_candidate_sha=CANDIDATE_SHA,
+        max_age_hours=48.0,
+        expected_teable_origin=EXPECTED_ORIGIN,
+        expected_teable_base_id_sha256=EXPECTED_BASE_ID_SHA256,
+        expected_phase="staged",
+        now=NOW,
+    )
+    assert (
+        "evidence overlay receipt must not represent cache recency as source freshness"
+        in failures
+    )
+
+
+def test_receipt_record_count_must_equal_all_table_rows() -> None:
+    receipt, _repository = _staged_receipt()
+    receipt["ingestion"]["record_count"] += 1
+
+    failures = overlay.verify_receipt(
+        receipt,
+        expected_candidate_sha=CANDIDATE_SHA,
+        max_age_hours=48.0,
+        expected_teable_origin=EXPECTED_ORIGIN,
+        expected_teable_base_id_sha256=EXPECTED_BASE_ID_SHA256,
+        expected_phase="staged",
+        now=NOW,
+    )
+
+    assert (
+        "evidence overlay receipt record count must equal the sum of Teable table counts"
+        in failures
+    )
+
+
+def test_receipt_temporal_counts_must_cover_table_and_postgres_rows() -> None:
+    receipt, _repository = _staged_receipt()
+    registry = _registry()
+    layer = next(
+        row for row in registry["layers"] if row["layer_key"] == "summer_heat"
+    )
+    table_name = str(layer["teable_table"])
+    receipt["ingestion"]["table_counts"][table_name] = 2
+    receipt["ingestion"]["record_count"] += 1
+    receipt["source_evidence"]["tables"][table_name]["record_count"] = 2
+    coverage = next(
+        row
+        for row in receipt["read_model"]["coverage"]
+        if row["layer_key"] == "summer_heat"
+    )
+    coverage["record_count"] = 2
+
+    failures = overlay.verify_receipt(
+        receipt,
+        expected_candidate_sha=CANDIDATE_SHA,
+        max_age_hours=48.0,
+        expected_teable_origin=EXPECTED_ORIGIN,
+        expected_teable_base_id_sha256=EXPECTED_BASE_ID_SHA256,
+        expected_phase="staged",
+        now=NOW,
+    )
+
+    assert (
+        "evidence overlay layer summer_heat source temporality counts are invalid"
+        in failures
+    )
+    assert (
+        "evidence overlay layer summer_heat table, Postgres, and temporal row counts do not match"
+        in failures
+    )
+
+
+@pytest.mark.parametrize(
+    ("layer_key", "count_field", "expected_failure"),
+    [
+        (
+            "summer_heat",
+            "source_updated_at_row_counts_by_temporality",
+            "source timestamp row coverage is incomplete",
+        ),
+        (
+            "environmental_quality",
+            "source_sla_at_row_counts_by_temporality",
+            "source SLA row coverage is incomplete",
+        ),
+        (
+            "summer_heat",
+            "reference_period_row_counts",
+            "lacks valid reference-period evidence",
+        ),
+    ],
+)
+def test_receipt_rejects_incomplete_per_row_temporal_evidence(
+    layer_key: str,
+    count_field: str,
+    expected_failure: str,
+) -> None:
+    receipt, _repository = _staged_receipt()
+    source = receipt["temporal_evidence"]["source_by_layer"][layer_key]
+    source[count_field] = {}
+
+    failures = overlay.verify_receipt(
+        receipt,
+        expected_candidate_sha=CANDIDATE_SHA,
+        max_age_hours=48.0,
+        expected_teable_origin=EXPECTED_ORIGIN,
+        expected_teable_base_id_sha256=EXPECTED_BASE_ID_SHA256,
+        expected_phase="staged",
+        now=NOW,
+    )
+
+    assert any(expected_failure in failure for failure in failures)
 
 
 def test_launch_cli_rejects_prefetched_export(

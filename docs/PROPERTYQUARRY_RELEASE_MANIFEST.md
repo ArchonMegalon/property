@@ -56,7 +56,7 @@ Production stays fail-closed until every item is bound to the exact runtime cand
 
 ## Whole-project Gold boundary
 
-- Evidence-map overlay source and browser UI proof is green for unavailable, stale, and verified states. Whole-project Gold remains blocked until protected live authenticated source coverage and candidate-bound read-model freshness and performance receipts cover environmental quality, heat, traffic/noise, mobility, schools, official aggregate safety context, media-attention statistics with article links, and fiber/broadband coverage.
+- Evidence-map overlay source and browser UI proof is green for unavailable, stale, and verified states. Whole-project Gold remains blocked until protected live authenticated source coverage and candidate-bound cache-recency, source-time/reference-period, and performance receipts cover environmental quality, heat, traffic/noise, mobility, schools, official aggregate safety context, media-attention statistics with article links, and fiber/broadband coverage.
 - Rybbit remains a whole-project gold blocker until dashboard/API receipts prove the approved taxonomy across conversion, product engagement, billing, tours, support/recovery, and activation without private candidate, listing, or contact payloads.
 - Production security remains a whole-project gold blocker until runtime/container hardening, reproducible supply chain, dependency/container scans, SBOM, durable RBAC/session revocation, key rotation, and disabled production override receipts are current.
 - Remote candidate CI and deployed/live receipts remain required before launch authority can be granted.

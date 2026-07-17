@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 
+from scripts import property_evidence_overlay_read_model as overlay_read_model
 from scripts import propertyquarry_launch_authority as launch_authority
 from scripts import propertyquarry_rybbit_evidence as rybbit_evidence
 
@@ -26,6 +27,13 @@ RYBBIT_ANALYTICS_ORIGIN = "https://app.rybbit.io"
 RYBBIT_SITE_ID = "propertyquarry-production"
 RYBBIT_SITE_ID_SHA256 = hashlib.sha256(RYBBIT_SITE_ID.encode()).hexdigest()
 GENERATED_AT = datetime(2026, 7, 16, 17, 0, tzinfo=timezone.utc)
+
+
+def test_launch_authority_requires_temporal_overlay_receipt_v3() -> None:
+    assert (
+        launch_authority.OVERLAY_SCHEMA
+        == "propertyquarry.evidence_overlay_read_model_receipt.v3"
+    )
 
 
 def _write_json(path: Path, payload: dict[str, object]) -> Path:
@@ -98,74 +106,225 @@ def _activation_payload() -> dict[str, object]:
     }
 
 
-def _overlay_payload() -> dict[str, object]:
-    snapshot_id = "c" * 64
+def _overlay_export(registry: dict[str, object]) -> dict[str, object]:
+    generated_at = GENERATED_AT.isoformat()
+    tables: dict[str, list[dict[str, object]]] = {}
+    source_tables: dict[str, dict[str, object]] = {}
+    for index, layer in enumerate(overlay_read_model._registry_layers(registry)):
+        layer_key = str(layer["layer_key"])
+        table_name = str(layer["teable_table"])
+        fields: dict[str, object] = {
+            "match": {"postal_code": f"10{index:02d}"},
+            "summary": f"Verified {layer_key} context",
+            "source_name": "Launch source",
+            "source_url": f"https://source.example.com/{layer_key}",
+            "source_updated_at": generated_at,
+            "cache_updated_at": generated_at,
+            "uncertainty_label": "area-level context",
+            "ui_state": "verified",
+        }
+        temporalities = set(layer["allowed_source_temporalities"])
+        if "current_feed" in temporalities:
+            fields["source_temporality"] = "current_feed"
+            fields["source_checked_at"] = generated_at
+        elif "live" in temporalities:
+            fields["source_temporality"] = "live"
+        else:
+            fields["source_temporality"] = "reference"
+            fields["reference_period"] = "2025"
+        if layer_key == "media_attention":
+            fields.update(
+                {
+                    "article_url": "https://news.example.com/article",
+                    "media_source_class": "independent_press",
+                    "independent_press": True,
+                }
+            )
+        if layer_key == "official_safety_context":
+            fields.update(
+                {
+                    "geographic_scope": "district_aggregate",
+                    "rights_caveat": "Reuse subject to the official source terms.",
+                    "property_scoring": False,
+                    "person_scoring": False,
+                }
+            )
+        tables[table_name] = [{"id": f"record-{index}", "fields": fields}]
+        source_tables[table_name] = {
+            "table_id_sha256": f"{index + 1:064x}",
+            "record_count": 1,
+            "page_count": 1,
+            "pages": [
+                {
+                    "status_code": 200,
+                    "response_sha256": f"{index + 101:064x}",
+                    "size_bytes": 128,
+                }
+            ],
+        }
     return {
-        "schema": launch_authority.OVERLAY_SCHEMA,
-        "status": "pass",
-        "failures": [],
-        "candidate_sha": CANDIDATE_SHA,
-        "snapshot_id": snapshot_id,
+        "schema": overlay_read_model.EXPORT_SCHEMA,
+        "generated_at": generated_at,
+        "tables": tables,
         "source_evidence": {
+            "mode": "authenticated_teable_api",
+            "auth_kind": "bearer_api_key",
+            "secret_in_export": False,
             "base_origin": TEABLE_ORIGIN,
             "base_id_sha256": TEABLE_BASE_ID_SHA256,
-        },
-        "source_authority": {
-            "expected_origin": TEABLE_ORIGIN,
-            "expected_base_id_sha256": TEABLE_BASE_ID_SHA256,
-            "bound_independently": True,
-        },
-        "activation": {
-            "phase": "active",
-            "candidate_snapshot_id": snapshot_id,
-            "activated_snapshot_id": snapshot_id,
-            "candidate_staged": True,
-            "activation_performed": True,
-            "active_snapshot_unchanged": False,
-            "active_pointer_switch": "atomic_final_transaction",
-            "active_revalidation_performed": True,
-            "active_revalidation_query_sample_count": 24,
-            "active_revalidation_query_p95_ms": 4.0,
-            "activation_authority_sha256": "0" * 64,
-            "staged_receipt_sha256": "f" * 64,
-            "authorized_workflow": {
-                "head_sha": HEAD_SHA,
-                "run_id": RUN_ID,
-                "run_attempt": RUN_ATTEMPT,
+            "redirects_followed": False,
+            "table_discovery": {
+                "status_code": 200,
+                "response_sha256": "e" * 64,
+                "size_bytes": 256,
             },
+            "tables": source_tables,
         },
-        "read_model": {"query_budget_ms": 100.0},
     }
+
+
+class _OverlayRepository:
+    def __init__(self, plan: dict[str, object]) -> None:
+        self.plan = plan
+        self.active_id = "d" * 64
+
+    def ensure_schema(self) -> None:
+        return None
+
+    def active_snapshot_id(self) -> str:
+        return self.active_id
+
+    def stage_snapshot(self, **_kwargs: object) -> None:
+        return None
+
+    def _coverage(self) -> list[dict[str, object]]:
+        return [
+            {
+                "layer_key": row["layer_key"],
+                "teable_table": row["teable_table"],
+                "record_count": 1,
+                "latest_cache_updated_at": row["cache_updated_at"],
+                "latest_ingested_at": GENERATED_AT.isoformat(),
+            }
+            for row in (dict(record) for record in list(self.plan["records"]))
+        ]
+
+    def coverage(self, *, snapshot_id: str = "") -> list[dict[str, object]]:
+        del snapshot_id
+        return self._coverage()
+
+    def lookup(
+        self,
+        lookup_values: dict[str, str],
+        *,
+        snapshot_id: str = "",
+    ) -> list[dict[str, object]]:
+        del snapshot_id
+        for row in (dict(record) for record in list(self.plan["records"])):
+            match = dict(row["match"])
+            if any(match.get(key) == value for key, value in lookup_values.items()):
+                return [{"layer_key": row["layer_key"]}]
+        return []
+
+    def benchmark_samples(
+        self,
+        *,
+        snapshot_id: str,
+    ) -> list[tuple[str, dict[str, str]]]:
+        del snapshot_id
+        return [
+            (str(row["layer_key"]), dict(row["match"]))
+            for row in (dict(record) for record in list(self.plan["records"]))
+        ]
+
+    def discard_staged_snapshot(self, snapshot_id: str) -> None:
+        del snapshot_id
+
+    def activate_snapshot(
+        self,
+        *,
+        snapshot_id: str,
+        activated_at: str,
+        expected_previous_snapshot_id: str,
+    ) -> str:
+        del activated_at
+        assert expected_previous_snapshot_id == self.active_id
+        previous = self.active_id
+        self.active_id = snapshot_id
+        return previous
+
+    def restore_active_snapshot(
+        self,
+        *,
+        failed_snapshot_id: str,
+        restore_snapshot_id: str,
+        restored_at: str,
+    ) -> bool:
+        del failed_snapshot_id, restored_at
+        self.active_id = restore_snapshot_id
+        return True
+
+
+def _staged_overlay_receipt() -> tuple[dict[str, object], _OverlayRepository]:
+    registry = json.loads(
+        overlay_read_model.REGISTRY_PATH.read_text(encoding="utf-8")
+    )
+    plan = overlay_read_model.build_ingestion_plan(
+        export=_overlay_export(registry),
+        registry=registry,
+        candidate_sha=CANDIDATE_SHA,
+        max_age_hours=launch_authority.MAX_OVERLAY_RECEIPT_AGE_HOURS,
+        expected_teable_origin=TEABLE_ORIGIN,
+        expected_teable_base_id_sha256=TEABLE_BASE_ID_SHA256,
+        now=GENERATED_AT,
+    )
+    assert plan["status"] == "pass", plan["failures"]
+    repository = _OverlayRepository(plan)
+    receipt = overlay_read_model.execute_ingestion(
+        plan=plan,
+        repository=repository,
+        candidate_sha=CANDIDATE_SHA,
+        max_query_ms=100.0,
+        stage_only=True,
+        observed_at=GENERATED_AT,
+    )
+    assert receipt["status"] == "pass", receipt["failures"]
+    return receipt, repository
+
+
+def _overlay_payload() -> dict[str, object]:
+    staged, repository = _staged_overlay_receipt()
+    active = overlay_read_model.activate_staged_receipt(
+        receipt=staged,
+        repository=repository,
+        snapshot_id=str(staged["snapshot_id"]),
+        expected_candidate_sha=CANDIDATE_SHA,
+        max_age_hours=launch_authority.MAX_OVERLAY_RECEIPT_AGE_HOURS,
+        expected_teable_origin=TEABLE_ORIGIN,
+        expected_teable_base_id_sha256=TEABLE_BASE_ID_SHA256,
+        activation_authority_sha256="0" * 64,
+        staged_receipt_sha256="f" * 64,
+        authorized_workflow={
+            "head_sha": HEAD_SHA,
+            "run_id": RUN_ID,
+            "run_attempt": RUN_ATTEMPT,
+        },
+        now=GENERATED_AT,
+    )
+    assert active["status"] == "pass", active["failures"]
+    return active
 
 
 def _staged_overlay_payload() -> dict[str, object]:
-    payload = _overlay_payload()
-    activation = payload["activation"]
-    assert isinstance(activation, dict)
-    activation.update(
-        {
-            "phase": "staged",
-            "activated_snapshot_id": "",
-            "activation_performed": False,
-            "active_snapshot_unchanged": True,
-            "active_revalidation_performed": False,
-            "active_revalidation_query_sample_count": 0,
-            "active_revalidation_query_p95_ms": None,
-        }
-    )
-    activation.pop("activation_authority_sha256")
-    activation.pop("staged_receipt_sha256")
-    activation.pop("authorized_workflow")
-    payload["read_model"] = {
-        "sample_layer_count": 8,
-        "query_sample_count": 24,
-        "query_p95_ms": 4.0,
-        "query_budget_ms": 100.0,
-    }
-    return payload
+    staged, _repository = _staged_overlay_receipt()
+    return staged
 
 
-def _activation_authority_payload(staged_receipt_sha256: str) -> dict[str, object]:
+def _activation_authority_payload(
+    staged_receipt_sha256: str,
+    *,
+    snapshot_id: str,
+) -> dict[str, object]:
     return {
         "schema": launch_authority.SCHEMA,
         "status": "pass",
@@ -189,7 +348,7 @@ def _activation_authority_payload(staged_receipt_sha256: str) -> dict[str, objec
             "supplied_independently": True,
         },
         "activation_scope": {
-            "snapshot_id": "c" * 64,
+            "snapshot_id": snapshot_id,
             "staged_overlay_receipt_sha256": staged_receipt_sha256,
             "activation_authority_sha256": "",
         },
@@ -322,6 +481,8 @@ def _gold_payload(
     *,
     activation_path: Path,
     overlay_path: Path,
+    overlay_snapshot_id: str,
+    staged_overlay_receipt_sha256: str,
     rybbit_path: Path,
 ) -> dict[str, object]:
     return {
@@ -342,7 +503,8 @@ def _gold_payload(
             "evidence_overlay_read_model": {
                 "status": "pass",
                 "candidate_sha": CANDIDATE_SHA,
-                "snapshot_id": "c" * 64,
+                "snapshot_id": overlay_snapshot_id,
+                "receipt_sha256": staged_overlay_receipt_sha256,
                 "activation_phase": "staged",
                 "source_evidence": {
                     "base_origin": TEABLE_ORIGIN,
@@ -405,7 +567,8 @@ def _gold_payload(
                 "area": "evidence_overlay_read_model",
                 "status": "pass",
                 "candidate_sha": CANDIDATE_SHA,
-                "snapshot_id": "c" * 64,
+                "snapshot_id": overlay_snapshot_id,
+                "receipt_sha256": staged_overlay_receipt_sha256,
                 "receipt_path": str(overlay_path),
             },
             {
@@ -429,11 +592,15 @@ def _inputs(tmp_path: Path) -> dict[str, object]:
     security = _write_json(tmp_path / "security.json", _security_payload())
     binding = _write_json(tmp_path / "security-binding.json", _security_binding_payload())
     activation = _write_json(tmp_path / "activation.json", _activation_payload())
+    overlay_payload = _overlay_payload()
+    overlay_snapshot_id = str(overlay_payload["snapshot_id"])
     activation_authority = _write_json(
         tmp_path / "activation-authority.json",
-        _activation_authority_payload("f" * 64),
+        _activation_authority_payload(
+            "f" * 64,
+            snapshot_id=overlay_snapshot_id,
+        ),
     )
-    overlay_payload = _overlay_payload()
     overlay_activation = overlay_payload["activation"]
     assert isinstance(overlay_activation, dict)
     overlay_activation["activation_authority_sha256"] = _digest(
@@ -450,6 +617,8 @@ def _inputs(tmp_path: Path) -> dict[str, object]:
         _gold_payload(
             activation_path=activation,
             overlay_path=overlay,
+            overlay_snapshot_id=overlay_snapshot_id,
+            staged_overlay_receipt_sha256="f" * 64,
             rybbit_path=rybbit,
         ),
     )
@@ -490,6 +659,26 @@ def _preactivation_inputs(tmp_path: Path) -> dict[str, object]:
     overlay_path = inputs["overlay_receipt_path"]
     assert isinstance(overlay_path, Path)
     _rewrite(overlay_path, _staged_overlay_payload())
+    gold_path = inputs["gold_status_path"]
+    assert isinstance(gold_path, Path)
+    gold = _read_payload(gold_path)
+    staged_sha256 = _digest(overlay_path)
+    launch_product_data = gold["launch_product_data_evidence"]
+    assert isinstance(launch_product_data, dict)
+    top_overlay = launch_product_data["evidence_overlay_read_model"]
+    assert isinstance(top_overlay, dict)
+    top_overlay["receipt_sha256"] = staged_sha256
+    top_overlay["snapshot_id"] = _read_payload(overlay_path)["snapshot_id"]
+    pass_areas = gold["pass_areas"]
+    assert isinstance(pass_areas, list)
+    overlay_area = next(
+        row
+        for row in pass_areas
+        if isinstance(row, dict) and row.get("area") == "evidence_overlay_read_model"
+    )
+    overlay_area["receipt_sha256"] = staged_sha256
+    overlay_area["snapshot_id"] = _read_payload(overlay_path)["snapshot_id"]
+    _rewrite(gold_path, gold)
     inputs["authority_phase"] = "preactivation"
     inputs.pop("activation_authority_path")
     return inputs
@@ -590,11 +779,26 @@ def test_preactivation_authority_binds_exact_staged_overlay_without_launching(
     assert envelope["launch_authorized"] is False
     assert envelope["notification_authorized"] is False
     assert envelope["activation_scope"] == {
-        "snapshot_id": "c" * 64,
+        "snapshot_id": _read_payload(overlay_path)["snapshot_id"],
         "staged_overlay_receipt_sha256": _digest(overlay_path),
         "activation_authority_sha256": "",
     }
     assert "activation_authority" not in envelope["inputs"]
+
+
+def test_preactivation_authority_rejects_same_path_overlay_byte_tamper_after_gold(
+    tmp_path: Path,
+) -> None:
+    inputs = _preactivation_inputs(tmp_path)
+    overlay_path = inputs["overlay_receipt_path"]
+    assert isinstance(overlay_path, Path)
+    overlay_path.write_bytes(overlay_path.read_bytes() + b"\n")
+    overlay_path.chmod(0o600)
+
+    envelope = launch_authority.build_launch_authority_envelope(**inputs)
+
+    assert envelope["status"] == "withheld"
+    assert "gold_overlay_receipt_sha256_mismatch" in envelope["failures"]
 
 
 @pytest.mark.parametrize("authority_case", ["missing", "wrong", "stale"])
@@ -776,6 +980,70 @@ def test_launch_authority_withholds_on_gold_or_product_proof_tamper(
     assert envelope["status"] == "withheld"
     assert envelope["launch_authorized"] is False
     assert expected_failure in envelope["failures"]
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["delete_temporal_evidence", "change_claim_safety"],
+)
+def test_launch_authority_canonically_rejects_same_path_post_gold_overlay_tamper(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    inputs = _inputs(tmp_path)
+    overlay_path = inputs["overlay_receipt_path"]
+    assert isinstance(overlay_path, Path)
+    receipt = _read_payload(overlay_path)
+    original_snapshot_id = receipt["snapshot_id"]
+
+    if mutation == "delete_temporal_evidence":
+        receipt.pop("temporal_evidence")
+    else:
+        claim_safety = receipt["claim_safety"]
+        assert isinstance(claim_safety, dict)
+        claim_safety["municipal_rss_is_independent_press"] = True
+    _rewrite(overlay_path, receipt)
+
+    envelope = launch_authority.build_launch_authority_envelope(**inputs)
+
+    assert receipt["snapshot_id"] == original_snapshot_id
+    assert envelope["status"] == "withheld"
+    assert envelope["launch_authorized"] is False
+    assert "overlay_receipt_not_candidate_pass" in envelope["failures"]
+    checks = {
+        str(row["name"]): row["ok"]
+        for row in envelope["checks"]
+        if isinstance(row, dict)
+    }
+    assert checks["gold_overlay_staged_receipt_sha256_bound"] is True
+
+
+def test_launch_authority_rejects_gold_staged_overlay_digest_tamper(
+    tmp_path: Path,
+) -> None:
+    inputs = _inputs(tmp_path)
+    gold_path = inputs["gold_status_path"]
+    assert isinstance(gold_path, Path)
+    gold = _read_payload(gold_path)
+    launch_product_data = gold["launch_product_data_evidence"]
+    assert isinstance(launch_product_data, dict)
+    top_overlay = launch_product_data["evidence_overlay_read_model"]
+    assert isinstance(top_overlay, dict)
+    top_overlay["receipt_sha256"] = "e" * 64
+    pass_areas = gold["pass_areas"]
+    assert isinstance(pass_areas, list)
+    overlay_area = next(
+        row
+        for row in pass_areas
+        if isinstance(row, dict) and row.get("area") == "evidence_overlay_read_model"
+    )
+    overlay_area["receipt_sha256"] = "e" * 64
+    _rewrite(gold_path, gold)
+
+    envelope = launch_authority.build_launch_authority_envelope(**inputs)
+
+    assert envelope["status"] == "withheld"
+    assert "gold_overlay_receipt_sha256_mismatch" in envelope["failures"]
 
 
 def test_launch_authority_rejects_duplicate_gold_pass_area(tmp_path: Path) -> None:

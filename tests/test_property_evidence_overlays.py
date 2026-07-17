@@ -51,8 +51,12 @@ def test_property_evidence_overlays_read_verified_and_stale_cached_rollups(tmp_p
                         "source_name": "Terms-safe media index",
                         "source_url": "https://news.example.test/search?q=1020",
                         "article_url": "https://news.example.test/article/1",
-                        "cache_updated_at": "2026-06-25T08:00:00+00:00",
+                        "cache_updated_at": "2026-07-17T08:00:00+00:00",
                         "source_updated_at": "2026-06-24T08:00:00+00:00",
+                        "source_checked_at": "2026-07-17T07:00:00+00:00",
+                        "source_temporality": "current_feed",
+                        "media_source_class": "independent_press",
+                        "independent_press": True,
                         "uncertainty_label": "topic aggregate",
                     },
                     {
@@ -61,7 +65,11 @@ def test_property_evidence_overlays_read_verified_and_stale_cached_rollups(tmp_p
                         "ui_state": "stale",
                         "summary": "Official fixed-line coverage says gigabit-class service may be available.",
                         "source_name": "Official broadband grid",
+                        "source_url": "https://data.example.test/broadband",
                         "cache_updated_at": "2025-01-01T08:00:00+00:00",
+                        "source_updated_at": "2024-12-01T08:00:00+00:00",
+                        "source_temporality": "reference",
+                        "reference_period": "2024",
                         "uncertainty_label": "area grid",
                     },
                 ]
@@ -87,7 +95,9 @@ def test_property_evidence_overlays_read_verified_and_stale_cached_rollups(tmp_p
     assert "uncertainty:" not in str(by_key["media_attention"]["detail"]).lower()
     assert by_key["fiber_broadband"]["ui_state"] == "stale"
     assert by_key["fiber_broadband"]["tag"] == "Stale"
-    assert "Update pending" in str(by_key["fiber_broadband"]["detail"])
+    assert "does not establish source freshness or staleness" in str(
+        by_key["fiber_broadband"]["detail"]
+    )
     assert by_key["environmental_quality"]["ui_state"] == "unavailable"
 
 
@@ -112,6 +122,10 @@ def test_property_research_rows_preserve_evidence_states_and_original_article_li
                         "article_url": "https://news.example.test/article/altbau-u6",
                         "cache_updated_at": "2026-07-17T00:00:00+00:00",
                         "source_updated_at": "2026-07-16T00:00:00+00:00",
+                        "source_checked_at": "2026-07-17T00:00:00+00:00",
+                        "source_temporality": "current_feed",
+                        "media_source_class": "independent_press",
+                        "independent_press": True,
                         "uncertainty_label": "topic aggregate",
                     },
                     {
@@ -123,6 +137,8 @@ def test_property_research_rows_preserve_evidence_states_and_original_article_li
                         "source_url": "https://broadband.example.test/altbau-u6",
                         "cache_updated_at": "2025-01-01T00:00:00+00:00",
                         "source_updated_at": "2024-12-31T00:00:00+00:00",
+                        "source_temporality": "reference",
+                        "reference_period": "2024",
                         "uncertainty_label": "area grid",
                     },
                     {
@@ -221,22 +237,144 @@ def test_property_evidence_overlay_state_requires_explicit_fresh_truth(
     assert overlays._state_for_rollup(row, stale_after_days=45) == expected
 
 
-def test_property_evidence_overlay_production_freshness_still_expires_after_45_days(
+def test_overlay_ui_fails_unavailable_on_timezone_naive_source_provenance(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(overlays, "_now", lambda: FROZEN_EVIDENCE_NOW)
+    layer = next(
+        dict(row)
+        for row in overlays.evidence_overlay_registry()["layers"]
+        if row["layer_key"] == "environmental_quality"
+    )
+
+    state = overlays._state_for_rollup(
+        {
+            "ui_state": "verified",
+            "source_temporality": "live",
+            "source_updated_at": "2026-07-17T10:00:00",
+            "cache_updated_at": "2026-07-17T11:00:00+00:00",
+        },
+        stale_after_days=45,
+        layer=layer,
+    )
+
+    assert state == "unavailable"
+
+
+def test_property_evidence_overlay_cache_contract_cannot_be_weakened_beyond_48_hours(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(
         overlays,
         "_now",
-        lambda: datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc),
+        lambda: datetime(2026, 7, 19, 12, 0, 1, tzinfo=timezone.utc),
     )
 
     assert overlays._state_for_rollup(
         {
             "ui_state": "verified",
-            "cache_updated_at": "2026-07-17T00:00:00+00:00",
+            "cache_updated_at": "2026-07-17T12:00:00+00:00",
         },
         stale_after_days=45,
     ) == "stale"
+
+
+def test_overlay_ui_separates_reference_period_feed_check_and_cache_expiry(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(overlays, "_now", lambda: FROZEN_EVIDENCE_NOW)
+    registry = overlays.evidence_overlay_registry()
+    layers = {
+        str(layer["layer_key"]): dict(layer)
+        for layer in registry["layers"]
+        if isinstance(layer, dict)
+    }
+
+    reference = overlays._overlay_from_rollup(
+        layers["summer_heat"],
+        {
+            "ui_state": "verified",
+            "summary": "Published heat-atlas context.",
+            "source_name": "Official heat atlas",
+            "source_url": "https://data.example.test/heat",
+            "source_temporality": "reference",
+            "source_updated_at": "2022-06-01T00:00:00+00:00",
+            "reference_period": "2021-06/2022-08",
+            "cache_updated_at": "2026-07-17T10:00:00+00:00",
+            "uncertainty_label": "district model",
+        },
+        stale_after_days=45,
+    )
+    assert reference["ui_state"] == "verified"
+    assert reference["reference_period"] == "2021-06/2022-08"
+    assert "Reference period: 2021-06/2022-08" in str(reference["detail"])
+    assert "current area layer" not in str(reference["detail"])
+
+    municipal_feed = overlays._overlay_from_rollup(
+        layers["media_attention"],
+        {
+            "ui_state": "verified",
+            "summary": "Municipal notices mentioning the district.",
+            "source_name": "City notice feed",
+            "source_url": "https://city.example.test/rss",
+            "article_url": "https://city.example.test/notices/1",
+            "source_temporality": "current_feed",
+            "source_updated_at": "2026-04-17T12:00:00+00:00",
+            "source_checked_at": "2026-07-17T10:00:00+00:00",
+            "cache_updated_at": "2026-07-17T11:00:00+00:00",
+            "media_source_class": "municipal_rss",
+            "independent_press": False,
+            "uncertainty_label": "municipal topic feed",
+        },
+        stale_after_days=45,
+    )
+    assert municipal_feed["ui_state"] == "verified"
+    assert municipal_feed["source_updated_at"] == "2026-04-17T12:00:00+00:00"
+    assert municipal_feed["source_checked_at"] == "2026-07-17T10:00:00+00:00"
+    assert "Feed checked: 2026-07-17T10:00:00+00:00" in str(
+        municipal_feed["detail"]
+    )
+    assert "not independent press" in str(municipal_feed["detail"])
+
+    mislabeled_press = overlays._state_and_temporal_reason_for_rollup(
+        {
+            "ui_state": "verified",
+            "source_name": "Independent publisher",
+            "source_url": "https://publisher.example.test/feed",
+            "article_url": "https://publisher.example.test/article/1",
+            "source_temporality": "current_feed",
+            "source_updated_at": "2026-07-17T09:00:00+00:00",
+            "source_checked_at": "2026-07-17T10:00:00+00:00",
+            "cache_updated_at": "2026-07-17T11:00:00+00:00",
+            "media_source_class": "independent_press",
+            "independent_press": False,
+            "uncertainty_label": "publisher topic feed",
+        },
+        stale_after_days=45,
+        layer=layers["media_attention"],
+    )
+    assert mislabeled_press == ("unavailable", "media_classification_invalid")
+
+    expired_cache = overlays._overlay_from_rollup(
+        layers["summer_heat"],
+        {
+            "ui_state": "verified",
+            "summary": "Published heat-atlas context.",
+            "source_name": "Official heat atlas",
+            "source_url": "https://data.example.test/heat",
+            "source_temporality": "reference",
+            "source_updated_at": "2022-06-01T00:00:00+00:00",
+            "reference_period": "2021-06/2022-08",
+            "cache_updated_at": "2026-05-01T00:00:00+00:00",
+            "uncertainty_label": "district model",
+        },
+        stale_after_days=45,
+    )
+    assert expired_cache["ui_state"] == "stale"
+    assert expired_cache["temporal_status"] == "cache_copy_expired"
+    assert "does not establish source freshness or staleness" in str(
+        expired_cache["detail"]
+    )
 
 
 def test_property_evidence_overlays_use_listing_research_snapshot_coordinates_for_rollup_match(
@@ -255,7 +393,11 @@ def test_property_evidence_overlays_use_listing_research_snapshot_coordinates_fo
                         "ui_state": "verified",
                         "summary": "Official heat layer marks this block as cooler than nearby dense corridors.",
                         "source_name": "Vienna climate analysis",
-                        "cache_updated_at": "2026-06-25T08:00:00+00:00",
+                        "source_url": "https://data.example.test/heat",
+                        "cache_updated_at": "2026-07-16T08:00:00+00:00",
+                        "source_updated_at": "2026-06-24T08:00:00+00:00",
+                        "source_temporality": "reference",
+                        "reference_period": "2025",
                         "uncertainty_label": "block-level climate layer",
                     }
                 ]
@@ -521,13 +663,29 @@ def _complete_teable_export() -> tuple[dict[str, object], dict[str, object]]:
             "summary": f"Verified {layer_key} context.",
             "source_name": f"Official {layer_key} source",
             "source_url": f"https://data.example.test/{layer_key}",
-            "source_updated_at": "2026-07-15T10:00:00+00:00",
-            "cache_updated_at": "2026-07-15T11:00:00+00:00",
+            "source_updated_at": "2026-07-16T10:00:00+00:00",
+            "cache_updated_at": "2026-07-16T11:00:00+00:00",
             "uncertainty_label": "area aggregate",
             "ui_state": "verified",
         }
+        temporalities = set(layer["allowed_source_temporalities"])
+        if "current_feed" in temporalities:
+            fields["source_temporality"] = "current_feed"
+            fields["source_checked_at"] = "2026-07-16T10:30:00+00:00"
+        elif "live" in temporalities:
+            fields["source_temporality"] = "live"
+        else:
+            fields["source_temporality"] = "reference"
+            fields["reference_period"] = "2025"
         if layer_key == "media_attention":
             fields["article_url"] = "https://news.example.test/article/launch-proof"
+            fields["media_source_class"] = "independent_press"
+            fields["independent_press"] = True
+        if layer_key == "official_safety_context":
+            fields["geographic_scope"] = "district_aggregate"
+            fields["rights_caveat"] = "Reuse subject to official source terms."
+            fields["property_scoring"] = False
+            fields["person_scoring"] = False
         tables[table_name] = [{"id": f"rec-{index}", "fields": fields}]
     source_tables = {
         table_name: {
@@ -547,7 +705,7 @@ def _complete_teable_export() -> tuple[dict[str, object], dict[str, object]]:
     return (
         {
             "schema": "propertyquarry.evidence_overlay_teable_export.v1",
-            "generated_at": "2026-07-15T11:05:00+00:00",
+            "generated_at": "2026-07-16T11:05:00+00:00",
             "tables": tables,
             "source_evidence": {
                 "mode": "authenticated_teable_api",

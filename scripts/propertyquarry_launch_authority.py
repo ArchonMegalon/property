@@ -17,10 +17,16 @@ from pathlib import Path
 from typing import Any
 
 if __package__:
+    from scripts.property_evidence_overlay_read_model import (
+        verify_receipt as verify_evidence_overlay_read_model_receipt,
+    )
     from scripts.propertyquarry_rybbit_evidence import (
         verify_receipt as verify_rybbit_delivery_receipt,
     )
 else:
+    from property_evidence_overlay_read_model import (
+        verify_receipt as verify_evidence_overlay_read_model_receipt,
+    )
     from propertyquarry_rybbit_evidence import (
         verify_receipt as verify_rybbit_delivery_receipt,
     )
@@ -29,7 +35,7 @@ else:
 SCHEMA = "propertyquarry.launch_authority_envelope.v1"
 SECURITY_SCHEMA = "propertyquarry.release_security_receipt.v1"
 SECURITY_BINDING_CONTRACT = "propertyquarry.workflow_runtime_binding"
-OVERLAY_SCHEMA = "propertyquarry.evidence_overlay_read_model_receipt.v2"
+OVERLAY_SCHEMA = "propertyquarry.evidence_overlay_read_model_receipt.v3"
 RYBBIT_SCHEMA = "propertyquarry.rybbit_delivery_receipt.v1"
 FULL_GIT_SHA = re.compile(r"[0-9a-f]{40}")
 SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -37,6 +43,7 @@ POSITIVE_DECIMAL = re.compile(r"[1-9][0-9]{0,19}")
 MAX_JSON_INPUT_BYTES = 16 * 1024 * 1024
 MAX_CONTROLLER_BUNDLE_BYTES = 256 * 1024 * 1024
 MAX_ACTIVATION_AUTHORITY_AGE_SECONDS = 15 * 60
+MAX_OVERLAY_RECEIPT_AGE_HOURS = 48.0
 AUTHORITY_PHASES = {"preactivation", "final"}
 RELEASE_METADATA_DESCENDANT_PATHS = {
     ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
@@ -354,6 +361,7 @@ def _validate_gold(
     activation_path: Path,
     overlay_path: Path,
     overlay_snapshot_id: str,
+    expected_staged_overlay_receipt_sha256: str,
     rybbit_path: Path,
     expected_teable_origin: str,
     expected_teable_base_id_sha256: str,
@@ -515,6 +523,20 @@ def _validate_gold(
         ok=overlay_snapshot_ok,
         failure="gold_overlay_snapshot_mismatch",
     )
+    overlay_receipt_sha256_ok = (
+        SHA256.fullmatch(expected_staged_overlay_receipt_sha256) is not None
+        and _text(overlay_area.get("receipt_sha256")).lower()
+        == expected_staged_overlay_receipt_sha256
+        and _text(top_overlay.get("receipt_sha256")).lower()
+        == expected_staged_overlay_receipt_sha256
+    )
+    _record_check(
+        checks,
+        failures,
+        name="gold_overlay_staged_receipt_sha256_bound",
+        ok=overlay_receipt_sha256_ok,
+        failure="gold_overlay_receipt_sha256_mismatch",
+    )
     exact_paths_ok = (
         _same_input_path(activation_area.get("receipt_path"), activation_path)
         and _same_input_path(overlay_area.get("receipt_path"), overlay_path)
@@ -564,7 +586,22 @@ def _validate_overlay(
     expected_teable_origin: str,
     expected_teable_base_id_sha256: str,
     expected_phase: str,
+    now: datetime,
 ) -> bool:
+    try:
+        canonical_failures = verify_evidence_overlay_read_model_receipt(
+            payload,
+            expected_candidate_sha=candidate_sha,
+            max_age_hours=MAX_OVERLAY_RECEIPT_AGE_HOURS,
+            expected_teable_origin=expected_teable_origin,
+            expected_teable_base_id_sha256=expected_teable_base_id_sha256,
+            expected_phase=expected_phase,
+            now=now,
+        )
+    except Exception:
+        return False
+    if canonical_failures:
+        return False
     snapshot_id = _text(payload.get("snapshot_id"))
     activation = _object(payload.get("activation"))
     read_model = _object(payload.get("read_model"))
@@ -976,6 +1013,15 @@ def build_launch_authority_envelope(
             activation_path=activation_receipt_path,
             overlay_path=overlay_receipt_path,
             overlay_snapshot_id=_text(payloads["overlay"].get("snapshot_id")),
+            expected_staged_overlay_receipt_sha256=(
+                _text(identities["overlay"].get("sha256")).lower()
+                if phase == "preactivation"
+                else _text(
+                    _object(payloads["overlay"].get("activation")).get(
+                        "staged_receipt_sha256"
+                    )
+                ).lower()
+            ),
             rybbit_path=rybbit_receipt_path,
             expected_teable_origin=teable_origin,
             expected_teable_base_id_sha256=teable_base_id_sha256,
@@ -997,6 +1043,7 @@ def build_launch_authority_envelope(
             expected_teable_origin=teable_origin,
             expected_teable_base_id_sha256=teable_base_id_sha256,
             expected_phase=("staged" if phase == "preactivation" else "active"),
+            now=observed_at,
         )
         _record_check(
             checks,

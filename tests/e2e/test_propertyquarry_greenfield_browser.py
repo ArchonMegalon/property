@@ -10889,6 +10889,10 @@ def test_propertyquarry_research_evidence_states_and_links_render_in_real_browse
                         "article_url": article_url,
                         "cache_updated_at": "2026-07-17T00:00:00+00:00",
                         "source_updated_at": "2026-07-16T00:00:00+00:00",
+                        "source_checked_at": "2026-07-17T00:00:00+00:00",
+                        "source_temporality": "current_feed",
+                        "media_source_class": "independent_press",
+                        "independent_press": True,
                         "uncertainty_label": "topic aggregate",
                     },
                     {
@@ -10900,6 +10904,8 @@ def test_propertyquarry_research_evidence_states_and_links_render_in_real_browse
                         "source_url": "https://broadband.example.test/altbau-u6",
                         "cache_updated_at": "2025-01-01T00:00:00+00:00",
                         "source_updated_at": "2024-12-31T00:00:00+00:00",
+                        "source_temporality": "reference",
+                        "reference_period": "2024",
                         "uncertainty_label": "area grid",
                     },
                 ]

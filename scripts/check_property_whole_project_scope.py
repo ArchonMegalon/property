@@ -29,6 +29,16 @@ REQUIRED_OVERLAY_LAYERS = {
     "media_attention",
     "fiber_broadband",
 }
+EXPECTED_OVERLAY_CADENCE = {
+    "environmental_quality": ("live", {"live"}),
+    "fiber_broadband": ("reference_dataset", {"reference"}),
+    "media_attention": ("current_feed", {"current_feed"}),
+    "official_safety_context": ("annual_context", {"reference"}),
+    "public_mobility": ("live_or_reference", {"live", "reference"}),
+    "school_context": ("reference_dataset", {"reference"}),
+    "summer_heat": ("reference_dataset", {"reference"}),
+    "traffic_noise": ("reference_dataset", {"reference"}),
+}
 
 REQUIRED_PHRASES = (
     "Public entry and SEO surfaces",
@@ -68,8 +78,8 @@ def _check_overlay_registry(failures: list[str]) -> None:
     except json.JSONDecodeError as exc:
         failures.append(f"evidence overlay registry must be valid JSON: {exc}")
         return
-    if registry.get("contract_name") != "propertyquarry.evidence_overlay_registry.v1":
-        failures.append("evidence overlay registry must declare contract_name propertyquarry.evidence_overlay_registry.v1")
+    if registry.get("contract_name") != "propertyquarry.evidence_overlay_registry.v2":
+        failures.append("evidence overlay registry must declare contract_name propertyquarry.evidence_overlay_registry.v2")
     policy = registry.get("gold_policy") if isinstance(registry.get("gold_policy"), dict) else {}
     if policy.get("search_execution_policy") != "cached_rollups_only_no_inline_source_indexing":
         failures.append("evidence overlay registry must forbid inline source indexing during search")
@@ -77,8 +87,10 @@ def _check_overlay_registry(failures: list[str]) -> None:
         failures.append("evidence overlay registry must require async Teable-first ingestion")
     if policy.get("protected_ingestion_producer") != "scripts/property_evidence_overlay_read_model.py":
         failures.append("evidence overlay registry must bind the protected ingestion producer")
-    if policy.get("launch_receipt_schema") != "propertyquarry.evidence_overlay_read_model_receipt.v2":
-        failures.append("evidence overlay registry must bind the two-phase launch receipt schema")
+    if policy.get("launch_receipt_schema") != "propertyquarry.evidence_overlay_read_model_receipt.v3":
+        failures.append("evidence overlay registry must bind the v3 temporal launch receipt schema")
+    if "cache_updated_at" not in str(policy.get("cache_time_policy") or "") or "source freshness" not in str(policy.get("cache_time_policy") or ""):
+        failures.append("evidence overlay registry must distinguish cache recency from source freshness")
     if policy.get("launch_source_evidence") != "authenticated_teable_api_response_table_page_digests":
         failures.append("evidence overlay registry must require authenticated Teable API response evidence")
     if (
@@ -110,13 +122,49 @@ def _check_overlay_registry(failures: list[str]) -> None:
         if not {"unavailable", "stale", "verified"}.issubset(ui_states):
             failures.append(f"{prefix} must expose unavailable, stale, and verified UI states")
         provenance = {str(value) for value in list(row.get("provenance_fields") or [])}
-        if not {"source_name", "source_url", "source_updated_at", "cache_updated_at", "uncertainty_label"}.issubset(provenance):
-            failures.append(f"{prefix} must expose source, freshness, cache, and uncertainty provenance")
+        if not {"source_name", "source_url", "source_temporality", "source_updated_at", "cache_updated_at", "uncertainty_label"}.issubset(provenance):
+            failures.append(f"{prefix} must expose source time, cache time, and uncertainty provenance separately")
+        expected_cadence, expected_temporalities = EXPECTED_OVERLAY_CADENCE[layer_key]
+        temporalities = {
+            str(value) for value in list(row.get("allowed_source_temporalities") or [])
+        }
+        if row.get("source_cadence_class") != expected_cadence or temporalities != expected_temporalities:
+            failures.append(f"{prefix} must declare its approved source cadence and temporalities")
+        source_age_policy = row.get("source_max_age_hours_by_temporality")
+        source_age_policy = source_age_policy if isinstance(source_age_policy, dict) else {}
+        expected_age_modes = temporalities & {"live", "current_feed"}
+        if set(source_age_policy) != expected_age_modes:
+            failures.append(f"{prefix} may set source max age only for live/current-feed rows")
+        source_sla_fields = row.get("source_sla_timestamp_field_by_temporality")
+        source_sla_fields = source_sla_fields if isinstance(source_sla_fields, dict) else {}
+        expected_sla_fields = {
+            mode: "source_checked_at" if mode == "current_feed" else "source_updated_at"
+            for mode in expected_age_modes
+        }
+        if source_sla_fields != expected_sla_fields:
+            failures.append(f"{prefix} must bind each source SLA to its honest timestamp field")
+        reference_modes = {
+            str(value) for value in list(row.get("reference_period_required_for") or [])
+        }
+        if reference_modes != ({"reference"} if "reference" in temporalities else set()):
+            failures.append(f"{prefix} must require reference_period exactly for reference rows")
+        if "reference" in temporalities and "reference_period" not in provenance:
+            failures.append(f"{prefix} reference rows must expose reference_period")
         if layer_key == "media_attention":
-            if row.get("article_links_required") is not True or "article_url" not in provenance:
+            if (
+                row.get("article_links_required") is not True
+                or not {"article_url", "source_checked_at", "media_source_class", "independent_press"}.issubset(provenance)
+                or row.get("municipal_rss_independent_press") is not False
+            ):
                 failures.append("media_attention overlay must require original article links when available")
-        if layer_key == "official_safety_context" and "never property or person scoring" not in str(row.get("customer_framing") or ""):
-            failures.append("official_safety_context overlay must forbid property/person scoring")
+        if layer_key == "official_safety_context" and (
+            "never property or person scoring" not in str(row.get("customer_framing") or "")
+            or row.get("property_scoring") is not False
+            or row.get("person_scoring") is not False
+            or row.get("rights_caveat_required") is not True
+            or not {"geographic_scope", "rights_caveat"}.issubset(provenance)
+        ):
+            failures.append("official_safety_context overlay must remain aggregate, rights-caveated, and score-free")
         if layer_key == "fiber_broadband" and "provider address checks only as secondary verified jobs" not in str(row.get("customer_framing") or ""):
             failures.append("fiber_broadband overlay must keep provider checks secondary to official coverage")
 
@@ -153,7 +201,9 @@ def build_scope_receipt() -> dict[str, object]:
             "authenticated_teable_api_export",
             "staged_validate_benchmark_atomic_pointer_switch",
             "indexed_postgres_cached_rollup_only",
-            "propertyquarry.evidence_overlay_read_model_receipt.v2",
+            "propertyquarry.evidence_overlay_read_model_receipt.v3",
+            "cache_updated_at_proves_source_freshness",
+            "source_checked_at",
         ),
         RYBBIT_DELIVERY_GATE: (
             "propertyquarry.rybbit_delivery_receipt.v1",

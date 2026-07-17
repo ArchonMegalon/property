@@ -456,6 +456,27 @@ def _load_json(path: Path) -> dict[str, Any]:
     return payload
 
 
+def _load_json_snapshot(path: Path) -> tuple[dict[str, Any], str]:
+    try:
+        raw = path.read_bytes()
+        payload = json.loads(raw.decode("utf-8"))
+    except FileNotFoundError:
+        return {"status": "missing", "path": str(path)}, ""
+    except Exception as exc:
+        return {
+            "status": "invalid",
+            "path": str(path),
+            "error": f"{type(exc).__name__}: {exc}",
+        }, ""
+    if not isinstance(payload, dict):
+        return {
+            "status": "invalid",
+            "path": str(path),
+            "error": "json_root_not_object",
+        }, ""
+    return payload, hashlib.sha256(raw).hexdigest()
+
+
 def _scene_video_runtime_status_summary(payload: dict[str, Any]) -> dict[str, Any]:
     summary = payload.get("summary")
     return dict(summary) if isinstance(summary, dict) else {}
@@ -2916,6 +2937,7 @@ def _evidence_overlay_launch_status(
     receipt: dict[str, Any],
     *,
     receipt_present: bool,
+    receipt_sha256: str,
     expected_release_commit_sha: str,
     expected_teable_origin: str,
     expected_teable_base_id_sha256: str,
@@ -2981,6 +3003,7 @@ def _evidence_overlay_launch_status(
                 "bound_independently": source_authority.get("bound_independently") is True,
             },
             "activation_phase": str(activation.get("phase") or ""),
+            "receipt_sha256": receipt_sha256,
         },
     )
 
@@ -3208,10 +3231,10 @@ def build_gold_status_receipt(
         if slo_evidence_receipt_path is not None
         else {}
     )
-    evidence_overlay_receipt = (
-        _load_json(evidence_overlay_receipt_path)
+    evidence_overlay_receipt, evidence_overlay_receipt_sha256 = (
+        _load_json_snapshot(evidence_overlay_receipt_path)
         if evidence_overlay_receipt_path is not None
-        else {}
+        else ({}, "")
     )
     rybbit_evidence_receipt = (
         _load_json(rybbit_evidence_receipt_path)
@@ -3294,6 +3317,7 @@ def build_gold_status_receipt(
         _evidence_overlay_launch_status(
             evidence_overlay_receipt,
             receipt_present=evidence_overlay_receipt_path is not None,
+            receipt_sha256=evidence_overlay_receipt_sha256,
             expected_release_commit_sha=expected_release_commit_sha,
             expected_teable_origin=expected_teable_origin,
             expected_teable_base_id_sha256=expected_teable_base_id_sha256,
@@ -4668,6 +4692,7 @@ def build_gold_status_receipt(
             "snapshot_id": evidence_overlay_details.get("snapshot_id"),
             "layer_count": evidence_overlay_details.get("layer_count"),
             "record_count": evidence_overlay_details.get("record_count"),
+            "receipt_sha256": evidence_overlay_details.get("receipt_sha256"),
             "receipt_path": str(evidence_overlay_receipt_path),
         }
         if evidence_overlay_required and evidence_overlay_ok

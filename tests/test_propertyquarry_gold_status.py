@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from datetime import datetime, timedelta, timezone
@@ -696,6 +697,50 @@ def _launch_product_data_receipt_args(tmp_path: Path, *, generated_at: str) -> d
         }
         for index, name in enumerate(table_names)
     }
+    source_temporal_by_layer: dict[str, dict[str, object]] = {}
+    for layer in layers:
+        layer_key = str(layer["layer_key"])
+        temporalities = set(layer["allowed_source_temporalities"])
+        if "current_feed" in temporalities:
+            temporality = "current_feed"
+        elif "live" in temporalities:
+            temporality = "live"
+        else:
+            temporality = "reference"
+        row_counts = {temporality: 1}
+        source_age_policy = dict(
+            layer.get("source_max_age_hours_by_temporality") or {}
+        )
+        sla_temporalities = {temporality} & set(source_age_policy)
+        source_temporal_by_layer[layer_key] = {
+            "cadence_class": layer["source_cadence_class"],
+            "allowed_temporalities": list(layer["allowed_source_temporalities"]),
+            "source_max_age_hours_by_temporality": source_age_policy,
+            "source_sla_timestamp_field_by_temporality": dict(
+                layer.get("source_sla_timestamp_field_by_temporality") or {}
+            ),
+            "row_counts_by_temporality": row_counts,
+            "source_updated_at_row_counts_by_temporality": row_counts,
+            "oldest_source_updated_at_by_temporality": {
+                temporality: generated_at
+            },
+            "latest_source_updated_at_by_temporality": {
+                temporality: generated_at
+            },
+            "source_sla_at_row_counts_by_temporality": {
+                value: 1 for value in sla_temporalities
+            },
+            "oldest_source_sla_at_by_temporality": {
+                value: generated_at for value in sla_temporalities
+            },
+            "latest_source_sla_at_by_temporality": {
+                value: generated_at for value in sla_temporalities
+            },
+            "reference_periods": ["2025"] if temporality == "reference" else [],
+            "reference_period_row_counts": (
+                {"2025": 1} if temporality == "reference" else {}
+            ),
+        }
     overlay_receipt: dict[str, object] = {
         "schema": overlay_read_model.RECEIPT_SCHEMA,
         "status": "pass",
@@ -737,6 +782,17 @@ def _launch_product_data_receipt_args(tmp_path: Path, *, generated_at: str) -> d
             "layer_keys": layer_keys,
             "table_names": table_names,
         },
+        "temporal_evidence": {
+            "cache_max_age_policy_hours": 48.0,
+            "oldest_cache_updated_at_by_layer": {
+                key: generated_at for key in layer_keys
+            },
+            "latest_cache_updated_at_by_layer": {
+                key: generated_at for key in layer_keys
+            },
+            "source_by_layer": source_temporal_by_layer,
+            "cache_updated_at_proves_source_freshness": False,
+        },
         "activation": {
             "phase": "staged",
             "candidate_snapshot_id": "1" * 64,
@@ -774,9 +830,15 @@ def _launch_product_data_receipt_args(tmp_path: Path, *, generated_at: str) -> d
         },
         "privacy": {
             "area_context_only": True,
+            "property_scoring": False,
             "person_scoring": False,
             "raw_article_bodies_stored": False,
             "match_key_allowlist": sorted(overlay_read_model.ALLOWED_MATCH_KEYS),
+        },
+        "claim_safety": {
+            "aggregate_safety_context_only": True,
+            "safety_source_rights_caveat_required": True,
+            "municipal_rss_is_independent_press": False,
         },
         "failures": [],
     }
@@ -1135,11 +1197,15 @@ def test_gold_status_launch_profile_requires_and_consumes_real_product_data_rece
 ) -> None:
     now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
     generated_at = (now - timedelta(minutes=5)).isoformat()
+    launch_product_data_args = _launch_product_data_receipt_args(
+        tmp_path,
+        generated_at=generated_at,
+    )
 
     receipt = build_gold_status_receipt(
         **_minimal_gold_receipt_args(tmp_path, generated_at=generated_at),
         **_flagship_customer_ux_receipt_args(tmp_path, generated_at=generated_at),
-        **_launch_product_data_receipt_args(tmp_path, generated_at=generated_at),
+        **launch_product_data_args,
         readiness_profile="launch",
         max_receipt_age_hours=1,
         now=now,
@@ -1152,9 +1218,18 @@ def test_gold_status_launch_profile_requires_and_consumes_real_product_data_rece
         "authenticated_teable_api_export"
     )
     assert receipt["launch_product_data_evidence"]["evidence_overlay_read_model"]["layer_count"] == 8
+    overlay_path = Path(launch_product_data_args["evidence_overlay_receipt_path"])
+    overlay_sha256 = hashlib.sha256(overlay_path.read_bytes()).hexdigest()
+    assert (
+        receipt["launch_product_data_evidence"]["evidence_overlay_read_model"][
+            "receipt_sha256"
+        ]
+        == overlay_sha256
+    )
     assert receipt["launch_product_data_evidence"]["rybbit_delivery"]["collector_status_code"] == 204
-    pass_areas = {str(row["area"]) for row in receipt["pass_areas"]}
+    pass_areas = {str(row["area"]): row for row in receipt["pass_areas"]}
     assert {"evidence_overlay_read_model", "rybbit_delivery"}.issubset(pass_areas)
+    assert pass_areas["evidence_overlay_read_model"]["receipt_sha256"] == overlay_sha256
 
 
 def test_flagship_continuous_ux_accepts_zero_non_gated_browser_diagnostics(

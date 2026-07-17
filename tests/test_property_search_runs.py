@@ -9804,7 +9804,7 @@ def test_hosted_property_tour_public_manifest_has_no_private_fields(monkeypatch,
         assert private_key not in serialized_public_manifest
 
 
-def test_hosted_live_provider_tour_manifest_keeps_safe_embed_without_private_listing_data(
+def test_hosted_live_provider_tour_writer_rejects_url_without_provenance_proof(
     monkeypatch, tmp_path
 ) -> None:
     monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
@@ -9812,62 +9812,27 @@ def test_hosted_live_provider_tour_manifest_keeps_safe_embed_without_private_lis
     monkeypatch.setenv("EA_PUBLIC_TOUR_BASE_URL", "https://propertyquarry.com/tours")
 
     live_url = "https://example.3dvista.com/tours/top22/index.html"
-    payload = product_service._write_hosted_feelestate_pure_360_property_tour_bundle(
-        principal_id="exec-live-provider-private",
-        title="3DVista writer coverage",
-        listing_id="3dvista-writer-1",
-        property_url="https://www.willhaben.at/iad/object?adId=3dvista-writer-1",
-        variant_key="layout_first",
-        source_virtual_tour_url=live_url,
-        property_facts_json={
-            "has_360": True,
-            "exact_address": "Private 3DVista Street 1, 1200 Wien",
-            "map_lat": 48.2,
-            "map_lng": 16.3,
-        },
-        source_host="willhaben.at",
-        source_ref="property-scout:3dvista-writer-1",
-        external_id="ext-3dvista-writer-1",
-        recipient_email="owner@example.com",
-    )
+    with pytest.raises(RuntimeError, match="property_tour_output_unverified"):
+        product_service._write_hosted_feelestate_pure_360_property_tour_bundle(
+            principal_id="exec-live-provider-private",
+            title="3DVista writer coverage",
+            listing_id="3dvista-writer-1",
+            property_url="https://www.willhaben.at/iad/object?adId=3dvista-writer-1",
+            variant_key="layout_first",
+            source_virtual_tour_url=live_url,
+            property_facts_json={
+                "has_360": True,
+                "exact_address": "Private 3DVista Street 1, 1200 Wien",
+                "map_lat": 48.2,
+                "map_lng": 16.3,
+            },
+            source_host="willhaben.at",
+            source_ref="property-scout:3dvista-writer-1",
+            external_id="ext-3dvista-writer-1",
+            recipient_email="owner@example.com",
+        )
 
-    bundle_dir = tmp_path / str(payload["slug"])
-    public_manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
-    private_manifest = json.loads((bundle_dir / "tour.private.json").read_text(encoding="utf-8"))
-
-    assert "source_virtual_tour_url" not in public_manifest
-    assert "source_virtual_tour_origin" not in public_manifest
-    assert "three_d_vista_url" not in public_manifest
-    assert public_manifest["control_mode"] == "3dvista"
-    assert public_manifest["scenes"][0]["role"] == "live_360"
-    serialized_public_manifest = json.dumps(public_manifest, sort_keys=True)
-    for private_marker in (
-        "willhaben.at/iad/object",
-        "exec-live-provider-private",
-        "property-scout:3dvista-writer-1",
-        "ext-3dvista-writer-1",
-        "owner@example.com",
-        "Private 3DVista Street",
-        "map_lat",
-        "map_lng",
-        "listing_url",
-        "property_url",
-        "source_ref",
-        "external_id",
-        "recipient_email",
-    ):
-        assert private_marker not in serialized_public_manifest
-    assert private_manifest["property_url"].endswith("adId=3dvista-writer-1")
-    assert private_manifest["source_virtual_tour_url"] == live_url
-    assert private_manifest["source_virtual_tour_origin"] == live_url
-    assert private_manifest["three_d_vista_url"] == live_url
-
-    client = build_property_client(principal_id="exec-live-provider-page")
-    page = client.get(f"/tours/{payload['slug']}", headers={"host": "propertyquarry.com"})
-    assert page.status_code == 200, page.text
-    assert live_url not in page.text
-    assert "Open Listing" not in page.text
-    assert "Private 3DVista Street" not in page.text
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_hosted_property_tour_bundle_rejects_post_download_invalid_asset_suffix(monkeypatch, tmp_path) -> None:

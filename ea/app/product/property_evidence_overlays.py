@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -14,6 +15,11 @@ REGISTRY_PATH = ROOT / "docs" / "PROPERTYQUARRY_EVIDENCE_OVERLAY_REGISTRY.json"
 DEFAULT_ROLLUP_PATH = Path("/data/artifacts/property-evidence-overlay-rollups.json")
 REQUIRED_UI_STATES = {"unavailable", "stale", "verified"}
 READ_MODEL_MODES = {"auto", "postgres", "file"}
+EVIDENCE_OVERLAY_CACHE_MAX_AGE_HOURS = 48.0
+_REFERENCE_PERIOD_PART = r"[0-9]{4}(?:-(?:0[1-9]|1[0-2])(?:-(?:0[1-9]|[12][0-9]|3[01]))?)?"
+REFERENCE_PERIOD_PATTERN = re.compile(
+    rf"^(?:{_REFERENCE_PERIOD_PART})(?:/(?:{_REFERENCE_PERIOD_PART}))?$"
+)
 
 
 def _now() -> datetime:
@@ -30,9 +36,33 @@ def _parse_datetime(value: object) -> datetime | None:
         parsed = datetime.fromisoformat(text)
     except ValueError:
         return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def _reference_period_point(value: str) -> datetime | None:
+    try:
+        if len(value) == 4:
+            return datetime(int(value), 1, 1, tzinfo=timezone.utc)
+        if len(value) == 7:
+            year, month = value.split("-", 1)
+            return datetime(int(year), int(month), 1, tzinfo=timezone.utc)
+        if len(value) == 10:
+            return datetime.fromisoformat(value).replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    return None
+
+
+def _valid_reference_period(value: object) -> bool:
+    text = _string(value)
+    if not REFERENCE_PERIOD_PATTERN.fullmatch(text):
+        return False
+    start_text, separator, end_text = text.partition("/")
+    start = _reference_period_point(start_text)
+    end = _reference_period_point(end_text) if separator else start
+    return start is not None and end is not None and start <= end
 
 
 def _string(value: object) -> str:
@@ -131,8 +161,8 @@ def _load_json(path: Path) -> dict[str, object]:
 
 def evidence_overlay_registry(path: Path = REGISTRY_PATH) -> dict[str, object]:
     payload = _load_json(path)
-    if payload.get("contract_name") != "propertyquarry.evidence_overlay_registry.v1":
-        return {"contract_name": "propertyquarry.evidence_overlay_registry.v1", "layers": []}
+    if payload.get("contract_name") != "propertyquarry.evidence_overlay_registry.v2":
+        return {"contract_name": "propertyquarry.evidence_overlay_registry.v2", "layers": []}
     return payload
 
 
@@ -259,21 +289,185 @@ def _row_matches_candidate(row: dict[str, object], lookup_values: dict[str, str]
     return False
 
 
-def _state_for_rollup(row: dict[str, object], *, stale_after_days: int) -> str:
+def _state_and_temporal_reason_for_rollup(
+    row: dict[str, object],
+    *,
+    stale_after_days: int,
+    layer: dict[str, object] | None = None,
+) -> tuple[str, str]:
     explicit = _string(row.get("ui_state") or row.get("state")).casefold()
     if explicit not in REQUIRED_UI_STATES:
-        return "unavailable"
+        return "unavailable", "invalid_ui_state"
     if explicit == "unavailable":
-        return "unavailable"
+        return "unavailable", "source_unavailable"
     cache_updated_at = _parse_datetime(row.get("cache_updated_at"))
     if cache_updated_at is None:
-        return "unavailable"
+        return "unavailable", "cache_timestamp_missing"
     now = _now()
     if cache_updated_at > now + timedelta(minutes=5):
-        return "unavailable"
-    if now - cache_updated_at > timedelta(days=stale_after_days):
-        return "stale"
-    return explicit
+        return "unavailable", "cache_timestamp_invalid"
+    try:
+        requested_cache_max_age_hours = float(stale_after_days) * 24.0
+    except (TypeError, ValueError, OverflowError):
+        requested_cache_max_age_hours = 0.0
+    if (
+        not math.isfinite(requested_cache_max_age_hours)
+        or requested_cache_max_age_hours <= 0
+    ):
+        requested_cache_max_age_hours = 0.0
+    cache_max_age_hours = min(
+        requested_cache_max_age_hours,
+        EVIDENCE_OVERLAY_CACHE_MAX_AGE_HOURS,
+    )
+    cache_copy_expired = now - cache_updated_at > timedelta(
+        hours=cache_max_age_hours
+    )
+    if layer is None and cache_copy_expired:
+        return "stale", "cache_copy_expired"
+    if layer is None:
+        return explicit, "source_marked_stale" if explicit == "stale" else "verified"
+
+    temporalities = {
+        _string(value).casefold()
+        for value in list(layer.get("allowed_source_temporalities") or [])
+        if _string(value)
+    }
+    source_temporality = _string(row.get("source_temporality")).casefold()
+    source_updated_at = _parse_datetime(row.get("source_updated_at"))
+    source_checked_at = _parse_datetime(row.get("source_checked_at"))
+    if not temporalities or source_temporality not in temporalities:
+        return "unavailable", "source_temporality_missing"
+    if (
+        source_updated_at is None
+        or source_updated_at > now + timedelta(minutes=5)
+        or cache_updated_at < source_updated_at
+    ):
+        return "unavailable", "source_timestamp_invalid"
+    if (
+        not _string(row.get("source_name"))
+        or not _safe_public_http_url(row.get("source_url"))
+        or not _string(row.get("uncertainty_label"))
+    ):
+        return "unavailable", "source_provenance_missing"
+    reference_period = _string(row.get("reference_period"))
+    if source_temporality == "reference":
+        if not _valid_reference_period(reference_period):
+            return "unavailable", "reference_period_missing"
+    elif reference_period:
+        return "unavailable", "reference_period_invalid"
+    if source_temporality == "current_feed":
+        if (
+            source_checked_at is None
+            or source_checked_at > now + timedelta(minutes=5)
+            or source_checked_at > cache_updated_at
+            or source_checked_at < source_updated_at
+        ):
+            return "unavailable", "source_check_timestamp_invalid"
+    elif _string(row.get("source_checked_at")):
+        return "unavailable", "source_check_timestamp_invalid"
+    source_age_policy = (
+        dict(layer.get("source_max_age_hours_by_temporality") or {})
+        if isinstance(layer.get("source_max_age_hours_by_temporality"), dict)
+        else {}
+    )
+    source_sla_expired = False
+    raw_source_max_age = source_age_policy.get(source_temporality)
+    if raw_source_max_age is not None:
+        try:
+            source_max_age_hours = float(raw_source_max_age)
+        except (TypeError, ValueError):
+            return "unavailable", "source_age_policy_invalid"
+        if not math.isfinite(source_max_age_hours) or source_max_age_hours <= 0:
+            return "unavailable", "source_age_policy_invalid"
+        sla_timestamp_fields = (
+            dict(layer.get("source_sla_timestamp_field_by_temporality") or {})
+            if isinstance(
+                layer.get("source_sla_timestamp_field_by_temporality"), dict
+            )
+            else {}
+        )
+        sla_timestamp_field = _string(
+            sla_timestamp_fields.get(source_temporality)
+        )
+        source_sla_at = (
+            source_checked_at
+            if sla_timestamp_field == "source_checked_at"
+            else (
+                source_updated_at
+                if sla_timestamp_field == "source_updated_at"
+                else None
+            )
+        )
+        if source_sla_at is None:
+            return "unavailable", "source_age_policy_invalid"
+        source_sla_expired = now - source_sla_at > timedelta(
+            hours=source_max_age_hours
+        )
+    layer_key = _string(layer.get("layer_key"))
+    for score_field in ("property_scoring", "person_scoring"):
+        if score_field in row and row.get(score_field) is not False:
+            return "unavailable", "scoring_claim_invalid"
+        if layer_key != "official_safety_context" and score_field in row:
+            return "unavailable", "scoring_claim_invalid"
+    if layer_key != "media_attention" and any(
+        field in row
+        for field in ("article_url", "independent_press", "media_source_class")
+    ):
+        return "unavailable", "media_classification_invalid"
+    if layer_key != "official_safety_context" and any(
+        field in row for field in ("geographic_scope", "rights_caveat")
+    ):
+        return "unavailable", "safety_claim_boundary_invalid"
+    if layer_key == "media_attention":
+        media_source_class = _string(row.get("media_source_class")).casefold()
+        independent_press = row.get("independent_press")
+        allowed_media_classes = {
+            _string(value).casefold()
+            for value in list(layer.get("allowed_media_source_classes") or [])
+            if _string(value)
+        }
+        if (
+            media_source_class not in allowed_media_classes
+            or not isinstance(independent_press, bool)
+            or (media_source_class == "municipal_rss" and independent_press)
+            or (media_source_class == "independent_press" and not independent_press)
+            or not _safe_public_http_url(row.get("article_url"))
+        ):
+            return "unavailable", "media_classification_invalid"
+    if layer_key == "official_safety_context":
+        allowed_scopes = {
+            _string(value).casefold()
+            for value in list(layer.get("allowed_geographic_scopes") or [])
+            if _string(value)
+        }
+        if (
+            _string(row.get("geographic_scope")).casefold() not in allowed_scopes
+            or not _string(row.get("rights_caveat"))
+            or row.get("property_scoring") is not False
+            or row.get("person_scoring") is not False
+        ):
+            return "unavailable", "safety_claim_boundary_invalid"
+    if source_sla_expired:
+        return "stale", "source_sla_expired"
+    if cache_copy_expired:
+        return "stale", "cache_copy_expired"
+    if explicit == "stale":
+        return "stale", "source_marked_stale"
+    return "verified", "verified_source_period"
+
+
+def _state_for_rollup(
+    row: dict[str, object],
+    *,
+    stale_after_days: int,
+    layer: dict[str, object] | None = None,
+) -> str:
+    state, _reason = _state_and_temporal_reason_for_rollup(
+        row,
+        stale_after_days=stale_after_days,
+        layer=layer,
+    )
+    return state
 
 
 def _unavailable_overlay(layer: dict[str, object]) -> dict[str, object]:
@@ -288,6 +482,11 @@ def _unavailable_overlay(layer: dict[str, object]) -> dict[str, object]:
         "article_url": "",
         "cache_updated_at": "",
         "source_updated_at": "",
+        "source_checked_at": "",
+        "source_temporality": "",
+        "source_cadence_class": _string(layer.get("source_cadence_class")),
+        "reference_period": "",
+        "temporal_status": "source_unavailable",
         "uncertainty_label": "not available",
         "teable_table": _string(layer.get("teable_table")),
         "read_model": _string(layer.get("read_model")),
@@ -299,7 +498,11 @@ def _unavailable_overlay(layer: dict[str, object]) -> dict[str, object]:
 
 
 def _overlay_from_rollup(layer: dict[str, object], row: dict[str, object], *, stale_after_days: int) -> dict[str, object]:
-    state = _state_for_rollup(row, stale_after_days=stale_after_days)
+    state, temporal_reason = _state_and_temporal_reason_for_rollup(
+        row,
+        stale_after_days=stale_after_days,
+        layer=layer,
+    )
     tag = {"verified": "Ready", "stale": "Stale", "unavailable": "Unavailable"}.get(state, "Unavailable")
     source_name = _public_source_name(
         row.get("source_name") or layer.get("source_registry"),
@@ -307,13 +510,17 @@ def _overlay_from_rollup(layer: dict[str, object], row: dict[str, object], *, st
     )
     source_url = _safe_public_http_url(row.get("source_url"))
     summary = _string(row.get("summary") or row.get("value_label") or row.get("headline"))
-    fallback_summary = {
-        "verified": "This area layer is available for the address.",
-        "stale": "This area layer needs an updated source snapshot.",
-        "unavailable": "This layer is not available for this address yet.",
-    }[state]
+    fallback_summary = "This layer is not available for this address yet."
+    if state == "verified":
+        fallback_summary = "This area layer is available for its declared source period."
+    elif state == "stale" and temporal_reason == "cache_copy_expired":
+        fallback_summary = "The cached copy has expired and needs a refresh."
+    elif state == "stale" and temporal_reason == "source_sla_expired":
+        fallback_summary = "The live or current-feed source update is overdue."
+    elif state == "stale":
+        fallback_summary = "This area layer is marked stale by its source steward."
     uncertainty = _string(row.get("uncertainty_label")) or {
-        "verified": "current area layer",
+        "verified": "area context for the declared source period",
         "stale": "update pending",
         "unavailable": "not available",
     }[state]
@@ -323,8 +530,47 @@ def _overlay_from_rollup(layer: dict[str, object], row: dict[str, object], *, st
         _sentence(f"From {source_name}"),
         _sentence(f"Coverage: {uncertainty}"),
     ]
-    if state == "stale":
+    source_temporality = _string(row.get("source_temporality")).casefold()
+    reference_period = _string(row.get("reference_period"))
+    if state != "unavailable" and source_temporality == "reference":
+        detail_parts.append(_sentence(f"Reference period: {reference_period}"))
+    elif (
+        state != "unavailable"
+        and source_temporality == "current_feed"
+        and _string(row.get("source_updated_at"))
+    ):
+        detail_parts.append(
+            _sentence(
+                f"Source item published: {_string(row.get('source_updated_at'))}"
+            )
+        )
+        detail_parts.append(
+            _sentence(f"Feed checked: {_string(row.get('source_checked_at'))}")
+        )
+    elif state != "unavailable" and _string(row.get("source_updated_at")):
+        detail_parts.append(
+            _sentence(f"Source updated: {_string(row.get('source_updated_at'))}")
+        )
+    if temporal_reason == "cache_copy_expired":
+        detail_parts.append(
+            "Cached-copy expiry does not establish source freshness or staleness."
+        )
+    elif state == "stale":
         detail_parts.append("Update pending.")
+    media_source_class = _string(row.get("media_source_class")).casefold()
+    if (
+        _string(layer.get("layer_key")) == "media_attention"
+        and media_source_class == "municipal_rss"
+        and state != "unavailable"
+    ):
+        detail_parts.append(
+            "Municipal RSS is first-party municipal notice material, not independent press."
+        )
+    if (
+        _string(layer.get("layer_key")) == "official_safety_context"
+        and state != "unavailable"
+    ):
+        detail_parts.append(_sentence(_string(row.get("rights_caveat"))))
     return {
         "layer_key": _string(layer.get("layer_key")),
         "title": _string(layer.get("title")) or _string(layer.get("layer_key")).replace("_", " ").title(),
@@ -336,6 +582,11 @@ def _overlay_from_rollup(layer: dict[str, object], row: dict[str, object], *, st
         "article_url": _safe_public_http_url(row.get("article_url")),
         "cache_updated_at": _string(row.get("cache_updated_at")),
         "source_updated_at": _string(row.get("source_updated_at")),
+        "source_checked_at": _string(row.get("source_checked_at")),
+        "source_temporality": source_temporality,
+        "source_cadence_class": _string(layer.get("source_cadence_class")),
+        "reference_period": reference_period,
+        "temporal_status": temporal_reason,
         "uncertainty_label": uncertainty,
         "teable_table": _string(layer.get("teable_table")),
         "read_model": _string(layer.get("read_model")),
@@ -417,6 +668,11 @@ def _derived_summer_heat_overlay(layer: dict[str, object], facts: dict[str, obje
         "article_url": "",
         "cache_updated_at": "",
         "source_updated_at": "",
+        "source_checked_at": "",
+        "source_temporality": "",
+        "source_cadence_class": _string(layer.get("source_cadence_class")),
+        "reference_period": "",
+        "temporal_status": "derived_non_production",
         "uncertainty_label": uncertainty,
         "teable_table": _string(layer.get("teable_table")),
         "read_model": _string(layer.get("read_model")),
@@ -437,7 +693,7 @@ def build_property_evidence_overlay_rows(
     facts: dict[str, object],
     candidate: dict[str, object] | None = None,
     rollup_path: Path | None = None,
-    stale_after_days: int = 45,
+    stale_after_days: float = EVIDENCE_OVERLAY_CACHE_MAX_AGE_HOURS / 24.0,
 ) -> list[dict[str, object]]:
     registry = evidence_overlay_registry()
     layers = [dict(layer) for layer in list(registry.get("layers") or []) if isinstance(layer, dict)]
