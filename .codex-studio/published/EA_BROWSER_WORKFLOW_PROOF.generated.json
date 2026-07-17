@@ -5,7 +5,7 @@
   "proof_target": "propertyquarry",
   "version": 1,
   "kind": "proof_receipt",
-  "generated_at": "2026-07-17T00:09:53Z",
+  "generated_at": "2026-07-17T03:16:59Z",
   "generated_by": "scripts/materialize_ea_browser_workflow_proof.py",
   "status": "pass",
   "operator_summary": "PropertyQuarry browser workflow proof is published and green across the required journey matrix, source-backed contracts, and real-browser E2E.",
@@ -18,26 +18,40 @@
     "the explicit Open property action opens the selected result's /app/research/... packet with the 360 stage and preference feedback",
     "the PropertyQuarry mobile workbench exposes results, property detail, and the mobile action dock within the viewport",
     "the packets-and-tours proof renders hosted and generated 3D media, recovers a blocked request, stays mobile-safe, and explains expired flat-preview unavailability without inventing a tour",
+    "research packets expose verified, stale, and unavailable area-evidence states and preserve the attributable original article or source link",
     "failed PropertyQuarry runs remain visible on the activity surface with an actionable recovery state"
   ],
+  "approved_baseline": {
+    "id": "propertyquarry.release-proof.v1",
+    "sha256": "c9403bfba909e95ef8e0ded9c2c915c586e448db55f0e98f466d3ba3a166dcc9"
+  },
   "source_binding": {
     "version": 1,
-    "code_commit": "e9edbb7c3c33021326054aeeae10a1e3db636d6f",
+    "approved_baseline": {
+      "id": "propertyquarry.release-proof.v1",
+      "sha256": "c9403bfba909e95ef8e0ded9c2c915c586e448db55f0e98f466d3ba3a166dcc9"
+    },
+    "code_commit": "0a791b89e891367dd4c79dea398653bf219c9617",
     "seed": {
       "path": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
-      "sha256": "16e9f9f055eadc51f1378a9a318ad2cfb12b0fa2bac4c8b9921f653b0e8fe722",
-      "git_blob_oid": "dcda1ec8ef668919403c150f3c1c797b107f0f4e"
+      "sha256": "27ec54957523daa57a0e5de1b8b17235a24592d177bd31e2dcf6ad9e2490bab4",
+      "git_blob_oid": "088ea9bb3707d42a58c81d21160ada0ce78928d4"
     },
     "required_test_sources": [
       {
         "path": "tests/test_propertyquarry_workspace_redesign.py",
-        "sha256": "d58dd5075cfd61648f840fcf1ce1309023fd981cc1dd08a265da175d285a14e6",
-        "git_blob_oid": "e944b60f770ce0ddb737a06bfabda54c592033c8"
+        "sha256": "320fa45a52276d1a13ac8072642e12f2e7a619785a59855fa9859838e3f878c4",
+        "git_blob_oid": "9318d2aadd8842f0d27f1af32f5fd744ac4d1874"
       },
       {
         "path": "tests/e2e/test_propertyquarry_greenfield_browser.py",
-        "sha256": "d59b42b645c0fe8126c7d524aa067a4ed63783ad6f8cf1c0bdbe0b28a53b1f84",
-        "git_blob_oid": "70220654072162022030bf08230691512ba0cae2"
+        "sha256": "aba98f6a682a14f6744562d567c27c0eda316d2fbcdabe21870b3519c43ad55f",
+        "git_blob_oid": "525d84906e4304137f8ec211004813e9df5dad74"
+      },
+      {
+        "path": "tests/test_property_evidence_overlays.py",
+        "sha256": "5b00c8884d1ee86e0707f89edcdce2470fdc361def924c5c2a45616fa28f4f2b",
+        "git_blob_oid": "f5001e6e56a3a9a290a5376dca7435a3e3ea1462"
       }
     ]
   },
@@ -57,10 +71,10 @@
       "test_propertyquarry_public_home_survives_unreadable_optional_tour_media"
     ],
     "exit_code": 0,
-    "duration_seconds": 18.844,
+    "duration_seconds": 19.86,
     "output_excerpt": [
       ".......                                                                  [100%]",
-      "7 passed in 17.19s"
+      "7 passed in 18.22s"
     ],
     "limitations": [],
     "outcome_counts": {
@@ -75,9 +89,73 @@
     "selected_count": 7,
     "executed_count": 7
   },
+  "source_backed_journey_proofs": [
+    {
+      "status": "pass",
+      "command": "/usr/bin/python3 -m pytest -q tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_workspace_routes_render_greenfield_surfaces tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_failed_run_stays_on_activity_surface tests/test_propertyquarry_workspace_redesign.py::test_property_workspace_sign_out_clears_workspace_session_cookie tests/test_propertyquarry_workspace_redesign.py::test_property_saved_shortlist_candidates_persist_across_runs tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_account_exposes_working_lifecycle_controls tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_pricing_checkout_failure_copy_is_safe_and_accessible tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_public_home_survives_unreadable_optional_tour_media",
+      "cwd": "/tmp/propertyquarry-ci-fix-51e642f9b",
+      "python_bin": "/usr/bin/python3",
+      "test_file": "tests/test_propertyquarry_workspace_redesign.py",
+      "cases": [
+        "test_propertyquarry_workspace_routes_render_greenfield_surfaces",
+        "test_propertyquarry_failed_run_stays_on_activity_surface",
+        "test_property_workspace_sign_out_clears_workspace_session_cookie",
+        "test_property_saved_shortlist_candidates_persist_across_runs",
+        "test_propertyquarry_account_exposes_working_lifecycle_controls",
+        "test_propertyquarry_pricing_checkout_failure_copy_is_safe_and_accessible",
+        "test_propertyquarry_public_home_survives_unreadable_optional_tour_media"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 19.86,
+      "output_excerpt": [
+        ".......                                                                  [100%]",
+        "7 passed in 18.22s"
+      ],
+      "limitations": [],
+      "outcome_counts": {
+        "passed": 7,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "required_case_count": 7,
+      "selected_count": 7,
+      "executed_count": 7
+    },
+    {
+      "status": "pass",
+      "command": "/usr/bin/python3 -m pytest -q tests/test_property_evidence_overlays.py::test_property_research_rows_preserve_evidence_states_and_original_article_link",
+      "cwd": "/tmp/propertyquarry-ci-fix-51e642f9b",
+      "python_bin": "/usr/bin/python3",
+      "test_file": "tests/test_property_evidence_overlays.py",
+      "cases": [
+        "test_property_research_rows_preserve_evidence_states_and_original_article_link"
+      ],
+      "exit_code": 0,
+      "duration_seconds": 1.986,
+      "output_excerpt": [
+        ".                                                                        [100%]",
+        "1 passed in 0.96s"
+      ],
+      "limitations": [],
+      "outcome_counts": {
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0,
+        "xfailed": 0,
+        "xpassed": 0
+      },
+      "required_case_count": 1,
+      "selected_count": 1,
+      "executed_count": 1
+    }
+  ],
   "real_browser_e2e_proof": {
     "status": "pass",
-    "command": "/usr/bin/python3 -m pytest -q tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_greenfield_workspace_in_real_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_greenfield_workspace_is_mobile_usable tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_expired_session_next_action_moves_keyboard_focus_to_sign_in_options tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_workbench_candidate_history_stays_in_place tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_flagship_operating_loop_in_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_blocked_3d_tour_can_be_retried_from_research_packet_in_real_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_research_detail_never_shows_fake_open_tour_for_generated_reconstruction_status tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_generated_reconstruction_public_launch_renders_honest_shell_in_real_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_generated_reconstruction_public_launch_is_mobile_safe tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_expired_flat_preview_explains_3d_unavailable_in_real_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_packet_tracks_followup_state_in_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_account_notifications_save_multi_channel_preferences_in_real_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_browser_alert_button_toggles_enabled_state -rs",
+    "command": "/usr/bin/python3 -m pytest -q tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_greenfield_workspace_in_real_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_greenfield_workspace_is_mobile_usable tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_expired_session_next_action_moves_keyboard_focus_to_sign_in_options tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_workbench_candidate_history_stays_in_place tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_flagship_operating_loop_in_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_blocked_3d_tour_can_be_retried_from_research_packet_in_real_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_research_detail_never_shows_fake_open_tour_for_generated_reconstruction_status tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_generated_reconstruction_public_launch_renders_honest_shell_in_real_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_generated_reconstruction_public_launch_is_mobile_safe tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_expired_flat_preview_explains_3d_unavailable_in_real_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_packet_tracks_followup_state_in_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_account_notifications_save_multi_channel_preferences_in_real_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_browser_alert_button_toggles_enabled_state tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_research_evidence_states_and_links_render_in_real_browser -rs",
     "cwd": "/tmp/propertyquarry-ci-fix-51e642f9b",
     "python_bin": "/usr/bin/python3",
     "test_file": "tests/e2e/test_propertyquarry_greenfield_browser.py",
@@ -96,32 +174,33 @@
       "test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser",
       "test_propertyquarry_packet_tracks_followup_state_in_browser",
       "test_propertyquarry_account_notifications_save_multi_channel_preferences_in_real_browser",
-      "test_propertyquarry_browser_alert_button_toggles_enabled_state"
+      "test_propertyquarry_browser_alert_button_toggles_enabled_state",
+      "test_propertyquarry_research_evidence_states_and_links_render_in_real_browser"
     ],
     "exit_code": 0,
-    "duration_seconds": 121.313,
+    "duration_seconds": 129.231,
     "output_excerpt": [
-      "...............                                                          [100%]",
-      "15 passed in 119.20s (0:01:59)"
+      "................                                                         [100%]",
+      "16 passed in 127.11s (0:02:07)"
     ],
     "limitations": [],
     "outcome_counts": {
-      "passed": 15,
+      "passed": 16,
       "failed": 0,
       "skipped": 0,
       "errors": 0,
       "xfailed": 0,
       "xpassed": 0
     },
-    "required_case_count": 15,
-    "selected_count": 15,
-    "executed_count": 15
+    "required_case_count": 16,
+    "selected_count": 16,
+    "executed_count": 16
   },
   "journey_evidence_matrix": {
     "version": 1,
     "status": "pass",
     "readiness_scope": "candidate_source_and_browser_proof",
-    "runtime_commit_sha": "e9edbb7c3c33021326054aeeae10a1e3db636d6f",
+    "runtime_commit_sha": "0a791b89e891367dd4c79dea398653bf219c9617",
     "required_journey_ids": [
       "public_entry",
       "onboarding_auth",
@@ -224,7 +303,15 @@
             "file": "tests/e2e/test_propertyquarry_greenfield_browser.py",
             "cases": [
               "test_propertyquarry_greenfield_workspace_is_mobile_usable",
-              "test_propertyquarry_workbench_candidate_history_stays_in_place"
+              "test_propertyquarry_workbench_candidate_history_stays_in_place",
+              "test_propertyquarry_research_evidence_states_and_links_render_in_real_browser"
+            ],
+            "lane_status": "pass"
+          },
+          {
+            "file": "tests/test_property_evidence_overlays.py",
+            "cases": [
+              "test_property_research_rows_preserve_evidence_states_and_original_article_link"
             ],
             "lane_status": "pass"
           }

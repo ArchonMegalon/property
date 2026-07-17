@@ -3,8 +3,12 @@
   "surface": "propertyquarry_flagship_release_control",
   "version": 1,
   "kind": "release_receipt",
-  "generated_at": "2026-07-17T00:09:53Z",
+  "generated_at": "2026-07-17T03:17:00Z",
   "generated_by": "scripts/materialize_ea_flagship_release_gate.py",
+  "approved_baseline": {
+    "id": "propertyquarry.release-proof.v1",
+    "sha256": "c9403bfba909e95ef8e0ded9c2c915c586e448db55f0e98f466d3ba3a166dcc9"
+  },
   "status": "pass",
   "readiness_scope": "source_and_browser_proof",
   "live_readiness": {
@@ -14,29 +18,38 @@
   },
   "source_binding": {
     "version": 1,
-    "code_commit": "e9edbb7c3c33021326054aeeae10a1e3db636d6f",
+    "approved_baseline": {
+      "id": "propertyquarry.release-proof.v1",
+      "sha256": "c9403bfba909e95ef8e0ded9c2c915c586e448db55f0e98f466d3ba3a166dcc9"
+    },
+    "code_commit": "0a791b89e891367dd4c79dea398653bf219c9617",
     "seed": {
       "path": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
-      "sha256": "16e9f9f055eadc51f1378a9a318ad2cfb12b0fa2bac4c8b9921f653b0e8fe722",
-      "git_blob_oid": "dcda1ec8ef668919403c150f3c1c797b107f0f4e"
+      "sha256": "27ec54957523daa57a0e5de1b8b17235a24592d177bd31e2dcf6ad9e2490bab4",
+      "git_blob_oid": "088ea9bb3707d42a58c81d21160ada0ce78928d4"
     },
     "required_test_sources": [
       {
         "path": "tests/test_propertyquarry_workspace_redesign.py",
-        "sha256": "d58dd5075cfd61648f840fcf1ce1309023fd981cc1dd08a265da175d285a14e6",
-        "git_blob_oid": "e944b60f770ce0ddb737a06bfabda54c592033c8"
+        "sha256": "320fa45a52276d1a13ac8072642e12f2e7a619785a59855fa9859838e3f878c4",
+        "git_blob_oid": "9318d2aadd8842f0d27f1af32f5fd744ac4d1874"
       },
       {
         "path": "tests/e2e/test_propertyquarry_greenfield_browser.py",
-        "sha256": "d59b42b645c0fe8126c7d524aa067a4ed63783ad6f8cf1c0bdbe0b28a53b1f84",
-        "git_blob_oid": "70220654072162022030bf08230691512ba0cae2"
+        "sha256": "aba98f6a682a14f6744562d567c27c0eda316d2fbcdabe21870b3519c43ad55f",
+        "git_blob_oid": "525d84906e4304137f8ec211004813e9df5dad74"
+      },
+      {
+        "path": "tests/test_property_evidence_overlays.py",
+        "sha256": "5b00c8884d1ee86e0707f89edcdce2470fdc361def924c5c2a45616fa28f4f2b",
+        "git_blob_oid": "f5001e6e56a3a9a290a5376dca7435a3e3ea1462"
       }
     ]
   },
   "browser_receipt_binding": {
     "path": ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json",
-    "sha256": "a830e440ac094ebe113569e869017fd8407a86c8c5deb9030bba329dd181354c",
-    "git_blob_oid": "d9a4948bd0ba65453c97ff4d67b638b045e853ff"
+    "sha256": "79975617b18177855b7c71c3cc3a27b67f1b9d4c0800013ab72c9395d7cd5671",
+    "git_blob_oid": "de0c793eff93f2b38b5b3b5139880638f6426253"
   },
   "operator_summary": "PropertyQuarry source/browser flagship proof is published and green; final live readiness is not evaluated by this receipt.",
   "truth_plane": {
@@ -146,7 +159,14 @@
           "test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser",
           "test_propertyquarry_packet_tracks_followup_state_in_browser",
           "test_propertyquarry_account_notifications_save_multi_channel_preferences_in_real_browser",
-          "test_propertyquarry_browser_alert_button_toggles_enabled_state"
+          "test_propertyquarry_browser_alert_button_toggles_enabled_state",
+          "test_propertyquarry_research_evidence_states_and_links_render_in_real_browser"
+        ]
+      },
+      {
+        "file": "tests/test_property_evidence_overlays.py",
+        "cases": [
+          "test_property_research_rows_preserve_evidence_states_and_original_article_link"
         ]
       }
     ],
@@ -182,7 +202,15 @@
           "test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser",
           "test_propertyquarry_packet_tracks_followup_state_in_browser",
           "test_propertyquarry_account_notifications_save_multi_channel_preferences_in_real_browser",
-          "test_propertyquarry_browser_alert_button_toggles_enabled_state"
+          "test_propertyquarry_browser_alert_button_toggles_enabled_state",
+          "test_propertyquarry_research_evidence_states_and_links_render_in_real_browser"
+        ]
+      },
+      {
+        "file": "tests/test_property_evidence_overlays.py",
+        "present": true,
+        "cases": [
+          "test_property_research_rows_preserve_evidence_states_and_original_article_link"
         ]
       }
     ],
@@ -193,7 +221,7 @@
     "version": 1,
     "status": "pass",
     "readiness_scope": "candidate_source_and_browser_proof",
-    "runtime_commit_sha": "e9edbb7c3c33021326054aeeae10a1e3db636d6f",
+    "runtime_commit_sha": "0a791b89e891367dd4c79dea398653bf219c9617",
     "required_journey_ids": [
       "public_entry",
       "onboarding_auth",
@@ -296,7 +324,15 @@
             "file": "tests/e2e/test_propertyquarry_greenfield_browser.py",
             "cases": [
               "test_propertyquarry_greenfield_workspace_is_mobile_usable",
-              "test_propertyquarry_workbench_candidate_history_stays_in_place"
+              "test_propertyquarry_workbench_candidate_history_stays_in_place",
+              "test_propertyquarry_research_evidence_states_and_links_render_in_real_browser"
+            ],
+            "lane_status": "pass"
+          },
+          {
+            "file": "tests/test_property_evidence_overlays.py",
+            "cases": [
+              "test_property_research_rows_preserve_evidence_states_and_original_article_link"
             ],
             "lane_status": "pass"
           }
