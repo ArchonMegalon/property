@@ -1155,7 +1155,16 @@ def test_restore_requires_pinned_provider_attestation_and_never_falls_back_to_lo
         encoding="utf-8",
     )
     commands: list[list[str]] = []
-    monkeypatch.setattr(dr, "_load_aws_cli_release_pin", _REAL_LOAD_AWS_CLI_RELEASE_PIN)
+    approved_pin = _install_fake_aws_cli(monkeypatch, tmp_path)
+
+    def unavailable_provider(command, **_kwargs):
+        command = list(command)
+        commands.append(command)
+        if "--version" in command:
+            return _result(
+                stdout=f"aws-cli/{AWS_CLI_APPROVED_VERSION} Python/3 test/Linux\n"
+            )
+        return _result(returncode=1, stderr="provider unavailable")
 
     with pytest.raises(dr.DisasterRecoveryError) as exc:
         dr.execute_restore_drill(
@@ -1167,14 +1176,17 @@ def test_restore_requires_pinned_provider_attestation_and_never_falls_back_to_lo
                 ),
                 "PROPERTYQUARRY_RESTORE_DISPOSABLE_CONFIRM": dr.DISPOSABLE_CONFIRMATION,
             },
-            runner=lambda command, **_kwargs: commands.append(list(command)),
+            runner=unavailable_provider,
             clock=_Clock(datetime(2026, 7, 13, 10, 0, 15, tzinfo=timezone.utc).timestamp()),
             which=lambda name: None if Path(name).name == "aws" else _which(name),
         )
 
-    assert exc.value.code == "aws_cli_release_pin_unconfigured"
-    assert commands == []
+    assert exc.value.code == "command_failed"
+    assert commands
+    assert all(command[0] == approved_pin["path"] for command in commands)
+    assert not retrieval_destination.exists()
 
+    command_count = len(commands)
     retrieval_destination.write_bytes(remote_artifact.read_bytes())
     with pytest.raises(dr.DisasterRecoveryError) as existing_exc:
         dr.execute_restore_drill(
@@ -1192,7 +1204,7 @@ def test_restore_requires_pinned_provider_attestation_and_never_falls_back_to_lo
         )
 
     assert existing_exc.value.code == "off_host_retrieval_destination_exists"
-    assert commands == []
+    assert len(commands) == command_count
 
 
 def test_restore_rejects_provider_retrieval_for_a_different_immutable_version(
@@ -1351,11 +1363,23 @@ def test_aws_cli_attestation_detects_path_replacement_during_version_probe(
     assert exc.value.code == "aws_cli_binary_race"
 
 
-def test_checked_in_aws_cli_release_pin_is_explicitly_unconfigured() -> None:
-    with pytest.raises(dr.DisasterRecoveryError) as exc:
-        _REAL_LOAD_AWS_CLI_RELEASE_PIN()
+def test_checked_in_aws_cli_release_pin_is_configured_and_release_controlled() -> None:
+    pin = _REAL_LOAD_AWS_CLI_RELEASE_PIN()
 
-    assert exc.value.code == "aws_cli_release_pin_unconfigured"
+    assert pin == {
+        "schema": dr.AWS_CLI_RELEASE_PIN_SCHEMA,
+        "status": dr.AWS_CLI_RELEASE_PIN_CONFIGURED,
+        "path": (
+            "/docker/EA/state/propertyquarry_release_tools/"
+            "aws-cli-2.35.16/v2/2.35.16/dist/aws"
+        ),
+        "version": "2.35.16",
+        "sha256": "d17130561271a8c117f517c03bcd867fd8525408c999558149dc8f2f8f9b1d3d",
+        "manifest_repo_path": dr.AWS_CLI_RELEASE_PIN_REPO_PATH,
+        "manifest_sha256": hashlib.sha256(
+            dr.AWS_CLI_RELEASE_PIN_PATH.read_bytes()
+        ).hexdigest(),
+    }
 
 
 @pytest.mark.parametrize(
