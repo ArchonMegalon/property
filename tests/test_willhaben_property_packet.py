@@ -3,6 +3,9 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -24,6 +27,80 @@ def _jpeg_bytes(width: int, height: int) -> bytes:
     buffer = io.BytesIO()
     Image.new("RGB", (width, height), color=(64, 96, 128)).save(buffer, format="JPEG")
     return buffer.getvalue()
+
+
+_FETCH_HTML_IMPORT_PROBE = """
+import importlib.util
+import sys
+
+script = sys.argv[1]
+spec = importlib.util.spec_from_file_location("willhaben_property_packet_subprocess", script)
+assert spec is not None and spec.loader is not None
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+
+from app.product import outbound_url_security
+
+class Response:
+    text = "ok"
+
+    def raise_for_status(self):
+        return None
+
+outbound_url_security.request_get_with_guarded_redirects = lambda *args, **kwargs: Response()
+assert module.fetch_html("https://www.willhaben.at/iad/immobilien/d/test-1") == "ok"
+"""
+
+
+def _assert_fetch_html_imports_app(*, script: Path, cwd: Path) -> None:
+    env = {
+        key: value
+        for key, value in os.environ.items()
+        if key not in {"PYTHONHOME", "PYTHONPATH"}
+    }
+
+    completed = subprocess.run(
+        [sys.executable, "-c", _FETCH_HTML_IMPORT_PROBE, str(script)],
+        cwd=cwd,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+
+def test_fetch_html_bootstraps_app_import_from_non_repo_cwd(tmp_path: Path) -> None:
+    script = Path(__file__).resolve().parents[1] / "scripts" / "willhaben_property_packet.py"
+
+    _assert_fetch_html_imports_app(script=script, cwd=tmp_path)
+
+
+def test_fetch_html_bootstraps_packaged_app_import_from_non_repo_cwd(tmp_path: Path) -> None:
+    image_root = tmp_path / "app"
+    script_dir = image_root / "scripts"
+    product_dir = image_root / "app" / "product"
+    outside_cwd = tmp_path / "outside"
+    script_dir.mkdir(parents=True)
+    product_dir.mkdir(parents=True)
+    outside_cwd.mkdir()
+    script = script_dir / "willhaben_property_packet.py"
+    shutil.copy2(
+        Path(__file__).resolve().parents[1] / "scripts" / "willhaben_property_packet.py",
+        script,
+    )
+    (product_dir.parent / "__init__.py").write_text("", encoding="utf-8")
+    (product_dir / "__init__.py").write_text("", encoding="utf-8")
+    (product_dir / "outbound_url_security.py").write_text(
+        "def request_get_with_guarded_redirects(*args, **kwargs):\n"
+        "    raise AssertionError('probe must replace this function')\n",
+        encoding="utf-8",
+    )
+
+    _assert_fetch_html_imports_app(script=script, cwd=outside_cwd)
 
 
 def test_main_reports_expired_listing_with_stable_error(monkeypatch, capsys) -> None:

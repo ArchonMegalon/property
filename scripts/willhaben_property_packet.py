@@ -20,6 +20,14 @@ import requests
 from PIL import Image
 
 
+ROOT = Path(__file__).resolve().parents[1]
+EA_ROOT = ROOT / "ea"
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+if str(EA_ROOT) not in sys.path:
+    sys.path.insert(0, str(EA_ROOT))
+
+
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0 Safari/537.36"
 NEXT_DATA_RE = re.compile(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', re.DOTALL)
 NOMINATIM_SEARCH_URL = "https://nominatim.openstreetmap.org/search"
