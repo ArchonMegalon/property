@@ -454,6 +454,19 @@ def test_smoke_runtime_protects_live_propertyquarry_release_gates() -> None:
         "PROPERTYQUARRY_LIVE_PROBE_SECRET: ${{ secrets.PROPERTYQUARRY_LIVE_PROBE_SECRET }}"
         in live_job
     )
+    for protected_rybbit_binding in (
+        "PROPERTYQUARRY_RYBBIT_SITE_API_URL: \"${{ format('{0}/api/sites/{1}', "
+        "vars.PROPERTYQUARRY_RYBBIT_ORIGIN, secrets.PROPERTYQUARRY_RYBBIT_SITE_ID) }}\"",
+        "PROPERTYQUARRY_RYBBIT_HAS_DATA_API_URL: \"${{ format('{0}/api/sites/{1}/has-data', "
+        "vars.PROPERTYQUARRY_RYBBIT_ORIGIN, secrets.PROPERTYQUARRY_RYBBIT_SITE_ID) }}\"",
+        "PROPERTYQUARRY_RYBBIT_EVENTS_API_URL: \"${{ format('{0}/api/sites/{1}/events?"
+        "page_size=50&past_minutes_start=10&past_minutes_end=0', "
+        "vars.PROPERTYQUARRY_RYBBIT_ORIGIN, secrets.PROPERTYQUARRY_RYBBIT_SITE_ID) }}\"",
+    ):
+        assert protected_rybbit_binding in live_job
+    assert "vars.PROPERTYQUARRY_RYBBIT_SITE_API_URL" not in live_job
+    assert "vars.PROPERTYQUARRY_RYBBIT_HAS_DATA_API_URL" not in live_job
+    assert "vars.PROPERTYQUARRY_RYBBIT_EVENTS_API_URL" not in live_job
     assert "EA_API_TOKEN: ${{ secrets.PROPERTYQUARRY_LIVE_API_TOKEN }}" not in live_job
     assert "PROPERTYQUARRY_RELEASE_PROBE_SECRET" not in live_job
     assert "PROPERTYQUARRY_RELEASE_PROBE_PRINCIPAL_ID" not in live_job
@@ -578,6 +591,19 @@ def test_smoke_runtime_withholds_launch_authority_without_same_run_activation_an
         in launch_gold
     )
     assert "PROPERTYQUARRY_RELEASE_CONTROLLER_BUNDLE_PATH" in launch_gold
+    for protected_rybbit_binding in (
+        "PROPERTYQUARRY_RYBBIT_SITE_API_URL: \"${{ format('{0}/api/sites/{1}', "
+        "vars.PROPERTYQUARRY_RYBBIT_ORIGIN, secrets.PROPERTYQUARRY_RYBBIT_SITE_ID) }}\"",
+        "PROPERTYQUARRY_RYBBIT_HAS_DATA_API_URL: \"${{ format('{0}/api/sites/{1}/has-data', "
+        "vars.PROPERTYQUARRY_RYBBIT_ORIGIN, secrets.PROPERTYQUARRY_RYBBIT_SITE_ID) }}\"",
+        "PROPERTYQUARRY_RYBBIT_EVENTS_API_URL: \"${{ format('{0}/api/sites/{1}/events?"
+        "page_size=50&past_minutes_start=10&past_minutes_end=0', "
+        "vars.PROPERTYQUARRY_RYBBIT_ORIGIN, secrets.PROPERTYQUARRY_RYBBIT_SITE_ID) }}\"",
+    ):
+        assert protected_rybbit_binding in launch_gold
+    assert "vars.PROPERTYQUARRY_RYBBIT_SITE_API_URL" not in launch_gold
+    assert "vars.PROPERTYQUARRY_RYBBIT_HAS_DATA_API_URL" not in launch_gold
+    assert "vars.PROPERTYQUARRY_RYBBIT_EVENTS_API_URL" not in launch_gold
     assert "bash scripts/property_release_gates.sh" in launch_gold
     assert "--activate-snapshot" in launch_gold
     assert "--restore-activation" in launch_gold
