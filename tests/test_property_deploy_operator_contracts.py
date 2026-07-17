@@ -1800,7 +1800,9 @@ def test_property_runtime_copied_scripts_do_not_depend_on_fleet_paths() -> None:
         "generate_property_reconstruction.py",
         "property_reconstruction_render_bridge.py",
         "import_magicfit_walkthrough.py",
+        "accept_magicfit_delivery.py",
         "verify_property_tour_controls.py",
+        "property_tour_3dvista_provenance.py",
         "verify_property_tour_vendor_tooling.py",
         "intake_3dvista_gold_artifact.py",
     ]

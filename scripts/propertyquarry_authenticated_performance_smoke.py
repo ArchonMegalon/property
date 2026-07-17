@@ -853,8 +853,9 @@ def _measure_route(client: TestClient, path: str, *, budget_ms: int) -> dict[str
                     "name": "agent_cards",
                     "ok": (
                         "Leopoldstadt rent watch" in body
+                        and "Hietzing buy watch" in body
                         and "1 active" in visible_body
-                        and "1 saved" in visible_body
+                        and "2 saved" in visible_body
                     ),
                 },
                 {"name": "map_only_thumbnails", "ok": "osm_district_overlay" in body and "Map preview unavailable" not in body},
