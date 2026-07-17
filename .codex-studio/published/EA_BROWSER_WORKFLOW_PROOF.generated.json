@@ -5,7 +5,7 @@
   "proof_target": "propertyquarry",
   "version": 1,
   "kind": "proof_receipt",
-  "generated_at": "2026-07-17T04:43:48Z",
+  "generated_at": "2026-07-17T07:06:14Z",
   "generated_by": "scripts/materialize_ea_browser_workflow_proof.py",
   "status": "pass",
   "operator_summary": "PropertyQuarry browser workflow proof is published and green across the required journey matrix, source-backed contracts, and real-browser E2E.",
@@ -31,7 +31,7 @@
       "id": "propertyquarry.release-proof.v1",
       "sha256": "c9403bfba909e95ef8e0ded9c2c915c586e448db55f0e98f466d3ba3a166dcc9"
     },
-    "code_commit": "539d9fc03944646dfe0c605cab7470478cb284e2",
+    "code_commit": "542684cccd8f70787cd972b54497caebca07dd9a",
     "seed": {
       "path": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
       "sha256": "27ec54957523daa57a0e5de1b8b17235a24592d177bd31e2dcf6ad9e2490bab4",
@@ -71,10 +71,10 @@
       "test_propertyquarry_public_home_survives_unreadable_optional_tour_media"
     ],
     "exit_code": 0,
-    "duration_seconds": 22.453,
+    "duration_seconds": 24.373,
     "output_excerpt": [
       ".......                                                                  [100%]",
-      "7 passed in 20.74s"
+      "7 passed in 22.20s"
     ],
     "limitations": [],
     "outcome_counts": {
@@ -106,10 +106,10 @@
         "test_propertyquarry_public_home_survives_unreadable_optional_tour_media"
       ],
       "exit_code": 0,
-      "duration_seconds": 22.453,
+      "duration_seconds": 24.373,
       "output_excerpt": [
         ".......                                                                  [100%]",
-        "7 passed in 20.74s"
+        "7 passed in 22.20s"
       ],
       "limitations": [],
       "outcome_counts": {
@@ -134,10 +134,10 @@
         "test_property_research_rows_preserve_evidence_states_and_original_article_link"
       ],
       "exit_code": 0,
-      "duration_seconds": 2.322,
+      "duration_seconds": 2.032,
       "output_excerpt": [
         ".                                                                        [100%]",
-        "1 passed in 1.01s"
+        "1 passed in 1.09s"
       ],
       "limitations": [],
       "outcome_counts": {
@@ -178,10 +178,10 @@
       "test_propertyquarry_research_evidence_states_and_links_render_in_real_browser"
     ],
     "exit_code": 0,
-    "duration_seconds": 105.778,
+    "duration_seconds": 120.302,
     "output_excerpt": [
       "................                                                         [100%]",
-      "16 passed in 103.19s (0:01:43)"
+      "16 passed in 118.09s (0:01:58)"
     ],
     "limitations": [],
     "outcome_counts": {
@@ -200,7 +200,7 @@
     "version": 1,
     "status": "pass",
     "readiness_scope": "candidate_source_and_browser_proof",
-    "runtime_commit_sha": "539d9fc03944646dfe0c605cab7470478cb284e2",
+    "runtime_commit_sha": "542684cccd8f70787cd972b54497caebca07dd9a",
     "required_journey_ids": [
       "public_entry",
       "onboarding_auth",
