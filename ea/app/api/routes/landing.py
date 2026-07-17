@@ -3500,6 +3500,7 @@ def _property_missing_packet_response(
     principal_id: str = "",
     run_id: str = "",
     candidate_ref: str = "",
+    allow_repair: bool = True,
 ) -> JSONResponse | RedirectResponse:
     normalized_run_id = str(run_id or "").strip()
     normalized_candidate_ref = str(candidate_ref or "").strip()
@@ -3507,12 +3508,16 @@ def _property_missing_packet_response(
         run_id=normalized_run_id,
         candidate_ref=normalized_candidate_ref,
     )
-    repair_task_ref = _property_queue_missing_research_packet_repair(
-        container=container,
-        principal_id=principal_id,
-        run_id=normalized_run_id,
-        candidate_ref=normalized_candidate_ref,
-        recovery_url=target,
+    repair_task_ref = (
+        _property_queue_missing_research_packet_repair(
+            container=container,
+            principal_id=principal_id,
+            run_id=normalized_run_id,
+            candidate_ref=normalized_candidate_ref,
+            recovery_url=target,
+        )
+        if allow_repair
+        else ""
     )
     accept_header = str(request.headers.get("accept") or "").lower()
     requested_with = str(request.headers.get("x-requested-with") or "").lower()
@@ -6842,6 +6847,9 @@ def property_research_packet(
     investment: int = Query(default=0),
 ) -> HTMLResponse:
     property_brand = request_brand(request)["key"] == "propertyquarry"
+    release_probe_read_only = (
+        str(context.auth_source or "").strip() == "propertyquarry_release_probe"
+    )
     status = (
         container.onboarding.compact_status(principal_id=context.principal_id)
         if property_brand and hasattr(container.onboarding, "compact_status")
@@ -6856,6 +6864,7 @@ def property_research_packet(
         run_id=run_id,
         selected_candidate_ref=candidate_ref,
         surface_mode="research",
+        defer_run_hydration=release_probe_read_only,
     )
     normalized_candidate_ref = str(candidate_ref or "").strip()
     requested_run_id = str(run_id or "").strip()
@@ -6971,6 +6980,7 @@ def property_research_packet(
             principal_id=context.principal_id,
             run_id=resolved_run_id,
             candidate_ref=normalized_candidate_ref,
+            allow_repair=not release_probe_read_only,
         )
     workspace = dict(status.get("workspace") or {})
     assessment = dict(candidate.get("assessment") or {})
@@ -8135,6 +8145,9 @@ def app_shell(
 ) -> HTMLResponse:
     brand = request_brand(request)
     property_brand = brand["key"] == "propertyquarry"
+    release_probe_read_only = (
+        str(context.auth_source or "").strip() == "propertyquarry_release_probe"
+    )
     nav_groups = app_nav_groups_for_brand(brand["key"])
     allowed = {item["href"].rstrip("/").rsplit("/", 1)[-1] for group in nav_groups for item in group["items"]}
     if property_brand:
@@ -8213,6 +8226,15 @@ def app_shell(
         "billing": "billing",
     }
     status = container.onboarding.status(principal_id=context.principal_id)
+    if property_brand and resolved_section == "billing" and release_probe_read_only:
+        return _render_property_billing_unavailable_page(
+            request,
+            context=context,
+            handoff={
+                "status": "release_probe_read_only",
+                "error": "release_probe_read_only",
+            },
+        )
     normalized_run_id = str(run_id or "").strip()
     requested_agent_id = str(load_agent or run_agent or agent_id or "").strip()
     if property_brand and resolved_section in {"properties", "shortlist", "research"} and normalized_run_id:
@@ -8458,9 +8480,12 @@ def app_shell(
                 surface_mode=resolved_section,
                 force_recent_runs=str(full or "").strip().lower() in {"1", "true", "yes"},
                 defer_run_hydration=(
-                    not normalized_run_id
-                    and resolved_section in {"properties", "agents", "alerts", "account", "billing", "settings"}
-                    and str(full or "").strip().lower() not in {"1", "true", "yes"}
+                    release_probe_read_only
+                    or (
+                        not normalized_run_id
+                        and resolved_section in {"properties", "agents", "alerts", "account", "billing", "settings"}
+                        and str(full or "").strip().lower() not in {"1", "true", "yes"}
+                    )
                 ),
             )
             if resolved_section in property_sections or resolved_section == "properties"
@@ -8485,7 +8510,10 @@ def app_shell(
                     "action_label": route_action_labels.get(current_nav, "Stay here"),
                     "tone": "warn",
                 }
-            if str(packet_missing or "").strip().lower() in {"1", "true", "yes"}:
+            if (
+                not release_probe_read_only
+                and str(packet_missing or "").strip().lower() in {"1", "true", "yes"}
+            ):
                 missing_ref = str(missing_candidate_ref or "").strip()
                 recovery_query = {"packet_missing": "1"}
                 if normalized_run_id:
@@ -8556,7 +8584,11 @@ def app_shell(
                 if billing_truth:
                     billing_truth["fleet_digest"] = dict(property_context.get("fleet_digest") or {})
                     property_context["billing_truth"] = billing_truth
-        if (resolved_section in property_sections or resolved_section == "properties") and current_nav != "search":
+        if (
+            not release_probe_read_only
+            and (resolved_section in property_sections or resolved_section == "properties")
+            and current_nav != "search"
+        ):
             with contextlib.suppress(Exception):
                 product.record_surface_event(
                     principal_id=context.principal_id,

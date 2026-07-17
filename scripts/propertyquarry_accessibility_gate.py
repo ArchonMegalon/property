@@ -18,6 +18,8 @@ if str(EA_ROOT) not in sys.path:
     sys.path.insert(0, str(EA_ROOT))
 
 from scripts.propertyquarry_live_mobile_surface_smoke import DEFAULT_ROUTES, route_is_research_detail
+from scripts.propertyquarry_live_http_security import normalized_origin, redact_secret_values
+from scripts.propertyquarry_live_probe_auth import live_probe_request_headers
 from scripts.propertyquarry_live_public_smoke import PUBLIC_INFORMATION_ROUTES
 from scripts.propertyquarry_playwright_runtime import (
     SUPPORTED_PLAYWRIGHT_ENGINES,
@@ -74,8 +76,48 @@ def resolve_axe_core_source(path: Path) -> str:
 
 
 def _origin(value: str) -> str:
-    parsed = urllib.parse.urlparse(value)
-    return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, "", "", "", "")).rstrip("/")
+    return normalized_origin(value)
+
+
+def _release_probe_configured_routes(routes: tuple[str, ...]) -> tuple[str, ...]:
+    configured: list[str] = []
+    for raw_route in routes:
+        parsed = urllib.parse.urlsplit(str(raw_route or "").strip())
+        if parsed.scheme or parsed.netloc or parsed.fragment:
+            continue
+        path = str(parsed.path or "/")
+        if not (
+            route_is_research_detail(raw_route)
+            or path.startswith("/app/shortlist/run/")
+        ):
+            continue
+        route = urllib.parse.urlunsplit(("", "", path, str(parsed.query or ""), ""))
+        if route not in configured:
+            configured.append(route)
+    return tuple(configured)
+
+
+def _routes_require_authenticated_app(routes: tuple[str, ...]) -> bool:
+    for raw_route in routes:
+        path = str(urllib.parse.urlsplit(str(raw_route or "").strip()).path or "/")
+        if path == "/app" or path.startswith("/app/"):
+            return True
+    return False
+
+
+def _redact_receipt_value(value: Any, *, secrets: tuple[str, ...]) -> Any:
+    if isinstance(value, bytes):
+        return redact_secret_values(value.decode("utf-8", errors="replace"), secrets=secrets)
+    if isinstance(value, dict):
+        return {
+            str(key): _redact_receipt_value(item, secrets=secrets)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_redact_receipt_value(item, secrets=secrets) for item in value]
+    if isinstance(value, str):
+        return redact_secret_values(value, secrets=secrets)
+    return value
 
 
 def _continue_with_origin_scoped_headers(
@@ -83,14 +125,26 @@ def _continue_with_origin_scoped_headers(
     *,
     authorized_origin: str,
     headers: dict[str, str],
+    release_probe_secret: str = "",
+    configured_routes: tuple[str, ...] = (),
 ) -> None:
-    request_origin = _origin(str(route.request.url or ""))
-    if request_origin != authorized_origin:
-        route.continue_()
-        return
-    merged = dict(route.request.headers)
+    request_url = str(route.request.url or "")
+    merged = {
+        str(name): str(value)
+        for name, value in dict(route.request.headers).items()
+        if not str(name).strip().lower().startswith("x-propertyquarry-release-probe-")
+    }
     merged.update(headers)
-    route.continue_(headers=merged)
+    route.continue_(
+        headers=live_probe_request_headers(
+            url=request_url,
+            authorized_origin=authorized_origin,
+            headers=merged,
+            release_probe_secret=release_probe_secret,
+            method=str(getattr(route.request, "method", "GET") or "GET"),
+            configured_routes=configured_routes,
+        )
+    )
 
 
 def _focus_metrics(page: Any) -> dict[str, Any]:
@@ -306,11 +360,16 @@ def collect_accessibility_engine_rows(
     headers: dict[str, str],
     axe_source: str,
     timeout_ms: int,
+    release_probe_secret: str = "",
+    configured_routes: tuple[str, ...] = (),
 ) -> list[dict[str, Any]]:
     from playwright.sync_api import sync_playwright
 
     engine = normalize_playwright_engine(browser_engine)
     authorized_origin = _origin(base_url)
+    effective_configured_routes = tuple(
+        dict.fromkeys((*configured_routes, *_release_probe_configured_routes(routes)))
+    )
     rows: list[dict[str, Any]] = []
     with sync_playwright() as playwright:
         browser_type = playwright_browser_type(playwright, engine=engine)
@@ -336,6 +395,8 @@ def collect_accessibility_engine_rows(
                     route,
                     authorized_origin=authorized_origin,
                     headers=headers,
+                    release_probe_secret=release_probe_secret,
+                    configured_routes=effective_configured_routes,
                 ),
             )
             try:
@@ -519,36 +580,74 @@ def build_accessibility_receipt(
     browser_engines: tuple[str, ...] = SUPPORTED_PLAYWRIGHT_ENGINES,
     api_token: str = "",
     principal_id: str = "pq-accessibility-gate",
+    release_probe_secret: str = "",
     axe_core_path: Path = DEFAULT_AXE_CORE_PATH,
     timeout_ms: int = 30_000,
     collect_engine_rows: Callable[..., list[dict[str, Any]]] = collect_accessibility_engine_rows,
 ) -> dict[str, Any]:
     engines = normalize_browser_engines(browser_engines)
+    normalized_probe_secret = str(release_probe_secret or "").strip()
+    normalized_api_token = str(api_token or "").strip()
+    normalized_principal_id = str(principal_id or "").strip()
+    receipt_secrets = (normalized_api_token, normalized_probe_secret)
+    if (
+        _routes_require_authenticated_app(routes)
+        and not normalized_probe_secret
+        and not (normalized_api_token or normalized_principal_id)
+    ):
+        return _redact_receipt_value(
+            {
+                "status": "blocked",
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "base_url": base_url,
+                "axe_core_version": AXE_CORE_VERSION,
+                "axe_core_path": str(axe_core_path.expanduser().resolve()),
+                "required_browser_engines": list(engines),
+                "configured_routes": list(routes),
+                "route_count": 0,
+                "failed_count": 1,
+                "checks": [
+                    {
+                        "name": "authenticated_app_probe_auth_configured",
+                        "ok": False,
+                        "reason": "Authenticated accessibility app routes require PROPERTYQUARRY_LIVE_PROBE_SECRET or legacy API/principal auth.",
+                    }
+                ],
+                "routes": [],
+            },
+            secrets=receipt_secrets,
+        )
     try:
         axe_source = resolve_axe_core_source(axe_core_path)
     except Exception as exc:
-        return {
-            "status": "blocked",
-            "generated_at": datetime.now(timezone.utc).isoformat(),
-            "base_url": base_url,
-            "axe_core_version": AXE_CORE_VERSION,
-            "axe_core_path": str(axe_core_path.expanduser().resolve()),
-            "required_browser_engines": list(engines),
-            "configured_routes": list(routes),
-            "route_count": 0,
-            "failed_count": 1,
-            "checks": [{"name": "axe_core_pinned_input", "ok": False, "reason": str(exc)}],
-            "routes": [],
-        }
-    headers = {"X-EA-Principal-ID": principal_id, "Accept": "text/html,application/xhtml+xml"}
-    if api_token:
+        return _redact_receipt_value(
+            {
+                "status": "blocked",
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "base_url": base_url,
+                "axe_core_version": AXE_CORE_VERSION,
+                "axe_core_path": str(axe_core_path.expanduser().resolve()),
+                "required_browser_engines": list(engines),
+                "configured_routes": list(routes),
+                "route_count": 0,
+                "failed_count": 1,
+                "checks": [{"name": "axe_core_pinned_input", "ok": False, "reason": str(exc)}],
+                "routes": [],
+            },
+            secrets=receipt_secrets,
+        )
+    headers = {"Accept": "text/html,application/xhtml+xml"}
+    if not normalized_probe_secret and normalized_principal_id:
+        headers["X-EA-Principal-ID"] = normalized_principal_id
+    if not normalized_probe_secret and normalized_api_token:
         headers.update(
             {
-                "Authorization": f"Bearer {api_token}",
-                "X-EA-API-Token": api_token,
-                "X-API-Token": api_token,
+                "Authorization": f"Bearer {normalized_api_token}",
+                "X-EA-API-Token": normalized_api_token,
+                "X-API-Token": normalized_api_token,
             }
         )
+    configured_probe_routes = _release_probe_configured_routes(routes)
     rows: list[dict[str, Any]] = []
     engine_failures: list[dict[str, Any]] = []
     for engine in engines:
@@ -561,6 +660,8 @@ def build_accessibility_receipt(
                     headers=headers,
                     axe_source=axe_source,
                     timeout_ms=timeout_ms,
+                    release_probe_secret=normalized_probe_secret,
+                    configured_routes=configured_probe_routes,
                 )
             )
         except Exception as exc:
@@ -639,8 +740,9 @@ def build_accessibility_receipt(
             "The route matrix preserves every authenticated app route while also requiring every public sitemap, legal, support, docs, integrations, guide, market, registration, and sign-in page.",
         ],
     }
+    receipt = _redact_receipt_value(receipt, secrets=receipt_secrets)
     serialized = json.dumps(receipt, sort_keys=True)
-    if api_token and api_token in serialized:
+    if any(secret and secret in serialized for secret in receipt_secrets):
         raise RuntimeError("accessibility_receipt_secret_leak")
     return receipt
 
@@ -658,6 +760,10 @@ def main() -> int:
     parser.add_argument("--axe-core-path", default=os.environ.get("PROPERTYQUARRY_AXE_CORE_PATH", str(DEFAULT_AXE_CORE_PATH)))
     parser.add_argument("--api-token", default=os.environ.get("PROPERTYQUARRY_ACCESSIBILITY_API_TOKEN") or os.environ.get("EA_API_TOKEN", ""))
     parser.add_argument("--principal-id", default=os.environ.get("PROPERTYQUARRY_ACCESSIBILITY_PRINCIPAL_ID", "pq-accessibility-gate"))
+    parser.add_argument(
+        "--release-probe-secret",
+        default=os.environ.get("PROPERTYQUARRY_LIVE_PROBE_SECRET", ""),
+    )
     parser.add_argument("--timeout-ms", type=int, default=30_000)
     parser.add_argument("--write", default="_completion/smoke/property-live-accessibility-latest.json")
     args = parser.parse_args()
@@ -674,6 +780,7 @@ def main() -> int:
         browser_engines=engines,
         api_token=str(args.api_token or "").strip(),
         principal_id=str(args.principal_id or "").strip() or "pq-accessibility-gate",
+        release_probe_secret=str(args.release_probe_secret or "").strip(),
         axe_core_path=Path(args.axe_core_path),
         timeout_ms=max(1_000, int(args.timeout_ms)),
     )

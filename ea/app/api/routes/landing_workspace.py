@@ -811,16 +811,22 @@ def settings_usage_detail(
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {})
     product = build_product_service(container)
-    product.record_surface_event(
-        principal_id=context.principal_id,
-        event_type="usage_opened",
-        surface="settings_usage",
-        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
-    )
+    release_probe_read_only = str(context.auth_source or "").strip() == "propertyquarry_release_probe"
+    if not release_probe_read_only:
+        product.record_surface_event(
+            principal_id=context.principal_id,
+            event_type="usage_opened",
+            surface="settings_usage",
+            actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+        )
     if is_property_brand:
         property_usage = _property_search_usage_state(product, principal_id=context.principal_id, access_email=str(context.access_email or ""))
         property_billing, property_commercial = _property_settings_commercial(status)
-        billing_handoff = _property_brilliant_directories_billing_handoff()
+        billing_handoff = (
+            {}
+            if release_probe_read_only
+            else _property_brilliant_directories_billing_handoff()
+        )
         billing_href = "/app/billing" if bool(billing_handoff.get("available")) else ""
         current_plan = (
             str(property_commercial.get("current_plan_key") or property_commercial.get("active_plan_key") or "").strip()
@@ -1147,12 +1153,13 @@ def settings_support_detail(
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {})
     product = build_product_service(container)
-    product.record_surface_event(
-        principal_id=context.principal_id,
-        event_type="support_opened",
-        surface="settings_support",
-        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
-    )
+    if str(context.auth_source or "").strip() != "propertyquarry_release_probe":
+        product.record_surface_event(
+            principal_id=context.principal_id,
+            event_type="support_opened",
+            surface="settings_support",
+            actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+        )
     if is_property_brand:
         property_usage = _property_search_usage_state(product, principal_id=context.principal_id, access_email=str(context.access_email or ""))
         billing, commercial = _property_settings_commercial(status)
@@ -1861,12 +1868,13 @@ def settings_google_detail(
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {})
     product = build_product_service(container)
-    product.record_surface_event(
-        principal_id=context.principal_id,
-        event_type="google_settings_opened",
-        surface="settings_google",
-        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
-    )
+    if str(context.auth_source or "").strip() != "propertyquarry_release_probe":
+        product.record_surface_event(
+            principal_id=context.principal_id,
+            event_type="google_settings_opened",
+            surface="settings_google",
+            actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+        )
     if is_property_brand:
         return RedirectResponse(_property_account_redirect_target(request, settings_view="google"), status_code=303)
     sync_error = str(request.query_params.get("sync_error") or "").strip()
@@ -2267,12 +2275,13 @@ def settings_trust_detail(
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {})
     product = build_product_service(container)
-    product.record_surface_event(
-        principal_id=context.principal_id,
-        event_type="trust_opened",
-        surface="settings_trust",
-        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
-    )
+    if str(context.auth_source or "").strip() != "propertyquarry_release_probe":
+        product.record_surface_event(
+            principal_id=context.principal_id,
+            event_type="trust_opened",
+            surface="settings_trust",
+            actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+        )
     if is_property_brand:
         property_usage = _property_search_usage_state(product, principal_id=context.principal_id, access_email=str(context.access_email or ""))
         billing, commercial = _property_settings_commercial(status)
@@ -2495,12 +2504,13 @@ def settings_access_detail(
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {})
     product = build_product_service(container)
-    product.record_surface_event(
-        principal_id=context.principal_id,
-        event_type="access_settings_opened",
-        surface="settings_access",
-        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
-    )
+    if str(context.auth_source or "").strip() != "propertyquarry_release_probe":
+        product.record_surface_event(
+            principal_id=context.principal_id,
+            event_type="access_settings_opened",
+            surface="settings_access",
+            actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+        )
     if is_property_brand:
         return RedirectResponse(_property_account_redirect_target(request, settings_view="access"), status_code=303)
     active_sessions = [dict(item) for item in product.list_workspace_access_sessions(principal_id=context.principal_id, status="active", limit=50)]
@@ -2679,12 +2689,13 @@ def settings_invitations_detail(
     status = container.onboarding.status(principal_id=context.principal_id)
     workspace = dict(status.get("workspace") or {})
     product = build_product_service(container)
-    product.record_surface_event(
-        principal_id=context.principal_id,
-        event_type="invitations_opened",
-        surface="settings_invitations",
-        actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
-    )
+    if str(context.auth_source or "").strip() != "propertyquarry_release_probe":
+        product.record_surface_event(
+            principal_id=context.principal_id,
+            event_type="invitations_opened",
+            surface="settings_invitations",
+            actor=str(context.operator_id or context.access_email or context.principal_id or "browser").strip(),
+        )
     pending = [dict(item) for item in product.list_workspace_invitations(principal_id=context.principal_id, status="pending", limit=50)]
     accepted = [dict(item) for item in product.list_workspace_invitations(principal_id=context.principal_id, status="accepted", limit=20)]
     revoked = [dict(item) for item in product.list_workspace_invitations(principal_id=context.principal_id, status="revoked", limit=20)]

@@ -8,10 +8,19 @@ from collections.abc import Iterable, Mapping
 SENSITIVE_REQUEST_HEADERS = frozenset(
     {
         "authorization",
+        "cf-access-client-id",
+        "cf-access-client-secret",
+        "cf-access-jwt-assertion",
+        "cookie",
         "host",
+        "proxy-authorization",
         "x-api-token",
         "x-ea-api-token",
         "x-ea-principal-id",
+        "x-propertyquarry-release-probe-timestamp",
+        "x-propertyquarry-release-probe-nonce",
+        "x-propertyquarry-release-probe-signature",
+        "x-forwarded-access-token",
     }
 )
 

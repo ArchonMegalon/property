@@ -15,6 +15,9 @@ cd "${EA_ROOT}"
 live_base_url="${PROPERTYQUARRY_LIVE_MOBILE_BASE_URL:-${PROPERTYQUARRY_LIVE_SMOKE_BASE_URL:-}}"
 research_detail_route="${PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE:-}"
 live_principal_id="${PROPERTYQUARRY_LIVE_PRINCIPAL_ID:-}"
+release_probe_secret="${PROPERTYQUARRY_LIVE_PROBE_SECRET:-}"
+expected_probe_principal_id="pq-live-mobile-smoke"
+expected_probe_research_detail_route="/app/research/perf-candidate-1020?run_id=run-gold-mobile"
 expected_release_commit_sha="${PROPERTYQUARRY_EXPECTED_RELEASE_COMMIT_SHA:-}"
 expected_release_repository="${PROPERTYQUARRY_EXPECTED_RELEASE_REPOSITORY:-}"
 expected_release_public_origin="${PROPERTYQUARRY_EXPECTED_RELEASE_PUBLIC_ORIGIN:-}"
@@ -39,6 +42,13 @@ rybbit_evidence_receipt="${PROPERTYQUARRY_RYBBIT_EVIDENCE_RECEIPT:-_completion/s
 rybbit_origin="${PROPERTYQUARRY_RYBBIT_ORIGIN:-}"
 rybbit_site_id_sha256="${PROPERTYQUARRY_RYBBIT_SITE_ID_SHA256:-}"
 
+# The browser gates receive only the client-side release-probe credential. Drop
+# legacy caller identity/token inputs and any server-side verifier authority
+# before starting subprocesses.
+unset EA_API_TOKEN PROPERTYQUARRY_LIVE_API_TOKEN
+unset PROPERTYQUARRY_LIVE_PROBE_SECRET PROPERTYQUARRY_LIVE_PRINCIPAL_ID
+unset PROPERTYQUARRY_RELEASE_PROBE_SECRET PROPERTYQUARRY_RELEASE_PROBE_PRINCIPAL_ID
+
 require_provenance_value() {
   local name="$1"
   local value="$2"
@@ -56,12 +66,16 @@ if [[ -z "${research_detail_route}" ]]; then
   echo "error: set PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE to a current /app/research/{id}?run_id=... route" >&2
   exit 2
 fi
-if [[ -z "${live_principal_id}" ]]; then
-  echo "error: set PROPERTYQUARRY_LIVE_PRINCIPAL_ID to the principal that owns the research-detail route" >&2
+if [[ "${research_detail_route}" != "${expected_probe_research_detail_route}" ]]; then
+  echo "error: PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE must match the fixed synthetic release-probe route" >&2
   exit 2
 fi
-if [[ -z "${EA_API_TOKEN:-}" ]]; then
-  echo "error: set EA_API_TOKEN for protected authenticated live release probes" >&2
+if [[ "${live_principal_id}" != "${expected_probe_principal_id}" ]]; then
+  echo "error: PROPERTYQUARRY_LIVE_PRINCIPAL_ID must match the fixed synthetic release-probe principal" >&2
+  exit 2
+fi
+if [[ -z "${release_probe_secret}" ]]; then
+  echo "error: set PROPERTYQUARRY_LIVE_PROBE_SECRET for protected authenticated live release probes" >&2
   exit 2
 fi
 if ! [[ "${expected_release_commit_sha}" =~ ^[0-9a-fA-F]{40}$ ]]; then
@@ -111,8 +125,8 @@ if [[ -z "${live_telegram_chat_id}" ]]; then
 fi
 
 mkdir -p _completion/smoke
-export PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE="${research_detail_route}"
-export PROPERTYQUARRY_ACCESSIBILITY_RESEARCH_DETAIL_ROUTE="${research_detail_route}"
+export PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE="${expected_probe_research_detail_route}"
+export PROPERTYQUARRY_ACCESSIBILITY_RESEARCH_DETAIL_ROUTE="${expected_probe_research_detail_route}"
 
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/property_evidence_overlay_read_model.py \
   --stage-only \
@@ -192,25 +206,28 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_live_release_provenance.py 
   --write _completion/smoke/property-live-release-provenance.json \
   > /dev/null
 
+PROPERTYQUARRY_LIVE_PROBE_SECRET="${release_probe_secret}" \
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_live_mobile_surface_smoke.py \
   --base-url "${live_base_url}" \
-  --principal-id "${live_principal_id}" \
+  --principal-id "${expected_probe_principal_id}" \
   --proof-mode browser-all \
   --required-browser-engines "${PROPERTYQUARRY_LIVE_MOBILE_REQUIRED_BROWSER_ENGINES:-chromium,firefox,webkit}" \
   --require-research-detail \
   --write _completion/smoke/property-live-mobile-release-gate.json \
   > /dev/null
+PROPERTYQUARRY_LIVE_PROBE_SECRET="${release_probe_secret}" \
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_accessibility_gate.py \
   --base-url "${live_base_url}" \
   --browser-engines "${PROPERTYQUARRY_LIVE_MOBILE_REQUIRED_BROWSER_ENGINES:-chromium,firefox,webkit}" \
   --axe-core-path "${PROPERTYQUARRY_AXE_CORE_PATH:-node_modules/axe-core/axe.min.js}" \
-  --principal-id "${live_principal_id}" \
+  --principal-id "${expected_probe_principal_id}" \
   --write _completion/smoke/property-live-accessibility-release-gate.json \
   > /dev/null
+PROPERTYQUARRY_LIVE_PROBE_SECRET="${release_probe_secret}" \
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_map_preview_flagship_gate.py \
   --base-url "${live_base_url}" \
   --host-header "${PROPERTYQUARRY_LIVE_HOST_HEADER:-propertyquarry.com}" \
-  --principal-id "${live_principal_id}" \
+  --principal-id "${expected_probe_principal_id}" \
   --no-canonical-fallback \
   --write _completion/smoke/property-live-map-preview-flagship-release-gate.json \
   > /dev/null
@@ -218,9 +235,10 @@ PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_live_public_smoke.py \
   --base-url "${live_base_url}" \
   --write _completion/smoke/property-live-public-release-gate.json \
   > /dev/null
+PROPERTYQUARRY_LIVE_PROBE_SECRET="${release_probe_secret}" \
 PYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_live_authenticated_smoke.py \
   --base-url "${live_base_url}" \
-  --principal-id "${live_principal_id}" \
+  --principal-id "${expected_probe_principal_id}" \
   --expected-plan-label "${PROPERTYQUARRY_LIVE_SMOKE_PLAN_LABEL:-Free}" \
   --write _completion/smoke/property-live-authenticated-release-gate.json \
   > /dev/null

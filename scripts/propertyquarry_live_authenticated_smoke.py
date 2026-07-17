@@ -16,8 +16,11 @@ from time import sleep
 from typing import Callable
 
 ROOT = Path(__file__).resolve().parents[1]
+EA_ROOT = ROOT / "ea"
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+if str(EA_ROOT) not in sys.path:
+    sys.path.insert(0, str(EA_ROOT))
 
 from scripts.propertyquarry_billing_handoff_probe import (
     NoRedirectHandler as _NoRedirectHandler,
@@ -28,10 +31,12 @@ from scripts.propertyquarry_billing_handoff_probe import (
     no_proxy_opener as _no_proxy_opener,
 )
 from scripts.propertyquarry_live_http_security import (
+    normalized_origin,
     redact_secret_values,
     url_matches_origin,
     validated_live_base_origin,
 )
+from scripts.propertyquarry_live_probe_auth import live_probe_request_headers
 
 
 DEFAULT_ROUTES = (
@@ -288,6 +293,9 @@ def fetch_url(
     api_token: str,
     principal_id: str,
     country_code: str,
+    release_probe_secret: str = "",
+    release_probe_configured_routes: tuple[str, ...] = (),
+    authorized_origin: str = "",
 ) -> dict[str, object]:
     headers = {
         "User-Agent": "PropertyQuarry-live-authenticated-smoke/1.0",
@@ -299,6 +307,17 @@ def fetch_url(
     if api_token:
         headers["Authorization"] = f"Bearer {api_token}"
         headers["X-EA-API-Token"] = api_token
+    headers = live_probe_request_headers(
+        url=url,
+        authorized_origin=(
+            str(authorized_origin or "").strip()
+            or (normalized_origin(url) if not release_probe_secret else "")
+        ),
+        headers=headers,
+        release_probe_secret=release_probe_secret,
+        method="GET",
+        configured_routes=release_probe_configured_routes,
+    )
     request = urllib.request.Request(url, headers=headers)
     opener = _no_proxy_opener(_NoRedirectHandler)
     started = datetime.now(timezone.utc)
@@ -467,6 +486,7 @@ def build_live_authenticated_smoke_receipt(
     base_url: str,
     api_token: str,
     principal_id: str,
+    release_probe_secret: str = "",
     expected_plan_label: str = "",
     country_code: str = "AT",
     timeout_seconds: float = 8.0,
@@ -480,7 +500,7 @@ def build_live_authenticated_smoke_receipt(
     billing_bridge_assist_checker: Callable[[str, float], dict[str, object]] | None = None,
 ) -> dict[str, object]:
     try:
-        validated_live_base_origin(base_url)
+        authorized_origin = validated_live_base_origin(base_url)
     except ValueError as exc:
         return {
             "base_url": base_url,
@@ -504,6 +524,9 @@ def build_live_authenticated_smoke_receipt(
             api_token=api_token,
             principal_id=principal_id,
             country_code=country_code,
+            release_probe_secret=release_probe_secret,
+            release_probe_configured_routes=(AUTHENTICATED_SHARED_FAST_RUN_PATH,),
+            authorized_origin=authorized_origin,
         )
 
     effective_fetcher = fetcher or _default_fetcher
@@ -695,7 +718,7 @@ def build_live_authenticated_smoke_receipt(
             "It verifies paid customer surfaces: account, billing, sign-in state, and the shared shortlist URL does not leak sample homes to signed-in users.",
         ],
         },
-        secrets=(api_token,),
+        secrets=(api_token, release_probe_secret),
     )
 
 
@@ -713,6 +736,10 @@ def main() -> int:
     parser.add_argument("--expected-plan-label", default=_env_value("PROPERTYQUARRY_LIVE_SMOKE_PLAN_LABEL") or "Agent")
     parser.add_argument("--country-code", default=_env_value("PROPERTYQUARRY_LIVE_SMOKE_COUNTRY_CODE") or "AT")
     parser.add_argument("--api-token", default=_env_value("EA_API_TOKEN"))
+    parser.add_argument(
+        "--release-probe-secret",
+        default=_env_value("PROPERTYQUARRY_LIVE_PROBE_SECRET"),
+    )
     parser.add_argument("--timeout-seconds", type=float, default=8.0)
     parser.add_argument("--retry-count", type=int, default=2)
     parser.add_argument("--retry-backoff-seconds", type=float, default=0.75)
@@ -724,13 +751,16 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    if not str(args.api_token or "").strip():
-        raise SystemExit("EA_API_TOKEN is required for authenticated live smoke.")
+    if not str(args.release_probe_secret or "").strip() and not str(args.api_token or "").strip():
+        raise SystemExit(
+            "PROPERTYQUARRY_LIVE_PROBE_SECRET or EA_API_TOKEN is required for authenticated live smoke."
+        )
 
     receipt = build_live_authenticated_smoke_receipt(
         base_url=str(args.base_url),
         api_token=str(args.api_token),
         principal_id=str(args.principal_id),
+        release_probe_secret=str(args.release_probe_secret),
         expected_plan_label=str(args.expected_plan_label),
         country_code=str(args.country_code),
         timeout_seconds=float(args.timeout_seconds),

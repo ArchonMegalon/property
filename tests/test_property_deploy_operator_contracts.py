@@ -450,7 +450,13 @@ def test_smoke_runtime_protects_live_propertyquarry_release_gates() -> None:
         "PROPERTYQUARRY_LIVE_TELEGRAM_CHAT_ID: ${{ secrets.PROPERTYQUARRY_LIVE_TELEGRAM_CHAT_ID }}"
         in live_job
     )
-    assert "EA_API_TOKEN: ${{ secrets.PROPERTYQUARRY_LIVE_API_TOKEN }}" in live_job
+    assert (
+        "PROPERTYQUARRY_LIVE_PROBE_SECRET: ${{ secrets.PROPERTYQUARRY_LIVE_PROBE_SECRET }}"
+        in live_job
+    )
+    assert "EA_API_TOKEN: ${{ secrets.PROPERTYQUARRY_LIVE_API_TOKEN }}" not in live_job
+    assert "PROPERTYQUARRY_RELEASE_PROBE_SECRET" not in live_job
+    assert "PROPERTYQUARRY_RELEASE_PROBE_PRINCIPAL_ID" not in live_job
     assert "PROPERTYQUARRY_WORKFLOW_HEAD_SHA: ${{ github.sha }}" in live_job
     assert "release_manifest_runtime_sha" in live_job
     assert 'echo "PROPERTYQUARRY_EXPECTED_RELEASE_COMMIT_SHA=${runtime_sha}" >> "${GITHUB_ENV}"' in live_job
@@ -471,11 +477,18 @@ def test_smoke_runtime_protects_live_propertyquarry_release_gates() -> None:
     preflight_markers = (
         ': "${PROPERTYQUARRY_LIVE_MOBILE_BASE_URL:?Missing GitHub environment variable '
         'PROPERTYQUARRY_LIVE_MOBILE_BASE_URL}"',
+        ': "${PROPERTYQUARRY_LIVE_PROBE_SECRET:?Missing protected release-probe credential}"',
     )
     release_gate = live_job.index("bash scripts/propertyquarry_live_release_gates.sh")
     assert all(marker in live_job for marker in preflight_markers)
     assert all(live_job.index(marker) < release_gate for marker in preflight_markers)
-    assert live_job.index("env:\n          EA_API_TOKEN: ${{ secrets.PROPERTYQUARRY_LIVE_API_TOKEN }}") < release_gate
+    assert (
+        live_job.index(
+            "env:\n          PROPERTYQUARRY_LIVE_PROBE_SECRET: "
+            "${{ secrets.PROPERTYQUARRY_LIVE_PROBE_SECRET }}"
+        )
+        < release_gate
+    )
     assert "make property-release-gates" not in live_job
     assert "docker compose" not in live_job
     assert "POSTGRES_PASSWORD" not in live_job

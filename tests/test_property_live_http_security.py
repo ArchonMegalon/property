@@ -9,10 +9,23 @@ from typing import Iterator
 
 import pytest
 
+from app.propertyquarry_release_probe import (
+    PROPERTYQUARRY_RELEASE_PROBE_NONCE_HEADER,
+    PROPERTYQUARRY_RELEASE_PROBE_SIGNATURE_HEADER,
+    PROPERTYQUARRY_RELEASE_PROBE_TIMESTAMP_HEADER,
+    propertyquarry_release_probe_signature,
+)
 from scripts import propertyquarry_live_authenticated_smoke as authenticated_smoke
 from scripts import propertyquarry_live_mobile_surface_smoke as mobile_smoke
 from scripts import propertyquarry_map_preview_flagship_gate as map_gate
 from scripts.propertyquarry_live_http_security import normalized_origin, validated_live_base_origin
+from scripts.propertyquarry_live_probe_auth import live_probe_request_headers
+
+
+_NOW = 1_800_000_000
+_RELEASE_PROBE_SECRET = "propertyquarry-client-release-probe-secret-000001"
+_RESEARCH_ROUTE = "/app/research/perf-candidate-1020?run_id=run-gold-mobile"
+_SHORTLIST_RUN_PATH = "/app/shortlist/run/run-gold-mobile"
 
 
 @contextmanager
@@ -37,6 +50,151 @@ def test_live_base_origin_requires_https_except_exact_loopback() -> None:
         validated_live_base_origin("https://propertyquarry.com/app")
     with pytest.raises(ValueError, match="port_invalid"):
         validated_live_base_origin("https://propertyquarry.com:0")
+
+
+def test_release_probe_headers_sign_only_exact_origin_and_allowlisted_route() -> None:
+    authorized_origin = "https://propertyquarry.com"
+    input_headers = {
+        "Accept": "application/json",
+        "Authorization": "Bearer legacy-token-must-not-survive",
+        "X-EA-API-Token": "legacy-token-must-not-survive",
+        "X-EA-Principal-ID": "caller-selected-principal",
+        "Host": "caller-controlled-host",
+    }
+    nonce = "client-release-probe-exact-origin-0001"
+
+    signed = live_probe_request_headers(
+        url=f"{authorized_origin}{_RESEARCH_ROUTE}",
+        authorized_origin=authorized_origin,
+        headers=input_headers,
+        release_probe_secret=_RELEASE_PROBE_SECRET,
+        method="GET",
+        timestamp=_NOW,
+        nonce=nonce,
+        configured_routes=(_RESEARCH_ROUTE, _SHORTLIST_RUN_PATH),
+    )
+    public = live_probe_request_headers(
+        url=f"{authorized_origin}/health/ready",
+        authorized_origin=authorized_origin,
+        headers=input_headers,
+        release_probe_secret=_RELEASE_PROBE_SECRET,
+        method="GET",
+        timestamp=_NOW,
+        nonce="client-release-probe-public-route-0001",
+        configured_routes=(_RESEARCH_ROUTE, _SHORTLIST_RUN_PATH),
+    )
+    cross_origin = live_probe_request_headers(
+        url=f"https://images.example.test{_RESEARCH_ROUTE}",
+        authorized_origin=authorized_origin,
+        headers=input_headers,
+        release_probe_secret=_RELEASE_PROBE_SECRET,
+        method="GET",
+        timestamp=_NOW,
+        nonce="client-release-probe-cross-origin-0001",
+        configured_routes=(_RESEARCH_ROUTE, _SHORTLIST_RUN_PATH),
+    )
+
+    expected_signature = propertyquarry_release_probe_signature(
+        secret=_RELEASE_PROBE_SECRET,
+        method="GET",
+        path="/app/research/perf-candidate-1020",
+        query_string="run_id=run-gold-mobile",
+        timestamp=_NOW,
+        nonce=nonce,
+        origin=authorized_origin,
+    )
+    assert signed[PROPERTYQUARRY_RELEASE_PROBE_TIMESTAMP_HEADER] == str(_NOW)
+    assert signed[PROPERTYQUARRY_RELEASE_PROBE_NONCE_HEADER] == nonce
+    assert signed[PROPERTYQUARRY_RELEASE_PROBE_SIGNATURE_HEADER] == expected_signature
+    assert signed["Accept"] == "application/json"
+    for result in (signed, public, cross_origin):
+        lowered = {str(name).lower() for name in result}
+        assert "authorization" not in lowered
+        assert "x-ea-api-token" not in lowered
+        assert "x-ea-principal-id" not in lowered
+    assert "host" not in {str(name).lower() for name in cross_origin}
+    for result in (public, cross_origin):
+        lowered = {str(name).lower() for name in result}
+        assert PROPERTYQUARRY_RELEASE_PROBE_TIMESTAMP_HEADER.lower() not in lowered
+        assert PROPERTYQUARRY_RELEASE_PROBE_NONCE_HEADER.lower() not in lowered
+        assert PROPERTYQUARRY_RELEASE_PROBE_SIGNATURE_HEADER.lower() not in lowered
+
+
+def test_release_probe_headers_bind_head_and_refuse_post() -> None:
+    authorized_origin = "https://propertyquarry.com"
+    nonce = "client-release-probe-head-method-0001"
+    head = live_probe_request_headers(
+        url=f"{authorized_origin}{_SHORTLIST_RUN_PATH}",
+        authorized_origin=authorized_origin,
+        headers={"Accept": "application/json"},
+        release_probe_secret=_RELEASE_PROBE_SECRET,
+        method="HEAD",
+        timestamp=_NOW,
+        nonce=nonce,
+        configured_routes=(_RESEARCH_ROUTE, _SHORTLIST_RUN_PATH),
+    )
+    post = live_probe_request_headers(
+        url=f"{authorized_origin}{_SHORTLIST_RUN_PATH}",
+        authorized_origin=authorized_origin,
+        headers={"Accept": "application/json"},
+        release_probe_secret=_RELEASE_PROBE_SECRET,
+        method="POST",
+        timestamp=_NOW,
+        nonce="client-release-probe-post-method-0001",
+        configured_routes=(_RESEARCH_ROUTE, _SHORTLIST_RUN_PATH),
+    )
+
+    assert head[PROPERTYQUARRY_RELEASE_PROBE_SIGNATURE_HEADER] == (
+        propertyquarry_release_probe_signature(
+            secret=_RELEASE_PROBE_SECRET,
+            method="HEAD",
+            path=_SHORTLIST_RUN_PATH,
+            query_string="",
+            timestamp=_NOW,
+            nonce=nonce,
+            origin=authorized_origin,
+        )
+    )
+    post_names = {str(name).lower() for name in post}
+    assert PROPERTYQUARRY_RELEASE_PROBE_TIMESTAMP_HEADER.lower() not in post_names
+    assert PROPERTYQUARRY_RELEASE_PROBE_NONCE_HEADER.lower() not in post_names
+    assert PROPERTYQUARRY_RELEASE_PROBE_SIGNATURE_HEADER.lower() not in post_names
+
+
+def test_release_probe_helper_drops_inherited_probe_headers_before_scoping() -> None:
+    authorized_origin = "https://propertyquarry.com"
+    inherited = {
+        "Accept": "application/json",
+        PROPERTYQUARRY_RELEASE_PROBE_TIMESTAMP_HEADER: "1",
+        PROPERTYQUARRY_RELEASE_PROBE_NONCE_HEADER: "attacker-controlled-nonce",
+        PROPERTYQUARRY_RELEASE_PROBE_SIGNATURE_HEADER: "f" * 64,
+    }
+    public = live_probe_request_headers(
+        url=f"{authorized_origin}/health/ready",
+        authorized_origin=authorized_origin,
+        headers=inherited,
+        release_probe_secret=_RELEASE_PROBE_SECRET,
+        method="GET",
+        timestamp=_NOW,
+        nonce="client-release-probe-inherited-public-0001",
+        configured_routes=(_RESEARCH_ROUTE, _SHORTLIST_RUN_PATH),
+    )
+    cross_origin = live_probe_request_headers(
+        url="https://images.example.test/pixel.png",
+        authorized_origin=authorized_origin,
+        headers=inherited,
+        release_probe_secret=_RELEASE_PROBE_SECRET,
+        method="GET",
+        timestamp=_NOW,
+        nonce="client-release-probe-inherited-cross-0001",
+        configured_routes=(_RESEARCH_ROUTE, _SHORTLIST_RUN_PATH),
+    )
+
+    for result in (public, cross_origin):
+        lowered = {str(name).lower() for name in result}
+        assert PROPERTYQUARRY_RELEASE_PROBE_TIMESTAMP_HEADER.lower() not in lowered
+        assert PROPERTYQUARRY_RELEASE_PROBE_NONCE_HEADER.lower() not in lowered
+        assert PROPERTYQUARRY_RELEASE_PROBE_SIGNATURE_HEADER.lower() not in lowered
 
 
 def test_authenticated_billing_bridge_never_fetches_cross_origin_absolute_path() -> None:
@@ -203,7 +361,7 @@ def test_playwright_route_adds_auth_only_on_exact_origin() -> None:
                         "x-ea-principal-id": "inherited-principal",
                     }
                 )
-            self.request = SimpleNamespace(url=url, headers=request_headers)
+            self.request = SimpleNamespace(url=url, method="GET", headers=request_headers)
             self.calls: list[dict[str, object]] = []
 
         def continue_(self, **kwargs: object) -> None:
@@ -234,6 +392,7 @@ def test_playwright_route_adds_auth_only_on_exact_origin() -> None:
 
 def test_authenticated_receipt_redacts_reflected_concrete_token() -> None:
     token = "sentinel-reflected-api-token"
+    release_probe_secret = "sentinel-reflected-release-probe-secret-0001"
 
     def _fetcher(_url: str, _timeout: float) -> dict[str, object]:
         return {
@@ -245,15 +404,19 @@ def test_authenticated_receipt_redacts_reflected_concrete_token() -> None:
                 "Referrer-Policy": "strict-origin-when-cross-origin",
                 "Permissions-Policy": "camera=(), microphone=()",
             },
-            "body": f"reflected {token}".encode(),
-            "final_url": f"https://propertyquarry.com/probe?echo={token}",
-            "error": f"upstream reflected {token}",
+            "body": f"reflected {token} and {release_probe_secret}".encode(),
+            "final_url": (
+                "https://propertyquarry.com/probe"
+                f"?token={token}&release_probe={release_probe_secret}"
+            ),
+            "error": f"upstream reflected {token} and {release_probe_secret}",
         }
 
     receipt = authenticated_smoke.build_live_authenticated_smoke_receipt(
         base_url="https://propertyquarry.com",
         api_token=token,
         principal_id="principal-test",
+        release_probe_secret=release_probe_secret,
         routes=("/probe",),
         retry_count=0,
         fetcher=_fetcher,
@@ -261,6 +424,7 @@ def test_authenticated_receipt_redacts_reflected_concrete_token() -> None:
 
     serialized = json.dumps(receipt, sort_keys=True)
     assert token not in serialized
+    assert release_probe_secret not in serialized
     assert "[redacted-secret]" in serialized
 
 

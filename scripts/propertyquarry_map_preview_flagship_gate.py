@@ -35,11 +35,12 @@ if APP_ROOT.exists() and str(APP_ROOT) not in sys.path:
     sys.path.insert(0, str(APP_ROOT))
 
 from scripts.propertyquarry_live_http_security import (
-    headers_for_authorized_origin,
     normalized_origin,
+    redact_secret_values,
     url_matches_origin,
     validated_live_base_origin,
 )
+from scripts.propertyquarry_live_probe_auth import live_probe_request_headers
 
 CANONICAL_RENDERER_PREVIEWS: tuple[dict[str, object], ...] = (
     {
@@ -67,6 +68,44 @@ def _check(name: str, ok: bool, **extra: object) -> dict[str, object]:
     return {"name": name, "ok": bool(ok), **extra}
 
 
+def _release_probe_configured_routes(routes: list[str]) -> tuple[str, ...]:
+    configured: list[str] = []
+    for raw_route in routes:
+        parsed = urllib.parse.urlsplit(str(raw_route or "").strip())
+        if parsed.scheme or parsed.netloc or parsed.fragment:
+            continue
+        path = str(parsed.path or "/")
+        if not (
+            path.startswith("/app/research/")
+            or path.startswith("/app/shortlist/run/")
+        ):
+            continue
+        route = urllib.parse.urlunsplit(("", "", path, str(parsed.query or ""), ""))
+        if route not in configured:
+            configured.append(route)
+    return tuple(configured)
+
+
+def _route_requires_authenticated_app(raw_route: str) -> bool:
+    path = str(urllib.parse.urlsplit(str(raw_route or "").strip()).path or "/")
+    return path == "/app" or path.startswith("/app/")
+
+
+def _redact_receipt_value(value: Any, *, secrets: tuple[str, ...]) -> Any:
+    if isinstance(value, bytes):
+        return redact_secret_values(value.decode("utf-8", errors="replace"), secrets=secrets)
+    if isinstance(value, dict):
+        return {
+            str(key): _redact_receipt_value(item, secrets=secrets)
+            for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_redact_receipt_value(item, secrets=secrets) for item in value]
+    if isinstance(value, str):
+        return redact_secret_values(value, secrets=secrets)
+    return value
+
+
 def _headers(*, host_header: str = "", api_token: str = "", principal_id: str = "", accept: str = "*/*") -> dict[str, str]:
     headers = {"User-Agent": "PropertyQuarry-map-preview-flagship-gate/1.0", "Accept": accept}
     if host_header:
@@ -88,13 +127,16 @@ def _fetch(
     principal_id: str = "",
     accept: str = "*/*",
     authorized_origin: str = "",
+    release_probe_secret: str = "",
+    configured_routes: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     scoped_origin = normalized_origin(authorized_origin) if authorized_origin else ""
     current_url = str(url or "").strip()
+    normalized_probe_secret = str(release_probe_secret or "").strip()
     full_headers = _headers(
         host_header=host_header,
-        api_token=api_token,
-        principal_id=principal_id,
+        api_token="" if normalized_probe_secret else api_token,
+        principal_id="" if normalized_probe_secret else principal_id,
         accept=accept,
     )
 
@@ -106,10 +148,13 @@ def _fetch(
     for _redirect_count in range(6):
         request = urllib.request.Request(
             current_url,
-            headers=headers_for_authorized_origin(
+            headers=live_probe_request_headers(
                 url=current_url,
                 authorized_origin=scoped_origin,
                 headers=full_headers,
+                release_probe_secret=normalized_probe_secret,
+                method="GET",
+                configured_routes=configured_routes,
             ),
         )
         try:
@@ -180,9 +225,14 @@ def _discover_preview_urls(
     host_header: str,
     api_token: str,
     principal_id: str,
+    release_probe_secret: str = "",
+    configured_routes: tuple[str, ...] = (),
     discovery_results: list[dict[str, object]] | None = None,
 ) -> list[str]:
     authorized_origin = validated_live_base_origin(base_url)
+    effective_configured_routes = tuple(
+        dict.fromkeys((*configured_routes, *_release_probe_configured_routes(routes)))
+    )
     urls: list[str] = []
     seen: set[str] = set()
     for route in routes:
@@ -196,6 +246,8 @@ def _discover_preview_urls(
             principal_id=principal_id,
             accept="text/html,*/*",
             authorized_origin=authorized_origin,
+            release_probe_secret=release_probe_secret,
+            configured_routes=effective_configured_routes,
         )
         elapsed_ms = int(round((time.monotonic() - started) * 1000))
         body = bytes(response.get("body") or b"").decode("utf-8", errors="replace")
@@ -292,7 +344,17 @@ def _canonical_renderer_preview_sources() -> list[dict[str, object]]:
     return sources
 
 
-def _read_image(url: str, *, timeout_seconds: float, host_header: str) -> dict[str, Any]:
+def _read_image(
+    url: str,
+    *,
+    timeout_seconds: float,
+    host_header: str,
+    base_url: str = "",
+    api_token: str = "",
+    principal_id: str = "",
+    release_probe_secret: str = "",
+    configured_routes: tuple[str, ...] = (),
+) -> dict[str, Any]:
     if url.startswith("file://"):
         path = Path(urllib.parse.urlparse(url).path)
         body = path.read_bytes() if path.is_file() else b""
@@ -302,7 +364,17 @@ def _read_image(url: str, *, timeout_seconds: float, host_header: str) -> dict[s
             "headers": {"Content-Type": "image/png", "X-Property-Map-Preview-State": "ready"},
             "body": body,
         }
-    return _fetch(url, timeout_seconds=timeout_seconds, host_header=host_header, accept="image/png,*/*")
+    return _fetch(
+        url,
+        timeout_seconds=timeout_seconds,
+        host_header=host_header,
+        api_token=api_token,
+        principal_id=principal_id,
+        accept="image/png,*/*",
+        authorized_origin=normalized_origin(base_url) if base_url else "",
+        release_probe_secret=release_probe_secret,
+        configured_routes=configured_routes,
+    )
 
 
 def _image_metrics(body: bytes) -> dict[str, object]:
@@ -355,15 +427,44 @@ def _artifact_hits(body: bytes) -> list[str]:
     return [pattern.decode("utf-8", errors="replace") for pattern in ARTIFACT_PATTERNS if pattern in lowered]
 
 
-def _evaluate_preview(url: str, *, timeout_seconds: float, host_header: str, settle_seconds: float = 0.0) -> dict[str, Any]:
+def _evaluate_preview(
+    url: str,
+    *,
+    timeout_seconds: float,
+    host_header: str,
+    settle_seconds: float = 0.0,
+    base_url: str = "",
+    api_token: str = "",
+    principal_id: str = "",
+    release_probe_secret: str = "",
+    configured_routes: tuple[str, ...] = (),
+) -> dict[str, Any]:
     deadline = time.monotonic() + max(0.0, float(settle_seconds or 0.0))
-    response = _read_image(url, timeout_seconds=timeout_seconds, host_header=host_header)
+    response = _read_image(
+        url,
+        timeout_seconds=timeout_seconds,
+        host_header=host_header,
+        base_url=base_url,
+        api_token=api_token,
+        principal_id=principal_id,
+        release_probe_secret=release_probe_secret,
+        configured_routes=configured_routes,
+    )
     while True:
         preview_state = _header(dict(response.get("headers") or {}), "X-Property-Map-Preview-State").lower()
         if preview_state != "pending" or time.monotonic() >= deadline:
             break
         time.sleep(0.5)
-        response = _read_image(url, timeout_seconds=timeout_seconds, host_header=host_header)
+        response = _read_image(
+            url,
+            timeout_seconds=timeout_seconds,
+            host_header=host_header,
+            base_url=base_url,
+            api_token=api_token,
+            principal_id=principal_id,
+            release_probe_secret=release_probe_secret,
+            configured_routes=configured_routes,
+        )
     headers = dict(response.get("headers") or {})
     body = bytes(response.get("body") or b"")
     content_type = _header(headers, "Content-Type").lower()
@@ -419,22 +520,30 @@ def build_map_preview_flagship_receipt(
     settle_seconds: float,
     min_preview_count: int,
     canonical_fallback: bool = True,
+    release_probe_secret: str = "",
 ) -> dict[str, Any]:
     base = str(base_url or "http://localhost:8097").strip().rstrip("/")
+    normalized_probe_secret = str(release_probe_secret or "").strip()
+    normalized_api_token = str(api_token or "").strip()
+    normalized_principal_id = str(principal_id or "").strip()
+    receipt_secrets = (normalized_api_token, normalized_probe_secret)
     try:
         validated_live_base_origin(base)
     except ValueError as exc:
-        return {
-            "contract_name": "propertyquarry.map_preview_flagship_gate.v1",
-            "generated_at": _utc_now(),
-            "status": "blocked",
-            "base_url": base,
-            "host_header": host_header,
-            "preview_count": 0,
-            "failed_count": 1,
-            "checks": [_check("live_base_origin_safe", False, reason=str(exc))],
-            "preview_results": [],
-        }
+        return _redact_receipt_value(
+            {
+                "contract_name": "propertyquarry.map_preview_flagship_gate.v1",
+                "generated_at": _utc_now(),
+                "status": "blocked",
+                "base_url": base,
+                "host_header": host_header,
+                "preview_count": 0,
+                "failed_count": 1,
+                "checks": [_check("live_base_origin_safe", False, reason=str(exc))],
+                "preview_results": [],
+            },
+            secrets=receipt_secrets,
+        )
     url_sources: list[dict[str, object]] = []
     seen: set[str] = set()
     discovery_results: list[dict[str, object]] = []
@@ -443,14 +552,60 @@ def build_map_preview_flagship_receipt(
         if absolute and absolute not in seen:
             seen.add(absolute)
             url_sources.append({"url": absolute, "source": "explicit"})
-    if not url_sources:
+    configured_probe_routes = _release_probe_configured_routes(discover_routes)
+    legacy_auth_configured = bool(normalized_api_token or normalized_principal_id)
+    authenticated_discovery_required = any(
+        _route_requires_authenticated_app(route)
+        for route in discover_routes
+    )
+    discovery_auth_configured = bool(normalized_probe_secret or legacy_auth_configured)
+    if not url_sources and authenticated_discovery_required and not discovery_auth_configured:
+        discovery_results.extend(
+            {
+                "route": route,
+                "url": _absolute_url(base, route),
+                "status_code": 0,
+                "elapsed_ms": 0,
+                "body_bytes": 0,
+                "preview_count": 0,
+                "error": "authenticated_app_probe_auth_required",
+            }
+            for route in discover_routes
+            if _route_requires_authenticated_app(route)
+        )
+        if not canonical_fallback:
+            return _redact_receipt_value(
+                {
+                    "contract_name": "propertyquarry.map_preview_flagship_gate.v1",
+                    "generated_at": _utc_now(),
+                    "status": "blocked",
+                    "base_url": base,
+                    "host_header": host_header,
+                    "discover_routes": discover_routes,
+                    "discovery_results": discovery_results,
+                    "preview_count": 0,
+                    "failed_count": 1,
+                    "checks": [
+                        _check(
+                            "authenticated_app_probe_auth_configured",
+                            False,
+                            reason="Authenticated map-preview discovery requires PROPERTYQUARRY_LIVE_PROBE_SECRET or legacy API/principal auth.",
+                        )
+                    ],
+                    "preview_results": [],
+                },
+                secrets=receipt_secrets,
+            )
+    elif not url_sources:
         for discovered in _discover_preview_urls(
             base_url=base,
             routes=discover_routes,
             timeout_seconds=timeout_seconds,
             host_header=host_header,
-            api_token=api_token,
-            principal_id=principal_id,
+            api_token=normalized_api_token,
+            principal_id=normalized_principal_id,
+            release_probe_secret=normalized_probe_secret,
+            configured_routes=configured_probe_routes,
             discovery_results=discovery_results,
             ):
             if discovered not in seen:
@@ -474,7 +629,17 @@ def build_map_preview_flagship_receipt(
     preview_results = []
     for row in url_sources:
         url = str(row.get("url") or "").strip()
-        result = _evaluate_preview(url, timeout_seconds=timeout_seconds, host_header=host_header, settle_seconds=settle_seconds)
+        result = _evaluate_preview(
+            url,
+            timeout_seconds=timeout_seconds,
+            host_header=host_header,
+            settle_seconds=settle_seconds,
+            base_url=base,
+            api_token=normalized_api_token,
+            principal_id=normalized_principal_id,
+            release_probe_secret=normalized_probe_secret,
+            configured_routes=configured_probe_routes,
+        )
         result["source"] = row.get("source") or ""
         if row.get("label"):
             result["label"] = row.get("label")
@@ -495,7 +660,7 @@ def build_map_preview_flagship_receipt(
             )
         )
     failed = [row for row in checks if not row.get("ok")]
-    return {
+    receipt = {
         "contract_name": "propertyquarry.map_preview_flagship_gate.v1",
         "generated_at": _utc_now(),
         "status": "pass" if not failed else "fail",
@@ -517,6 +682,11 @@ def build_map_preview_flagship_receipt(
             "If live discovery finds no user-state previews, the gate renders canonical Vienna overlays so release safety does not depend on search-history state.",
         ],
     }
+    receipt = _redact_receipt_value(receipt, secrets=receipt_secrets)
+    serialized = json.dumps(receipt, sort_keys=True)
+    if any(secret and secret in serialized for secret in receipt_secrets):
+        raise RuntimeError("map_preview_flagship_receipt_secret_leak")
+    return receipt
 
 
 def main() -> int:
@@ -525,6 +695,10 @@ def main() -> int:
     parser.add_argument("--host-header", default=os.getenv("PROPERTYQUARRY_LIVE_HOST_HEADER", "propertyquarry.com"))
     parser.add_argument("--api-token", default=os.getenv("EA_API_TOKEN", ""))
     parser.add_argument("--principal-id", default=os.getenv("EA_PRINCIPAL_ID", "pq-map-preview-gate"))
+    parser.add_argument(
+        "--release-probe-secret",
+        default=os.getenv("PROPERTYQUARRY_LIVE_PROBE_SECRET", ""),
+    )
     parser.add_argument("--image-url", action="append", default=[])
     parser.add_argument("--discover-route", action="append", default=[])
     parser.add_argument("--timeout-seconds", type=float, default=12.0)
@@ -543,6 +717,7 @@ def main() -> int:
         host_header=args.host_header,
         api_token=args.api_token,
         principal_id=args.principal_id,
+        release_probe_secret=args.release_probe_secret,
         image_urls=list(args.image_url or []) + env_urls,
         discover_routes=list(args.discover_route or DEFAULT_DISCOVER_ROUTES),
         timeout_seconds=max(1.0, float(args.timeout_seconds or 12.0)),

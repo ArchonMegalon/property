@@ -38,12 +38,12 @@ from scripts.propertyquarry_playwright_runtime import (
 )
 from scripts.propertyquarry_live_http_security import (
     SENSITIVE_REQUEST_HEADERS,
-    headers_for_authorized_origin,
     normalized_origin,
     redact_secret_values,
     url_matches_origin,
     validated_live_base_origin,
 )
+from scripts.propertyquarry_live_probe_auth import live_probe_request_headers
 
 
 DEFAULT_ROUTES = (
@@ -115,22 +115,27 @@ def _http_get_for_smoke(
     timeout_seconds: float,
     follow_redirects: bool = True,
     authorized_origin: str = "",
+    release_probe_secret: str = "",
+    release_probe_configured_routes: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     sensitive_headers_present = any(
         str(key or "").strip().lower() in SENSITIVE_REQUEST_HEADERS
         for key in headers
     )
-    if sensitive_headers_present and not authorized_origin:
+    if (sensitive_headers_present or release_probe_secret) and not authorized_origin:
         raise RuntimeError("authorized_origin_required_for_sensitive_headers")
     scoped_origin = normalized_origin(authorized_origin or url)
     current_url = str(url or "").strip()
     for redirect_count in range(6):
         request = urllib.request.Request(
             current_url,
-            headers=headers_for_authorized_origin(
+            headers=live_probe_request_headers(
                 url=current_url,
                 authorized_origin=scoped_origin,
                 headers=headers,
+                release_probe_secret=release_probe_secret,
+                method="GET",
+                configured_routes=release_probe_configured_routes,
             ),
             method="GET",
         )
@@ -246,6 +251,8 @@ def _resolve_mobile_billing_external_handoff(
     redirect_location: str,
     request_headers: dict[str, str],
     timeout_ms: int,
+    release_probe_secret: str = "",
+    release_probe_configured_routes: tuple[str, ...] = (),
 ) -> dict[str, object]:
     normalized_location = str(redirect_location or "").strip()
     if not normalized_location:
@@ -272,12 +279,19 @@ def _resolve_mobile_billing_external_handoff(
             "bridge_launch_status_code": 0,
         }
     bridge_launch_url = urllib.parse.urljoin(base_url.rstrip("/") + "/", normalized_location.lstrip("/"))
+    probe_kwargs: dict[str, Any] = {}
+    if release_probe_secret:
+        probe_kwargs = {
+            "release_probe_secret": release_probe_secret,
+            "release_probe_configured_routes": release_probe_configured_routes,
+        }
     bridge_response = _http_get_for_smoke(
         bridge_launch_url,
         headers=request_headers,
         timeout_seconds=max(1.0, timeout_ms / 1000.0),
         follow_redirects=False,
         authorized_origin=validated_live_base_origin(base_url),
+        **probe_kwargs,
     )
     return {
         "external_location": _header_value(dict(bridge_response.get("headers") or {}), "location"),
@@ -344,6 +358,8 @@ def _playwright_route_metrics_worker(
     viewport_height: int,
     route_timeout_ms: int,
     browser_engine: str = DEFAULT_BROWSER_ENGINE,
+    release_probe_secret: str = "",
+    release_probe_configured_routes: tuple[str, ...] = (),
 ) -> None:
     normalized_engine = normalize_playwright_engine(browser_engine)
     try:
@@ -381,6 +397,8 @@ def _playwright_route_metrics_worker(
                             route,
                             authorized_origin=authorized_origin,
                             headers=headers,
+                            release_probe_secret=release_probe_secret,
+                            release_probe_configured_routes=release_probe_configured_routes,
                         ),
                     )
                     page = context.new_page()
@@ -436,6 +454,8 @@ def collect_playwright_route_metrics(
     route_timeout_ms: int,
     route_deadline_seconds: int,
     browser_engine: str = DEFAULT_BROWSER_ENGINE,
+    release_probe_secret: str = "",
+    release_probe_configured_routes: tuple[str, ...] = (),
 ) -> tuple[int, dict[str, Any]]:
     """Run one real-browser probe behind a mockable process boundary."""
     start_method = "spawn" if "spawn" in multiprocessing.get_all_start_methods() else "fork"
@@ -453,6 +473,8 @@ def collect_playwright_route_metrics(
             "viewport_height": viewport_height,
             "route_timeout_ms": route_timeout_ms,
             "browser_engine": normalize_playwright_engine(browser_engine),
+            "release_probe_secret": release_probe_secret,
+            "release_probe_configured_routes": release_probe_configured_routes,
         },
     )
     process.start()
@@ -511,24 +533,32 @@ def _continue_playwright_route_with_origin_scoped_headers(
     *,
     authorized_origin: str,
     headers: dict[str, str],
+    release_probe_secret: str = "",
+    release_probe_configured_routes: tuple[str, ...] = (),
 ) -> None:
     request_url = str(route.request.url or "")
     if url_matches_origin(request_url, authorized_origin):
         scoped_headers = dict(route.request.headers)
         scoped_headers.update(
-            headers_for_authorized_origin(
+            live_probe_request_headers(
                 url=request_url,
                 authorized_origin=authorized_origin,
                 headers=headers,
+                release_probe_secret=release_probe_secret,
+                method=str(getattr(route.request, "method", "GET") or "GET"),
+                configured_routes=release_probe_configured_routes,
             )
         )
         route.continue_(headers=scoped_headers)
         return
     route.continue_(
-        headers=headers_for_authorized_origin(
+        headers=live_probe_request_headers(
             url=request_url,
             authorized_origin=authorized_origin,
             headers=dict(route.request.headers),
+            release_probe_secret=release_probe_secret,
+            method=str(getattr(route.request, "method", "GET") or "GET"),
+            configured_routes=release_probe_configured_routes,
         )
     )
 
@@ -1469,6 +1499,7 @@ def build_live_mobile_surface_receipt(
     base_url: str,
     api_token: str,
     principal_id: str,
+    release_probe_secret: str = "",
     host_header: str = "",
     routes: tuple[str, ...] = DEFAULT_ROUTES,
     require_research_detail: bool = False,
@@ -1480,6 +1511,21 @@ def build_live_mobile_surface_receipt(
     browser_engine: str = DEFAULT_BROWSER_ENGINE,
     required_browser_engines: tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
+    normalized_release_probe_secret = str(release_probe_secret or "").strip()
+    release_probe_configured_routes = tuple(
+        dict.fromkeys(
+            normalized_route
+            for route in routes
+            if route_is_research_detail(route)
+            for normalized_route in (str(route or "").strip(),)
+            if normalized_route
+        )
+    )
+    receipt_secrets = tuple(
+        secret
+        for secret in (str(api_token or "").strip(), normalized_release_probe_secret)
+        if secret
+    )
     normalized_proof_mode = normalize_mobile_proof_mode(proof_mode)
     browser_all = normalized_proof_mode == FLAGSHIP_PROOF_MODE
     selected_browser_engine = normalize_playwright_engine(browser_engine)
@@ -1500,6 +1546,7 @@ def build_live_mobile_surface_receipt(
                 base_url=base_url,
                 api_token=api_token,
                 principal_id=principal_id,
+                release_probe_secret=normalized_release_probe_secret,
                 host_header=host_header,
                 routes=routes,
                 require_research_detail=True,
@@ -1568,10 +1615,11 @@ def build_live_mobile_surface_receipt(
             "notes": [
                 "Flagship browser-all smoke measures every configured customer route in every required Playwright browser engine at every supported viewport.",
                 "API token values are never written to this receipt.",
+                "Release-probe secret values are never written to this receipt.",
             ],
         }
         return _redact_sensitive_receipt_value(
-            _redact_concrete_secret_values(receipt, secrets=(api_token,))
+            _redact_concrete_secret_values(receipt, secrets=receipt_secrets)
         )
     viewport_width, viewport_height = probe_viewports[0]
     try:
@@ -1596,7 +1644,9 @@ def build_live_mobile_surface_receipt(
             "routes": [],
             "notes": ["Authenticated live probes require an exact HTTPS origin; HTTP is allowed only on loopback."],
         }
-    if routes_require_api_auth(routes) and not str(api_token or "").strip():
+    if routes_require_api_auth(routes) and not (
+        normalized_release_probe_secret or str(api_token or "").strip()
+    ):
         return {
             "status": "blocked",
             "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -1623,14 +1673,16 @@ def build_live_mobile_surface_receipt(
             "notes": [
                 "Live mobile smoke checks deployed HTML geometry only; it does not call listing providers.",
                 "API token values are never written to this receipt.",
+                "Release-probe secret values are never written to this receipt.",
             ],
         }
     headers = {
-        "X-EA-Principal-ID": principal_id,
         "Accept": "text/html,application/xhtml+xml",
         "User-Agent": SEED_FIXTURE_USER_AGENT,
     }
-    if api_token:
+    if not normalized_release_probe_secret:
+        headers["X-EA-Principal-ID"] = principal_id
+    if api_token and not normalized_release_probe_secret:
         headers["Authorization"] = f"Bearer {api_token}"
         headers["X-EA-API-Token"] = api_token
         headers["X-API-Token"] = api_token
@@ -1652,6 +1704,12 @@ def build_live_mobile_surface_receipt(
     rows: list[dict[str, Any]] = []
     route_deadline_seconds = max(10, min(75, int((timeout_ms / 1000.0) + 15)))
     route_timeout_ms = max(1000, min(timeout_ms, route_deadline_seconds * 1000))
+    probe_request_kwargs: dict[str, Any] = {}
+    if normalized_release_probe_secret:
+        probe_request_kwargs = {
+            "release_probe_secret": normalized_release_probe_secret,
+            "release_probe_configured_routes": release_probe_configured_routes,
+        }
 
     def _run_with_deadline(action: Any, *, seconds: int, label: str) -> Any:
         if os.name == "nt":
@@ -1681,6 +1739,7 @@ def build_live_mobile_surface_receipt(
             route_timeout_ms=route_timeout_ms,
             route_deadline_seconds=route_deadline_seconds,
             browser_engine=selected_browser_engine,
+            **probe_request_kwargs,
         )
         if browser_all:
             metrics["require_browser_proof"] = True
@@ -1703,6 +1762,7 @@ def build_live_mobile_surface_receipt(
                         timeout_seconds=route_deadline_seconds,
                         follow_redirects=False,
                         authorized_origin=validated_base_origin,
+                        **probe_request_kwargs,
                     ),
                     seconds=route_deadline_seconds,
                     label=f"billing_route_timeout:{route_log_label}",
@@ -1725,6 +1785,7 @@ def build_live_mobile_surface_receipt(
                         redirect_location=redirect_location,
                         request_headers=request_headers,
                         timeout_ms=route_timeout_ms,
+                        **probe_request_kwargs,
                     )
                     external_location = str(resolved_handoff.get("external_location") or "").strip()
                     billing_handoff_host_resolves = https_redirect_host_resolves(
@@ -1845,6 +1906,7 @@ def build_live_mobile_surface_receipt(
                                 timeout_seconds=route_deadline_seconds,
                                 follow_redirects=True,
                                 authorized_origin=validated_base_origin,
+                                **probe_request_kwargs,
                             ),
                             seconds=route_deadline_seconds,
                             label=f"static_route_timeout:{route_log_label}",
@@ -2008,10 +2070,11 @@ def build_live_mobile_surface_receipt(
                 else "Standard live mobile smoke uses real browsers for interactive routes and static HTML checks for simple routes."
             ),
             "API token values are never written to this receipt.",
+            "Release-probe secret values are never written to this receipt.",
         ],
     })
     return _redact_sensitive_receipt_value(
-        _redact_concrete_secret_values(receipt, secrets=(api_token,))
+        _redact_concrete_secret_values(receipt, secrets=receipt_secrets)
     )
 
 
@@ -2024,6 +2087,7 @@ def build_seed_fixture_blocked_receipt(
     viewport_height: int,
     error: str,
     api_token: str = "",
+    release_probe_secret: str = "",
     proof_mode: str = "standard",
     browser_engine: str = DEFAULT_BROWSER_ENGINE,
     required_browser_engines: tuple[str, ...] | None = None,
@@ -2064,11 +2128,22 @@ def build_seed_fixture_blocked_receipt(
         "notes": [
             "Live mobile smoke checks deployed HTML geometry only; it does not call listing providers.",
             "API token values are never written to this receipt.",
+            "Release-probe secret values are never written to this receipt.",
             "When fixture seeding fails, rerun with a known current /app/research/{id}?run_id=... route via --routes or set PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE.",
         ],
     })
     return _redact_sensitive_receipt_value(
-        _redact_concrete_secret_values(receipt, secrets=(api_token,))
+        _redact_concrete_secret_values(
+            receipt,
+            secrets=tuple(
+                secret
+                for secret in (
+                    str(api_token or "").strip(),
+                    str(release_probe_secret or "").strip(),
+                )
+                if secret
+            ),
+        )
     )
 
 
@@ -2077,6 +2152,7 @@ def main() -> int:
     parser.add_argument("--base-url", default=_env("PROPERTYQUARRY_LIVE_BASE_URL", "http://localhost:8097"))
     parser.add_argument("--host-header", default=_env("PROPERTYQUARRY_LIVE_HOST_HEADER"))
     parser.add_argument("--api-token", default=_env("PROPERTYQUARRY_LIVE_API_TOKEN") or _env("EA_API_TOKEN"))
+    parser.add_argument("--release-probe-secret", default=_env("PROPERTYQUARRY_LIVE_PROBE_SECRET"))
     parser.add_argument("--principal-id", default=_env("PROPERTYQUARRY_LIVE_PRINCIPAL_ID", "pq-live-mobile-smoke"))
     configured_research_detail = _env("PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE")
     default_routes = (*DEFAULT_ROUTES, configured_research_detail) if configured_research_detail else DEFAULT_ROUTES
@@ -2158,6 +2234,8 @@ def main() -> int:
     seeded_route = ""
     if args.seed_research_detail_fixture:
         try:
+            if str(args.release_probe_secret or "").strip():
+                raise RuntimeError("release_probe_mode_blocks_research_detail_seed_post")
             _log_smoke_progress("seeding research detail fixture")
             seeded_route = seed_research_detail_fixture(
                 base_url=str(args.base_url).strip(),
@@ -2176,6 +2254,7 @@ def main() -> int:
                 viewport_height=height,
                 error=f"seed_research_detail_fixture_failed:{type(exc).__name__}: {exc}",
                 api_token=str(args.api_token or "").strip(),
+                release_probe_secret=str(args.release_probe_secret or "").strip(),
                 proof_mode=normalized_proof_mode,
                 browser_engine=selected_browser_engine,
                 required_browser_engines=required_browser_engines,
@@ -2195,6 +2274,7 @@ def main() -> int:
         base_url=str(args.base_url).strip(),
         api_token=str(args.api_token or "").strip(),
         principal_id=str(args.principal_id or "").strip() or "pq-live-mobile-smoke",
+        release_probe_secret=str(args.release_probe_secret or "").strip(),
         host_header=str(args.host_header or "").strip(),
         routes=routes or DEFAULT_ROUTES,
         require_research_detail=bool(args.require_research_detail),

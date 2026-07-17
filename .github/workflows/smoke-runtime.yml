@@ -616,10 +616,13 @@ jobs:
           )
           PY
       - name: Require protected live release inputs
+        env:
+          PROPERTYQUARRY_LIVE_PROBE_SECRET: ${{ secrets.PROPERTYQUARRY_LIVE_PROBE_SECRET }}
         shell: bash
         run: |
           set -euo pipefail
           : "${PROPERTYQUARRY_LIVE_MOBILE_BASE_URL:?Missing GitHub environment variable PROPERTYQUARRY_LIVE_MOBILE_BASE_URL}"
+          : "${PROPERTYQUARRY_LIVE_PROBE_SECRET:?Missing protected release-probe credential}"
           : "${PROPERTYQUARRY_EXPECTED_RELEASE_DEPLOYMENT_ID:?Missing protected release deployment ID}"
           : "${PROPERTYQUARRY_EXPECTED_RELEASE_ARTIFACT_SET:?Missing protected release artifact set}"
           : "${PROPERTYQUARRY_EXPECTED_RELEASE_LABEL:?Missing protected release label}"
@@ -650,7 +653,7 @@ jobs:
           echo "PROPERTYQUARRY_EXPECTED_RELEASE_IMAGE_DIGEST=${PROPERTYQUARRY_EXPECTED_WEB_IMAGE##*@}" >> "${GITHUB_ENV}"
       - name: Run protected PropertyQuarry live release gates
         env:
-          EA_API_TOKEN: ${{ secrets.PROPERTYQUARRY_LIVE_API_TOKEN }}
+          PROPERTYQUARRY_LIVE_PROBE_SECRET: ${{ secrets.PROPERTYQUARRY_LIVE_PROBE_SECRET }}
           DATABASE_URL: ${{ secrets.PROPERTYQUARRY_RELEASE_DATABASE_URL }}
           TEABLE_BASE_URL: ${{ vars.PROPERTYQUARRY_TEABLE_BASE_URL }}
           TEABLE_API_KEY: ${{ secrets.PROPERTYQUARRY_TEABLE_API_KEY }}

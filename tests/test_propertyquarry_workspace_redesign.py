@@ -16,6 +16,7 @@ from PIL import Image, ImageDraw, ImageFilter, ImageStat
 
 from app.api.dependencies import RequestContext, get_request_context, get_request_context_if_available
 from app.api.routes import landing as landing_routes
+from app.api.routes import landing_workspace
 from app.api.routes.landing_property_surface_contracts import PropertySurfaceScope
 from app.api.routes import landing_property_workspace_helpers
 from app.api.routes import landing_property_research
@@ -71,6 +72,16 @@ def _assert_billing_fail_closed(response, *, marker: str = "The billing portal i
     assert "Billing portal unavailable" in response.text
     assert marker in response.text
     assert "Your PropertyQuarry access stays active from the account page." in response.text
+
+
+def _use_propertyquarry_release_probe_context(client, *, principal_id: str) -> None:
+    context = RequestContext(
+        principal_id=principal_id,
+        authenticated=True,
+        auth_source="propertyquarry_release_probe",
+    )
+    client.app.dependency_overrides[get_request_context] = lambda: context
+    client.app.dependency_overrides[get_request_context_if_available] = lambda: context
 
 
 class _RenderedInteractiveElementParser(HTMLParser):
@@ -29440,3 +29451,191 @@ def test_property_alerts_surface_exposes_routing_and_recovery_language() -> None
     assert "Recovery" in payload_source
     assert "Delivery retries stay visible here." in payload_source
     assert "Sent pages, notifications, follow-up, and search updates." in template_source
+
+
+def test_propertyquarry_release_probe_billing_stops_before_provider_handoff(monkeypatch) -> None:
+    probe_principal = "pq-release-probe-billing"
+    probe_client = build_property_client(principal_id=probe_principal)
+    normal_client = build_property_client(principal_id="pq-normal-billing")
+    start_workspace(probe_client, mode="personal", workspace_name="Release probe billing")
+    start_workspace(normal_client, mode="personal", workspace_name="Normal billing")
+    _use_propertyquarry_release_probe_context(probe_client, principal_id=probe_principal)
+
+    handoff_calls: list[str] = []
+
+    def _billing_handoff() -> dict[str, object]:
+        handoff_calls.append("provider_lookup")
+        return {"available": False, "error": "provider_unavailable"}
+
+    monkeypatch.setattr(
+        landing_routes,
+        "_property_brilliant_directories_billing_handoff",
+        _billing_handoff,
+    )
+
+    probe_response = probe_client.get("/app/billing", follow_redirects=False)
+
+    assert probe_response.status_code == 503
+    assert "Billing portal unavailable" in probe_response.text
+    assert handoff_calls == []
+
+    normal_response = normal_client.get("/app/billing", follow_redirects=False)
+
+    _assert_billing_fail_closed(normal_response)
+    assert handoff_calls == ["provider_lookup"]
+
+
+def test_propertyquarry_release_probe_shell_defers_hydration_and_skips_writes(monkeypatch) -> None:
+    probe_principal = "pq-release-probe-shell"
+    probe_client = build_property_client(principal_id=probe_principal)
+    normal_client = build_property_client(principal_id="pq-normal-shell")
+    start_workspace(probe_client, mode="personal", workspace_name="Release probe shell")
+    start_workspace(normal_client, mode="personal", workspace_name="Normal shell")
+    _use_propertyquarry_release_probe_context(probe_client, principal_id=probe_principal)
+
+    hydration_modes: list[bool] = []
+    surface_events: list[str] = []
+    repair_calls: list[dict[str, object]] = []
+    original_console_context = landing_routes._property_console_context
+
+    def _capture_console_context(**kwargs):
+        hydration_modes.append(bool(kwargs.get("defer_run_hydration")))
+        return original_console_context(**kwargs)
+
+    def _record_surface_event(self, **kwargs) -> None:
+        surface_events.append(str(kwargs.get("event_type") or ""))
+
+    def _queue_repair(**kwargs) -> str:
+        repair_calls.append(dict(kwargs))
+        return "queue:normal-packet-repair"
+
+    monkeypatch.setattr(landing_routes, "_property_console_context", _capture_console_context)
+    monkeypatch.setattr(ProductService, "record_surface_event", _record_surface_event)
+    monkeypatch.setattr(
+        landing_routes,
+        "_property_queue_missing_research_packet_repair",
+        _queue_repair,
+    )
+    route = "/app/shortlist?packet_missing=1&missing_candidate_ref=missing-packet"
+
+    probe_response = probe_client.get(route)
+
+    assert probe_response.status_code == 200
+    assert hydration_modes == [True]
+    assert surface_events == []
+    assert repair_calls == []
+
+    normal_response = normal_client.get(route)
+
+    assert normal_response.status_code == 200
+    assert hydration_modes == [True, False]
+    assert surface_events == ["shortlist_opened"]
+    assert len(repair_calls) == 1
+    assert repair_calls[0]["candidate_ref"] == "missing-packet"
+
+
+def test_propertyquarry_release_probe_missing_packet_disables_repair(monkeypatch) -> None:
+    probe_principal = "pq-release-probe-missing-packet"
+    probe_client = build_property_client(principal_id=probe_principal)
+    normal_client = build_property_client(principal_id="pq-normal-missing-packet")
+    start_workspace(probe_client, mode="personal", workspace_name="Release probe packet")
+    start_workspace(normal_client, mode="personal", workspace_name="Normal packet")
+    _use_propertyquarry_release_probe_context(probe_client, principal_id=probe_principal)
+
+    hydration_modes: list[bool] = []
+    allow_repair_values: list[bool] = []
+    repair_calls: list[dict[str, object]] = []
+    original_console_context = landing_routes._property_console_context
+    original_missing_response = landing_routes._property_missing_packet_response
+
+    def _capture_console_context(**kwargs):
+        hydration_modes.append(bool(kwargs.get("defer_run_hydration")))
+        return original_console_context(**kwargs)
+
+    def _capture_missing_response(request, **kwargs):
+        allow_repair_values.append(bool(kwargs.get("allow_repair")))
+        return original_missing_response(request, **kwargs)
+
+    def _queue_repair(**kwargs) -> str:
+        repair_calls.append(dict(kwargs))
+        return "queue:normal-missing-packet"
+
+    monkeypatch.setattr(landing_routes, "_property_console_context", _capture_console_context)
+    monkeypatch.setattr(landing_routes, "_property_missing_packet_response", _capture_missing_response)
+    monkeypatch.setattr(
+        landing_routes,
+        "_property_queue_missing_research_packet_repair",
+        _queue_repair,
+    )
+    headers = {"accept": "application/json"}
+
+    probe_response = probe_client.get("/app/research/missing-candidate", headers=headers)
+
+    assert probe_response.status_code == 202
+    assert probe_response.json()["queue_item_ref"] == ""
+    assert hydration_modes == [True]
+    assert allow_repair_values == [False]
+    assert repair_calls == []
+
+    normal_response = normal_client.get("/app/research/missing-candidate", headers=headers)
+
+    assert normal_response.status_code == 202
+    assert normal_response.json()["queue_item_ref"] == "queue:normal-missing-packet"
+    assert hydration_modes == [True, False]
+    assert allow_repair_values == [False, True]
+    assert len(repair_calls) == 1
+
+
+def test_propertyquarry_release_probe_settings_skip_surface_writes_and_billing_lookup(monkeypatch) -> None:
+    probe_principal = "pq-release-probe-settings"
+    probe_client = build_property_client(principal_id=probe_principal)
+    normal_client = build_property_client(principal_id="pq-normal-settings")
+    start_workspace(probe_client, mode="personal", workspace_name="Release probe settings")
+    start_workspace(normal_client, mode="personal", workspace_name="Normal settings")
+    _use_propertyquarry_release_probe_context(probe_client, principal_id=probe_principal)
+
+    surface_events: list[str] = []
+    billing_handoff_calls: list[str] = []
+
+    def _record_surface_event(self, **kwargs) -> None:
+        surface_events.append(str(kwargs.get("event_type") or ""))
+
+    def _billing_handoff() -> dict[str, object]:
+        billing_handoff_calls.append("provider_lookup")
+        return {"available": False}
+
+    monkeypatch.setattr(ProductService, "record_surface_event", _record_surface_event)
+    monkeypatch.setattr(
+        landing_workspace,
+        "_property_brilliant_directories_billing_handoff",
+        _billing_handoff,
+    )
+    routes = (
+        ("/app/settings/usage", 200),
+        ("/app/settings/support", 200),
+        ("/app/settings/google", 303),
+        ("/app/settings/trust", 200),
+        ("/app/settings/access", 303),
+        ("/app/settings/invitations", 200),
+    )
+
+    for route, expected_status in routes:
+        response = probe_client.get(route, follow_redirects=False)
+        assert response.status_code == expected_status, route
+
+    assert surface_events == []
+    assert billing_handoff_calls == []
+
+    for route, expected_status in routes:
+        response = normal_client.get(route, follow_redirects=False)
+        assert response.status_code == expected_status, route
+
+    assert surface_events == [
+        "usage_opened",
+        "support_opened",
+        "google_settings_opened",
+        "trust_opened",
+        "access_settings_opened",
+        "invitations_opened",
+    ]
+    assert billing_handoff_calls == ["provider_lookup"]

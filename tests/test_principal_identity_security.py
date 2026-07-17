@@ -7,6 +7,12 @@ from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
 import pytest
 
+from app.propertyquarry_release_probe import (
+    PROPERTYQUARRY_RELEASE_PROBE_NONCE_HEADER,
+    PROPERTYQUARRY_RELEASE_PROBE_SIGNATURE_HEADER,
+    PROPERTYQUARRY_RELEASE_PROBE_TIMESTAMP_HEADER,
+    propertyquarry_release_probe_signature,
+)
 from app.api.dependencies import RequestContext, get_request_context, require_runtime_metrics_auth
 from app.api.errors import install_error_handlers
 from app.api.principal_identity import (
@@ -28,6 +34,15 @@ from app.settings import RuntimeProfile
 _NOW = 1_800_000_000
 _ASSERTION_SECRET = "edge-assertion-secret-that-is-separate-0001"
 _ASSERTION_AUDIENCE = "propertyquarry-api"
+_RELEASE_PROBE_SECRET = "propertyquarry-release-probe-secret-0000000001"
+_RELEASE_PROBE_PRINCIPAL_ID = "propertyquarry-release-probe"
+_RELEASE_PROBE_ORIGIN = "http://testserver"
+_RELEASE_PROBE_RESEARCH_PATH = "/app/research/perf-candidate-1020"
+_RELEASE_PROBE_RESEARCH_QUERY = "run_id=run-gold-mobile"
+_RELEASE_PROBE_RESEARCH_ROUTE = (
+    f"{_RELEASE_PROBE_RESEARCH_PATH}?{_RELEASE_PROBE_RESEARCH_QUERY}"
+)
+_RELEASE_PROBE_SHORTLIST_RUN_PATH = "/app/shortlist/run/run-gold-mobile"
 _LOOPBACK_NETWORKS = (ipaddress.ip_network("127.0.0.0/8"), ipaddress.ip_network("::1/128"))
 
 
@@ -66,6 +81,10 @@ def _policy(
     mode: str = "prod",
     networks: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = _LOOPBACK_NETWORKS,
     assertions_enabled: bool = True,
+    release_probe_enabled: bool = False,
+    release_probe_origin: str = _RELEASE_PROBE_ORIGIN,
+    release_probe_research_detail_route: str = _RELEASE_PROBE_RESEARCH_ROUTE,
+    release_probe_shortlist_run_path: str = _RELEASE_PROBE_SHORTLIST_RUN_PATH,
 ) -> PrincipalIdentityPolicy:
     return PrincipalIdentityPolicy(
         runtime_mode=mode,
@@ -75,6 +94,15 @@ def _policy(
         assertion_max_age_seconds=120,
         assertion_future_skew_seconds=15,
         assertion_nonce_capacity=256,
+        release_probe_secret=_RELEASE_PROBE_SECRET if release_probe_enabled else "",
+        release_probe_principal_id=_RELEASE_PROBE_PRINCIPAL_ID if release_probe_enabled else "",
+        release_probe_origin=release_probe_origin if release_probe_enabled else "",
+        release_probe_research_detail_route=(
+            release_probe_research_detail_route if release_probe_enabled else ""
+        ),
+        release_probe_shortlist_run_path=(
+            release_probe_shortlist_run_path if release_probe_enabled else ""
+        ),
     )
 
 
@@ -94,6 +122,8 @@ def _identity_app(
     install_error_handlers(app)
 
     @app.get("/who")
+    @app.get(_RELEASE_PROBE_RESEARCH_PATH)
+    @app.get(_RELEASE_PROBE_SHORTLIST_RUN_PATH)
     def who(
         request: Request,
         context: RequestContext = Depends(get_request_context),
@@ -138,6 +168,31 @@ def _assertion_headers(
         PRINCIPAL_ASSERTION_NONCE_HEADER: nonce,
         PRINCIPAL_ASSERTION_AUDIENCE_HEADER: audience,
         PRINCIPAL_ASSERTION_SIGNATURE_HEADER: signature,
+    }
+
+
+def _release_probe_headers(
+    *,
+    nonce: str,
+    timestamp: int = _NOW,
+    method: str = "GET",
+    path: str = _RELEASE_PROBE_RESEARCH_PATH,
+    query_string: str = _RELEASE_PROBE_RESEARCH_QUERY,
+    origin: str = _RELEASE_PROBE_ORIGIN,
+) -> dict[str, str]:
+    signature = propertyquarry_release_probe_signature(
+        secret=_RELEASE_PROBE_SECRET,
+        method=method,
+        path=path,
+        query_string=query_string,
+        timestamp=timestamp,
+        nonce=nonce,
+        origin=origin,
+    )
+    return {
+        PROPERTYQUARRY_RELEASE_PROBE_TIMESTAMP_HEADER: str(timestamp),
+        PROPERTYQUARRY_RELEASE_PROBE_NONCE_HEADER: nonce,
+        PROPERTYQUARRY_RELEASE_PROBE_SIGNATURE_HEADER: signature,
     }
 
 
@@ -272,6 +327,186 @@ def test_edge_assertion_signature_is_bound_to_query_string() -> None:
 
     assert response.status_code == 401
     assert response.json()["error"]["details"]["reason"] == "signature_invalid"
+
+
+def test_valid_release_probe_uses_fixed_principal_and_strips_identity_and_probe_headers() -> None:
+    app = _identity_app(policy=_policy(release_probe_enabled=True))
+    client = TestClient(app, client=("127.0.0.1", 50000))
+    headers = _release_probe_headers(nonce="release-probe-valid-fixed-principal-0001")
+
+    response = client.get(_RELEASE_PROBE_RESEARCH_ROUTE, headers=headers)
+
+    assert response.status_code == 200, response.text
+    assert response.headers["cache-control"] == "no-store"
+    body = response.json()
+    assert body["principal_id"] == _RELEASE_PROBE_PRINCIPAL_ID
+    assert body["auth_source"] == "propertyquarry_release_probe"
+    assert body["operator_id"] == ""
+    stripped = set(body["stripped"])
+    assert {
+        PROPERTYQUARRY_RELEASE_PROBE_TIMESTAMP_HEADER.lower(),
+        PROPERTYQUARRY_RELEASE_PROBE_NONCE_HEADER.lower(),
+        PROPERTYQUARRY_RELEASE_PROBE_SIGNATURE_HEADER.lower(),
+    }.issubset(stripped)
+
+
+def test_release_probe_nonce_replay_is_rejected() -> None:
+    app = _identity_app(policy=_policy(release_probe_enabled=True))
+    client = TestClient(app, client=("127.0.0.1", 50000))
+    headers = {
+        **_release_probe_headers(nonce="release-probe-replay-guard-0001"),
+    }
+
+    assert client.get(_RELEASE_PROBE_RESEARCH_ROUTE, headers=headers).status_code == 200
+    replay = client.get(_RELEASE_PROBE_RESEARCH_ROUTE, headers=headers)
+
+    assert replay.status_code == 401
+    assert replay.json()["error"]["details"]["reason"] == (
+        "release_probe_nonce_replayed_or_capacity_exhausted"
+    )
+
+
+@pytest.mark.parametrize(
+    ("case", "expected_reason"),
+    [
+        ("method_binding", "release_probe_signature_invalid"),
+        ("path_binding", "release_probe_signature_invalid"),
+        ("query_binding", "release_probe_signature_invalid"),
+        ("origin_binding", "release_probe_origin_forbidden"),
+        ("signature", "release_probe_signature_invalid"),
+        ("timestamp_expired", "release_probe_timestamp_expired"),
+        ("timestamp_future", "release_probe_timestamp_in_future"),
+        ("timestamp_invalid", "release_probe_timestamp_invalid"),
+        ("nonce_invalid", "release_probe_nonce_invalid"),
+    ],
+)
+def test_release_probe_rejects_bad_binding_signature_and_time(
+    case: str,
+    expected_reason: str,
+) -> None:
+    route = _RELEASE_PROBE_RESEARCH_ROUTE
+    request_path = route
+    policy = _policy(release_probe_enabled=True)
+    headers = _release_probe_headers(nonce=f"release-probe-{case}-0001")
+    if case == "method_binding":
+        headers = _release_probe_headers(
+            nonce="release-probe-method-binding-0001",
+            method="HEAD",
+        )
+    elif case == "path_binding":
+        request_path = _RELEASE_PROBE_SHORTLIST_RUN_PATH
+    elif case == "query_binding":
+        headers = _release_probe_headers(
+            nonce="release-probe-query-binding-0001",
+            query_string="run_id=another-release-probe-run",
+        )
+    elif case == "origin_binding":
+        headers["Host"] = "other.example.test"
+    elif case == "signature":
+        headers[PROPERTYQUARRY_RELEASE_PROBE_SIGNATURE_HEADER] = "0" * 64
+    elif case == "timestamp_expired":
+        headers = _release_probe_headers(
+            nonce="release-probe-expired-time-0001",
+            timestamp=_NOW - 121,
+        )
+    elif case == "timestamp_future":
+        headers = _release_probe_headers(
+            nonce="release-probe-future-time-0001",
+            timestamp=_NOW + 16,
+        )
+    elif case == "timestamp_invalid":
+        headers[PROPERTYQUARRY_RELEASE_PROBE_TIMESTAMP_HEADER] = "not-a-timestamp"
+    elif case == "nonce_invalid":
+        headers = _release_probe_headers(nonce="bad nonce")
+    response = TestClient(
+        _identity_app(policy=policy),
+        client=("127.0.0.1", 50000),
+    ).get(request_path, headers=headers)
+
+    assert response.status_code == 401
+    assert response.json()["error"]["details"]["reason"] == expected_reason
+
+
+def test_release_probe_rejects_non_read_method_and_forbidden_path() -> None:
+    client = TestClient(
+        _identity_app(policy=_policy(release_probe_enabled=True)),
+        client=("127.0.0.1", 50000),
+    )
+    post_headers = {
+        **_release_probe_headers(
+            nonce="release-probe-post-method-0001",
+            method="POST",
+        ),
+    }
+    forbidden_headers = {
+        **_release_probe_headers(
+            nonce="release-probe-forbidden-path-0001",
+            path="/not-configured",
+        ),
+    }
+
+    post = client.post(_RELEASE_PROBE_RESEARCH_ROUTE, headers=post_headers)
+    forbidden = client.get("/not-configured", headers=forbidden_headers)
+
+    assert post.status_code == 401
+    assert post.json()["error"]["details"]["reason"] == "release_probe_read_only"
+    assert forbidden.status_code == 401
+    assert forbidden.json()["error"]["details"]["reason"] == "release_probe_path_forbidden"
+
+
+def test_release_probe_rejects_incomplete_duplicated_conflicting_and_unconfigured_headers() -> None:
+    configured = TestClient(
+        _identity_app(policy=_policy(release_probe_enabled=True)),
+        client=("127.0.0.1", 50000),
+    )
+    unconfigured = TestClient(
+        _identity_app(policy=_policy(release_probe_enabled=False)),
+        client=("127.0.0.1", 50000),
+    )
+    incomplete = configured.get(
+        _RELEASE_PROBE_RESEARCH_ROUTE,
+        headers={
+            PROPERTYQUARRY_RELEASE_PROBE_TIMESTAMP_HEADER: str(_NOW),
+        },
+    )
+    complete_headers = {
+        **_release_probe_headers(nonce="release-probe-unconfigured-0001"),
+    }
+    disabled = unconfigured.get(_RELEASE_PROBE_RESEARCH_ROUTE, headers=complete_headers)
+    conflict_headers = {
+        **_release_probe_headers(nonce="release-probe-conflict-0001"),
+        "Authorization": "Bearer shared-token",
+    }
+    conflict = configured.get(_RELEASE_PROBE_RESEARCH_ROUTE, headers=conflict_headers)
+    session_conflict = configured.get(
+        _RELEASE_PROBE_RESEARCH_ROUTE,
+        headers={
+            **_release_probe_headers(nonce="release-probe-session-conflict-0001"),
+            "Cookie": "propertyquarry_session=must-not-mix",
+        },
+    )
+    duplicate_headers = [
+        (PROPERTYQUARRY_RELEASE_PROBE_TIMESTAMP_HEADER, str(_NOW)),
+        (PROPERTYQUARRY_RELEASE_PROBE_TIMESTAMP_HEADER, str(_NOW)),
+        (PROPERTYQUARRY_RELEASE_PROBE_NONCE_HEADER, "release-probe-duplicate-0001"),
+        (PROPERTYQUARRY_RELEASE_PROBE_SIGNATURE_HEADER, "0" * 64),
+    ]
+    duplicated = configured.get(_RELEASE_PROBE_RESEARCH_ROUTE, headers=duplicate_headers)
+
+    assert incomplete.status_code == 401
+    assert incomplete.json()["error"]["details"]["reason"] == (
+        "release_probe_headers_incomplete_or_duplicated"
+    )
+    assert disabled.status_code == 401
+    assert disabled.json()["error"]["details"]["reason"] == "release_probe_not_configured"
+    assert conflict.status_code == 401
+    assert conflict.json()["error"]["details"]["reason"] == "release_probe_auth_conflict"
+    assert session_conflict.status_code == 401
+    assert session_conflict.json()["error"]["details"]["reason"] == "release_probe_auth_conflict"
+    assert duplicated.status_code == 401
+    assert duplicated.json()["error"]["details"]["reason"] == (
+        "release_probe_headers_incomplete_or_duplicated"
+    )
 
 
 def test_cloudflare_access_and_workspace_session_precede_edge_assertion() -> None:
@@ -434,4 +669,66 @@ def test_edge_assertion_configuration_requires_separate_complete_secret() -> Non
                 "EA_EDGE_PRINCIPAL_ASSERTION_AUDIENCE": _ASSERTION_AUDIENCE,
                 "EA_API_TOKEN": _ASSERTION_SECRET,
             },
+        )
+
+
+def test_release_probe_configuration_rejects_incomplete_short_and_invalid_identity() -> None:
+    complete = {
+        "PROPERTYQUARRY_RELEASE_PROBE_SECRET": _RELEASE_PROBE_SECRET,
+        "PROPERTYQUARRY_RELEASE_PROBE_PRINCIPAL_ID": _RELEASE_PROBE_PRINCIPAL_ID,
+        "PROPERTYQUARRY_RELEASE_PROBE_ORIGIN": "https://propertyquarry.com",
+        "PROPERTYQUARRY_RELEASE_PROBE_RESEARCH_DETAIL_ROUTE": _RELEASE_PROBE_RESEARCH_ROUTE,
+        "PROPERTYQUARRY_RELEASE_PROBE_SHORTLIST_RUN_PATH": _RELEASE_PROBE_SHORTLIST_RUN_PATH,
+    }
+
+    with pytest.raises(RuntimeError, match="propertyquarry_release_probe_configuration_incomplete"):
+        PrincipalIdentityPolicy.from_environ(
+            runtime_mode="prod",
+            trusted_proxy_cidrs=_LOOPBACK_NETWORKS,
+            environ={"PROPERTYQUARRY_RELEASE_PROBE_SECRET": _RELEASE_PROBE_SECRET},
+        )
+    with pytest.raises(RuntimeError, match="propertyquarry_release_probe_secret_too_short"):
+        PrincipalIdentityPolicy.from_environ(
+            runtime_mode="prod",
+            trusted_proxy_cidrs=_LOOPBACK_NETWORKS,
+            environ={**complete, "PROPERTYQUARRY_RELEASE_PROBE_SECRET": "too-short"},
+        )
+    with pytest.raises(RuntimeError, match="propertyquarry_release_probe_principal_invalid"):
+        PrincipalIdentityPolicy.from_environ(
+            runtime_mode="prod",
+            trusted_proxy_cidrs=_LOOPBACK_NETWORKS,
+            environ={
+                **complete,
+                "PROPERTYQUARRY_RELEASE_PROBE_PRINCIPAL_ID": "caller selected principal",
+            },
+        )
+    with pytest.raises(RuntimeError, match="propertyquarry_release_probe_origin_requires_https"):
+        PrincipalIdentityPolicy.from_environ(
+            runtime_mode="prod",
+            trusted_proxy_cidrs=_LOOPBACK_NETWORKS,
+            environ={
+                **complete,
+                "PROPERTYQUARRY_RELEASE_PROBE_ORIGIN": "http://propertyquarry.com",
+            },
+        )
+
+
+def test_release_probe_secret_must_be_separate_from_other_auth_secrets() -> None:
+    complete = {
+        "PROPERTYQUARRY_RELEASE_PROBE_SECRET": _RELEASE_PROBE_SECRET,
+        "PROPERTYQUARRY_RELEASE_PROBE_PRINCIPAL_ID": _RELEASE_PROBE_PRINCIPAL_ID,
+        "PROPERTYQUARRY_RELEASE_PROBE_ORIGIN": "https://propertyquarry.com",
+        "PROPERTYQUARRY_RELEASE_PROBE_RESEARCH_DETAIL_ROUTE": _RELEASE_PROBE_RESEARCH_ROUTE,
+        "PROPERTYQUARRY_RELEASE_PROBE_SHORTLIST_RUN_PATH": _RELEASE_PROBE_SHORTLIST_RUN_PATH,
+        "EA_API_TOKEN": _RELEASE_PROBE_SECRET,
+    }
+
+    with pytest.raises(
+        RuntimeError,
+        match="propertyquarry_release_probe_secret_must_be_separate:ea_api_token",
+    ):
+        PrincipalIdentityPolicy.from_environ(
+            runtime_mode="prod",
+            trusted_proxy_cidrs=_LOOPBACK_NETWORKS,
+            environ=complete,
         )
