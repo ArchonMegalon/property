@@ -9,6 +9,7 @@ from scripts.materialize_ea_flagship_release_gate import (
     REQUIRED_PACKETS_TOURS_REAL_BROWSER_CASES,
     browser_receipt_pass_blockers,
 )
+from scripts.propertyquarry_release_proof_baseline import approved_baseline_binding
 from scripts.propertyquarry_release_receipt_binding import build_source_binding
 
 
@@ -54,6 +55,8 @@ def _git(root: Path, *args: str) -> str:
 
 
 def _commit_flagship_sources(root: Path) -> dict[str, object]:
+    seed = json.loads((root / SEED).read_text(encoding="utf-8"))
+    evidence_sources = seed["browser_workflow_proof"]["evidence_sources"]
     tracked = sorted(
         {
             SEED.as_posix(),
@@ -63,8 +66,7 @@ def _commit_flagship_sources(root: Path) -> dict[str, object]:
             "RUNBOOK.md",
             "RELEASE_CHECKLIST.md",
             "PRODUCT_RELEASE_CHECKLIST.md",
-            "tests/test_propertyquarry_workspace_redesign.py",
-            "tests/e2e/test_propertyquarry_greenfield_browser.py",
+            *(str(source["file"]) for source in evidence_sources),
         }
     )
     _git(root, "init", "--quiet")
@@ -72,11 +74,10 @@ def _commit_flagship_sources(root: Path) -> dict[str, object]:
     _git(root, "config", "user.email", "propertyquarry-fixture@example.invalid")
     _git(root, "add", "--", *tracked)
     _git(root, "commit", "--quiet", "-m", "fixture: immutable flagship sources")
-    seed = json.loads((root / SEED).read_text(encoding="utf-8"))
     return build_source_binding(
         root,
         seed_path=SEED,
-        evidence_sources=seed["browser_workflow_proof"]["evidence_sources"],
+        evidence_sources=evidence_sources,
     )
 
 
@@ -109,53 +110,34 @@ def _passing_browser_lane(root: Path, *, test_file: str, cases: list[str]) -> di
 
 def _journey_matrix(
     *,
-    source_file: str,
-    source_case: str,
-    browser_file: str,
-    browser_case: str,
+    seed_matrix: dict[str, object],
     receipt: bool = False,
     runtime_commit_sha: str = "",
 ) -> dict[str, object]:
-    row_sources = {
-        "public_entry": [(source_file, [source_case])],
-        "onboarding_auth": [(source_file, [source_case])],
-        "search_ranking": [(source_file, [source_case]), (browser_file, [browser_case])],
-        "shortlist_research_revisit": [(browser_file, [browser_case])],
-        "account_pricing_privacy_recovery": [(source_file, [source_case])],
-        "packets_tours": [
-            (browser_file, list(REQUIRED_PACKETS_TOURS_REAL_BROWSER_CASES))
-        ],
-        "feedback": [(browser_file, [browser_case])],
-        "notifications": [(browser_file, [browser_case])],
-    }
     rows: list[dict[str, object]] = []
-    for journey_id in JOURNEY_IDS:
+    for seed_row in seed_matrix["rows"]:
         sources = [
             {
-                "file": test_file,
-                "cases": cases,
+                "file": source["file"],
+                "cases": list(source["cases"]),
                 **({"lane_status": "pass"} if receipt else {}),
             }
-            for test_file, cases in row_sources[journey_id]
+            for source in seed_row["evidence_sources"]
         ]
         row: dict[str, object] = {
-            "journey_id": journey_id,
-            "label": journey_id.replace("_", " ").title(),
+            "journey_id": seed_row["journey_id"],
+            "label": seed_row["label"],
             "evidence_sources": sources,
-            "live_requirement": {
-                "status": "not_evaluated",
-                "authority": f"_completion/smoke/property-live-{journey_id}.json",
-                "required_profile": "launch",
-            },
+            "live_requirement": dict(seed_row["live_requirement"]),
         }
         if receipt:
             row["proof_status"] = "pass"
             row["blocking_reasons"] = []
         rows.append(row)
     matrix: dict[str, object] = {
-        "version": 1,
-        "readiness_scope": "candidate_source_and_browser_proof",
-        "required_journey_ids": JOURNEY_IDS,
+        "version": seed_matrix["version"],
+        "readiness_scope": seed_matrix["readiness_scope"],
+        "required_journey_ids": list(seed_matrix["required_journey_ids"]),
         "rows": rows,
     }
     if receipt:
@@ -177,59 +159,8 @@ def _write_minimal_flagship_tree(
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         (root / rel).write_text("# canon\n", encoding="utf-8")
 
-    seed = {
-        "product": "propertyquarry",
-        "surface": "propertyquarry_flagship_release_control",
-        "version": 1,
-        "truth_plane": {
-            "source": ".codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md",
-            "legacy_history": "MILESTONE.json",
-        },
-        "release_claim": {
-            "summary": "The standalone PropertyQuarry surface can only claim flagship-grade release truth when browser proof and release verification agree.",
-            "required_conditions": [
-                "EA product surface canon exists and names the public navigation, app navigation, first-value journey, surface system, copy rules, and LTD delivery map",
-                "source-backed browser proof renders the standalone PropertyQuarry workspace",
-                "real browser E2E opens ranked PropertyQuarry results on desktop",
-                "real browser E2E proves the PropertyQuarry workbench remains usable on mobile",
-                "release asset verification knows the EA flagship truth plane, the EA product surface canon, and the gate seed",
-                "release checklists cite the EA truth plane and the EA product surface canon instead of using MILESTONE green as the oracle",
-            ],
-        },
-        "ea_product_canon": {
-            "source_root": ".codex-design/ea",
-            "scope_label": "EA product surface canon",
-            "required_docs": [path.as_posix() for path in PRODUCT_CANON_DOCS],
-        },
-        "browser_workflow_proof": {
-            "proof_target": "propertyquarry",
-            "expected_browser_signals": ["/app/properties", "/app/research"],
-            "evidence_sources": [
-                {
-                    "file": "tests/test_propertyquarry_workspace_redesign.py",
-                    "cases": ["test_propertyquarry_workspace_routes_render_greenfield_surfaces"],
-                },
-                {
-                    "file": REAL_BROWSER_TEST_FILE,
-                    "cases": [
-                        "test_propertyquarry_greenfield_workspace_in_real_browser",
-                        *REQUIRED_PACKETS_TOURS_REAL_BROWSER_CASES,
-                    ],
-                },
-            ]
-        },
-        "verification_binding": {
-            "primary_verifier": "scripts/verify_release_assets.sh",
-            "supporting_test": "tests/test_flagship_truth_plane.py",
-        },
-    }
+    seed = json.loads((ROOT / SEED).read_text(encoding="utf-8"))
     sources = seed["browser_workflow_proof"]["evidence_sources"]
-    seed["journey_evidence_matrix"] = _journey_matrix(
-        source_file=sources[0]["file"],
-        source_case=sources[0]["cases"][0],
-        browser_file=sources[1]["file"],
-        browser_case=sources[1]["cases"][0],
-    )
     (root / SEED).write_text(json.dumps(seed, indent=2) + "\n", encoding="utf-8")
     (root / TRUTH_PLANE).write_text("# EA flagship truth plane\n", encoding="utf-8")
     for rel in ("README.md", "RUNBOOK.md", "RELEASE_CHECKLIST.md", "PRODUCT_RELEASE_CHECKLIST.md"):
@@ -245,7 +176,8 @@ def _write_minimal_flagship_tree(
             + "\n",
             encoding="utf-8",
         )
-    for rel in ("tests/test_propertyquarry_workspace_redesign.py", "tests/e2e/test_propertyquarry_greenfield_browser.py"):
+    for source in sources:
+        rel = str(source["file"])
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         (root / rel).write_text("# browser proof source\n", encoding="utf-8")
     source_binding = _commit_flagship_sources(root)
@@ -260,16 +192,14 @@ def _write_minimal_flagship_tree(
             "product": "propertyquarry",
             "status": browser_proof_status,
             "proof_target": "propertyquarry",
+            "approved_baseline": approved_baseline_binding(),
             "release_claim_summary": seed["release_claim"]["summary"],
             "expected_browser_signals": seed["browser_workflow_proof"][
                 "expected_browser_signals"
             ],
             "source_binding": source_binding,
             "journey_evidence_matrix": _journey_matrix(
-                source_file=sources[0]["file"],
-                source_case=sources[0]["cases"][0],
-                browser_file=sources[1]["file"],
-                browser_case=sources[1]["cases"][0],
+                seed_matrix=seed["journey_evidence_matrix"],
                 receipt=True,
                 runtime_commit_sha=str(source_binding["code_commit"]),
             ),
@@ -277,17 +207,24 @@ def _write_minimal_flagship_tree(
             "current_limitations": [],
         }
         if browser_proof_status == "pass":
+            source_lanes = [
+                _passing_browser_lane(
+                    root,
+                    test_file=source["file"],
+                    cases=source["cases"],
+                )
+                for source in sources
+                if "/e2e/" not in source["file"]
+            ]
+            browser_source = next(source for source in sources if "/e2e/" in source["file"])
             browser_proof.update(
                 {
-                    "source_backed_journey_proof": _passing_browser_lane(
-                        root,
-                        test_file=sources[0]["file"],
-                        cases=sources[0]["cases"],
-                    ),
+                    "source_backed_journey_proof": source_lanes[0],
+                    "source_backed_journey_proofs": source_lanes,
                     "real_browser_e2e_proof": _passing_browser_lane(
                         root,
-                        test_file=sources[1]["file"],
-                        cases=sources[1]["cases"],
+                        test_file=browser_source["file"],
+                        cases=browser_source["cases"],
                     ),
                 }
             )

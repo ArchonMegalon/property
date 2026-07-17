@@ -23,7 +23,8 @@ def test_whole_project_scope_tracks_gold_blocker_extensions() -> None:
         "runtime security, supply chain, and authorization",
     )
     required_manifest_tokens = (
-        "Evidence-map overlays remain a whole-project gold blocker",
+        "Evidence-map overlay source and browser UI proof is green for unavailable, stale, and verified states.",
+        "Whole-project Gold remains blocked until protected live authenticated source coverage and candidate-bound read-model freshness and performance receipts cover",
         "Rybbit remains a whole-project gold blocker",
         "Remote candidate CI and deployed/live receipts remain required before launch authority can be granted.",
         "Production security remains a whole-project gold blocker",

@@ -30,6 +30,7 @@ def test_property_authenticated_performance_synthetic_candidate_preseeds_locatio
     candidate = _synthetic_candidate()
     facts = candidate["property_facts"]
 
+    assert candidate["floorplan_url"] == "/assets/propertyquarry/performance-smoke-floorplan.svg"
     assert facts["map_location_precision"] == "address"
     assert facts["map_lat"] == 48.22317
     assert facts["map_lng"] == 16.39594

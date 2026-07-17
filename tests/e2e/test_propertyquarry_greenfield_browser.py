@@ -4130,6 +4130,7 @@ def test_propertyquarry_what_matters_distance_comboboxes_expand_without_clipping
                 (node) => ({
                   top: node.getBoundingClientRect().top,
                   scrollY: window.scrollY,
+                  documentTop: node.getBoundingClientRect().top + window.scrollY,
                 })
                 """
             )
@@ -4146,10 +4147,11 @@ def test_propertyquarry_what_matters_distance_comboboxes_expand_without_clipping
                 (node) => ({
                   top: node.getBoundingClientRect().top,
                   scrollY: window.scrollY,
+                  documentTop: node.getBoundingClientRect().top + window.scrollY,
                 })
                 """
             )
-            assert abs(float(after_anchor["top"]) - float(before_anchor["top"])) <= 10.0, {
+            assert abs(float(after_anchor["documentTop"]) - float(before_anchor["documentTop"])) <= 1.0, {
                 "before": before_anchor,
                 "after": after_anchor,
             }

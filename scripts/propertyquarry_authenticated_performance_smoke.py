@@ -538,6 +538,8 @@ def _synthetic_candidate(*, saved_from_run_id: str = "") -> dict[str, object]:
         "source_label": "Willhaben | Austria | Rent | 1020 Vienna",
         "source_platform": "willhaben",
         "property_url": "https://example.invalid/propertyquarry/performance-smoke",
+        # A bare availability flag is intentionally not enough to authorize a 3D build.
+        "floorplan_url": "/assets/propertyquarry/performance-smoke-floorplan.svg",
         "packet_url": "/app/research/perf-candidate-1020",
         "review_url": "/app/research/perf-candidate-1020",
         "fit_score": 91,

@@ -15,60 +15,11 @@ def _write_json(path: Path, payload: dict[str, object]) -> None:
 
 
 def _passing_browser_proof() -> dict[str, object]:
-    proof = json.loads(
+    return json.loads(
         (ROOT / ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json").read_text(
             encoding="utf-8"
         )
     )
-    seed = json.loads(
-        (ROOT / ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json").read_text(encoding="utf-8")
-    )
-    proof["release_claim_summary"] = seed["release_claim"]["summary"]
-    proof["expected_browser_signals"] = seed["browser_workflow_proof"]["expected_browser_signals"]
-    for source in seed["browser_workflow_proof"]["evidence_sources"]:
-        lane_key = "real_browser_e2e_proof" if "/e2e/" in source["file"] else "source_backed_journey_proof"
-        lane = proof[lane_key]
-        cases = list(source["cases"])
-        lane["cases"] = cases
-        lane["required_case_count"] = len(cases)
-        lane["selected_count"] = len(cases)
-        lane["executed_count"] = len(cases)
-        lane["outcome_counts"] = {
-            "passed": len(cases),
-            "failed": 0,
-            "skipped": 0,
-            "errors": 0,
-            "xfailed": 0,
-            "xpassed": 0,
-        }
-
-    matrix_seed = seed["journey_evidence_matrix"]
-    proof["journey_evidence_matrix"] = {
-        "version": matrix_seed["version"],
-        "status": "pass",
-        "readiness_scope": matrix_seed["readiness_scope"],
-        "runtime_commit_sha": proof["source_binding"]["code_commit"],
-        "required_journey_ids": list(matrix_seed["required_journey_ids"]),
-        "rows": [
-            {
-                "journey_id": row["journey_id"],
-                "label": row["label"],
-                "proof_status": "pass",
-                "evidence_sources": [
-                    {
-                        "file": source["file"],
-                        "cases": list(source["cases"]),
-                        "lane_status": "pass",
-                    }
-                    for source in row["evidence_sources"]
-                ],
-                "live_requirement": dict(row["live_requirement"]),
-                "blocking_reasons": [],
-            }
-            for row in matrix_seed["rows"]
-        ],
-    }
-    return proof
 
 
 def _passing_flagship_receipt() -> dict[str, object]:
