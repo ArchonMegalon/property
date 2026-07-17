@@ -129,6 +129,23 @@ def test_rybbit_delivery_receipt_proves_browser_collector_and_authenticated_api_
     assert SITE_ID not in str(receipt)
 
 
+def test_rybbit_event_timestamp_accepts_current_get_events_response_shape() -> None:
+    observed_at = GENERATED_AT - timedelta(seconds=4)
+    payload = {
+        "data": [
+            {
+                "timestamp": observed_at.isoformat().replace("+00:00", "Z"),
+                "type": "custom_event",
+                "event_name": PROBE_EVENT_NAME,
+            }
+        ]
+    }
+
+    row = rybbit_evidence._event_record(payload, PROBE_EVENT_NAME)
+
+    assert rybbit_evidence._event_timestamp(row) == observed_at
+
+
 @pytest.mark.parametrize(
     ("mutation", "expected_failure"),
     [

@@ -187,7 +187,7 @@ def _event_count(row: dict[str, object]) -> int:
 
 
 def _event_timestamp(row: dict[str, object]) -> datetime | None:
-    for key in ("last_seen_at", "lastSeenAt", "last_seen"):
+    for key in ("timestamp", "last_seen_at", "lastSeenAt", "last_seen"):
         parsed = _parse_datetime(row.get(key))
         if parsed is not None:
             return parsed
