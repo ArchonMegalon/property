@@ -22,6 +22,7 @@ from app.api.routes.landing_property_research import (
     _property_research_money_display,
     _property_rooms_display,
     _property_tour_media_payload,
+    _property_tour_requestability,
     _render_console_object_detail,
 )
 from app.api.routes.landing_content import app_nav_groups_for_brand
@@ -35,7 +36,6 @@ from app.product.service import (
     _hosted_property_visual_progress_snapshot,
     _hosted_property_visual_progress_stage_label,
     _property_currency_code_from_facts,
-    _safe_provider_live_360_url,
     _property_visual_eta_label,
     _property_visual_progress_pct,
     _property_visual_unavailable_detail,
@@ -409,24 +409,12 @@ def _handoff_property_visual_actions(
 
 
 def _propertyquarry_candidate_visual_request_enabled(candidate: dict[str, object]) -> bool:
-    facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
-    safe_live_360_url = _safe_provider_live_360_url(
-        candidate.get("source_virtual_tour_url") or facts.get("source_virtual_tour_url")
-    )
-    customer_vendor_tour_url = _customer_facing_vendor_tour_url(candidate.get("vendor_tour_url"))
-    has_floorplan = bool(
-        candidate.get("floorplan_url")
-        or facts.get("has_floorplan")
-        or int(facts.get("floorplan_count") or 0) > 0
-        or list(candidate.get("floorplan_urls_json") or [])
-        or list(facts.get("floorplan_urls_json") or [])
-    )
+    raw_tour = dict(candidate.get("tour") or {}) if isinstance(candidate.get("tour"), dict) else {}
     return bool(
-        str(candidate.get("tour_url") or "").strip()
-        or str(candidate.get("generated_reconstruction_url") or "").strip()
-        or customer_vendor_tour_url
-        or safe_live_360_url
-        or has_floorplan
+        _property_tour_requestability(
+            candidate,
+            raw_tour_payload=raw_tour,
+        ).get("tour_requestable")
     )
 
 

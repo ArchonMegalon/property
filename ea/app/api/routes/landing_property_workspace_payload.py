@@ -42,6 +42,7 @@ from app.api.routes.landing_property_workspace_helpers import (
     _property_search_guard_rows,
     _property_search_worker_slots,
     _property_suppression_rows,
+    _property_visual_reason_key,
 )
 from app.product.property_surface_state import (
     build_property_empty_outcome_summary,
@@ -403,11 +404,16 @@ def _property_workbench_client_facts(value: object) -> dict[str, object]:
     return compact
 
 
-def _property_workbench_client_tour_payload(value: object) -> dict[str, object]:
+def _property_workbench_client_tour_payload(
+    value: object,
+    *,
+    fallback_reason: object = "",
+    request_kind: str = "tour",
+) -> dict[str, object]:
     if not isinstance(value, dict):
         return {}
     raw = dict(value)
-    return {
+    compact = {
         key: raw.get(key)
         for key in (
             "status",
@@ -415,17 +421,111 @@ def _property_workbench_client_tour_payload(value: object) -> dict[str, object]:
             "embed_url",
             "provider_url",
             "provider",
-            "label",
-            "detail",
-            "status_detail",
-            "eta_label",
             "progress_pct",
-            "control_label",
-            "provider_label",
             "provider_key",
         )
         if raw.get(key) not in (None, "", [], {})
     }
+    reason_key = _property_visual_reason_key(
+        raw.get("reason_key"),
+        raw.get("blocked_reason"),
+        raw.get("reason"),
+        fallback_reason,
+    )
+    if reason_key:
+        compact["reason_key"] = reason_key
+    normalized_kind = "flythrough" if str(request_kind or "").strip().lower() == "flythrough" else "tour"
+    status = str(raw.get("status") or "").strip().lower()
+    safe_labels = {
+        "3D tour available",
+        "3D tour queued",
+        "3D tour rendering",
+        "3D tour unavailable",
+        "Layout tour available",
+        "Open 3D tour",
+        "Open layout tour",
+        "Open original tour",
+        "Original tour",
+        "Request 3D tour",
+        "Request walkthrough",
+        "Retry 3D tour",
+        "Retry walkthrough",
+        "Walkthrough available",
+        "Walkthrough queued",
+        "Walkthrough rendering",
+    }
+    for key in ("label", "control_label"):
+        label = str(raw.get(key) or "").strip()
+        if label in safe_labels:
+            compact[key] = label
+    provider_label = str(raw.get("provider_label") or "").strip()
+    if provider_label in {"3D tour", "Layout tour", "Original tour", "Walkthrough"}:
+        compact["provider_label"] = provider_label
+    eta_label = str(raw.get("eta_label") or "").strip().lower()
+    active_statuses = {"queued", "pending", "processing", "running", "in_progress", "started", "rendering", "repairing"}
+    safe_eta_label = re.fullmatch(r"(?:about [1-9]\d{0,2} min|queued|rendering|refreshing)", eta_label)
+    if status in active_statuses and safe_eta_label:
+        compact["eta_label"] = eta_label
+    if status in {"ready", "created", "existing", "source"}:
+        compact["status_detail"] = (
+            "Walkthrough is ready."
+            if normalized_kind == "flythrough"
+            else ("3D tour is ready." if status != "source" else "Original tour is available.")
+        )
+    elif status in {"queued", "pending"}:
+        compact["status_detail"] = "Walkthrough queued." if normalized_kind == "flythrough" else "Queued."
+    elif status in {"processing", "running", "in_progress", "started", "rendering", "repairing"}:
+        compact["status_detail"] = "Walkthrough rendering." if normalized_kind == "flythrough" else "Rendering."
+    elif status in {"blocked", "failed", "skipped", "not_applicable", "unavailable", "missing"}:
+        terminal_detail = (
+            {
+                "property_tour_video_delivery_failed": "The walkthrough could not be published. You can try again.",
+            }.get(reason_key, "Walkthrough not available yet.")
+            if normalized_kind == "flythrough"
+            else {
+                "listing_expired": "The source listing has expired, and no captured source is available for a 3D tour.",
+                "property_tour_delivery_failed": "The 3D tour could not be published. You can try again.",
+                "property_tour_execution_failed": "The 3D tour could not be built from the available source media. You can try again.",
+            }.get(reason_key, "Tour not available yet.")
+        )
+        compact["status_detail"] = terminal_detail
+    return compact
+
+
+def _property_workbench_client_run_summary_payload(summary: dict[str, object]) -> dict[str, object]:
+    """Project nested run candidates through the customer-safe workbench contract."""
+
+    compact = dict(summary or {})
+    candidate_keys = (
+        "ranked_candidates",
+        "shortlist_candidates",
+        "top_candidates",
+        "research_candidates",
+        "candidates",
+    )
+    for key in candidate_keys:
+        if isinstance(compact.get(key), list):
+            compact[key] = [
+                _property_workbench_client_candidate_payload(row)
+                for row in compact.get(key) or []
+                if isinstance(row, dict)
+            ]
+    safe_sources: list[dict[str, object]] = []
+    for source in list(compact.get("sources") or []):
+        if not isinstance(source, dict):
+            continue
+        safe_source = dict(source)
+        for key in candidate_keys:
+            if isinstance(safe_source.get(key), list):
+                safe_source[key] = [
+                    _property_workbench_client_candidate_payload(row)
+                    for row in safe_source.get(key) or []
+                    if isinstance(row, dict)
+                ]
+        safe_sources.append(safe_source)
+    if "sources" in compact:
+        compact["sources"] = safe_sources
+    return compact
 
 
 def _property_workbench_client_route_rows(value: object) -> list[dict[str, object]]:
@@ -521,10 +621,17 @@ def _property_workbench_client_candidate_payload(
     diorama_preview_url = _property_workbench_candidate_diorama_preview_url(raw)
     if diorama_preview_url:
         compact["diorama_preview_url"] = diorama_preview_url
-    tour_payload = _property_workbench_client_tour_payload(raw.get("tour"))
+    tour_payload = _property_workbench_client_tour_payload(
+        raw.get("tour"),
+        fallback_reason=raw.get("blocked_reason") or raw.get("tour_reason"),
+    )
     if tour_payload:
         compact["tour"] = tour_payload
-    flythrough_payload = _property_workbench_client_tour_payload(raw.get("flythrough"))
+    flythrough_payload = _property_workbench_client_tour_payload(
+        raw.get("flythrough"),
+        fallback_reason=raw.get("flythrough_reason"),
+        request_kind="flythrough",
+    )
     if flythrough_payload:
         compact["flythrough"] = flythrough_payload
     if facts:
@@ -2221,14 +2328,25 @@ def property_workspace_payload(
         ).to_dict()
 
     def _tour_source_gap_detail(candidate: dict[str, object]) -> str:
-        blocked_reason = str(candidate.get("blocked_reason") or "").strip()
+        raw_tour = dict(candidate.get("tour") or {}) if isinstance(candidate.get("tour"), dict) else {}
+        blocked_reason = _property_visual_reason_key(
+            candidate.get("blocked_reason"),
+            candidate.get("tour_reason"),
+            raw_tour.get("reason_key"),
+            raw_tour.get("blocked_reason"),
+            raw_tour.get("reason"),
+        )
         if blocked_reason:
             reason_map = {
                 "listing_360_media_missing": "3D tour not ready yet. This listing still needs a floorplan or usable 360 source.",
+                "listing_expired": "The source listing has expired, and no captured source is available for a 3D tour.",
                 "pure_360_assets_unavailable": "3D tour not ready yet. The source media could not be opened reliably enough to rebuild it.",
                 "property_tour_fallback_disabled": "3D tour not ready yet. A floorplan or usable 360 source is still missing.",
+                "property_tour_execution_failed": "The 3D tour could not be built from the available source media. You can try again.",
+                "property_tour_delivery_failed": "The 3D tour could not be published. You can try again.",
             }
-            return reason_map.get(blocked_reason, blocked_reason.replace("_", " "))
+            if blocked_reason in reason_map:
+                return reason_map[blocked_reason]
         facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
 
         def _false_flag(value: object) -> bool:
@@ -2859,8 +2977,20 @@ def property_workspace_payload(
         runtime_tour_url = runtime_tour_url or tour_url
         provider_tour_url = _property_candidate_source_virtual_tour_url(candidate, facts=property_facts)
         status = str(candidate.get("tour_status") or raw_tour_payload.get("status") or "").strip().lower()
-        eta_minutes = str(candidate.get("tour_eta_minutes") or raw_tour_payload.get("eta_minutes") or "").strip()
-        reason = str(candidate.get("blocked_reason") or raw_tour_payload.get("reason") or "").strip()
+        eta_minutes_raw = str(candidate.get("tour_eta_minutes") or raw_tour_payload.get("eta_minutes") or "").strip()
+        try:
+            eta_minutes: object = max(0, int(float(eta_minutes_raw))) if eta_minutes_raw else ""
+        except (TypeError, ValueError):
+            eta_minutes = ""
+        reason = str(
+            candidate.get("blocked_reason")
+            or candidate.get("tour_reason")
+            or raw_tour_payload.get("reason_key")
+            or raw_tour_payload.get("blocked_reason")
+            or raw_tour_payload.get("reason")
+            or ""
+        ).strip()
+        reason_key = _property_visual_reason_key(reason)
         terminal_status = _property_visual_terminal_status_for_reason(request_kind="tour", reason=reason)
         if terminal_status and status in _pending_visual_states:
             status = terminal_status
@@ -3080,14 +3210,8 @@ def property_workspace_payload(
                 eta_minutes=eta_minutes,
                 reason=_tour_source_gap_detail(candidate),
             )
-            terminal_label = str(raw_tour_payload.get("label") or "").strip() or (
-                "Retry 3D tour" if status in {"blocked", "failed"} else "Request 3D tour"
-            )
-            terminal_detail = (
-                str(raw_tour_payload.get("status_detail") or raw_tour_payload.get("detail") or "").strip()
-                or str(visual_runtime.get("status_detail") or "").strip()
-                or _tour_source_gap_detail(candidate)
-            )
+            terminal_label = "Retry 3D tour" if status in {"blocked", "failed"} else "Request 3D tour"
+            terminal_detail = _tour_source_gap_detail(candidate)
             return {
                 "status": "blocked",
                 "label": terminal_label,
@@ -3100,6 +3224,7 @@ def property_workspace_payload(
                 "status_detail": terminal_detail,
                 "recovery_label": terminal_label,
                 "control_label": "",
+                "reason_key": reason_key,
             }
         gap_detail = _tour_source_gap_detail(candidate)
         return {
@@ -5282,10 +5407,11 @@ def property_workspace_payload(
             if surface_selected_result
             else (client_results[0] if client_results else {})
         )
+    client_run_summary = _property_workbench_client_run_summary_payload(run_summary_for_surface)
     client_run = _property_workbench_client_run_payload(
         {
             **run_payload_for_surface,
-            "summary": run_summary_for_surface,
+            "summary": client_run_summary,
             "message": run_message,
             "events": run_events[-10:],
             "route_previews": surface_progress_route_previews,
@@ -5333,7 +5459,7 @@ def property_workspace_payload(
             filtered_total=workbench_filtered_total,
             score_demoted_total=workbench_score_demoted_total,
             held_back_total=workbench_held_back_total,
-            summary=run_summary_for_surface,
+            summary=client_run_summary,
             events=run_events[-10:],
             worker_state=search_worker_state,
             reliability=_property_run_reliability_summary(
@@ -5342,7 +5468,7 @@ def property_workspace_payload(
                     "progress": int(run_health.get("progress") or run_payload.get("progress") or 0),
                     "message": run_message,
                     "eta_label": run_eta_label,
-                    "summary": run_summary_for_surface,
+                    "summary": client_run_summary,
                 },
                 results_total=int(shortlist_snapshot.get("results_total") or len(workbench_results)),
             ),
@@ -5436,7 +5562,7 @@ def property_workspace_payload(
         stats=list(base.get("stats") or []),
         current_plan_label=current_plan_label,
         run_payload=_compact_property_run_payload_for_template(run_payload_for_surface),
-        run_summary=run_summary_for_surface,
+        run_summary=client_run_summary,
         preference_manager=preference_manager,
         decision_workbench=decision_workbench,
         extras={

@@ -56,6 +56,12 @@
           "test_propertyquarry_expired_session_next_action_moves_keyboard_focus_to_sign_in_options",
           "test_propertyquarry_workbench_candidate_history_stays_in_place",
           "test_propertyquarry_flagship_operating_loop_in_browser",
+          "test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_browser",
+          "test_propertyquarry_blocked_3d_tour_can_be_retried_from_research_packet_in_real_browser",
+          "test_propertyquarry_research_detail_never_shows_fake_open_tour_for_generated_reconstruction_status",
+          "test_propertyquarry_generated_reconstruction_public_launch_renders_honest_shell_in_real_browser",
+          "test_propertyquarry_generated_reconstruction_public_launch_is_mobile_safe",
+          "test_propertyquarry_expired_flat_preview_explains_3d_unavailable_in_real_browser",
           "test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser",
           "test_propertyquarry_packet_tracks_followup_state_in_browser",
           "test_propertyquarry_account_notifications_save_multi_channel_preferences_in_real_browser",
@@ -69,6 +75,7 @@
       "ranked-row selection updates the dossier and candidate URL in place, including browser back and forward on desktop and mobile",
       "the explicit Open property action opens the selected result's /app/research/... packet with the 360 stage and preference feedback",
       "the PropertyQuarry mobile workbench exposes results, property detail, and the mobile action dock within the viewport",
+      "the packets-and-tours proof renders hosted and generated 3D media, recovers a blocked request, stays mobile-safe, and explains expired flat-preview unavailability without inventing a tour",
       "failed PropertyQuarry runs remain visible on the activity surface with an actionable recovery state"
     ]
   },
@@ -199,7 +206,13 @@
           {
             "file": "tests/e2e/test_propertyquarry_greenfield_browser.py",
             "cases": [
-              "test_propertyquarry_flagship_operating_loop_in_browser"
+              "test_propertyquarry_flagship_operating_loop_in_browser",
+              "test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_browser",
+              "test_propertyquarry_blocked_3d_tour_can_be_retried_from_research_packet_in_real_browser",
+              "test_propertyquarry_research_detail_never_shows_fake_open_tour_for_generated_reconstruction_status",
+              "test_propertyquarry_generated_reconstruction_public_launch_renders_honest_shell_in_real_browser",
+              "test_propertyquarry_generated_reconstruction_public_launch_is_mobile_safe",
+              "test_propertyquarry_expired_flat_preview_explains_3d_unavailable_in_real_browser"
             ]
           }
         ],

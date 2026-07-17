@@ -12,6 +12,9 @@ from app.api.routes.landing_property_workspace_helpers import (
     _property_candidate_display_facts,
     _property_candidate_orientation_preview,
     _property_candidate_preview_image,
+    _property_candidate_floorplan_url,
+    _property_candidate_source_virtual_tour_url,
+    _property_visual_reason_key,
 )
 from app.product.property_location_research import property_school_context_summary
 from app.product.property_evidence_overlays import build_property_evidence_overlay_rows
@@ -29,6 +32,7 @@ from app.product.service import (
     _property_investment_research_snapshot,
     _merge_property_facts_with_source_research,
     _property_money_amount_label,
+    _safe_provider_live_360_url,
     _property_visual_eta_label,
     _property_visual_terminal_status_for_reason,
     _property_visual_unavailable_detail,
@@ -36,6 +40,25 @@ from app.product.service import (
 from app.product import property_tour_hosting
 from app.services.property_customer_copy import sanitize_property_marketing_copy, summarize_property_description_copy
 from app.services.property_market_catalog import supported_currency_codes
+
+
+_PROPERTY_TOUR_PENDING_STATES = frozenset(
+    {"queued", "pending", "processing", "running", "in_progress", "started", "rendering", "repairing"}
+)
+_PROPERTY_TOUR_TERMINAL_STATES = frozenset({"blocked", "failed", "skipped", "not_applicable"})
+_PROPERTY_TOUR_TERMINAL_SOURCE_GAP_REASONS = frozenset(
+    {
+        "floorplan_assets_unavailable",
+        "floorplan_missing",
+        "gallery_assets_unavailable",
+        "listing_360_media_missing",
+        "listing_expired",
+        "property_tour_fallback_disabled",
+        "property_tour_rebuild_required",
+        "provider_export_missing",
+        "pure_360_assets_unavailable",
+    }
+)
 
 
 def _object_detail_row(
@@ -656,17 +679,142 @@ def _property_distance_ooda_rows_for_preferences(
     return rows
 
 
-def _property_tour_source_gap_detail(candidate: dict[str, object]) -> str:
-    blocked_reason = str(candidate.get("blocked_reason") or "").strip()
-    if blocked_reason:
-        reason_map = {
-            "listing_360_media_missing": "Floor plan or room photos are missing, so a real tour is not ready yet.",
-            "pure_360_assets_unavailable": "The available media is not usable enough for a real tour yet.",
-            "property_tour_fallback_disabled": "3D tour generation is waiting for a floor plan or usable room photos.",
-            "property_tour_rebuild_required": "A real 3D tour is not available for this listing yet.",
-        }
-        return reason_map.get(blocked_reason, blocked_reason.replace("_", " "))
+def _property_truthy_media_flag(value: object) -> bool:
+    if value is True:
+        return True
+    return str(value or "").strip().lower() in {"1", "true", "yes"}
+
+
+def _property_tour_requestability(
+    candidate: dict[str, object],
+    *,
+    raw_tour_payload: dict[str, object] | None = None,
+    principal_id: str = "",
+) -> dict[str, object]:
+    raw_tour = dict(raw_tour_payload or {})
     facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+    status = str(candidate.get("tour_status") or raw_tour.get("status") or "").strip().lower()
+    raw_reason = str(
+        candidate.get("blocked_reason")
+        or candidate.get("tour_reason")
+        or raw_tour.get("reason_key")
+        or raw_tour.get("blocked_reason")
+        or raw_tour.get("reason")
+        or ""
+    ).strip()
+    reason_key = _property_visual_reason_key(raw_reason)
+    terminal_status = _property_visual_terminal_status_for_reason(
+        request_kind="tour",
+        reason=raw_reason,
+    )
+    if terminal_status and status in {"", *_PROPERTY_TOUR_PENDING_STATES}:
+        status = terminal_status
+    tour_url = str(
+        candidate.get("tour_url")
+        or raw_tour.get("url")
+        or raw_tour.get("embed_url")
+        or ""
+    ).strip()
+    verified_tour = bool(
+        _property_tour_verified_open_url(tour_url, principal_id=principal_id)
+        if tour_url
+        else ""
+    )
+    vendor_tour = bool(
+        _customer_facing_vendor_tour_url(
+            candidate.get("vendor_tour_url") or raw_tour.get("provider_url"),
+            principal_id=principal_id,
+        )
+    )
+    source_virtual_tour_url = _safe_provider_live_360_url(
+        _property_candidate_source_virtual_tour_url(candidate, facts=facts)
+    )
+    floorplan_url = _property_candidate_floorplan_url(candidate, facts=facts)
+    has_floorplan = bool(floorplan_url) or _property_truthy_media_flag(facts.get("has_floorplan"))
+    has_real_360 = bool(source_virtual_tour_url) or _property_truthy_media_flag(facts.get("has_360"))
+    source_eligible = bool(verified_tour or vendor_tour or has_floorplan or has_real_360)
+    property_url = str(candidate.get("property_url") or candidate.get("listing_url") or "").strip()
+    listing_state = str(
+        candidate.get("listing_status")
+        or candidate.get("source_status")
+        or facts.get("listing_status")
+        or facts.get("source_status")
+        or ""
+    ).strip().lower()
+    listing_expired = reason_key == "listing_expired" or listing_state in {
+        "expired",
+        "gone",
+        "inactive",
+        "removed",
+        "unavailable",
+    }
+    terminal_source_gap = bool(
+        not source_eligible
+        and (listing_expired or reason_key in _PROPERTY_TOUR_TERMINAL_SOURCE_GAP_REASONS)
+    )
+    terminal_without_source = bool(not source_eligible and status in _PROPERTY_TOUR_TERMINAL_STATES)
+    tour_requestable = bool(
+        source_eligible
+        or (
+            property_url
+            and not listing_expired
+            and not terminal_source_gap
+            and not terminal_without_source
+        )
+    )
+    return {
+        "tour_status": status,
+        "tour_reason_key": reason_key,
+        "tour_source_eligible": source_eligible,
+        "tour_requestable": tour_requestable,
+        "tour_terminal_source_gap": terminal_source_gap,
+    }
+
+
+def _property_tour_source_gap_detail(candidate: dict[str, object]) -> str:
+    raw_tour = dict(candidate.get("tour") or {}) if isinstance(candidate.get("tour"), dict) else {}
+    facts = dict(candidate.get("property_facts") or {}) if isinstance(candidate.get("property_facts"), dict) else {}
+    blocked_reason = _property_visual_reason_key(
+        candidate.get("blocked_reason"),
+        candidate.get("tour_reason"),
+        raw_tour.get("reason_key"),
+        raw_tour.get("blocked_reason"),
+        raw_tour.get("reason"),
+    )
+    captured_source_available = bool(
+        _property_candidate_floorplan_url(candidate, facts=facts)
+        or _safe_provider_live_360_url(_property_candidate_source_virtual_tour_url(candidate, facts=facts))
+        or _property_truthy_media_flag(facts.get("has_floorplan"))
+        or _property_truthy_media_flag(facts.get("has_360"))
+    )
+    if blocked_reason:
+        if captured_source_available and blocked_reason in _PROPERTY_TOUR_TERMINAL_SOURCE_GAP_REASONS:
+            return "A real 3D tour is not available yet, but captured source media can support a retry."
+        reason_map = {
+            "listing_expired": (
+                "The source listing has expired. No floor plan or real 360 source was captured, "
+                "so the cached preview cannot become a 3D tour."
+            ),
+            "listing_360_media_missing": (
+                "No floor plan or real 360 source was captured. "
+                "Flat listing photos alone cannot be presented as a 3D tour."
+            ),
+            "pure_360_assets_unavailable": (
+                "No verified 360 source is available. Flat listing photos alone cannot be presented as a 3D tour."
+            ),
+            "floorplan_assets_unavailable": "A usable floor plan was not captured for this listing.",
+            "floorplan_missing": "A usable floor plan was not captured for this listing.",
+            "provider_export_missing": "A verified 3D-tour export has not been provided for this listing.",
+            "property_tour_fallback_disabled": "A real 3D tour needs a floor plan or verified 360 source.",
+            "property_tour_rebuild_required": "A real 3D tour is not available for this listing yet.",
+            "property_tour_execution_failed": (
+                "The 3D tour could not be built from the available source media. You can try again."
+            ),
+            "property_tour_delivery_failed": "The 3D tour could not be published. You can try again.",
+            "crezlo_property_tour_not_configured": "The 3D-tour renderer is temporarily unavailable.",
+        }
+        if blocked_reason in reason_map:
+            return reason_map[blocked_reason]
 
     def _false_flag(value: object) -> bool:
         return str(value or "").strip().lower() in {"0", "false", "no", "none", "null"}
@@ -682,11 +830,13 @@ def _property_tour_source_gap_detail(candidate: dict[str, object]) -> str:
                 continue
         return False
 
+    if _property_truthy_media_flag(facts.get("has_floorplan")) or _property_truthy_media_flag(facts.get("has_360")):
+        return "A real 3D tour is not available for this listing yet."
     if _false_flag(facts.get("has_floorplan")) or _zero_count("floorplan_count", "floorplans_count"):
-        return "3D tour not ready yet. A floor plan or usable room photos are still missing."
+        return "No floor plan or real 360 source was captured. Flat listing photos alone cannot be presented as a 3D tour."
     if _false_flag(facts.get("has_360")) or _zero_count("media_count", "image_count"):
-        return "3D tour not ready yet. This listing does not expose enough usable room media."
-    return "3D tour not ready yet. More source media is still needed."
+        return "No verified 360 source was captured for this listing."
+    return "A real 3D tour needs a floor plan or verified 360 source."
 
 
 def _property_tour_verified_open_url(tour_url: object, *, principal_id: str = "") -> str:
@@ -791,18 +941,32 @@ def _property_tour_media_payload(
     if tour_url and _property_hosted_tour_disabled_fallback(tour_url):
         tour_url = ""
     vendor_tour_url = _customer_facing_vendor_tour_url(
-        candidate.get("vendor_tour_url"),
+        candidate.get("vendor_tour_url") or raw_tour_payload.get("provider_url"),
         principal_id=normalized_principal_id,
     )
     review_url = str(candidate.get("review_url") or "").strip()
-    status = str(candidate.get("tour_status") or "").strip().lower()
+    requestability = _property_tour_requestability(
+        candidate,
+        raw_tour_payload=raw_tour_payload,
+        principal_id=normalized_principal_id,
+    )
+    status = str(requestability.get("tour_status") or "").strip().lower()
+    reason_key = str(requestability.get("tour_reason_key") or "").strip()
+    classification_reason = str(
+        candidate.get("blocked_reason")
+        or candidate.get("tour_reason")
+        or raw_tour_payload.get("reason_key")
+        or raw_tour_payload.get("blocked_reason")
+        or raw_tour_payload.get("reason")
+        or ""
+    ).strip()
     terminal_status = _property_visual_terminal_status_for_reason(
         request_kind="tour",
-        reason=str(candidate.get("blocked_reason") or candidate.get("tour_reason") or "").strip(),
+        reason=classification_reason,
     )
-    if terminal_status and not tour_url and status in {"", "queued", "pending", "processing", "running", "in_progress", "started", "rendering", "repairing"}:
+    if terminal_status and not tour_url and status in {"", *_PROPERTY_TOUR_PENDING_STATES}:
         status = terminal_status
-    eta_raw = str(candidate.get("tour_eta_minutes") or "").strip()
+    eta_raw = str(candidate.get("tour_eta_minutes") or raw_tour_payload.get("eta_minutes") or "").strip()
     requested_at = str(candidate.get("tour_requested_at") or "").strip()
     status_updated_at = str(candidate.get("tour_status_updated_at") or "").strip()
     eta_minutes = 0
@@ -814,10 +978,19 @@ def _property_tour_media_payload(
     eta_label = _property_visual_eta_label(
         request_kind="tour",
         status=status,
-        eta_minutes=eta_raw,
+        eta_minutes=eta_minutes if eta_minutes > 0 else "",
         requested_at=requested_at,
         status_updated_at=status_updated_at,
     )
+    try:
+        tour_progress_pct = int(float(str(
+            candidate.get("tour_progress_pct")
+            or raw_tour_payload.get("progress_pct")
+            or 0
+        ).strip()))
+    except (TypeError, ValueError):
+        tour_progress_pct = 0
+    tour_progress_pct = max(0, min(100, tour_progress_pct))
     hosted_tour_ready = _property_hosted_tour_ready(
         tour_url,
         principal_id=normalized_principal_id,
@@ -901,7 +1074,7 @@ def _property_tour_media_payload(
             if eta_label.startswith("delayed")
             else "Queued."
         )
-    elif status in {"processing", "running", "in_progress", "started", "rendering"}:
+    elif status in {"processing", "running", "in_progress", "started", "rendering", "repairing"}:
         status_label = "3D tour rendering"
         status_detail = (
             "Still rendering."
@@ -917,9 +1090,18 @@ def _property_tour_media_payload(
     return {
         "status_label": status_label,
         "status_detail": status_detail,
+        "tour_status": status,
+        "tour_reason_key": reason_key,
+        "tour_source_eligible": bool(requestability.get("tour_source_eligible")),
+        "tour_requestable": bool(requestability.get("tour_requestable")),
+        "tour_terminal_source_gap": bool(requestability.get("tour_terminal_source_gap")),
+        "tour_eta_label": eta_label,
+        "tour_progress_pct": tour_progress_pct,
         "embed_href": embed_href,
         "has_live_viewer": bool(embed_href),
         "hosted_ready": hosted_tour_ready,
+        "vendor_ready": bool(vendor_tour_url),
+        "vendor_tour_href": vendor_tour_url,
         "generated_reconstruction_ready": generated_reconstruction_ready,
         "generated_reconstruction_href": generated_reconstruction_href,
         "generated_reconstruction_label": "Open layout tour" if generated_reconstruction_ready else "",
@@ -933,7 +1115,9 @@ def _property_tour_media_payload(
             or generated_reconstruction_ready
             or tour_url
             or vendor_tour_url
-            or status in {"queued", "pending", "processing", "running", "in_progress", "started", "rendering", "repairing"}
+            or status in _PROPERTY_TOUR_PENDING_STATES
+            or status in _PROPERTY_TOUR_TERMINAL_STATES
+            or not bool(requestability.get("tour_requestable"))
         ),
         "primary_href": open_tour_href or generated_reconstruction_href or (vendor_tour_url or review_url),
         "primary_label": (

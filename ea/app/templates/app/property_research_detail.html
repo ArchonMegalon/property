@@ -3180,7 +3180,7 @@
         {% set visual_actions.items = visual_actions.items + [action] %}
       {% endif %}
     {% endfor %}
-    {% set visual_ready_tour = research_media.get('hosted_ready') or research_media.get('generated_reconstruction_ready') %}
+    {% set visual_ready_tour = research_media.get('hosted_ready') or research_media.get('vendor_ready') or research_media.get('generated_reconstruction_ready') %}
     {% set visual_ready_layout = research_media.get('generated_reconstruction_ready') and not research_media.get('hosted_ready') %}
     {% set visual_ready_walkthrough = research_media.get('walkthrough_href') %}
     {% set primary_visual_actions = namespace(items=[]) %}
@@ -3237,12 +3237,14 @@
       {% set visual_rail.progress = 100 %}
       {% set visual_rail.detail = research_visual_status_line or research_media.get('walkthrough_status_detail') or 'Walkthrough is ready.' %}
     {% else %}
+      {% set media_tour_state = (research_media.get('tour_status') or '')|lower %}
+      {% set media_visible_states = ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started', 'repairing', 'blocked', 'failed', 'skipped', 'not_applicable', 'unavailable'] %}
       {% set visual_rail.kind = 'tour' if research_media.get('show_status_line') else '' %}
-      {% set visual_rail.state = '' %}
+      {% set visual_rail.state = media_tour_state if media_tour_state in media_visible_states else ('unavailable' if research_media.get('show_status_line') else '') %}
       {% set visual_rail.label = research_media.get('status_label') or '' %}
       {% set visual_rail.eta = '' %}
       {% set visual_rail.progress = 0 %}
-      {% set visual_rail.detail = research_visual_status_line or '' %}
+      {% set visual_rail.detail = research_visual_status_line or research_media.get('status_detail') or '' %}
     {% endif %}
     {% set visual_pending_states = ['pending', 'queued', 'rendering', 'processing', 'running', 'in_progress', 'started', 'repairing'] %}
     {% set visual_rail_label_display = visual_rail.label or '' %}
@@ -4458,8 +4460,13 @@
       image.setAttribute('aria-hidden', 'true');
     };
     image.addEventListener('error', markFailed, { once: true });
-    if (image.complete && image.naturalWidth === 0) {
-      markFailed();
+    const verifyCompletedImage = () => {
+      if (image.complete && image.naturalWidth === 0) markFailed();
+    };
+    if (document.readyState === 'complete') {
+      window.requestAnimationFrame(verifyCompletedImage);
+    } else {
+      window.addEventListener('load', verifyCompletedImage, { once: true });
     }
   });
   const applyVisualButtonState = (button, state) => {

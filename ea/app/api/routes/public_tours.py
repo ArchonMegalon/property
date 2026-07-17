@@ -5650,6 +5650,10 @@ def _public_tour_security_headers(
         ).replace("script-src-attr 'unsafe-inline'", "script-src-attr 'none'").replace(
             "style-src-attr 'unsafe-inline'", "style-src-attr 'none'"
         )
+    # frame-ancestors is enforced by the primary policy above. Browsers ignore
+    # that directive in report-only policies, and WebKit surfaces the ignored
+    # directive as a console error, so omit only the inert duplicate here.
+    report_only_directives = report_only_directives.replace("frame-ancestors 'self'; ", "")
     report_only_directives += f"; report-uri {_PUBLIC_TOUR_CSP_REPORT_PATH}; report-to propertyquarry-csp"
     return {
         "Cache-Control": cache_control,

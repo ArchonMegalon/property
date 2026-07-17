@@ -26269,6 +26269,189 @@ def test_property_research_packet_renders_request_actions_when_hosted_tour_is_no
     assert '>Open 3D tour</a>' not in rendered_html
 
 
+def test_property_tour_requestability_keeps_expired_flat_preview_fail_closed() -> None:
+    expired_flat_candidate = {
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/expired-flat-preview",
+        "generated_reconstruction_url": "https://propertyquarry.com/tours/expired-flat-preview-layout",
+        "tour": {
+            "status": "blocked",
+            "reason_key": "listing_expired",
+        },
+        "property_facts": {
+            "has_floorplan": False,
+            "has_360": False,
+            "media_urls_json": ["https://example.test/expired-flat-preview.jpg"],
+        },
+    }
+
+    blocked = landing_property_research._property_tour_requestability(
+        expired_flat_candidate,
+        raw_tour_payload=dict(expired_flat_candidate["tour"]),
+    )
+    assert blocked["tour_source_eligible"] is False
+    assert blocked["tour_terminal_source_gap"] is True
+    assert blocked["tour_requestable"] is False
+
+    with_floorplan = landing_property_research._property_tour_requestability(
+        {
+            **expired_flat_candidate,
+            "floorplan_url": "https://example.test/expired-flat-preview-floorplan.webp",
+        },
+        raw_tour_payload=dict(expired_flat_candidate["tour"]),
+    )
+    assert with_floorplan["tour_source_eligible"] is True
+    assert with_floorplan["tour_requestable"] is True
+
+    with_live_360 = landing_property_research._property_tour_requestability(
+        {
+            **expired_flat_candidate,
+            "source_virtual_tour_url": "https://my.matterport.com/show/?m=verified-model",
+        },
+        raw_tour_payload=dict(expired_flat_candidate["tour"]),
+    )
+    assert with_live_360["tour_source_eligible"] is True
+    assert with_live_360["tour_requestable"] is True
+
+    expired_with_declared_360 = {
+        **expired_flat_candidate,
+        "property_facts": {
+            **dict(expired_flat_candidate["property_facts"]),
+            "has_360": True,
+        },
+    }
+    assert landing_property_research._property_tour_source_gap_detail(expired_with_declared_360) == (
+        "A real 3D tour is not available yet, but captured source media can support a retry."
+    )
+
+
+def test_property_tour_media_payload_resolves_nested_verified_provider_url(monkeypatch) -> None:
+    nested_provider_url = "https://my.matterport.com/show/?m=nested-provider-model"
+    verified_provider_url = "https://propertyquarry.com/tours/nested-provider-model/control/matterport"
+    observed_values: list[str] = []
+
+    def _verified_vendor_url(value: object, *, principal_id: str = "") -> str:
+        observed_values.append(str(value or ""))
+        return verified_provider_url if str(value or "") == nested_provider_url else ""
+
+    monkeypatch.setattr(landing_property_research, "_customer_facing_vendor_tour_url", _verified_vendor_url)
+    monkeypatch.setattr(landing_property_research, "_property_tour_verified_provider", lambda *_args, **_kwargs: "matterport")
+    payload = landing_property_research._property_tour_media_payload(
+        {
+            "property_url": "https://example.test/nested-provider-listing",
+            "tour": {"provider_url": nested_provider_url},
+            "property_facts": {},
+        }
+    )
+
+    assert nested_provider_url in observed_values
+    assert payload["tour_source_eligible"] is True
+    assert payload["tour_requestable"] is True
+    assert payload["status_label"] == "Original tour available"
+    assert payload["primary_href"] == verified_provider_url
+    assert payload["primary_label"] == "Open original tour"
+
+
+def test_property_research_packet_opens_nested_verified_provider_tour(monkeypatch) -> None:
+    principal_id = "pq-research-packet-nested-provider-tour"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+    nested_provider_url = "https://my.matterport.com/show/?m=nested-provider-packet"
+    verified_provider_url = "https://propertyquarry.com/tours/nested-provider-packet/control/matterport"
+    candidate = {
+        "title": "Nested provider tour loft",
+        "summary": "EUR 1,890 · 73 m² · 1070 Wien",
+        "property_url": "https://example.test/nested-provider-tour-loft",
+        "source_ref": "example:nested-provider-tour-loft",
+        "tour": {"provider_url": nested_provider_url},
+        "property_facts": {
+            "price_eur": 1890.0,
+            "area_m2": 73.0,
+            "postal_name": "1070 Wien",
+        },
+    }
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "processed",
+            "progress": 100,
+            "message": "done",
+            "summary": {
+                "sources_total": 1,
+                "listing_total": 1,
+                "ranked_candidates": [candidate],
+                "sources": [
+                    {
+                        "source_label": "Example provider",
+                        "listing_total": 1,
+                        "top_candidates": [candidate],
+                    }
+                ],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(
+        landing_property_research,
+        "_customer_facing_vendor_tour_url",
+        lambda value, *, principal_id="": verified_provider_url if str(value or "") == nested_provider_url else "",
+    )
+    monkeypatch.setattr(
+        landing_property_research,
+        "_property_tour_verified_provider",
+        lambda *_args, **_kwargs: "matterport",
+    )
+    packet_ref = landing_property_research._property_candidate_ref(
+        {**candidate, "source_label": "Example provider"}
+    )
+    packet = client.get(
+        f"/app/research/{packet_ref}",
+        params={"run_id": "run-nested-provider-tour"},
+        headers={"host": "propertyquarry.com"},
+    )
+
+    assert packet.status_code == 200
+    rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", packet.text, flags=re.IGNORECASE | re.DOTALL)
+    rendered_html = re.sub(r"<style\b[^>]*>.*?</style>", " ", rendered_html, flags=re.IGNORECASE | re.DOTALL)
+    assert f'href="{verified_provider_url}"' in rendered_html
+    assert ">Open original tour</a>" in rendered_html
+    assert "Request 3D tour" not in rendered_html
+    assert "Retry 3D tour" not in rendered_html
+
+
+@pytest.mark.parametrize("raw_reason", ["renderer_timeout", "renderer_failed"])
+def test_property_tour_media_payload_classifies_raw_suffix_reason_without_exposing_it(raw_reason: str) -> None:
+    payload = landing_property_research._property_tour_media_payload(
+        {
+            "property_url": "https://example.test/retryable-renderer-listing",
+            "tour": {
+                "status": "pending",
+                "reason": raw_reason,
+            },
+            "property_facts": {"has_floorplan": True},
+        }
+    )
+
+    assert payload["tour_status"] == "blocked"
+    assert payload["tour_reason_key"] == ""
+    assert payload["status_label"] == "3D tour unavailable"
+    assert raw_reason not in str(payload)
+
+    without_source = landing_property_research._property_tour_requestability(
+        {
+            "property_url": "https://example.test/no-source-renderer-listing",
+            "tour": {"status": "pending", "reason": raw_reason},
+            "property_facts": {},
+        },
+        raw_tour_payload={"status": "pending", "reason": raw_reason},
+    )
+    assert without_source["tour_status"] == "blocked"
+    assert without_source["tour_requestable"] is False
+    assert raw_reason not in str(without_source)
+
+
 def test_property_research_packet_treats_disabled_fallback_tour_as_requestable(monkeypatch) -> None:
     principal_id = "pq-research-disabled-fallback-requestable"
     client = build_property_client(principal_id=principal_id)
@@ -26444,6 +26627,7 @@ def test_property_research_packet_terminal_tour_reason_keeps_manual_request_acti
             "price_eur": 1890.0,
             "area_m2": 73.0,
             "postal_name": "1070 Wien",
+            "has_floorplan": True,
         },
     }
 
@@ -26501,6 +26685,221 @@ def test_property_research_packet_terminal_tour_reason_keeps_manual_request_acti
     assert 'data-pw-visual-state="blocked"' in rendered_html
     assert 'disabled aria-disabled="true"' not in rendered_html
     assert "property_tour_execution_failed" not in rendered_html
+
+
+def test_property_research_packet_uses_nested_blocked_tour_state(monkeypatch) -> None:
+    principal_id = "pq-research-packet-nested-blocked-tour"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+    candidate = {
+        "title": "Nested retryable tour loft",
+        "summary": "EUR 1,890 · 73 m² · 1070 Wien",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/nested-retryable-tour-loft",
+        "source_ref": "willhaben:nested-retryable-tour-loft",
+        "tour": {
+            "status": "blocked",
+            "reason_key": "property_tour_execution_failed",
+            "status_detail": "Tour not available yet.",
+        },
+        "property_facts": {
+            "price_eur": 1890.0,
+            "area_m2": 73.0,
+            "postal_name": "1070 Wien",
+            "has_floorplan": True,
+        },
+    }
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "done",
+            "summary": {
+                "sources_total": 1,
+                "listing_total": 1,
+                "ranked_candidates": [candidate],
+                "sources": [
+                    {
+                        "source_label": "Willhaben | Austria | Rent | 1070 Vienna",
+                        "listing_total": 1,
+                        "top_candidates": [candidate],
+                    }
+                ],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(landing_property_research, "_property_investment_research_snapshot", lambda **kwargs: {})
+    packet_ref = landing_property_research._property_candidate_ref(
+        {**candidate, "source_label": "Willhaben | Austria | Rent | 1070 Vienna"}
+    )
+    packet = client.get(
+        f"/app/research/{packet_ref}",
+        params={"run_id": "run-nested-blocked-tour"},
+        headers={"host": "propertyquarry.com"},
+    )
+
+    assert packet.status_code == 200
+    rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", packet.text, flags=re.IGNORECASE | re.DOTALL)
+    rendered_html = re.sub(r"<style\b[^>]*>.*?</style>", " ", rendered_html, flags=re.IGNORECASE | re.DOTALL)
+    assert ">Retry 3D tour</button>" in rendered_html
+    assert ">Request 3D tour</button>" not in rendered_html
+    assert "The 3D tour could not be built from the available source media. You can try again." in rendered_html
+    assert "property_tour_execution_failed" not in rendered_html
+
+
+@pytest.mark.parametrize("active_status", ["rendering", "repairing"])
+def test_property_research_packet_keeps_active_nested_tour_state_non_clickable_and_customer_safe(
+    monkeypatch,
+    active_status: str,
+) -> None:
+    principal_id = f"pq-research-packet-{active_status}-tour"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+    candidate = {
+        "title": f"{active_status.title()} tour loft",
+        "summary": "EUR 1,890 · 73 m² · 1070 Wien",
+        "property_url": f"https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/{active_status}-tour-loft",
+        "source_ref": f"willhaben:{active_status}-tour-loft",
+        "tour": {
+            "status": active_status,
+            "eta_minutes": "7",
+            "eta_label": "debug ETA: token=super-secret",
+            "status_detail": "renderer exception: postgres://user:pass@db/internal",
+            "progress_pct": 63,
+        },
+        "property_facts": {
+            "price_eur": 1890.0,
+            "area_m2": 73.0,
+            "postal_name": "1070 Wien",
+            "has_floorplan": True,
+        },
+    }
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "done",
+            "summary": {
+                "sources_total": 1,
+                "listing_total": 1,
+                "ranked_candidates": [candidate],
+                "sources": [
+                    {
+                        "source_label": "Willhaben | Austria | Rent | 1070 Vienna",
+                        "listing_total": 1,
+                        "top_candidates": [candidate],
+                    }
+                ],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(landing_property_research, "_property_investment_research_snapshot", lambda **kwargs: {})
+    packet_ref = landing_property_research._property_candidate_ref(
+        {**candidate, "source_label": "Willhaben | Austria | Rent | 1070 Vienna"}
+    )
+    packet = client.get(
+        f"/app/research/{packet_ref}",
+        params={"run_id": f"run-{active_status}-tour"},
+        headers={"host": "propertyquarry.com"},
+    )
+
+    assert packet.status_code == 200
+    rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", packet.text, flags=re.IGNORECASE | re.DOTALL)
+    rendered_html = re.sub(r"<style\b[^>]*>.*?</style>", " ", rendered_html, flags=re.IGNORECASE | re.DOTALL)
+    assert ">Preparing 3D tour</button>" in rendered_html
+    assert 'data-pw-visual-state="rendering"' in rendered_html
+    assert 'data-pw-visual-progress="63"' in rendered_html
+    assert "Rendering." in rendered_html
+    assert "Request 3D tour" not in rendered_html
+    assert "Retry 3D tour" not in rendered_html
+    assert "super-secret" not in packet.text
+    assert "postgres://" not in packet.text
+
+
+def test_property_research_packet_does_not_offer_3d_retry_for_expired_flat_preview(monkeypatch) -> None:
+    principal_id = "pq-research-packet-expired-flat-preview"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+    candidate = {
+        "title": "Expired flat-preview apartment",
+        "summary": "EUR 1,590 · 68 m² · 1020 Wien",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/expired-flat-preview",
+        "source_ref": "willhaben:expired-flat-preview",
+        "preview_image_url": "https://example.test/expired-flat-preview.jpg",
+        "tour": {
+            "status": "blocked",
+            "reason_key": "listing_expired",
+            "status_detail": "The source listing is no longer available.",
+        },
+        "property_facts": {
+            "price_eur": 1590.0,
+            "area_m2": 68.0,
+            "postal_name": "1020 Wien",
+            "has_floorplan": False,
+            "has_360": False,
+            "media_urls_json": ["https://example.test/expired-flat-preview.jpg"],
+        },
+    }
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "done",
+            "summary": {
+                "sources_total": 1,
+                "listing_total": 1,
+                "ranked_candidates": [candidate],
+                "sources": [
+                    {
+                        "source_label": "Willhaben | Austria | Rent | 1020 Vienna",
+                        "listing_total": 1,
+                        "top_candidates": [candidate],
+                    }
+                ],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(landing_property_research, "_property_investment_research_snapshot", lambda **kwargs: {})
+    packet_ref = landing_property_research._property_candidate_ref(
+        {**candidate, "source_label": "Willhaben | Austria | Rent | 1020 Vienna"}
+    )
+    packet = client.get(
+        f"/app/research/{packet_ref}",
+        params={"run_id": "run-expired-flat-preview"},
+        headers={"host": "propertyquarry.com"},
+    )
+
+    assert packet.status_code == 200
+    rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", packet.text, flags=re.IGNORECASE | re.DOTALL)
+    rendered_html = re.sub(r"<style\b[^>]*>.*?</style>", " ", rendered_html, flags=re.IGNORECASE | re.DOTALL)
+    visible_text = re.sub(r"<[^>]+>", " ", rendered_html)
+    explanation = (
+        "The source listing has expired. No floor plan or real 360 source was captured, "
+        "so the cached preview cannot become a 3D tour."
+    )
+    assert explanation in visible_text
+    assert 'data-pw-visual-request="tour"' not in rendered_html
+    assert "Request 3D tour" not in visible_text
+    assert "Retry 3D tour" not in visible_text
+    assert "Open 3D tour" not in visible_text
+    assert "listing_expired" not in visible_text
 
 
 def test_property_research_packet_uses_hosted_tour_href_for_ready_hero_action(monkeypatch) -> None:

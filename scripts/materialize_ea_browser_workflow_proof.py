@@ -33,12 +33,21 @@ SOURCE_BACKED_CASES = [
     "test_propertyquarry_public_home_survives_unreadable_optional_tour_media",
 ]
 REAL_BROWSER_TEST_FILE = "tests/e2e/test_propertyquarry_greenfield_browser.py"
+REQUIRED_PACKETS_TOURS_REAL_BROWSER_CASES = (
+    "test_propertyquarry_flagship_operating_loop_in_browser",
+    "test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_browser",
+    "test_propertyquarry_blocked_3d_tour_can_be_retried_from_research_packet_in_real_browser",
+    "test_propertyquarry_research_detail_never_shows_fake_open_tour_for_generated_reconstruction_status",
+    "test_propertyquarry_generated_reconstruction_public_launch_renders_honest_shell_in_real_browser",
+    "test_propertyquarry_generated_reconstruction_public_launch_is_mobile_safe",
+    "test_propertyquarry_expired_flat_preview_explains_3d_unavailable_in_real_browser",
+)
 REAL_BROWSER_CASES = [
     "test_propertyquarry_greenfield_workspace_in_real_browser",
     "test_propertyquarry_greenfield_workspace_is_mobile_usable",
     "test_propertyquarry_expired_session_next_action_moves_keyboard_focus_to_sign_in_options",
     "test_propertyquarry_workbench_candidate_history_stays_in_place",
-    "test_propertyquarry_flagship_operating_loop_in_browser",
+    *REQUIRED_PACKETS_TOURS_REAL_BROWSER_CASES,
     "test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser",
     "test_propertyquarry_packet_tracks_followup_state_in_browser",
     "test_propertyquarry_account_notifications_save_multi_channel_preferences_in_real_browser",
@@ -360,6 +369,25 @@ def _build_journey_evidence_matrix(
                     "lane_status": lane_status,
                 }
             )
+
+        if journey_id == "packets_tours":
+            expected_tour_sources = [
+                {
+                    "file": REAL_BROWSER_TEST_FILE,
+                    "cases": list(REQUIRED_PACKETS_TOURS_REAL_BROWSER_CASES),
+                }
+            ]
+            actual_tour_sources = [
+                {
+                    "file": str(entry.get("file") or "").strip(),
+                    "cases": [str(case).strip() for case in entry.get("cases") or [] if str(case).strip()],
+                }
+                for entry in rendered_sources
+            ]
+            if actual_tour_sources != expected_tour_sources:
+                row_blockers.append(
+                    "must map the exact ordered hosted, recovery, generated, mobile, and unavailable-tour cases"
+                )
 
         live_requirement = row.get("live_requirement")
         if not isinstance(live_requirement, dict):

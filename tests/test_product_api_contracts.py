@@ -8849,6 +8849,7 @@ def test_propertyquarry_search_run_payload_keeps_nested_blocked_tour_visible_in_
         "property_url": "https://example.test/retryable-selected-review-loft",
         "source_url": "https://example.test/retryable-selected-review-loft",
         "source_ref": "example:retryable-selected-review-loft",
+        "blocked_reason": "property_tour_execution_failed",
         "fit_score": 81,
         "location_label": "Vienna",
         "packet_url": "/app/research/retryable-selected-review-loft?run_id=run-selected-review-blocked-tour",
@@ -8856,7 +8857,7 @@ def test_propertyquarry_search_run_payload_keeps_nested_blocked_tour_visible_in_
         "tour": {
             "status": "blocked",
             "label": "Retry 3D tour",
-            "status_detail": "Tour not available yet.",
+            "status_detail": "renderer exception: postgres://user:pass@db/internal?token=super-secret",
         },
         "flythrough": {},
         "property_facts": {
@@ -8884,10 +8885,12 @@ def test_propertyquarry_search_run_payload_keeps_nested_blocked_tour_visible_in_
             "summary": {
                 "status": "processed",
                 "ranked_candidates": [candidate],
+                "shortlist_candidates": [candidate],
                 "sources": [
                     {
                         "source_label": "Willhaben | Austria | Rent | Vienna",
                         "top_candidates": [candidate],
+                        "research_candidates": [candidate],
                     }
                 ],
             },
@@ -8919,7 +8922,28 @@ def test_propertyquarry_search_run_payload_keeps_nested_blocked_tour_visible_in_
     assert selected.get("candidate_ref") == "retryable-selected-review-loft"
     assert selected_tour.get("status") == "blocked"
     assert selected_tour.get("label") == "Retry 3D tour"
-    assert selected_tour.get("status_detail") == "Tour not available yet."
+    assert selected_tour.get("status_detail") == (
+        "The 3D tour could not be built from the available source media. You can try again."
+    )
+    assert selected_tour.get("reason_key") == "property_tour_execution_failed"
+
+    def _sentinel_paths(value: object, path: str = "$") -> list[str]:
+        if isinstance(value, dict):
+            return [
+                leak_path
+                for key, item in value.items()
+                for leak_path in _sentinel_paths(item, f"{path}.{key}")
+            ]
+        if isinstance(value, list):
+            return [
+                leak_path
+                for index, item in enumerate(value)
+                for leak_path in _sentinel_paths(item, f"{path}[{index}]")
+            ]
+        rendered = str(value or "")
+        return [path] if "super-secret" in rendered or "postgres://" in rendered else []
+
+    assert _sentinel_paths(payload) == []
 
 
 def test_property_scout_feedback_buttons_include_reason_suggestions(monkeypatch) -> None:

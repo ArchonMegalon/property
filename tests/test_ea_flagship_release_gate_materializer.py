@@ -4,6 +4,11 @@ import json
 import subprocess
 from pathlib import Path
 
+from scripts.materialize_ea_flagship_release_gate import (
+    REAL_BROWSER_TEST_FILE,
+    REQUIRED_PACKETS_TOURS_REAL_BROWSER_CASES,
+    browser_receipt_pass_blockers,
+)
 from scripts.propertyquarry_release_receipt_binding import build_source_binding
 
 
@@ -117,7 +122,9 @@ def _journey_matrix(
         "search_ranking": [(source_file, [source_case]), (browser_file, [browser_case])],
         "shortlist_research_revisit": [(browser_file, [browser_case])],
         "account_pricing_privacy_recovery": [(source_file, [source_case])],
-        "packets_tours": [(browser_file, [browser_case])],
+        "packets_tours": [
+            (browser_file, list(REQUIRED_PACKETS_TOURS_REAL_BROWSER_CASES))
+        ],
         "feedback": [(browser_file, [browser_case])],
         "notifications": [(browser_file, [browser_case])],
     }
@@ -203,8 +210,11 @@ def _write_minimal_flagship_tree(
                     "cases": ["test_propertyquarry_workspace_routes_render_greenfield_surfaces"],
                 },
                 {
-                    "file": "tests/e2e/test_propertyquarry_greenfield_browser.py",
-                    "cases": ["test_propertyquarry_greenfield_workspace_in_real_browser"],
+                    "file": REAL_BROWSER_TEST_FILE,
+                    "cases": [
+                        "test_propertyquarry_greenfield_workspace_in_real_browser",
+                        *REQUIRED_PACKETS_TOURS_REAL_BROWSER_CASES,
+                    ],
                 },
             ]
         },
@@ -371,7 +381,46 @@ def test_materializer_can_publish_pass_when_browser_execution_receipt_exists(tmp
     assert receipt["journey_evidence_matrix"]["status"] == "pass"
     assert receipt["journey_evidence_matrix"]["runtime_commit_sha"] == receipt["source_binding"]["code_commit"]
     assert all(row["proof_status"] == "pass" for row in receipt["journey_evidence_matrix"]["rows"])
+    packets_tours = next(
+        row for row in receipt["journey_evidence_matrix"]["rows"] if row["journey_id"] == "packets_tours"
+    )
+    assert packets_tours["evidence_sources"] == [
+        {
+            "file": REAL_BROWSER_TEST_FILE,
+            "cases": list(REQUIRED_PACKETS_TOURS_REAL_BROWSER_CASES),
+            "lane_status": "pass",
+        }
+    ]
+    browser_lane = browser_proof["real_browser_e2e_proof"]
+    assert browser_lane["required_case_count"] == len(browser_lane["cases"])
+    assert browser_lane["selected_count"] == len(browser_lane["cases"])
+    assert browser_lane["executed_count"] == len(browser_lane["cases"])
+    assert browser_lane["outcome_counts"]["passed"] == len(browser_lane["cases"])
     assert "green" in receipt["operator_summary"]
+
+
+def test_materializer_blocks_a_self_consistent_weakened_packets_tours_seed(tmp_path: Path) -> None:
+    _write_minimal_flagship_tree(tmp_path, browser_proof_status="pass")
+    seed = json.loads((tmp_path / SEED).read_text(encoding="utf-8"))
+    browser_receipt = json.loads((tmp_path / BROWSER_PROOF).read_text(encoding="utf-8"))
+
+    for payload in (seed, browser_receipt):
+        packets_tours = next(
+            row
+            for row in payload["journey_evidence_matrix"]["rows"]
+            if row["journey_id"] == "packets_tours"
+        )
+        packets_tours["evidence_sources"][0]["cases"] = [
+            REQUIRED_PACKETS_TOURS_REAL_BROWSER_CASES[0]
+        ]
+
+    blockers = browser_receipt_pass_blockers(browser_receipt, seed)
+
+    assert "current packets_tours journey does not map the exact ordered required tour cases" in blockers
+    assert (
+        "published pass packets_tours journey does not prove the exact ordered required tour cases"
+        in blockers
+    )
 
 
 def test_materializer_surfaces_browser_proof_blockers_when_published_receipt_is_blocked(tmp_path: Path) -> None:

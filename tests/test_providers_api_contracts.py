@@ -58,6 +58,7 @@ def test_public_tour_security_headers_exclude_marketing_analytics_and_broad_sour
 
     headers = _public_tour_security_headers()
     csp = headers["Content-Security-Policy"]
+    report_only_csp = headers["Content-Security-Policy-Report-Only"]
 
     assert "https://app.rybbit.io" not in csp
     assert "https://js.clickrank.ai" not in csp
@@ -67,6 +68,8 @@ def test_public_tour_security_headers_exclude_marketing_analytics_and_broad_sour
     assert "script-src-attr 'none'" in csp
     assert "style-src-attr 'none'" in csp
     assert "worker-src 'self' blob:" in csp
+    assert "frame-ancestors 'self'" in csp
+    assert "frame-ancestors" not in report_only_csp
 
 
 def test_public_tour_matterport_discover_url_normalizes_to_embeddable_show_url() -> None:

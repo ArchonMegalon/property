@@ -126,7 +126,9 @@ def _journey_evidence_matrix() -> dict[str, object]:
                 "evidence_sources": [
                     {
                         "file": browser_file,
-                        "cases": ["test_propertyquarry_flagship_operating_loop_in_browser"],
+                        "cases": list(
+                            browser_proof_materializer.REQUIRED_PACKETS_TOURS_REAL_BROWSER_CASES
+                        ),
                     }
                 ],
                 "live_requirement": {
@@ -234,6 +236,11 @@ def test_browser_workflow_proof_passes_when_both_lanes_pass(
     assert receipt["source_backed_journey_proof"]["cases"] == browser_proof_materializer.SOURCE_BACKED_CASES
     assert receipt["real_browser_e2e_proof"]["test_file"] == "tests/e2e/test_propertyquarry_greenfield_browser.py"
     assert receipt["real_browser_e2e_proof"]["cases"] == browser_proof_materializer.REAL_BROWSER_CASES
+    assert len(browser_proof_materializer.REAL_BROWSER_CASES) == 15
+    assert receipt["real_browser_e2e_proof"]["required_case_count"] == 15
+    assert receipt["real_browser_e2e_proof"]["selected_count"] == 15
+    assert receipt["real_browser_e2e_proof"]["executed_count"] == 15
+    assert receipt["real_browser_e2e_proof"]["outcome_counts"]["passed"] == 15
     matrix = receipt["journey_evidence_matrix"]
     assert matrix["status"] == "pass"
     assert matrix["runtime_commit_sha"] == runtime_commit_sha
@@ -241,6 +248,14 @@ def test_browser_workflow_proof_passes_when_both_lanes_pass(
     assert [row["journey_id"] for row in matrix["rows"]] == list(browser_proof_materializer.REQUIRED_JOURNEY_IDS)
     assert all(row["proof_status"] == "pass" for row in matrix["rows"])
     assert all(row["live_requirement"]["status"] == "not_evaluated" for row in matrix["rows"])
+    packets_tours = next(row for row in matrix["rows"] if row["journey_id"] == "packets_tours")
+    assert packets_tours["evidence_sources"] == [
+        {
+            "file": browser_proof_materializer.REAL_BROWSER_TEST_FILE,
+            "cases": list(browser_proof_materializer.REQUIRED_PACKETS_TOURS_REAL_BROWSER_CASES),
+            "lane_status": "pass",
+        }
+    ]
 
     mapped_cases = {
         browser_proof_materializer.SOURCE_BACKED_TEST_FILE: set(),
@@ -475,6 +490,52 @@ def test_browser_workflow_proof_blocks_when_journey_matrix_row_is_missing(tmp_pa
     assert receipt["journey_evidence_matrix"]["rows"][-1]["proof_status"] == "blocked"
     assert "journey evidence matrix rows do not exactly cover the required journeys" in receipt["blocking_reasons"]
     assert any(reason.startswith("journey notifications:") for reason in receipt["blocking_reasons"])
+
+
+def test_browser_workflow_proof_blocks_a_self_consistent_weakened_packets_tours_seed(
+    tmp_path: Path,
+) -> None:
+    _write_seed(tmp_path)
+    seed_file = tmp_path / SEED
+    seed = json.loads(seed_file.read_text(encoding="utf-8"))
+    packets_tours = next(
+        row for row in seed["journey_evidence_matrix"]["rows"] if row["journey_id"] == "packets_tours"
+    )
+    packets_tours["evidence_sources"][0]["cases"] = [
+        browser_proof_materializer.REQUIRED_PACKETS_TOURS_REAL_BROWSER_CASES[0]
+    ]
+    seed_file.write_text(json.dumps(seed, indent=2) + "\n", encoding="utf-8")
+
+    def fake_runner(
+        root: Path,
+        *,
+        python_bin: str,
+        test_file: str,
+        cases: list[str],
+        real_browser: bool,
+    ) -> dict[str, object]:
+        return {
+            "status": "pass",
+            "command": "pytest",
+            "cwd": root.as_posix(),
+            "python_bin": python_bin,
+            "test_file": test_file,
+            "cases": cases,
+            "exit_code": 0,
+            "duration_seconds": 1.0,
+            "output_excerpt": [f"{len(cases)} passed"],
+            "limitations": [],
+        }
+
+    receipt = build_receipt(tmp_path, seed_path=SEED, runner=fake_runner)
+
+    assert receipt["status"] == "blocked"
+    assert receipt["journey_evidence_matrix"]["status"] == "blocked"
+    assert (
+        "journey packets_tours: must map the exact ordered hosted, recovery, generated, mobile, "
+        "and unavailable-tour cases"
+        in receipt["blocking_reasons"]
+    )
 
 
 def test_browser_workflow_proof_rejects_non_object_journey_rows() -> None:

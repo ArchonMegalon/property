@@ -47,6 +47,16 @@ REQUIRED_JOURNEY_IDS = (
     "feedback",
     "notifications",
 )
+REAL_BROWSER_TEST_FILE = "tests/e2e/test_propertyquarry_greenfield_browser.py"
+REQUIRED_PACKETS_TOURS_REAL_BROWSER_CASES = (
+    "test_propertyquarry_flagship_operating_loop_in_browser",
+    "test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_browser",
+    "test_propertyquarry_blocked_3d_tour_can_be_retried_from_research_packet_in_real_browser",
+    "test_propertyquarry_research_detail_never_shows_fake_open_tour_for_generated_reconstruction_status",
+    "test_propertyquarry_generated_reconstruction_public_launch_renders_honest_shell_in_real_browser",
+    "test_propertyquarry_generated_reconstruction_public_launch_is_mobile_safe",
+    "test_propertyquarry_expired_flat_preview_explains_3d_unavailable_in_real_browser",
+)
 
 
 def _utc_now() -> str:
@@ -232,6 +242,21 @@ def _journey_matrix_pass_blockers(receipt: dict[str, Any], seed: dict[str, Any])
             for entry in actual_source_items
             if isinstance(entry, dict)
         ]
+        if journey_id == "packets_tours":
+            required_tour_sources = [
+                {
+                    "file": REAL_BROWSER_TEST_FILE,
+                    "cases": list(REQUIRED_PACKETS_TOURS_REAL_BROWSER_CASES),
+                }
+            ]
+            if expected_sources != required_tour_sources:
+                blockers.append(
+                    "current packets_tours journey does not map the exact ordered required tour cases"
+                )
+            if actual_sources != required_tour_sources:
+                blockers.append(
+                    "published pass packets_tours journey does not prove the exact ordered required tour cases"
+                )
         if (
             len(expected_sources) != len(expected_source_items)
             or len(actual_sources) != len(actual_source_items)

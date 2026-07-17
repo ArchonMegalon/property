@@ -199,13 +199,19 @@ jobs:
           sudo mkdir -p /docker
           sudo chown "$USER":"$USER" /docker
           ln -sfn "$GITHUB_WORKSPACE" /docker/property
-      - name: Run flagship operating loop in ${{ matrix.browser-engine }}
+      - name: Run flagship operating loop and authoritative tour proof in ${{ matrix.browser-engine }}
         env:
           PROPERTYQUARRY_CORE_BROWSER_ENGINE: ${{ matrix.browser-engine }}
         run: |
           PYTHONPATH=ea EA_STORAGE_BACKEND=memory python -m pytest -q \
             tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_workbench_candidate_history_stays_in_place \
-            tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_flagship_operating_loop_in_browser
+            tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_flagship_operating_loop_in_browser \
+            tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_browser \
+            tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_blocked_3d_tour_can_be_retried_from_research_packet_in_real_browser \
+            tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_research_detail_never_shows_fake_open_tour_for_generated_reconstruction_status \
+            tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_generated_reconstruction_public_launch_renders_honest_shell_in_real_browser \
+            tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_generated_reconstruction_public_launch_is_mobile_safe \
+            tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_expired_flat_preview_explains_3d_unavailable_in_real_browser
 
   propertyquarry-postgres-browser-e2e:
     permissions:

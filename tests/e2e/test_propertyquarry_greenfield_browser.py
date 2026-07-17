@@ -192,6 +192,79 @@ def _unexpected_console_errors(messages: list[str]) -> list[str]:
     return filtered
 
 
+def _is_expected_vendor_report_only_inline_script_console_error(message: str) -> bool:
+    return str(message or "").strip().lower().startswith(
+        "[report only] refused to execute a script because its hash, its nonce, "
+        "or 'unsafe-inline' does not appear in the script-src directive"
+    )
+
+
+def _assert_public_tour_reference_media_decoded(page: Page) -> set[str]:
+    images = page.locator("#media-grid img")
+    image_count = images.count()
+    assert image_count > 0
+    for index in range(image_count):
+        images.nth(index).scroll_into_view_if_needed(timeout=10_000)
+        page.wait_for_function(
+            """(imageIndex) => {
+                const image = document.querySelectorAll('#media-grid img')[imageIndex];
+                return Boolean(image && image.complete);
+            }""",
+            arg=index,
+            timeout=10_000,
+        )
+    states = page.evaluate(
+        """() => Array.from(document.querySelectorAll('#media-grid img')).map((image) => ({
+            src: String(image.currentSrc || image.src || ''),
+            complete: Boolean(image.complete),
+            naturalWidth: Number(image.naturalWidth || 0),
+            naturalHeight: Number(image.naturalHeight || 0),
+        }))"""
+    )
+    assert isinstance(states, list)
+    assert len(states) == image_count
+    assert all(isinstance(state, dict) for state in states), states
+    assert states and all(
+        bool(state.get("complete"))
+        and int(state.get("naturalWidth") or 0) > 0
+        and int(state.get("naturalHeight") or 0) > 0
+        for state in states
+    ), states
+    decoded_urls = {str(state.get("src") or "").strip() for state in states}
+    assert "" not in decoded_urls, states
+    return decoded_urls
+
+
+def _unexpected_generated_photo_request_failures(
+    failures: list[str],
+    *,
+    base_url: str,
+    slug: str,
+    decoded_urls: set[str],
+) -> list[str]:
+    expected_origin = urllib.parse.urlsplit(base_url)
+    expected_path = re.compile(
+        rf"^/tours/files/{re.escape(slug)}/generated-reconstruction/photo-[0-9]{{2}}\.png$"
+    )
+    unexpected: list[str] = []
+    for failure in failures:
+        request_url, separator, failure_detail = str(failure or "").partition(" :: ")
+        parsed = urllib.parse.urlsplit(request_url)
+        is_expected_firefox_retry = (
+            separator
+            and failure_detail.strip() == "NS_BINDING_ABORTED"
+            and parsed.scheme == expected_origin.scheme
+            and parsed.netloc == expected_origin.netloc
+            and expected_path.fullmatch(parsed.path) is not None
+            and not parsed.query
+            and not parsed.fragment
+            and request_url in decoded_urls
+        )
+        if not is_expected_firefox_retry:
+            unexpected.append(str(failure or ""))
+    return unexpected
+
+
 def _generated_reconstruction_layout_viewer_state(page: Page) -> dict[str, object]:
     state = page.evaluate(
         """() => {
@@ -221,6 +294,12 @@ def _wait_for_generated_reconstruction_layout_viewer_ready(
     *,
     timeout_ms: int = 20_000,
 ) -> dict[str, object]:
+    # The generated viewer is intentionally lazy. Firefox will correctly leave
+    # the below-the-fold iframe at about:blank until a user reaches the section,
+    # so the proof must exercise that real interaction before awaiting WebGL.
+    frame = page.locator("#layout-viewer-frame")
+    expect(frame).to_be_visible(timeout=timeout_ms)
+    frame.scroll_into_view_if_needed(timeout=timeout_ms)
     page.wait_for_function(
         """() => {
             const shell = document.querySelector('.layout-viewer-shell');
@@ -744,6 +823,10 @@ def _new_context(
             "height": height if height is not None else (932 if mobile else 1100),
         },
         extra_http_headers={"X-EA-Principal-ID": "pq-greenfield-browser"},
+        # Keep route-backed fixtures deterministic across browser engines. WebKit
+        # otherwise lets an installed service worker consume intercepted media
+        # and API requests before Playwright's context routes can observe them.
+        service_workers="block",
     )
 
 
@@ -5895,10 +5978,13 @@ def test_propertyquarry_3d_tour_request_is_user_initiated_in_real_browser(
         noisy_console_errors = [
             message
             for message in console_errors
-            if "decode" in message.lower()
-            or "media" in message.lower()
-            or "refused" in message.lower()
-            or "failed to load resource" in message.lower()
+            if (
+                "decode" in message.lower()
+                or "media" in message.lower()
+                or "refused" in message.lower()
+                or "failed to load resource" in message.lower()
+            )
+            and not _is_expected_vendor_report_only_inline_script_console_error(message)
         ]
         assert not noisy_console_errors, noisy_console_errors
     finally:
@@ -6447,12 +6533,119 @@ def test_propertyquarry_blocked_3d_tour_can_be_retried_from_research_packet_in_r
         noisy_console_errors = [
             message
             for message in console_errors
-            if "decode" in message.lower()
-            or "media" in message.lower()
-            or "refused" in message.lower()
-            or "failed to load resource" in message.lower()
+            if (
+                "decode" in message.lower()
+                or "media" in message.lower()
+                or "refused" in message.lower()
+                or "failed to load resource" in message.lower()
+            )
+            and not _is_expected_vendor_report_only_inline_script_console_error(message)
         ]
         assert not noisy_console_errors, noisy_console_errors
+    finally:
+        context.close()
+
+
+def test_propertyquarry_expired_flat_preview_explains_3d_unavailable_in_real_browser(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    original_get_run_status = ProductService.get_property_search_run_status
+    expired_candidate = {
+        "title": "Expired flat-preview apartment",
+        "summary": "EUR 1,590 · 68 m² · 1020 Wien",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/expired-flat-preview",
+        "source_ref": "willhaben:expired-flat-preview",
+        "preview_image_url": "/test-assets/expired-flat-preview.png",
+        "tour": {
+            "status": "blocked",
+            "reason_key": "listing_expired",
+            "status_detail": "The source listing is no longer available.",
+        },
+        "fit_summary": "Personal fit 78/100 · shortlist · Cached listing preview.",
+        "recommendation": "shortlist",
+        "match_reasons": ["Cached listing preview."],
+        "mismatch_reasons": [],
+        "property_facts": {
+            "price_display": "EUR 1,590",
+            "price_eur": 1590.0,
+            "rooms": 3,
+            "area_m2": 68.0,
+            "postal_name": "1020 Wien",
+            "has_floorplan": False,
+            "has_360": False,
+            "media_urls_json": ["/test-assets/expired-flat-preview.png"],
+        },
+    }
+
+    def _fake_expired_run_status(self, *, principal_id: str, run_id: str):
+        if principal_id == "pq-greenfield-browser" and run_id == "run-expired-flat-preview-browser":
+            return {
+                "run_id": run_id,
+                "principal_id": principal_id,
+                "status_url": f"/app/api/signals/property/search/run/{run_id}",
+                "status": "processed",
+                "progress": 100,
+                "message": "Property scouting run completed.",
+                "summary": {
+                    "sources_total": 1,
+                    "listing_total": 1,
+                    "ranked_candidates": [expired_candidate],
+                    "sources": [
+                        {
+                            "source_label": "Willhaben | Austria | Rent | 1020 Vienna",
+                            "listing_total": 1,
+                            "high_fit_total": 1,
+                            "top_candidates": [expired_candidate],
+                        }
+                    ],
+                },
+                "events": [],
+            }
+        return original_get_run_status(self, principal_id=principal_id, run_id=run_id)
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_expired_run_status)
+
+    context = _new_context(browser, mobile=True, width=390, height=844)
+    _stub_remote_png(
+        context,
+        url_pattern="**/test-assets/expired-flat-preview.png",
+        label="Expired flat-preview apartment",
+    )
+    page: Page = context.new_page()
+    try:
+        response = page.goto(
+            f"{base_url}/app/shortlist?run_id=run-expired-flat-preview-browser&full=1",
+            wait_until="networkidle",
+        )
+        assert response is not None and response.ok
+        row = page.locator("[data-workbench-row]", has_text="Expired flat-preview apartment").first
+        expect(row).to_be_visible()
+        packet_href = str(row.get_attribute("data-candidate-packet-url") or "").strip()
+        assert packet_href
+        packet_url = packet_href if packet_href.startswith("http") else f"{base_url}{packet_href}"
+
+        response = page.goto(packet_url, wait_until="networkidle")
+        assert response is not None and response.ok
+        expect(page.locator("[data-property-research-detail]")).to_be_visible()
+        expect(page.locator("[data-prd-hero-image]")).to_be_visible()
+        expect(page.locator("[data-prd-hero-image]")).to_have_attribute(
+            "src",
+            "/test-assets/expired-flat-preview.png",
+        )
+        visible_text = page.locator("body").inner_text()
+        normalized_visible_text = " ".join(visible_text.split())
+        assert (
+            "The source listing has expired. No floor plan or real 360 source was captured, "
+            "so the cached preview cannot become a 3D tour."
+        ) in normalized_visible_text
+        expect(page.locator("[data-pw-visual-request='tour']")).to_have_count(0)
+        expect(page.get_by_role("button", name=re.compile(r"(?:Request|Retry) 3D tour", re.I))).to_have_count(0)
+        expect(page.get_by_role("link", name="Open 3D tour")).to_have_count(0)
+        assert "listing_expired" not in visible_text
+        _assert_no_horizontal_overflow(page)
     finally:
         context.close()
 
@@ -8797,9 +8990,12 @@ def test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_b
         noisy_console_errors = [
             message
             for message in console_errors
-            if "decode" in message.lower()
-            or "media" in message.lower()
-            or "refused" in message.lower()
+            if (
+                "decode" in message.lower()
+                or "media" in message.lower()
+                or "refused" in message.lower()
+            )
+            and not _is_expected_vendor_report_only_inline_script_console_error(message)
         ]
         assert not noisy_console_errors, f"console={noisy_console_errors}; responses={error_responses}; failed={failed_requests}"
         assert error_responses == []
@@ -8807,9 +9003,20 @@ def test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_b
             200 <= int(response.split(" ", 1)[0]) < 400
             for response in walkthrough_responses
         ), f"walkthrough={walkthrough_responses}; failed={failed_requests}"
-        expected_navigation_abort = f"{base_url}/tours/altbau-u6/walkthrough :: net::ERR_ABORTED"
-        assert failed_requests.count(expected_navigation_abort) <= 1
-        assert [failure for failure in failed_requests if failure != expected_navigation_abort] == []
+        walkthrough_url = f"{base_url}/tours/altbau-u6/walkthrough"
+        expected_navigation_abort_details = {
+            "net::ERR_ABORTED",
+            "NS_BINDING_ABORTED",
+            "Load request cancelled",
+        }
+        navigation_aborts = [
+            failure
+            for failure in failed_requests
+            if failure.partition(" :: ")[0] == walkthrough_url
+            and failure.partition(" :: ")[2] in expected_navigation_abort_details
+        ]
+        assert len(navigation_aborts) <= 1, navigation_aborts
+        assert [failure for failure in failed_requests if failure not in navigation_aborts] == []
     finally:
         context.close()
 
@@ -9332,13 +9539,20 @@ def test_propertyquarry_generated_reconstruction_public_launch_renders_honest_sh
         assert preview_viewer_state["routePosition"] == f"Stop 1 / {len(route_labels)}"
         assert preview_viewer_state["focusReadout"] == route_labels[0]
         assert preview_viewer_state["renderReadout"] == "Ready"
+        decoded_media_urls = _assert_public_tour_reference_media_decoded(page)
         unexpected_console_errors = [
             message
             for message in console_errors
             if "404 (not found)" not in message.lower() and "cross-origin-opener-policy" not in message.lower()
         ]
         assert not _unexpected_console_errors(unexpected_console_errors), unexpected_console_errors
-        assert not failed_requests, failed_requests
+        unexpected_failed_requests = _unexpected_generated_photo_request_failures(
+            failed_requests,
+            base_url=base_url,
+            slug=slug,
+            decoded_urls=decoded_media_urls,
+        )
+        assert not unexpected_failed_requests, unexpected_failed_requests
     finally:
         context.close()
 
@@ -9390,13 +9604,20 @@ def test_propertyquarry_generated_reconstruction_public_launch_is_mobile_safe(
         assert mobile_layout["routeTop"] >= 0, mobile_layout
         assert mobile_layout["referenceTop"] > mobile_layout["routeTop"], mobile_layout
         assert mobile_layout["deckTop"] > mobile_layout["referenceTop"], mobile_layout
+        decoded_media_urls = _assert_public_tour_reference_media_decoded(page)
         unexpected_console_errors = [
             message
             for message in console_errors
             if "404 (not found)" not in message.lower() and "cross-origin-opener-policy" not in message.lower()
         ]
         assert not _unexpected_console_errors(unexpected_console_errors), unexpected_console_errors
-        assert not failed_requests, failed_requests
+        unexpected_failed_requests = _unexpected_generated_photo_request_failures(
+            failed_requests,
+            base_url=base_url,
+            slug=slug,
+            decoded_urls=decoded_media_urls,
+        )
+        assert not unexpected_failed_requests, unexpected_failed_requests
     finally:
         context.close()
 

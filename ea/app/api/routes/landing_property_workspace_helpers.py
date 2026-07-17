@@ -69,6 +69,27 @@ _PROPERTY_SOURCE_360_MARKERS = (
     "3d.laendleanzeiger.at",
     "360.kalandra.at",
 )
+_PROPERTY_VISUAL_REASON_KEYS = frozenset(
+    {
+        "browseract_connector_unconfigured",
+        "crezlo_property_tour_not_configured",
+        "fit_below_threshold",
+        "floorplan_assets_unavailable",
+        "floorplan_missing",
+        "gallery_assets_unavailable",
+        "listing_360_media_missing",
+        "listing_expired",
+        "magicfit_insufficient_credits",
+        "property_tour_delivery_failed",
+        "property_tour_execution_failed",
+        "property_tour_fallback_disabled",
+        "property_tour_rebuild_required",
+        "property_tour_video_delivery_failed",
+        "provider_export_missing",
+        "pure_360_assets_unavailable",
+        "user_requested_visual_generation",
+    }
+)
 _PROPERTY_FLOORPLAN_URL_KEYS = (
     "floorplan_preview_url",
     "floorplan_url",
@@ -113,6 +134,18 @@ _PROPERTY_SOURCE_360_URL_KEYS = (
     "panorama_url",
     "panorama_source",
 )
+
+
+def _property_visual_reason_key(*values: object) -> str:
+    """Return only customer-safe, governed visual-state reason identifiers."""
+
+    for value in values:
+        normalized = str(value or "").strip().lower()
+        if normalized in _PROPERTY_VISUAL_REASON_KEYS:
+            return normalized
+    return ""
+
+
 _PROPERTY_SOURCE_360_CONTAINER_KEYS = (
     "source_virtual_tour_urls",
     "vendor_tour_urls",

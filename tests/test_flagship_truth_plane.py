@@ -19,6 +19,17 @@ README_PATH = ROOT / "README.md"
 RUNBOOK_PATH = ROOT / "RUNBOOK.md"
 CLOSEOUT_PLAN_PATH = ROOT / "FLAGSHIP_CLOSEOUT_PLAN.md"
 VERIFY_RELEASE_ASSETS_PATH = ROOT / "scripts" / "verify_release_assets.sh"
+SMOKE_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "smoke-runtime.yml"
+REAL_BROWSER_TEST_FILE = "tests/e2e/test_propertyquarry_greenfield_browser.py"
+REQUIRED_PACKETS_TOURS_REAL_BROWSER_CASES = (
+    "test_propertyquarry_flagship_operating_loop_in_browser",
+    "test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_browser",
+    "test_propertyquarry_blocked_3d_tour_can_be_retried_from_research_packet_in_real_browser",
+    "test_propertyquarry_research_detail_never_shows_fake_open_tour_for_generated_reconstruction_status",
+    "test_propertyquarry_generated_reconstruction_public_launch_renders_honest_shell_in_real_browser",
+    "test_propertyquarry_generated_reconstruction_public_launch_is_mobile_safe",
+    "test_propertyquarry_expired_flat_preview_explains_3d_unavailable_in_real_browser",
+)
 REQUIRED_JOURNEY_IDS = [
     "public_entry",
     "onboarding_auth",
@@ -55,6 +66,7 @@ def test_flagship_truth_plane_seed_points_at_browser_workflow_proof() -> None:
 
     browser_proof = gate["browser_workflow_proof"]["evidence_sources"]
     evidence_index = {entry["file"]: set(entry["cases"]) for entry in browser_proof}
+    ordered_evidence_index = {entry["file"]: list(entry["cases"]) for entry in browser_proof}
 
     assert gate["browser_workflow_proof"]["proof_target"] == "propertyquarry"
     assert "tests/test_propertyquarry_workspace_redesign.py" in evidence_index
@@ -75,12 +87,22 @@ def test_flagship_truth_plane_seed_points_at_browser_workflow_proof() -> None:
         "test_propertyquarry_greenfield_workspace_is_mobile_usable"
         in evidence_index["tests/e2e/test_propertyquarry_greenfield_browser.py"]
     )
+    assert ordered_evidence_index[REAL_BROWSER_TEST_FILE][4:11] == list(
+        REQUIRED_PACKETS_TOURS_REAL_BROWSER_CASES
+    )
 
     journey_matrix = gate["journey_evidence_matrix"]
     assert journey_matrix["version"] == 1
     assert journey_matrix["readiness_scope"] == "candidate_source_and_browser_proof"
     assert journey_matrix["required_journey_ids"] == REQUIRED_JOURNEY_IDS
     assert [row["journey_id"] for row in journey_matrix["rows"]] == REQUIRED_JOURNEY_IDS
+    packets_tours = next(row for row in journey_matrix["rows"] if row["journey_id"] == "packets_tours")
+    assert packets_tours["evidence_sources"] == [
+        {
+            "file": REAL_BROWSER_TEST_FILE,
+            "cases": list(REQUIRED_PACKETS_TOURS_REAL_BROWSER_CASES),
+        }
+    ]
     mapped_cases: dict[str, set[str]] = {test_file: set() for test_file in evidence_index}
     for row in journey_matrix["rows"]:
         assert row["label"]
@@ -105,6 +127,7 @@ def test_flagship_truth_plane_seed_points_at_browser_workflow_proof() -> None:
     assert any("ranked" in signal.lower() for signal in expected_signals)
     assert any("/app/research/" in signal for signal in expected_signals)
     assert any("mobile" in signal.lower() for signal in expected_signals)
+    assert any("expired flat-preview" in signal.lower() for signal in expected_signals)
 
     canon = gate["ea_product_canon"]
     assert canon["source_root"] == ".codex-design/ea"
@@ -168,6 +191,41 @@ def test_flagship_release_receipt_is_materialized_or_expected_to_materialize() -
     assert [row["journey_id"] for row in matrix["rows"]] == REQUIRED_JOURNEY_IDS
     assert all(row["proof_status"] == "pass" for row in matrix["rows"])
     assert all(row["live_requirement"]["status"] == "not_evaluated" for row in matrix["rows"])
+    packets_tours = next(row for row in matrix["rows"] if row["journey_id"] == "packets_tours")
+    assert packets_tours["evidence_sources"] == [
+        {
+            "file": REAL_BROWSER_TEST_FILE,
+            "cases": list(REQUIRED_PACKETS_TOURS_REAL_BROWSER_CASES),
+            "lane_status": "pass",
+        }
+    ]
+
+    browser_receipt = json.loads(BROWSER_PROOF_PATH.read_text(encoding="utf-8"))
+    expected_browser_cases = next(
+        entry["cases"]
+        for entry in json.loads(GATE_PATH.read_text(encoding="utf-8"))["browser_workflow_proof"]["evidence_sources"]
+        if entry["file"] == REAL_BROWSER_TEST_FILE
+    )
+    browser_lane = browser_receipt["real_browser_e2e_proof"]
+    assert browser_lane["cases"] == expected_browser_cases
+    assert browser_lane["required_case_count"] == len(expected_browser_cases)
+    assert browser_lane["selected_count"] == len(expected_browser_cases)
+    assert browser_lane["executed_count"] == len(expected_browser_cases)
+    assert browser_lane["outcome_counts"] == {
+        "passed": len(expected_browser_cases),
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+    }
+
+
+def test_multi_engine_workflow_selects_the_authoritative_packets_tours_cases() -> None:
+    workflow = SMOKE_WORKFLOW_PATH.read_text(encoding="utf-8")
+
+    for case in REQUIRED_PACKETS_TOURS_REAL_BROWSER_CASES:
+        assert f"{REAL_BROWSER_TEST_FILE}::{case}" in workflow
 
 
 def test_flagship_closeout_claim_is_scoped_to_the_proven_propertyquarry_surface() -> None:
