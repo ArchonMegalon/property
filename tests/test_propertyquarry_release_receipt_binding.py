@@ -6,14 +6,15 @@ from pathlib import Path
 
 import pytest
 
+from scripts import propertyquarry_release_proof_baseline as release_proof_baseline
 from scripts.propertyquarry_release_receipt_binding import ReleaseBindingError
 from scripts.propertyquarry_release_receipt_binding import build_source_binding
 
 
 SEED = Path(".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json")
-SOURCE_CASES = (
-    Path("tests/test_propertyquarry_workspace_redesign.py"),
-    Path("tests/e2e/test_propertyquarry_greenfield_browser.py"),
+SOURCE_CASES = tuple(
+    Path(str(entry["file"]))
+    for entry in release_proof_baseline.approved_evidence_sources()
 )
 
 
@@ -43,18 +44,40 @@ def _initialize_repository(root: Path) -> tuple[list[dict[str, object]], str]:
     _git(root, "init", "-b", "main")
     _git(root, "config", "user.name", "Receipt Test")
     _git(root, "config", "user.email", "receipt@example.test")
-    evidence_sources = [
-        {"file": path.as_posix(), "cases": [f"case_{index}"]}
-        for index, path in enumerate(SOURCE_CASES, start=1)
-    ]
+    evidence_sources = release_proof_baseline.approved_evidence_sources()
+    journey_evidence = release_proof_baseline.approved_journey_evidence()
     _write(
         root,
         SEED,
-        json.dumps({"browser_workflow_proof": {"evidence_sources": evidence_sources}}) + "\n",
+        json.dumps(
+            {
+                "product": "propertyquarry",
+                "surface": "propertyquarry_flagship_release_control",
+                "browser_workflow_proof": {
+                    "proof_target": "propertyquarry",
+                    "evidence_sources": evidence_sources,
+                },
+                "journey_evidence_matrix": {
+                    "required_journey_ids": list(
+                        release_proof_baseline.APPROVED_REQUIRED_JOURNEY_IDS
+                    ),
+                    "rows": [
+                        {
+                            "journey_id": journey_id,
+                            "evidence_sources": journey_evidence[journey_id],
+                        }
+                        for journey_id in release_proof_baseline.APPROVED_REQUIRED_JOURNEY_IDS
+                    ],
+                },
+            }
+        )
+        + "\n",
     )
     for path in SOURCE_CASES:
         _write(root, path, f"# {path.name}\n")
     _write(root, "app.txt", "source-v1\n")
+    _write(root, "ea/app/runtime.py", 'VALUE = "committed"\n')
+    _write(root, "scripts/materialize_ea_browser_workflow_proof.py", "# committed materializer\n")
     return evidence_sources, _commit(root, "initial source")
 
 
@@ -68,7 +91,12 @@ def _binding(root: Path, evidence_sources: list[dict[str, object]]) -> dict[str,
 
 def test_source_binding_walks_consecutive_metadata_only_refresh_commits(tmp_path: Path) -> None:
     evidence_sources, initial = _initialize_repository(tmp_path)
-    assert _binding(tmp_path, evidence_sources)["code_commit"] == initial
+    initial_binding = _binding(tmp_path, evidence_sources)
+    assert initial_binding["code_commit"] == initial
+    assert initial_binding["approved_baseline"] == release_proof_baseline.approved_baseline_binding()
+    assert [entry["path"] for entry in initial_binding["required_test_sources"]] == [
+        path.as_posix() for path in SOURCE_CASES
+    ]
 
     _write(tmp_path, "app.txt", "source-v2\n")
     source_commit = _commit(tmp_path, "change source")
@@ -113,6 +141,75 @@ def test_source_binding_does_not_hide_evidence_changes_in_metadata_commit(tmp_pa
         "rev-parse",
         f"{evidence_commit}:{SOURCE_CASES[0].as_posix()}",
     )
+
+
+def test_source_binding_rejects_self_consistent_weakened_evidence_baseline(tmp_path: Path) -> None:
+    evidence_sources, _initial = _initialize_repository(tmp_path)
+    weakened = json.loads(json.dumps(evidence_sources))
+    weakened[0]["cases"][0] = "test_unapproved_weakened_public_entry"
+
+    with pytest.raises(ReleaseBindingError, match="immutable approved baseline"):
+        _binding(tmp_path, weakened)
+
+
+def test_source_binding_reads_and_rejects_weakened_journey_seed_itself(tmp_path: Path) -> None:
+    _evidence_sources, _initial = _initialize_repository(tmp_path)
+    seed_path = tmp_path / SEED
+    seed = json.loads(seed_path.read_text(encoding="utf-8"))
+    journey_id = "feedback"
+    row = next(
+        item
+        for item in seed["journey_evidence_matrix"]["rows"]
+        if item["journey_id"] == journey_id
+    )
+    approved_case = row["evidence_sources"][0]["cases"][0]
+    weakened_case = "test_unapproved_weakened_feedback"
+    row["evidence_sources"][0]["cases"][0] = weakened_case
+    browser_source = next(
+        item
+        for item in seed["browser_workflow_proof"]["evidence_sources"]
+        if item["file"] == row["evidence_sources"][0]["file"]
+    )
+    browser_source["cases"][browser_source["cases"].index(approved_case)] = weakened_case
+    seed_path.write_text(json.dumps(seed) + "\n", encoding="utf-8")
+    _commit(tmp_path, "weaken release proof seed")
+
+    with pytest.raises(
+        ReleaseBindingError,
+        match="journey feedback evidence sources do not match the immutable approved baseline",
+    ):
+        _binding(tmp_path, seed["browser_workflow_proof"]["evidence_sources"])
+
+
+@pytest.mark.parametrize(
+    "dirty_path",
+    (Path("ea/app/runtime.py"), Path("scripts/materialize_ea_browser_workflow_proof.py")),
+)
+def test_source_binding_rejects_dirty_runtime_or_materializer_candidate(
+    tmp_path: Path,
+    dirty_path: Path,
+) -> None:
+    evidence_sources, _initial = _initialize_repository(tmp_path)
+    _write(tmp_path, dirty_path, "# dirty code actually used by proof execution\n")
+
+    with pytest.raises(
+        ReleaseBindingError,
+        match="release proof candidate has uncommitted non-metadata changes",
+    ):
+        _binding(tmp_path, evidence_sources)
+
+
+def test_source_binding_allows_only_dirty_canonical_release_metadata(tmp_path: Path) -> None:
+    evidence_sources, initial = _initialize_repository(tmp_path)
+    _write(
+        tmp_path,
+        ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json",
+        "generated browser receipt\n",
+    )
+
+    binding = _binding(tmp_path, evidence_sources)
+
+    assert binding["code_commit"] == initial
 
 
 def test_source_binding_rejects_shallow_metadata_history(tmp_path: Path) -> None:

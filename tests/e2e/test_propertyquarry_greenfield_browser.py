@@ -12,6 +12,7 @@ import time
 import urllib.parse
 import urllib.request
 from collections.abc import Iterator
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,7 @@ Server = uvicorn.Server
 
 from app.api.app import create_app
 from app.api.routes import landing as landing_routes
+from app.product import property_evidence_overlays as evidence_overlays
 from app.product.models import HandoffNote
 from app.product.service import ProductService
 from scripts.propertyquarry_playwright_runtime import (
@@ -707,6 +709,9 @@ def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
                                     "rooms": 4,
                                     "area_m2": 92,
                                     "postal_name": "Berlin Tiergarten",
+                                    "floorplan_urls_json": [
+                                        "https://assets.example.test/family-tiergarten-floorplan.png"
+                                    ],
                                 },
                             },
                             {
@@ -6386,6 +6391,9 @@ def test_propertyquarry_blocked_3d_tour_can_be_retried_from_research_packet_in_r
             "area_m2": 73.0,
             "postal_name": "1070 Wien",
             "has_floorplan": True,
+            "floorplan_urls_json": [
+                "https://assets.example.test/retryable-tour-loft-floorplan.png"
+            ],
         },
     }
 
@@ -10849,3 +10857,97 @@ def test_propertyquarry_deterministic_visual_baseline_capture_matrix(
     actual_names = {path.name for path in output_dir.iterdir()}
     expected_names = {f"{case_id}.png" for case_id, _viewport in _PROPERTYQUARRY_VISUAL_CASES}
     assert actual_names == expected_names
+
+
+def test_propertyquarry_research_evidence_states_and_links_render_in_real_browser(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        evidence_overlays,
+        "_now",
+        lambda: datetime(2026, 7, 17, 12, 0, tzinfo=timezone.utc),
+    )
+    property_url = "https://www.immobilienscout24.de/expose/altbau-u6"
+    article_url = "https://news.example.test/article/altbau-u6"
+    rollup_path = tmp_path / "browser-evidence-rollups.json"
+    rollup_path.write_text(
+        json.dumps(
+            {
+                "rows": [
+                    {
+                        "layer_key": "media_attention",
+                        "match": {"property_url": property_url},
+                        "ui_state": "verified",
+                        "summary": "12 local articles in the last 90 days, mostly transport and development.",
+                        "source_name": "Public media index",
+                        "source_url": "https://news.example.test/search/altbau-u6",
+                        "article_url": article_url,
+                        "cache_updated_at": "2026-07-17T00:00:00+00:00",
+                        "source_updated_at": "2026-07-16T00:00:00+00:00",
+                        "uncertainty_label": "topic aggregate",
+                    },
+                    {
+                        "layer_key": "fiber_broadband",
+                        "match": {"property_url": property_url},
+                        "ui_state": "stale",
+                        "summary": "The official broadband grid snapshot is waiting for an update.",
+                        "source_name": "Official broadband grid",
+                        "source_url": "https://broadband.example.test/altbau-u6",
+                        "cache_updated_at": "2025-01-01T00:00:00+00:00",
+                        "source_updated_at": "2024-12-31T00:00:00+00:00",
+                        "uncertainty_label": "area grid",
+                    },
+                ]
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PROPERTYQUARRY_EVIDENCE_OVERLAY_READ_MODEL", "file")
+    monkeypatch.setenv("PROPERTYQUARRY_EVIDENCE_OVERLAY_ROLLUP_PATH", str(rollup_path))
+
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False, width=1440, height=1000)
+    page: Page = context.new_page()
+    try:
+        response = page.goto(
+            f"{base_url}/app/shortlist?run_id=run-42&full=1",
+            wait_until="networkidle",
+        )
+        assert response is not None and response.ok
+        packet_path = page.locator(
+            "[data-workbench-row]",
+            has_text="Altbau near U6",
+        ).first.get_attribute("data-candidate-packet-url")
+        assert packet_path
+        packet_url = packet_path if packet_path.startswith("http") else f"{base_url}{packet_path}"
+
+        response = page.goto(packet_url, wait_until="networkidle")
+        assert response is not None and response.ok
+        detail = page.locator("[data-property-research-detail]")
+        expect(detail).to_be_visible()
+        map_context = detail.locator("details.prd-collapse", has_text="Map and context").first
+        expect(map_context.locator("summary")).to_be_visible()
+        map_context.locator("summary").click()
+        media_row = map_context.locator(".prd-row", has_text="Media attention")
+        expect(media_row).to_contain_text("12 local articles in the last 90 days")
+        expect(media_row).to_contain_text("Ready")
+        broadband_row = map_context.locator(".prd-row", has_text="Fiber and broadband")
+        expect(broadband_row).to_contain_text("official broadband grid snapshot is waiting for an update")
+        expect(broadband_row).to_contain_text("Stale")
+        environmental_row = map_context.locator(".prd-row", has_text="Environmental quality")
+        expect(environmental_row).to_contain_text("Unavailable")
+        expect(environmental_row.locator("a")).to_have_count(0)
+        article_link = media_row.get_by_role(
+            "link",
+            name="Open source for Media attention (opens in new tab)",
+        )
+        expect(article_link).to_be_visible()
+        expect(article_link).to_have_attribute("href", article_url)
+        expect(article_link).to_have_attribute("target", "_blank")
+        expect(article_link).to_have_attribute("rel", "noopener noreferrer")
+    finally:
+        context.close()

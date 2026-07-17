@@ -2,11 +2,17 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import stat
 import subprocess
 from pathlib import Path
 from typing import Any
+
+if __package__:
+    from . import propertyquarry_release_proof_baseline as release_proof_baseline
+else:
+    import propertyquarry_release_proof_baseline as release_proof_baseline
 
 
 CANONICAL_SEED = Path(".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json")
@@ -79,6 +85,44 @@ def git_bytes(root: Path, *args: str) -> bytes:
 
 def git_text(root: Path, *args: str) -> str:
     return git_bytes(root, *args).decode("utf-8", errors="strict").strip()
+
+
+def working_tree_changed_paths(root: Path) -> list[str]:
+    """Return every staged, unstaged, or untracked repository-relative path."""
+    raw_status = git_bytes(
+        root,
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=all",
+        "--ignore-submodules=none",
+    )
+    records = raw_status.split(b"\0")
+    changed: list[str] = []
+    index = 0
+    while index < len(records):
+        record = records[index]
+        index += 1
+        if not record:
+            continue
+        if len(record) < 4 or record[2:3] != b" ":
+            raise ReleaseBindingError("release proof candidate has an unreadable Git worktree status")
+        status = record[:2]
+        path_values = [record[3:]]
+        if b"R" in status or b"C" in status:
+            if index >= len(records) or not records[index]:
+                raise ReleaseBindingError("release proof candidate has an incomplete Git rename status")
+            path_values.append(records[index])
+            index += 1
+        for raw_path in path_values:
+            try:
+                path = _safe_relative_path(raw_path.decode("utf-8", errors="strict")).as_posix()
+            except (UnicodeError, ReleaseBindingError) as exc:
+                raise ReleaseBindingError(
+                    "release proof candidate has a non-canonical Git worktree path"
+                ) from exc
+            changed.append(path)
+    return list(dict.fromkeys(changed))
 
 
 def resolve_commit(root: Path, revision: str = "HEAD") -> str:
@@ -187,26 +231,78 @@ def build_source_binding(
 ) -> dict[str, Any]:
     root = root.resolve(strict=True)
     seed_path = _safe_relative_path(seed_path)
+    changed_paths_in_worktree = working_tree_changed_paths(root)
+    unbound_changes = [
+        path for path in changed_paths_in_worktree if path not in RELEASE_METADATA_ONLY_PATHS
+    ]
+    if unbound_changes:
+        raise ReleaseBindingError(
+            "release proof candidate has uncommitted non-metadata changes: "
+            + ", ".join(unbound_changes)
+        )
     code_commit = (
         resolve_commit(root, code_commit)
         if code_commit is not None
         else resolve_source_binding_commit(root)
     )
+    try:
+        seed_payload = json.loads(canonical_regular_file(root, seed_path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ReleaseBindingError(f"flagship seed is not valid canonical JSON: {exc}") from exc
+    if not isinstance(seed_payload, dict):
+        raise ReleaseBindingError("flagship seed must contain a JSON object")
+    seed_baseline_blockers = release_proof_baseline.approved_seed_baseline_blockers(seed_payload)
+    if seed_baseline_blockers:
+        raise ReleaseBindingError("; ".join(seed_baseline_blockers))
+    seed_proof_contract = seed_payload.get("browser_workflow_proof")
+    declared_evidence_sources = (
+        seed_proof_contract.get("evidence_sources")
+        if isinstance(seed_proof_contract, dict)
+        else None
+    )
+    if evidence_sources != declared_evidence_sources:
+        raise ReleaseBindingError(
+            "supplied browser evidence sources do not match the canonical flagship seed or immutable approved baseline"
+        )
     if not isinstance(evidence_sources, list):
         raise ReleaseBindingError("flagship seed lacks browser evidence source nodes")
+    baseline_blockers = release_proof_baseline.approved_evidence_source_blockers(evidence_sources)
+    if baseline_blockers:
+        raise ReleaseBindingError("; ".join(baseline_blockers))
     source_paths: list[Path] = []
     for entry in evidence_sources:
         if not isinstance(entry, dict):
             raise ReleaseBindingError("flagship seed contains an invalid browser evidence source node")
         source_path = _safe_relative_path(str(entry.get("file") or ""))
-        cases = [str(item).strip() for item in entry.get("cases") or [] if str(item).strip()]
-        if not cases:
+        raw_cases = entry.get("cases")
+        cases = (
+            [item.strip() for item in raw_cases if isinstance(item, str) and item.strip()]
+            if isinstance(raw_cases, list)
+            else []
+        )
+        if (
+            not isinstance(raw_cases, list)
+            or not cases
+            or len(cases) != len(raw_cases)
+            or len(cases) != len(set(cases))
+        ):
             raise ReleaseBindingError(f"browser evidence source lacks required cases: {source_path.as_posix()}")
         source_paths.append(source_path)
-    if len(source_paths) != 2 or len({path.as_posix() for path in source_paths}) != 2:
-        raise ReleaseBindingError("flagship seed must define exactly two distinct browser evidence sources")
+    source_path_values = [path.as_posix() for path in source_paths]
+    source_backed_paths = [path for path in source_path_values if "/e2e/" not in path]
+    real_browser_paths = [path for path in source_path_values if "/e2e/" in path]
+    if (
+        len(source_path_values) != len(set(source_path_values))
+        or not source_backed_paths
+        or len(real_browser_paths) != 1
+    ):
+        raise ReleaseBindingError(
+            "flagship seed must define distinct evidence sources with at least one source-backed lane "
+            "and exactly one real-browser lane"
+        )
     return {
         "version": SOURCE_BINDING_VERSION,
+        "approved_baseline": release_proof_baseline.approved_baseline_binding(),
         "code_commit": code_commit,
         "seed": _commit_bound_file(root, seed_path, code_commit),
         "required_test_sources": [

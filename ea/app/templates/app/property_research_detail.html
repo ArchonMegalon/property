@@ -1497,6 +1497,15 @@
     color: var(--text);
     margin-bottom: 4px;
   }
+  .prd-evidence-link {
+    color: inherit;
+    text-decoration-color: color-mix(in srgb, var(--prd-gold) 58%, transparent);
+    text-underline-offset: 0.18em;
+  }
+  .prd-evidence-link:hover,
+  .prd-evidence-link:focus-visible {
+    text-decoration-color: currentColor;
+  }
   .prd-row small {
     display: block;
     color: var(--text-soft);
@@ -3764,7 +3773,19 @@
             <p class="prd-section-copy">Nearby notes and map layers appear here.</p>
             <div class="object-list">
               {% for row in research_evidence_overlay_rows[:8] %}
-              <div class="prd-row"><div><strong>{{ row.get('title') }}</strong><small>{{ row.get('detail') }}</small></div><span class="prd-tag">{{ prd_tag_label(row.get('tag')) }}</span></div>
+              <div class="prd-row">
+                <div>
+                  <strong>
+                    {% if row.get('href') %}
+                    <a class="prd-evidence-link" href="{{ row.get('href') }}" target="_blank" rel="noopener noreferrer" aria-label="Open source for {{ row.get('title') }} (opens in new tab)">{{ row.get('title') }}</a>
+                    {% else %}
+                    {{ row.get('title') }}
+                    {% endif %}
+                  </strong>
+                  <small>{{ row.get('detail') }}</small>
+                </div>
+                <span class="prd-tag">{{ prd_tag_label(row.get('tag')) }}</span>
+              </div>
               {% endfor %}
               {% for row in research_official_evidence_rows[:4] %}
               <div class="prd-row"><div><strong>{{ row.get('title') }}</strong><small>{{ row.get('detail') }}</small></div><span class="prd-tag">{{ prd_tag_label(row.get('tag')) }}</span></div>

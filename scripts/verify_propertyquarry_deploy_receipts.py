@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 if __package__:
+    from . import propertyquarry_release_proof_baseline as release_proof_baseline
     from .materialize_ea_flagship_release_gate import browser_receipt_pass_blockers
     from .propertyquarry_release_receipt_binding import (
         CANONICAL_BROWSER_RECEIPT,
@@ -30,6 +31,7 @@ if __package__:
     )
     from .verify_generated_release_artifacts_clean import load_release_manifest
 else:
+    import propertyquarry_release_proof_baseline as release_proof_baseline
     from materialize_ea_flagship_release_gate import browser_receipt_pass_blockers
     from propertyquarry_release_receipt_binding import (
         CANONICAL_BROWSER_RECEIPT,
@@ -359,6 +361,10 @@ def verify_deploy_receipts(
         release_claim = {}
     expected_target = str(proof_contract.get("proof_target") or "").strip()
     expected_sources = _evidence_nodes(proof_contract.get("evidence_sources"))
+    issues.extend(
+        f"flagship gate seed release-proof baseline mismatch: {reason}"
+        for reason in release_proof_baseline.approved_seed_baseline_blockers(seed)
+    )
 
     if expected_product != "propertyquarry":
         issues.append(
@@ -375,8 +381,20 @@ def verify_deploy_receipts(
         )
     if expected_version is None or expected_version < 1:
         issues.append("flagship gate seed lacks a valid positive version")
-    if len(expected_sources) != 2 or any(not node["file"] or not node["cases"] for node in expected_sources):
-        issues.append("flagship gate seed must define exactly two complete browser evidence nodes")
+    expected_source_files = [str(node["file"]) for node in expected_sources]
+    source_backed_nodes = [node for node in expected_sources if "/e2e/" not in str(node["file"])]
+    real_browser_nodes = [node for node in expected_sources if "/e2e/" in str(node["file"])]
+    if (
+        not expected_sources
+        or any(not node["file"] or not node["cases"] for node in expected_sources)
+        or len(expected_source_files) != len(set(expected_source_files))
+        or not source_backed_nodes
+        or len(real_browser_nodes) != 1
+    ):
+        issues.append(
+            "flagship gate seed must define complete, unique browser evidence nodes with at least one "
+            "source-backed lane and exactly one real-browser lane"
+        )
 
     try:
         expected_source_binding = build_source_binding(
@@ -466,8 +484,14 @@ def verify_deploy_receipts(
         issues.append("flagship release receipt has the wrong receipt kind")
     if str(flagship.get("generated_by") or "").strip() != "scripts/materialize_ea_flagship_release_gate.py":
         issues.append("flagship release receipt was not produced by the governed materializer")
+    if flagship.get("approved_baseline") != release_proof_baseline.approved_baseline_binding():
+        issues.append("flagship release receipt is not bound to the immutable approved release-proof baseline")
     if flagship.get("release_claim") != seed.get("release_claim"):
         issues.append("flagship release claim does not match the current gate seed")
+    if flagship.get("journey_evidence_matrix") != browser.get("journey_evidence_matrix"):
+        issues.append(
+            "flagship release receipt journey evidence matrix does not exactly match the governed browser proof"
+        )
 
     truth_seed = seed.get("truth_plane")
     if not isinstance(truth_seed, dict):

@@ -155,6 +155,9 @@ class RecoveryReport:
     final_exact_probe: ExactSearchProbe | None = None
     provider_volatility: bool = False
     variant: str = "targeted"
+    summary_diagnostics: dict[str, object] = field(default_factory=dict)
+    source_summaries: list[dict[str, object]] = field(default_factory=list)
+    recent_events: list[dict[str, object]] = field(default_factory=list)
 
 
 def _manifest_path() -> Path:
@@ -839,11 +842,42 @@ def _apply_repair_receipts_to_trace(repair_trace: RepairTrace, summary: dict[str
     ] or repair_trace.resolutions
 
 
-def _write_report(tmp_path: Path, report: RecoveryReport) -> None:
+def _target_recovery_summary_diagnostics(status_payload: dict[str, object]) -> dict[str, object]:
+    summary = dict(status_payload.get("summary") or {}) if isinstance(status_payload.get("summary"), dict) else {}
+    retained = {
+        str(key): value
+        for key, value in summary.items()
+        if str(key).endswith("_total")
+        or str(key)
+        in {
+            "current_source_candidate_total",
+            "current_source_reviewed_total",
+            "current_step",
+            "progress",
+            "repair_receipts",
+            "status",
+        }
+    }
+    retained.setdefault("status", str(status_payload.get("status") or "").strip())
+    return retained
+
+
+def _target_recovery_report_run_key(value: object) -> str:
+    normalized = "".join(
+        character if character.isalnum() or character in {"-", "_"} else "-"
+        for character in str(value or "").strip()
+    ).strip("-_")
+    return normalized[:64] or "run"
+
+
+def _write_report(tmp_path: Path, report: RecoveryReport) -> Path:
     artifact_dir = tmp_path / "target_recovery_reports"
     artifact_dir.mkdir(parents=True, exist_ok=True)
-    target = artifact_dir / f"{report.case_key}.json"
+    attempt_number = max(0, int(report.attempt_index)) + 1
+    run_key = _target_recovery_report_run_key(report.run_id)
+    target = artifact_dir / f"{report.case_key}--attempt-{attempt_number:02d}--{run_key}.json"
     target.write_text(json.dumps(asdict(report), ensure_ascii=False, indent=2), encoding="utf-8")
+    return target
 
 
 def _case_key(case: TargetListing, *, variant: str = "targeted") -> str:
@@ -1408,6 +1442,20 @@ def _target_recovery_scan_cap(case: TargetListing, *, rank_threshold: int) -> in
     return max(1, int(rank_threshold) + 1, int(case.picked_index) + 1)
 
 
+def _target_recovery_adaptive_scan_cap(
+    probe: ExactSearchProbe,
+    *,
+    current_cap: int,
+    adaptive_limit: int,
+) -> int:
+    if probe.state != PROBE_OUT_OF_WINDOW or probe.target_index is None:
+        return current_cap
+    required_cap = int(probe.target_index) + 1
+    if required_cap > max(current_cap, adaptive_limit):
+        return current_cap
+    return max(current_cap, required_cap)
+
+
 def test_target_recovery_scan_cap_covers_rank_window_and_target_position() -> None:
     case = _target_listing_from_payload(
         {
@@ -1428,6 +1476,104 @@ def test_target_recovery_scan_cap_covers_rank_window_and_target_position() -> No
 
     case.picked_index = 7
     assert _target_recovery_scan_cap(case, rank_threshold=5) == 8
+
+
+def test_target_recovery_adaptive_scan_cap_tracks_bounded_provider_reordering() -> None:
+    out_of_window = ExactSearchProbe(
+        state=PROBE_OUT_OF_WINDOW,
+        target_index=12,
+    )
+    assert _target_recovery_adaptive_scan_cap(
+        out_of_window,
+        current_cap=6,
+        adaptive_limit=80,
+    ) == 13
+
+    out_of_window.target_index = 80
+    assert _target_recovery_adaptive_scan_cap(
+        out_of_window,
+        current_cap=6,
+        adaptive_limit=80,
+    ) == 6
+
+    present = ExactSearchProbe(state=PROBE_PRESENT, target_index=12)
+    assert _target_recovery_adaptive_scan_cap(
+        present,
+        current_cap=6,
+        adaptive_limit=80,
+    ) == 6
+
+
+def test_target_recovery_reports_keep_attempts_and_stage_diagnostics(tmp_path: Path) -> None:
+    status_payload: dict[str, object] = {
+        "status": "processed",
+        "summary": {
+            "status": "processed",
+            "raw_listing_total": 30,
+            "filtered_generic_page_total": 1,
+            "ranked_candidates": [{"title": "Unrelated candidate"}],
+            "sources": [
+                {
+                    "source_label": "Willhaben",
+                    "listing_total": 6,
+                    "filtered_generic_page_total": 1,
+                    "provider_cache": {"status": "miss"},
+                }
+            ],
+        },
+        "events": [
+            {
+                "step": "source_generic_page_filter",
+                "message": "Suppressed a generic listing page.",
+            }
+        ],
+    }
+    summary_diagnostics = _target_recovery_summary_diagnostics(status_payload)
+    source_summaries = _source_rows(status_payload)
+    recent_events = [dict(row) for row in list(status_payload.get("events") or []) if isinstance(row, dict)][-20:]
+
+    def _report(*, attempt_index: int, run_id: str) -> RecoveryReport:
+        return RecoveryReport(
+            case_key="at-willhaben-targeted-recovery",
+            principal_id="cf-email:test@example.com",
+            run_id=run_id,
+            watch_url=f"/app/properties?run_id={run_id}",
+            provider="willhaben",
+            target_title="Target listing",
+            target_url="https://www.willhaben.at/iad/immobilien/d/demo-1545890000/",
+            pool_size=30,
+            picked_index=1,
+            run_status="processed",
+            target_found=False,
+            target_match_tier="",
+            target_rank=0,
+            target_ranking=RankingAudit(valid=False, reason="target_missing_from_ranked_candidates"),
+            repair=RepairTrace(),
+            generated_media_counters={},
+            negative_hits=[],
+            ranked_count=1,
+            attempt_index=attempt_index,
+            source_count=1,
+            event_count=1,
+            synthesized_brief={"country_code": "AT"},
+            initial_exact_probe=ExactSearchProbe(state=PROBE_PRESENT),
+            summary_diagnostics=summary_diagnostics,
+            source_summaries=source_summaries,
+            recent_events=recent_events,
+        )
+
+    first_path = _write_report(tmp_path, _report(attempt_index=0, run_id="run/one"))
+    second_path = _write_report(tmp_path, _report(attempt_index=1, run_id="run/two"))
+
+    assert first_path.name == "at-willhaben-targeted-recovery--attempt-01--run-one.json"
+    assert second_path.name == "at-willhaben-targeted-recovery--attempt-02--run-two.json"
+    assert first_path.exists()
+    assert second_path.exists()
+    first_payload = json.loads(first_path.read_text(encoding="utf-8"))
+    assert first_payload["summary_diagnostics"]["filtered_generic_page_total"] == 1
+    assert "ranked_candidates" not in first_payload["summary_diagnostics"]
+    assert first_payload["source_summaries"][0]["provider_cache"]["status"] == "miss"
+    assert first_payload["recent_events"][0]["step"] == "source_generic_page_filter"
 
 
 def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1495,6 +1641,37 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
             eligibility_brief,
             principal_id=principal.principal_id,
         )
+        adaptive_limit = max(
+            scan_cap_per_source,
+            int(
+                os.environ.get(
+                    "PROPERTYQUARRY_TARGET_RECOVERY_ADAPTIVE_SCAN_CAP_MAX"
+                )
+                or 80
+            ),
+        )
+        adaptive_scan_cap = _target_recovery_adaptive_scan_cap(
+            initial_exact_probe,
+            current_cap=scan_cap_per_source,
+            adaptive_limit=adaptive_limit,
+        )
+        if adaptive_scan_cap > scan_cap_per_source:
+            sys.stderr.write(
+                "[target-recovery] provider order moved the exact target; "
+                f"expanding bounded scan cap for {case.provider} from "
+                f"{scan_cap_per_source} to {adaptive_scan_cap}\n"
+            )
+            sys.stderr.flush()
+            scan_cap_per_source = adaptive_scan_cap
+            monkeypatch.setenv(
+                "EA_PROPERTY_SEARCH_SCAN_CAP_PER_SOURCE",
+                str(scan_cap_per_source),
+            )
+            initial_exact_probe = _exact_search_probe(
+                case,
+                eligibility_brief,
+                principal_id=principal.principal_id,
+            )
         assert initial_exact_probe.state == PROBE_PRESENT, (
             f"{case.title}: exact loosest adaptive provider probe gate requires PRESENT before "
             f"starting force_refresh=False recovery runs; {_probe_diagnostics(initial_exact_probe)}"
@@ -1629,6 +1806,13 @@ def test_property_target_recovery_canary_under_tibor(tmp_path: Path, monkeypatch
                 synthesized_brief=brief,
                 initial_exact_probe=initial_exact_probe,
                 variant=variant,
+                summary_diagnostics=_target_recovery_summary_diagnostics(last_status),
+                source_summaries=_source_rows(last_status)[:20],
+                recent_events=[
+                    dict(row)
+                    for row in list(last_status.get("events") or [])
+                    if isinstance(row, dict)
+                ][-20:],
             )
             _write_report(tmp_path, final_report)
 

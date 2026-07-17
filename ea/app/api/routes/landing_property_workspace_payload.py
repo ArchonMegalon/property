@@ -31,6 +31,7 @@ from app.api.routes.landing_property_workspace_helpers import (
     _property_candidate_route_evidence,
     _property_candidate_display_facts,
     _property_candidate_source_virtual_tour_url,
+    _property_decoded_url_path,
     _property_postal_codes_from_text,
     _property_postal_names_from_text,
     _property_counterfactual_rows,
@@ -42,6 +43,7 @@ from app.api.routes.landing_property_workspace_helpers import (
     _property_search_guard_rows,
     _property_search_worker_slots,
     _property_suppression_rows,
+    _property_url_path_is_structurally_safe,
     _property_visual_reason_key,
 )
 from app.product.property_surface_state import (
@@ -59,6 +61,7 @@ from app.product.property_surface_state import (
 )
 from app.product.property_score_methodology import build_property_score_methodology
 from app.product.property_delivery_governance import property_delivery_governance_rows
+from app.product import property_tour_hosting
 from app.product.service import (
     _hosted_property_tour_telegram_preview_image_url_for_style,
     _hosted_property_visual_progress_snapshot,
@@ -70,9 +73,47 @@ from app.product.service import (
     _property_visual_unavailable_detail,
 )
 from app.services.property_billing import normalize_property_plan_key
+from app.services.public_url_safety import public_http_url_is_safe
 
 
 _PROPERTY_PROPERTIES_FIRST_PAINT_RESULT_LIMIT = 24
+
+_PROPERTY_WORKBENCH_CLIENT_IMAGE_EXTENSIONS = (
+    ".avif",
+    ".bmp",
+    ".gif",
+    ".heic",
+    ".jpeg",
+    ".jpg",
+    ".png",
+    ".svg",
+    ".tif",
+    ".tiff",
+    ".webp",
+)
+_PROPERTY_WORKBENCH_CLIENT_VIDEO_EXTENSIONS = (".m4v", ".mov", ".mp4", ".ogv", ".webm")
+_PROPERTY_WORKBENCH_CLIENT_TRACKING_MARKERS = (
+    "/analytics/",
+    "/beacon/",
+    "/collect/",
+    "/events/",
+    "/logevent/",
+    "/tracking/",
+    "360-click",
+    "floorplan-click",
+    "preview-click",
+    "virtual-tour-click",
+    "virtual_tour_click",
+)
+_PROPERTY_WORKBENCH_READY_VISUAL_STATUSES = {
+    "available",
+    "complete",
+    "completed",
+    "created",
+    "existing",
+    "ready",
+    "source",
+}
 
 
 def _candidate_external_listing_url(
@@ -159,11 +200,83 @@ def _property_workbench_lightweight_orientation_preview(value: object) -> dict[s
     return preview
 
 
-def _property_workbench_client_image_url(value: object) -> str:
+def _property_workbench_client_safe_web_or_local_url(value: object) -> str:
     url = str(value or "").strip()
-    if not url or url.lower().startswith("data:"):
+    if (
+        not url
+        or len(url) > 2048
+        or "\\" in url
+        or any(character.isspace() or ord(character) < 32 for character in url)
+    ):
         return ""
-    return _property_workbench_lightweight_image_url(url)
+    if url.startswith("/"):
+        if url.startswith("//"):
+            return ""
+        try:
+            parsed = urllib.parse.urlsplit(url)
+        except ValueError:
+            return ""
+        if (
+            parsed.scheme
+            or parsed.netloc
+            or not _property_url_path_is_structurally_safe(
+                _property_decoded_url_path(parsed)
+            )
+        ):
+            return ""
+        return url
+    return url if public_http_url_is_safe(url) else ""
+
+
+def _property_workbench_client_url_is_tracking(value: object) -> bool:
+    url = str(value or "").strip()
+    decoded_url = url
+    for _index in range(3):
+        next_decoded = urllib.parse.unquote(decoded_url)
+        if next_decoded == decoded_url:
+            break
+        decoded_url = next_decoded
+    lowered_url = decoded_url.lower()
+    if any(marker in lowered_url for marker in _PROPERTY_WORKBENCH_CLIENT_TRACKING_MARKERS):
+        return True
+    try:
+        parsed = urllib.parse.urlsplit(lowered_url)
+    except ValueError:
+        return True
+    host = str(parsed.hostname or "").strip().lower().rstrip(".")
+    path = str(parsed.path or "").strip().lower()
+    return host == "api.willhaben.at" and path.startswith("/restapi/")
+
+
+def _property_workbench_client_asset_url(value: object, *, kind: str) -> str:
+    url = _property_workbench_client_safe_web_or_local_url(value)
+    if not url or _property_workbench_client_url_is_tracking(url):
+        return ""
+    try:
+        path = urllib.parse.unquote(urllib.parse.urlsplit(url).path or "").strip().lower()
+    except ValueError:
+        return ""
+    extensions = (
+        _PROPERTY_WORKBENCH_CLIENT_VIDEO_EXTENSIONS
+        if str(kind or "").strip().lower() == "video"
+        else _PROPERTY_WORKBENCH_CLIENT_IMAGE_EXTENSIONS
+    )
+    return url if path.endswith(extensions) else ""
+
+
+def _property_workbench_client_image_url(value: object) -> str:
+    return _property_workbench_client_asset_url(value, kind="image")
+
+
+def _property_workbench_client_floorplan_url(value: object) -> str:
+    url = str(value or "").strip()
+    if not url:
+        return ""
+    validated = _property_candidate_floorplan_url(
+        {"floorplan_url": url},
+        facts={},
+    )
+    return url if validated == url else ""
 
 
 def _property_workbench_client_image_payload(value: object) -> dict[str, object]:
@@ -175,6 +288,96 @@ def _property_workbench_client_image_payload(value: object) -> dict[str, object]
         if cleaned:
             compact[key] = cleaned
     return compact
+
+
+def _property_workbench_client_provider_viewer_url(value: object) -> str:
+    url = _property_workbench_client_safe_web_or_local_url(value)
+    if not url or _property_workbench_client_url_is_tracking(url):
+        return ""
+    try:
+        parsed = urllib.parse.urlsplit(url)
+    except ValueError:
+        return ""
+    # Marker-only same-origin paths are not provider proof. First-party hosted
+    # tours are admitted above through the verified hosting resolver; source
+    # viewers must name a public provider directly.
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return ""
+    recognized = _property_candidate_source_virtual_tour_url(
+        {"source_virtual_tour_url": url},
+        facts={},
+    )
+    return url if recognized == url else ""
+
+
+def _property_workbench_candidate_ready_tour_url(candidate: dict[str, object]) -> str:
+    raw = dict(candidate or {})
+    raw_tour_payload = dict(raw.get("tour") or {}) if isinstance(raw.get("tour"), dict) else {}
+    recognized_source_url = _property_candidate_source_virtual_tour_url(raw)
+    candidates = (
+        raw.get("tour_url"),
+        raw.get("open_tour_url"),
+        raw.get("verified_tour_url"),
+        raw_tour_payload.get("url"),
+        raw_tour_payload.get("tour_url"),
+        raw_tour_payload.get("embed_url"),
+        raw_tour_payload.get("open_tour_url"),
+        raw_tour_payload.get("provider_url"),
+        recognized_source_url,
+    )
+    seen: set[str] = set()
+    for candidate_url in candidates:
+        normalized_candidate_url = str(candidate_url or "").strip()
+        if not normalized_candidate_url or normalized_candidate_url in seen:
+            continue
+        seen.add(normalized_candidate_url)
+        ready_tour_url = _property_visual_ready_tour_url(
+            tour_url=normalized_candidate_url,
+            open_tour_url=normalized_candidate_url,
+        )
+        safe_ready_tour_url = _property_workbench_client_safe_web_or_local_url(ready_tour_url)
+        if not safe_ready_tour_url or _property_workbench_client_url_is_tracking(safe_ready_tour_url):
+            continue
+        verified_hosted_url = str(
+            property_tour_hosting._hosted_property_tour_verified_open_url(safe_ready_tour_url)
+            or property_tour_hosting._hosted_property_tour_first_party_open_url(safe_ready_tour_url)
+            or ""
+        ).strip()
+        safe_hosted_url = _property_workbench_client_safe_web_or_local_url(verified_hosted_url)
+        if safe_hosted_url and not _property_workbench_client_url_is_tracking(safe_hosted_url):
+            return safe_hosted_url
+        safe_provider_url = _property_workbench_client_provider_viewer_url(safe_ready_tour_url)
+        if safe_provider_url:
+            return safe_provider_url
+    return ""
+
+
+def _property_workbench_candidate_flythrough_url(
+    candidate: dict[str, object],
+    *,
+    ready_tour_url: str,
+) -> str:
+    raw = dict(candidate or {})
+    raw_flythrough = dict(raw.get("flythrough") or {}) if isinstance(raw.get("flythrough"), dict) else {}
+    raw_url = (
+        raw.get("flythrough_url")
+        or raw_flythrough.get("url")
+        or raw_flythrough.get("embed_url")
+        or raw_flythrough.get("provider_url")
+    )
+    direct_asset_url = _property_workbench_client_asset_url(raw_url, kind="video")
+    if direct_asset_url:
+        return direct_asset_url
+    if not ready_tour_url:
+        return ""
+    resolved_url = property_tour_hosting._hosted_property_tour_walkthrough_open_url(
+        ready_tour_url,
+        raw_url,
+    )
+    resolved_url = _property_workbench_client_safe_web_or_local_url(resolved_url)
+    if not resolved_url or _property_workbench_client_url_is_tracking(resolved_url):
+        return ""
+    return resolved_url
 
 
 def _property_workbench_candidate_diorama_preview_url(candidate: dict[str, object]) -> str:
@@ -318,6 +521,7 @@ def _property_workbench_client_evidence_url(value: object) -> str:
         or not parsed.hostname
         or parsed.username is not None
         or parsed.password is not None
+        or not public_http_url_is_safe(url)
     ):
         return ""
     return url
@@ -409,17 +613,16 @@ def _property_workbench_client_tour_payload(
     *,
     fallback_reason: object = "",
     request_kind: str = "tour",
+    validated_url: str = "",
+    validated_provider_url: str = "",
 ) -> dict[str, object]:
     if not isinstance(value, dict):
         return {}
     raw = dict(value)
-    compact = {
+    compact: dict[str, object] = {
         key: raw.get(key)
         for key in (
             "status",
-            "url",
-            "embed_url",
-            "provider_url",
             "provider",
             "progress_pct",
             "provider_key",
@@ -436,6 +639,20 @@ def _property_workbench_client_tour_payload(
         compact["reason_key"] = reason_key
     normalized_kind = "flythrough" if str(request_kind or "").strip().lower() == "flythrough" else "tour"
     status = str(raw.get("status") or "").strip().lower()
+    safe_validated_url = _property_workbench_client_safe_web_or_local_url(validated_url)
+    safe_provider_url = (
+        _property_workbench_client_provider_viewer_url(validated_provider_url)
+        if normalized_kind == "tour"
+        else ""
+    )
+    if safe_validated_url and not _property_workbench_client_url_is_tracking(safe_validated_url):
+        compact["url"] = safe_validated_url
+        compact["embed_url"] = safe_validated_url
+    if safe_provider_url:
+        compact["provider_url"] = safe_provider_url
+    if status in _PROPERTY_WORKBENCH_READY_VISUAL_STATUSES and not (safe_validated_url or safe_provider_url):
+        status = "unavailable"
+        compact["status"] = status
     safe_labels = {
         "3D tour available",
         "3D tour queued",
@@ -553,14 +770,46 @@ def _property_workbench_client_candidate_payload(
     facts = _property_workbench_client_facts(raw.get("property_facts"))
     raw_facts = dict(raw.get("property_facts") or {}) if isinstance(raw.get("property_facts"), dict) else {}
     if preserve_preview_media_facts:
-        for key in ("floorplan_urls_json", "media_urls_json"):
-            value = raw_facts.get(key)
-            if value in (None, "", [], {}):
-                value = raw.get(key)
-            if isinstance(value, tuple):
-                value = list(value)
-            if isinstance(value, list) and value:
-                facts[key] = [str(item or "").strip() for item in value if str(item or "").strip()]
+        raw_floorplans = raw_facts.get("floorplan_urls_json")
+        if raw_floorplans in (None, "", [], {}):
+            raw_floorplans = raw.get("floorplan_urls_json")
+        if isinstance(raw_floorplans, tuple):
+            raw_floorplans = list(raw_floorplans)
+        if not isinstance(raw_floorplans, list):
+            raw_floorplans = []
+        safe_floorplans = list(
+            dict.fromkeys(
+                url
+                for url in (
+                    _property_workbench_client_floorplan_url(item)
+                    for item in list(raw_floorplans or [])[:24]
+                )
+                if url
+            )
+        )
+        if safe_floorplans:
+            facts["floorplan_urls_json"] = safe_floorplans
+
+        raw_media = raw_facts.get("media_urls_json")
+        if raw_media in (None, "", [], {}):
+            raw_media = raw.get("media_urls_json")
+        if isinstance(raw_media, tuple):
+            raw_media = list(raw_media)
+        if not isinstance(raw_media, list):
+            raw_media = []
+        safe_media = list(
+            dict.fromkeys(
+                url
+                for url in (
+                    _property_workbench_client_image_url(item)
+                    for item in list(raw_media or [])[:24]
+                )
+                if url
+            )
+        )
+        if safe_media:
+            facts["media_urls_json"] = safe_media
+    derived_facts = _property_candidate_display_facts(raw)
     compact: dict[str, object] = {
         key: raw.get(key)
         for key in (
@@ -580,35 +829,42 @@ def _property_workbench_client_candidate_payload(
             "personal_fit_score",
             "fit_label",
             "fit_summary",
+            "budget_revalidated",
+            "revalidated_from_old_brief",
             "packet_url",
             "property_url",
             "source_url",
             "listing_url",
             "map_url",
-            "floorplan_url",
-            "source_virtual_tour_url",
-            "vendor_tour_url",
-            "tour_url",
-            "verified_tour_url",
-            "open_tour_url",
             "tour_status",
             "tour_provider",
-            "flythrough_url",
             "flythrough_status",
-            "diorama_preview_url",
         )
         if raw.get(key) not in (None, "", [], {})
     }
-    if "source_virtual_tour_url" in raw and "source_virtual_tour_url" not in compact:
-        explicit_source_virtual_tour_url = str(raw.get("source_virtual_tour_url") or "").strip()
-        if explicit_source_virtual_tour_url:
-            compact["source_virtual_tour_url"] = explicit_source_virtual_tour_url
-    derived_floorplan_url = _property_candidate_floorplan_url(raw, facts=facts)
-    if derived_floorplan_url and "floorplan_url" not in compact:
+    derived_floorplan_url = _property_candidate_floorplan_url(raw, facts=derived_facts)
+    if derived_floorplan_url:
         compact["floorplan_url"] = derived_floorplan_url
-    derived_source_virtual_tour_url = _property_candidate_source_virtual_tour_url(raw, facts=facts)
-    if derived_source_virtual_tour_url and "source_virtual_tour_url" not in compact:
+    derived_source_virtual_tour_url = _property_workbench_client_provider_viewer_url(
+        _property_candidate_source_virtual_tour_url(raw, facts=derived_facts)
+    )
+    if derived_source_virtual_tour_url:
         compact["source_virtual_tour_url"] = derived_source_virtual_tour_url
+    ready_tour_url = _property_workbench_candidate_ready_tour_url(raw)
+    if ready_tour_url:
+        compact["tour_url"] = ready_tour_url
+        compact["verified_tour_url"] = ready_tour_url
+        compact["open_tour_url"] = ready_tour_url
+    elif str(compact.get("tour_status") or "").strip().lower() in _PROPERTY_WORKBENCH_READY_VISUAL_STATUSES:
+        compact["tour_status"] = "unavailable"
+    flythrough_url = _property_workbench_candidate_flythrough_url(
+        raw,
+        ready_tour_url=ready_tour_url,
+    )
+    if flythrough_url:
+        compact["flythrough_url"] = flythrough_url
+    elif str(compact.get("flythrough_status") or "").strip().lower() in _PROPERTY_WORKBENCH_READY_VISUAL_STATUSES:
+        compact["flythrough_status"] = "unavailable"
     preview_image_url = _property_workbench_client_image_url(raw.get("preview_image_url"))
     if preview_image_url:
         compact["preview_image_url"] = preview_image_url
@@ -624,6 +880,12 @@ def _property_workbench_client_candidate_payload(
     tour_payload = _property_workbench_client_tour_payload(
         raw.get("tour"),
         fallback_reason=raw.get("blocked_reason") or raw.get("tour_reason"),
+        validated_url=ready_tour_url,
+        validated_provider_url=(
+            dict(raw.get("tour") or {}).get("provider_url")
+            if isinstance(raw.get("tour"), dict)
+            else ""
+        ),
     )
     if tour_payload:
         compact["tour"] = tour_payload
@@ -631,6 +893,7 @@ def _property_workbench_client_candidate_payload(
         raw.get("flythrough"),
         fallback_reason=raw.get("flythrough_reason"),
         request_kind="flythrough",
+        validated_url=flythrough_url,
     )
     if flythrough_payload:
         compact["flythrough"] = flythrough_payload

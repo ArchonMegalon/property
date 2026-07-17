@@ -8315,6 +8315,95 @@ def _property_austria_numeric_fact(facts: dict[str, object] | None, *keys: str) 
     return 0
 
 
+def _property_positive_availability_fact(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        try:
+            numeric_value = float(value)
+        except (OverflowError, TypeError, ValueError):
+            return False
+        return math.isfinite(numeric_value) and numeric_value > 0.0
+    return str(value or "").strip().casefold() in {
+        "1",
+        "available",
+        "confirmed",
+        "fiber",
+        "fibre",
+        "high_speed",
+        "yes",
+        "true",
+    }
+
+
+def _property_normalized_risk_level(
+    *values: object,
+    numeric_mode: str = "binary",
+) -> str:
+    levels: set[str] = set()
+    saw_clear = False
+    for value in values:
+        if value in (None, ""):
+            continue
+        if isinstance(value, bool):
+            if value:
+                levels.add("high")
+            else:
+                saw_clear = True
+            continue
+        if isinstance(value, (int, float)):
+            try:
+                numeric_value = float(value)
+            except (OverflowError, TypeError, ValueError):
+                continue
+            if not math.isfinite(numeric_value) or numeric_value < 0.0:
+                continue
+            if numeric_mode == "noise_db":
+                if 20.0 <= numeric_value < 45.0:
+                    levels.add("low")
+                elif 45.0 <= numeric_value < 60.0:
+                    levels.add("moderate")
+                elif 60.0 <= numeric_value <= 150.0:
+                    levels.add("high")
+                continue
+            if numeric_value == 1.0:
+                levels.add("high")
+            elif numeric_value == 0.0:
+                saw_clear = True
+            continue
+        normalized = str(value).strip().casefold().replace("-", "_").replace(" ", "_")
+        if numeric_mode == "noise_db":
+            try:
+                numeric_value = float(normalized)
+            except (TypeError, ValueError):
+                numeric_value = math.nan
+            if math.isfinite(numeric_value):
+                if 20.0 <= numeric_value < 45.0:
+                    levels.add("low")
+                elif 45.0 <= numeric_value < 60.0:
+                    levels.add("moderate")
+                elif 60.0 <= numeric_value <= 150.0:
+                    levels.add("high")
+                continue
+        if normalized in {"1", "true", "yes", "flagged", "risk"}:
+            levels.add("high")
+        elif normalized in {"0", "false", "no", "none", "clear"}:
+            saw_clear = True
+        elif normalized in {"very_high", "high", "severe", "extreme"}:
+            levels.add("high")
+        elif normalized in {"moderate", "medium", "elevated"}:
+            levels.add("moderate")
+        elif normalized in {"very_low", "low", "quiet", "minimal", "cool", "good"}:
+            levels.add("low")
+    if "high" in levels:
+        return "high"
+    if "moderate" in levels:
+        return "moderate"
+    if "low" in levels:
+        return "low"
+    return "clear" if saw_clear else ""
+
+
 def _property_austria_preference_score_adjustment(
     *,
     preferences: dict[str, object] | None,
@@ -8336,12 +8425,6 @@ def _property_austria_preference_score_adjustment(
         )
         if part
     ).lower()
-    official_sources = list(dict(facts.get("official_risk_evidence") or {}).get("sources") or []) if isinstance(facts.get("official_risk_evidence"), dict) else []
-    official_risk_keys = {
-        str(row.get("risk_key") or "").strip().lower()
-        for row in official_sources
-        if isinstance(row, dict) and str(row.get("risk_key") or "").strip()
-    }
     district_text = " ".join(
         str(facts.get(key) or "").strip().lower()
         for key in ("postal_code", "postal_name", "district", "location", "street_address")
@@ -8418,7 +8501,7 @@ def _property_austria_preference_score_adjustment(
             notes.append("application window unknown")
 
     if school_requested:
-        has_school_evidence = bool(property_school_context_summary(facts)) or "school_evidence" in official_risk_keys
+        has_school_evidence = bool(property_school_context_summary(facts))
         if has_school_evidence:
             adjustment += 3.0
             notes.append("school evidence attached")
@@ -8434,12 +8517,28 @@ def _property_austria_preference_score_adjustment(
                 notes.append("ganztag not confirmed")
 
     if bool(payload.get("avoid_noise_risk_area")):
-        if bool(facts.get("noise_risk")):
+        categorical_noise_risk_level = _property_normalized_risk_level(
+            facts.get("noise_risk"),
+            facts.get("noise_risk_level"),
+            facts.get("noise_exposure_level"),
+        )
+        traffic_noise_risk_level = _property_normalized_risk_level(
+            facts.get("traffic_noise_level"),
+            numeric_mode="noise_db",
+        )
+        noise_risk_level = _property_normalized_risk_level(
+            categorical_noise_risk_level,
+            traffic_noise_risk_level,
+        )
+        if noise_risk_level == "high":
             adjustment -= 10.0
             notes.append("noise risk flagged")
-        elif "noise_risk" in official_risk_keys:
+        elif noise_risk_level == "moderate":
+            adjustment -= 5.0
+            notes.append("moderate noise exposure")
+        elif noise_risk_level in {"low", "clear"}:
             adjustment += 2.0
-            notes.append("noise evidence attached")
+            notes.append("low noise exposure confirmed")
         else:
             adjustment -= 3.0
             notes.append("noise evidence missing")
@@ -8449,9 +8548,31 @@ def _property_austria_preference_score_adjustment(
                 notes.append("layout-derived quiet signal")
 
     if bool(payload.get("require_high_speed_internet")):
-        if "broadband_availability" in official_risk_keys:
+        broadband_speed_mbps = next(
+            (
+                speed
+                for speed in (
+                    _float_or_none(facts.get("broadband_download_mbps")),
+                    _float_or_none(facts.get("internet_download_mbps")),
+                    _float_or_none(facts.get("max_download_mbps")),
+                )
+                if isinstance(speed, float) and speed > 0.0
+            ),
+            None,
+        )
+        broadband_available = any(
+            _property_positive_availability_fact(facts.get(key))
+            for key in (
+                "fiber_available",
+                "fibre_available",
+                "high_speed_internet_available",
+                "broadband_available",
+                "gigabit_available",
+            )
+        ) or (isinstance(broadband_speed_mbps, float) and broadband_speed_mbps >= 100.0)
+        if broadband_available:
             adjustment += 3.0
-            notes.append("broadband evidence attached")
+            notes.append("high-speed internet confirmed")
         else:
             adjustment -= 5.0
             notes.append("broadband evidence missing")
@@ -8482,7 +8603,11 @@ def _property_austria_preference_score_adjustment(
     if bool(payload.get("prefer_heat_resilient_home")):
         heat_score = 0.0
         heat_notes: list[str] = []
-        heat_risk_level = str(facts.get("heat_resilience_risk") or facts.get("urban_heat_risk") or facts.get("summer_heat_risk") or "").strip().lower()
+        heat_risk_level = _property_normalized_risk_level(
+            facts.get("heat_resilience_risk"),
+            facts.get("urban_heat_risk"),
+            facts.get("summer_heat_risk"),
+        )
         cooling_corridor_signal = str(facts.get("cooling_corridor_signal") or "").strip().lower()
         cooling_corridor_summary = str(facts.get("cooling_corridor_summary") or "").strip()
         flowing_water_distance_m = _float_or_none(facts.get("nearest_flowing_water_m"))
@@ -8509,9 +8634,6 @@ def _property_austria_preference_score_adjustment(
                 heat_notes.append(cooling_corridor_summary)
             elif isinstance(flowing_water_distance_m, float) and flowing_water_distance_m > 0.0:
                 heat_notes.append(f"Nearby flowing water (about {int(round(flowing_water_distance_m))} m) can soften summer heat.")
-        elif "cooling_corridor" in official_risk_keys:
-            heat_score += 1.0
-            heat_notes.append("cooling-corridor evidence attached")
         if has_attic_apartment_signal:
             heat_score -= 7.0
             heat_notes.append("top-floor heat risk")
@@ -8522,16 +8644,16 @@ def _property_austria_preference_score_adjustment(
         if any(marker in district_text for marker in inner_vienna_markers) or any(marker in district_text for marker in ("innere stadt", "leopoldstadt", "landstraße", "landstrasse", "wieden", "margareten", "mariahilf", "neubau", "josefstadt", "alsergrund")):
             heat_score -= 3.0
             heat_notes.append("inner-city Vienna heat-island heuristic")
-        if heat_risk_level in {"high", "very_high", "severe"} or bool(facts.get("heat_resilience_risk")):
+        if heat_risk_level == "high":
             heat_score -= 6.0
             heat_notes.append("official or extracted heat risk flagged")
-        elif heat_risk_level in {"low", "cool", "good"}:
+        elif heat_risk_level == "moderate":
+            heat_score -= 2.0
+            heat_notes.append("moderate heat-risk signal")
+        elif heat_risk_level in {"low", "clear"}:
             heat_score += 3.0
             heat_notes.append("low heat-risk signal")
-        if "heat_resilience" in official_risk_keys:
-            heat_score += 1.0
-            heat_notes.append("official climate evidence lane attached")
-        else:
+        if not heat_risk_level:
             heat_score -= 2.0
             heat_notes.append("official heat evidence missing")
         if heat_score:
@@ -9683,6 +9805,34 @@ def _property_candidate_listing_mode_mismatch(
     return False
 
 
+def _property_normalized_safe_detail_path(value: object) -> str:
+    candidate = str(value or "").strip()
+    if not candidate:
+        return ""
+    for _ in range(4):
+        try:
+            decoded = urllib.parse.unquote(candidate, errors="strict")
+        except (UnicodeDecodeError, ValueError):
+            return ""
+        if decoded == candidate:
+            break
+        candidate = decoded
+    else:
+        return ""
+    if (
+        "%" in candidate
+        or "\\" in candidate
+        or any(character in candidate for character in "?#")
+        or any(ord(character) < 0x21 or ord(character) == 0x7F for character in candidate)
+    ):
+        return ""
+    for segment in candidate.split("/"):
+        path_component = segment.split(";", 1)[0].strip()
+        if path_component in {".", ".."}:
+            return ""
+    return candidate
+
+
 def _property_candidate_is_generic_listing_page(
     *,
     property_url: str,
@@ -9701,8 +9851,12 @@ def _property_candidate_is_generic_listing_page(
         if part
     ).lower()
     url = str(property_url or "").strip().lower()
-    parsed_url = urllib.parse.urlparse(url)
+    try:
+        parsed_url = urllib.parse.urlparse(url)
+    except ValueError:
+        return True
     path = parsed_url.path.rstrip("/")
+    safe_detail_path = _property_normalized_safe_detail_path(path)
     query = str(parsed_url.query or "").lower()
     concrete_signals = any(
         str(facts.get(key) or "").strip()
@@ -9748,7 +9902,22 @@ def _property_candidate_is_generic_listing_page(
         or re.search(r"\b\d+(?:[,.]\d+)?\s*(?:zimmer|room|rooms)\b", title_text)
     )
     title_has_concrete_listing_signal = bool(title_has_postal_signal and title_has_home_shape_signal)
-    if search_result_count_marker and not has_identity_or_address_signal and not title_has_concrete_listing_signal:
+    parsed_hostname = str(parsed_url.hostname or "").strip().lower().rstrip(".")
+    concrete_willhaben_detail_url = bool(
+        parsed_url.scheme in {"http", "https"}
+        and parsed_url.username is None
+        and parsed_url.password is None
+        and (parsed_hostname == "willhaben.at" or parsed_hostname.endswith(".willhaben.at"))
+        and bool(safe_detail_path)
+        and re.fullmatch(r"/iad/immobilien/d/(?:[^/]+/)+[^/]+-\d{6,}", safe_detail_path)
+        and _property_scout_is_supported_listing_url(url)
+    )
+    if (
+        search_result_count_marker
+        and not has_identity_or_address_signal
+        and not title_has_concrete_listing_signal
+        and not concrete_willhaben_detail_url
+    ):
         return True
     if (
         any(marker in path for marker in ("/d/", "/expose/", "/detail/", "/objekt/", "/object/"))
@@ -11811,9 +11980,10 @@ def _float_or_none(value: object) -> float | None:
     if value in (None, ""):
         return None
     try:
-        return float(value)
-    except (TypeError, ValueError):
+        parsed = float(value)
+    except (OverflowError, TypeError, ValueError):
         return None
+    return parsed if math.isfinite(parsed) else None
 
 
 def _google_coordinate(value: object) -> float | None:

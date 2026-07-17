@@ -1108,16 +1108,33 @@ def _propertyquarry_normalize_public_tour_candidate(
         elif "embed_url" not in tour_payload:
             tour_payload["embed_url"] = ready_tour_url
         candidate_row["tour"] = tour_payload
-    elif property_tour_hosting._is_branded_public_tour_url(tour_url):
-        if tour_url and not str(candidate_row.get("generated_reconstruction_url") or "").strip():
-            candidate_row["generated_reconstruction_url"] = tour_url
+    else:
+        branded_tour_url = next(
+            (
+                value
+                for value in (tour_url, open_tour_url)
+                if property_tour_hosting._is_branded_public_tour_url(value)
+            ),
+            "",
+        )
+        if not branded_tour_url:
+            return candidate_row
+        disabled_fallback_tour = bool(
+            _property_hosted_tour_disabled_fallback(branded_tour_url)
+        )
+        if not str(candidate_row.get("generated_reconstruction_url") or "").strip():
+            candidate_row["generated_reconstruction_url"] = branded_tour_url
         candidate_row["tour_url"] = ""
         candidate_row["verified_tour_url"] = ""
         candidate_row["open_tour_url"] = ""
+        if disabled_fallback_tour:
+            candidate_row["tour_status"] = ""
         if tour_payload:
-            tour_payload["url"] = ""
-            if "embed_url" in tour_payload:
-                tour_payload["embed_url"] = ""
+            for key in ("url", "tour_url", "open_tour_url", "embed_url"):
+                if key in tour_payload:
+                    tour_payload[key] = ""
+            if disabled_fallback_tour:
+                tour_payload["status"] = ""
             candidate_row["tour"] = tour_payload
     return candidate_row
 
@@ -7349,7 +7366,12 @@ def property_research_packet(
     generated_reconstruction_ready = bool(research_media.get("generated_reconstruction_ready"))
     generated_reconstruction_action_href = str(research_media.get("generated_reconstruction_href") or "").strip()
     tour_action_href = str(research_media.get("primary_href") or "").strip() if hosted_tour_ready else ""
-    tour_status = str(research_media.get("tour_status") or candidate.get("tour_status") or "").strip().lower()
+    tour_status_value = (
+        research_media.get("tour_status")
+        if "tour_status" in research_media
+        else candidate.get("tour_status")
+    )
+    tour_status = str(tour_status_value or "").strip().lower()
     tour_reason = str(research_media.get("tour_reason_key") or "").strip()
     tour_requestable = bool(research_media.get("tour_requestable"))
     flythrough_status = str(candidate.get("flythrough_status") or "").strip().lower()

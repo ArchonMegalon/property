@@ -9,12 +9,14 @@ from pathlib import Path
 from typing import Any
 
 if __package__:
+    from . import propertyquarry_release_proof_baseline as release_proof_baseline
     from .propertyquarry_release_receipt_binding import (
         ReleaseBindingError,
         build_source_binding,
         file_digest_binding,
     )
 else:
+    import propertyquarry_release_proof_baseline as release_proof_baseline
     from propertyquarry_release_receipt_binding import (
         ReleaseBindingError,
         build_source_binding,
@@ -37,26 +39,9 @@ PYTEST_OUTCOME_RE = re.compile(
     r"\b(?P<count>\d+)\s+(?P<outcome>passed|failed|skipped|errors?|xfailed|xpassed)\b",
     re.IGNORECASE,
 )
-REQUIRED_JOURNEY_IDS = (
-    "public_entry",
-    "onboarding_auth",
-    "search_ranking",
-    "shortlist_research_revisit",
-    "account_pricing_privacy_recovery",
-    "packets_tours",
-    "feedback",
-    "notifications",
-)
-REAL_BROWSER_TEST_FILE = "tests/e2e/test_propertyquarry_greenfield_browser.py"
-REQUIRED_PACKETS_TOURS_REAL_BROWSER_CASES = (
-    "test_propertyquarry_flagship_operating_loop_in_browser",
-    "test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_browser",
-    "test_propertyquarry_blocked_3d_tour_can_be_retried_from_research_packet_in_real_browser",
-    "test_propertyquarry_research_detail_never_shows_fake_open_tour_for_generated_reconstruction_status",
-    "test_propertyquarry_generated_reconstruction_public_launch_renders_honest_shell_in_real_browser",
-    "test_propertyquarry_generated_reconstruction_public_launch_is_mobile_safe",
-    "test_propertyquarry_expired_flat_preview_explains_3d_unavailable_in_real_browser",
-)
+REQUIRED_JOURNEY_IDS = release_proof_baseline.APPROVED_REQUIRED_JOURNEY_IDS
+REAL_BROWSER_TEST_FILE = release_proof_baseline.REAL_BROWSER_TEST_FILE
+REQUIRED_PACKETS_TOURS_REAL_BROWSER_CASES = release_proof_baseline.PACKETS_TOURS_REAL_BROWSER_CASES
 
 
 def _utc_now() -> str:
@@ -71,7 +56,7 @@ def _normalize_release_value(value: Any) -> Any:
     if isinstance(value, dict):
         normalized: dict[str, Any] = {}
         for key, item in value.items():
-            if key in {"generated_at", "created_at", "mtime_utc", "size_bytes", "sha256", "duration_seconds", "git_head"}:
+            if key in {"generated_at", "created_at", "mtime_utc", "size_bytes", "duration_seconds", "git_head"}:
                 continue
             if key.endswith("_git_head"):
                 continue
@@ -288,14 +273,14 @@ def _journey_matrix_pass_blockers(receipt: dict[str, Any], seed: dict[str, Any])
 
 
 def browser_receipt_pass_blockers(receipt: dict[str, Any], seed: dict[str, Any]) -> list[str]:
-    blockers: list[str] = []
+    blockers: list[str] = list(release_proof_baseline.approved_seed_baseline_blockers(seed))
     proof_contract = seed.get("browser_workflow_proof")
     if not isinstance(proof_contract, dict):
         proof_contract = {}
     expected_target = str(proof_contract.get("proof_target") or "").strip()
     expected_product = str(seed.get("product") or "").strip()
     if not expected_target or not expected_product:
-        return ["current gate seed lacks a product or browser proof target"]
+        return list(dict.fromkeys([*blockers, "current gate seed lacks a product or browser proof target"]))
     if str(receipt.get("contract_name") or "").strip() != "ea.browser_workflow_proof":
         blockers.append("published pass has the wrong browser proof contract")
     if str(receipt.get("kind") or "").strip() != "proof_receipt":
@@ -310,6 +295,8 @@ def browser_receipt_pass_blockers(receipt: dict[str, Any], seed: dict[str, Any])
         blockers.append("published pass has the wrong browser proof version")
     if str(receipt.get("generated_by") or "").strip() != "scripts/materialize_ea_browser_workflow_proof.py":
         blockers.append("published pass was not produced by the governed browser proof materializer")
+    if receipt.get("approved_baseline") != release_proof_baseline.approved_baseline_binding():
+        blockers.append("published pass is not bound to the immutable approved release-proof baseline")
     if str(receipt.get("product") or "").strip() != expected_product:
         blockers.append(f"published pass targets product {receipt.get('product') or 'missing'}, expected {expected_product}")
     if str(receipt.get("proof_target") or "").strip() != expected_target:
@@ -349,26 +336,72 @@ def browser_receipt_pass_blockers(receipt: dict[str, Any], seed: dict[str, Any])
         blockers.append("published pass still reports browser limitations: " + "; ".join(receipt_limitations))
     blockers.extend(_journey_matrix_pass_blockers(receipt, seed))
 
-    sources = [entry for entry in proof_contract.get("evidence_sources") or [] if isinstance(entry, dict)]
+    raw_sources = proof_contract.get("evidence_sources")
+    if not isinstance(raw_sources, list) or any(not isinstance(entry, dict) for entry in raw_sources):
+        blockers.append("current gate seed browser evidence sources must be a complete governed list")
+        return blockers
+    sources: list[dict[str, Any]] = []
+    for entry in raw_sources:
+        test_file = str(entry.get("file") or "").strip()
+        raw_cases = entry.get("cases")
+        cases = (
+            [case.strip() for case in raw_cases if isinstance(case, str) and case.strip()]
+            if isinstance(raw_cases, list)
+            else []
+        )
+        if (
+            not test_file
+            or not isinstance(raw_cases, list)
+            or len(cases) != len(raw_cases)
+            or not cases
+            or len(cases) != len(set(cases))
+        ):
+            blockers.append("current gate seed contains an incomplete or duplicate browser evidence node")
+            return blockers
+        sources.append({"file": test_file, "cases": cases})
+    source_files = [str(entry["file"]) for entry in sources]
+    if len(source_files) != len(set(source_files)):
+        blockers.append("current gate seed contains duplicate browser evidence sources")
+        return blockers
     source_backed = [entry for entry in sources if "/e2e/" not in str(entry.get("file") or "")]
     real_browser = [entry for entry in sources if "/e2e/" in str(entry.get("file") or "")]
-    if len(source_backed) != 1 or len(real_browser) != 1 or len(sources) != 2:
-        blockers.append("current gate seed must define exactly one source-backed and one real-browser proof source")
+    if not source_backed or len(real_browser) != 1:
+        blockers.append("current gate seed must define at least one source-backed and exactly one real-browser proof source")
         return blockers
 
-    for key, label, expected in (
-        ("source_backed_journey_proof", "source-backed browser journey", source_backed[0]),
-        ("real_browser_e2e_proof", "real browser E2E", real_browser[0]),
-    ):
+    raw_source_lanes = receipt.get("source_backed_journey_proofs")
+    if not isinstance(raw_source_lanes, list):
+        blockers.append("published pass lacks the complete source-backed browser journey proof list")
+        source_lanes: list[object] = []
+    else:
+        source_lanes = list(raw_source_lanes)
+    if len(source_lanes) != len(source_backed):
+        blockers.append("published pass source-backed proof lanes do not exactly match the current gate seed")
+    for index, expected in enumerate(source_backed):
+        lane = source_lanes[index] if index < len(source_lanes) else None
         expected_file = str(expected.get("file") or "").strip()
         expected_cases = [str(item) for item in expected.get("cases") or [] if str(item).strip()]
         if not _browser_lane_pass_is_supported(
-            receipt.get(key),
+            lane,
             expected_test_file=expected_file,
             expected_cases=expected_cases,
         ):
-            blockers.append(f"published pass lacks completed {label} proof")
-    return blockers
+            blockers.append(f"published pass lacks completed source-backed browser journey proof: {expected_file}")
+    if source_lanes and receipt.get("source_backed_journey_proof") != source_lanes[0]:
+        blockers.append("published pass legacy source-backed proof does not match the primary governed lane")
+
+    expected_browser = real_browser[0]
+    expected_browser_file = str(expected_browser.get("file") or "").strip()
+    expected_browser_cases = [
+        str(item) for item in expected_browser.get("cases") or [] if str(item).strip()
+    ]
+    if not _browser_lane_pass_is_supported(
+        receipt.get("real_browser_e2e_proof"),
+        expected_test_file=expected_browser_file,
+        expected_cases=expected_browser_cases,
+    ):
+        blockers.append("published pass lacks completed real browser E2E proof")
+    return list(dict.fromkeys(blockers))
 
 
 def _build_browser_sources(root: Path, seed: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
@@ -485,6 +518,7 @@ def build_receipt(
     require_source_binding: bool = False,
 ) -> dict[str, Any]:
     seed = _load_json(root / seed_path)
+    approved_baseline_blockers = release_proof_baseline.approved_seed_baseline_blockers(seed)
     proof_target = str((seed.get("browser_workflow_proof") or {}).get("proof_target") or "executive-assistant").strip()
     proof_label = "PropertyQuarry" if proof_target == "propertyquarry" else "EA"
     truth_plane_present = _present(root, truth_plane_path)
@@ -542,7 +576,10 @@ def build_receipt(
         elif truth_plane_present:
             browser_receipt_status = None
 
-    blockers: list[str] = []
+    blockers: list[str] = [
+        f"immutable approved release-proof baseline: {reason}"
+        for reason in approved_baseline_blockers
+    ]
     current_limitations: list[str] = []
     if not truth_plane_present:
         blockers.append(f"missing truth plane: {truth_plane_path.as_posix()}")
@@ -606,6 +643,7 @@ def build_receipt(
         "kind": "release_receipt",
         "generated_at": _utc_now(),
         "generated_by": "scripts/materialize_ea_flagship_release_gate.py",
+        "approved_baseline": release_proof_baseline.approved_baseline_binding(),
         "status": status,
         "readiness_scope": "source_and_browser_proof",
         "live_readiness": {

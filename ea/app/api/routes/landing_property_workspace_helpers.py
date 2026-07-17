@@ -13,6 +13,7 @@ from app.product.property_surface_state import build_property_run_reliability_sn
 from app.services.property_artifact_contracts import required_artifact_receipt_rows
 from app.services.property_customer_copy import sanitize_property_marketing_copy, summarize_property_description_copy
 from app.services.property_market_catalog import supported_currency_codes
+from app.services.public_url_safety import public_http_url_is_safe
 
 
 _PROPERTY_POSTAL_LOCALITY_PATTERN = re.compile(
@@ -36,14 +37,26 @@ _PROPERTY_FLOORPLAN_MARKERS = (
     "raumskizze",
     "wohnungsplan",
 )
-_PROPERTY_SOURCE_360_MARKERS = (
+_PROPERTY_FLOORPLAN_ASSET_EXTENSIONS = (
+    ".avif",
+    ".gif",
+    ".jpeg",
+    ".jpg",
+    ".pdf",
+    ".png",
+    ".svg",
+    ".webp",
+)
+_PROPERTY_FLOORPLAN_TRACKING_MARKERS = (
+    "/analytics/",
+    "/beacon/",
+    "/logevent/",
+    "/tracking/",
+    "floorplan-click",
+    "floorplan_click",
+)
+_PROPERTY_SOURCE_360_PROVIDER_HOSTS = (
     "matterport.com",
-    "my.matterport.com",
-    "360tour",
-    "3d-tour",
-    "3dtour",
-    "virtualtour",
-    "virtual-tour",
     "tourmkr.com",
     "eye-spy360.com",
     "ogulo.com",
@@ -56,18 +69,42 @@ _PROPERTY_SOURCE_360_MARKERS = (
     "roundme.com",
     "teliportme.com",
     "vieweet.com",
+    "youvisit.com",
+    "peek3d.app",
+    "3dlook.at",
+    "feelestate.com",
+    "3d.laendleanzeiger.at",
+    "360.kalandra.at",
+)
+_PROPERTY_SOURCE_360_PATH_TOKENS = (
+    "360",
+    "360tour",
+    "360tours",
+    "3d-tour",
+    "3d-tours",
+    "3dtour",
     "3d-wohnung",
     "360grad",
     "360grad-tour",
-    "youvisit.com",
+    "virtualtour",
+    "virtual-tour",
+    "virtual-tours",
     "peek3d",
-    "peek3d.app",
-    "3dlook.at",
     "360.homestaging",
-    "feelestate.com",
     "immobilien360",
-    "3d.laendleanzeiger.at",
-    "360.kalandra.at",
+    "panorama",
+    "panoramas",
+)
+_PROPERTY_SOURCE_360_PATH_TOKEN_RE = re.compile(
+    rf"(?:^|[^a-z0-9])(?:{'|'.join(re.escape(token) for token in _PROPERTY_SOURCE_360_PATH_TOKENS)})(?:$|[^a-z0-9])"
+)
+_PROPERTY_SOURCE_360_TRACKING_MARKERS = (
+    "/analytics/",
+    "/beacon/",
+    "/logevent/",
+    "/tracking/",
+    "virtual-tour-click",
+    "virtual_tour_click",
 )
 _PROPERTY_VISUAL_REASON_KEYS = frozenset(
     {
@@ -193,11 +230,57 @@ def _property_postal_codes_from_text(text: object, *, require_locality: bool = T
     return tuple(codes)
 
 
+def _property_decoded_url_path(parsed: urllib.parse.SplitResult | urllib.parse.ParseResult) -> str:
+    decoded_path = str(parsed.path or "")
+    for _index in range(4):
+        next_decoded_path = urllib.parse.unquote(decoded_path)
+        if next_decoded_path == decoded_path:
+            return decoded_path
+        decoded_path = next_decoded_path
+    # A path that is still changing after the bounded canonicalization pass is
+    # deliberately invalid. The control marker makes every structural check
+    # fail closed instead of accepting an arbitrarily nested encoded path.
+    if urllib.parse.unquote(decoded_path) != decoded_path:
+        return "\x00"
+    return decoded_path
+
+
+def _property_url_path_is_structurally_safe(path: object) -> bool:
+    normalized_path = str(path or "")
+    return not (
+        "\\" in normalized_path
+        or normalized_path.startswith("//")
+        or any(segment in {".", ".."} for segment in normalized_path.split("/"))
+        or any(ord(character) < 0x20 or ord(character) == 0x7F for character in normalized_path)
+    )
+
+
 def _property_url_is_web_or_local(value: object) -> bool:
     url = str(value or "").strip()
-    if not url:
+    if (
+        not url
+        or len(url) > 2048
+        or "\\" in url
+        or any(ord(character) < 0x20 or ord(character) == 0x7F for character in url)
+    ):
         return False
-    return url.startswith(("https://", "http://", "/"))
+    if url.startswith("/"):
+        if url.startswith("//"):
+            return False
+        try:
+            parsed = urllib.parse.urlsplit(url)
+        except ValueError:
+            return False
+        if (
+            parsed.scheme
+            or parsed.netloc
+            or not _property_url_path_is_structurally_safe(
+                _property_decoded_url_path(parsed)
+            )
+        ):
+            return False
+        return True
+    return public_http_url_is_safe(url)
 
 
 def _property_media_url_values(value: object, *, context: str = "", depth: int = 0) -> tuple[tuple[str, str], ...]:
@@ -241,49 +324,79 @@ def _property_media_url_values(value: object, *, context: str = "", depth: int =
     return ()
 
 
-def _property_source_360_url_looks_usable(value: object, *, context: str = "") -> bool:
+def _property_source_360_url_looks_usable(
+    value: object,
+    *,
+    context: str = "",
+    allow_panorama_asset: bool = False,
+) -> bool:
     url = str(value or "").strip()
     if not _property_url_is_web_or_local(url):
         return False
     lowered_url = url.lower()
-    if "api.willhaben.at/restapi/v2/logevent/" in lowered_url:
+    if any(marker in lowered_url for marker in _PROPERTY_SOURCE_360_TRACKING_MARKERS):
         return False
     parsed = urllib.parse.urlparse(url)
-    host = parsed.netloc.lower()
-    path = parsed.path.lower()
-    if host.endswith("propertyquarry.com") and path.startswith("/tours/"):
+    host = str(parsed.hostname or "").strip().lower().rstrip(".")
+    path = _property_decoded_url_path(parsed).strip().lower()
+    if parsed.scheme in {"http", "https"} and (not host or parsed.username or parsed.password):
         return False
-    combined = f"{host}{path}?{parsed.query.lower()} {str(context or '').lower()}"
-    if any(marker in combined for marker in _PROPERTY_SOURCE_360_MARKERS):
-        return True
-    context_lower = str(context or "").strip().lower()
-    explicit_tour_context = any(
-        marker in context_lower
-        for marker in (
-            "source_virtual_tour",
-            "virtual_tour",
-            "tour_360",
-            "three_d_tour",
-            "threed_tour",
-            "panorama",
-            "matterport",
-            "ogulo",
-            "immoviewer",
-        )
+    if not _property_url_path_is_structurally_safe(path):
+        return False
+    if path.startswith("/app/research"):
+        return False
+    if host == "propertyquarry.com" or host.endswith(".propertyquarry.com"):
+        return False
+    provider_host = any(
+        host == provider_domain or host.endswith(f".{provider_domain}")
+        for provider_domain in _PROPERTY_SOURCE_360_PROVIDER_HOSTS
     )
-    if not explicit_tour_context:
+    path_has_360_marker = bool(_PROPERTY_SOURCE_360_PATH_TOKEN_RE.search(path))
+    if not (provider_host or path_has_360_marker):
         return False
-    if path.endswith((".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".pdf", ".svg")):
+    is_media_asset = path.endswith(
+        (".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".pdf", ".svg")
+    )
+    if not parsed.scheme and (not allow_panorama_asset or not is_media_asset):
         return False
-    return bool(parsed.scheme in {"http", "https"} and host)
+    if is_media_asset and not allow_panorama_asset:
+        return False
+    return True
 
 
-def _property_floorplan_url_looks_usable(value: object, *, context: str = "") -> bool:
+def _property_floorplan_url_looks_usable(
+    value: object,
+    *,
+    context: str = "",
+    explicit: bool = False,
+) -> bool:
     url = str(value or "").strip()
     if not _property_url_is_web_or_local(url):
         return False
-    combined = f"{url.lower()} {str(context or '').lower()}"
-    return any(marker in combined for marker in _PROPERTY_FLOORPLAN_MARKERS) or combined.endswith(".pdf")
+    parsed = urllib.parse.urlparse(url)
+    host = str(parsed.hostname or "").strip().lower()
+    path = _property_decoded_url_path(parsed).strip().lower()
+    lowered_url = url.lower()
+    if parsed.scheme in {"http", "https"} and (not host or parsed.username or parsed.password):
+        return False
+    if not _property_url_path_is_structurally_safe(path):
+        return False
+    if any(marker in lowered_url for marker in _PROPERTY_FLOORPLAN_TRACKING_MARKERS):
+        return False
+    if path.startswith("/app/research") or (
+        host in {"propertyquarry.com", "www.propertyquarry.com"}
+        and path.startswith(("/app/", "/research/"))
+    ):
+        return False
+    url_has_marker = any(marker in path for marker in _PROPERTY_FLOORPLAN_MARKERS)
+    is_media_asset = path.endswith(_PROPERTY_FLOORPLAN_ASSET_EXTENSIONS)
+    if explicit:
+        return url_has_marker or is_media_asset
+    context_has_marker = any(
+        marker in str(context or "").strip().lower()
+        for marker in _PROPERTY_FLOORPLAN_MARKERS
+    )
+    return url_has_marker or (context_has_marker and is_media_asset)
 
 
 def _property_candidate_is_rankable(candidate: dict[str, object]) -> bool:
@@ -622,7 +735,7 @@ def _property_candidate_floorplan_url(
     for source in sources:
         for key in _PROPERTY_FLOORPLAN_URL_KEYS:
             for url, _context in _property_media_url_values(source.get(key), context=key):
-                if _property_url_is_web_or_local(url):
+                if _property_floorplan_url_looks_usable(url, explicit=True):
                     return url
         for key in _PROPERTY_FLOORPLAN_CONTAINER_KEYS:
             for url, context in _property_media_url_values(source.get(key), context=key):
@@ -648,7 +761,11 @@ def _property_candidate_source_virtual_tour_url(
                     return url
         for key in _PROPERTY_SOURCE_360_CONTAINER_KEYS:
             for url, context in _property_media_url_values(source.get(key), context=key):
-                if _property_source_360_url_looks_usable(url, context=context):
+                if _property_source_360_url_looks_usable(
+                    url,
+                    context=context,
+                    allow_panorama_asset=True,
+                ):
                     return url
         for url, context in _property_media_url_values(source.get("tour_url"), context="tour_url"):
             if _property_source_360_url_looks_usable(url, context=context):
@@ -2092,6 +2209,7 @@ def _official_risk_posture_rows(official: dict[str, object]) -> list[dict[str, s
     review_total = 0
     verified_total = 0
     low_conf_total = 0
+    verified_states = {"verified", "confirmed", "cleared"}
     for row in rows:
         availability = str(row.get("availability") or "").strip().lower()
         verification_state = str(row.get("verification_state") or "").strip().lower()
@@ -2104,9 +2222,9 @@ def _official_risk_posture_rows(official: dict[str, object]) -> list[dict[str, s
             gap_total += 1
         if verification_state == "flagged":
             flagged_total += 1
-        if verification_state in {"flagged", "needs_review", "source_gap", "stale"}:
+        if verification_state not in verified_states:
             review_total += 1
-        if verification_state in {"verified", "confirmed", "cleared"}:
+        if verification_state in verified_states:
             verified_total += 1
         if confidence == "low":
             low_conf_total += 1
@@ -2115,32 +2233,38 @@ def _official_risk_posture_rows(official: dict[str, object]) -> list[dict[str, s
         headline_detail = f"{gap_total} check(s) still depend on municipality-specific data."
         headline_tag = "Open"
     elif flagged_total:
-        headline = "Public data attached, checks still open"
+        headline = "Public sources identified, checks still open"
         headline_detail = f"{flagged_total} check(s) still need one final look."
         headline_tag = "Open"
     elif review_total:
-        headline = "Public data attached, one more check"
+        headline = "Public sources identified, checks still open"
         headline_detail = f"{review_total} check(s) still need a clear answer."
         headline_tag = "Open"
     else:
-        headline = "Public data ready"
-        headline_detail = "The active local checks have public data and no open gaps."
+        headline = "Public data verified"
+        headline_detail = "Every identified source has been explicitly checked and no gaps remain open."
         headline_tag = "Ready"
     next_steps: list[str] = []
     for row in rows:
         verification_state = str(row.get("verification_state") or "").strip().lower()
         availability = str(row.get("availability") or "").strip().lower()
         required_next_step = str(row.get("required_next_step") or "").strip()
-        if verification_state not in {"flagged", "needs_review", "source_gap", "stale"} and availability not in {"municipal_gap", "source_gap"}:
+        if verification_state in verified_states and availability not in {"municipal_gap", "source_gap"}:
             continue
         if required_next_step and required_next_step not in next_steps:
             next_steps.append(required_next_step)
-    coverage_parts = [f"{total} checks attached", f"{official_total} official", f"{partial_total} partial", f"{gap_total} gaps"]
+    source_label = "source" if total == 1 else "sources"
+    coverage_parts = [f"{total} public {source_label} identified", f"{official_total} official", f"{partial_total} partial", f"{gap_total} gaps"]
     verification_parts = [f"{verified_total} checked", f"{flagged_total} flagged", f"{review_total} still open"]
+    ready = verified_total == total and not gap_total and not review_total
     response = [
         {"title": headline, "detail": headline_detail, "tag": headline_tag},
         {"title": "Coverage", "detail": " | ".join(coverage_parts), "tag": str(official.get("country_code") or "").strip() or "Market"},
-        {"title": "Checked", "detail": " | ".join(verification_parts), "tag": f"{low_conf_total} thin detail" if low_conf_total else "Ready"},
+        {
+            "title": "Checked",
+            "detail": " | ".join(verification_parts),
+            "tag": f"{low_conf_total} thin detail" if ready and low_conf_total else ("Ready" if ready else "Open"),
+        },
     ]
     if next_steps:
         response.append(
@@ -2156,7 +2280,7 @@ def _official_risk_posture_rows(official: dict[str, object]) -> list[dict[str, s
             {
                 "title": "Data snapshot",
                 "detail": updated_at.replace("T", " ").replace("+00:00", " UTC"),
-                "tag": "Attached",
+                "tag": "Snapshot",
             }
         )
     return response

@@ -8,15 +8,34 @@ import sys
 import pytest
 
 import scripts.materialize_ea_browser_workflow_proof as browser_proof_materializer
+from scripts import propertyquarry_release_proof_baseline as release_proof_baseline
 from scripts.materialize_ea_browser_workflow_proof import build_receipt
 
 
 SEED = Path(".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json")
 
 
+def _evidence_sources() -> list[dict[str, object]]:
+    return [
+        {
+            "file": browser_proof_materializer.SOURCE_BACKED_TEST_FILE,
+            "cases": list(browser_proof_materializer.SOURCE_BACKED_CASES),
+        },
+        {
+            "file": browser_proof_materializer.REAL_BROWSER_TEST_FILE,
+            "cases": list(browser_proof_materializer.REAL_BROWSER_CASES),
+        },
+        {
+            "file": browser_proof_materializer.EVIDENCE_OVERLAY_TEST_FILE,
+            "cases": list(browser_proof_materializer.EVIDENCE_OVERLAY_CASES),
+        },
+    ]
+
+
 def _journey_evidence_matrix() -> dict[str, object]:
     source_file = browser_proof_materializer.SOURCE_BACKED_TEST_FILE
     browser_file = browser_proof_materializer.REAL_BROWSER_TEST_FILE
+    evidence_file = browser_proof_materializer.EVIDENCE_OVERLAY_TEST_FILE
     return {
         "version": 1,
         "readiness_scope": "candidate_source_and_browser_proof",
@@ -93,7 +112,12 @@ def _journey_evidence_matrix() -> dict[str, object]:
                         "cases": [
                             "test_propertyquarry_greenfield_workspace_is_mobile_usable",
                             "test_propertyquarry_workbench_candidate_history_stays_in_place",
+                            "test_propertyquarry_research_evidence_states_and_links_render_in_real_browser",
                         ],
+                    },
+                    {
+                        "file": evidence_file,
+                        "cases": list(browser_proof_materializer.EVIDENCE_OVERLAY_CASES),
                     },
                 ],
                 "live_requirement": {
@@ -183,10 +207,12 @@ def _write_seed(root: Path) -> None:
         json.dumps(
             {
                 "product": "propertyquarry",
+                "surface": "propertyquarry_flagship_release_control",
                 "release_claim": {"summary": "browser proof must match the flagship claim"},
                 "browser_workflow_proof": {
                     "proof_target": "propertyquarry",
                     "expected_browser_signals": ["/app/properties", "/app/research"],
+                    "evidence_sources": _evidence_sources(),
                 },
                 "journey_evidence_matrix": _journey_evidence_matrix(),
             },
@@ -227,20 +253,29 @@ def test_browser_workflow_proof_passes_when_both_lanes_pass(
     receipt = build_receipt(tmp_path, seed_path=SEED, runner=fake_runner, require_source_binding=True)
 
     assert receipt["status"] == "pass"
+    assert release_proof_baseline.approved_baseline_integrity_blockers() == []
     assert receipt["contract_name"] == "ea.browser_workflow_proof"
     assert receipt["proof_target"] == "propertyquarry"
     assert receipt["blocking_reasons"] == []
     assert receipt["current_limitations"] == []
+    assert receipt["approved_baseline"] == release_proof_baseline.approved_baseline_binding()
     assert receipt["expected_browser_signals"] == ["/app/properties", "/app/research"]
     assert receipt["source_backed_journey_proof"]["test_file"] == "tests/test_propertyquarry_workspace_redesign.py"
     assert receipt["source_backed_journey_proof"]["cases"] == browser_proof_materializer.SOURCE_BACKED_CASES
+    assert receipt["source_backed_journey_proof"] == receipt["source_backed_journey_proofs"][0]
+    assert [lane["test_file"] for lane in receipt["source_backed_journey_proofs"]] == [
+        browser_proof_materializer.SOURCE_BACKED_TEST_FILE,
+        browser_proof_materializer.EVIDENCE_OVERLAY_TEST_FILE,
+    ]
+    assert [lane["required_case_count"] for lane in receipt["source_backed_journey_proofs"]] == [7, 1]
+    assert receipt["source_backed_journey_proofs"][1]["cases"] == browser_proof_materializer.EVIDENCE_OVERLAY_CASES
     assert receipt["real_browser_e2e_proof"]["test_file"] == "tests/e2e/test_propertyquarry_greenfield_browser.py"
     assert receipt["real_browser_e2e_proof"]["cases"] == browser_proof_materializer.REAL_BROWSER_CASES
-    assert len(browser_proof_materializer.REAL_BROWSER_CASES) == 15
-    assert receipt["real_browser_e2e_proof"]["required_case_count"] == 15
-    assert receipt["real_browser_e2e_proof"]["selected_count"] == 15
-    assert receipt["real_browser_e2e_proof"]["executed_count"] == 15
-    assert receipt["real_browser_e2e_proof"]["outcome_counts"]["passed"] == 15
+    assert len(browser_proof_materializer.REAL_BROWSER_CASES) == 16
+    assert receipt["real_browser_e2e_proof"]["required_case_count"] == 16
+    assert receipt["real_browser_e2e_proof"]["selected_count"] == 16
+    assert receipt["real_browser_e2e_proof"]["executed_count"] == 16
+    assert receipt["real_browser_e2e_proof"]["outcome_counts"]["passed"] == 16
     matrix = receipt["journey_evidence_matrix"]
     assert matrix["status"] == "pass"
     assert matrix["runtime_commit_sha"] == runtime_commit_sha
@@ -260,6 +295,7 @@ def test_browser_workflow_proof_passes_when_both_lanes_pass(
     mapped_cases = {
         browser_proof_materializer.SOURCE_BACKED_TEST_FILE: set(),
         browser_proof_materializer.REAL_BROWSER_TEST_FILE: set(),
+        browser_proof_materializer.EVIDENCE_OVERLAY_TEST_FILE: set(),
     }
     for row in matrix["rows"]:
         for evidence_source in row["evidence_sources"]:
@@ -270,6 +306,197 @@ def test_browser_workflow_proof_passes_when_both_lanes_pass(
     assert mapped_cases[browser_proof_materializer.REAL_BROWSER_TEST_FILE] == set(
         browser_proof_materializer.REAL_BROWSER_CASES
     )
+    assert mapped_cases[browser_proof_materializer.EVIDENCE_OVERLAY_TEST_FILE] == set(
+        browser_proof_materializer.EVIDENCE_OVERLAY_CASES
+    )
+
+
+def test_release_proof_baseline_fingerprint_is_literal_and_detects_payload_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert release_proof_baseline.APPROVED_BASELINE_SHA256 == (
+        "c9403bfba909e95ef8e0ded9c2c915c586e448db55f0e98f466d3ba3a166dcc9"
+    )
+    weakened_payload = json.loads(
+        json.dumps(release_proof_baseline._baseline_payload())
+    )
+    weakened_payload["evidence_sources"][0]["cases"][0] = "test_unapproved_weakened_entry"
+    weakened_payload["journeys"][2]["evidence_sources"][0]["cases"][0] = (
+        "test_unapproved_weakened_entry"
+    )
+    monkeypatch.setattr(
+        release_proof_baseline,
+        "_baseline_payload",
+        lambda: weakened_payload,
+    )
+
+    blockers = release_proof_baseline.approved_baseline_integrity_blockers()
+
+    assert any("payload fingerprint does not match the pinned baseline" in reason for reason in blockers)
+    assert release_proof_baseline.approved_baseline_binding()["sha256"] == (
+        "c9403bfba909e95ef8e0ded9c2c915c586e448db55f0e98f466d3ba3a166dcc9"
+    )
+
+
+@pytest.mark.parametrize(
+    ("field", "bad_value", "expected_blocker"),
+    (
+        ("product", "executive-assistant", "product must be the exact standalone target propertyquarry"),
+        (
+            "surface",
+            "ea_flagship_release_control",
+            "surface must be the exact standalone surface propertyquarry_flagship_release_control",
+        ),
+        (
+            "proof_target",
+            "executive-assistant",
+            "proof target must be the exact standalone target propertyquarry",
+        ),
+    ),
+)
+def test_browser_workflow_proof_blocks_wrong_standalone_target_even_when_all_lanes_pass(
+    tmp_path: Path,
+    field: str,
+    bad_value: str,
+    expected_blocker: str,
+) -> None:
+    _write_seed(tmp_path)
+    seed_path = tmp_path / SEED
+    seed = json.loads(seed_path.read_text(encoding="utf-8"))
+    if field == "proof_target":
+        seed["browser_workflow_proof"][field] = bad_value
+    else:
+        seed[field] = bad_value
+    seed_path.write_text(json.dumps(seed, indent=2) + "\n", encoding="utf-8")
+
+    def passing_runner(
+        root: Path,
+        *,
+        python_bin: str,
+        test_file: str,
+        cases: list[str],
+        real_browser: bool,
+    ) -> dict[str, object]:
+        del real_browser
+        return {
+            "status": "pass",
+            "command": "pytest",
+            "cwd": root.as_posix(),
+            "python_bin": python_bin,
+            "test_file": test_file,
+            "cases": cases,
+            "exit_code": 0,
+            "limitations": [],
+            "outcome_counts": {
+                "passed": len(cases),
+                "failed": 0,
+                "skipped": 0,
+                "errors": 0,
+                "xfailed": 0,
+                "xpassed": 0,
+            },
+        }
+
+    receipt = build_receipt(tmp_path, seed_path=SEED, runner=passing_runner)
+
+    assert receipt["status"] == "blocked"
+    assert any(expected_blocker in reason for reason in receipt["blocking_reasons"])
+
+
+def test_browser_receipt_stable_write_heals_sha256_but_ignores_generated_at_only_change(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "browser-receipt.json"
+    expected = {
+        "generated_at": "2026-07-17T03:00:00Z",
+        "status": "pass",
+        "source_binding": {"seed": {"sha256": "a" * 64, "git_blob_oid": "1" * 40}},
+    }
+    stale = json.loads(json.dumps(expected))
+    stale["generated_at"] = "2026-07-17T02:00:00Z"
+    stale["source_binding"]["seed"]["sha256"] = "b" * 64
+    output.write_text(json.dumps(stale), encoding="utf-8")
+
+    browser_proof_materializer._write_json_stable(output, expected)
+
+    assert json.loads(output.read_text(encoding="utf-8")) == expected
+    generated_at_only = json.loads(json.dumps(expected))
+    generated_at_only["generated_at"] = "2026-07-17T04:00:00Z"
+    browser_proof_materializer._write_json_stable(output, generated_at_only)
+    assert json.loads(output.read_text(encoding="utf-8")) == expected
+
+
+@pytest.mark.parametrize("journey_id", list(browser_proof_materializer.REQUIRED_JOURNEY_IDS))
+def test_browser_workflow_proof_blocks_self_consistent_weakened_seed_for_every_journey(
+    tmp_path: Path,
+    journey_id: str,
+) -> None:
+    _write_seed(tmp_path)
+    seed_file = tmp_path / SEED
+    seed = json.loads(seed_file.read_text(encoding="utf-8"))
+    row = next(
+        item
+        for item in seed["journey_evidence_matrix"]["rows"]
+        if item["journey_id"] == journey_id
+    )
+    row_source = row["evidence_sources"][0]
+    approved_case = row_source["cases"][0]
+    weakened_case = f"test_unapproved_weakened_{journey_id}"
+    row_source["cases"][0] = weakened_case
+    top_level_source = next(
+        item
+        for item in seed["browser_workflow_proof"]["evidence_sources"]
+        if item["file"] == row_source["file"]
+    )
+    top_level_source["cases"][top_level_source["cases"].index(approved_case)] = weakened_case
+    seed_file.write_text(json.dumps(seed, indent=2) + "\n", encoding="utf-8")
+    executed_cases: list[str] = []
+
+    def fake_runner(
+        root: Path,
+        *,
+        python_bin: str,
+        test_file: str,
+        cases: list[str],
+        real_browser: bool,
+    ) -> dict[str, object]:
+        del real_browser
+        executed_cases.extend(cases)
+        return {
+            "status": "pass",
+            "command": "pytest",
+            "cwd": root.as_posix(),
+            "python_bin": python_bin,
+            "test_file": test_file,
+            "cases": cases,
+            "exit_code": 0,
+            "duration_seconds": 1.0,
+            "output_excerpt": [f"{len(cases)} passed"],
+            "limitations": [],
+        }
+
+    receipt = build_receipt(tmp_path, seed_path=SEED, runner=fake_runner)
+
+    assert receipt["status"] == "blocked"
+    assert "browser evidence sources do not match the immutable approved baseline" in receipt["blocking_reasons"]
+    assert (
+        f"journey {journey_id} evidence sources do not match the immutable approved baseline"
+        in receipt["blocking_reasons"]
+    )
+    assert weakened_case not in executed_cases
+    approved_sources = release_proof_baseline.approved_evidence_sources()
+    expected_execution_order = [
+        case
+        for source in approved_sources
+        if "/e2e/" not in source["file"]
+        for case in source["cases"]
+    ] + [
+        case
+        for source in approved_sources
+        if "/e2e/" in source["file"]
+        for case in source["cases"]
+    ]
+    assert executed_cases == expected_execution_order
 
 
 def test_browser_workflow_proof_downgrades_false_green_all_skipped_real_browser_lane(tmp_path: Path) -> None:
@@ -428,7 +655,7 @@ def test_browser_workflow_proof_blocks_when_source_backed_lane_fails(tmp_path: P
     _write_seed(tmp_path)
 
     def fake_runner(root: Path, *, python_bin: str, test_file: str, cases: list[str], real_browser: bool) -> dict[str, object]:
-        if real_browser:
+        if real_browser or test_file == browser_proof_materializer.SOURCE_BACKED_TEST_FILE:
             return {
                 "status": "pass",
                 "command": "pytest",
@@ -457,7 +684,13 @@ def test_browser_workflow_proof_blocks_when_source_backed_lane_fails(tmp_path: P
     receipt = build_receipt(tmp_path, seed_path=SEED, runner=fake_runner)
 
     assert receipt["status"] == "blocked"
-    assert "source-backed browser journey proof is not passing" in receipt["blocking_reasons"]
+    assert (
+        "source-backed browser journey proof is not passing: "
+        + browser_proof_materializer.EVIDENCE_OVERLAY_TEST_FILE
+        in receipt["blocking_reasons"]
+    )
+    assert receipt["source_backed_journey_proofs"][0]["status"] == "pass"
+    assert receipt["source_backed_journey_proofs"][1]["status"] == "blocked"
     assert receipt["current_limitations"] == ["application import path is broken"]
 
 
@@ -539,14 +772,21 @@ def test_browser_workflow_proof_blocks_a_self_consistent_weakened_packets_tours_
 
 
 def test_browser_workflow_proof_rejects_non_object_journey_rows() -> None:
-    seed = {"journey_evidence_matrix": _journey_evidence_matrix()}
+    seed = {
+        "browser_workflow_proof": {"evidence_sources": _evidence_sources()},
+        "journey_evidence_matrix": _journey_evidence_matrix(),
+    }
     seed["journey_evidence_matrix"]["rows"].append("unexpected")
-    passing_lane = {"status": "pass"}
+    source_lanes = [
+        {"status": "pass", "test_file": browser_proof_materializer.SOURCE_BACKED_TEST_FILE},
+        {"status": "pass", "test_file": browser_proof_materializer.EVIDENCE_OVERLAY_TEST_FILE},
+    ]
+    browser_lane = {"status": "pass", "test_file": browser_proof_materializer.REAL_BROWSER_TEST_FILE}
 
     matrix, blockers = browser_proof_materializer._build_journey_evidence_matrix(
         seed,
-        source_backed=passing_lane,
-        real_browser=passing_lane,
+        source_backed=source_lanes,
+        real_browser=browser_lane,
         source_binding={"code_commit": "a" * 40},
     )
 

@@ -5097,7 +5097,7 @@ def test_property_scout_hit_sender_suppresses_source_scope_only_exact_area_match
     )
 
     assert result["status"] == "suppressed"
-    assert result["reason"] == "property_generic_listing_page"
+    assert result["reason"] == "property_location_conflicts_with_active_search"
     assert sent == []
     repair_tasks = [
         task
@@ -5110,8 +5110,8 @@ def test_property_scout_hit_sender_suppresses_source_scope_only_exact_area_match
     ]
     assert repair_tasks
     diagnostics = dict(repair_tasks[0].input_json or {}).get("diagnostics") or {}
-    assert dict(repair_tasks[0].input_json or {}).get("filter_key") == "generic_listing_page"
-    assert diagnostics["provider_host"] == "www.willhaben.at"
+    assert dict(repair_tasks[0].input_json or {}).get("filter_key") == "location_scope"
+    assert diagnostics["location_hints"] == ["1010 Vienna"]
 
 
 def test_property_scout_hit_sender_suppresses_source_scope_only_sparse_card(monkeypatch) -> None:
@@ -5175,23 +5175,59 @@ def test_property_scout_hit_sender_suppresses_source_scope_only_sparse_card(monk
 
 
 def test_property_generic_listing_page_detector_overrides_detail_shaped_url_for_search_count_snippets() -> None:
+    generic_footer = "Wählen Sie aus 113.302 Angeboten. Immobilien suchen und finden auf willhaben."
+
     assert _property_candidate_is_generic_listing_page(
-        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/salzburg/demo-1631373932/",
-        title="#W2 Moderne Schöne Zwei-Zimmer Wohnung mit Terrasse",
-        summary="Wählen Sie aus 113.217 Angeboten. Immobilien suchen und finden auf willhaben.",
+        property_url="https://www.willhaben.at/iad/immobilien/mietwohnungen/wien/wien-1220-donaustadt?isNavigation=true",
+        title="Mietwohnungen in 1220 Wien",
+        summary=generic_footer,
         property_facts={
-            "postal_name": "1010 Vienna",
-            "source_scope_location": "1010 Vienna",
-            "source_postal_code": "1010",
-            "source_city": "Vienna",
-            "price_display": "€ 1.190",
+            "postal_name": "1220 Wien",
+            "source_scope_location": "1220 Wien",
         },
+    )
+
+    assert _property_candidate_is_generic_listing_page(
+        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1220-donaustadt/category",
+        title="Mietwohnungen in 1220 Wien",
+        summary=generic_footer,
+        property_facts={"postal_name": "1220 Wien"},
+    )
+
+    assert _property_candidate_is_generic_listing_page(
+        property_url="https://www.willhaben.at.example.test/iad/immobilien/d/mietwohnungen/wien/demo-1545890000/",
+        title="Haus im Grünen, (1220 Wien) - willhaben",
+        summary=generic_footer,
+        property_facts={"media_count": 30},
+    )
+
+    assert _property_candidate_is_generic_listing_page(
+        property_url=(
+            "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/../../"
+            "mietwohnungen/wien/fake-1545890000"
+        ),
+        title="Haus im Grünen, (1220 Wien) - willhaben",
+        summary=generic_footer,
+        property_facts={"media_count": 30},
+    )
+
+    assert not _property_candidate_is_generic_listing_page(
+        property_url=(
+            "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1220-donaustadt/"
+            "-im-gruenen-niedrigenergiehaus-top-ruhelage-grosse-freiflaechen-neuwertig-1545890000/"
+        ),
+        title=(
+            "| IM GRÜNEN | NIEDRIGENERGIEHAUS| TOP-RUHELAGE | GROSSE FREIFLÄCHEN | NEUWERTIG |, "
+            "(1220 Wien) - willhaben"
+        ),
+        summary=generic_footer,
+        property_facts={"has_360": False, "has_floorplan": False, "media_count": 30},
     )
 
     assert not _property_candidate_is_generic_listing_page(
         property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1010-innere-stadt/demo-1631373932/",
         title="Moderne Zwei-Zimmer Wohnung mit Terrasse",
-        summary="Wählen Sie aus 113.217 Angeboten. Immobilien suchen und finden auf willhaben.",
+        summary=generic_footer,
         property_facts={
             "postal_name": "1010 Vienna",
             "source_scope_location": "1010 Vienna",
@@ -5208,8 +5244,47 @@ def test_property_generic_listing_page_detector_overrides_detail_shaped_url_for_
             "PROVISIONSFREI - MIETE RUHELAGE SALZBURG PARSCH: "
             "Geräumige 79 m² 3-Zimmer-Wohnung, € 1.398,64, (5020 Salzburg) - willhaben"
         ),
-        summary="Wählen Sie aus 113.217 Angeboten. Immobilien suchen und finden auf willhaben.",
+        summary=generic_footer,
         property_facts={"rooms": 3, "has_floorplan": True},
+    )
+
+
+@pytest.mark.parametrize(
+    "unsafe_path",
+    [
+        "/iad/immobilien/d/mietwohnungen/%252e%252e/%252e%252e/wien/fake-1545890000",
+        "/iad/immobilien/d/mietwohnungen/%252f..%252f../wien/fake-1545890000",
+        "/iad/immobilien/d/mietwohnungen/%255c..%255c../wien/fake-1545890000",
+        "/iad/immobilien/d/mietwohnungen/..;/..;/wien/fake-1545890000",
+        "/iad/immobilien/d/mietwohnungen/%2e%2e/%2e%2e/wien/fake-1545890000",
+    ],
+)
+def test_property_generic_listing_page_detector_rejects_encoded_detail_path_bypasses(
+    unsafe_path: str,
+) -> None:
+    assert _property_candidate_is_generic_listing_page(
+        property_url=f"https://www.willhaben.at{unsafe_path}",
+        title="Haus im Grünen, (1220 Wien) - willhaben",
+        summary="Wählen Sie aus 113.302 Angeboten. Immobilien suchen und finden auf willhaben.",
+        property_facts={"media_count": 30},
+    )
+
+
+@pytest.mark.parametrize(
+    "malformed_url",
+    [
+        "https://[invalid/iad/immobilien/d/mietwohnungen/wien/fake-1545890000",
+        "https://[::1/iad/immobilien/d/mietwohnungen/wien/fake-1545890000",
+    ],
+)
+def test_property_generic_listing_page_detector_fails_closed_for_malformed_urls(
+    malformed_url: str,
+) -> None:
+    assert _property_candidate_is_generic_listing_page(
+        property_url=malformed_url,
+        title="Haus im Grünen, (1220 Wien) - willhaben",
+        summary="Wählen Sie aus 113.302 Angeboten. Immobilien suchen und finden auf willhaben.",
+        property_facts={"media_count": 30},
     )
 
 
@@ -5356,7 +5431,7 @@ def test_property_scout_hit_email_suppresses_source_scope_only_exact_area_match(
     )
 
     assert result["status"] == "suppressed"
-    assert result["reason"] == "property_generic_listing_page"
+    assert result["reason"] == "property_location_conflicts_with_active_search"
     repair_tasks = [
         task
         for task in client.app.state.container.orchestrator.list_human_tasks(
@@ -5368,8 +5443,8 @@ def test_property_scout_hit_email_suppresses_source_scope_only_exact_area_match(
     ]
     assert repair_tasks
     diagnostics = dict(repair_tasks[0].input_json or {}).get("diagnostics") or {}
-    assert dict(repair_tasks[0].input_json or {}).get("filter_key") == "generic_listing_page"
-    assert diagnostics["provider_host"] == "www.willhaben.at"
+    assert dict(repair_tasks[0].input_json or {}).get("filter_key") == "location_scope"
+    assert diagnostics["location_hints"] == ["1010 Vienna"]
 
 
 def test_property_scout_hit_email_uses_source_scope_as_notification_location_fallback(monkeypatch) -> None:

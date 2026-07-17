@@ -10,8 +10,13 @@ from typing import Any, Callable
 import pytest
 
 import scripts.check_property_release_hygiene as release_hygiene
+import scripts.materialize_ea_flagship_release_gate as flagship_materializer
+from scripts import propertyquarry_release_proof_baseline as release_proof_baseline
 from scripts.materialize_ea_browser_workflow_proof import build_receipt as build_browser_receipt
-from scripts.materialize_ea_flagship_release_gate import build_receipt as build_flagship_receipt
+from scripts.materialize_ea_flagship_release_gate import (
+    browser_receipt_pass_blockers,
+    build_receipt as build_flagship_receipt,
+)
 from scripts.propertyquarry_release_receipt_binding import (
     CANONICAL_BROWSER_RECEIPT,
     CANONICAL_FLAGSHIP_RECEIPT,
@@ -38,28 +43,13 @@ RELEASE_DOCS = (
     "RELEASE_CHECKLIST.md",
     "PRODUCT_RELEASE_CHECKLIST.md",
 )
-SOURCE_FILE = "tests/test_propertyquarry_workspace_redesign.py"
-SOURCE_CASES = [
-    "test_propertyquarry_workspace_routes_render_greenfield_surfaces",
-    "test_propertyquarry_failed_run_stays_on_activity_surface",
-    "test_property_workspace_sign_out_clears_workspace_session_cookie",
-    "test_property_saved_shortlist_candidates_persist_across_runs",
-    "test_propertyquarry_account_exposes_working_lifecycle_controls",
-    "test_propertyquarry_pricing_checkout_failure_copy_is_safe_and_accessible",
-    "test_propertyquarry_public_home_survives_unreadable_optional_tour_media",
-]
-BROWSER_FILE = "tests/e2e/test_propertyquarry_greenfield_browser.py"
-BROWSER_CASES = [
-    "test_propertyquarry_greenfield_workspace_in_real_browser",
-    "test_propertyquarry_greenfield_workspace_is_mobile_usable",
-    "test_propertyquarry_expired_session_next_action_moves_keyboard_focus_to_sign_in_options",
-    "test_propertyquarry_workbench_candidate_history_stays_in_place",
-    "test_propertyquarry_flagship_operating_loop_in_browser",
-    "test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser",
-    "test_propertyquarry_packet_tracks_followup_state_in_browser",
-    "test_propertyquarry_account_notifications_save_multi_channel_preferences_in_real_browser",
-    "test_propertyquarry_browser_alert_button_toggles_enabled_state",
-]
+SOURCE_FILE = release_proof_baseline.PRIMARY_SOURCE_TEST_FILE
+SOURCE_CASES = list(release_proof_baseline.PRIMARY_SOURCE_CASES)
+EVIDENCE_SOURCE_FILE = release_proof_baseline.EVIDENCE_OVERLAY_TEST_FILE
+EVIDENCE_SOURCE_CASES = list(release_proof_baseline.EVIDENCE_OVERLAY_CASES)
+BROWSER_FILE = release_proof_baseline.REAL_BROWSER_TEST_FILE
+PACKETS_TOUR_CASES = list(release_proof_baseline.PACKETS_TOURS_REAL_BROWSER_CASES)
+BROWSER_CASES = list(release_proof_baseline.REAL_BROWSER_CASES)
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -106,8 +96,9 @@ def _seed() -> dict[str, Any]:
         "browser_workflow_proof": {
             "proof_target": "propertyquarry",
             "evidence_sources": [
-                {"file": SOURCE_FILE, "cases": SOURCE_CASES},
-                {"file": BROWSER_FILE, "cases": BROWSER_CASES},
+                {"file": SOURCE_FILE, "cases": list(SOURCE_CASES)},
+                {"file": BROWSER_FILE, "cases": list(BROWSER_CASES)},
+                {"file": EVIDENCE_SOURCE_FILE, "cases": list(EVIDENCE_SOURCE_CASES)},
             ],
             "expected_browser_signals": ["/app/properties", "/app/research", "mobile"],
         },
@@ -204,7 +195,12 @@ def _seed() -> dict[str, Any]:
                             "cases": [
                                 "test_propertyquarry_greenfield_workspace_is_mobile_usable",
                                 "test_propertyquarry_workbench_candidate_history_stays_in_place",
+                                "test_propertyquarry_research_evidence_states_and_links_render_in_real_browser",
                             ],
+                        },
+                        {
+                            "file": EVIDENCE_SOURCE_FILE,
+                            "cases": list(EVIDENCE_SOURCE_CASES),
                         },
                     ],
                     "live_requirement": {
@@ -237,9 +233,7 @@ def _seed() -> dict[str, Any]:
                     "evidence_sources": [
                         {
                             "file": BROWSER_FILE,
-                            "cases": [
-                                "test_propertyquarry_flagship_operating_loop_in_browser"
-                            ],
+                            "cases": list(PACKETS_TOUR_CASES),
                         }
                     ],
                     "live_requirement": {
@@ -338,6 +332,7 @@ def _prepare_code_commit(root: Path) -> str:
         _write_text(root / path)
     _write_text(root / SOURCE_FILE)
     _write_text(root / BROWSER_FILE)
+    _write_text(root / EVIDENCE_SOURCE_FILE)
     _git(root, "add", "-A")
     _git(root, "commit", "-q", "-m", "immutable code proof parent")
     return _git(root, "rev-parse", "HEAD")
@@ -444,6 +439,10 @@ def _canonical_receipt_repo(
 
 def _unbound_browser_receipt(seed: dict[str, Any]) -> dict[str, Any]:
     sources = seed["browser_workflow_proof"]["evidence_sources"]
+    source_backed_sources = [source for source in sources if "/e2e/" not in source["file"]]
+    real_browser_sources = [source for source in sources if "/e2e/" in source["file"]]
+    assert source_backed_sources
+    assert len(real_browser_sources) == 1
     seed_matrix = seed["journey_evidence_matrix"]
 
     def lane(source: dict[str, Any]) -> dict[str, Any]:
@@ -485,6 +484,7 @@ def _unbound_browser_receipt(seed: dict[str, Any]) -> dict[str, Any]:
         for row in seed_matrix["rows"]
     ]
 
+    source_backed_lanes = [lane(source) for source in source_backed_sources]
     return {
         "contract_name": "ea.browser_workflow_proof",
         "product": seed["product"],
@@ -493,11 +493,13 @@ def _unbound_browser_receipt(seed: dict[str, Any]) -> dict[str, Any]:
         "version": 1,
         "kind": "proof_receipt",
         "generated_by": "scripts/materialize_ea_browser_workflow_proof.py",
+        "approved_baseline": release_proof_baseline.approved_baseline_binding(),
         "status": "pass",
         "release_claim_summary": seed["release_claim"]["summary"],
         "expected_browser_signals": seed["browser_workflow_proof"]["expected_browser_signals"],
-        "source_backed_journey_proof": lane(sources[0]),
-        "real_browser_e2e_proof": lane(sources[1]),
+        "source_backed_journey_proof": source_backed_lanes[0],
+        "source_backed_journey_proofs": source_backed_lanes,
+        "real_browser_e2e_proof": lane(real_browser_sources[0]),
         "journey_evidence_matrix": {
             "version": seed_matrix["version"],
             "status": "pass",
@@ -509,6 +511,92 @@ def _unbound_browser_receipt(seed: dict[str, Any]) -> dict[str, Any]:
         "blocking_reasons": [],
         "current_limitations": [],
     }
+
+
+@pytest.mark.parametrize("journey_id", list(release_proof_baseline.APPROVED_REQUIRED_JOURNEY_IDS))
+def test_flagship_verifier_rejects_self_consistent_weakened_seed_for_every_journey(
+    journey_id: str,
+) -> None:
+    seed = _seed()
+    row = next(
+        item
+        for item in seed["journey_evidence_matrix"]["rows"]
+        if item["journey_id"] == journey_id
+    )
+    row_source = row["evidence_sources"][0]
+    approved_case = row_source["cases"][0]
+    weakened_case = f"test_unapproved_weakened_{journey_id}"
+    row_source["cases"][0] = weakened_case
+    top_level_source = next(
+        item
+        for item in seed["browser_workflow_proof"]["evidence_sources"]
+        if item["file"] == row_source["file"]
+    )
+    top_level_source["cases"][top_level_source["cases"].index(approved_case)] = weakened_case
+    browser = _unbound_browser_receipt(seed)
+
+    blockers = browser_receipt_pass_blockers(browser, seed)
+
+    assert "browser evidence sources do not match the immutable approved baseline" in blockers
+    assert (
+        f"journey {journey_id} evidence sources do not match the immutable approved baseline"
+        in blockers
+    )
+
+
+def test_flagship_materializer_blocks_weakened_baseline_without_browser_receipt(
+    tmp_path: Path,
+) -> None:
+    seed = _seed()
+    feedback = next(
+        row
+        for row in seed["journey_evidence_matrix"]["rows"]
+        if row["journey_id"] == "feedback"
+    )
+    feedback["evidence_sources"][0]["cases"] = feedback["evidence_sources"][0]["cases"][:1]
+    _write_json(tmp_path / CANONICAL_SEED, seed)
+    _write_text(tmp_path / TRUTH_PLANE)
+    _write_text(tmp_path / ".codex-design/ea/START_HERE.md")
+    for path in RELEASE_DOCS:
+        _write_text(tmp_path / path)
+    for source_file in (SOURCE_FILE, BROWSER_FILE, EVIDENCE_SOURCE_FILE):
+        _write_text(tmp_path / source_file)
+
+    receipt = build_flagship_receipt(
+        tmp_path,
+        seed_path=CANONICAL_SEED,
+        truth_plane_path=TRUTH_PLANE,
+        browser_proof_receipt_path=None,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert any(
+        "journey feedback evidence sources do not match the immutable approved baseline" in reason
+        for reason in receipt["blocking_reasons"]
+    )
+
+
+def test_flagship_receipt_stable_write_heals_sha256_but_ignores_generated_at_only_change(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "flagship-receipt.json"
+    expected = {
+        "generated_at": "2026-07-17T03:00:00Z",
+        "status": "pass",
+        "browser_receipt_binding": {"sha256": "a" * 64, "git_blob_oid": "1" * 40},
+    }
+    stale = json.loads(json.dumps(expected))
+    stale["generated_at"] = "2026-07-17T02:00:00Z"
+    stale["browser_receipt_binding"]["sha256"] = "b" * 64
+    _write_json(output, stale)
+
+    flagship_materializer._write_json_stable(output, expected)
+
+    assert json.loads(output.read_text(encoding="utf-8")) == expected
+    generated_at_only = json.loads(json.dumps(expected))
+    generated_at_only["generated_at"] = "2026-07-17T04:00:00Z"
+    flagship_materializer._write_json_stable(output, generated_at_only)
+    assert json.loads(output.read_text(encoding="utf-8")) == expected
 
 
 def test_browser_pass_never_overwrites_truth_or_source_blockers(tmp_path: Path) -> None:
@@ -551,6 +639,7 @@ def test_flagship_materializer_blocks_browser_blockers_and_limitations(tmp_path:
         _write_text(tmp_path / path)
     _write_text(tmp_path / SOURCE_FILE)
     _write_text(tmp_path / BROWSER_FILE)
+    _write_text(tmp_path / EVIDENCE_SOURCE_FILE)
 
     receipt = build_flagship_receipt(
         tmp_path,
@@ -591,6 +680,34 @@ def test_canonical_three_commit_release_envelope_passes(
     assert hygiene["manifest_runtime_commit"] == receipt_commit
 
 
+def test_deploy_verifier_rejects_weakened_journey_baseline_even_with_prior_pass_receipts(
+    tmp_path: Path,
+) -> None:
+    root, deploy_head, receipt_commit, code_parent = _canonical_receipt_repo(tmp_path)
+    seed_path = root / CANONICAL_SEED
+    seed = json.loads(seed_path.read_text(encoding="utf-8"))
+    notifications = next(
+        row
+        for row in seed["journey_evidence_matrix"]["rows"]
+        if row["journey_id"] == "notifications"
+    )
+    notifications["evidence_sources"][0]["cases"] = notifications["evidence_sources"][0]["cases"][:1]
+    _write_json(seed_path, seed)
+
+    issues = verify_deploy_receipts(
+        root=root,
+        expected_head=deploy_head,
+        expected_receipt_commit=receipt_commit,
+        expected_code_parent=code_parent,
+    )
+
+    assert any(
+        "flagship gate seed release-proof baseline mismatch: journey notifications evidence sources "
+        "do not match the immutable approved baseline" in issue
+        for issue in issues
+    )
+
+
 def test_canonical_verifier_rejects_stale_legacy_ea_pass(tmp_path: Path) -> None:
     def mutate(_root: Path, browser: dict[str, Any], _flagship: dict[str, Any]) -> None:
         browser["product"] = "executive-assistant"
@@ -621,6 +738,48 @@ def test_canonical_verifier_rejects_receipt_limitations(tmp_path: Path) -> None:
     )
 
     assert any("browser evidence is incomplete" in issue for issue in issues)
+
+
+def test_canonical_verifier_rejects_missing_secondary_source_backed_lane(tmp_path: Path) -> None:
+    def mutate(_root: Path, browser: dict[str, Any], _flagship: dict[str, Any]) -> None:
+        browser["source_backed_journey_proofs"] = browser["source_backed_journey_proofs"][:-1]
+
+    root, deploy_head, receipt_commit, code_parent = _canonical_receipt_repo(tmp_path, mutate=mutate)
+    issues = verify_deploy_receipts(
+        root=root,
+        expected_head=deploy_head,
+        expected_receipt_commit=receipt_commit,
+        expected_code_parent=code_parent,
+    )
+
+    assert any("source-backed proof lanes do not exactly match" in issue for issue in issues)
+    assert any(EVIDENCE_SOURCE_FILE in issue for issue in issues)
+
+
+def test_canonical_verifier_rejects_hand_weakened_flagship_journey_matrix(
+    tmp_path: Path,
+) -> None:
+    def mutate(_root: Path, _browser: dict[str, Any], flagship: dict[str, Any]) -> None:
+        flagship["journey_evidence_matrix"] = {
+            "version": 1,
+            "status": "pass",
+            "readiness_scope": "candidate_source_and_browser_proof",
+            "required_journey_ids": [],
+            "rows": [],
+        }
+
+    root, deploy_head, receipt_commit, code_parent = _canonical_receipt_repo(tmp_path, mutate=mutate)
+    issues = verify_deploy_receipts(
+        root=root,
+        expected_head=deploy_head,
+        expected_receipt_commit=receipt_commit,
+        expected_code_parent=code_parent,
+    )
+
+    assert (
+        "flagship release receipt journey evidence matrix does not exactly match the governed browser proof"
+        in issues
+    )
 
 
 def test_canonical_verifier_rejects_symlinked_receipt_path(tmp_path: Path) -> None:

@@ -15,54 +15,23 @@ from typing import Any, Callable
 
 if __package__:
     from .propertyquarry_release_receipt_binding import ReleaseBindingError, build_source_binding
+    from . import propertyquarry_release_proof_baseline as release_proof_baseline
 else:
     from propertyquarry_release_receipt_binding import ReleaseBindingError, build_source_binding
+    import propertyquarry_release_proof_baseline as release_proof_baseline
 
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SEED = Path(".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json")
 DEFAULT_OUTPUT = Path(".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json")
-SOURCE_BACKED_TEST_FILE = "tests/test_propertyquarry_workspace_redesign.py"
-SOURCE_BACKED_CASES = [
-    "test_propertyquarry_workspace_routes_render_greenfield_surfaces",
-    "test_propertyquarry_failed_run_stays_on_activity_surface",
-    "test_property_workspace_sign_out_clears_workspace_session_cookie",
-    "test_property_saved_shortlist_candidates_persist_across_runs",
-    "test_propertyquarry_account_exposes_working_lifecycle_controls",
-    "test_propertyquarry_pricing_checkout_failure_copy_is_safe_and_accessible",
-    "test_propertyquarry_public_home_survives_unreadable_optional_tour_media",
-]
-REAL_BROWSER_TEST_FILE = "tests/e2e/test_propertyquarry_greenfield_browser.py"
-REQUIRED_PACKETS_TOURS_REAL_BROWSER_CASES = (
-    "test_propertyquarry_flagship_operating_loop_in_browser",
-    "test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_browser",
-    "test_propertyquarry_blocked_3d_tour_can_be_retried_from_research_packet_in_real_browser",
-    "test_propertyquarry_research_detail_never_shows_fake_open_tour_for_generated_reconstruction_status",
-    "test_propertyquarry_generated_reconstruction_public_launch_renders_honest_shell_in_real_browser",
-    "test_propertyquarry_generated_reconstruction_public_launch_is_mobile_safe",
-    "test_propertyquarry_expired_flat_preview_explains_3d_unavailable_in_real_browser",
-)
-REAL_BROWSER_CASES = [
-    "test_propertyquarry_greenfield_workspace_in_real_browser",
-    "test_propertyquarry_greenfield_workspace_is_mobile_usable",
-    "test_propertyquarry_expired_session_next_action_moves_keyboard_focus_to_sign_in_options",
-    "test_propertyquarry_workbench_candidate_history_stays_in_place",
-    *REQUIRED_PACKETS_TOURS_REAL_BROWSER_CASES,
-    "test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser",
-    "test_propertyquarry_packet_tracks_followup_state_in_browser",
-    "test_propertyquarry_account_notifications_save_multi_channel_preferences_in_real_browser",
-    "test_propertyquarry_browser_alert_button_toggles_enabled_state",
-]
-REQUIRED_JOURNEY_IDS = (
-    "public_entry",
-    "onboarding_auth",
-    "search_ranking",
-    "shortlist_research_revisit",
-    "account_pricing_privacy_recovery",
-    "packets_tours",
-    "feedback",
-    "notifications",
-)
+SOURCE_BACKED_TEST_FILE = release_proof_baseline.PRIMARY_SOURCE_TEST_FILE
+SOURCE_BACKED_CASES = list(release_proof_baseline.PRIMARY_SOURCE_CASES)
+EVIDENCE_OVERLAY_TEST_FILE = release_proof_baseline.EVIDENCE_OVERLAY_TEST_FILE
+EVIDENCE_OVERLAY_CASES = list(release_proof_baseline.EVIDENCE_OVERLAY_CASES)
+REAL_BROWSER_TEST_FILE = release_proof_baseline.REAL_BROWSER_TEST_FILE
+REQUIRED_PACKETS_TOURS_REAL_BROWSER_CASES = release_proof_baseline.PACKETS_TOURS_REAL_BROWSER_CASES
+REAL_BROWSER_CASES = list(release_proof_baseline.REAL_BROWSER_CASES)
+REQUIRED_JOURNEY_IDS = release_proof_baseline.APPROVED_REQUIRED_JOURNEY_IDS
 PYTEST_OUTCOME_KEYS = ("passed", "failed", "skipped", "errors", "xfailed", "xpassed")
 VOLATILE_EXECUTION_KEYS = frozenset(
     {
@@ -79,7 +48,6 @@ VOLATILE_EXECUTION_KEYS = frozenset(
         "python_bin",
         "resolved_path",
         "review_due",
-        "sha256",
         "size_bytes",
         "source_path",
     }
@@ -112,6 +80,13 @@ PYTEST_ISOLATED_ENV_KEYS = (
     "EA_TRUST_API_TOKEN_PRINCIPAL_HEADER",
     "EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER",
 )
+
+
+def _governed_evidence_sources(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
+    return (
+        release_proof_baseline.approved_evidence_sources(),
+        release_proof_baseline.approved_seed_baseline_blockers(seed),
+    )
 
 
 def _utc_now() -> str:
@@ -264,15 +239,32 @@ def _lane_completion(
     return normalized
 
 
+def _unavailable_lane(*, test_file: str, cases: list[str], real_browser: bool, limitation: str) -> dict[str, Any]:
+    return _lane_completion(
+        {
+            "status": "blocked",
+            "test_file": test_file,
+            "cases": cases,
+            "exit_code": 1,
+            "output_excerpt": [],
+            "limitations": [limitation],
+            "outcome_counts": {key: 0 for key in PYTEST_OUTCOME_KEYS},
+        },
+        required_cases=cases,
+        real_browser=real_browser,
+    )
+
+
 def _build_journey_evidence_matrix(
     seed: dict[str, Any],
     *,
-    source_backed: dict[str, Any],
+    source_backed: list[dict[str, Any]],
     real_browser: dict[str, Any],
     source_binding: dict[str, Any] | None,
 ) -> tuple[dict[str, Any], list[str]]:
     raw_matrix = seed.get("journey_evidence_matrix")
-    blockers: list[str] = []
+    approved_matrix_blockers = release_proof_baseline.approved_journey_matrix_blockers(raw_matrix)
+    blockers: list[str] = list(approved_matrix_blockers)
     if not isinstance(raw_matrix, dict):
         return {
             "version": 1,
@@ -280,7 +272,7 @@ def _build_journey_evidence_matrix(
             "runtime_commit_sha": str((source_binding or {}).get("code_commit") or ""),
             "required_journey_ids": list(REQUIRED_JOURNEY_IDS),
             "rows": [],
-        }, ["journey evidence matrix is missing"]
+        }, list(dict.fromkeys(["journey evidence matrix is missing", *approved_matrix_blockers]))
 
     try:
         version = int(raw_matrix.get("version") or 0)
@@ -319,13 +311,20 @@ def _build_journey_evidence_matrix(
     if set(rows_by_id) != set(REQUIRED_JOURNEY_IDS):
         blockers.append("journey evidence matrix rows do not exactly cover the required journeys")
 
-    lanes = {
-        SOURCE_BACKED_TEST_FILE: source_backed,
-        REAL_BROWSER_TEST_FILE: real_browser,
-    }
+    governed_sources, evidence_source_blockers = _governed_evidence_sources(seed)
+    blockers.extend(evidence_source_blockers)
+    lanes: dict[str, dict[str, Any]] = {}
+    for lane in [*source_backed, real_browser]:
+        test_file = str(lane.get("test_file") or "").strip()
+        if not test_file:
+            continue
+        if test_file in lanes:
+            blockers.append(f"browser workflow proof produced duplicate evidence lane: {test_file}")
+            continue
+        lanes[test_file] = lane
     allowed_cases = {
-        SOURCE_BACKED_TEST_FILE: set(SOURCE_BACKED_CASES),
-        REAL_BROWSER_TEST_FILE: set(REAL_BROWSER_CASES),
+        str(entry["file"]): set(str(case) for case in entry["cases"])
+        for entry in governed_sources
     }
     mapped_cases = {path: set() for path in allowed_cases}
     rendered_rows: list[dict[str, Any]] = []
@@ -348,7 +347,16 @@ def _build_journey_evidence_matrix(
         rendered_sources: list[dict[str, Any]] = []
         for entry in evidence_sources:
             test_file = str(entry.get("file") or "").strip()
-            cases = [str(case).strip() for case in entry.get("cases") or [] if str(case).strip()]
+            raw_cases = entry.get("cases")
+            if not isinstance(raw_cases, list):
+                row_blockers.append(f"evidence source cases must be a list: {test_file or 'missing'}")
+                continue
+            cases = [case.strip() for case in raw_cases if isinstance(case, str) and case.strip()]
+            if len(cases) != len(raw_cases):
+                row_blockers.append(f"evidence source has invalid cases: {test_file or 'missing'}")
+                continue
+            if len(cases) != len(set(cases)):
+                row_blockers.append(f"evidence source has duplicate cases: {test_file or 'missing'}")
             lane = lanes.get(test_file)
             if lane is None:
                 row_blockers.append(f"unsupported evidence source: {test_file or 'missing'}")
@@ -431,6 +439,7 @@ def _build_journey_evidence_matrix(
                 f"missing={','.join(missing_cases) or 'none'}; extra={','.join(extra_cases) or 'none'}"
             )
 
+    blockers = list(dict.fromkeys(blockers))
     if blockers or any(row["proof_status"] == "blocked" for row in rendered_rows):
         status = "blocked"
     elif any(row["proof_status"] == "preview_only" for row in rendered_rows):
@@ -527,22 +536,45 @@ def build_receipt(
     proof_target = str((seed.get("browser_workflow_proof") or {}).get("proof_target") or "executive-assistant").strip()
     proof_label = "PropertyQuarry" if proof_target == "propertyquarry" else "EA"
     python_bin = _resolve_python_bin(root)
-    source_backed = _lane_completion(runner(
-        root,
-        python_bin=python_bin,
-        test_file=SOURCE_BACKED_TEST_FILE,
-        cases=SOURCE_BACKED_CASES,
-        real_browser=False,
-    ), required_cases=SOURCE_BACKED_CASES, real_browser=False)
-    real_browser = _lane_completion(runner(
-        root,
-        python_bin=python_bin,
-        test_file=REAL_BROWSER_TEST_FILE,
-        cases=REAL_BROWSER_CASES,
-        real_browser=True,
-    ), required_cases=REAL_BROWSER_CASES, real_browser=True)
+    governed_sources, evidence_source_blockers = _governed_evidence_sources(seed)
+    source_specs = [entry for entry in governed_sources if "/e2e/" not in entry["file"]]
+    real_browser_specs = [entry for entry in governed_sources if "/e2e/" in entry["file"]]
+    source_backed = [
+        _lane_completion(
+            runner(
+                root,
+                python_bin=python_bin,
+                test_file=str(spec["file"]),
+                cases=list(spec["cases"]),
+                real_browser=False,
+            ),
+            required_cases=list(spec["cases"]),
+            real_browser=False,
+        )
+        for spec in source_specs
+    ]
+    if len(real_browser_specs) == 1:
+        real_browser_spec = real_browser_specs[0]
+        real_browser = _lane_completion(
+            runner(
+                root,
+                python_bin=python_bin,
+                test_file=str(real_browser_spec["file"]),
+                cases=list(real_browser_spec["cases"]),
+                real_browser=True,
+            ),
+            required_cases=list(real_browser_spec["cases"]),
+            real_browser=True,
+        )
+    else:
+        real_browser = _unavailable_lane(
+            test_file="",
+            cases=[],
+            real_browser=True,
+            limitation="the current gate does not define one unambiguous real-browser evidence lane",
+        )
 
-    blocking_reasons: list[str] = []
+    blocking_reasons: list[str] = list(evidence_source_blockers)
     current_limitations: list[str] = []
     source_binding: dict[str, Any] | None = None
     if require_source_binding:
@@ -561,14 +593,20 @@ def build_receipt(
         source_binding=source_binding,
     )
     blocking_reasons.extend(journey_matrix_blockers)
-    if source_backed["status"] != "pass":
-        blocking_reasons.append("source-backed browser journey proof is not passing")
-        current_limitations.extend(source_backed.get("limitations") or [])
+    for source_lane in source_backed:
+        if source_lane["status"] != "pass":
+            blocking_reasons.append(
+                "source-backed browser journey proof is not passing: "
+                + str(source_lane.get("test_file") or "missing")
+            )
+            current_limitations.extend(source_lane.get("limitations") or [])
     if real_browser["status"] == "blocked":
         blocking_reasons.append("real browser E2E proof is not passing")
         current_limitations.extend(real_browser.get("limitations") or [])
     elif real_browser["status"] == "preview_only":
         current_limitations.extend(real_browser.get("limitations") or [])
+
+    blocking_reasons = list(dict.fromkeys(blocking_reasons))
 
     if not blocking_reasons and real_browser["status"] == "pass":
         status = "pass"
@@ -597,8 +635,10 @@ def build_receipt(
         "seed_source": seed_path.as_posix(),
         "release_claim_summary": str((seed.get("release_claim") or {}).get("summary") or "").strip(),
         "expected_browser_signals": list((seed.get("browser_workflow_proof") or {}).get("expected_browser_signals") or []),
+        "approved_baseline": release_proof_baseline.approved_baseline_binding(),
         "source_binding": source_binding,
-        "source_backed_journey_proof": source_backed,
+        "source_backed_journey_proof": source_backed[0] if source_backed else {},
+        "source_backed_journey_proofs": source_backed,
         "real_browser_e2e_proof": real_browser,
         "journey_evidence_matrix": journey_evidence_matrix,
         "blocking_reasons": blocking_reasons,

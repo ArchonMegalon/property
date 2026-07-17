@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from scripts import propertyquarry_release_proof_baseline as release_proof_baseline
 from scripts.verify_flagship_release_readiness import verify as verify_flagship_candidate
 
 
@@ -21,6 +22,9 @@ CLOSEOUT_PLAN_PATH = ROOT / "FLAGSHIP_CLOSEOUT_PLAN.md"
 VERIFY_RELEASE_ASSETS_PATH = ROOT / "scripts" / "verify_release_assets.sh"
 SMOKE_WORKFLOW_PATH = ROOT / ".github" / "workflows" / "smoke-runtime.yml"
 REAL_BROWSER_TEST_FILE = "tests/e2e/test_propertyquarry_greenfield_browser.py"
+EVIDENCE_SOURCE_TEST_FILE = "tests/test_property_evidence_overlays.py"
+EVIDENCE_SOURCE_CASE = "test_property_research_rows_preserve_evidence_states_and_original_article_link"
+REAL_BROWSER_EVIDENCE_CASE = "test_propertyquarry_research_evidence_states_and_links_render_in_real_browser"
 REQUIRED_PACKETS_TOURS_REAL_BROWSER_CASES = (
     "test_propertyquarry_flagship_operating_loop_in_browser",
     "test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_browser",
@@ -63,6 +67,7 @@ def test_flagship_truth_plane_seed_points_at_browser_workflow_proof() -> None:
     assert gate["surface"] == "propertyquarry_flagship_release_control"
     assert gate["truth_plane"]["source"] == ".codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md"
     assert gate["truth_plane"]["legacy_history"] == "MILESTONE.json"
+    assert release_proof_baseline.approved_seed_baseline_blockers(gate) == []
 
     browser_proof = gate["browser_workflow_proof"]["evidence_sources"]
     evidence_index = {entry["file"]: set(entry["cases"]) for entry in browser_proof}
@@ -71,6 +76,7 @@ def test_flagship_truth_plane_seed_points_at_browser_workflow_proof() -> None:
     assert gate["browser_workflow_proof"]["proof_target"] == "propertyquarry"
     assert "tests/test_propertyquarry_workspace_redesign.py" in evidence_index
     assert "tests/e2e/test_propertyquarry_greenfield_browser.py" in evidence_index
+    assert EVIDENCE_SOURCE_TEST_FILE in evidence_index
     assert (
         "test_propertyquarry_workspace_routes_render_greenfield_surfaces"
         in evidence_index["tests/test_propertyquarry_workspace_redesign.py"]
@@ -87,6 +93,10 @@ def test_flagship_truth_plane_seed_points_at_browser_workflow_proof() -> None:
         "test_propertyquarry_greenfield_workspace_is_mobile_usable"
         in evidence_index["tests/e2e/test_propertyquarry_greenfield_browser.py"]
     )
+    assert REAL_BROWSER_EVIDENCE_CASE in evidence_index[REAL_BROWSER_TEST_FILE]
+    assert evidence_index[EVIDENCE_SOURCE_TEST_FILE] == {EVIDENCE_SOURCE_CASE}
+    assert sum(len(cases) for test_file, cases in evidence_index.items() if "/e2e/" not in test_file) == 8
+    assert len(evidence_index[REAL_BROWSER_TEST_FILE]) == 16
     assert ordered_evidence_index[REAL_BROWSER_TEST_FILE][4:11] == list(
         REQUIRED_PACKETS_TOURS_REAL_BROWSER_CASES
     )
@@ -178,6 +188,7 @@ def test_flagship_release_receipt_is_materialized_or_expected_to_materialize() -
     receipt = json.loads(GENERATED_GATE_PATH.read_text(encoding="utf-8"))
 
     assert receipt["readiness_scope"] == "source_and_browser_proof"
+    assert receipt["approved_baseline"] == release_proof_baseline.approved_baseline_binding()
     assert receipt["live_readiness"] == {
         "status": "not_evaluated",
         "authority": "_completion/property_gold_status/release-gate.json",
@@ -201,11 +212,23 @@ def test_flagship_release_receipt_is_materialized_or_expected_to_materialize() -
     ]
 
     browser_receipt = json.loads(BROWSER_PROOF_PATH.read_text(encoding="utf-8"))
+    assert browser_receipt["approved_baseline"] == release_proof_baseline.approved_baseline_binding()
+    gate_sources = json.loads(GATE_PATH.read_text(encoding="utf-8"))["browser_workflow_proof"]["evidence_sources"]
     expected_browser_cases = next(
         entry["cases"]
-        for entry in json.loads(GATE_PATH.read_text(encoding="utf-8"))["browser_workflow_proof"]["evidence_sources"]
+        for entry in gate_sources
         if entry["file"] == REAL_BROWSER_TEST_FILE
     )
+    expected_source_backed = [entry for entry in gate_sources if "/e2e/" not in entry["file"]]
+    source_backed_lanes = browser_receipt["source_backed_journey_proofs"]
+    assert browser_receipt["source_backed_journey_proof"] == source_backed_lanes[0]
+    assert [lane["test_file"] for lane in source_backed_lanes] == [
+        entry["file"] for entry in expected_source_backed
+    ]
+    assert [lane["cases"] for lane in source_backed_lanes] == [
+        entry["cases"] for entry in expected_source_backed
+    ]
+    assert sum(lane["required_case_count"] for lane in source_backed_lanes) == 8
     browser_lane = browser_receipt["real_browser_e2e_proof"]
     assert browser_lane["cases"] == expected_browser_cases
     assert browser_lane["required_case_count"] == len(expected_browser_cases)
@@ -244,6 +267,7 @@ def test_release_asset_verifier_binds_generated_receipts_to_current_propertyquar
     assert 'assert gate["product"] == "propertyquarry"' in verifier
     assert 'assert gate["surface"] == "propertyquarry_flagship_release_control"' in verifier
     assert 'browser_receipt_pass_blockers(browser_receipt, gate)' in verifier
+    assert 'approved_seed_baseline_blockers(gate)' in verifier
     assert 'assert browser_receipt["product"] == gate["product"]' in verifier
     assert 'assert flagship_receipt["product"] == gate["product"]' in verifier
     assert 'assert flagship_receipt["readiness_scope"] == "source_and_browser_proof"' in verifier

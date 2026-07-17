@@ -4,6 +4,9 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
+
+from app.api.routes.landing_property_research import _property_packet_evidence_overlay_rows
 from app.product import property_evidence_overlays as overlays
 from app.product.property_evidence_overlays import build_property_evidence_overlay_rows
 from scripts.property_evidence_overlay_read_model import (
@@ -12,6 +15,8 @@ from scripts.property_evidence_overlay_read_model import (
     execute_ingestion,
     verify_receipt,
 )
+
+FROZEN_EVIDENCE_NOW = datetime(2026, 7, 17, 12, 0, tzinfo=timezone.utc)
 
 
 def test_property_evidence_overlays_fail_closed_when_no_cached_rollup(tmp_path: Path, monkeypatch) -> None:
@@ -32,6 +37,7 @@ def test_property_evidence_overlays_fail_closed_when_no_cached_rollup(tmp_path: 
 
 
 def test_property_evidence_overlays_read_verified_and_stale_cached_rollups(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(overlays, "_now", lambda: FROZEN_EVIDENCE_NOW)
     rollup_path = tmp_path / "rollups.json"
     rollup_path.write_text(
         json.dumps(
@@ -40,6 +46,7 @@ def test_property_evidence_overlays_read_verified_and_stale_cached_rollups(tmp_p
                     {
                         "layer_key": "media_attention",
                         "match": {"postal_code": "1020"},
+                        "ui_state": "verified",
                         "summary": "12 local articles in the last 90 days, mostly transport and development.",
                         "source_name": "Terms-safe media index",
                         "source_url": "https://news.example.test/search?q=1020",
@@ -51,6 +58,7 @@ def test_property_evidence_overlays_read_verified_and_stale_cached_rollups(tmp_p
                     {
                         "layer_key": "fiber_broadband",
                         "match": {"street": "praterstrasse"},
+                        "ui_state": "stale",
                         "summary": "Official fixed-line coverage says gigabit-class service may be available.",
                         "source_name": "Official broadband grid",
                         "cache_updated_at": "2025-01-01T08:00:00+00:00",
@@ -83,10 +91,159 @@ def test_property_evidence_overlays_read_verified_and_stale_cached_rollups(tmp_p
     assert by_key["environmental_quality"]["ui_state"] == "unavailable"
 
 
+def test_property_research_rows_preserve_evidence_states_and_original_article_link(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(overlays, "_now", lambda: FROZEN_EVIDENCE_NOW)
+    property_url = "https://www.immobilienscout24.de/expose/altbau-u6"
+    rollup_path = tmp_path / "evidence-rollups.json"
+    rollup_path.write_text(
+        json.dumps(
+            {
+                "rows": [
+                    {
+                        "layer_key": "media_attention",
+                        "match": {"property_url": property_url},
+                        "ui_state": "verified",
+                        "summary": "12 local articles in the last 90 days, mostly transport and development.",
+                        "source_name": "Public media index",
+                        "source_url": "https://news.example.test/search/altbau-u6",
+                        "article_url": "https://news.example.test/article/altbau-u6",
+                        "cache_updated_at": "2026-07-17T00:00:00+00:00",
+                        "source_updated_at": "2026-07-16T00:00:00+00:00",
+                        "uncertainty_label": "topic aggregate",
+                    },
+                    {
+                        "layer_key": "fiber_broadband",
+                        "match": {"property_url": property_url},
+                        "ui_state": "stale",
+                        "summary": "The official broadband grid snapshot is waiting for an update.",
+                        "source_name": "Official broadband grid",
+                        "source_url": "https://broadband.example.test/altbau-u6",
+                        "cache_updated_at": "2025-01-01T00:00:00+00:00",
+                        "source_updated_at": "2024-12-31T00:00:00+00:00",
+                        "uncertainty_label": "area grid",
+                    },
+                    {
+                        "layer_key": "environmental_quality",
+                        "match": {"property_url": property_url},
+                        "ui_state": "unavailable",
+                        "summary": "This area layer is available for the address.",
+                        "source_name": "Untrusted source",
+                        "source_url": "javascript:alert(document.domain)",
+                        "article_url": "data:text/html,unsafe",
+                        "cache_updated_at": "2026-07-17T00:00:00+00:00",
+                    },
+                ]
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PROPERTYQUARRY_EVIDENCE_OVERLAY_READ_MODEL", "file")
+    monkeypatch.setenv("PROPERTYQUARRY_EVIDENCE_OVERLAY_ROLLUP_PATH", str(rollup_path))
+
+    rows = _property_packet_evidence_overlay_rows(
+        facts={"property_url": property_url},
+        candidate={"property_url": property_url},
+    )
+    by_title = {str(row["title"]): row for row in rows}
+
+    assert len(rows) == 8
+    assert by_title["Media attention"]["tag"] == "Ready"
+    assert by_title["Media attention"]["href"] == "https://news.example.test/article/altbau-u6"
+    assert "12 local articles" in by_title["Media attention"]["detail"]
+    assert by_title["Fiber and broadband"]["tag"] == "Stale"
+    assert by_title["Fiber and broadband"]["href"] == "https://broadband.example.test/altbau-u6"
+    assert by_title["Environmental quality"]["tag"] == "Unavailable"
+    assert "not available for this address yet" in by_title["Environmental quality"]["detail"]
+    assert "is available for the address" not in by_title["Environmental quality"]["detail"]
+    assert by_title["Environmental quality"].get("href", "") == ""
+
+
+@pytest.mark.parametrize(
+    "unsafe_url",
+    [
+        "http://127.0.0.1/private",
+        "http://169.254.169.254/latest/meta-data",
+        "http://2130706433/private",
+        "http://[::1]/private",
+        "http://metadata.internal/private",
+        "https://operator@example.com/private",
+        "https://169.254.169.254\\foo",
+        "http://ⓛocalhost/x",
+        "http://１２７.０.０.１/x",
+        "http://%6cocalhost/x",
+        "http://%31%32%37.0.0.1/x",
+        "http://127%2e0%2e0%2e1/x",
+        "http://%256cocalhost/x",
+        "http://localhost%5c.example.com/x",
+    ],
+)
+def test_property_evidence_overlay_rejects_private_or_credentialed_links(
+    unsafe_url: str,
+) -> None:
+    assert overlays._safe_public_http_url(unsafe_url) == ""
+
+
+@pytest.mark.parametrize(
+    "safe_url",
+    [
+        "https://news.example.test/article/1",
+        "https://example.com/public",
+        "https://[2606:4700:4700::1111]/public",
+    ],
+)
+def test_property_evidence_overlay_accepts_public_links(safe_url: str) -> None:
+    assert overlays._safe_public_http_url(safe_url) == safe_url
+
+
+@pytest.mark.parametrize(
+    ("row", "expected"),
+    [
+        ({}, "unavailable"),
+        ({"ui_state": "unknown", "cache_updated_at": "2026-07-17T00:00:00+00:00"}, "unavailable"),
+        ({"ui_state": "verified"}, "unavailable"),
+        ({"ui_state": "verified", "cache_updated_at": "2020-01-01T00:00:00+00:00"}, "stale"),
+        ({"ui_state": "verified", "cache_updated_at": "2026-07-17T00:00:00+00:00"}, "verified"),
+        ({"ui_state": "verified", "cache_updated_at": "2099-01-01T00:00:00+00:00"}, "unavailable"),
+        ({"ui_state": "stale", "cache_updated_at": "2026-07-17T00:00:00+00:00"}, "stale"),
+    ],
+)
+def test_property_evidence_overlay_state_requires_explicit_fresh_truth(
+    monkeypatch,
+    row: dict[str, object],
+    expected: str,
+) -> None:
+    monkeypatch.setattr(overlays, "_now", lambda: FROZEN_EVIDENCE_NOW)
+
+    assert overlays._state_for_rollup(row, stale_after_days=45) == expected
+
+
+def test_property_evidence_overlay_production_freshness_still_expires_after_45_days(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        overlays,
+        "_now",
+        lambda: datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc),
+    )
+
+    assert overlays._state_for_rollup(
+        {
+            "ui_state": "verified",
+            "cache_updated_at": "2026-07-17T00:00:00+00:00",
+        },
+        stale_after_days=45,
+    ) == "stale"
+
+
 def test_property_evidence_overlays_use_listing_research_snapshot_coordinates_for_rollup_match(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
+    monkeypatch.setattr(overlays, "_now", lambda: FROZEN_EVIDENCE_NOW)
     rollup_path = tmp_path / "rollups.json"
     rollup_path.write_text(
         json.dumps(
@@ -95,6 +252,7 @@ def test_property_evidence_overlays_use_listing_research_snapshot_coordinates_fo
                     {
                         "layer_key": "summer_heat",
                         "match": {"property_coordinate": "48.2082,16.3738"},
+                        "ui_state": "verified",
                         "summary": "Official heat layer marks this block as cooler than nearby dense corridors.",
                         "source_name": "Vienna climate analysis",
                         "cache_updated_at": "2026-06-25T08:00:00+00:00",
@@ -138,6 +296,7 @@ def test_property_evidence_overlays_derive_summer_heat_row_from_attached_climate
                 "sources": [
                     {
                         "risk_key": "cooling_corridor",
+                        "verification_state": "verified",
                         "source_label": "Flowing-water proximity",
                         "source_url": "https://www.openstreetmap.org/copyright",
                     }
@@ -152,6 +311,157 @@ def test_property_evidence_overlays_derive_summer_heat_row_from_attached_climate
     assert "Donaukanal" in str(by_key["summer_heat"]["detail"])
     assert "microclimate hint (strong)" in str(by_key["summer_heat"]["detail"])
     assert by_key["summer_heat"]["source_url"] == "https://www.openstreetmap.org/copyright"
+
+
+@pytest.mark.parametrize(
+    "verification_state",
+    ["", "unknown", "needs_review", "stale", "flagged", "source_gap"],
+)
+def test_property_evidence_overlays_do_not_verify_heat_from_unverified_catalog_rows(
+    tmp_path: Path,
+    monkeypatch,
+    verification_state: str,
+) -> None:
+    missing_rollup = tmp_path / "missing-rollups.json"
+    monkeypatch.setenv("PROPERTYQUARRY_EVIDENCE_OVERLAY_ROLLUP_PATH", str(missing_rollup))
+
+    rows = build_property_evidence_overlay_rows(
+        facts={
+            "official_risk_evidence": {
+                "sources": [
+                    {
+                        "risk_key": "heat_resilience",
+                        "verification_state": verification_state,
+                        "summary": "The public climate dataset still needs an address-level check.",
+                        "source_label": "Climate source registry",
+                    }
+                ]
+            }
+        },
+        candidate={"candidate_ref": "candidate-1"},
+    )
+    by_key = {str(row["layer_key"]): row for row in rows}
+
+    assert by_key["summer_heat"]["ui_state"] == "unavailable"
+    assert by_key["summer_heat"]["tag"] == "Unavailable"
+
+
+def test_property_evidence_overlays_accept_explicitly_verified_heat_source() -> None:
+    layer = {
+        "layer_key": "summer_heat",
+        "title": "Summer heat",
+        "teable_table": "pq_geo_summer_heat",
+        "read_model": "cached_postgres_geo_rollup",
+        "search_policy": "read_cached_rollup_only_no_inline_fetch",
+    }
+
+    row = overlays._derived_summer_heat_overlay(
+        layer,
+        {
+            "official_risk_evidence": {
+                "sources": [
+                    {
+                        "risk_key": "heat_resilience",
+                        "verification_state": "needs_review",
+                        "summary": "This unverified row must not shadow verified evidence.",
+                        "source_label": "Unverified climate registry",
+                        "source_url": "javascript:alert(document.domain)",
+                    },
+                    {
+                        "risk_key": "heat_resilience",
+                        "verification_state": "verified",
+                        "summary": "The verified block-level climate layer shows moderate exposure.",
+                        "source_label": "Vienna climate analysis",
+                        "source_url": "https://data.gv.at/example",
+                    }
+                ]
+            }
+        },
+    )
+
+    assert row is not None
+    assert row["ui_state"] == "verified"
+    assert "verified block-level climate layer" in str(row["detail"])
+    assert row["source_name"] == "Vienna climate analysis"
+    assert row["source_url"] == "https://data.gv.at/example"
+    assert "Unverified climate registry" not in str(row["detail"])
+
+
+def test_property_evidence_overlays_do_not_attribute_derived_shade_to_unverified_source() -> None:
+    layer = {
+        "layer_key": "summer_heat",
+        "title": "Summer heat",
+        "teable_table": "pq_geo_summer_heat",
+        "read_model": "cached_postgres_geo_rollup",
+        "search_policy": "read_cached_rollup_only_no_inline_fetch",
+    }
+
+    row = overlays._derived_summer_heat_overlay(
+        layer,
+        {
+            "tree_shade_signal": True,
+            "official_risk_evidence": {
+                "sources": [
+                    {
+                        "risk_key": "heat_resilience",
+                        "verification_state": "needs_review",
+                        "summary": "The registry still needs an address-level check.",
+                        "source_label": "Unverified climate registry",
+                        "source_url": "https://unverified.example.test/climate",
+                    }
+                ]
+            },
+        },
+    )
+
+    assert row is not None
+    assert row["source_name"] == "Property facts"
+    assert row["source_url"] == ""
+    assert "Unverified climate registry" not in str(row["detail"])
+
+
+@pytest.mark.parametrize(
+    "facts",
+    [
+        {"tree_shade_signal": "false"},
+        {"green_shade_signal": "0"},
+        {"cooling_corridor_signal": "unknown"},
+        {"heat_resilience_risk": "unknown"},
+        {"heat_resilience_risk": "nan"},
+        {"heat_resilience_risk": float("nan")},
+    ],
+)
+def test_property_evidence_overlays_do_not_verify_unknown_or_negative_heat_signals(
+    facts: dict[str, object],
+) -> None:
+    layer = {
+        "layer_key": "summer_heat",
+        "title": "Summer heat",
+    }
+
+    assert overlays._derived_summer_heat_overlay(layer, facts) is None
+
+
+def test_property_evidence_rollup_exact_listing_match_cannot_be_bypassed_by_shared_area() -> None:
+    lookup_values = {
+        "candidate_ref": "candidate-right",
+        "property_url": "https://listings.example.test/right",
+        "postal_code": "1010",
+    }
+
+    assert not overlays._row_matches_candidate(
+        {
+            "match": {
+                "property_url": "https://listings.example.test/wrong",
+                "postal_code": "1010",
+            }
+        },
+        lookup_values,
+    )
+    assert overlays._row_matches_candidate(
+        {"match": {"postal_code": "1010"}},
+        lookup_values,
+    )
 
 
 def test_property_evidence_overlays_prod_reads_postgres_only_and_never_derives(

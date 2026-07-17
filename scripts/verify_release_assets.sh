@@ -145,18 +145,31 @@ import subprocess
 from pathlib import Path
 
 from scripts.materialize_ea_flagship_release_gate import browser_receipt_pass_blockers
+from scripts.propertyquarry_release_proof_baseline import (
+    approved_baseline_binding,
+    approved_seed_baseline_blockers,
+)
 
 gate = json.loads(Path(".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json").read_text(encoding="utf-8"))
 assert gate["product"] == "propertyquarry"
 assert gate["surface"] == "propertyquarry_flagship_release_control"
-browser_sources = {entry["file"]: set(entry["cases"]) for entry in gate["browser_workflow_proof"]["evidence_sources"]}
+assert not approved_seed_baseline_blockers(gate)
+evidence_sources = gate["browser_workflow_proof"]["evidence_sources"]
+browser_sources = {entry["file"]: set(entry["cases"]) for entry in evidence_sources}
+assert len(browser_sources) == len(evidence_sources)
+assert any("/e2e/" not in entry["file"] for entry in evidence_sources)
+assert sum("/e2e/" in entry["file"] for entry in evidence_sources) == 1
+assert all(entry["cases"] and len(set(entry["cases"])) == len(entry["cases"]) for entry in evidence_sources)
 assert gate["browser_workflow_proof"]["proof_target"] == "propertyquarry"
 assert "tests/test_propertyquarry_workspace_redesign.py" in browser_sources
 assert "tests/e2e/test_propertyquarry_greenfield_browser.py" in browser_sources
+assert "tests/test_property_evidence_overlays.py" in browser_sources
 assert "test_propertyquarry_workspace_routes_render_greenfield_surfaces" in browser_sources["tests/test_propertyquarry_workspace_redesign.py"]
 assert "test_propertyquarry_failed_run_stays_on_activity_surface" in browser_sources["tests/test_propertyquarry_workspace_redesign.py"]
 assert "test_propertyquarry_greenfield_workspace_in_real_browser" in browser_sources["tests/e2e/test_propertyquarry_greenfield_browser.py"]
 assert "test_propertyquarry_greenfield_workspace_is_mobile_usable" in browser_sources["tests/e2e/test_propertyquarry_greenfield_browser.py"]
+assert "test_propertyquarry_research_evidence_states_and_links_render_in_real_browser" in browser_sources["tests/e2e/test_propertyquarry_greenfield_browser.py"]
+assert "test_property_research_rows_preserve_evidence_states_and_original_article_link" in browser_sources["tests/test_property_evidence_overlays.py"]
 assert "EA_FLAGSHIP_TRUTH_PLANE.md" == gate["truth_plane"]["source"].split("/")[-1]
 
 browser_receipt = json.loads(Path(".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json").read_text(encoding="utf-8"))
@@ -164,6 +177,7 @@ assert browser_receipt["contract_name"] == "ea.browser_workflow_proof"
 assert browser_receipt["status"] in {"blocked", "preview_only", "pass"}
 assert browser_receipt["product"] == gate["product"]
 assert browser_receipt["proof_target"] == gate["browser_workflow_proof"]["proof_target"]
+assert browser_receipt["approved_baseline"] == approved_baseline_binding()
 if browser_receipt["status"] == "pass":
     unsupported_pass_reasons = browser_receipt_pass_blockers(browser_receipt, gate)
     assert not unsupported_pass_reasons, (
@@ -171,13 +185,24 @@ if browser_receipt["status"] == "pass":
         f"{unsupported_pass_reasons}"
     )
 assert browser_receipt["expected_browser_signals"] == gate["browser_workflow_proof"]["expected_browser_signals"]
-assert browser_receipt["source_backed_journey_proof"]["test_file"] == "tests/test_propertyquarry_workspace_redesign.py"
+expected_source_backed = [
+    entry
+    for entry in gate["browser_workflow_proof"]["evidence_sources"]
+    if "/e2e/" not in entry["file"]
+]
+source_backed_proofs = browser_receipt["source_backed_journey_proofs"]
+assert len(source_backed_proofs) == len(expected_source_backed)
+for lane, expected in zip(source_backed_proofs, expected_source_backed):
+    assert lane["test_file"] == expected["file"]
+    assert lane["cases"] == expected["cases"]
+assert browser_receipt["source_backed_journey_proof"] == source_backed_proofs[0]
 assert browser_receipt["real_browser_e2e_proof"]["test_file"] == "tests/e2e/test_propertyquarry_greenfield_browser.py"
 
 flagship_receipt = json.loads(Path(".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json").read_text(encoding="utf-8"))
 assert flagship_receipt["status"] in {"blocked", "preview_only", "pass"}
 assert flagship_receipt["product"] == gate["product"]
 assert flagship_receipt["surface"] == gate["surface"]
+assert flagship_receipt["approved_baseline"] == approved_baseline_binding()
 assert flagship_receipt["readiness_scope"] == "source_and_browser_proof"
 assert flagship_receipt["live_readiness"] == {
     "status": "not_evaluated",

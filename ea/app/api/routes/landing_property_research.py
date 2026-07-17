@@ -730,10 +730,9 @@ def _property_tour_requestability(
         _property_candidate_source_virtual_tour_url(candidate, facts=facts)
     )
     floorplan_url = _property_candidate_floorplan_url(candidate, facts=facts)
-    has_floorplan = bool(floorplan_url) or _property_truthy_media_flag(facts.get("has_floorplan"))
-    has_real_360 = bool(source_virtual_tour_url) or _property_truthy_media_flag(facts.get("has_360"))
+    has_floorplan = bool(floorplan_url)
+    has_real_360 = bool(source_virtual_tour_url)
     source_eligible = bool(verified_tour or vendor_tour or has_floorplan or has_real_360)
-    property_url = str(candidate.get("property_url") or candidate.get("listing_url") or "").strip()
     listing_state = str(
         candidate.get("listing_status")
         or candidate.get("source_status")
@@ -752,16 +751,7 @@ def _property_tour_requestability(
         not source_eligible
         and (listing_expired or reason_key in _PROPERTY_TOUR_TERMINAL_SOURCE_GAP_REASONS)
     )
-    terminal_without_source = bool(not source_eligible and status in _PROPERTY_TOUR_TERMINAL_STATES)
-    tour_requestable = bool(
-        source_eligible
-        or (
-            property_url
-            and not listing_expired
-            and not terminal_source_gap
-            and not terminal_without_source
-        )
-    )
+    tour_requestable = source_eligible
     return {
         "tour_status": status,
         "tour_reason_key": reason_key,
@@ -782,10 +772,9 @@ def _property_tour_source_gap_detail(candidate: dict[str, object]) -> str:
         raw_tour.get("reason"),
     )
     captured_source_available = bool(
-        _property_candidate_floorplan_url(candidate, facts=facts)
-        or _safe_provider_live_360_url(_property_candidate_source_virtual_tour_url(candidate, facts=facts))
-        or _property_truthy_media_flag(facts.get("has_floorplan"))
-        or _property_truthy_media_flag(facts.get("has_360"))
+        _property_tour_requestability(candidate, raw_tour_payload=raw_tour).get(
+            "tour_source_eligible"
+        )
     )
     if blocked_reason:
         if captured_source_available and blocked_reason in _PROPERTY_TOUR_TERMINAL_SOURCE_GAP_REASONS:
@@ -938,7 +927,10 @@ def _property_tour_media_payload(
         or raw_tour_payload.get("embed_url")
         or ""
     ).strip()
-    if tour_url and _property_hosted_tour_disabled_fallback(tour_url):
+    disabled_fallback_tour = bool(
+        tour_url and _property_hosted_tour_disabled_fallback(tour_url)
+    )
+    if disabled_fallback_tour:
         tour_url = ""
     vendor_tour_url = _customer_facing_vendor_tour_url(
         candidate.get("vendor_tour_url") or raw_tour_payload.get("provider_url"),
@@ -951,6 +943,8 @@ def _property_tour_media_payload(
         principal_id=normalized_principal_id,
     )
     status = str(requestability.get("tour_status") or "").strip().lower()
+    if disabled_fallback_tour:
+        status = ""
     reason_key = str(requestability.get("tour_reason_key") or "").strip()
     classification_reason = str(
         candidate.get("blocked_reason")
@@ -1021,6 +1015,22 @@ def _property_tour_media_payload(
     generated_reconstruction_ready = bool(generated_reconstruction_href)
     open_tour_href = verified_tour_href
     embed_href = verified_tour_href if hosted_tour_ready else ""
+    unbacked_available_status = bool(
+        status
+        in {
+            "available",
+            "complete",
+            "completed",
+            "published",
+            "ready",
+            "source",
+            "succeeded",
+            "success",
+        }
+        and not (open_tour_href or generated_reconstruction_href or vendor_tour_url)
+    )
+    if unbacked_available_status:
+        status = "unavailable"
     verified_walkthrough_href = property_tour_hosting._hosted_property_tour_walkthrough_open_url(
         tour_url,
         candidate.get("flythrough_url"),
@@ -1067,6 +1077,9 @@ def _property_tour_media_payload(
     elif vendor_tour_url:
         status_label = "Original tour available"
         status_detail = "The original tour is available. Open it directly while the in-page 3D tour is still missing."
+    elif disabled_fallback_tour:
+        status_label = "3D tour unavailable"
+        status_detail = _property_tour_source_gap_detail(candidate)
     elif status in {"queued", "pending"}:
         status_label = "3D tour queued"
         status_detail = (
@@ -1117,7 +1130,7 @@ def _property_tour_media_payload(
             or vendor_tour_url
             or status in _PROPERTY_TOUR_PENDING_STATES
             or status in _PROPERTY_TOUR_TERMINAL_STATES
-            or not bool(requestability.get("tour_requestable"))
+            or status == "unavailable"
         ),
         "primary_href": open_tour_href or generated_reconstruction_href or (vendor_tour_url or review_url),
         "primary_label": (

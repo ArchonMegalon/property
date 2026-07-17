@@ -24,6 +24,7 @@ import pytest
 import app.api.routes.channels as channel_routes
 import app.api.routes.landing as landing_routes
 import app.api.routes.landing_objects as landing_objects
+import app.api.routes.landing_property_workspace_helpers as property_workspace_helpers
 import app.api.routes.product_api_delivery as product_api_delivery_routes
 import app.product.property_tour_hosting as property_tour_hosting
 import app.product.service as product_service
@@ -8822,7 +8823,12 @@ def test_propertyquarry_handoff_media_payload_surfaces_terminal_request_status()
             "candidate_ref": "candidate-retryable-handoff-loft",
             "tour_status": "blocked",
             "blocked_reason": "property_tour_execution_failed",
-            "property_facts_json": {"has_floorplan": True},
+            "property_facts_json": {
+                "has_floorplan": True,
+                "floorplan_urls_json": [
+                    "https://assets.example.test/retryable-handoff-loft-floorplan.png"
+                ],
+            },
         },
         primary_candidate={},
         product=None,
@@ -12022,7 +12028,6 @@ def test_property_austria_preference_adjustment_scores_heat_resilience() -> None
             "air_conditioning": True,
             "external_shading": True,
             "tree_shade_signal": True,
-            "official_risk_evidence": {"sources": [{"risk_key": "heat_resilience"}]},
         },
         title="Altbau mit Klimaanlage und Außenjalousien",
         summary="Bäume vor den Fenstern.",
@@ -12035,7 +12040,7 @@ def test_property_austria_preference_adjustment_scores_heat_resilience() -> None
     assert strong_adjustment > 0
     assert "cooling present" in strong_notes
     assert "external shading present" in strong_notes
-    assert "official climate evidence lane attached" in strong_notes
+    assert "official heat evidence missing" in strong_notes
 
 
 def test_property_austria_preference_adjustment_scores_air_conditioning_and_attic_soft_filters() -> None:
@@ -12282,12 +12287,7 @@ def test_property_austria_preference_adjustment_rewards_matching_cooperative_evi
             "energy_certificate_present": True,
             "operating_costs_present": True,
             "school_atlas_quality_summary": "Volksschule 420 m",
-            "official_risk_evidence": {
-                "sources": [
-                    {"risk_key": "school_evidence"},
-                    {"risk_key": "broadband_availability"},
-                ]
-            },
+            "fiber_available": True,
         },
         title="Wohnung mit Kaufoption",
         summary="Ganztagsvolksschule in der Naehe.",
@@ -12300,6 +12300,7 @@ def test_property_austria_preference_adjustment_rewards_matching_cooperative_evi
     assert "Eigenmittel within cap" in notes
     assert "school evidence attached" in notes
     assert "ganztag signal present" in notes
+    assert "high-speed internet confirmed" in notes
 
 
 def test_property_image_ocr_address_hint_rejects_geocode_when_postcode_conflicts(monkeypatch) -> None:
@@ -32591,3 +32592,290 @@ def test_magicfit_visit_plan_counts_functional_route_stops_not_just_listing_room
             "description": "2 Zimmer inklusive Wohnküche, 1 Vorraum, 1 Bad mit WC, 1 Abstellraum, 1 Balkon.",
         },
     ) == 105.0
+
+
+def test_austria_preference_adjustment_does_not_reward_source_catalog_rows() -> None:
+    official_catalog = product_service._property_official_risk_evidence(
+        lat=48.2082,
+        lon=16.3738,
+        facts={},
+    )
+    sources = [
+        dict(row)
+        for row in list(official_catalog.get("sources") or [])
+        if isinstance(row, dict)
+    ]
+    assert sources
+    assert not any(
+        str(row.get("verification_state") or "").strip().lower()
+        in {"verified", "confirmed", "cleared"}
+        for row in sources
+    )
+
+    adjustment, notes = product_service._property_austria_preference_score_adjustment(
+        preferences={
+            "country_code": "AT",
+            "require_school_evidence": True,
+            "avoid_noise_risk_area": True,
+            "require_high_speed_internet": True,
+            "prefer_heat_resilient_home": True,
+        },
+        property_facts={"official_risk_evidence": official_catalog},
+    )
+
+    assert adjustment == -16.0
+    assert notes == (
+        "school evidence missing",
+        "noise evidence missing",
+        "broadband evidence missing",
+        "official heat evidence missing",
+    )
+    assert not any("attached" in note for note in notes)
+
+
+@pytest.mark.parametrize(
+    "verification_state",
+    ["", "unknown", "needs_review", "stale", "flagged", "source_gap"],
+)
+def test_austria_preference_adjustment_rejects_unverified_broadband_rows(
+    verification_state: str,
+) -> None:
+    adjustment, notes = product_service._property_austria_preference_score_adjustment(
+        preferences={"country_code": "AT", "require_high_speed_internet": True},
+        property_facts={
+            "official_risk_evidence": {
+                "sources": [
+                    {
+                        "risk_key": "broadband_availability",
+                        "verification_state": verification_state,
+                    }
+                ]
+            }
+        },
+    )
+
+    assert adjustment == -5.0
+    assert notes == ("broadband evidence missing",)
+
+
+def test_austria_preference_adjustment_does_not_reward_verified_adverse_source_rows() -> None:
+    adjustment, notes = product_service._property_austria_preference_score_adjustment(
+        preferences={
+            "country_code": "AT",
+            "avoid_noise_risk_area": True,
+            "require_high_speed_internet": True,
+        },
+        property_facts={
+            "official_risk_evidence": {
+                "sources": [
+                    {
+                        "risk_key": "broadband_availability",
+                        "verification_state": "verified",
+                        "availability": "source_gap",
+                        "summary": "No high-speed service is available for this address.",
+                    },
+                    {
+                        "risk_key": "noise_risk",
+                        "verification_state": "verified",
+                        "availability": "official_dataset",
+                        "summary": "The verified map shows high road-noise exposure.",
+                    },
+                ]
+            }
+        },
+    )
+
+    assert adjustment == -8.0
+    assert notes == ("noise evidence missing", "broadband evidence missing")
+
+
+def test_austria_preference_adjustment_rewards_explicit_positive_outcomes() -> None:
+    adjustment, notes = product_service._property_austria_preference_score_adjustment(
+        preferences={
+            "country_code": "AT",
+            "avoid_noise_risk_area": True,
+            "require_high_speed_internet": True,
+        },
+        property_facts={
+            "noise_risk_level": "low",
+            "broadband_download_mbps": 300,
+        },
+    )
+
+    assert adjustment == 5.0
+    assert notes == ("low noise exposure confirmed", "high-speed internet confirmed")
+
+
+@pytest.mark.parametrize(
+    ("noise_facts", "expected_adjustment", "expected_note"),
+    [
+        ({"noise_risk": "false"}, 2.0, "low noise exposure confirmed"),
+        ({"noise_risk": "null"}, -3.0, "noise evidence missing"),
+        ({"noise_risk_level": "low"}, 2.0, "low noise exposure confirmed"),
+        ({"noise_risk_level": "moderate"}, -5.0, "moderate noise exposure"),
+        ({"noise_risk_level": "high"}, -10.0, "noise risk flagged"),
+    ],
+)
+def test_austria_preference_adjustment_normalizes_noise_risk_outcomes(
+    noise_facts: dict[str, object],
+    expected_adjustment: float,
+    expected_note: str,
+) -> None:
+    adjustment, notes = product_service._property_austria_preference_score_adjustment(
+        preferences={"country_code": "AT", "avoid_noise_risk_area": True},
+        property_facts=noise_facts,
+    )
+
+    assert adjustment == expected_adjustment
+    assert notes == (expected_note,)
+
+
+@pytest.mark.parametrize(
+    ("traffic_noise_level", "expected_adjustment", "expected_note"),
+    [
+        (-1, -3.0, "noise evidence missing"),
+        (float("nan"), -3.0, "noise evidence missing"),
+        ("nan", -3.0, "noise evidence missing"),
+        (35, 2.0, "low noise exposure confirmed"),
+        ("35", 2.0, "low noise exposure confirmed"),
+        (52, -5.0, "moderate noise exposure"),
+        (65, -10.0, "noise risk flagged"),
+        (151, -3.0, "noise evidence missing"),
+    ],
+)
+def test_austria_preference_adjustment_normalizes_traffic_noise_decibels(
+    traffic_noise_level: object,
+    expected_adjustment: float,
+    expected_note: str,
+) -> None:
+    adjustment, notes = product_service._property_austria_preference_score_adjustment(
+        preferences={"country_code": "AT", "avoid_noise_risk_area": True},
+        property_facts={"traffic_noise_level": traffic_noise_level},
+    )
+
+    assert adjustment == expected_adjustment
+    assert notes == (expected_note,)
+
+
+@pytest.mark.parametrize("invalid_risk", [-1, float("nan"), float("inf"), 35])
+def test_austria_preference_adjustment_keeps_invalid_numeric_heat_risk_unknown(
+    invalid_risk: float,
+) -> None:
+    adjustment, notes = product_service._property_austria_preference_score_adjustment(
+        preferences={"country_code": "AT", "prefer_heat_resilient_home": True},
+        property_facts={"heat_resilience_risk": invalid_risk},
+    )
+
+    assert adjustment == -2.0
+    assert notes == ("official heat evidence missing",)
+
+
+@pytest.mark.parametrize(
+    "property_facts",
+    [
+        {"broadband_download_mbps": "nan"},
+        {"broadband_download_mbps": "inf"},
+        {"broadband_download_mbps": float("nan")},
+        {"broadband_download_mbps": float("inf")},
+        {"broadband_download_mbps": float("-inf")},
+        {"fiber_available": float("nan")},
+        {"fiber_available": float("inf")},
+        {"fiber_available": float("-inf")},
+    ],
+)
+def test_austria_preference_adjustment_rejects_non_finite_broadband_facts(
+    property_facts: dict[str, object],
+) -> None:
+    adjustment, notes = product_service._property_austria_preference_score_adjustment(
+        preferences={"country_code": "AT", "require_high_speed_internet": True},
+        property_facts=property_facts,
+    )
+
+    assert adjustment == -5.0
+    assert notes == ("broadband evidence missing",)
+
+
+@pytest.mark.parametrize(
+    ("heat_risk", "expected_adjustment", "expected_note"),
+    [
+        ("false", 3.0, "low heat-risk signal"),
+        ("null", -2.0, "official heat evidence missing"),
+        ("low", 3.0, "low heat-risk signal"),
+        ("moderate", -2.0, "moderate heat-risk signal"),
+        ("high", -6.0, "official or extracted heat risk flagged"),
+    ],
+)
+def test_austria_preference_adjustment_normalizes_heat_risk_outcomes(
+    heat_risk: str,
+    expected_adjustment: float,
+    expected_note: str,
+) -> None:
+    adjustment, notes = product_service._property_austria_preference_score_adjustment(
+        preferences={"country_code": "AT", "prefer_heat_resilient_home": True},
+        property_facts={"heat_resilience_risk": heat_risk},
+    )
+
+    assert adjustment == expected_adjustment
+    assert notes == (expected_note,)
+
+
+@pytest.mark.parametrize("verification_state", ["", "unknown", "needs_review", "stale"])
+def test_official_risk_posture_keeps_unverified_sources_open(
+    verification_state: str,
+) -> None:
+    rows = property_workspace_helpers._official_risk_posture_rows(
+        {
+            "country_code": "AT",
+            "sources": [
+                {
+                    "availability": "official_dataset",
+                    "verification_state": verification_state,
+                    "required_next_step": "Check the current district dataset.",
+                }
+            ],
+        }
+    )
+
+    assert rows[0] == {
+        "title": "Public sources identified, checks still open",
+        "detail": "1 check(s) still need a clear answer.",
+        "tag": "Open",
+    }
+    assert rows[1]["detail"].startswith("1 public source identified")
+    assert rows[2]["tag"] == "Open"
+    assert rows[3] == {
+        "title": "Next check",
+        "detail": "Check the current district dataset.",
+        "tag": "Open",
+    }
+
+
+def test_official_risk_posture_is_ready_only_when_every_source_is_verified() -> None:
+    rows = property_workspace_helpers._official_risk_posture_rows(
+        {
+            "country_code": "AT",
+            "updated_at": "2026-07-17T00:00:00+00:00",
+            "sources": [
+                {
+                    "availability": "official_dataset",
+                    "verification_state": "verified",
+                    "confidence": "high",
+                },
+                {
+                    "availability": "partial_official",
+                    "verification_state": "confirmed",
+                    "confidence": "medium",
+                },
+            ],
+        }
+    )
+
+    assert rows[0] == {
+        "title": "Public data verified",
+        "detail": "Every identified source has been explicitly checked and no gaps remain open.",
+        "tag": "Ready",
+    }
+    assert rows[1]["detail"].startswith("2 public sources identified")
+    assert rows[2]["detail"] == "2 checked | 0 flagged | 0 still open"
+    assert rows[2]["tag"] == "Ready"
+    assert rows[3]["tag"] == "Snapshot"

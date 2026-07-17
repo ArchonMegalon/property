@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import math
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+from app.services.public_url_safety import safe_public_http_url
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -36,11 +39,73 @@ def _string(value: object) -> str:
     return str(value or "").strip()
 
 
+def _explicit_positive_signal(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        try:
+            numeric = float(value)
+        except (OverflowError, TypeError, ValueError):
+            return False
+        return math.isfinite(numeric) and numeric == 1.0
+    return _string(value).casefold().replace("-", "_").replace(" ", "_") in {
+        "1",
+        "confirmed",
+        "present",
+        "positive",
+        "true",
+        "yes",
+    }
+
+
+def _meaningful_evidence_text(value: object) -> str:
+    text = _string(value)
+    if text.casefold() in {
+        "0",
+        "false",
+        "n/a",
+        "na",
+        "nan",
+        "no",
+        "none",
+        "null",
+        "unavailable",
+        "unknown",
+    }:
+        return ""
+    return text
+
+
+def _normalized_heat_risk(value: object) -> str:
+    if value is True:
+        return "high"
+    if isinstance(value, (int, float)):
+        try:
+            numeric = float(value)
+        except (OverflowError, TypeError, ValueError):
+            return ""
+        return "high" if math.isfinite(numeric) and numeric == 1.0 else ""
+    normalized = _string(value).casefold().replace("-", "_").replace(" ", "_")
+    if normalized in {"very_high", "high", "severe", "extreme"}:
+        return "high"
+    if normalized in {"moderate", "medium", "elevated"}:
+        return "moderate"
+    if normalized in {"very_low", "low", "cool", "good", "minimal"}:
+        return "low"
+    if normalized == "clear":
+        return "clear"
+    return ""
+
+
 def _sentence(value: object) -> str:
     text = " ".join(_string(value).split())
     if not text:
         return ""
     return text if text[-1:] in ".!?" else f"{text}."
+
+
+def _safe_public_http_url(value: object) -> str:
+    return safe_public_http_url(value)
 
 
 def _public_source_name(value: object, *, fallback: str) -> str:
@@ -179,6 +244,14 @@ def _row_matches_candidate(row: dict[str, object], lookup_values: dict[str, str]
         checks = {key: _string(row.get(key)).casefold() for key in lookup_values if _string(row.get(key))}
     if not checks:
         return False
+    exact_listing_keys = {"candidate_ref", "property_url", "source_ref"}
+    exact_checks = {
+        key: expected
+        for key, expected in checks.items()
+        if key in exact_listing_keys
+    }
+    if exact_checks:
+        return all(lookup_values.get(key) == expected for key, expected in exact_checks.items())
     for key, expected in checks.items():
         actual = lookup_values.get(key)
         if actual and actual == expected:
@@ -188,12 +261,19 @@ def _row_matches_candidate(row: dict[str, object], lookup_values: dict[str, str]
 
 def _state_for_rollup(row: dict[str, object], *, stale_after_days: int) -> str:
     explicit = _string(row.get("ui_state") or row.get("state")).casefold()
-    if explicit in REQUIRED_UI_STATES:
-        return explicit
+    if explicit not in REQUIRED_UI_STATES:
+        return "unavailable"
+    if explicit == "unavailable":
+        return "unavailable"
     cache_updated_at = _parse_datetime(row.get("cache_updated_at"))
-    if cache_updated_at is not None and (_now() - cache_updated_at).days > stale_after_days:
+    if cache_updated_at is None:
+        return "unavailable"
+    now = _now()
+    if cache_updated_at > now + timedelta(minutes=5):
+        return "unavailable"
+    if now - cache_updated_at > timedelta(days=stale_after_days):
         return "stale"
-    return "verified"
+    return explicit
 
 
 def _unavailable_overlay(layer: dict[str, object]) -> dict[str, object]:
@@ -225,11 +305,21 @@ def _overlay_from_rollup(layer: dict[str, object], row: dict[str, object], *, st
         row.get("source_name") or layer.get("source_registry"),
         fallback="Local area source",
     )
-    source_url = _string(row.get("source_url"))
+    source_url = _safe_public_http_url(row.get("source_url"))
     summary = _string(row.get("summary") or row.get("value_label") or row.get("headline"))
-    uncertainty = _string(row.get("uncertainty_label")) or ("current area layer" if state == "verified" else "update pending")
+    fallback_summary = {
+        "verified": "This area layer is available for the address.",
+        "stale": "This area layer needs an updated source snapshot.",
+        "unavailable": "This layer is not available for this address yet.",
+    }[state]
+    uncertainty = _string(row.get("uncertainty_label")) or {
+        "verified": "current area layer",
+        "stale": "update pending",
+        "unavailable": "not available",
+    }[state]
+    display_summary = fallback_summary if state == "unavailable" else (summary or fallback_summary)
     detail_parts = [
-        _sentence(summary or "This area layer is available for the address."),
+        _sentence(display_summary),
         _sentence(f"From {source_name}"),
         _sentence(f"Coverage: {uncertainty}"),
     ]
@@ -243,7 +333,7 @@ def _overlay_from_rollup(layer: dict[str, object], row: dict[str, object], *, st
         "detail": " ".join(part for part in detail_parts if part),
         "source_name": source_name,
         "source_url": source_url,
-        "article_url": _string(row.get("article_url")),
+        "article_url": _safe_public_http_url(row.get("article_url")),
         "cache_updated_at": _string(row.get("cache_updated_at")),
         "source_updated_at": _string(row.get("source_updated_at")),
         "uncertainty_label": uncertainty,
@@ -254,7 +344,7 @@ def _overlay_from_rollup(layer: dict[str, object], row: dict[str, object], *, st
     }
 
 
-def _first_official_source(facts: dict[str, object], risk_keys: set[str]) -> dict[str, object]:
+def _first_verified_official_source(facts: dict[str, object], risk_keys: set[str]) -> dict[str, object]:
     official = (
         dict(facts.get("official_risk_evidence") or {})
         if isinstance(facts.get("official_risk_evidence"), dict)
@@ -264,31 +354,47 @@ def _first_official_source(facts: dict[str, object], risk_keys: set[str]) -> dic
         if not isinstance(row, dict):
             continue
         risk_key = _string(row.get("risk_key") or row.get("key")).casefold()
-        if risk_key in risk_keys:
+        verification_state = _string(row.get("verification_state")).casefold()
+        if risk_key in risk_keys and verification_state in {"verified", "confirmed", "cleared"}:
             return dict(row)
     return {}
 
 
 def _derived_summer_heat_overlay(layer: dict[str, object], facts: dict[str, object]) -> dict[str, object] | None:
     merged_facts = _facts_with_snapshot(dict(facts or {}))
-    cooling_summary = _string(merged_facts.get("cooling_corridor_summary"))
-    cooling_signal = _string(merged_facts.get("cooling_corridor_signal")).casefold()
-    heat_risk = _string(
-        merged_facts.get("heat_resilience_risk")
-        or merged_facts.get("urban_heat_risk")
-        or merged_facts.get("summer_heat_risk")
-    ).casefold()
-    official_source = _first_official_source(merged_facts, {"heat_resilience", "cooling_corridor"})
-    official_summary = _string(official_source.get("summary"))
-    if not any((cooling_summary, cooling_signal, heat_risk, official_summary, merged_facts.get("tree_shade_signal"), merged_facts.get("green_shade_signal"))):
+    cooling_summary = _meaningful_evidence_text(merged_facts.get("cooling_corridor_summary"))
+    raw_cooling_signal = _string(merged_facts.get("cooling_corridor_signal")).casefold()
+    cooling_signal = raw_cooling_signal if raw_cooling_signal in {"strong", "moderate", "weak"} else ""
+    heat_risk = next(
+        (
+            normalized
+            for normalized in (
+                _normalized_heat_risk(merged_facts.get("heat_resilience_risk")),
+                _normalized_heat_risk(merged_facts.get("urban_heat_risk")),
+                _normalized_heat_risk(merged_facts.get("summer_heat_risk")),
+            )
+            if normalized
+        ),
+        "",
+    )
+    official_source = _first_verified_official_source(merged_facts, {"heat_resilience", "cooling_corridor"})
+    official_summary = _meaningful_evidence_text(official_source.get("summary"))
+    has_shade_signal = _explicit_positive_signal(merged_facts.get("tree_shade_signal")) or _explicit_positive_signal(
+        merged_facts.get("green_shade_signal")
+    )
+    if not any((cooling_summary, cooling_signal, heat_risk, official_summary, has_shade_signal)):
         return None
     summary = (
         cooling_summary
         or official_summary
         or (
             "Nearby tree or courtyard shade can soften summer heat for this address."
-            if bool(merged_facts.get("tree_shade_signal") or merged_facts.get("green_shade_signal"))
-            else "Summer heat context is attached for this address."
+            if has_shade_signal
+            else (
+                f"Summer heat risk is reported as {heat_risk} for this address."
+                if heat_risk
+                else "Summer heat context is attached for this address."
+            )
         )
     )
     uncertainty = "attached climate context"
@@ -297,7 +403,7 @@ def _derived_summer_heat_overlay(layer: dict[str, object], facts: dict[str, obje
     source_name = (
         _string(official_source.get("source_label"))
         or _string(official_source.get("provider"))
-        or "Climate context"
+        or "Property facts"
     )
     detail_parts = [_sentence(summary), _sentence(f"From {source_name}"), _sentence(f"Signal: {uncertainty}")]
     return {
@@ -307,7 +413,7 @@ def _derived_summer_heat_overlay(layer: dict[str, object], facts: dict[str, obje
         "tag": "Ready",
         "detail": " ".join(part for part in detail_parts if part),
         "source_name": source_name,
-        "source_url": _string(official_source.get("source_url")),
+        "source_url": _safe_public_http_url(official_source.get("source_url")),
         "article_url": "",
         "cache_updated_at": "",
         "source_updated_at": "",

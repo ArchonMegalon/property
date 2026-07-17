@@ -65,7 +65,14 @@
           "test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser",
           "test_propertyquarry_packet_tracks_followup_state_in_browser",
           "test_propertyquarry_account_notifications_save_multi_channel_preferences_in_real_browser",
-          "test_propertyquarry_browser_alert_button_toggles_enabled_state"
+          "test_propertyquarry_browser_alert_button_toggles_enabled_state",
+          "test_propertyquarry_research_evidence_states_and_links_render_in_real_browser"
+        ]
+      },
+      {
+        "file": "tests/test_property_evidence_overlays.py",
+        "cases": [
+          "test_property_research_rows_preserve_evidence_states_and_original_article_link"
         ]
       }
     ],
@@ -76,6 +83,7 @@
       "the explicit Open property action opens the selected result's /app/research/... packet with the 360 stage and preference feedback",
       "the PropertyQuarry mobile workbench exposes results, property detail, and the mobile action dock within the viewport",
       "the packets-and-tours proof renders hosted and generated 3D media, recovers a blocked request, stays mobile-safe, and explains expired flat-preview unavailability without inventing a tour",
+      "research packets expose verified, stale, and unavailable area-evidence states and preserve the attributable original article or source link",
       "failed PropertyQuarry runs remain visible on the activity surface with an actionable recovery state"
     ]
   },
@@ -171,7 +179,14 @@
             "file": "tests/e2e/test_propertyquarry_greenfield_browser.py",
             "cases": [
               "test_propertyquarry_greenfield_workspace_is_mobile_usable",
-              "test_propertyquarry_workbench_candidate_history_stays_in_place"
+              "test_propertyquarry_workbench_candidate_history_stays_in_place",
+              "test_propertyquarry_research_evidence_states_and_links_render_in_real_browser"
+            ]
+          },
+          {
+            "file": "tests/test_property_evidence_overlays.py",
+            "cases": [
+              "test_property_research_rows_preserve_evidence_states_and_original_article_link"
             ]
           }
         ],

@@ -27,6 +27,7 @@ from app.api.routes import landing_view_models
 from app.api.routes import public_results
 from app.services import public_branding
 from app.services import property_market_catalog
+from app.services import public_url_safety
 from app.services.onboarding import OnboardingService
 from app.product import service as product_service
 from app.product import property_tour_hosting
@@ -150,8 +151,39 @@ def test_property_tour_detail_line_does_not_treat_generated_reconstruction_as_re
                 "property_facts": {"has_floorplan": True, "has_360": True, "image_count": 8},
             }
         )
-        == "3D tour not ready yet. More source media is still needed."
+        == "A real 3D tour is not available for this listing yet."
     )
+
+
+@pytest.mark.parametrize(
+    "candidate",
+    [
+        {"tour_status": "ready"},
+        {"tour": {"status": "source"}},
+    ],
+    ids=["top-level-ready", "nested-source"],
+)
+def test_property_tour_media_payload_downgrades_unbacked_available_status(
+    candidate: dict[str, object],
+) -> None:
+    payload = landing_property_research._property_tour_media_payload(candidate)
+
+    assert payload["tour_status"] == "unavailable"
+    assert payload["status_label"] == "3D tour unavailable"
+    assert payload["tour_requestable"] is False
+    assert payload["show_status_line"] is True
+    assert payload["primary_href"] == ""
+    assert "floor plan or verified 360 source" in str(payload["status_detail"])
+
+
+def test_property_tour_rejects_floorplan_path_that_never_canonicalizes() -> None:
+    encoded_path = "//169.254.169.254/floorplan.png"
+    for _index in range(5):
+        encoded_path = urllib.parse.quote(encoded_path, safe="")
+    candidate = {"property_facts": {"floorplan_url": f"/{encoded_path}"}}
+
+    assert landing_property_workspace_helpers._property_candidate_floorplan_url(candidate) == ""
+    assert landing_property_research._property_tour_requestability(candidate)["tour_requestable"] is False
 
 
 def test_property_workbench_scripts_do_not_fall_back_to_raw_branded_tour_slugs() -> None:
@@ -10100,6 +10132,7 @@ def test_property_research_packet_renders_cached_evidence_overlays(monkeypatch, 
                     {
                         "layer_key": "media_attention",
                         "match": {"postal_code": "1020"},
+                        "ui_state": "verified",
                         "summary": "12 local articles in the last 90 days, mostly transport and development.",
                         "source_name": "Terms-safe media index",
                         "source_url": "https://news.example.test/search?q=1020",
@@ -26101,8 +26134,8 @@ def test_propertyquarry_research_packet_shows_cooperative_investment_context_whe
     assert "Applicant pressure" in packet.text
     assert "Rental cooperative listing" in packet.text
     assert "Extremely high applicant pressure" in packet.text
-    assert "3D tour not ready yet" in packet.text
-    assert "floorplan" in packet.text.lower()
+    assert "No floor plan or real 360 source was captured." in packet.text
+    assert "Flat listing photos alone cannot be presented as a 3D tour." in packet.text
     assert "not scheduled yet" not in packet.text
     assert "1210 Wien" in packet.text
 
@@ -26200,6 +26233,9 @@ def test_property_research_packet_renders_request_actions_when_hosted_tour_is_no
             "price_eur": 1250.0,
             "area_m2": 52.0,
             "postal_name": "1050 Wien",
+            "floorplan_urls_json": [
+                "https://assets.example.test/request-only-loft-floorplan.png"
+            ],
         },
     }
 
@@ -26320,8 +26356,512 @@ def test_property_tour_requestability_keeps_expired_flat_preview_fail_closed() -
         },
     }
     assert landing_property_research._property_tour_source_gap_detail(expired_with_declared_360) == (
-        "A real 3D tour is not available yet, but captured source media can support a retry."
+        "The source listing has expired. No floor plan or real 360 source was captured, "
+        "so the cached preview cannot become a 3D tour."
     )
+
+
+@pytest.mark.parametrize(
+    "floorplan_url",
+    [
+        "https://api.willhaben.at/restapi/v2/logevent/floorplan-click",
+        "https://example.com/listing",
+        "/app/research/not-a-floorplan",
+    ],
+)
+def test_property_tour_requestability_rejects_non_media_floorplan_urls(
+    floorplan_url: str,
+) -> None:
+    candidate = {
+        "property_url": "https://example.test/listing-with-false-floorplan",
+        "floorplan_url": floorplan_url,
+        "property_facts": {"has_floorplan": True},
+    }
+
+    assert landing_property_workspace_helpers._property_candidate_floorplan_url(candidate) == ""
+    requestability = landing_property_research._property_tour_requestability(candidate)
+    assert requestability["tour_source_eligible"] is False
+    assert requestability["tour_requestable"] is False
+
+
+@pytest.mark.parametrize(
+    "floorplan_url",
+    [
+        "http://127.0.0.1/floorplan.png",
+        "http://169.254.169.254/latest/meta-data/floorplan.png",
+        "http://2130706433/floorplan.png",
+        "http://[::1]/floorplan.png",
+        "http://metadata.internal/floorplan.png",
+    ],
+)
+def test_property_tour_requestability_rejects_private_floorplan_hosts(
+    floorplan_url: str,
+) -> None:
+    candidate = {
+        "property_url": "https://example.test/listing-with-private-floorplan",
+        "floorplan_url": floorplan_url,
+        "property_facts": {},
+    }
+
+    assert landing_property_workspace_helpers._property_candidate_floorplan_url(candidate) == ""
+    requestability = landing_property_research._property_tour_requestability(candidate)
+    assert requestability["tour_source_eligible"] is False
+    assert requestability["tour_requestable"] is False
+
+
+@pytest.mark.parametrize(
+    "floorplan_url",
+    [
+        r"/\169.254.169.254/floorplan.png",
+        "/%5c%5c169.254.169.254/floorplan.png",
+        "/%2f%2f169.254.169.254/floorplan.png",
+        "/media/../app/research/floorplan.png",
+        "/%2e%2e/app/research/floorplan.png",
+    ],
+)
+def test_property_tour_requestability_rejects_unsafe_local_floorplan_paths(
+    floorplan_url: str,
+) -> None:
+    candidate = {
+        "candidate_ref": "candidate-unsafe-local-floorplan",
+        "floorplan_url": floorplan_url,
+        "property_facts": {},
+    }
+
+    assert landing_property_workspace_helpers._property_candidate_floorplan_url(candidate) == ""
+    requestability = landing_property_research._property_tour_requestability(candidate)
+    assert requestability["tour_source_eligible"] is False
+    assert requestability["tour_requestable"] is False
+    payload = landing_property_workspace_payload._property_workbench_client_candidate_payload(candidate)
+    assert "floorplan_url" not in payload
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("http://metadata/path", False),
+        ("https://intranet/path", False),
+        ("https://assets.example.test/plans/unit-17.png", True),
+        ("https://my.matterport.com/show/?m=verified-model", True),
+    ],
+)
+def test_public_url_safety_requires_dotted_public_hosts(url: str, expected: bool) -> None:
+    assert public_url_safety.public_http_url_is_safe(url) is expected
+
+
+@pytest.mark.parametrize(
+    ("key", "unsafe_url"),
+    [
+        ("floorplan_url", "http://169.254.169.254/latest/meta-data/floorplan.png"),
+        ("floorplan_url", "https://api.willhaben.at/restapi/v2/logevent/floorplan-click"),
+        ("source_virtual_tour_url", "https://example.com/listing"),
+        ("vendor_tour_url", "http://127.0.0.1/virtual-tour/unit-17"),
+    ],
+)
+def test_property_workbench_client_payload_drops_unvalidated_visual_urls(
+    key: str,
+    unsafe_url: str,
+) -> None:
+    payload = landing_property_workspace_payload._property_workbench_client_candidate_payload(
+        {
+            "candidate_ref": "candidate-unvalidated-visual-url",
+            "property_url": "https://example.test/listing-unvalidated-visual-url",
+            key: unsafe_url,
+            "property_facts": {},
+        },
+        preserve_preview_media_facts=True,
+    )
+
+    assert "floorplan_url" not in payload
+    assert "source_virtual_tour_url" not in payload
+    assert "vendor_tour_url" not in payload
+
+
+def test_property_workbench_client_payload_keeps_validated_visual_urls() -> None:
+    floorplan_url = "https://assets.example.test/plans/unit-17.png"
+    source_virtual_tour_url = "https://my.matterport.com/show/?m=verified-model"
+    payload = landing_property_workspace_payload._property_workbench_client_candidate_payload(
+        {
+            "candidate_ref": "candidate-validated-visual-url",
+            "property_url": "https://example.test/listing-validated-visual-url",
+            "floorplan_url": floorplan_url,
+            "source_virtual_tour_url": source_virtual_tour_url,
+            "property_facts": {},
+        },
+        preserve_preview_media_facts=True,
+    )
+
+    assert payload["floorplan_url"] == floorplan_url
+    assert payload["source_virtual_tour_url"] == source_virtual_tour_url
+
+
+@pytest.mark.parametrize(
+    "unsafe_url",
+    [
+        "http://169.254.169.254/latest/meta-data/private.jpg",
+        "javascript:alert(document.domain)",
+        "https://api.willhaben.at/restapi/v2/logevent/visual-click.png",
+        "//169.254.169.254/private.jpg",
+    ],
+)
+def test_property_workbench_client_payload_strips_unsafe_nested_visual_targets_and_downgrades_ready_state(
+    unsafe_url: str,
+) -> None:
+    payload = landing_property_workspace_payload._property_workbench_client_candidate_payload(
+        {
+            "candidate_ref": "candidate-unsafe-nested-visuals",
+            "tour_url": unsafe_url,
+            "verified_tour_url": unsafe_url,
+            "open_tour_url": unsafe_url,
+            "tour_status": "ready",
+            "flythrough_url": unsafe_url,
+            "flythrough_status": "ready",
+            "preview_image_url": unsafe_url,
+            "diorama_preview_url": unsafe_url,
+            "orientation_preview": {"image_url": unsafe_url, "preview_image_url": unsafe_url},
+            "diorama_scene": {"image_url": unsafe_url},
+            "tour": {
+                "status": "source",
+                "url": unsafe_url,
+                "embed_url": unsafe_url,
+                "provider_url": unsafe_url,
+            },
+            "flythrough": {
+                "status": "ready",
+                "url": unsafe_url,
+                "embed_url": unsafe_url,
+                "provider_url": unsafe_url,
+            },
+            "property_facts": {
+                "price_eur": 420000,
+                "media_urls_json": [unsafe_url],
+                "floorplan_urls_json": [unsafe_url],
+            },
+        },
+        preserve_preview_media_facts=True,
+    )
+
+    assert payload["tour_status"] == "unavailable"
+    assert payload["flythrough_status"] == "unavailable"
+    assert payload["tour"]["status"] == "unavailable"
+    assert payload["flythrough"]["status"] == "unavailable"
+    assert payload["tour"]["status_detail"] == "Tour not available yet."
+    assert payload["flythrough"]["status_detail"] == "Walkthrough not available yet."
+    for key in (
+        "tour_url",
+        "verified_tour_url",
+        "open_tour_url",
+        "flythrough_url",
+        "preview_image_url",
+        "diorama_preview_url",
+        "orientation_preview",
+        "diorama_scene",
+        "floorplan_url",
+        "source_virtual_tour_url",
+    ):
+        assert key not in payload
+    for nested_key in ("tour", "flythrough"):
+        assert not ({"url", "embed_url", "provider_url"} & payload[nested_key].keys())
+    assert "media_urls_json" not in payload["property_facts"]
+    assert "floorplan_urls_json" not in payload["property_facts"]
+
+
+def test_property_workbench_client_payload_preserves_only_validated_nested_visual_targets() -> None:
+    provider_viewer_url = "https://my.matterport.com/show/?m=verified-model"
+    floorplan_url = "https://assets.example.test/plans/unit-17.png"
+    walkthrough_url = "https://assets.example.test/tours/unit-17-walkthrough.mp4"
+    preview_url = "https://assets.example.test/photos/unit-17.jpg"
+    diorama_url = "https://assets.example.test/dioramas/unit-17.webp"
+    map_preview_url = "/app/api/property/map-previews/unit-17.png"
+    payload = landing_property_workspace_payload._property_workbench_client_candidate_payload(
+        {
+            "candidate_ref": "candidate-validated-nested-visuals",
+            "tour_url": provider_viewer_url,
+            "tour_status": "source",
+            "flythrough_url": walkthrough_url,
+            "flythrough_status": "ready",
+            "preview_image_url": preview_url,
+            "diorama_preview_url": diorama_url,
+            "orientation_preview": {"image_url": map_preview_url},
+            "diorama_scene": {"image_url": diorama_url},
+            "tour": {
+                "status": "source",
+                "url": provider_viewer_url,
+                "embed_url": provider_viewer_url,
+                "provider_url": provider_viewer_url,
+            },
+            "flythrough": {"status": "ready", "url": walkthrough_url},
+            "property_facts": {
+                "price_eur": 420000,
+                "media_urls_json": [preview_url],
+                "floorplan_urls_json": [floorplan_url],
+            },
+        },
+        preserve_preview_media_facts=True,
+    )
+
+    assert payload["floorplan_url"] == floorplan_url
+    assert payload["source_virtual_tour_url"] == provider_viewer_url
+    assert payload["tour_url"] == provider_viewer_url
+    assert payload["verified_tour_url"] == provider_viewer_url
+    assert payload["open_tour_url"] == provider_viewer_url
+    assert payload["flythrough_url"] == walkthrough_url
+    assert payload["preview_image_url"] == preview_url
+    assert payload["diorama_preview_url"] == diorama_url
+    assert payload["orientation_preview"] == {"image_url": map_preview_url}
+    assert payload["diorama_scene"] == {"image_url": diorama_url}
+    assert payload["tour"]["url"] == provider_viewer_url
+    assert payload["tour"]["embed_url"] == provider_viewer_url
+    assert payload["tour"]["provider_url"] == provider_viewer_url
+    assert payload["tour"]["status"] == "source"
+    assert payload["flythrough"]["url"] == walkthrough_url
+    assert payload["flythrough"]["embed_url"] == walkthrough_url
+    assert payload["flythrough"]["status"] == "ready"
+    assert payload["property_facts"]["media_urls_json"] == [preview_url]
+    assert payload["property_facts"]["floorplan_urls_json"] == [floorplan_url]
+
+
+@pytest.mark.parametrize(
+    "floorplan_url",
+    [
+        "https://assets.example.test/plans/unit-17.png?signature=valid",
+        "https://documents.example.test/grundriss.pdf",
+        "/media/floorplans/unit-17.webp",
+    ],
+)
+def test_property_tour_requestability_accepts_floorplan_media_urls(
+    floorplan_url: str,
+) -> None:
+    candidate = {
+        "property_url": "https://example.test/listing-with-real-floorplan",
+        "floorplan_url": floorplan_url,
+        "property_facts": {},
+    }
+
+    assert landing_property_workspace_helpers._property_candidate_floorplan_url(candidate) == floorplan_url
+    requestability = landing_property_research._property_tour_requestability(candidate)
+    assert requestability["tour_source_eligible"] is True
+    assert requestability["tour_requestable"] is True
+
+
+@pytest.mark.parametrize(
+    "source_virtual_tour_url",
+    [
+        "https://example.com/listing",
+        "https://api.willhaben.at/restapi/v2/logevent/virtual-tour-click",
+        "/app/research/not-a-real-360-tour",
+        "/tours/unverified-placeholder",
+        "/tour/unverified-placeholder",
+        "/360/unverified-placeholder",
+        "https://operator@example.com/virtual-tour/unit-17",
+        "https://assets.example.test/panorama.jpg",
+        "https://propertyquarry.com/tours/unverified-placeholder",
+    ],
+)
+def test_property_tour_requestability_rejects_non_viewer_360_urls(
+    source_virtual_tour_url: str,
+) -> None:
+    candidate = {
+        "property_url": "https://example.test/listing-with-false-360",
+        "source_virtual_tour_url": source_virtual_tour_url,
+        "property_facts": {"has_360": True},
+    }
+
+    assert landing_property_workspace_helpers._property_candidate_source_virtual_tour_url(candidate) == ""
+    requestability = landing_property_research._property_tour_requestability(candidate)
+    assert requestability["tour_source_eligible"] is False
+    assert requestability["tour_requestable"] is False
+
+
+@pytest.mark.parametrize(
+    "source_virtual_tour_url",
+    [
+        "https://matterport.com.evil.example/listing",
+        "https://notmatterport.com/listing",
+        "https://evil.example/path/matterport.com/listing",
+    ],
+)
+def test_property_tour_requestability_rejects_spoofed_provider_markers(
+    source_virtual_tour_url: str,
+) -> None:
+    candidate = {
+        "candidate_ref": "candidate-spoofed-provider-viewer",
+        "source_virtual_tour_url": source_virtual_tour_url,
+        "tour_status": "ready",
+        "property_facts": {},
+    }
+
+    assert landing_property_workspace_helpers._property_candidate_source_virtual_tour_url(candidate) == ""
+    requestability = landing_property_research._property_tour_requestability(candidate)
+    assert requestability["tour_source_eligible"] is False
+    assert requestability["tour_requestable"] is False
+    payload = landing_property_workspace_payload._property_workbench_client_candidate_payload(candidate)
+    assert payload["tour_status"] == "unavailable"
+    assert "source_virtual_tour_url" not in payload
+    assert "tour_url" not in payload
+
+
+@pytest.mark.parametrize(
+    "source_virtual_tour_url",
+    [
+        "https://my.matterport.com/show/?m=verified-model",
+        "https://tours.example.test/virtual-tour/unit-17",
+    ],
+)
+def test_property_tour_requestability_accepts_recognizable_360_viewers(
+    source_virtual_tour_url: str,
+) -> None:
+    candidate = {
+        "property_url": "https://example.test/listing-with-real-360",
+        "source_virtual_tour_url": source_virtual_tour_url,
+        "property_facts": {},
+    }
+
+    assert (
+        landing_property_workspace_helpers._property_candidate_source_virtual_tour_url(candidate)
+        == source_virtual_tour_url
+    )
+    requestability = landing_property_research._property_tour_requestability(candidate)
+    assert requestability["tour_source_eligible"] is True
+    assert requestability["tour_requestable"] is True
+
+
+@pytest.mark.parametrize(
+    "local_marker_url",
+    [
+        "/tours/unverified-placeholder",
+        "/tour/unverified-placeholder",
+        "/360/unverified-placeholder",
+    ],
+)
+def test_property_workbench_client_payload_does_not_promote_marker_only_local_tour_paths(
+    local_marker_url: str,
+) -> None:
+    payload = landing_property_workspace_payload._property_workbench_client_candidate_payload(
+        {
+            "candidate_ref": "candidate-local-marker-only-tour",
+            "tour_url": local_marker_url,
+            "source_virtual_tour_url": local_marker_url,
+            "tour_status": "ready",
+            "property_facts": {},
+        }
+    )
+
+    assert payload["tour_status"] == "unavailable"
+    assert "tour_url" not in payload
+    assert "verified_tour_url" not in payload
+    assert "open_tour_url" not in payload
+    assert "source_virtual_tour_url" not in payload
+
+
+def test_property_workbench_client_payload_rejects_deeply_encoded_network_image_paths() -> None:
+    encoded = "//169.254.169.254/private.png"
+    for _depth in range(8):
+        encoded = urllib.parse.quote(encoded, safe="")
+        local_path = f"/{encoded}"
+        payload = landing_property_workspace_payload._property_workbench_client_candidate_payload(
+            {
+                "candidate_ref": "candidate-deeply-encoded-image-path",
+                "preview_image_url": local_path,
+                "property_facts": {"media_urls_json": [local_path]},
+            },
+            preserve_preview_media_facts=True,
+        )
+
+        assert "preview_image_url" not in payload
+        assert "media_urls_json" not in payload.get("property_facts", {})
+
+
+def test_property_workbench_client_payload_uses_valid_verified_tour_after_invalid_raw_urls() -> None:
+    verified_tour_url = "https://my.matterport.com/show/?m=verified-fallback-model"
+    payload = landing_property_workspace_payload._property_workbench_client_candidate_payload(
+        {
+            "candidate_ref": "candidate-verified-tour-fallback",
+            "tour_url": "javascript:alert(document.domain)",
+            "open_tour_url": "http://127.0.0.1/tours/private-viewer",
+            "verified_tour_url": verified_tour_url,
+            "tour_status": "ready",
+            "property_facts": {},
+        }
+    )
+
+    assert payload["tour_status"] == "ready"
+    assert payload["tour_url"] == verified_tour_url
+    assert payload["verified_tour_url"] == verified_tour_url
+    assert payload["open_tour_url"] == verified_tour_url
+
+
+def test_property_tour_requestability_does_not_treat_panorama_asset_as_live_viewer() -> None:
+    panorama_url = "/media/panoramas/unit-17.jpg"
+    candidate = {
+        "property_url": "https://example.test/listing-with-panorama-source",
+        "property_facts": {"panorama_media_urls_json": [panorama_url]},
+    }
+
+    assert (
+        landing_property_workspace_helpers._property_candidate_source_virtual_tour_url(candidate)
+        == panorama_url
+    )
+    requestability = landing_property_research._property_tour_requestability(candidate)
+    assert requestability["tour_source_eligible"] is False
+    assert requestability["tour_requestable"] is False
+
+
+@pytest.mark.parametrize(
+    "stale_status",
+    ["created", "repairing", "ready", "success", "pending", "queued"],
+)
+def test_disabled_fallback_normalization_clears_top_level_and_nested_stale_status(
+    monkeypatch,
+    stale_status: str,
+) -> None:
+    disabled_url = "https://propertyquarry.com/tours/disabled-floorplan"
+    monkeypatch.setattr(landing_routes, "_property_visual_ready_tour_url", lambda **_kwargs: "")
+    monkeypatch.setattr(landing_routes, "_property_hosted_tour_disabled_fallback", lambda _url: True)
+
+    normalized = landing_routes._propertyquarry_normalize_public_tour_candidate(
+        {
+            "property_url": "https://example.test/listing-with-disabled-fallback",
+            "tour_url": disabled_url,
+            "tour_status": stale_status,
+            "tour": {
+                "url": disabled_url,
+                "embed_url": disabled_url,
+                "status": stale_status,
+            },
+            "floorplan_url": "https://assets.example.test/plans/unit-17.png",
+        }
+    )
+
+    assert isinstance(normalized, dict)
+    assert normalized["tour_url"] == ""
+    assert normalized["tour_status"] == ""
+    assert normalized["tour"]["url"] == ""
+    assert normalized["tour"]["embed_url"] == ""
+    assert normalized["tour"]["status"] == ""
+    media = landing_property_research._property_tour_media_payload(normalized)
+    assert media["status_label"] != "3D tour rendering"
+
+
+def test_disabled_fallback_normalization_clears_embed_only_nested_tour(monkeypatch) -> None:
+    disabled_url = "https://propertyquarry.com/tours/disabled-embed-only"
+    monkeypatch.setattr(landing_routes, "_property_visual_ready_tour_url", lambda **_kwargs: "")
+    monkeypatch.setattr(landing_routes, "_property_hosted_tour_disabled_fallback", lambda _url: True)
+
+    normalized = landing_routes._propertyquarry_normalize_public_tour_candidate(
+        {
+            "property_url": "https://example.test/listing-with-disabled-embed",
+            "tour": {"embed_url": disabled_url, "status": "ready"},
+        }
+    )
+
+    assert isinstance(normalized, dict)
+    assert normalized["tour_url"] == ""
+    assert normalized["open_tour_url"] == ""
+    assert normalized["tour_status"] == ""
+    assert normalized["tour"]["embed_url"] == ""
+    assert normalized["tour"]["status"] == ""
+    assert normalized["generated_reconstruction_url"] == disabled_url
 
 
 def test_property_tour_media_payload_resolves_nested_verified_provider_url(monkeypatch) -> None:
@@ -26461,6 +27001,7 @@ def test_property_research_packet_treats_disabled_fallback_tour_as_requestable(m
         "summary": "EUR 1,450 · 61 m² · 1060 Wien",
         "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/disabled-fallback-1",
         "source_ref": "property-scout:disabled-fallback-1",
+        "floorplan_url": "https://assets.example.test/disabled-fallback-floorplan.png",
         "tour_url": "https://propertyquarry.com/tours/disabled-floorplan",
         "tour_status": "repairing",
         "property_facts": {
@@ -26469,6 +27010,9 @@ def test_property_research_packet_treats_disabled_fallback_tour_as_requestable(m
             "rooms": 2,
             "postal_name": "1060 Wien",
             "has_floorplan": True,
+            "floorplan_urls_json": [
+                "https://assets.example.test/disabled-fallback-floorplan.png"
+            ],
         },
     }
 
@@ -26628,6 +27172,9 @@ def test_property_research_packet_terminal_tour_reason_keeps_manual_request_acti
             "area_m2": 73.0,
             "postal_name": "1070 Wien",
             "has_floorplan": True,
+            "floorplan_urls_json": [
+                "https://assets.example.test/retryable-tour-loft-floorplan.png"
+            ],
         },
     }
 
@@ -26706,6 +27253,9 @@ def test_property_research_packet_uses_nested_blocked_tour_state(monkeypatch) ->
             "area_m2": 73.0,
             "postal_name": "1070 Wien",
             "has_floorplan": True,
+            "floorplan_urls_json": [
+                "https://assets.example.test/nested-retryable-tour-loft-floorplan.png"
+            ],
         },
     }
 
