@@ -198,7 +198,11 @@ def _public_tour_public_payload(payload: dict[str, object]) -> dict[str, object]
         normalized_payload.get("source_virtual_tour_url")
         or normalized_payload.get("source_virtual_tour_origin")
     )
-    live_provider = _property_tour_provider_host_kind(live_url)
+    live_provider = (
+        _property_tour_provider_host_kind(live_url)
+        if _property_tour_provider_url_shape_valid(live_url)
+        else ""
+    )
     if str(public_payload.get("control_mode") or "").strip().lower() not in _CUSTOMER_FACING_TOUR_PROVIDERS:
         public_payload.pop("control_mode", None)
     if live_provider in _CUSTOMER_FACING_TOUR_PROVIDERS:
@@ -444,7 +448,10 @@ def _public_hosted_property_tour_live_source_url(bundle_dir: Path) -> str:
         private_payload.get("source_virtual_tour_url")
         or private_payload.get("source_virtual_tour_origin")
     )
-    if _property_tour_provider_host_kind(live_url) not in _CUSTOMER_FACING_TOUR_PROVIDERS:
+    if (
+        _property_tour_provider_host_kind(live_url) not in _CUSTOMER_FACING_TOUR_PROVIDERS
+        or not _property_tour_provider_url_shape_valid(live_url)
+    ):
         return ""
     return live_url
 
@@ -774,7 +781,11 @@ def _resolve_property_tour_urls(
     share_url = _first_non_empty_text(structured_output.get("share_url"))
     crezlo_public_url = _first_non_empty_text(structured_output.get("crezlo_public_url"))
     source_live_360_url = _embedded_live_360_source_url(structured_output)
-    source_live_360_provider = _property_tour_provider_host_kind(source_live_360_url)
+    source_live_360_provider = (
+        _property_tour_provider_host_kind(source_live_360_url)
+        if _property_tour_provider_url_shape_valid(source_live_360_url)
+        else ""
+    )
     if source_live_360_provider not in _CUSTOMER_FACING_TOUR_PROVIDERS:
         source_live_360_url = ""
     branded_candidates = [
@@ -794,13 +805,12 @@ def _resolve_property_tour_urls(
             branded_tour_url = candidate
             break
         if allow_unverified_branded:
-            if source_live_360_provider and source_live_360_provider not in _CUSTOMER_FACING_TOUR_PROVIDERS:
-                continue
             candidate_payload = _hosted_property_tour_payload_for_url(candidate)
-            candidate_source_provider = _property_tour_provider_host_kind(
-                _embedded_live_360_source_url(candidate_payload)
-            )
-            if not candidate_source_provider:
+            if (
+                candidate_payload
+                and not _property_tour_payload_is_disabled_fallback(candidate_payload)
+                and _hosted_property_tour_generated_reconstruction_open_url(candidate)
+            ):
                 branded_tour_url = candidate
                 break
     vendor_tour_url = _first_non_empty_text(
@@ -811,6 +821,7 @@ def _resolve_property_tour_urls(
             and not _is_branded_public_tour_url(public_url)
             and public_url != branded_tour_url
             and _property_tour_provider_host_kind(public_url) in _CUSTOMER_FACING_TOUR_PROVIDERS
+            and _property_tour_provider_url_shape_valid(public_url)
         )
         else "",
         share_url
@@ -819,6 +830,7 @@ def _resolve_property_tour_urls(
             and not _is_branded_public_tour_url(share_url)
             and share_url != branded_tour_url
             and _property_tour_provider_host_kind(share_url) in _CUSTOMER_FACING_TOUR_PROVIDERS
+            and _property_tour_provider_url_shape_valid(share_url)
         )
         else "",
         crezlo_public_url
@@ -827,6 +839,7 @@ def _resolve_property_tour_urls(
             and not _is_branded_public_tour_url(crezlo_public_url)
             and crezlo_public_url != branded_tour_url
             and _property_tour_provider_host_kind(crezlo_public_url) in _CUSTOMER_FACING_TOUR_PROVIDERS
+            and _property_tour_provider_url_shape_valid(crezlo_public_url)
         )
         else "",
     )
@@ -921,7 +934,11 @@ def _hosted_property_tour_has_matterport_export(tour_url: object) -> bool:
     payload = _hosted_property_tour_payload_for_url(tour_url)
     for key in ("matterport_url", "source_virtual_tour_url", "crezlo_public_url"):
         value = str(payload.get(key) or "").strip()
-        if value and _property_tour_provider_host_kind(value) == "matterport":
+        if (
+            value
+            and _property_tour_provider_host_kind(value) == "matterport"
+            and _property_tour_provider_url_shape_valid(value)
+        ):
             return True
     return False
 
@@ -958,7 +975,11 @@ def _hosted_property_tour_has_3dvista_export(
         return False
     for key in ("three_d_vista_url", "threedvista_url", "3dvista_url", "source_virtual_tour_url", "crezlo_public_url"):
         value = str(payload.get(key) or "").strip()
-        if value and _property_tour_provider_host_kind(value) == "3dvista":
+        if (
+            value
+            and _property_tour_provider_host_kind(value) == "3dvista"
+            and _property_tour_provider_url_shape_valid(value)
+        ):
             return True
     slug = _hosted_property_tour_slug_from_url(tour_url)
     if not slug:
@@ -1100,7 +1121,10 @@ def _hosted_property_tour_verified_provider(
     if not normalized_url:
         return ""
     direct_provider = _property_tour_provider_host_kind(normalized_url)
-    if direct_provider in _CUSTOMER_FACING_TOUR_PROVIDERS:
+    if (
+        direct_provider in _CUSTOMER_FACING_TOUR_PROVIDERS
+        and _property_tour_provider_url_shape_valid(normalized_url)
+    ):
         return direct_provider
     payload = _hosted_property_tour_payload_for_url(normalized_url, principal_id=principal_id)
     if not payload:
@@ -1125,7 +1149,10 @@ def _hosted_property_tour_verified_open_url(
     provider = _hosted_property_tour_verified_provider(normalized_url, principal_id=principal_id)
     if not provider:
         return ""
-    if _property_tour_provider_host_kind(normalized_url) == provider:
+    if (
+        _property_tour_provider_host_kind(normalized_url) == provider
+        and _property_tour_provider_url_shape_valid(normalized_url)
+    ):
         return normalized_url
     return _hosted_property_tour_control_url(normalized_url, viewer=provider)
 
@@ -1860,11 +1887,56 @@ def _property_tour_provider_host_kind(value: object) -> str:
         return "3dvista"
     return ""
 
-def _prefer_hosted_live_360_embed(source_virtual_tour_url: object) -> bool:
-    normalized = _safe_live_property_tour_url(source_virtual_tour_url)
-    if not normalized:
+
+def _property_tour_provider_url_shape_valid(value: object) -> bool:
+    normalized = _safe_live_property_tour_url(value)
+    provider = _property_tour_provider_host_kind(normalized)
+    if not normalized or not provider:
         return False
-    return bool(_property_tour_provider_host_kind(normalized))
+    try:
+        parsed = urllib.parse.urlsplit(normalized)
+        if (
+            parsed.scheme.lower() != "https"
+            or parsed.username
+            or parsed.password
+            or parsed.port not in {None, 443}
+        ):
+            return False
+    except (TypeError, ValueError):
+        return False
+    decoded_path = str(parsed.path or "")
+    for _ in range(4):
+        expanded = urllib.parse.unquote(decoded_path)
+        if expanded == decoded_path:
+            break
+        decoded_path = expanded
+    if "\\" in decoded_path:
+        return False
+    segments = [segment for segment in decoded_path.split("/") if segment]
+    if any(segment in {".", ".."} for segment in segments):
+        return False
+    if provider == "matterport":
+        if decoded_path.rstrip("/").lower() != "/show":
+            return False
+        model_values = urllib.parse.parse_qs(parsed.query, keep_blank_values=True).get("m", [])
+        return bool(
+            len(model_values) == 1
+            and re.fullmatch(r"[A-Za-z0-9_-]{6,64}", str(model_values[0] or "").strip())
+        )
+    if provider == "3dvista":
+        if len(segments) < 2 or segments[0].lower() not in {"360", "share", "tour", "tours"}:
+            return False
+        identifier = "/".join(segments[1:])
+        return bool(
+            len(identifier) >= 3
+            and not any(segment.lower() in {"admin", "auth", "login", "signin"} for segment in segments[1:])
+            and re.fullmatch(r"[A-Za-z0-9._~/-]+", identifier)
+        )
+    return False
+
+
+def _prefer_hosted_live_360_embed(source_virtual_tour_url: object) -> bool:
+    return _property_tour_provider_url_shape_valid(source_virtual_tour_url)
 
 def _hosted_property_tour_identity_secret() -> bytes:
     from app.settings import get_settings, resolve_signing_secret
@@ -2273,6 +2345,8 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
     parsed_live = urllib.parse.urlparse(live_url)
     live_host = str(parsed_live.hostname or "").strip().lower()
     live_provider = _property_tour_provider_host_kind(live_url)
+    if live_provider and not _property_tour_provider_url_shape_valid(live_url):
+        raise RuntimeError("pure_360_source_invalid")
     if live_provider in _CUSTOMER_FACING_TOUR_PROVIDERS:
         base_url = _hosted_property_tour_public_base_url()
         public_dir = _public_tour_dir()
@@ -2369,7 +2443,7 @@ def _embedded_live_360_source_url(payload: dict[str, object]) -> str:
         return ""
     for key in ("source_virtual_tour_url", "source_virtual_tour_origin"):
         normalized = _safe_live_property_tour_url(str(payload.get(key) or "").strip())
-        if normalized:
+        if normalized and _property_tour_provider_url_shape_valid(normalized):
             return normalized
     return ""
 
@@ -2389,7 +2463,10 @@ def _hosted_property_tour_direct_360_url(tour_url: str) -> str:
     if not manifest_path.exists():
         return ""
     direct_url = _public_hosted_property_tour_live_source_url(public_dir / slug)
-    if _property_tour_provider_host_kind(direct_url) not in _CUSTOMER_FACING_TOUR_PROVIDERS:
+    if (
+        _property_tour_provider_host_kind(direct_url) not in _CUSTOMER_FACING_TOUR_PROVIDERS
+        or not _property_tour_provider_url_shape_valid(direct_url)
+    ):
         return ""
     return direct_url
 
@@ -2398,7 +2475,10 @@ def _matterport_thumb_url(source_virtual_tour_url: str) -> str:
     if not normalized:
         return ""
     parsed = urllib.parse.urlparse(normalized)
-    if _property_tour_provider_host_kind(normalized) != "matterport":
+    if (
+        _property_tour_provider_host_kind(normalized) != "matterport"
+        or not _property_tour_provider_url_shape_valid(normalized)
+    ):
         return ""
     model_id = str(urllib.parse.parse_qs(parsed.query).get("m", [""])[0] or "").strip()
     if not model_id:

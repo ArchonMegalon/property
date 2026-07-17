@@ -177,6 +177,7 @@ from app.product.property_tour_hosting import (
     _property_tour_generated_preview_url,
     _property_tour_payload_is_disabled_fallback,
     _property_tour_provider_host_kind,
+    _property_tour_provider_url_shape_valid,
     _public_tour_dir,
     _public_app_base_url,
     _resolve_property_tour_urls,
@@ -15491,6 +15492,15 @@ def _property_tour_followup_telegram_text(
         next_action = "Next: reconnect the tour path and regenerate the tour."
     elif str(blocked_reason or "").strip() == "property_tour_execution_failed":
         next_action = "Next: retry the tour generation path for this listing."
+    elif str(blocked_reason or "").strip() == "property_tour_output_unverified":
+        next_action = "Next: regenerate the tour and verify the published provider output."
+    elif str(blocked_reason or "").strip() in {
+        "listing_packet_acquisition_failed",
+        "listing_packet_invalid",
+        "listing_packet_runtime_unavailable",
+        "listing_packet_timeout",
+    }:
+        next_action = "Next: retry source capture while the listing is active."
     elif str(blocked_reason or "").strip() == "listing_expired":
         next_action = "Next: choose an active listing; this source page is no longer available."
     elif str(blocked_reason or "").strip() == "property_tour_delivery_failed":
@@ -15512,8 +15522,14 @@ def _property_tour_followup_is_customer_actionable(blocked_reason: str) -> bool:
     return normalized not in {
         "browseract_connector_unconfigured",
         "listing_expired",
+        "listing_packet_acquisition_failed",
+        "listing_packet_invalid",
+        "listing_packet_runtime_unavailable",
+        "listing_packet_timeout",
+        "listing_source_url_invalid",
         "listing_360_media_missing",
         "property_tour_execution_failed",
+        "property_tour_output_unverified",
         "property_tour_delivery_failed",
         "property_tour_video_delivery_failed",
         "floorplan_assets_unavailable",
@@ -15529,6 +15545,20 @@ def _property_visual_unavailable_detail(*, request_kind: str, reason: str = "") 
     normalized_reason = str(reason or "").strip().lower()
     if normalized_reason == "listing_expired":
         return "This listing has expired and its source page is no longer available."
+    if normalized_reason in {
+        "listing_packet_acquisition_failed",
+        "listing_packet_invalid",
+        "listing_packet_timeout",
+    }:
+        return "The listing source could not be refreshed. Retry while the listing is active."
+    if normalized_reason in {"listing_packet_runtime_unavailable", "listing_source_url_invalid"}:
+        return "The listing source cannot be processed safely right now."
+    if normalized_reason == "property_tour_output_unverified":
+        return "The renderer finished, but no verifiable live 3D tour was published."
+    if normalized_reason == "property_tour_fallback_disabled":
+        return "This listing only provides flat photos; no verified 360 tour or floorplan is available."
+    if normalized_reason == "listing_360_media_missing":
+        return "This listing has no verified 360 tour or floorplan source."
     if normalized_reason in {
         "",
         "none",
@@ -15579,6 +15609,43 @@ def _property_visual_unavailable_detail(*, request_kind: str, reason: str = "") 
         if normalized_reason.endswith(("_failed", "_timeout", "_too_short", "_invalid", "_not_accepted")) or "continuation_" in normalized_reason:
             return "Tour could not be built from this listing yet."
     return str(reason or "").strip()
+
+
+def _property_tour_evidence_blocked_reason(
+    *,
+    candidate: object,
+    current_reason: object,
+) -> str:
+    normalized_reason = str(current_reason or "").strip()
+    if normalized_reason.lower() not in {
+        "",
+        "blocked",
+        "failed",
+        "property_tour_execution_failed",
+    }:
+        return normalized_reason
+    candidate_payload = dict(candidate) if isinstance(candidate, dict) else {}
+    property_url = str(candidate_payload.get("property_url") or "").strip()
+    facts = (
+        dict(candidate_payload.get("property_facts") or {})
+        if isinstance(candidate_payload.get("property_facts"), dict)
+        else {}
+    )
+    if not _is_willhaben_property_url(property_url):
+        return normalized_reason
+    has_360 = facts.get("has_360")
+    has_floorplan = facts.get("has_floorplan")
+    if has_360 is not False or has_floorplan is not False:
+        return normalized_reason
+    try:
+        media_count = max(0, int(float(facts.get("media_count") or 0)))
+    except (TypeError, ValueError):
+        media_count = 0
+    return (
+        "property_tour_fallback_disabled"
+        if media_count > 0
+        else "listing_360_media_missing"
+    )
 
 
 def _property_visual_terminal_status_for_reason(*, request_kind: str, reason: str = "") -> str:
@@ -17064,11 +17131,12 @@ def _is_willhaben_property_url(value: object) -> bool:
 
 
 def _willhaben_packet_panorama_media_urls(packet: dict[str, object]) -> list[str]:
-    explicit = packet.get("panorama_media_urls_json")
-    if isinstance(explicit, list):
-        values = [str(entry or "").strip() for entry in explicit if str(entry or "").strip()]
-        if values:
-            return values
+    explicit = set(
+        _property_tour_safe_captured_urls(
+            packet.get("panorama_media_urls_json"),
+            limit=40,
+        )
+    )
     assets = packet.get("media_assets_json")
     if not isinstance(assets, list):
         return []
@@ -17076,18 +17144,24 @@ def _willhaben_packet_panorama_media_urls(packet: dict[str, object]) -> list[str
     for entry in assets:
         if not isinstance(entry, dict):
             continue
-        if str(entry.get("role") or "").strip().lower() != "photo":
-            continue
         if not bool(entry.get("panorama_candidate")):
             continue
-        url = str(entry.get("url") or "").strip()
-        if url:
-            urls.append(url)
-    return urls
+        reason = str(entry.get("panorama_reason") or "").strip().lower()
+        if reason != "xmp_equirectangular":
+            continue
+        safe_urls = _property_tour_safe_captured_urls([entry.get("url")], limit=1)
+        if not safe_urls:
+            continue
+        url = safe_urls[0]
+        if explicit and url not in explicit:
+            continue
+        urls.append(url)
+    return list(dict.fromkeys(urls))[:40]
 
 
 def _willhaben_packet_source_virtual_tour_url(packet: dict[str, object]) -> str:
-    property_facts = dict(packet.get("property_facts_json") or {})
+    raw_property_facts = packet.get("property_facts_json")
+    property_facts = dict(raw_property_facts) if isinstance(raw_property_facts, dict) else {}
     attribute_map = dict(property_facts.get("attribute_map") or {}) if isinstance(property_facts.get("attribute_map"), dict) else {}
     attribute_candidates: list[str] = []
     for key in (
@@ -17106,20 +17180,21 @@ def _willhaben_packet_source_virtual_tour_url(packet: dict[str, object]) -> str:
     for candidate in attribute_candidates:
         discovered_urls.extend(_extract_urls_from_text(candidate))
     for url in discovered_urls:
-        normalized = _safe_provider_live_360_url(url)
-        lowered = normalized.lower()
-        if normalized and any(token in lowered for token in ("matterport", "virtual", "tour", "rundgang", "360")):
+        normalized = _property_tour_safe_captured_360_url(url)
+        if normalized:
             return normalized
     return _first_non_empty_text(
-        _safe_provider_live_360_url(packet.get("source_virtual_tour_url")),
-        _safe_provider_live_360_url(property_facts.get("source_virtual_tour_url")),
+        _property_tour_safe_captured_360_url(packet.get("source_virtual_tour_url")),
+        _property_tour_safe_captured_360_url(property_facts.get("source_virtual_tour_url")),
     )
 
 
 def _willhaben_packet_panorama_source(packet: dict[str, object]) -> str:
+    raw_property_facts = packet.get("property_facts_json")
+    property_facts = dict(raw_property_facts) if isinstance(raw_property_facts, dict) else {}
     return _first_non_empty_text(
         packet.get("panorama_source"),
-        dict(packet.get("property_facts_json") or {}).get("panorama_source"),
+        property_facts.get("panorama_source"),
     )
 
 
@@ -23217,6 +23292,672 @@ def _load_willhaben_property_packet_compat(property_url: str, *, timeout_seconds
         if "unexpected keyword argument" not in detail and "positional argument" not in detail:
             raise
         return _load_willhaben_property_packet(property_url)
+
+
+def _willhaben_listing_id_from_url(value: object) -> str:
+    normalized = urllib.parse.urldefrag(str(value or "").strip())[0]
+    try:
+        path = urllib.parse.unquote(urllib.parse.urlsplit(normalized).path or "")
+    except (TypeError, ValueError):
+        return ""
+    match = re.search(r"(?:^|[-/])(\d{6,})(?:/)?$", path)
+    return str(match.group(1) if match else "").strip()
+
+
+def _property_tour_safe_captured_urls(value: object, *, limit: int) -> list[str]:
+    from .outbound_url_security import OutboundUrlRejected, validate_http_url
+
+    if not isinstance(value, (list, tuple, set)):
+        return []
+    safe_urls: list[str] = []
+    seen: set[str] = set()
+    for raw_url in value:
+        normalized = urllib.parse.urldefrag(str(raw_url or "").strip())[0]
+        if not normalized or normalized in seen:
+            continue
+        try:
+            parsed = urllib.parse.urlsplit(normalized)
+            if str(parsed.scheme or "").strip().lower() != "https":
+                continue
+            safe_url = validate_http_url(
+                normalized,
+                allowed_hosts=_WILLHABEN_HOST_MARKERS,
+            ).url
+        except (OutboundUrlRejected, TypeError, ValueError):
+            continue
+        seen.add(safe_url)
+        safe_urls.append(safe_url)
+        if len(safe_urls) >= max(1, int(limit or 1)):
+            break
+    return safe_urls
+
+
+def _property_tour_safe_captured_360_url(value: object) -> str:
+    safe_url = _safe_provider_live_360_url(value)
+    if not safe_url:
+        return ""
+    return (
+        safe_url
+        if _property_tour_provider_host_kind(safe_url) in {"matterport", "3dvista"}
+        and _property_tour_provider_url_shape_valid(safe_url)
+        else ""
+    )
+
+
+def _willhaben_packet_verified_floorplan_assets(packet: dict[str, object]) -> list[dict[str, object]]:
+    explicit = set(
+        _property_tour_safe_captured_urls(
+            packet.get("floorplan_urls_json"),
+            limit=20,
+        )
+    )
+    assets = packet.get("media_assets_json")
+    if not explicit or not isinstance(assets, list):
+        return []
+    verified: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for raw_asset in assets:
+        if not isinstance(raw_asset, dict):
+            continue
+        if str(raw_asset.get("role") or "").strip().lower() != "floorplan":
+            continue
+        if raw_asset.get("floorplan_candidate") is not True:
+            continue
+        if str(raw_asset.get("floorplan_reason") or "").strip().lower() != "plan_like_document_image":
+            continue
+        safe_urls = _property_tour_safe_captured_urls([raw_asset.get("url")], limit=1)
+        if not safe_urls or safe_urls[0] not in explicit or safe_urls[0] in seen:
+            continue
+        width = _float_or_none(raw_asset.get("width"))
+        height = _float_or_none(raw_asset.get("height"))
+        supplied_ratio = _float_or_none(raw_asset.get("aspect_ratio"))
+        if (
+            width is None
+            or height is None
+            or supplied_ratio is None
+            or not all(math.isfinite(value) for value in (width, height, supplied_ratio))
+            or width < 260
+            or height < 260
+        ):
+            continue
+        computed_ratio = width / height
+        if not 0.65 <= computed_ratio <= 1.45 or not math.isclose(
+            supplied_ratio,
+            computed_ratio,
+            rel_tol=0.01,
+            abs_tol=0.01,
+        ):
+            continue
+        url = safe_urls[0]
+        seen.add(url)
+        verified.append(
+            {
+                "url": url,
+                "role": "floorplan",
+                "floorplan_candidate": True,
+                "floorplan_reason": "plan_like_document_image",
+                "width": width,
+                "height": height,
+                "aspect_ratio": supplied_ratio,
+            }
+        )
+    return verified[:20]
+
+
+def _property_tour_captured_packet_max_age_seconds() -> int:
+    try:
+        configured = int(str(os.getenv("PROPERTYQUARRY_CAPTURED_PACKET_MAX_AGE_SECONDS") or "604800").strip())
+    except ValueError:
+        configured = 604800
+    return max(300, min(configured, 30 * 24 * 60 * 60))
+
+
+def _property_tour_captured_packet_digest(
+    packet: dict[str, object],
+    *,
+    provenance: dict[str, object] | None = None,
+) -> str:
+    raw_provenance = provenance if isinstance(provenance, dict) else packet.get("source_packet_provenance_json")
+    provenance_payload = dict(raw_provenance) if isinstance(raw_provenance, dict) else {}
+    digest_payload = {
+        key: packet.get(key)
+        for key in (
+            "property_url",
+            "source_url",
+            "listing_id",
+            "listing_uuid",
+            "title",
+            "property_facts_json",
+            "media_urls_json",
+            "media_assets_json",
+            "floorplan_urls_json",
+            "panorama_media_urls_json",
+            "source_virtual_tour_url",
+            "panorama_source",
+        )
+    }
+    digest_payload["source_packet_provenance_json"] = {
+        key: provenance_payload.get(key)
+        for key in ("kind", "run_id", "candidate_ref", "source_ref", "captured_at")
+    }
+    serialized = json.dumps(
+        _json_safe_product_payload(digest_payload),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _property_tour_captured_packet_provenance_valid(
+    *,
+    raw_packet: object,
+    validated_packet: dict[str, object],
+) -> bool:
+    if not isinstance(raw_packet, dict):
+        return False
+    raw_provenance = raw_packet.get("source_packet_provenance_json")
+    provenance = dict(raw_provenance) if isinstance(raw_provenance, dict) else {}
+    if str(provenance.get("kind") or "").strip() != "property_search_run_snapshot":
+        return False
+    if not all(
+        str(provenance.get(key) or "").strip()
+        for key in ("run_id", "candidate_ref", "source_ref", "captured_at", "packet_sha256")
+    ):
+        return False
+    captured_at = _parse_utcish(str(provenance.get("captured_at") or ""))
+    if captured_at is None:
+        return False
+    age_seconds = (_utcnow() - captured_at).total_seconds()
+    if age_seconds < -300 or age_seconds > _property_tour_captured_packet_max_age_seconds():
+        return False
+    listing_id = _willhaben_listing_id_from_url(validated_packet.get("property_url"))
+    if listing_id:
+        source_ref = str(provenance.get("source_ref") or "").strip()
+        source_listing_id_match = re.search(r"(\d{6,})$", source_ref)
+        if source_listing_id_match and source_listing_id_match.group(1) != listing_id:
+            return False
+    return hmac.compare_digest(
+        str(provenance.get("packet_sha256") or "").strip().lower(),
+        _property_tour_captured_packet_digest(
+            validated_packet,
+            provenance=provenance,
+        ),
+    )
+
+
+def _validated_willhaben_captured_packet(
+    *,
+    property_url: str,
+    packet: object,
+) -> dict[str, object]:
+    normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+    if not _is_willhaben_property_url(normalized_url) or not isinstance(packet, dict):
+        return {}
+    packet_url = urllib.parse.urldefrag(
+        _first_non_empty_text(
+            packet.get("property_url"),
+            packet.get("source_url"),
+            packet.get("listing_url"),
+        )
+    )[0]
+    if not packet_url or packet_url != normalized_url:
+        return {}
+    url_listing_id = _willhaben_listing_id_from_url(normalized_url)
+    packet_listing_id = compact_text(str(packet.get("listing_id") or "").strip(), fallback="", limit=120)
+    if url_listing_id and packet_listing_id and packet_listing_id != url_listing_id:
+        return {}
+    if url_listing_id and not packet_listing_id:
+        packet_listing_id = url_listing_id
+    raw_property_facts = packet.get("property_facts_json")
+    property_facts = dict(raw_property_facts) if isinstance(raw_property_facts, dict) else {}
+    media_urls = _property_tour_safe_captured_urls(
+        packet.get("media_urls_json") or property_facts.get("media_urls_json"),
+        limit=80,
+    )
+    panorama_probe = dict(packet)
+    if not panorama_probe.get("floorplan_urls_json"):
+        panorama_probe["floorplan_urls_json"] = property_facts.get("floorplan_urls_json") or []
+    if not panorama_probe.get("panorama_media_urls_json"):
+        panorama_probe["panorama_media_urls_json"] = property_facts.get("panorama_media_urls_json") or []
+    if not panorama_probe.get("media_assets_json"):
+        panorama_probe["media_assets_json"] = property_facts.get("media_assets_json") or []
+    verified_floorplan_assets = _willhaben_packet_verified_floorplan_assets(panorama_probe)
+    floorplan_urls = [str(asset["url"]) for asset in verified_floorplan_assets]
+    panorama_media_urls = _willhaben_packet_panorama_media_urls(panorama_probe)
+    verified_panorama_assets: list[dict[str, object]] = []
+    for raw_asset in list(panorama_probe.get("media_assets_json") or []):
+        if not isinstance(raw_asset, dict):
+            continue
+        safe_asset_urls = _property_tour_safe_captured_urls([raw_asset.get("url")], limit=1)
+        if not safe_asset_urls or safe_asset_urls[0] not in panorama_media_urls:
+            continue
+        verified_panorama_assets.append(
+            {
+                "url": safe_asset_urls[0],
+                "role": "photo",
+                "panorama_candidate": True,
+                "panorama_reason": str(raw_asset.get("panorama_reason") or "").strip().lower(),
+                "width": _float_or_none(raw_asset.get("width")),
+                "height": _float_or_none(raw_asset.get("height")),
+                "aspect_ratio": _float_or_none(raw_asset.get("aspect_ratio")),
+            }
+        )
+    source_virtual_tour_url = _property_tour_safe_captured_360_url(
+        _first_non_empty_text(
+            packet.get("source_virtual_tour_url"),
+            property_facts.get("source_virtual_tour_url"),
+        )
+    )
+    if not any((media_urls, floorplan_urls, panorama_media_urls, source_virtual_tour_url)):
+        return {}
+    property_facts["media_urls_json"] = list(media_urls)
+    property_facts["floorplan_urls_json"] = list(floorplan_urls)
+    property_facts["panorama_media_urls_json"] = list(panorama_media_urls)
+    property_facts["has_floorplan"] = bool(floorplan_urls)
+    property_facts["floorplan_count"] = len(floorplan_urls)
+    property_facts["source_virtual_tour_url"] = source_virtual_tour_url
+    property_facts["has_360"] = bool(panorama_media_urls or source_virtual_tour_url)
+    return {
+        "property_url": normalized_url,
+        "source_url": normalized_url,
+        "listing_id": packet_listing_id,
+        "listing_uuid": compact_text(str(packet.get("listing_uuid") or "").strip(), fallback="", limit=160),
+        "title": compact_text(str(packet.get("title") or normalized_url).strip(), fallback=normalized_url, limit=220),
+        "property_facts_json": property_facts,
+        "media_urls_json": list(media_urls),
+        "floorplan_urls_json": list(floorplan_urls),
+        "panorama_media_urls_json": list(panorama_media_urls),
+        "media_assets_json": [*verified_floorplan_assets, *verified_panorama_assets],
+        "source_virtual_tour_url": source_virtual_tour_url,
+        "panorama_source": (
+            urllib.parse.urlparse(source_virtual_tour_url).netloc.lower()
+            if source_virtual_tour_url
+            else compact_text(str(packet.get("panorama_source") or "").strip(), fallback="", limit=120)
+        ),
+    }
+
+
+def _willhaben_candidate_tour_source_fields(
+    *,
+    property_url: str,
+    preview: object,
+    property_facts: object,
+) -> dict[str, object]:
+    if not _is_willhaben_property_url(property_url):
+        return {}
+    preview_payload = dict(preview) if isinstance(preview, dict) else {}
+    facts = dict(property_facts) if isinstance(property_facts, dict) else {}
+    packet = _validated_willhaben_captured_packet(
+        property_url=property_url,
+        packet={
+            "property_url": property_url,
+            "source_url": property_url,
+            "listing_id": _first_non_empty_text(
+                preview_payload.get("listing_id"),
+                facts.get("listing_id"),
+                _willhaben_listing_id_from_url(property_url),
+            ),
+            "listing_uuid": _first_non_empty_text(
+                preview_payload.get("listing_uuid"),
+                facts.get("listing_uuid"),
+            ),
+            "title": _first_non_empty_text(
+                preview_payload.get("title"),
+                facts.get("title"),
+                property_url,
+            ),
+            "property_facts_json": facts,
+            "media_urls_json": (
+                preview_payload.get("media_urls_json")
+                or facts.get("media_urls_json")
+                or []
+            ),
+            "floorplan_urls_json": (
+                preview_payload.get("floorplan_urls_json")
+                or facts.get("floorplan_urls_json")
+                or []
+            ),
+            "panorama_media_urls_json": (
+                preview_payload.get("panorama_media_urls_json")
+                or facts.get("panorama_media_urls_json")
+                or []
+            ),
+            "media_assets_json": (
+                preview_payload.get("media_assets_json")
+                or facts.get("media_assets_json")
+                or []
+            ),
+            "source_virtual_tour_url": _first_non_empty_text(
+                preview_payload.get("source_virtual_tour_url"),
+                facts.get("source_virtual_tour_url"),
+            ),
+            "panorama_source": _first_non_empty_text(
+                preview_payload.get("panorama_source"),
+                facts.get("panorama_source"),
+            ),
+        },
+    )
+    if not packet:
+        return {}
+    return {
+        key: packet.get(key)
+        for key in (
+            "media_urls_json",
+            "floorplan_urls_json",
+            "panorama_media_urls_json",
+            "media_assets_json",
+            "source_virtual_tour_url",
+            "panorama_source",
+        )
+        if packet.get(key) not in (None, "", [], {})
+    }
+
+
+def _captured_willhaben_packet_from_candidate(
+    *,
+    candidate: dict[str, object],
+    property_url: str,
+    run_id: str,
+    candidate_ref: str,
+    source_ref: str,
+    captured_at: str,
+) -> dict[str, object]:
+    raw_property_facts = candidate.get("property_facts") or candidate.get("property_facts_json")
+    property_facts = dict(raw_property_facts) if isinstance(raw_property_facts, dict) else {}
+    captured_packet = {
+        "property_url": urllib.parse.urldefrag(str(property_url or "").strip())[0],
+        "source_url": urllib.parse.urldefrag(str(property_url or "").strip())[0],
+        "listing_id": _first_non_empty_text(
+            candidate.get("listing_id"),
+            property_facts.get("listing_id"),
+            _willhaben_listing_id_from_url(property_url),
+        ),
+        "listing_uuid": _first_non_empty_text(
+            candidate.get("listing_uuid"),
+            property_facts.get("listing_uuid"),
+        ),
+        "title": _first_non_empty_text(
+            candidate.get("title"),
+            candidate.get("listing_title"),
+            property_facts.get("title"),
+            property_url,
+        ),
+        "property_facts_json": property_facts,
+        "media_urls_json": (
+            candidate.get("media_urls_json")
+            or candidate.get("photo_refs")
+            or property_facts.get("media_urls_json")
+            or []
+        ),
+        "floorplan_urls_json": (
+            candidate.get("floorplan_urls_json")
+            or candidate.get("floorplan_refs")
+            or property_facts.get("floorplan_urls_json")
+            or []
+        ),
+        "panorama_media_urls_json": (
+            candidate.get("panorama_media_urls_json")
+            or property_facts.get("panorama_media_urls_json")
+            or []
+        ),
+        "media_assets_json": (
+            candidate.get("media_assets_json")
+            or property_facts.get("media_assets_json")
+            or []
+        ),
+        "source_virtual_tour_url": _first_non_empty_text(
+            candidate.get("source_virtual_tour_url"),
+            property_facts.get("source_virtual_tour_url"),
+        ),
+        "panorama_source": _first_non_empty_text(
+            candidate.get("panorama_source"),
+            property_facts.get("panorama_source"),
+        ),
+    }
+    validated_packet = _validated_willhaben_captured_packet(
+        property_url=property_url,
+        packet=captured_packet,
+    )
+    if not validated_packet:
+        return {}
+    provenance = {
+        "kind": "property_search_run_snapshot",
+        "run_id": str(run_id or "").strip(),
+        "candidate_ref": str(candidate_ref or "").strip(),
+        "source_ref": str(source_ref or "").strip(),
+        "captured_at": str(captured_at or "").strip(),
+    }
+    provenance["packet_sha256"] = _property_tour_captured_packet_digest(
+        validated_packet,
+        provenance=provenance,
+    )
+    validated_packet["source_packet_provenance_json"] = provenance
+    return (
+        validated_packet
+        if _property_tour_captured_packet_provenance_valid(
+            raw_packet=validated_packet,
+            validated_packet=validated_packet,
+        )
+        else {}
+    )
+
+
+def _validated_willhaben_live_packet(
+    *,
+    property_url: str,
+    packet: object,
+) -> dict[str, object]:
+    validated = _validated_willhaben_captured_packet(
+        property_url=property_url,
+        packet=packet,
+    )
+    if not validated or not isinstance(packet, dict):
+        raise RuntimeError("willhaben_property_packet_invalid")
+    merged = dict(packet)
+    merged.update(validated)
+    return merged
+
+
+def _resolve_willhaben_property_packet(
+    property_url: str,
+    *,
+    captured_packet: object = None,
+    prefetched_packet: object = None,
+) -> tuple[dict[str, object], str]:
+    if isinstance(prefetched_packet, dict):
+        try:
+            return (
+                _validated_willhaben_live_packet(
+                    property_url=property_url,
+                    packet=prefetched_packet,
+                ),
+                "live_prefetched",
+            )
+        except RuntimeError:
+            pass
+    validated_capture = _validated_willhaben_captured_packet(
+        property_url=property_url,
+        packet=captured_packet,
+    )
+    if validated_capture and _property_tour_captured_packet_provenance_valid(
+        raw_packet=captured_packet,
+        validated_packet=validated_capture,
+    ):
+        return validated_capture, "run_snapshot"
+    return (
+        _validated_willhaben_live_packet(
+            property_url=property_url,
+            packet=_load_willhaben_property_packet(property_url),
+        ),
+        "live_refetch",
+    )
+
+
+def _property_tour_renderer_facts(value: object) -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    allowed_keys = {
+        "address",
+        "area_label",
+        "area_sqm",
+        "availability_label",
+        "available_from",
+        "bathrooms",
+        "bedrooms",
+        "building_year",
+        "city",
+        "country_code",
+        "district",
+        "energy_class",
+        "features",
+        "floor",
+        "floorplan_count",
+        "has_360",
+        "has_balcony",
+        "has_floorplan",
+        "has_garden",
+        "has_lift",
+        "has_parking",
+        "has_terrace",
+        "heating",
+        "listing_id",
+        "listing_uuid",
+        "location",
+        "marketing_type",
+        "media_count",
+        "nearest_pharmacy_m",
+        "nearest_playground_m",
+        "nearest_subway_m",
+        "nearest_supermarket_m",
+        "panorama_candidate_count",
+        "postal_code",
+        "postal_name",
+        "price_display",
+        "price_eur",
+        "property_type",
+        "region_code",
+        "rooms",
+        "rooms_label",
+        "source_packet_origin",
+        "street_address",
+        "total_rent_eur",
+        "tour_media_mode",
+    }
+    projected = {
+        str(key): _json_safe_product_payload(item)
+        for key, item in value.items()
+        if str(key) in allowed_keys and item not in (None, "", [], {}, ())
+    }
+    raw_research_snapshot = value.get("listing_research_snapshot")
+    if isinstance(raw_research_snapshot, dict):
+        research_snapshot = _property_tour_renderer_facts(raw_research_snapshot)
+        if research_snapshot:
+            projected["listing_research_snapshot"] = research_snapshot
+    raw_research_meta = value.get("listing_research_meta")
+    if isinstance(raw_research_meta, dict):
+        research_meta = {
+            str(key): _json_safe_product_payload(item)
+            for key, item in raw_research_meta.items()
+            if str(key) in {"strategy"} and item not in (None, "", [], {}, ())
+        }
+        if research_meta:
+            projected["listing_research_meta"] = research_meta
+    return projected
+
+
+def _property_tour_execution_diagnostic(exc: Exception) -> dict[str, str]:
+    raw_detail = str(exc or "").strip()
+    detail = raw_detail.lower()
+    error_type = re.sub(r"[^A-Za-z0-9_]", "", type(exc).__name__)[:80] or "Exception"
+    blocked_reason = "property_tour_execution_failed"
+    failure_stage = "tour_execution"
+    error_code = "property_tour_execution_failed"
+    upgrade_match = re.search(
+        r"\b(property_(?:tour|magic_fit)_upgrade_required):(plus|agent)\b",
+        detail,
+    )
+    if upgrade_match:
+        blocked_reason = f"{upgrade_match.group(1)}:{upgrade_match.group(2)}"
+        failure_stage = "quota"
+        error_code = blocked_reason
+    elif "willhaben_listing_expired" in detail:
+        blocked_reason = "listing_expired"
+        failure_stage = "listing_source"
+        error_code = "willhaben_listing_expired"
+    elif any(marker in detail for marker in ("willhaben_property_url_invalid", "willhaben_property_url_unsafe")):
+        blocked_reason = "listing_source_url_invalid"
+        failure_stage = "listing_source"
+        error_code = "willhaben_property_url_unsafe" if "willhaben_property_url_unsafe" in detail else "willhaben_property_url_invalid"
+    elif "willhaben_property_packet_timeout" in detail:
+        blocked_reason = "listing_packet_timeout"
+        failure_stage = "listing_packet"
+        error_code = "willhaben_property_packet_timeout"
+    elif any(
+        marker in detail
+        for marker in (
+            "willhaben_property_packet_script_missing",
+            "python3_missing:willhaben_property_packet",
+        )
+    ):
+        blocked_reason = "listing_packet_runtime_unavailable"
+        failure_stage = "listing_packet"
+        error_code = (
+            "willhaben_property_packet_script_missing"
+            if "willhaben_property_packet_script_missing" in detail
+            else "python3_missing_willhaben_property_packet"
+        )
+    elif "willhaben_property_packet_invalid" in detail:
+        blocked_reason = "listing_packet_invalid"
+        failure_stage = "listing_packet"
+        error_code = "willhaben_property_packet_invalid"
+    elif "willhaben_property_packet_failed" in detail:
+        blocked_reason = "listing_packet_acquisition_failed"
+        failure_stage = "listing_packet"
+        error_code = "willhaben_property_packet_failed"
+    elif "property_tour_output_unverified" in detail:
+        blocked_reason = "property_tour_output_unverified"
+        failure_stage = "tour_publication"
+        error_code = "property_tour_output_unverified"
+    elif any(
+        marker in detail
+        for marker in (
+            "connector_binding_required:browseract.crezlo_property_tour",
+            "connector_binding_not_found",
+            "connector_binding_disabled",
+        )
+    ):
+        blocked_reason = "browseract_connector_unconfigured"
+        failure_stage = "connector_binding"
+        error_code = "browseract_connector_unconfigured"
+    elif any(
+        marker in detail
+        for marker in (
+            "crezlo_login_required_for_direct_create",
+            "crezlo_login_email_missing",
+            "crezlo_login_password_missing",
+            "crezlo_login_required",
+            "crezlo_worker_missing",
+            "crezlo_api_http_error:404",
+            "workspace not found",
+        )
+    ):
+        blocked_reason = "crezlo_property_tour_not_configured"
+        failure_stage = "renderer_configuration"
+        error_code = "crezlo_property_tour_not_configured"
+    elif "crezlo_media_missing" in detail:
+        blocked_reason = "listing_media_missing"
+        failure_stage = "listing_media"
+        error_code = "crezlo_media_missing"
+    fingerprint_source = f"{failure_stage}:{error_code}:{error_type}"
+    return {
+        "blocked_reason": blocked_reason,
+        "failure_stage": failure_stage,
+        "error_code": error_code,
+        "error_type": error_type,
+        "error_fingerprint": hashlib.sha256(fingerprint_source.encode("utf-8", "replace")).hexdigest()[:16],
+        "safe_detail": error_code,
+    }
 
 
 def _load_optional_json_dict(path: Path) -> dict[str, object] | None:
@@ -31925,7 +32666,17 @@ class ProductService:
         requested = str(variant_key or "").strip().lower()
         variants = [dict(entry) for entry in list(packet.get("tour_variants_json") or []) if isinstance(entry, dict)]
         if not variants:
-            raise RuntimeError("willhaben_tour_variants_missing")
+            return {
+                "variant_key": requested or "layout_first",
+                "scene_strategy": "layout_first",
+                "theme_name": "clean_light",
+                "tour_style": "guided_layout_walkthrough",
+                "audience": "tenant_screening",
+                "creative_brief": "Build only from verified listing geometry and media.",
+                "call_to_action": "Open the tour.",
+                "scene_selection_json": {},
+                "tour_settings_json": {},
+            }
         if requested:
             for row in variants:
                 if str(row.get("variant_key") or "").strip().lower() == requested:
@@ -32187,34 +32938,7 @@ class ProductService:
         return str(created.binding_id or "").strip()
 
     def _property_tour_execution_error_reason(self, exc: Exception) -> str:
-        detail = str(exc or "").strip().lower()
-        if "willhaben_listing_expired" in detail:
-            return "listing_expired"
-        if any(
-            marker in detail
-            for marker in (
-                "connector_binding_required:browseract.crezlo_property_tour",
-                "connector_binding_not_found",
-                "connector_binding_disabled",
-            )
-        ):
-            return "browseract_connector_unconfigured"
-        if any(
-            marker in detail
-            for marker in (
-                "crezlo_login_required_for_direct_create",
-                "crezlo_login_email_missing",
-                "crezlo_login_password_missing",
-                "crezlo_login_required",
-                "crezlo_worker_missing",
-                "crezlo_api_http_error:404",
-                "workspace not found",
-            )
-        ):
-            return "crezlo_property_tour_not_configured"
-        if "crezlo_media_missing" in detail:
-            return "listing_media_missing"
-        return "property_tour_execution_failed"
+        return _property_tour_execution_diagnostic(exc)["blocked_reason"]
 
     def _materialize_property_generated_reconstruction_url(
         self,
@@ -33979,6 +34703,7 @@ class ProductService:
                 actor=actor,
             )
         except Exception as exc:
+            execution_diagnostic = _property_tour_execution_diagnostic(exc)
             self._record_product_event(
                 principal_id=principal_id,
                 event_type="willhaben_property_tour_auto_failed",
@@ -33988,7 +34713,12 @@ class ProductService:
                     "external_id": str(external_id or "").strip(),
                     "title": str(title or "").strip(),
                     "summary": str(summary or "").strip(),
-                    "error": str(exc or "").strip(),
+                    "blocked_reason": execution_diagnostic["blocked_reason"],
+                    "failure_stage": execution_diagnostic["failure_stage"],
+                    "error_code": execution_diagnostic["error_code"],
+                    "error_type": execution_diagnostic["error_type"],
+                    "error_fingerprint": execution_diagnostic["error_fingerprint"],
+                    "error": execution_diagnostic["safe_detail"],
                 },
                 source_id=str(source_ref or external_id or property_url).strip(),
                 dedupe_key=f"{principal_id}|{source_ref or external_id or property_url}|property-tour-auto-failed",
@@ -34013,6 +34743,8 @@ class ProductService:
         suppress_human_followup: bool = False,
         walkthrough_provider_key: str = "",
         diorama_style_hint: str = "",
+        captured_packet_json: dict[str, object] | None = None,
+        prefetched_packet_json: dict[str, object] | None = None,
     ) -> dict[str, object]:
         normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
         property_preferences = dict(self._container.onboarding.status(principal_id=principal_id).get("property_search_preferences") or {})
@@ -34038,20 +34770,87 @@ class ProductService:
                 suppress_human_followup=suppress_human_followup,
                 diorama_style_hint=diorama_style_hint,
             )
-        packet = _load_willhaben_property_packet(normalized_url)
+        try:
+            packet, source_packet_origin = _resolve_willhaben_property_packet(
+                normalized_url,
+                captured_packet=captured_packet_json,
+                prefetched_packet=prefetched_packet_json,
+            )
+            if source_packet_origin == "run_snapshot" and any(
+                (
+                    _willhaben_packet_panorama_media_urls(packet),
+                    _willhaben_packet_source_virtual_tour_url(packet),
+                    list(packet.get("floorplan_urls_json") or []),
+                )
+            ):
+                packet = _validated_willhaben_live_packet(
+                    property_url=normalized_url,
+                    packet=_load_willhaben_property_packet(normalized_url),
+                )
+                source_packet_origin = "live_revalidated"
+        except Exception as exc:
+            execution_diagnostic = _property_tour_execution_diagnostic(exc)
+            resolved_source_ref = str(
+                source_ref
+                or f"willhaben:{_willhaben_listing_id_from_url(normalized_url) or _saved_link_fallback_id(normalized_url)}"
+            ).strip()
+            payload = {
+                "generated_at": _now_iso(),
+                "status": "blocked",
+                "property_url": normalized_url,
+                "title": normalized_url,
+                "listing_id": _willhaben_listing_id_from_url(normalized_url),
+                "variant_key": str(variant_key or "layout_first").strip() or "layout_first",
+                "artifact_id": "",
+                "execution_session_id": "",
+                "connector_binding_id": "",
+                "tour_url": "",
+                "vendor_tour_url": "",
+                "editor_url": "",
+                "delivery_email": str(recipient_email or _principal_email_hint(principal_id)).strip().lower(),
+                "delivery_status": "blocked",
+                "blocked_reason": execution_diagnostic["blocked_reason"],
+                "failure_stage": execution_diagnostic["failure_stage"],
+                "error_code": execution_diagnostic["error_code"],
+                "error_type": execution_diagnostic["error_type"],
+                "error_fingerprint": execution_diagnostic["error_fingerprint"],
+                "human_task_id": "",
+                "source_ref": resolved_source_ref,
+                "external_id": str(external_id or normalized_url).strip(),
+                "source_packet_origin": "unavailable",
+                "tour_media_mode": "unavailable",
+            }
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="willhaben_property_tour_blocked",
+                payload=payload,
+                source_id=resolved_source_ref,
+                dedupe_key=(
+                    f"{principal_id}|{resolved_source_ref}|{payload['variant_key']}|"
+                    f"tour-blocked:{execution_diagnostic['blocked_reason']}"
+                ),
+            )
+            return payload
         variant = self._selected_willhaben_tour_variant(packet=packet, variant_key=variant_key)
         resolved_variant_key = str(variant.get("variant_key") or variant_key or "layout_first").strip() or "layout_first"
         title = str(packet.get("title") or normalized_url).strip() or normalized_url
         listing_id = str(packet.get("listing_id") or "").strip()
-        property_facts_json = dict(packet.get("property_facts_json") or {})
+        raw_property_facts = packet.get("property_facts_json")
+        property_facts_json = dict(raw_property_facts) if isinstance(raw_property_facts, dict) else {}
         panorama_media_urls = _willhaben_packet_panorama_media_urls(packet)
         source_virtual_tour_url = _willhaben_packet_source_virtual_tour_url(packet)
         panorama_source = _willhaben_packet_panorama_source(packet)
         has_live_360 = bool(panorama_media_urls or source_virtual_tour_url)
         source_host = urllib.parse.urlparse(normalized_url).netloc.lower()
-        source_media_urls = list(packet.get("media_urls_json") or [])
-        source_floorplan_urls = list(packet.get("floorplan_urls_json") or [])
-        has_floorplan_material = bool(source_floorplan_urls or property_facts_json.get("has_floorplan"))
+        source_media_urls = _property_tour_safe_captured_urls(
+            packet.get("media_urls_json"),
+            limit=80,
+        )
+        source_floorplan_urls = _property_tour_safe_captured_urls(
+            packet.get("floorplan_urls_json"),
+            limit=20,
+        )
+        has_floorplan_material = bool(source_floorplan_urls)
         request_media_urls = list(panorama_media_urls or source_media_urls)
         request_floorplan_urls = list(source_floorplan_urls)
         scene_strategy = str(variant.get("scene_strategy") or "layout_first").strip()
@@ -34059,6 +34858,7 @@ class ProductService:
         tour_media_mode = "panorama_360" if has_live_360 else "flat_images"
         property_facts_json.update(
             {
+                "source_packet_origin": source_packet_origin,
                 "tour_media_mode": tour_media_mode,
                 "panorama_candidate_count": len(panorama_media_urls),
                 "source_virtual_tour_url": source_virtual_tour_url,
@@ -34107,10 +34907,13 @@ class ProductService:
         resolved_recipient_email = str(recipient_email or _principal_email_hint(principal_id)).strip().lower()
         generated_at = _now_iso()
         if (
-            enforce_360_media
-            and _willhaben_property_tour_require_360()
-            and not has_live_360
-            and not (allow_floorplan_only and has_floorplan_material)
+            (not has_live_360 and not has_floorplan_material)
+            or (
+                enforce_360_media
+                and _willhaben_property_tour_require_360()
+                and not has_live_360
+                and not (allow_floorplan_only and has_floorplan_material)
+            )
         ):
             blocked_reason = "property_tour_fallback_disabled" if (source_media_urls or source_floorplan_urls) else "listing_360_media_missing"
             followup_task_id = ""
@@ -34147,6 +34950,7 @@ class ProductService:
                 "human_task_id": followup_task_id,
                 "source_ref": resolved_source_ref,
                 "external_id": resolved_external_id,
+                "source_packet_origin": source_packet_origin,
                 "tour_media_mode": tour_media_mode,
                 "personal_fit_assessment": dict(personal_fit_assessment or {}),
             }
@@ -34169,13 +34973,15 @@ class ProductService:
                         variant_key=resolved_variant_key,
                         source_virtual_tour_url=source_virtual_tour_url,
                         floorplan_urls=source_floorplan_urls,
-                        property_facts_json=property_facts_json,
+                        property_facts_json=_property_tour_renderer_facts(property_facts_json),
                         source_host=source_host,
                         source_ref=resolved_source_ref,
                         external_id=resolved_external_id,
                         recipient_email=resolved_recipient_email,
                     )
                     tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
+                    if not tour_url and not vendor_tour_url:
+                        raise RuntimeError("property_tour_output_unverified")
                     payload = {
                         "generated_at": generated_at,
                         "status": "created",
@@ -34272,11 +35078,12 @@ class ProductService:
             "tour_title": " - ".join(part for part in (title, resolved_variant_key.replace("_", " ")) if part)[:180],
             "display_title": title[:220],
             "property_url": normalized_url,
+            "source_packet_origin": source_packet_origin,
             "media_urls_json": request_media_urls,
             "floorplan_urls_json": request_floorplan_urls,
             "scene_strategy": scene_strategy,
             "scene_selection_json": scene_selection_json,
-            "property_facts_json": property_facts_json,
+            "property_facts_json": _property_tour_renderer_facts(property_facts_json),
             "creative_brief": str(variant.get("creative_brief") or "").strip(),
             "variant_key": resolved_variant_key,
             "language": "de",
@@ -34292,6 +35099,7 @@ class ProductService:
                 "listing_uuid": str(packet.get("listing_uuid") or "").strip(),
                 "variant_key": resolved_variant_key,
                 "source": "willhaben",
+                "source_packet_origin": source_packet_origin,
                 "tour_media_mode": tour_media_mode,
             },
         }
@@ -34308,6 +35116,7 @@ class ProductService:
         artifact = None
         direct_structured_output: dict[str, object] | None = None
         blocked_reason = ""
+        execution_diagnostic: dict[str, str] = {}
         try:
             if self._container.task_contracts.get_contract(resolved_task_key) is None and resolved_binding_id:
                 direct_invocation = ToolInvocationRequest(
@@ -34339,7 +35148,8 @@ class ProductService:
                     )
                 )
         except Exception as exc:
-            blocked_reason = self._property_tour_execution_error_reason(exc)
+            execution_diagnostic = _property_tour_execution_diagnostic(exc)
+            blocked_reason = execution_diagnostic["blocked_reason"]
 
         if blocked_reason:
             if source_virtual_tour_url and blocked_reason in {
@@ -34357,13 +35167,15 @@ class ProductService:
                         variant_key=resolved_variant_key,
                         source_virtual_tour_url=source_virtual_tour_url,
                         floorplan_urls=source_floorplan_urls,
-                        property_facts_json=property_facts_json,
+                        property_facts_json=_property_tour_renderer_facts(property_facts_json),
                         source_host=source_host,
                         source_ref=resolved_source_ref,
                         external_id=resolved_external_id,
                         recipient_email=resolved_recipient_email,
                     )
                     tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
+                    if not tour_url and not vendor_tour_url:
+                        raise RuntimeError("property_tour_output_unverified")
                     payload = {
                         "generated_at": generated_at,
                         "status": "created",
@@ -34440,6 +35252,9 @@ class ProductService:
                 "delivery_email": resolved_recipient_email,
                 "delivery_status": "blocked",
                 "blocked_reason": blocked_reason,
+                "failure_stage": execution_diagnostic.get("failure_stage", ""),
+                "error_code": execution_diagnostic.get("error_code", ""),
+                "error_fingerprint": execution_diagnostic.get("error_fingerprint", ""),
                 "human_task_id": followup_task_id,
                 "source_ref": resolved_source_ref,
                 "external_id": resolved_external_id,
@@ -34503,6 +35318,53 @@ class ProductService:
             )
             return payload
         tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
+        if not tour_url and not vendor_tour_url:
+            blocked_reason = "property_tour_output_unverified"
+            followup_task_id = ""
+            if not suppress_human_followup:
+                followup = self._open_property_tour_followup(
+                    principal_id=principal_id,
+                    property_url=normalized_url,
+                    title=title,
+                    variant_key=resolved_variant_key,
+                    blocked_reason=blocked_reason,
+                    recipient_email=resolved_recipient_email,
+                    source_ref=resolved_source_ref,
+                    external_id=resolved_external_id,
+                    connector_binding_id=resolved_binding_id,
+                    walkthrough_provider_key=walkthrough_provider_key,
+                )
+                followup_task_id = f"human_task:{followup.human_task_id}"
+            payload = {
+                "generated_at": generated_at,
+                "status": "blocked",
+                "property_url": normalized_url,
+                "title": title,
+                "listing_id": listing_id,
+                "variant_key": resolved_variant_key,
+                "artifact_id": str(artifact.artifact_id or "").strip(),
+                "execution_session_id": str(artifact.execution_session_id or "").strip(),
+                "connector_binding_id": resolved_binding_id,
+                "tour_url": "",
+                "vendor_tour_url": "",
+                "editor_url": _first_non_empty_text(structured_output.get("editor_url")),
+                "delivery_email": resolved_recipient_email,
+                "delivery_status": "blocked",
+                "blocked_reason": blocked_reason,
+                "human_task_id": followup_task_id,
+                "source_ref": resolved_source_ref,
+                "external_id": resolved_external_id,
+                "source_packet_origin": source_packet_origin,
+                "tour_media_mode": tour_media_mode,
+            }
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="willhaben_property_tour_blocked",
+                payload=payload,
+                source_id=resolved_source_ref,
+                dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|tour-blocked:{blocked_reason}",
+            )
+            return payload
         editor_url = _first_non_empty_text(structured_output.get("editor_url"))
         payload = {
             "generated_at": generated_at,
@@ -34973,13 +35835,15 @@ class ProductService:
                         variant_key=resolved_variant_key,
                         source_virtual_tour_url=source_virtual_tour_url,
                         floorplan_urls=source_floorplan_urls,
-                        property_facts_json=property_facts_json,
+                        property_facts_json=_property_tour_renderer_facts(property_facts_json),
                         source_host=source_host,
                         source_ref=resolved_source_ref,
                         external_id=resolved_external_id,
                         recipient_email=resolved_recipient_email,
                     )
                     tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
+                    if not tour_url and not vendor_tour_url:
+                        raise RuntimeError("property_tour_output_unverified")
                     payload = {
                         "generated_at": generated_at,
                         "status": "created",
@@ -35027,13 +35891,15 @@ class ProductService:
                         property_url=normalized_url,
                         variant_key=resolved_variant_key,
                         floorplan_urls=source_floorplan_urls,
-                        property_facts_json=property_facts_json,
+                        property_facts_json=_property_tour_renderer_facts(property_facts_json),
                         source_host=source_host,
                         source_ref=resolved_source_ref,
                         external_id=resolved_external_id,
                         recipient_email=resolved_recipient_email,
                     )
                     tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
+                    if not tour_url and not vendor_tour_url:
+                        raise RuntimeError("property_tour_output_unverified")
                     payload = {
                         "generated_at": generated_at,
                         "status": "created",
@@ -35087,6 +35953,8 @@ class ProductService:
                         recipient_email=resolved_recipient_email,
                     )
                     tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
+                    if not tour_url and not vendor_tour_url:
+                        raise RuntimeError("property_tour_output_unverified")
                     payload = {
                         "generated_at": generated_at,
                         "status": "created",
@@ -35179,7 +36047,7 @@ class ProductService:
             "floorplan_urls_json": source_floorplan_urls,
             "scene_strategy": "photo_only" if panorama_media_urls else ("layout_first" if source_floorplan_urls else "photo_only"),
             "scene_selection_json": {"include_floorplans": bool(source_floorplan_urls and not panorama_media_urls)},
-            "property_facts_json": property_facts_json,
+            "property_facts_json": _property_tour_renderer_facts(property_facts_json),
             "creative_brief": "Create a concise provider-neutral apartment tour from the listing page, extracted facts, and available listing media.",
             "variant_key": resolved_variant_key,
             "language": "de",
@@ -35229,6 +36097,8 @@ class ProductService:
                         recipient_email=resolved_recipient_email,
                     )
                     tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
+                    if not tour_url and not vendor_tour_url:
+                        raise RuntimeError("property_tour_output_unverified")
                     payload = {
                         "generated_at": generated_at,
                         "status": "created",
@@ -35290,6 +36160,8 @@ class ProductService:
                         recipient_email=resolved_recipient_email,
                     )
                     tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
+                    if not tour_url and not vendor_tour_url:
+                        raise RuntimeError("property_tour_output_unverified")
                     payload = {
                         "generated_at": generated_at,
                         "status": "created",
@@ -35350,6 +36222,8 @@ class ProductService:
                         recipient_email=resolved_recipient_email,
                     )
                     tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
+                    if not tour_url and not vendor_tour_url:
+                        raise RuntimeError("property_tour_output_unverified")
                     payload = {
                         "generated_at": generated_at,
                         "status": "created",
@@ -35480,6 +36354,52 @@ class ProductService:
             )
             return payload
         tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
+        if not tour_url and not vendor_tour_url:
+            blocked_reason = "property_tour_output_unverified"
+            followup_task_id = ""
+            if not suppress_human_followup:
+                followup = self._open_property_tour_followup(
+                    principal_id=principal_id,
+                    property_url=normalized_url,
+                    title=title,
+                    variant_key=resolved_variant_key,
+                    blocked_reason=blocked_reason,
+                    recipient_email=resolved_recipient_email,
+                    source_ref=resolved_source_ref,
+                    external_id=resolved_external_id,
+                    connector_binding_id=resolved_binding_id,
+                )
+                followup_task_id = f"human_task:{followup.human_task_id}"
+            payload = {
+                "generated_at": generated_at,
+                "status": "blocked",
+                "property_url": normalized_url,
+                "title": title,
+                "listing_id": listing_id,
+                "variant_key": resolved_variant_key,
+                "artifact_id": str(getattr(artifact, "artifact_id", "") or "").strip(),
+                "execution_session_id": str(getattr(artifact, "execution_session_id", "") or "").strip(),
+                "connector_binding_id": resolved_binding_id,
+                "tour_url": "",
+                "vendor_tour_url": "",
+                "editor_url": _first_non_empty_text(structured_output.get("editor_url")),
+                "delivery_email": resolved_recipient_email,
+                "delivery_status": "blocked",
+                "blocked_reason": blocked_reason,
+                "human_task_id": followup_task_id,
+                "source_ref": resolved_source_ref,
+                "external_id": resolved_external_id,
+                "tour_media_mode": tour_media_mode,
+                "personal_fit_assessment": dict(personal_fit_assessment or {}),
+            }
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="generic_property_tour_blocked",
+                payload=payload,
+                source_id=resolved_source_ref,
+                dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|generic-tour-blocked:{blocked_reason}",
+            )
+            return payload
         payload = {
             "generated_at": generated_at,
             "status": "created",
@@ -35695,16 +36615,58 @@ class ProductService:
         floorplan_urls_json: list[str] = []
         source_virtual_tour_url = ""
         panorama_media_urls_json: list[str] = []
+        prefetched_willhaben_packet: dict[str, object] | None = None
+        packet_diagnostic: dict[str, str] = {}
+
+        def _blocked_willhaben_tour_result(diagnostic: dict[str, str]) -> dict[str, object]:
+            blocked_result: dict[str, object] = {
+                "generated_at": _now_iso(),
+                "status": "blocked",
+                "property_url": normalized_url,
+                "title": title,
+                "tour_url": "",
+                "vendor_tour_url": "",
+                "delivery_status": "blocked",
+                "blocked_reason": diagnostic["blocked_reason"],
+                "failure_stage": diagnostic["failure_stage"],
+                "error_code": diagnostic["error_code"],
+                "error_type": diagnostic["error_type"],
+                "error_fingerprint": diagnostic["error_fingerprint"],
+                "source_ref": resolved_source_ref,
+                "external_id": resolved_external_id,
+                "source_packet_origin": "captured" if prefetched_willhaben_packet else "unavailable",
+                "tour_media_mode": "unavailable",
+            }
+            self._record_product_event(
+                principal_id=principal_id,
+                event_type="willhaben_property_tour_blocked",
+                payload=dict(blocked_result),
+                source_id=resolved_source_ref,
+                dedupe_key=(
+                    f"{principal_id}|{resolved_source_ref}|telegram-property-link-tour-blocked:"
+                    f"{diagnostic['blocked_reason']}:{diagnostic['error_fingerprint']}"
+                ),
+            )
+            return blocked_result
+
         try:
             if _is_willhaben_property_url(normalized_url):
-                packet = _load_willhaben_property_packet_compat(normalized_url)
+                raw_packet = _load_willhaben_property_packet_compat(normalized_url)
+                packet = _validated_willhaben_captured_packet(
+                    property_url=normalized_url,
+                    packet=raw_packet,
+                )
+                if not packet:
+                    raise RuntimeError("willhaben_property_packet_invalid")
+                prefetched_willhaben_packet = packet
                 title = compact_text(str(packet.get("title") or normalized_url).strip(), fallback=normalized_url, limit=220)
                 summary = compact_text(
-                    str(packet.get("description") or packet.get("summary") or "").strip(),
+                    str(raw_packet.get("description") or raw_packet.get("summary") or "").strip(),
                     fallback="",
                     limit=900,
                 )
-                property_facts_json = dict(packet.get("property_facts_json") or {})
+                raw_property_facts = packet.get("property_facts_json")
+                property_facts_json = dict(raw_property_facts) if isinstance(raw_property_facts, dict) else {}
                 media_urls_json = [str(value or "").strip() for value in list(packet.get("media_urls_json") or []) if str(value or "").strip()]
                 floorplan_urls_json = [str(value or "").strip() for value in list(packet.get("floorplan_urls_json") or []) if str(value or "").strip()]
                 panorama_media_urls_json = [str(value or "").strip() for value in list(packet.get("panorama_media_urls_json") or []) if str(value or "").strip()]
@@ -35725,42 +36687,54 @@ class ProductService:
                     preview.get("source_virtual_tour_url"),
                     property_facts_json.get("source_virtual_tour_url"),
                 )
-        except Exception:
+        except Exception as exc:
+            if _is_willhaben_property_url(normalized_url):
+                packet_diagnostic = _property_tour_execution_diagnostic(exc)
             title = normalized_url
             summary = ""
             property_facts_json = {}
-        property_facts_json = _merge_property_facts_with_source_research(
-            property_url=normalized_url,
-            property_facts=dict(property_facts_json or {}),
-            image_urls=tuple(media_urls_json),
-        )
-        try:
-            assessment = self._preference_profiles.assess_candidate(
-                principal_id=principal_id,
-                person_id=str(preference_person_id or "").strip() or "self",
-                domain=domain,
-                object_type="listing",
-                object_id=str(property_facts_json.get("listing_id") or _saved_link_fallback_id(normalized_url)).strip(),
-                object_payload=property_facts_json,
-                persist=True,
-                require_existing_profile=True,
-            )
-        except Exception:
+        if packet_diagnostic:
             assessment = None
+        else:
+            property_facts_json = _merge_property_facts_with_source_research(
+                property_url=normalized_url,
+                property_facts=dict(property_facts_json or {}),
+                image_urls=tuple(media_urls_json),
+            )
+            try:
+                assessment = self._preference_profiles.assess_candidate(
+                    principal_id=principal_id,
+                    person_id=str(preference_person_id or "").strip() or "self",
+                    domain=domain,
+                    object_type="listing",
+                    object_id=str(property_facts_json.get("listing_id") or _saved_link_fallback_id(normalized_url)).strip(),
+                    object_payload=property_facts_json,
+                    persist=True,
+                    require_existing_profile=True,
+                )
+            except Exception:
+                assessment = None
         fit_score = _property_alert_fit_score(dict(assessment or {}) if isinstance(assessment, dict) else None)
         if _is_willhaben_property_url(normalized_url):
-            tour_result = self.create_willhaben_property_tour(
-                principal_id=principal_id,
-                property_url=normalized_url,
-                recipient_email=principal_email,
-                source_ref=resolved_source_ref,
-                external_id=resolved_external_id,
-                auto_deliver=False,
-                actor=resolved_actor,
-                allow_floorplan_only=True,
-                enforce_360_media=False,
-                suppress_human_followup=True,
-            )
+            if packet_diagnostic:
+                tour_result = _blocked_willhaben_tour_result(packet_diagnostic)
+            else:
+                try:
+                    tour_result = self.create_willhaben_property_tour(
+                        principal_id=principal_id,
+                        property_url=normalized_url,
+                        recipient_email=principal_email,
+                        source_ref=resolved_source_ref,
+                        external_id=resolved_external_id,
+                        auto_deliver=False,
+                        actor=resolved_actor,
+                        allow_floorplan_only=True,
+                        enforce_360_media=False,
+                        suppress_human_followup=True,
+                        prefetched_packet_json=prefetched_willhaben_packet,
+                    )
+                except Exception as exc:
+                    tour_result = _blocked_willhaben_tour_result(_property_tour_execution_diagnostic(exc))
         else:
             tour_result = self.create_generic_property_tour(
                 principal_id=principal_id,
@@ -38053,7 +39027,7 @@ class ProductService:
         candidate_ref: str = "",
         source_ref: str = "",
         property_url: str = "",
-    ) -> dict[str, str]:
+    ) -> dict[str, object]:
         normalized_run_id = str(run_id or "").strip()
         normalized_principal = str(principal_id or "").strip()
         normalized_candidate_ref = str(candidate_ref or "").strip()
@@ -38084,23 +39058,35 @@ class ProductService:
                 ).encode("utf-8")
             ).hexdigest()[:16]
 
-        def _matching_state(candidate_row: dict[str, object], source_label: str) -> dict[str, str]:
+        def _matching_state(candidate_row: dict[str, object], source_label: str) -> dict[str, object]:
             candidate_source_ref = str(candidate_row.get("source_ref") or "").strip()
             candidate_property_url = urllib.parse.urldefrag(str(candidate_row.get("property_url") or "").strip())[0]
             candidate_identity = _candidate_identity(candidate_row, source_label)
-            matches_candidate = False
-            if normalized_source_ref:
-                matches_candidate = candidate_source_ref == normalized_source_ref
-                if matches_candidate and normalized_property_url and candidate_property_url:
-                    matches_candidate = candidate_property_url == normalized_property_url
-            elif normalized_candidate_ref:
-                matches_candidate = candidate_identity == normalized_candidate_ref
-                if matches_candidate and normalized_property_url and candidate_property_url:
-                    matches_candidate = candidate_property_url == normalized_property_url
-            elif normalized_property_url:
-                matches_candidate = candidate_property_url == normalized_property_url
-            if not matches_candidate:
+            candidate_refs = {
+                candidate_identity,
+                str(candidate_row.get("candidate_ref") or "").strip(),
+                str(candidate_row.get("research_candidate_ref") or "").strip(),
+            }
+            candidate_refs.discard("")
+            if not any((normalized_source_ref, normalized_candidate_ref, normalized_property_url)):
                 return {}
+            if normalized_source_ref and candidate_source_ref != normalized_source_ref:
+                return {}
+            if normalized_candidate_ref and normalized_candidate_ref not in candidate_refs:
+                return {}
+            if normalized_property_url and candidate_property_url != normalized_property_url:
+                return {}
+            captured_packet = _captured_willhaben_packet_from_candidate(
+                candidate=candidate_row,
+                property_url=candidate_property_url,
+                run_id=normalized_run_id,
+                candidate_ref=(
+                    str(candidate_row.get("candidate_ref") or "").strip()
+                    or candidate_identity
+                ),
+                source_ref=candidate_source_ref,
+                captured_at=str(snapshot.get("created_at") or "").strip(),
+            )
             tour_url = str(candidate_row.get("tour_url") or "").strip()
             if not tour_url:
                 tour_url = _existing_hosted_property_tour_url_for_identity(
@@ -38141,6 +39127,8 @@ class ProductService:
                 "flythrough_status": str(candidate_row.get("flythrough_status") or "").strip().lower(),
                 "flythrough_reason": str(candidate_row.get("flythrough_reason") or "").strip(),
                 "blocked_reason": str(candidate_row.get("blocked_reason") or "").strip(),
+                "source_packet_json": captured_packet,
+                "source_packet_status": "captured" if captured_packet else "missing",
                 "diorama_style_hint": _compact_diorama_style_hint(
                     str(candidate_row.get("diorama_style_hint") or ""),
                     max_length=180,
@@ -38708,7 +39696,8 @@ class ProductService:
                     walkthrough_provider_key=walkthrough_provider_key,
                 )
             except Exception as exc:
-                blocked_reason = self._property_tour_execution_error_reason(exc)
+                execution_diagnostic = _property_tour_execution_diagnostic(exc)
+                blocked_reason = execution_diagnostic["blocked_reason"]
                 blocked_total += 1
                 blocked_state = {"blocked_reason": blocked_reason}
                 if request_kind == "flythrough":
@@ -38749,7 +39738,11 @@ class ProductService:
                         "request_kind": request_kind,
                         "source_ref": source_ref,
                         "blocked_reason": blocked_reason,
-                        "error": compact_text(str(exc or "property tour followup auto failed"), fallback="property tour followup auto failed", limit=240),
+                        "failure_stage": execution_diagnostic["failure_stage"],
+                        "error_code": execution_diagnostic["error_code"],
+                        "error_type": execution_diagnostic["error_type"],
+                        "error_fingerprint": execution_diagnostic["error_fingerprint"],
+                        "error": execution_diagnostic["safe_detail"],
                     },
                     source_id=source_ref or property_url,
                     dedupe_key=f"{normalized_principal}|{task.human_task_id}|property-tour-followup-auto-failed",
@@ -39394,6 +40387,11 @@ class ProductService:
             suppress_human_followup=suppress_human_followup,
             walkthrough_provider_key=walkthrough_provider_key,
             diorama_style_hint=resolved_style_hint,
+            captured_packet_json=(
+                dict(existing_visual_state.get("source_packet_json") or {})
+                if isinstance(existing_visual_state.get("source_packet_json"), dict)
+                else None
+            ),
         )
         payload = dict(base_result or {})
         payload["request_kind"] = normalized_kind
@@ -39569,7 +40567,10 @@ class ProductService:
             elif tour_status in {"blocked", "failed", "skipped"}:
                 payload["flythrough_status"] = "blocked"
                 status_label = "Walkthrough not ready"
-                status_detail = "Walkthrough not available yet."
+                status_detail = _property_visual_unavailable_detail(
+                    request_kind="flythrough",
+                    reason=str(payload.get("blocked_reason") or "").strip(),
+                )
             else:
                 payload["flythrough_status"] = "pending"
                 status_label = "Walkthrough queued"
@@ -39607,7 +40608,10 @@ class ProductService:
                 status_detail = "Rendering."
             elif payload["tour_status"] in {"blocked", "failed", "skipped"}:
                 status_label = "3D tour not ready"
-                status_detail = "Tour not available yet."
+                status_detail = _property_visual_unavailable_detail(
+                    request_kind="tour",
+                    reason=str(payload.get("blocked_reason") or "").strip(),
+                )
             else:
                 payload["tour_status"] = "pending"
                 status_label = "3D tour queued"
@@ -40042,6 +41046,18 @@ class ProductService:
                 generated_reconstruction_url = str(followup_payload.get("generated_reconstruction_url") or "").strip()
             elif followup_status == "pending":
                 status_value = "processing" if normalized_kind == "tour" else "queued"
+        if (
+            normalized_kind == "tour"
+            and not ready_url
+            and status_value in {"blocked", "failed", "skipped", "not_applicable"}
+        ):
+            evidence_reason = _property_tour_evidence_blocked_reason(
+                candidate=matched_candidate,
+                current_reason=blocked_reason or reason,
+            )
+            if evidence_reason:
+                blocked_reason = evidence_reason
+                reason = evidence_reason
         if status_value == "ready" and not ready_url:
             status_value = "blocked"
             if normalized_kind == "tour":
@@ -45078,6 +46094,11 @@ class ProductService:
                         "listing_id": str(preview.get("listing_id") or "").strip() or property_url,
                         "title": preview_title,
                         "summary": preview_summary,
+                        **_willhaben_candidate_tour_source_fields(
+                            property_url=property_url,
+                            preview=preview,
+                            property_facts=preview_facts,
+                        ),
                         "property_facts": preview_facts,
                         "assessment": {},
                         "fit_score": 0.0,
@@ -45179,6 +46200,11 @@ class ProductService:
                                 "listing_id": str(preview.get("listing_id") or recovered_candidate.get("listing_id") or property_url).strip() or property_url,
                                 "title": preview_title,
                                 "summary": preview_summary,
+                                **_willhaben_candidate_tour_source_fields(
+                                    property_url=property_url,
+                                    preview=preview,
+                                    property_facts=preview_facts,
+                                ),
                                 "property_facts": preview_facts,
                                 "assessment": {},
                                 "fit_score": 0.0,
@@ -45816,6 +46842,11 @@ class ProductService:
                         "listing_id": str(preview.get("listing_id") or property_url).strip() or property_url,
                         "title": compact_text(detailed_title, fallback=property_url, limit=160),
                         "summary": compact_text(detailed_summary, fallback="", limit=240),
+                        **_willhaben_candidate_tour_source_fields(
+                            property_url=property_url,
+                            preview=preview,
+                            property_facts=detailed_facts,
+                        ),
                         "property_facts": detailed_facts,
                         "assessment": dict(assessment or {}) if isinstance(assessment, dict) else {},
                         "fit_score": 0.0,
@@ -46006,6 +47037,11 @@ class ProductService:
                             "listing_id": str(fallback_row.get("listing_id") or property_url).strip() or property_url,
                             "title": compact_text(str(fallback_row.get("title") or property_url), fallback=property_url, limit=160),
                             "summary": compact_text(str(fallback_row.get("summary") or ""), fallback="", limit=240),
+                            **_willhaben_candidate_tour_source_fields(
+                                property_url=property_url,
+                                preview=fallback_row,
+                                property_facts=fallback_facts,
+                            ),
                             "property_facts": fallback_facts,
                             "assessment": fallback_assessment,
                             "fit_score": float(fallback_assessment["fit_score"]),
@@ -46329,6 +47365,11 @@ class ProductService:
                             or ""
                         ).strip(),
                         "flythrough_reason": str(flythrough_result.get("reason") or "").strip(),
+                        **_willhaben_candidate_tour_source_fields(
+                            property_url=property_url,
+                            preview=row,
+                            property_facts=row_facts,
+                        ),
                         "property_facts": row_facts,
                         "map_url": _property_candidate_google_maps_url(
                             {
@@ -50073,14 +51114,13 @@ class ProductService:
                 allow_floorplan_only=True,
             )
         except Exception as exc:
-            classified_reason = self._property_tour_execution_error_reason(exc)
+            execution_diagnostic = _property_tour_execution_diagnostic(exc)
             return {
                 "status": "failed",
-                "blocked_reason": (
-                    classified_reason
-                    if classified_reason == "listing_expired"
-                    else compact_text(str(exc or ""), fallback="property_tour_auto_failed", limit=200)
-                ),
+                "blocked_reason": execution_diagnostic["blocked_reason"],
+                "failure_stage": execution_diagnostic["failure_stage"],
+                "error_code": execution_diagnostic["error_code"],
+                "error_fingerprint": execution_diagnostic["error_fingerprint"],
                 "tour_url": "",
                 "vendor_tour_url": "",
             }

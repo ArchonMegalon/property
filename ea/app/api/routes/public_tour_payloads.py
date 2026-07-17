@@ -109,6 +109,7 @@ _PUBLIC_TOUR_PRIVATE_KEYS = frozenset(
         "internal_ref",
         "learning_summary",
         "owner_id",
+        "personal_fit_assessment",
         "person_id",
         "preference_nodes",
         "preference_profile",

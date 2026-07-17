@@ -86,6 +86,43 @@ def _write_clean_3dvista_export(bundle_dir: Path) -> dict[str, object]:
     }
 
 
+def _verified_floorplan_asset(url: str) -> dict[str, object]:
+    return {
+        "url": url,
+        "role": "floorplan",
+        "floorplan_candidate": True,
+        "floorplan_reason": "plan_like_document_image",
+        "width": 1200,
+        "height": 900,
+        "aspect_ratio": 1.3333,
+    }
+
+
+def _write_owned_verified_3dvista_tour(
+    public_root: Path,
+    *,
+    slug: str,
+    principal_id: str,
+    extra_manifest: dict[str, object] | None = None,
+) -> Path:
+    bundle_dir = public_root / slug
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+    manifest = {
+        "slug": slug,
+        **_write_clean_3dvista_export(bundle_dir),
+        **dict(extra_manifest or {}),
+    }
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(manifest),
+        encoding="utf-8",
+    )
+    (bundle_dir / "tour.private.json").write_text(
+        json.dumps({"principal_id": principal_id}),
+        encoding="utf-8",
+    )
+    return bundle_dir
+
+
 def test_product_service_repo_root_prefers_design_mirror(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("EA_REPO_ROOT", raising=False)
     monkeypatch.delenv("CHUMMER6_DESIGN_PRODUCT_ROOT", raising=False)
@@ -7317,8 +7354,12 @@ def test_property_enrich_future_change_research_includes_schoolatlas_snapshot(mo
     assert future["school_atlas_source_url"] == "https://www.statistik.at/atlas/schulen/"
 
 
-def test_generic_property_tour_floorplan_only_bypasses_legacy_360_requirement(monkeypatch) -> None:
+def test_generic_property_tour_floorplan_only_bypasses_legacy_360_requirement(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
     principal_id = "cf-email:floorplan-tour@example.com"
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Floorplan Tour Office")
     listing_url = "https://www.kalandra.at/objekt/floorplan-only"
@@ -7359,6 +7400,11 @@ def test_generic_property_tour_floorplan_only_bypasses_legacy_360_requirement(mo
             "creation_mode": "hosted_floorplan_tour",
         },
     )
+    _write_owned_verified_3dvista_tour(
+        tmp_path,
+        slug="floorplan-only-tour",
+        principal_id=principal_id,
+    )
     service = product_service.build_product_service(client.app.state.container)
 
     legacy_blocked = service.create_generic_property_tour(
@@ -7385,8 +7431,12 @@ def test_generic_property_tour_floorplan_only_bypasses_legacy_360_requirement(mo
     assert floorplan_allowed["tour_media_mode"] == "floorplan_hosted"
 
 
-def test_generic_property_tour_default_source_ref_is_provider_scoped(monkeypatch) -> None:
+def test_generic_property_tour_default_source_ref_is_provider_scoped(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
     principal_id = "cf-email:generic-tour-idempotency@example.com"
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Generic Tour Office")
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
@@ -7432,6 +7482,11 @@ def test_generic_property_tour_default_source_ref_is_provider_scoped(monkeypatch
     def _fake_write_hosted_floorplan_property_tour_bundle(**kwargs: object) -> dict[str, object]:
         created_payloads.append(dict(kwargs))
         slug = f"provider-scoped-tour-{len(created_payloads)}"
+        _write_owned_verified_3dvista_tour(
+            tmp_path,
+            slug=slug,
+            principal_id=principal_id,
+        )
         return {
             "slug": slug,
             "hosted_url": f"https://propertyquarry.com/tours/{slug}",
@@ -7576,6 +7631,7 @@ def test_willhaben_property_tour_suppressed_followup_block_does_not_reference_un
         product_service,
         "_load_willhaben_property_packet",
         lambda url: {
+            "property_url": url,
             "listing_id": "1845770594",
             "title": "Termin bitte online buchen",
             "media_urls_json": ["https://cache.willhaben.at/photo.jpg"],
@@ -10334,8 +10390,11 @@ def test_willhaben_property_tour_route_generates_tour_and_sends_email(monkeypatc
                 "recommendation": "shortlist",
             },
         },
-        "media_urls_json": ["https://cdn.example.com/apartment-a/photo-1.jpg"],
-        "floorplan_urls_json": ["https://cdn.example.com/apartment-a/floorplan-1.jpg"],
+        "media_urls_json": ["https://cache.willhaben.at/apartment-a/photo-1.jpg"],
+        "floorplan_urls_json": ["https://cache.willhaben.at/apartment-a/floorplan-1.jpg"],
+        "media_assets_json": [
+            _verified_floorplan_asset("https://cache.willhaben.at/apartment-a/floorplan-1.jpg")
+        ],
         "tour_variants_json": [
             {
                 "variant_key": "layout_first",
@@ -10417,13 +10476,16 @@ def test_willhaben_property_tour_route_generates_tour_and_sends_email(monkeypatc
         )
 
     client.app.state.container.orchestrator.execute_task_artifact = _fake_execute_task_artifact
-    bundle_dir = tmp_path / "brigittenau-apartment-a"
-    bundle_dir.mkdir(parents=True)
-    (bundle_dir / "tour.mp4").write_bytes(b"fake-video")
-    (bundle_dir / "tour.json").write_text(
-        '{"slug":"brigittenau-apartment-a","video_relpath":"tour.mp4","scenes":[{"asset_relpath":"scene-01.jpg"}]}',
-        encoding="utf-8",
+    bundle_dir = _write_owned_verified_3dvista_tour(
+        tmp_path,
+        slug="brigittenau-apartment-a",
+        principal_id=principal_id,
+        extra_manifest={
+            "video_relpath": "tour.mp4",
+            "scenes": [{"asset_relpath": "scene-01.jpg"}],
+        },
     )
+    (bundle_dir / "tour.mp4").write_bytes(b"fake-video")
     (bundle_dir / "scene-01.jpg").write_bytes(b"scene")
 
     created = client.post(
@@ -10436,7 +10498,7 @@ def test_willhaben_property_tour_route_generates_tour_and_sends_email(monkeypatc
     )
     assert created.status_code == 200
     body = created.json()
-    assert body["status"] == "sent"
+    assert body["status"] == "ready"
     assert body["listing_id"] == "listing-123"
     assert body["tour_url"] == "https://myexternalbrain.com/tours/brigittenau-apartment-a"
     assert body["vendor_tour_url"] == ""
@@ -10806,10 +10868,11 @@ def test_property_telegram_url_buttons_include_direct_map_without_visible_link_t
     assert ("Open map", "https://www.google.com/maps/search/?api=1&query=Brunnthalgasse%201B%2C%201020%20Wien") in flat
 
 
-def test_generic_property_tour_creates_myexternalbrain_tour_for_immoscout(monkeypatch) -> None:
+def test_generic_property_tour_creates_myexternalbrain_tour_for_immoscout(monkeypatch, tmp_path: Path) -> None:
     from app.domain.models import Artifact
 
     principal_id = "cf-email:owner@example.test"
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Generic Property Tour Office")
     service = ProductService(client.app.state.container)
@@ -10869,6 +10932,11 @@ def test_generic_property_tour_creates_myexternalbrain_tour_for_immoscout(monkey
         )
 
     client.app.state.container.orchestrator.execute_task_artifact = _fake_execute_task_artifact
+    _write_owned_verified_3dvista_tour(
+        tmp_path,
+        slug="generic-fit-1",
+        principal_id=principal_id,
+    )
 
     result = service.create_generic_property_tour(
         principal_id=principal_id,
@@ -12918,12 +12986,13 @@ def test_preference_profile_node_api_rejects_unsupported_or_malformed_nodes() ->
     assert invalid_correction.status_code == 422
 
 
-def test_willhaben_property_tour_route_uses_personal_fit_assessment_when_profile_exists(monkeypatch) -> None:
+def test_willhaben_property_tour_route_uses_personal_fit_assessment_when_profile_exists(monkeypatch, tmp_path: Path) -> None:
     from app.domain.models import Artifact
     from app.services.registration_email import RegistrationEmailReceipt
 
     monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Executive Office")
@@ -12967,8 +13036,11 @@ def test_willhaben_property_tour_route_uses_personal_fit_assessment_when_profile
                 "recommendation": "shortlist",
             },
         },
-        "media_urls_json": ["https://cdn.example.com/apartment-a/photo-1.jpg"],
-        "floorplan_urls_json": ["https://cdn.example.com/apartment-a/floorplan-1.jpg"],
+        "media_urls_json": ["https://cache.willhaben.at/apartment-a/photo-1.jpg"],
+        "floorplan_urls_json": ["https://cache.willhaben.at/apartment-a/floorplan-1.jpg"],
+        "media_assets_json": [
+            _verified_floorplan_asset("https://cache.willhaben.at/apartment-a/floorplan-1.jpg")
+        ],
         "tour_variants_json": [
             {
                 "variant_key": "layout_first",
@@ -13010,6 +13082,11 @@ def test_willhaben_property_tour_route_uses_personal_fit_assessment_when_profile
         )
 
     client.app.state.container.orchestrator.execute_task_artifact = _fake_execute_task_artifact
+    _write_owned_verified_3dvista_tour(
+        tmp_path,
+        slug="waehring-apartment-a",
+        principal_id=principal_id,
+    )
 
     created = client.post(
         "/app/api/signals/willhaben/property-tour",
@@ -13021,7 +13098,7 @@ def test_willhaben_property_tour_route_uses_personal_fit_assessment_when_profile
     )
     assert created.status_code == 200
     body = created.json()
-    assert body["status"] == "sent"
+    assert body["status"] == "ready"
     assert body["personal_fit_assessment"]["assessment_id"]
     assert body["personal_fit_assessment"]["domain"] == "willhaben"
     assert any("Gasheizung" in entry for entry in body["personal_fit_assessment"]["mismatch_reasons_json"])
@@ -13050,8 +13127,11 @@ def test_willhaben_property_tour_records_video_followup_when_telegram_video_deli
             "total_rent_eur": 1890.0,
             "decision_summary": {"recommendation": "shortlist"},
         },
-        "media_urls_json": ["https://cdn.example.com/apartment-a/photo-1.jpg"],
-        "floorplan_urls_json": ["https://cdn.example.com/apartment-a/floorplan-1.jpg"],
+        "media_urls_json": ["https://cache.willhaben.at/apartment-a/photo-1.jpg"],
+        "floorplan_urls_json": ["https://cache.willhaben.at/apartment-a/floorplan-1.jpg"],
+        "media_assets_json": [
+            _verified_floorplan_asset("https://cache.willhaben.at/apartment-a/floorplan-1.jpg")
+        ],
         "tour_variants_json": [{"variant_key": "layout_first", "scene_strategy": "layout_first"}],
     }
     monkeypatch.setattr(product_service, "_load_willhaben_property_packet", lambda url: dict(packet))
@@ -13070,13 +13150,16 @@ def test_willhaben_property_tour_records_video_followup_when_telegram_video_deli
     )
 
     def _fake_execute_task_artifact(request):  # type: ignore[no-untyped-def]
-        bundle_dir = tmp_path / "video-fail-123"
-        bundle_dir.mkdir(parents=True, exist_ok=True)
-        (bundle_dir / "tour.mp4").write_bytes(b"fake-video")
-        (bundle_dir / "tour.json").write_text(
-            '{"slug":"video-fail-123","video_relpath":"tour.mp4","scenes":[{"asset_relpath":"scene-01.jpg"}]}',
-            encoding="utf-8",
+        bundle_dir = _write_owned_verified_3dvista_tour(
+            tmp_path,
+            slug="video-fail-123",
+            principal_id=principal_id,
+            extra_manifest={
+                "video_relpath": "tour.mp4",
+                "scenes": [{"asset_relpath": "scene-01.jpg"}],
+            },
         )
+        (bundle_dir / "tour.mp4").write_bytes(b"fake-video")
         (bundle_dir / "scene-01.jpg").write_bytes(b"scene")
         return Artifact(
             artifact_id="artifact-property-tour-video-fail",
@@ -13108,7 +13191,7 @@ def test_willhaben_property_tour_records_video_followup_when_telegram_video_deli
     )
     assert created.status_code == 200
     body = created.json()
-    assert body["status"] == "sent"
+    assert body["status"] == "ready"
     assert body["delivery_status"] == "sent"
     assert body["telegram_delivery_status"] == "sent"
     assert body["telegram_video_delivery_status"] == "failed"
@@ -13821,9 +13904,20 @@ def test_willhaben_property_tour_route_prefers_panorama_media_and_disables_floor
         "listing_uuid": "listing-uuid-panorama-123",
         "title": "Panorama apartment",
         "property_facts_json": {},
-        "media_urls_json": ["https://cdn.example.com/apartment-panorama/photo-1.jpg"],
-        "panorama_media_urls_json": ["https://cdn.example.com/apartment-panorama/room-360.jpg"],
-        "floorplan_urls_json": ["https://cdn.example.com/apartment-panorama/floorplan-1.jpg"],
+        "media_urls_json": ["https://cache.willhaben.at/apartment-panorama/photo-1.jpg"],
+        "panorama_media_urls_json": ["https://cache.willhaben.at/apartment-panorama/room-360.jpg"],
+        "media_assets_json": [
+            {
+                "url": "https://cache.willhaben.at/apartment-panorama/room-360.jpg",
+                "role": "photo",
+                "panorama_candidate": True,
+                "panorama_reason": "xmp_equirectangular",
+                "width": 4000,
+                "height": 2000,
+                "aspect_ratio": 2.0,
+            }
+        ],
+        "floorplan_urls_json": ["https://cache.willhaben.at/apartment-panorama/floorplan-1.jpg"],
         "tour_variants_json": [
             {
                 "variant_key": "layout_first",
@@ -13841,7 +13935,7 @@ def test_willhaben_property_tour_route_prefers_panorama_media_and_disables_floor
     monkeypatch.setattr(product_service, "_load_willhaben_property_packet", lambda url: dict(packet))
 
     def _fake_execute_task_artifact(request):  # type: ignore[no-untyped-def]
-        assert request.input_json["media_urls_json"] == ["https://cdn.example.com/apartment-panorama/room-360.jpg"]
+        assert request.input_json["media_urls_json"] == ["https://cache.willhaben.at/apartment-panorama/room-360.jpg"]
         assert request.input_json["floorplan_urls_json"] == []
         assert request.input_json["scene_strategy"] == "photo_only"
         assert request.input_json["scene_selection_json"]["include_floorplans"] is False
@@ -13853,7 +13947,9 @@ def test_willhaben_property_tour_route_prefers_panorama_media_and_disables_floor
             content="Property tour created.",
             execution_session_id="session-property-tour-panorama-1",
             principal_id=principal_id,
-            structured_output_json={"public_url": "https://vendor.example.com/tours/panorama-apartment"},
+            structured_output_json={
+                "public_url": "https://client.3dvista.com/tour/panorama-apartment",
+            },
         )
 
     client.app.state.container.orchestrator.execute_task_artifact = _fake_execute_task_artifact
@@ -13875,6 +13971,7 @@ def test_willhaben_property_tour_route_prefers_panorama_media_and_disables_floor
 def test_willhaben_property_tour_route_accepts_external_live_360_source_when_panorama_images_are_absent(monkeypatch) -> None:
     from app.domain.models import Artifact
 
+    monkeypatch.setattr(product_service, "_prefer_hosted_live_360_embed", lambda _url: False)
     principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Executive Office")
@@ -13885,10 +13982,13 @@ def test_willhaben_property_tour_route_accepts_external_live_360_source_when_pan
         "listing_uuid": "listing-uuid-external-360-123",
         "title": "External 360 apartment",
         "property_facts_json": {},
-        "media_urls_json": ["https://cdn.example.com/apartment/photo-1.jpg"],
+        "media_urls_json": ["https://cache.willhaben.at/apartment/photo-1.jpg"],
         "panorama_media_urls_json": [],
-        "floorplan_urls_json": ["https://cdn.example.com/apartment/floorplan-1.jpg"],
-        "source_virtual_tour_url": "https://360.example.test/view/portal/id/external-360-apartment",
+        "floorplan_urls_json": ["https://cache.willhaben.at/apartment/floorplan-1.jpg"],
+        "media_assets_json": [
+            _verified_floorplan_asset("https://cache.willhaben.at/apartment/floorplan-1.jpg")
+        ],
+        "source_virtual_tour_url": "https://my.matterport.com/show/?m=BmVWxvZQZLq",
         "panorama_source": "feelestate_kalandra",
         "tour_variants_json": [
             {
@@ -13907,10 +14007,10 @@ def test_willhaben_property_tour_route_accepts_external_live_360_source_when_pan
     monkeypatch.setattr(product_service, "_load_willhaben_property_packet", lambda url: dict(packet))
 
     def _fake_execute_task_artifact(request):  # type: ignore[no-untyped-def]
-        assert request.input_json["media_urls_json"] == ["https://cdn.example.com/apartment/photo-1.jpg"]
-        assert request.input_json["floorplan_urls_json"] == ["https://cdn.example.com/apartment/floorplan-1.jpg"]
-        assert request.input_json["source_virtual_tour_url"] == "https://360.example.test/view/portal/id/external-360-apartment"
-        assert request.input_json["panorama_source"] == "feelestate_kalandra"
+        assert request.input_json["media_urls_json"] == ["https://cache.willhaben.at/apartment/photo-1.jpg"]
+        assert request.input_json["floorplan_urls_json"] == ["https://cache.willhaben.at/apartment/floorplan-1.jpg"]
+        assert request.input_json["source_virtual_tour_url"] == "https://my.matterport.com/show/?m=BmVWxvZQZLq"
+        assert request.input_json["panorama_source"] == "my.matterport.com"
         assert request.input_json["property_facts_json"]["tour_media_mode"] == "panorama_360"
         assert request.input_json["runtime_inputs_json"]["tour_media_mode"] == "panorama_360"
         return Artifact(
@@ -13919,7 +14019,9 @@ def test_willhaben_property_tour_route_accepts_external_live_360_source_when_pan
             content="Property tour created.",
             execution_session_id="session-property-tour-external-360-1",
             principal_id=principal_id,
-            structured_output_json={"public_url": "https://vendor.example.com/tours/external-360-apartment"},
+            structured_output_json={
+                "public_url": "https://client.3dvista.com/tour/external-360-apartment",
+            },
         )
 
     client.app.state.container.orchestrator.execute_task_artifact = _fake_execute_task_artifact
@@ -13938,7 +14040,11 @@ def test_willhaben_property_tour_route_accepts_external_live_360_source_when_pan
     assert body["tour_media_mode"] == "panorama_360"
 
 
-def test_willhaben_property_tour_route_publishes_pure_360_bundle_when_crezlo_is_unavailable(monkeypatch, tmp_path: Path) -> None:
+def test_willhaben_property_tour_route_blocks_unverified_pure_360_bundle_when_crezlo_is_unavailable(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(product_service, "_prefer_hosted_live_360_embed", lambda _url: False)
     principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Executive Office")
@@ -13956,7 +14062,8 @@ def test_willhaben_property_tour_route_publishes_pure_360_bundle_when_crezlo_is_
                     "VIRTUAL_VIEW_LINK/URL": ["https://my.matterport.com/show/?m=BmVWxvZQZLq"],
                 }
             },
-            "media_urls_json": ["https://cdn.example.com/apartment-live/photo-1.jpg"],
+            "source_virtual_tour_url": "https://my.matterport.com/show/?m=BmVWxvZQZLq",
+            "media_urls_json": [],
             "floorplan_urls_json": [],
             "tour_variants_json": [
                 {
@@ -14000,11 +14107,11 @@ def test_willhaben_property_tour_route_publishes_pure_360_bundle_when_crezlo_is_
     )
     assert created.status_code == 200, created.text
     body = created.json()
-    assert body["status"] == "created"
+    assert body["status"] == "blocked"
     assert body["tour_media_mode"] == "panorama_360"
-    assert body["tour_url"].startswith("https://propertyquarry.com/tours/")
+    assert body["tour_url"] == ""
     assert body["vendor_tour_url"] == ""
-    assert body["source_virtual_tour_url"] == "https://my.matterport.com/show/?m=BmVWxvZQZLq"
+    assert body["blocked_reason"] == "pure_360_assets_unavailable"
 
 
 def test_matterport_hosted_pure_360_bundle_is_rejected_without_writing_public_artifacts(monkeypatch, tmp_path: Path) -> None:
@@ -14143,7 +14250,7 @@ def test_willhaben_property_tour_route_blocks_when_only_flat_listing_photos_exis
             "listing_uuid": "listing-uuid-flat-123",
             "title": "Flat-photo apartment",
             "property_facts_json": {},
-            "media_urls_json": ["https://cdn.example.com/apartment-flat/photo-1.jpg"],
+            "media_urls_json": ["https://cache.willhaben.at/apartment-flat/photo-1.jpg"],
             "floorplan_urls_json": [],
             "tour_variants_json": [
                 {
@@ -14190,8 +14297,8 @@ def test_willhaben_property_tour_route_falls_back_to_projected_crezlo_task_when_
         "listing_uuid": "listing-uuid-456",
         "title": "Projected Crezlo apartment",
         "property_facts_json": {},
-        "media_urls_json": ["https://cdn.example.com/apartment-live/photo-1.jpg"],
-        "floorplan_urls_json": [],
+        "media_urls_json": ["https://cache.willhaben.at/apartment-live/photo-1.jpg"],
+        "floorplan_urls_json": ["https://cache.willhaben.at/apartment-live/floorplan-1.jpg"],
         "tour_variants_json": [
             {
                 "variant_key": "layout_first",
@@ -14419,8 +14526,8 @@ def test_generic_property_tour_creates_hosted_floorplan_when_crezlo_fails(
     assert created.status_code == 200
     body = created.json()
     assert body["status"] == "blocked"
-    assert body["blocked_reason"] == "property_tour_fallback_disabled"
-    assert body["tour_media_mode"] == "floorplan_hosted"
+    assert body["blocked_reason"] == "floorplan_assets_unavailable"
+    assert body["tour_media_mode"] == "flat_images"
     assert body["tour_url"] == ""
 
 
@@ -14436,7 +14543,7 @@ def test_generic_property_tour_creates_hosted_photo_gallery_when_crezlo_fails(
     start_workspace(client, mode="personal", workspace_name="Executive Office")
 
     property_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/photo-gallery-fallback-001"
-    photo_url = "https://cdn.example.com/photo-gallery-fallback-001/photo-1.jpg"
+    photo_url = "https://cache.willhaben.at/photo-gallery-fallback-001/photo-1.jpg"
 
     packet = {
         "property_url": property_url,
@@ -14509,7 +14616,7 @@ def test_generic_property_tour_creates_hosted_photo_gallery_when_crezlo_fails(
     body = created.json()
     assert body["status"] == "blocked"
     assert body["tour_media_mode"] == "flat_images"
-    assert body["blocked_reason"] == "listing_360_media_missing"
+    assert body["blocked_reason"] == "property_tour_fallback_disabled"
     assert body["tour_url"] == ""
 
 
@@ -15312,8 +15419,11 @@ def test_willhaben_property_tour_route_blocks_with_handoff_when_connector_missin
             "listing_id": "listing-456",
             "title": "Riverside apartment",
             "property_facts_json": {},
-            "media_urls_json": ["https://cdn.example.com/apartment-b/photo-1.jpg"],
-            "floorplan_urls_json": [],
+            "media_urls_json": ["https://cache.willhaben.at/apartment-b/photo-1.jpg"],
+            "floorplan_urls_json": ["https://cache.willhaben.at/apartment-b/floorplan-1.jpg"],
+            "media_assets_json": [
+                _verified_floorplan_asset("https://cache.willhaben.at/apartment-b/floorplan-1.jpg")
+            ],
             "tour_variants_json": [
                 {
                     "variant_key": "layout_first",
@@ -18990,8 +19100,11 @@ def test_willhaben_property_tour_followup_can_be_recreated_once_connector_is_ava
             "rooms_label": "2 rooms",
             "total_rent_eur": 1690.0,
         },
-        "media_urls_json": ["https://cdn.example.com/apartment-c/photo-1.jpg"],
-        "floorplan_urls_json": [],
+        "media_urls_json": ["https://cache.willhaben.at/apartment-c/photo-1.jpg"],
+        "floorplan_urls_json": ["https://cache.willhaben.at/apartment-c/floorplan-1.jpg"],
+        "media_assets_json": [
+            _verified_floorplan_asset("https://cache.willhaben.at/apartment-c/floorplan-1.jpg")
+        ],
         "tour_variants_json": [
             {
                 "variant_key": "layout_first",
@@ -19200,8 +19313,11 @@ def test_willhaben_property_tour_block_followup_sends_telegram_scout_update(monk
         "title": "Quiet district apartment",
         "listing_uuid": "listing-followup-telegram-uuid-001",
         "property_facts_json": {},
-        "media_urls_json": ["https://cdn.example.com/apartment-c/photo-1.jpg"],
-        "floorplan_urls_json": [],
+        "media_urls_json": ["https://cache.willhaben.at/apartment-c/photo-1.jpg"],
+        "floorplan_urls_json": ["https://cache.willhaben.at/apartment-c/floorplan-1.jpg"],
+        "media_assets_json": [
+            _verified_floorplan_asset("https://cache.willhaben.at/apartment-c/floorplan-1.jpg")
+        ],
         "tour_variants_json": [
             {
                 "variant_key": "layout_first",
@@ -19271,8 +19387,11 @@ def test_willhaben_property_tour_without_browseract_binding_uses_hosted_floorpla
         "title": "Quiet district apartment",
         "listing_uuid": "listing-floorplan-fallback-uuid-001",
         "property_facts_json": {},
-        "media_urls_json": ["https://cdn.example.com/apartment-c/photo-1.jpg"],
-        "floorplan_urls_json": ["https://cdn.example.com/apartment-c/floorplan-1.jpg"],
+        "media_urls_json": ["https://cache.willhaben.at/apartment-c/photo-1.jpg"],
+        "floorplan_urls_json": ["https://cache.willhaben.at/apartment-c/floorplan-1.jpg"],
+        "media_assets_json": [
+            _verified_floorplan_asset("https://cache.willhaben.at/apartment-c/floorplan-1.jpg")
+        ],
         "tour_variants_json": [
             {
                 "variant_key": "layout_first",
@@ -19309,12 +19428,13 @@ def test_willhaben_property_tour_without_browseract_binding_uses_hosted_floorpla
     assert body["tour_url"] == ""
 
 
-def test_office_signal_can_auto_create_willhaben_property_tour(monkeypatch) -> None:
+def test_office_signal_can_auto_create_willhaben_property_tour(monkeypatch, tmp_path: Path) -> None:
     from app.domain.models import Artifact
     from app.services.registration_email import RegistrationEmailReceipt
 
     monkeypatch.setenv("EMAILIT_API_KEY", "test-emailit-key")
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Executive Office")
@@ -19327,8 +19447,11 @@ def test_office_signal_can_auto_create_willhaben_property_tour(monkeypatch) -> N
             "listing_id": "listing-789",
             "title": "Garden apartment",
             "property_facts_json": {},
-            "media_urls_json": ["https://cdn.example.com/apartment-c/photo-1.jpg"],
-            "floorplan_urls_json": [],
+                "media_urls_json": ["https://cache.willhaben.at/apartment-c/photo-1.jpg"],
+                "floorplan_urls_json": ["https://cache.willhaben.at/apartment-c/floorplan-1.jpg"],
+                "media_assets_json": [
+                    _verified_floorplan_asset("https://cache.willhaben.at/apartment-c/floorplan-1.jpg")
+                ],
             "tour_variants_json": [
                 {
                     "variant_key": "layout_first",
@@ -19361,10 +19484,19 @@ def test_office_signal_can_auto_create_willhaben_property_tour(monkeypatch) -> N
             content="Property tour created.",
             execution_session_id="session-property-tour-2",
             principal_id=principal_id,
-            structured_output_json={"crezlo_public_url": "https://myexternalbrain.com/tours/garden-apartment"},
+            structured_output_json={
+                "hosted_url": "https://myexternalbrain.com/tours/garden-apartment",
+                "public_url": "https://myexternalbrain.com/tours/garden-apartment",
+                "crezlo_public_url": "https://client.3dvista.com/tour/garden-apartment",
+            },
         )
 
     client.app.state.container.orchestrator.execute_task_artifact = _fake_execute_task_artifact
+    _write_owned_verified_3dvista_tour(
+        tmp_path,
+        slug="garden-apartment",
+        principal_id=principal_id,
+    )
 
     ingested = client.post(
         "/app/api/signals/ingest",
@@ -24169,10 +24301,14 @@ def test_resolve_primary_telegram_binding_prefers_real_numeric_chat_ref() -> Non
     assert str(binding.external_account_ref) == "1354554303"
 
 
-def test_willhaben_property_tour_route_retries_gmail_delivery_with_fallback_binding(monkeypatch) -> None:
+def test_willhaben_property_tour_route_retries_gmail_delivery_with_fallback_binding(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
     from app.domain.models import Artifact
 
     monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "0")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Executive Office")
@@ -24183,8 +24319,11 @@ def test_willhaben_property_tour_route_retries_gmail_delivery_with_fallback_bind
         "listing_uuid": "listing-uuid-fallback-1",
         "title": "Fallback Gmail apartment",
         "property_facts_json": {},
-        "media_urls_json": ["https://cdn.example.com/apartment-fallback/photo-1.jpg"],
-        "floorplan_urls_json": [],
+        "media_urls_json": ["https://cache.willhaben.at/apartment-fallback/photo-1.jpg"],
+        "floorplan_urls_json": ["https://cache.willhaben.at/apartment-fallback/floorplan-1.jpg"],
+        "media_assets_json": [
+            _verified_floorplan_asset("https://cache.willhaben.at/apartment-fallback/floorplan-1.jpg")
+        ],
         "tour_variants_json": [
             {
                 "variant_key": "layout_first",
@@ -24209,14 +24348,20 @@ def test_willhaben_property_tour_route_retries_gmail_delivery_with_fallback_bind
             execution_session_id="session-property-tour-fallback-1",
             principal_id=principal_id,
             structured_output_json={
+                "hosted_url": "https://myexternalbrain.com/tours/fallback-gmail-apartment",
                 "public_url": "https://myexternalbrain.com/tours/fallback-gmail-apartment",
-                "crezlo_public_url": "https://vendor.example.com/tours/fallback-gmail-apartment",
+                "crezlo_public_url": "https://client.3dvista.com/tour/fallback-gmail-apartment",
                 "editor_url": "https://vendor.example.com/editor/fallback-gmail-apartment",
                 "tour_id": "tour-fallback-1",
             },
         )
 
     client.app.state.container.orchestrator.execute_task_artifact = _fake_execute_task_artifact
+    _write_owned_verified_3dvista_tour(
+        tmp_path,
+        slug="fallback-gmail-apartment",
+        principal_id=principal_id,
+    )
 
     def _fake_list_google_accounts(**kwargs):  # type: ignore[no-untyped-def]
         principal = str(kwargs.get("principal_id") or "")
@@ -24267,7 +24412,7 @@ def test_willhaben_property_tour_route_retries_gmail_delivery_with_fallback_bind
     )
     assert created.status_code == 200
     body = created.json()
-    assert body["status"] == "sent"
+    assert body["status"] == "ready"
     assert body["delivery_status"] == "sent"
     assert attempts == [
         (principal_id, "google-binding-stale"),
@@ -24296,8 +24441,8 @@ def test_willhaben_property_tour_route_backfills_hosted_url_from_structured_outp
         "listing_uuid": "listing-uuid-hosted-fallback-1",
         "title": "Hosted fallback apartment",
         "property_facts_json": {},
-        "media_urls_json": ["https://cdn.example.com/apartment-hosted/photo-1.jpg"],
-        "floorplan_urls_json": [],
+        "media_urls_json": ["https://cache.willhaben.at/apartment-hosted/photo-1.jpg"],
+        "floorplan_urls_json": ["https://cache.willhaben.at/apartment-hosted/floorplan-1.jpg"],
         "tour_variants_json": [
             {
                 "variant_key": "layout_first",
@@ -24430,8 +24575,8 @@ def test_willhaben_property_tour_blocks_generated_listing_fallback_payload(monke
         "listing_uuid": "listing-uuid-fallback-disabled-1",
         "title": "Hosted fallback apartment",
         "property_facts_json": {},
-        "media_urls_json": ["https://cdn.example.com/apartment-hosted/photo-1.jpg"],
-        "floorplan_urls_json": [],
+        "media_urls_json": ["https://cache.willhaben.at/apartment-hosted/photo-1.jpg"],
+        "floorplan_urls_json": ["https://cache.willhaben.at/apartment-hosted/floorplan-1.jpg"],
         "tour_variants_json": [
             {
                 "variant_key": "layout_first",

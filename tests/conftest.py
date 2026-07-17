@@ -32,8 +32,9 @@ def _reset_shared_runtime_state() -> None:
 
 
 @pytest.fixture(autouse=True)
-def _restore_environment_and_shared_runtime_state() -> None:
+def _restore_environment_and_shared_runtime_state(tmp_path: Path) -> None:
     snapshot = dict(os.environ)
+    os.environ["EA_LTD_MARKDOWN_PATH"] = str(tmp_path / "LTDs.md")
     _reset_shared_runtime_state()
     yield
     current_keys = set(os.environ.keys())
