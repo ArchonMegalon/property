@@ -200,7 +200,9 @@ def test_property_search_preferences_upsert_flattens_legacy_raw_snapshot_and_sta
     assert max(serialized_sizes) < min(serialized_sizes) * 2
 
 
-def test_property_search_run_merge_drops_legacy_nested_raw_preferences(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_property_search_run_merge_flattens_storage_and_projects_only_run_inputs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     principal_id = "exec-property-search-run-legacy-raw"
     client = build_property_client(principal_id=principal_id)
     service = ProductService(client.app.state.container)
@@ -244,11 +246,14 @@ def test_property_search_run_merge_drops_legacy_nested_raw_preferences(monkeypat
         max_results_per_source=1,
         force_refresh=False,
     )
-    assert resolved["future_raw_only_preference"] == "preserve-me"
+    # Durable preferences retain unknown legacy/future fields for lossless
+    # account round trips, but run snapshots admit only recognized execution
+    # inputs so arbitrary account state cannot leak into each search record.
+    assert "future_raw_only_preference" not in resolved
     assert resolved["investment_strategy"] == "cash_flow"
     assert resolved["alert_frequency"] == "weekday"
     assert resolved["include_shared_housing_sources"] is True
-    assert resolved["legacy_raw_only_leaf"] == "preserve-deep-value"
+    assert "legacy_raw_only_leaf" not in resolved
     assert "raw_preferences" not in resolved
 
     record = product_service._new_property_search_run_record(
