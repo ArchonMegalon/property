@@ -6,7 +6,7 @@ This file is the concise, current release authority. Detailed dated notes are ar
 
 PropertyQuarry is a source/browser candidate, not a production launch:
 
-- The published candidate receipt covers `7/7` source cases, `9/9` real-browser cases, and all eight required product journeys. The candidate includes in-place shortlist history, protected Telegram delivery proof, production-mode PostgreSQL storage/browser parity with internal-only CI session provisioning, immutable CI actions, fail-closed production registration delivery, and a signed controller profile that preserves the canonical public-tour volume and permits only journaled ownership repair.
+- The published candidate receipt covers `7/7` source cases, `15/15` real-browser cases, and all eight required product journeys. The candidate includes explicit hosted/generated/blocked/expired 3D-tour truth, in-place shortlist history, protected Telegram delivery proof, production-mode PostgreSQL storage/browser parity with internal-only CI session provisioning, immutable CI actions, fail-closed production registration delivery, and a signed controller profile that preserves the canonical public-tour volume and permits only journaled ownership repair.
 - Candidate/browser proof does not prove deployment, production storage, authentication, external delivery, observability, rollback, or disaster recovery.
 - The public edge currently returns `200` for `/` after a narrow generated-tour permission repair. `/health/ready` responds, while `/version` still reports an incomplete release manifest without canonical release identity; those runtime checks are not deployment proof for this candidate.
 - Production promotion remains blocked on the independent release-controller artifact, an approved `propertyquarry-security` runner, and distinct digest-pinned web/render images.
@@ -20,13 +20,13 @@ The marked JSON object is the single canonical release authority consumed by the
 <!-- propertyquarry-release-manifest-json:start -->
 ```json
 {
-  "release_artifact_set": "propertyquarry-generated-release-artifacts-v1@sha256:4035ea29183b7a97878396fee91860a8e818d4cfbe9b41be3fca4fbf3bbe2d63",
+  "release_artifact_set": "propertyquarry-generated-release-artifacts-v1@sha256:5117eff3585dcd027b142fba24a15c18f6961195689ec8e50b4e062c804a04d1",
   "release_branch": "main",
   "release_candidate_status": "source-browser-candidate-pending-protected-live-evidence",
-  "release_commit_sha": "e8236e716e296ad0d65475bce68ce88c3f143b18",
-  "release_deployment_id": "propertyquarry-governed-deploy-e8236e716e29",
-  "release_generated_at": "2026-07-16T22:34:14Z",
-  "release_label": "propertyquarry-source-browser-candidate-e8236e716e29",
+  "release_commit_sha": "e9edbb7c3c33021326054aeeae10a1e3db636d6f",
+  "release_deployment_id": "propertyquarry-governed-deploy-e9edbb7c3c33",
+  "release_generated_at": "2026-07-17T00:09:53Z",
+  "release_label": "propertyquarry-source-browser-candidate-e9edbb7c3c33",
   "release_manifest_schema": "propertyquarry.release_manifest.v1",
   "release_mirror_origin": "https://github.com/ArchonMegalon/propertyquarry.git",
   "release_mirror_repository": "ArchonMegalon/propertyquarry",
