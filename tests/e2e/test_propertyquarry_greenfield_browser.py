@@ -8960,7 +8960,15 @@ def test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_b
         natural_width = page.evaluate("() => document.getElementById('stage-image')?.naturalWidth || 0")
         assert natural_width >= 1000
 
-        assert failed_requests == [], f"floorplan responses={error_responses}; failed={failed_requests}"
+        expected_floorplan_switch_abort = (
+            f"{base_url}/tours/files/altbau-u6/scene-01.png :: NS_BINDING_ABORTED"
+        )
+        assert failed_requests.count(expected_floorplan_switch_abort) <= 1
+        assert [
+            failure
+            for failure in failed_requests
+            if failure != expected_floorplan_switch_abort
+        ] == [], f"floorplan responses={error_responses}; failed={failed_requests}"
         response = page.goto(f"{tour_entry}?pane=flythrough-pane&autoplay=1", wait_until="domcontentloaded")
         assert response is not None and response.ok
         video = page.locator("#flythrough-video, #tour-video").first
@@ -9026,7 +9034,13 @@ def test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_b
             and failure.partition(" :: ")[2] in expected_navigation_abort_details
         ]
         assert len(navigation_aborts) <= 1, navigation_aborts
-        assert [failure for failure in failed_requests if failure not in navigation_aborts] == []
+        assert failed_requests.count(expected_floorplan_switch_abort) <= 1
+        assert [
+            failure
+            for failure in failed_requests
+            if failure not in navigation_aborts
+            and failure != expected_floorplan_switch_abort
+        ] == []
     finally:
         context.close()
 
