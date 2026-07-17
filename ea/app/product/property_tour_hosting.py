@@ -775,19 +775,12 @@ def _resolve_property_tour_urls(
     structured_output: dict[str, object],
     *,
     allow_unverified_branded: bool = False,
+    principal_id: object = "",
 ) -> tuple[str, str]:
     hosted_url = _first_non_empty_text(structured_output.get("hosted_url"))
     public_url = _first_non_empty_text(structured_output.get("public_url"))
     share_url = _first_non_empty_text(structured_output.get("share_url"))
     crezlo_public_url = _first_non_empty_text(structured_output.get("crezlo_public_url"))
-    source_live_360_url = _embedded_live_360_source_url(structured_output)
-    source_live_360_provider = (
-        _property_tour_provider_host_kind(source_live_360_url)
-        if _property_tour_provider_url_shape_valid(source_live_360_url)
-        else ""
-    )
-    if source_live_360_provider not in _CUSTOMER_FACING_TOUR_PROVIDERS:
-        source_live_360_url = ""
     branded_candidates = [
         candidate
         for candidate in (
@@ -799,10 +792,20 @@ def _resolve_property_tour_urls(
         if _is_branded_public_tour_url(candidate)
     ]
     branded_tour_url = ""
+    verified_provider = ""
+    normalized_principal = str(principal_id or "").strip()
     for candidate in branded_candidates:
-        verified_provider = _hosted_property_tour_verified_provider(candidate)
-        if verified_provider in _CUSTOMER_FACING_TOUR_PROVIDERS:
+        candidate_provider = (
+            _hosted_property_tour_verified_provider(
+                candidate,
+                principal_id=normalized_principal,
+            )
+            if normalized_principal
+            else _hosted_property_tour_verified_provider(candidate)
+        )
+        if candidate_provider in _CUSTOMER_FACING_TOUR_PROVIDERS:
             branded_tour_url = candidate
+            verified_provider = candidate_provider
             break
         if allow_unverified_branded:
             candidate_payload = _hosted_property_tour_payload_for_url(candidate)
@@ -813,36 +816,26 @@ def _resolve_property_tour_urls(
             ):
                 branded_tour_url = candidate
                 break
-    vendor_tour_url = _first_non_empty_text(
-        source_live_360_url,
-        public_url
-        if (
-            public_url
-            and not _is_branded_public_tour_url(public_url)
-            and public_url != branded_tour_url
-            and _property_tour_provider_host_kind(public_url) in _CUSTOMER_FACING_TOUR_PROVIDERS
-            and _property_tour_provider_url_shape_valid(public_url)
+    vendor_tour_url = ""
+    if branded_tour_url and verified_provider:
+        verified_payload = _hosted_property_tour_payload_for_url(
+            branded_tour_url,
+            principal_id=normalized_principal,
         )
-        else "",
-        share_url
-        if (
-            share_url
-            and not _is_branded_public_tour_url(share_url)
-            and share_url != branded_tour_url
-            and _property_tour_provider_host_kind(share_url) in _CUSTOMER_FACING_TOUR_PROVIDERS
-            and _property_tour_provider_url_shape_valid(share_url)
-        )
-        else "",
-        crezlo_public_url
-        if (
-            crezlo_public_url
-            and not _is_branded_public_tour_url(crezlo_public_url)
-            and crezlo_public_url != branded_tour_url
-            and _property_tour_provider_host_kind(crezlo_public_url) in _CUSTOMER_FACING_TOUR_PROVIDERS
-            and _property_tour_provider_url_shape_valid(crezlo_public_url)
-        )
-        else "",
-    )
+        for key in (
+            "three_d_vista_url",
+            "threedvista_url",
+            "3dvista_url",
+            "source_virtual_tour_url",
+            "crezlo_public_url",
+        ):
+            candidate = str(verified_payload.get(key) or "").strip()
+            if (
+                _property_tour_provider_host_kind(candidate) == verified_provider
+                and _property_tour_provider_url_shape_valid(candidate)
+            ):
+                vendor_tour_url = candidate
+                break
     return branded_tour_url, vendor_tour_url
 
 def _property_tour_payload_is_disabled_fallback(structured_output: dict[str, object]) -> bool:
@@ -973,14 +966,6 @@ def _hosted_property_tour_has_3dvista_export(
         return False
     if not _hosted_property_tour_has_3dvista_browser_render_proof(payload):
         return False
-    for key in ("three_d_vista_url", "threedvista_url", "3dvista_url", "source_virtual_tour_url", "crezlo_public_url"):
-        value = str(payload.get(key) or "").strip()
-        if (
-            value
-            and _property_tour_provider_host_kind(value) == "3dvista"
-            and _property_tour_provider_url_shape_valid(value)
-        ):
-            return True
     slug = _hosted_property_tour_slug_from_url(tour_url)
     if not slug:
         return False
@@ -1120,12 +1105,6 @@ def _hosted_property_tour_verified_provider(
     normalized_url = str(tour_url or "").strip()
     if not normalized_url:
         return ""
-    direct_provider = _property_tour_provider_host_kind(normalized_url)
-    if (
-        direct_provider in _CUSTOMER_FACING_TOUR_PROVIDERS
-        and _property_tour_provider_url_shape_valid(normalized_url)
-    ):
-        return direct_provider
     payload = _hosted_property_tour_payload_for_url(normalized_url, principal_id=principal_id)
     if not payload:
         return ""
@@ -1885,6 +1864,8 @@ def _property_tour_provider_host_kind(value: object) -> str:
         return "matterport"
     if host == "3dvista.com" or host.endswith(".3dvista.com"):
         return "3dvista"
+    if host == "storage.net-fs.com":
+        return "3dvista"
     return ""
 
 
@@ -1900,6 +1881,7 @@ def _property_tour_provider_url_shape_valid(value: object) -> bool:
             or parsed.username
             or parsed.password
             or parsed.port not in {None, 443}
+            or parsed.fragment
         ):
             return False
     except (TypeError, ValueError):
@@ -1912,6 +1894,65 @@ def _property_tour_provider_url_shape_valid(value: object) -> bool:
         decoded_path = expanded
     if "\\" in decoded_path:
         return False
+    credential_query_keys = {
+        "access_token",
+        "accesstoken",
+        "token",
+        "api_key",
+        "apikey",
+        "key",
+        "signature",
+        "sig",
+        "auth",
+        "auth_token",
+        "authorization",
+        "password",
+        "client_secret",
+        "clientsecret",
+        "x_access_token",
+        "xaccesstoken",
+        "x_amz_signature",
+        "xamzsignature",
+        "x_amz_credential",
+        "xamzcredential",
+        "credential",
+        "secret",
+        "jwt",
+        "bearer",
+        "session_token",
+        "sessiontoken",
+    }
+    credential_query_suffixes = (
+        "_access_token",
+        "accesstoken",
+        "_api_key",
+        "_auth_token",
+        "_client_secret",
+        "clientsecret",
+        "_amz_signature",
+        "amzsignature",
+        "_amz_credential",
+        "amzcredential",
+        "_credential",
+        "_secret",
+        "_jwt",
+        "_bearer",
+        "_session_token",
+        "sessiontoken",
+    )
+    for raw_key, _value in urllib.parse.parse_qsl(parsed.query, keep_blank_values=True):
+        decoded_key = str(raw_key or "")
+        for _ in range(4):
+            expanded_key = urllib.parse.unquote(decoded_key)
+            if expanded_key == decoded_key:
+                break
+            decoded_key = expanded_key
+        normalized_key = re.sub(r"[^a-z0-9]+", "_", decoded_key.lower()).strip("_")
+        if normalized_key in credential_query_keys or any(
+            normalized_key.endswith(suffix)
+            for suffix in credential_query_suffixes
+        ):
+            return False
     segments = [segment for segment in decoded_path.split("/") if segment]
     if any(segment in {".", ".."} for segment in segments):
         return False
@@ -1924,6 +1965,13 @@ def _property_tour_provider_url_shape_valid(value: object) -> bool:
             and re.fullmatch(r"[A-Za-z0-9_-]{6,64}", str(model_values[0] or "").strip())
         )
     if provider == "3dvista":
+        host = str(parsed.hostname or "").strip().lower().rstrip(".")
+        if host == "storage.net-fs.com":
+            if len(segments) not in {3, 4} or segments[0].lower() != "hosting":
+                return False
+            if not all(re.fullmatch(r"[0-9]{1,20}", segment) for segment in segments[1:3]):
+                return False
+            return len(segments) == 3 or segments[3].lower() in {"index.htm", "index.html"}
         if len(segments) < 2 or segments[0].lower() not in {"360", "share", "tour", "tours"}:
             return False
         identifier = "/".join(segments[1:])
@@ -2348,92 +2396,7 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
     if live_provider and not _property_tour_provider_url_shape_valid(live_url):
         raise RuntimeError("pure_360_source_invalid")
     if live_provider in _CUSTOMER_FACING_TOUR_PROVIDERS:
-        base_url = _hosted_property_tour_public_base_url()
-        public_dir = _public_tour_dir()
-        slug = _hosted_property_tour_slug(
-            title=title,
-            listing_id=listing_id,
-            property_url=property_url,
-            variant_key=variant_key,
-            principal_id=normalized_principal,
-        )
-        legacy_slug = _hosted_property_tour_slug(
-            title=title,
-            listing_id=listing_id,
-            property_url=property_url,
-            variant_key=variant_key,
-        )
-        existing_payload = _existing_owned_hosted_property_tour_payload(
-            slug=slug,
-            legacy_slug=legacy_slug,
-            principal_id=normalized_principal,
-        )
-        if existing_payload:
-            return existing_payload
-        bundle_dir = public_dir / slug
-        bundle_dir.mkdir(parents=True, exist_ok=True)
-        facts = dict(property_facts_json or {})
-        existing_address_lines = [str(value or "").strip() for value in list(facts.get("address_lines") or []) if str(value or "").strip()]
-        existing_teasers = [str(value or "").strip() for value in list(facts.get("teaser_attributes") or []) if str(value or "").strip()]
-        facts.update(
-            {
-                "has_360": True,
-                "tour_media_mode": "panorama_360",
-                "source_virtual_tour_url": live_url,
-                "panorama_source": live_host,
-                "address_lines": existing_address_lines or ([source_host] if source_host else []),
-                "teaser_attributes": existing_teasers or ["Live 360 tour", "Embedded external panorama"],
-            }
-        )
-        display_title = compact_text(title, fallback="Live 360 Property Tour", limit=180)
-        payload = {
-            "slug": slug,
-            "hosted_url": f"{base_url}/{slug}",
-            "public_url": f"{base_url}/{slug}",
-            "principal_id": normalized_principal,
-            "listing_url": property_url,
-            "property_url": property_url,
-            "source_ref": str(source_ref or "").strip(),
-            "external_id": str(external_id or "").strip(),
-            "recipient_email": str(recipient_email or "").strip().lower(),
-            "source_virtual_tour_url": live_url,
-            "source_virtual_tour_origin": live_url,
-            "title": f"{display_title} - live 360",
-            "display_title": display_title,
-            "tour_title": f"{display_title} - live 360",
-            "tour_id": None,
-            "variant_key": variant_key,
-            "variant_label": "3D tour",
-            "scene_strategy": "live_360_embed",
-            "control_mode": live_provider,
-            "scene_count": 1,
-            "facts": facts,
-            "brief": {
-                "theme_name": "Branded 3D tour",
-                "tour_style": "embedded_3d_tour",
-                "audience": "tenant_screening",
-                "creative_brief": "Render the hosted 3D tour directly inside the PropertyQuarry tour page.",
-                "call_to_action": "Open 3D tour.",
-            },
-            "editor_url": "",
-            "crezlo_public_url": live_url,
-            "three_d_vista_url": live_url,
-            "scenes": [
-                {
-                    "ordinal": 1,
-                    "name": "3D tour",
-                    "role": "live_360",
-                    "image_url": "",
-                    "source_url": live_url,
-                    "property_url": property_url,
-                    "mime_type": "image/jpeg",
-                }
-            ],
-            "generated_at": _now_iso(),
-            "creation_mode": "embedded_live_360",
-        }
-        _write_hosted_property_tour_payload(bundle_dir, payload)
-        return payload
+        raise RuntimeError("property_tour_output_unverified")
     if "360.kalandra.at" not in live_host and "feelestate" not in live_host:
         raise RuntimeError("pure_360_source_unsupported")
     raise RuntimeError("property_tour_cube_fallback_disabled")

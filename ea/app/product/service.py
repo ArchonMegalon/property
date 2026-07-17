@@ -15488,6 +15488,8 @@ def _property_tour_followup_telegram_text(
     next_action = "Next: review the listing and unblock the tour path."
     if str(blocked_reason or "").strip() == "listing_360_media_missing":
         next_action = "Next: open the listing and continue once the 360/tour media path is available."
+    elif str(blocked_reason or "").strip() == "listing_360_required_floorplan_only":
+        next_action = "Next: use the verified floorplan, or continue once a verified 360 tour is available."
     elif str(blocked_reason or "").strip() == "browseract_connector_unconfigured":
         next_action = "Next: reconnect the tour path and regenerate the tour."
     elif str(blocked_reason or "").strip() == "property_tour_execution_failed":
@@ -15528,6 +15530,7 @@ def _property_tour_followup_is_customer_actionable(blocked_reason: str) -> bool:
         "listing_packet_timeout",
         "listing_source_url_invalid",
         "listing_360_media_missing",
+        "listing_360_required_floorplan_only",
         "property_tour_execution_failed",
         "property_tour_output_unverified",
         "property_tour_delivery_failed",
@@ -15559,6 +15562,8 @@ def _property_visual_unavailable_detail(*, request_kind: str, reason: str = "") 
         return "This listing only provides flat photos; no verified 360 tour or floorplan is available."
     if normalized_reason == "listing_360_media_missing":
         return "This listing has no verified 360 tour or floorplan source."
+    if normalized_reason == "listing_360_required_floorplan_only":
+        return "This listing has a verified floorplan, but this request requires a verified 360 tour."
     if normalized_reason in {
         "",
         "none",
@@ -15669,6 +15674,7 @@ def _property_visual_terminal_status_for_reason(*, request_kind: str, reason: st
             "listing_expired",
             "provider_export_missing",
             "listing_360_media_missing",
+            "listing_360_required_floorplan_only",
             "pure_360_assets_unavailable",
             "floorplan_assets_unavailable",
             "gallery_assets_unavailable",
@@ -17164,18 +17170,11 @@ def _willhaben_packet_source_virtual_tour_url(packet: dict[str, object]) -> str:
     property_facts = dict(raw_property_facts) if isinstance(raw_property_facts, dict) else {}
     attribute_map = dict(property_facts.get("attribute_map") or {}) if isinstance(property_facts.get("attribute_map"), dict) else {}
     attribute_candidates: list[str] = []
-    for key in (
-        "VIRTUAL_VIEW_LINK/URL",
-        "INFOLINK/URL",
-        "INFOLINK/NAME",
-        "GENERAL_TEXT_ADVERT/Ausstattung",
-        "DESCRIPTION",
-    ):
-        value = attribute_map.get(key)
-        if isinstance(value, list):
-            attribute_candidates.extend(str(entry or "").strip() for entry in value if str(entry or "").strip())
-        elif str(value or "").strip():
-            attribute_candidates.append(str(value or "").strip())
+    value = attribute_map.get("VIRTUAL_VIEW_LINK/URL")
+    if isinstance(value, list):
+        attribute_candidates.extend(str(entry or "").strip() for entry in value if str(entry or "").strip())
+    elif str(value or "").strip():
+        attribute_candidates.append(str(value or "").strip())
     discovered_urls: list[str] = []
     for candidate in attribute_candidates:
         discovered_urls.extend(_extract_urls_from_text(candidate))
@@ -33034,7 +33033,11 @@ class ProductService:
             )
         except Exception:
             return ""
-        tour_url, _vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
+        tour_url, _vendor_tour_url = _resolve_property_tour_urls(
+            structured_output,
+            allow_unverified_branded=True,
+            principal_id=principal_id,
+        )
         resolved_tour_url = str(
             tour_url
             or structured_output.get("hosted_url")
@@ -34855,7 +34858,12 @@ class ProductService:
         request_floorplan_urls = list(source_floorplan_urls)
         scene_strategy = str(variant.get("scene_strategy") or "layout_first").strip()
         scene_selection_json = dict(variant.get("scene_selection_json") or {})
-        tour_media_mode = "panorama_360" if has_live_360 else "flat_images"
+        if has_live_360:
+            tour_media_mode = "panorama_360"
+        elif has_floorplan_material:
+            tour_media_mode = "floorplan_only"
+        else:
+            tour_media_mode = "flat_images"
         property_facts_json.update(
             {
                 "source_packet_origin": source_packet_origin,
@@ -34902,8 +34910,6 @@ class ProductService:
             principal_id=principal_id,
             binding_id=binding_id,
         )
-        if _prefer_hosted_live_360_embed(source_virtual_tour_url):
-            resolved_binding_id = ""
         resolved_recipient_email = str(recipient_email or _principal_email_hint(principal_id)).strip().lower()
         generated_at = _now_iso()
         if (
@@ -34915,7 +34921,17 @@ class ProductService:
                 and not (allow_floorplan_only and has_floorplan_material)
             )
         ):
-            blocked_reason = "property_tour_fallback_disabled" if (source_media_urls or source_floorplan_urls) else "listing_360_media_missing"
+            blocked_reason = (
+                "listing_360_required_floorplan_only"
+                if has_floorplan_material
+                and enforce_360_media
+                and _willhaben_property_tour_require_360()
+                and not has_live_360
+                and not allow_floorplan_only
+                else "property_tour_fallback_disabled"
+                if (source_media_urls or source_floorplan_urls)
+                else "listing_360_media_missing"
+            )
             followup_task_id = ""
             if not suppress_human_followup:
                 followup = self._open_property_tour_followup(
@@ -34962,6 +34978,7 @@ class ProductService:
                 dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|tour-blocked:{blocked_reason}",
             )
             return payload
+        direct_source_diagnostic: dict[str, str] = {}
         if not resolved_binding_id:
             if source_virtual_tour_url:
                 try:
@@ -34979,7 +34996,11 @@ class ProductService:
                         external_id=resolved_external_id,
                         recipient_email=resolved_recipient_email,
                     )
-                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
+                    tour_url, vendor_tour_url = _resolve_property_tour_urls(
+                        structured_output,
+                        allow_unverified_branded=True,
+                        principal_id=principal_id,
+                    )
                     if not tour_url and not vendor_tour_url:
                         raise RuntimeError("property_tour_output_unverified")
                     payload = {
@@ -35018,11 +35039,17 @@ class ProductService:
                     except Exception:
                         pass
                     return payload
-                except Exception:
-                    pass
+                except Exception as exc:
+                    diagnostic = _property_tour_execution_diagnostic(exc)
+                    if diagnostic["blocked_reason"] == "property_tour_output_unverified":
+                        direct_source_diagnostic = diagnostic
         if source_floorplan_urls or source_media_urls:
             property_facts_json["generated_reconstruction_available_as_layout_preview"] = True
         if not resolved_binding_id:
+            blocked_reason = (
+                direct_source_diagnostic.get("blocked_reason")
+                or "browseract_connector_unconfigured"
+            )
             followup_task_id = ""
             if not suppress_human_followup:
                 followup = self._open_property_tour_followup(
@@ -35030,7 +35057,7 @@ class ProductService:
                     property_url=normalized_url,
                     title=title,
                     variant_key=resolved_variant_key,
-                    blocked_reason="browseract_connector_unconfigured",
+                    blocked_reason=blocked_reason,
                     recipient_email=resolved_recipient_email,
                     source_ref=resolved_source_ref,
                     external_id=resolved_external_id,
@@ -35053,7 +35080,10 @@ class ProductService:
                 "editor_url": "",
                 "delivery_email": resolved_recipient_email,
                 "delivery_status": "blocked",
-                "blocked_reason": "browseract_connector_unconfigured",
+                "blocked_reason": blocked_reason,
+                "failure_stage": direct_source_diagnostic.get("failure_stage", ""),
+                "error_code": direct_source_diagnostic.get("error_code", ""),
+                "error_fingerprint": direct_source_diagnostic.get("error_fingerprint", ""),
                 "human_task_id": followup_task_id,
                 "source_ref": resolved_source_ref,
                 "external_id": resolved_external_id,
@@ -35064,7 +35094,7 @@ class ProductService:
                 event_type="willhaben_property_tour_blocked",
                 payload=payload,
                 source_id=resolved_source_ref,
-                dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|tour-blocked:browseract_connector_unconfigured",
+                dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|tour-blocked:{blocked_reason}",
             )
             return payload
 
@@ -35173,7 +35203,11 @@ class ProductService:
                         external_id=resolved_external_id,
                         recipient_email=resolved_recipient_email,
                     )
-                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
+                    tour_url, vendor_tour_url = _resolve_property_tour_urls(
+                        structured_output,
+                        allow_unverified_branded=True,
+                        principal_id=principal_id,
+                    )
                     if not tour_url and not vendor_tour_url:
                         raise RuntimeError("property_tour_output_unverified")
                     payload = {
@@ -35213,8 +35247,13 @@ class ProductService:
                     except Exception:
                         pass
                     return payload
-                except Exception:
-                    blocked_reason = "pure_360_assets_unavailable"
+                except Exception as exc:
+                    fallback_diagnostic = _property_tour_execution_diagnostic(exc)
+                    if fallback_diagnostic["blocked_reason"] == "property_tour_output_unverified":
+                        blocked_reason = fallback_diagnostic["blocked_reason"]
+                        execution_diagnostic = fallback_diagnostic
+                    else:
+                        blocked_reason = "pure_360_assets_unavailable"
             if (source_floorplan_urls or source_media_urls) and blocked_reason in {
                 "listing_media_missing",
                 "pure_360_assets_unavailable",
@@ -35317,7 +35356,11 @@ class ProductService:
                 dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|tour-blocked:{blocked_reason}",
             )
             return payload
-        tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
+        tour_url, vendor_tour_url = _resolve_property_tour_urls(
+            structured_output,
+            allow_unverified_branded=True,
+            principal_id=principal_id,
+        )
         if not tour_url and not vendor_tour_url:
             blocked_reason = "property_tour_output_unverified"
             followup_task_id = ""
@@ -35724,8 +35767,13 @@ class ProductService:
         )
         panorama_source = _first_non_empty_text(preview.get("panorama_source"), property_facts_json.get("panorama_source"))
         has_live_360 = bool(panorama_media_urls or source_virtual_tour_url)
-        has_floorplan_material = bool(source_floorplan_urls or property_facts_json.get("has_floorplan"))
-        tour_media_mode = "panorama_360" if has_live_360 else "flat_images"
+        has_floorplan_material = bool(source_floorplan_urls)
+        if has_live_360:
+            tour_media_mode = "panorama_360"
+        elif has_floorplan_material:
+            tour_media_mode = "floorplan_only"
+        else:
+            tour_media_mode = "flat_images"
         source_host = urllib.parse.urlparse(normalized_url).netloc.lower()
         property_facts_json.update(
             {
@@ -35770,8 +35818,6 @@ class ProductService:
         resolved_source_ref = str(source_ref or f"property:{source_identity_host}:{listing_id}").strip()
         resolved_external_id = str(external_id or listing_id or normalized_url).strip()
         resolved_binding_id = self._resolve_browseract_property_tour_binding_id(principal_id=principal_id, binding_id=binding_id)
-        if _prefer_hosted_live_360_embed(source_virtual_tour_url):
-            resolved_binding_id = ""
         resolved_recipient_email = str(recipient_email or _principal_email_hint(principal_id)).strip().lower()
         generated_at = _now_iso()
         if (
@@ -35780,6 +35826,11 @@ class ProductService:
             and not has_live_360
             and not (allow_floorplan_only and has_floorplan_material)
         ):
+            blocked_reason = (
+                "listing_360_required_floorplan_only"
+                if has_floorplan_material
+                else "listing_360_media_missing"
+            )
             followup_task_id = ""
             if not suppress_human_followup:
                 followup = self._open_property_tour_followup(
@@ -35787,7 +35838,7 @@ class ProductService:
                     property_url=normalized_url,
                     title=title,
                     variant_key=resolved_variant_key,
-                    blocked_reason="listing_360_media_missing",
+                    blocked_reason=blocked_reason,
                     recipient_email=resolved_recipient_email,
                     source_ref=resolved_source_ref,
                     external_id=resolved_external_id,
@@ -35809,7 +35860,7 @@ class ProductService:
                 "editor_url": "",
                 "delivery_email": resolved_recipient_email,
                 "delivery_status": "blocked",
-                "blocked_reason": "listing_360_media_missing",
+                "blocked_reason": blocked_reason,
                 "human_task_id": followup_task_id,
                 "source_ref": resolved_source_ref,
                 "external_id": resolved_external_id,
@@ -35821,9 +35872,10 @@ class ProductService:
                 event_type="generic_property_tour_blocked",
                 payload=payload,
                 source_id=resolved_source_ref,
-                dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|generic-tour-blocked:listing_360_media_missing",
+                dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|generic-tour-blocked:{blocked_reason}",
             )
             return payload
+        no_binding_execution_diagnostic: dict[str, str] = {}
         if not resolved_binding_id:
             if source_virtual_tour_url:
                 try:
@@ -35841,7 +35893,11 @@ class ProductService:
                         external_id=resolved_external_id,
                         recipient_email=resolved_recipient_email,
                     )
-                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
+                    tour_url, vendor_tour_url = _resolve_property_tour_urls(
+                        structured_output,
+                        allow_unverified_branded=True,
+                        principal_id=principal_id,
+                    )
                     if not tour_url and not vendor_tour_url:
                         raise RuntimeError("property_tour_output_unverified")
                     payload = {
@@ -35880,8 +35936,10 @@ class ProductService:
                     except Exception:
                         pass
                     return payload
-                except Exception:
-                    pass
+                except Exception as exc:
+                    fallback_diagnostic = _property_tour_execution_diagnostic(exc)
+                    if fallback_diagnostic["blocked_reason"] == "property_tour_output_unverified":
+                        no_binding_execution_diagnostic = fallback_diagnostic
             if source_floorplan_urls:
                 try:
                     structured_output = _write_hosted_floorplan_property_tour_bundle(
@@ -35897,7 +35955,11 @@ class ProductService:
                         external_id=resolved_external_id,
                         recipient_email=resolved_recipient_email,
                     )
-                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
+                    tour_url, vendor_tour_url = _resolve_property_tour_urls(
+                        structured_output,
+                        allow_unverified_branded=True,
+                        principal_id=principal_id,
+                    )
                     if not tour_url and not vendor_tour_url:
                         raise RuntimeError("property_tour_output_unverified")
                     payload = {
@@ -35952,7 +36014,11 @@ class ProductService:
                         external_id=resolved_external_id,
                         recipient_email=resolved_recipient_email,
                     )
-                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
+                    tour_url, vendor_tour_url = _resolve_property_tour_urls(
+                        structured_output,
+                        allow_unverified_branded=True,
+                        principal_id=principal_id,
+                    )
                     if not tour_url and not vendor_tour_url:
                         raise RuntimeError("property_tour_output_unverified")
                     payload = {
@@ -35992,6 +36058,10 @@ class ProductService:
                     return payload
                 except Exception:
                     pass
+            blocked_reason = (
+                no_binding_execution_diagnostic.get("blocked_reason")
+                or "browseract_connector_unconfigured"
+            )
             followup_task_id = ""
             if not suppress_human_followup:
                 followup = self._open_property_tour_followup(
@@ -35999,7 +36069,7 @@ class ProductService:
                     property_url=normalized_url,
                     title=title,
                     variant_key=resolved_variant_key,
-                    blocked_reason="browseract_connector_unconfigured",
+                    blocked_reason=blocked_reason,
                     recipient_email=resolved_recipient_email,
                     source_ref=resolved_source_ref,
                     external_id=resolved_external_id,
@@ -36021,7 +36091,16 @@ class ProductService:
                 "editor_url": "",
                 "delivery_email": resolved_recipient_email,
                 "delivery_status": "blocked",
-                "blocked_reason": "browseract_connector_unconfigured",
+                "blocked_reason": blocked_reason,
+                **(
+                    {
+                        "failure_stage": no_binding_execution_diagnostic.get("failure_stage", ""),
+                        "error_code": no_binding_execution_diagnostic.get("error_code", ""),
+                        "error_fingerprint": no_binding_execution_diagnostic.get("error_fingerprint", ""),
+                    }
+                    if no_binding_execution_diagnostic
+                    else {}
+                ),
                 "human_task_id": followup_task_id,
                 "source_ref": resolved_source_ref,
                 "external_id": resolved_external_id,
@@ -36033,7 +36112,7 @@ class ProductService:
                 event_type="generic_property_tour_blocked",
                 payload=payload,
                 source_id=resolved_source_ref,
-                dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|generic-tour-blocked:browseract_connector_unconfigured",
+                dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|generic-tour-blocked:{blocked_reason}",
             )
             return payload
         request_payload = {
@@ -36074,7 +36153,8 @@ class ProductService:
                 TaskExecutionRequest(task_key=resolved_task_key, principal_id=principal_id, goal=f"create a steerable apartment tour for {title}", input_json=request_payload)
             )
         except Exception as exc:
-            blocked_reason = self._property_tour_execution_error_reason(exc)
+            execution_diagnostic = _property_tour_execution_diagnostic(exc)
+            blocked_reason = execution_diagnostic["blocked_reason"]
             if source_virtual_tour_url and blocked_reason in {
                 "crezlo_property_tour_not_configured",
                 "browseract_connector_unconfigured",
@@ -36096,7 +36176,11 @@ class ProductService:
                         external_id=resolved_external_id,
                         recipient_email=resolved_recipient_email,
                     )
-                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
+                    tour_url, vendor_tour_url = _resolve_property_tour_urls(
+                        structured_output,
+                        allow_unverified_branded=True,
+                        principal_id=principal_id,
+                    )
                     if not tour_url and not vendor_tour_url:
                         raise RuntimeError("property_tour_output_unverified")
                     payload = {
@@ -36136,8 +36220,13 @@ class ProductService:
                     except Exception:
                         pass
                     return payload
-                except Exception:
-                    blocked_reason = "pure_360_assets_unavailable"
+                except Exception as exc:
+                    fallback_diagnostic = _property_tour_execution_diagnostic(exc)
+                    if fallback_diagnostic["blocked_reason"] == "property_tour_output_unverified":
+                        blocked_reason = fallback_diagnostic["blocked_reason"]
+                        execution_diagnostic = fallback_diagnostic
+                    else:
+                        blocked_reason = "pure_360_assets_unavailable"
             if source_floorplan_urls and blocked_reason in {
                 "crezlo_property_tour_not_configured",
                 "browseract_connector_unconfigured",
@@ -36159,7 +36248,11 @@ class ProductService:
                         external_id=resolved_external_id,
                         recipient_email=resolved_recipient_email,
                     )
-                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
+                    tour_url, vendor_tour_url = _resolve_property_tour_urls(
+                        structured_output,
+                        allow_unverified_branded=True,
+                        principal_id=principal_id,
+                    )
                     if not tour_url and not vendor_tour_url:
                         raise RuntimeError("property_tour_output_unverified")
                     payload = {
@@ -36221,7 +36314,11 @@ class ProductService:
                         external_id=resolved_external_id,
                         recipient_email=resolved_recipient_email,
                     )
-                    tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
+                    tour_url, vendor_tour_url = _resolve_property_tour_urls(
+                        structured_output,
+                        allow_unverified_branded=True,
+                        principal_id=principal_id,
+                    )
                     if not tour_url and not vendor_tour_url:
                         raise RuntimeError("property_tour_output_unverified")
                     payload = {
@@ -36292,6 +36389,15 @@ class ProductService:
                 "delivery_email": resolved_recipient_email,
                 "delivery_status": "blocked",
                 "blocked_reason": blocked_reason,
+                **(
+                    {
+                        "failure_stage": execution_diagnostic.get("failure_stage", ""),
+                        "error_code": execution_diagnostic.get("error_code", ""),
+                        "error_fingerprint": execution_diagnostic.get("error_fingerprint", ""),
+                    }
+                    if blocked_reason == "property_tour_output_unverified"
+                    else {}
+                ),
                 "human_task_id": followup_task_id,
                 "source_ref": resolved_source_ref,
                 "external_id": resolved_external_id,
@@ -36353,7 +36459,11 @@ class ProductService:
                 dedupe_key=f"{principal_id}|{resolved_source_ref}|{resolved_variant_key}|generic-tour-blocked:{blocked_reason}",
             )
             return payload
-        tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_output, allow_unverified_branded=True)
+        tour_url, vendor_tour_url = _resolve_property_tour_urls(
+            structured_output,
+            allow_unverified_branded=True,
+            principal_id=principal_id,
+        )
         if not tour_url and not vendor_tour_url:
             blocked_reason = "property_tour_output_unverified"
             followup_task_id = ""
@@ -37308,7 +37418,10 @@ class ProductService:
                 external_id=resolved_external_id,
                 recipient_email=_principal_email_hint(principal_id),
             )
-            tour_url, vendor_tour_url = _resolve_property_tour_urls(structured_tour)
+            tour_url, vendor_tour_url = _resolve_property_tour_urls(
+                structured_tour,
+                principal_id=principal_id,
+            )
             tour_result = {
                 "status": "created",
                 "tour_url": tour_url,
@@ -51090,6 +51203,7 @@ class ProductService:
                     "crezlo_public_url": existing_vendor_tour_url,
                 },
                 allow_unverified_branded=True,
+                principal_id=principal_id,
             )
             if existing_branded_tour_url:
                 return {

@@ -281,6 +281,27 @@ def test_captured_provider_urls_require_real_tour_route_shapes() -> None:
         "https://client.3dvista.com/tour/login",
         "https://client.3dvista.com/tour/%252e%252e/admin",
         "http://client.3dvista.com/tour/index.html",
+        "https://client.3dvista.com/tour/index.html#scene=living",
+        "https://client.3dvista.com/tour/index.html?access_token=secret",
+        "https://client.3dvista.com/tour/index.html?api%255fkey=secret",
+        "https://client.3dvista.com/tour/index.html?apikey=secret",
+        "https://client.3dvista.com/tour/index.html?accesstoken=secret",
+        "https://client.3dvista.com/tour/index.html?auth-token=secret",
+        "https://client.3dvista.com/tour/index.html?authorization=secret",
+        "https://client.3dvista.com/tour/index.html?CLIENT%255fSECRET=secret",
+        "https://client.3dvista.com/tour/index.html?X%2dAccess%2dToken=secret",
+        "https://client.3dvista.com/tour/index.html?X-AMZ-Signature=secret",
+        "https://client.3dvista.com/tour/index.html?x_amz_credential=secret",
+        "https://client.3dvista.com/tour/index.html?credential=secret",
+        "https://client.3dvista.com/tour/index.html?Secret=secret",
+        "https://client.3dvista.com/tour/index.html?JWT=secret",
+        "https://client.3dvista.com/tour/index.html?Bearer=secret",
+        "https://client.3dvista.com/tour/index.html?session%255ftoken=secret",
+        "https://client.3dvista.com/tour/index.html?vendorClientSecret=secret",
+        "https://my.matterport.com/show/?m=BmVWxvZQZLq&sig=secret",
+        "https://my.matterport.com/show/?m=BmVWxvZQZLq#play=1",
+        "https://storage.net-fs.com/hosting/account/tour/index.htm",
+        "https://storage.net-fs.com/hosting/123/456/admin/index.htm",
     )
     for url in invalid_urls:
         assert product_service._property_tour_provider_url_shape_valid(url) is False
@@ -290,6 +311,10 @@ def test_captured_provider_urls_require_real_tour_route_shapes() -> None:
         "https://my.matterport.com/show/?m=BmVWxvZQZLq",
         "https://client.3dvista.com/tour/index.html",
         "https://example.3dvista.com/tours/top22/index.html",
+        "https://storage.net-fs.com/hosting/123456/987654",
+        "https://storage.net-fs.com/hosting/123456/987654/index.htm?autoplay=1",
+        "https://client.3dvista.com/tour/index.html?autoplay=1&startmedia=living&skin=default",
+        "https://my.matterport.com/show/?m=BmVWxvZQZLq&play=1&qs=1",
     )
     for url in valid_urls:
         assert product_service._property_tour_provider_url_shape_valid(url) is True
@@ -308,13 +333,18 @@ def test_final_provider_verifiers_reject_invalid_route_shapes() -> None:
         assert product_service._hosted_property_tour_verified_open_url(url) == ""
         assert product_service._resolve_property_tour_urls({"public_url": url}) == ("", "")
 
-    valid_url = "https://client.3dvista.com/tour/index.html"
-    assert product_service._hosted_property_tour_verified_provider(valid_url) == "3dvista"
-    assert product_service._hosted_property_tour_verified_open_url(valid_url) == valid_url
-    assert product_service._resolve_property_tour_urls({"public_url": valid_url}) == (
-        "",
-        valid_url,
+    candidate_urls = (
+        "https://client.3dvista.com/tour/index.html",
+        "https://example.3dvista.com/tours/top22/index.html",
+        "https://storage.net-fs.com/hosting/123456/987654/index.htm",
     )
+    for url in candidate_urls:
+        assert product_service._property_tour_provider_url_shape_valid(url) is True
+        assert product_service._hosted_property_tour_verified_provider(url) == ""
+        assert product_service._hosted_property_tour_verified_open_url(url) == ""
+        assert product_service._resolve_property_tour_urls(
+            {"public_url": url, "source_virtual_tour_url": url}
+        ) == ("", "")
 
 
 def test_url_resolver_rejects_nonexistent_branded_tours_even_when_legacy_flag_is_set() -> None:
@@ -337,6 +367,21 @@ def test_attribute_map_cannot_promote_an_arbitrary_url_to_a_live_tour() -> None:
     }
 
     assert product_service._willhaben_packet_source_virtual_tour_url(packet) == ""
+
+    valid_provider_url = "https://client.3dvista.com/tour/index.html"
+    packet["property_facts_json"] = {
+        "attribute_map": {
+            "DESCRIPTION": f"Virtual viewing: {valid_provider_url}",
+            "GENERAL_TEXT_ADVERT/Ausstattung": valid_provider_url,
+            "INFOLINK/URL": valid_provider_url,
+        }
+    }
+    assert product_service._willhaben_packet_source_virtual_tour_url(packet) == ""
+
+    packet["property_facts_json"]["attribute_map"]["VIRTUAL_VIEW_LINK/URL"] = [
+        valid_provider_url
+    ]
+    assert product_service._willhaben_packet_source_virtual_tour_url(packet) == valid_provider_url
 
 
 def test_validated_packet_overwrites_nested_panorama_urls_and_renderer_strips_media() -> None:

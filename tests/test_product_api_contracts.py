@@ -7424,11 +7424,51 @@ def test_generic_property_tour_floorplan_only_bypasses_legacy_360_requirement(
         allow_floorplan_only=True,
     )
 
-    assert legacy_blocked["blocked_reason"] == "listing_360_media_missing"
-    assert floorplan_allowed["blocked_reason"] != "listing_360_media_missing"
+    assert legacy_blocked["blocked_reason"] == "listing_360_required_floorplan_only"
+    assert legacy_blocked["tour_media_mode"] == "floorplan_only"
+    assert floorplan_allowed["blocked_reason"] != "listing_360_required_floorplan_only"
     assert floorplan_allowed["status"] == "created"
     assert floorplan_allowed["creation_mode"] == "hosted_floorplan_tour"
     assert floorplan_allowed["tour_media_mode"] == "floorplan_hosted"
+
+
+def test_generic_floorplan_hint_without_usable_url_does_not_bypass_360_requirement(monkeypatch) -> None:
+    monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "1")
+    principal_id = "cf-email:floorplan-hint-only@example.test"
+    property_url = "https://www.kalandra.at/objekt/floorplan-hint-only"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Floorplan Hint Office")
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda url, prefer_fast=False: {
+            "listing_id": "floorplan-hint-only",
+            "title": "Floorplan hint only apartment",
+            "media_urls_json": ["https://example.test/photo.jpg"],
+            "floorplan_urls_json": [],
+            "panorama_media_urls_json": [],
+            "source_virtual_tour_url": "",
+            "property_facts_json": {"has_floorplan": True},
+        },
+    )
+
+    result = product_service.build_product_service(
+        client.app.state.container
+    ).create_generic_property_tour(
+        principal_id=principal_id,
+        property_url=property_url,
+        allow_floorplan_only=True,
+        enforce_360_media=True,
+        suppress_human_followup=True,
+    )
+
+    assert result["status"] == "blocked"
+    assert result["blocked_reason"] == "listing_360_media_missing"
+    assert result["tour_media_mode"] == "flat_images"
+    assert product_service._property_visual_unavailable_detail(
+        request_kind="tour",
+        reason=result["blocked_reason"],
+    ) == "This listing has no verified 360 tour or floorplan source."
 
 
 def test_generic_property_tour_default_source_ref_is_provider_scoped(
@@ -13964,14 +14004,14 @@ def test_willhaben_property_tour_route_prefers_panorama_media_and_disables_floor
     )
     assert created.status_code == 200
     body = created.json()
-    assert body["status"] == "created"
+    assert body["status"] == "blocked"
+    assert body["blocked_reason"] == "property_tour_output_unverified"
     assert body["tour_media_mode"] == "panorama_360"
 
 
 def test_willhaben_property_tour_route_accepts_external_live_360_source_when_panorama_images_are_absent(monkeypatch) -> None:
     from app.domain.models import Artifact
 
-    monkeypatch.setattr(product_service, "_prefer_hosted_live_360_embed", lambda _url: False)
     principal_id = "cf-email:owner@example.test"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Executive Office")
@@ -14036,7 +14076,8 @@ def test_willhaben_property_tour_route_accepts_external_live_360_source_when_pan
     )
     assert created.status_code == 200
     body = created.json()
-    assert body["status"] == "created"
+    assert body["status"] == "blocked"
+    assert body["blocked_reason"] == "property_tour_output_unverified"
     assert body["tour_media_mode"] == "panorama_360"
 
 
@@ -14111,7 +14152,20 @@ def test_willhaben_property_tour_route_blocks_unverified_pure_360_bundle_when_cr
     assert body["tour_media_mode"] == "panorama_360"
     assert body["tour_url"] == ""
     assert body["vendor_tour_url"] == ""
-    assert body["blocked_reason"] == "pure_360_assets_unavailable"
+    assert body["blocked_reason"] == "property_tour_output_unverified"
+    events = client.get(
+        "/app/api/events",
+        params={"channel": "product", "event_type": "willhaben_property_tour_blocked"},
+    )
+    assert events.status_code == 200
+    matching_payloads = [
+        dict(item.get("payload") or {})
+        for item in events.json()["items"]
+        if dict(item.get("payload") or {}).get("property_url") == body["property_url"]
+    ]
+    assert matching_payloads
+    assert matching_payloads[0]["failure_stage"] == "tour_publication"
+    assert matching_payloads[0]["error_code"] == "property_tour_output_unverified"
 
 
 def test_matterport_hosted_pure_360_bundle_is_rejected_without_writing_public_artifacts(monkeypatch, tmp_path: Path) -> None:
@@ -14176,45 +14230,162 @@ def test_legacy_matterport_receipt_cannot_reach_public_payload_or_direct_360(mon
     ) == ""
 
 
-def test_3dvista_hosted_pure_360_bundle_preserves_provider_url(monkeypatch, tmp_path: Path) -> None:
+def test_3dvista_hosted_pure_360_bundle_rejects_proofless_provider_before_writing(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL", "https://propertyquarry.com/tours")
-    payload = product_service._write_hosted_feelestate_pure_360_property_tour_bundle(
-        principal_id="cf-email:owner@example.test",
-        title="3DVista Preview Test",
-        listing_id="3dvista-preview-test",
-        property_url="https://www.immobilienscout24.at/expose/3dvista-preview-test",
-        variant_key="layout_first",
-        source_virtual_tour_url="https://example.3dvista.com/tours/top22/index.html",
-        floorplan_urls=(),
-        property_facts_json={"has_360": True},
-        source_host="www.immobilienscout24.at",
+    with pytest.raises(RuntimeError, match="property_tour_output_unverified"):
+        product_service._write_hosted_feelestate_pure_360_property_tour_bundle(
+            principal_id="cf-email:owner@example.test",
+            title="3DVista Preview Test",
+            listing_id="3dvista-preview-test",
+            property_url="https://www.immobilienscout24.at/expose/3dvista-preview-test",
+            variant_key="layout_first",
+            source_virtual_tour_url="https://example.3dvista.com/tours/top22/index.html",
+            floorplan_urls=(),
+            property_facts_json={"has_360": True},
+            source_host="www.immobilienscout24.at",
+        )
+
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_willhaben_proofless_3dvista_source_keeps_typed_block_without_connector(monkeypatch, tmp_path: Path) -> None:
+    principal_id = "cf-email:proofless-source@example.test"
+    property_url = (
+        "https://www.willhaben.at/iad/immobilien/d/eigentumswohnung/wien/"
+        "proofless-source-1739164131"
+    )
+    provider_url = "https://example.3dvista.com/tours/top22/index.html"
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Executive Office")
+    monkeypatch.setattr(
+        product_service,
+        "_load_willhaben_property_packet",
+        lambda url: {
+            "property_url": url,
+            "listing_id": "1739164131",
+            "title": "Proofless 3DVista source",
+            "property_facts_json": {
+                "attribute_map": {"VIRTUAL_VIEW_LINK/URL": [provider_url]},
+            },
+            "source_virtual_tour_url": provider_url,
+            "media_urls_json": ["https://cache.willhaben.at/proofless-source/photo-1.jpg"],
+        },
+    )
+    service = product_service.build_product_service(client.app.state.container)
+    monkeypatch.setattr(
+        service,
+        "_resolve_browseract_property_tour_binding_id",
+        lambda **_kwargs: "",
     )
 
-    assert payload["control_mode"] == "3dvista"
-    assert payload["source_virtual_tour_url"] == "https://example.3dvista.com/tours/top22/index.html"
-    assert payload["source_virtual_tour_origin"] == "https://example.3dvista.com/tours/top22/index.html"
-    assert payload["three_d_vista_url"] == "https://example.3dvista.com/tours/top22/index.html"
-    assert payload["crezlo_public_url"] == "https://example.3dvista.com/tours/top22/index.html"
-    public_manifest = json.loads((tmp_path / str(payload["slug"]) / "tour.json").read_text(encoding="utf-8"))
-    private_manifest = json.loads((tmp_path / str(payload["slug"]) / "tour.private.json").read_text(encoding="utf-8"))
-    assert public_manifest["control_mode"] == "3dvista"
-    serialized_public = json.dumps(public_manifest, sort_keys=True)
-    assert "source_virtual_tour_url" not in public_manifest
-    assert "source_virtual_tour_origin" not in public_manifest
-    assert "three_d_vista_url" not in public_manifest
-    assert "example.3dvista.com" not in serialized_public
-    assert "crezlo_public_url" not in public_manifest
-    assert "https://www.immobilienscout24.at/expose/3dvista-preview-test" not in json.dumps(public_manifest)
-    assert private_manifest["three_d_vista_url"] == "https://example.3dvista.com/tours/top22/index.html"
-    loaded = product_service._existing_hosted_property_tour_payload(
-        str(payload["slug"]),
-        principal_id="cf-email:owner@example.test",
+    result = service.create_willhaben_property_tour(
+        principal_id=principal_id,
+        property_url=property_url,
+        enforce_360_media=True,
+        suppress_human_followup=True,
     )
-    assert loaded["three_d_vista_url"] == "https://example.3dvista.com/tours/top22/index.html"
-    assert property_tour_hosting._hosted_property_tour_direct_360_url(str(payload["hosted_url"])) == (
-        "https://example.3dvista.com/tours/top22/index.html"
+
+    assert result["status"] == "blocked"
+    assert result["blocked_reason"] == "property_tour_output_unverified"
+    assert result["failure_stage"] == "tour_publication"
+    assert result["tour_url"] == ""
+    assert result["vendor_tour_url"] == ""
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_generic_proofless_3dvista_source_keeps_typed_block_without_connector(monkeypatch, tmp_path: Path) -> None:
+    principal_id = "cf-email:generic-proofless-source@example.test"
+    property_url = "https://www.immobilienscout24.at/expose/generic-proofless-source"
+    provider_url = "https://example.3dvista.com/tours/generic-proofless/index.html"
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Executive Office")
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda url, prefer_fast=False: {
+            "property_url": url,
+            "listing_id": "generic-proofless-source",
+            "title": "Generic proofless 3DVista source",
+            "property_facts_json": {},
+            "source_virtual_tour_url": provider_url,
+            "media_urls_json": [],
+            "floorplan_urls_json": [],
+        },
     )
+    service = product_service.build_product_service(client.app.state.container)
+    monkeypatch.setattr(
+        service,
+        "_resolve_browseract_property_tour_binding_id",
+        lambda **_kwargs: "",
+    )
+
+    result = service.create_generic_property_tour(
+        principal_id=principal_id,
+        property_url=property_url,
+        enforce_360_media=True,
+        suppress_human_followup=True,
+    )
+
+    assert result["status"] == "blocked"
+    assert result["blocked_reason"] == "property_tour_output_unverified"
+    assert result["failure_stage"] == "tour_publication"
+    assert result["error_code"] == "property_tour_output_unverified"
+    assert result["tour_url"] == ""
+    assert result["vendor_tour_url"] == ""
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_generic_renderer_fallback_keeps_typed_unverified_provider_diagnostic(monkeypatch, tmp_path: Path) -> None:
+    principal_id = "cf-email:generic-renderer-proofless@example.test"
+    property_url = "https://www.immobilienscout24.at/expose/generic-renderer-proofless"
+    provider_url = "https://example.3dvista.com/tours/generic-renderer-proofless/index.html"
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Executive Office")
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda url, prefer_fast=False: {
+            "property_url": url,
+            "listing_id": "generic-renderer-proofless",
+            "title": "Generic renderer proofless source",
+            "property_facts_json": {},
+            "source_virtual_tour_url": provider_url,
+            "media_urls_json": [],
+            "floorplan_urls_json": [],
+        },
+    )
+    service = product_service.build_product_service(client.app.state.container)
+    monkeypatch.setattr(
+        service,
+        "_resolve_browseract_property_tour_binding_id",
+        lambda **_kwargs: "browseract-binding-proofless",
+    )
+    monkeypatch.setattr(
+        client.app.state.container.orchestrator,
+        "execute_task_artifact",
+        lambda request: (_ for _ in ()).throw(
+            RuntimeError("crezlo_property_tour_not_configured")
+        ),
+    )
+
+    result = service.create_generic_property_tour(
+        principal_id=principal_id,
+        property_url=property_url,
+        enforce_360_media=True,
+        suppress_human_followup=True,
+    )
+
+    assert result["status"] == "blocked"
+    assert result["blocked_reason"] == "property_tour_output_unverified"
+    assert result["failure_stage"] == "tour_publication"
+    assert result["error_code"] == "property_tour_output_unverified"
+    assert result["tour_url"] == ""
+    assert result["vendor_tour_url"] == ""
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_kalandra_cube_360_bundle_generation_is_disabled(monkeypatch, tmp_path: Path) -> None:
@@ -14281,6 +14452,49 @@ def test_willhaben_property_tour_route_blocks_when_only_flat_listing_photos_exis
     assert body["status"] == "blocked"
     assert body["blocked_reason"] == "property_tour_fallback_disabled"
     assert body["tour_media_mode"] == "flat_images"
+
+
+def test_willhaben_property_tour_distinguishes_verified_floorplan_when_360_is_required(monkeypatch) -> None:
+    monkeypatch.setenv("EA_WILLHABEN_PROPERTY_TOUR_REQUIRE_360", "1")
+    principal_id = "cf-email:floorplan-only@example.test"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Executive Office")
+    property_url = (
+        "https://www.willhaben.at/iad/immobilien/d/eigentumswohnung/wien/"
+        "floorplan-only-1739164131"
+    )
+    floorplan_url = "https://cache.willhaben.at/apartment-floorplan/floorplan-1.jpg"
+    monkeypatch.setattr(
+        product_service,
+        "_load_willhaben_property_packet",
+        lambda url: {
+            "property_url": url,
+            "listing_id": "1739164131",
+            "title": "Floorplan-only apartment",
+            "property_facts_json": {},
+            "media_urls_json": ["https://cache.willhaben.at/apartment-floorplan/photo-1.jpg"],
+            "floorplan_urls_json": [floorplan_url],
+            "media_assets_json": [_verified_floorplan_asset(floorplan_url)],
+        },
+    )
+
+    body = product_service.build_product_service(
+        client.app.state.container
+    ).create_willhaben_property_tour(
+        principal_id=principal_id,
+        property_url=property_url,
+        binding_id="browseract-binding-floorplan-only",
+        auto_deliver=False,
+        enforce_360_media=True,
+    )
+
+    assert body["status"] == "blocked"
+    assert body["blocked_reason"] == "listing_360_required_floorplan_only"
+    assert body["tour_media_mode"] == "floorplan_only"
+    assert product_service._property_visual_unavailable_detail(
+        request_kind="tour",
+        reason=body["blocked_reason"],
+    ) == "This listing has a verified floorplan, but this request requires a verified 360 tour."
 
 
 def test_willhaben_property_tour_route_falls_back_to_projected_crezlo_task_when_base_contract_missing(monkeypatch) -> None:
@@ -14527,7 +14741,7 @@ def test_generic_property_tour_creates_hosted_floorplan_when_crezlo_fails(
     body = created.json()
     assert body["status"] == "blocked"
     assert body["blocked_reason"] == "floorplan_assets_unavailable"
-    assert body["tour_media_mode"] == "flat_images"
+    assert body["tour_media_mode"] == "floorplan_only"
     assert body["tour_url"] == ""
 
 
@@ -14876,7 +15090,7 @@ def test_property_tour_url_resolver_prefers_branded_link_even_when_legacy_fields
         }
     )
     assert branded_url == "https://myexternalbrain.com/tours/brigittenau-apartment-a"
-    assert vendor_url == "https://example.3dvista.com/tours/brigittenau-apartment-a"
+    assert vendor_url == ""
 
 
 def test_property_tour_binding_selector_prefers_crezlo_browseract_lane_over_other_browseract_bindings(monkeypatch) -> None:
@@ -15111,7 +15325,7 @@ def test_property_tour_url_resolver_does_not_promote_gallery_shell_as_real_3d(mo
     assert vendor_url == ""
 
 
-def test_property_tour_url_resolver_keeps_vendor_truth_when_branded_shell_has_only_unverified_vendor_hint(monkeypatch) -> None:
+def test_property_tour_url_resolver_rejects_unverified_vendor_hint(monkeypatch) -> None:
     monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://propertyquarry.com")
     branded_url, vendor_url = product_service._resolve_property_tour_urls(
         {
@@ -15123,10 +15337,10 @@ def test_property_tour_url_resolver_keeps_vendor_truth_when_branded_shell_has_on
         }
     )
     assert branded_url == ""
-    assert vendor_url == "https://example.3dvista.com/tours/unverified-shell"
+    assert vendor_url == ""
 
 
-def test_property_tour_url_resolver_keeps_external_live_360_as_vendor_truth(monkeypatch) -> None:
+def test_property_tour_url_resolver_rejects_proofless_external_live_360(monkeypatch) -> None:
     monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://propertyquarry.com")
     branded_url, vendor_url = product_service._resolve_property_tour_urls(
         {
@@ -15139,7 +15353,7 @@ def test_property_tour_url_resolver_keeps_external_live_360_as_vendor_truth(monk
         }
     )
     assert branded_url == ""
-    assert vendor_url == "https://example.3dvista.com/360/room-1"
+    assert vendor_url == ""
 
 
 def test_property_scout_tour_auto_create_skips_existing_vendor_url(monkeypatch) -> None:
@@ -19423,7 +19637,7 @@ def test_willhaben_property_tour_without_browseract_binding_uses_hosted_floorpla
     assert created.status_code == 200
     body = created.json()
     assert body["status"] == "blocked"
-    assert body["tour_media_mode"] == "flat_images"
+    assert body["tour_media_mode"] == "floorplan_only"
     assert body["blocked_reason"] == "browseract_connector_unconfigured"
     assert body["tour_url"] == ""
 
@@ -30897,21 +31111,84 @@ def test_hosted_property_tour_verified_open_url_rejects_gallery_and_cube_fallbac
 
 
 def test_hosted_property_tour_verified_open_url_targets_real_provider_lane(monkeypatch, tmp_path: Path) -> None:
+    principal_id = "cf-email:provider-owner@example.test"
     slug = "provider-tour"
+    provider_url = "https://storage.net-fs.com/hosting/123456/987654/index.htm"
     bundle_dir = tmp_path / slug
     bundle_dir.mkdir(parents=True)
+    export_proof = _write_clean_3dvista_export(bundle_dir)
+    entry_relpath = str(export_proof.pop("three_d_vista_entry_relpath"))
     (bundle_dir / "tour.json").write_text(
-        json.dumps({"slug": slug, **_write_clean_3dvista_export(bundle_dir)}),
+        json.dumps({"slug": slug, "three_d_vista_entry_relpath": entry_relpath}),
+        encoding="utf-8",
+    )
+    (bundle_dir / "tour.private.json").write_text(
+        json.dumps(
+            {
+                "principal_id": principal_id,
+                "three_d_vista_url": provider_url,
+                "three_d_vista_entry_relpath": entry_relpath,
+                **export_proof,
+            }
+        ),
         encoding="utf-8",
     )
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
 
-    assert property_tour_hosting._hosted_property_tour_verified_open_url(f"https://propertyquarry.com/tours/{slug}") == (
+    hosted_url = f"https://propertyquarry.com/tours/{slug}"
+    assert property_tour_hosting._hosted_property_tour_verified_provider(hosted_url) == ""
+    assert property_tour_hosting._hosted_property_tour_verified_provider(
+        hosted_url,
+        principal_id=principal_id,
+    ) == "3dvista"
+    assert property_tour_hosting._hosted_property_tour_verified_open_url(hosted_url, principal_id=principal_id) == (
         f"https://propertyquarry.com/tours/{slug}/control/3dvista"
     )
-    assert property_tour_hosting._hosted_property_tour_verified_open_url(f"/tours/{slug}") == (
+    assert property_tour_hosting._hosted_property_tour_verified_open_url(f"/tours/{slug}", principal_id=principal_id) == (
         f"/tours/{slug}/control/3dvista"
     )
+    assert property_tour_hosting._resolve_property_tour_urls(
+        {"hosted_url": hosted_url, "public_url": provider_url},
+        principal_id=principal_id,
+    ) == (hosted_url, provider_url)
+
+
+def test_hosted_property_tour_proof_fields_cannot_replace_real_3dvista_export(monkeypatch, tmp_path: Path) -> None:
+    principal_id = "cf-email:provider-owner@example.test"
+    slug = "provider-proof-without-export"
+    provider_url = "https://storage.net-fs.com/hosting/123456/987654/index.htm"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "three_d_vista_url": provider_url,
+                "three_d_vista_entry_relpath": "3dvista/index.htm",
+                **_clean_3dvista_proof(),
+            }
+        ),
+        encoding="utf-8",
+    )
+    (bundle_dir / "tour.private.json").write_text(
+        json.dumps({"principal_id": principal_id}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    hosted_url = f"https://propertyquarry.com/tours/{slug}"
+
+    assert property_tour_hosting._hosted_property_tour_verified_provider(
+        hosted_url,
+        principal_id=principal_id,
+    ) == ""
+    assert property_tour_hosting._hosted_property_tour_verified_open_url(
+        hosted_url,
+        principal_id=principal_id,
+    ) == ""
+    assert property_tour_hosting._resolve_property_tour_urls(
+        {"hosted_url": hosted_url, "public_url": provider_url},
+        principal_id=principal_id,
+    ) == ("", "")
 
 
 def test_hosted_property_tour_walkthrough_asset_url_requires_verified_published_asset(monkeypatch, tmp_path: Path) -> None:
