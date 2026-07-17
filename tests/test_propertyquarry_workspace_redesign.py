@@ -29,6 +29,7 @@ from app.services import public_branding
 from app.services import property_market_catalog
 from app.services import public_url_safety
 from app.services.onboarding import OnboardingService
+from app.product import property_evidence_overlays
 from app.product import service as product_service
 from app.product import property_tour_hosting
 from app.product import property_surface_state
@@ -10124,6 +10125,11 @@ def test_property_research_packet_snapshot_normalizes_route_payload() -> None:
 
 
 def test_property_research_packet_renders_cached_evidence_overlays(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        property_evidence_overlays,
+        "_now",
+        lambda: datetime(2026, 7, 17, 12, 0, tzinfo=timezone.utc),
+    )
     rollup_path = tmp_path / "evidence-overlays.json"
     rollup_path.write_text(
         json.dumps(
@@ -10137,8 +10143,12 @@ def test_property_research_packet_renders_cached_evidence_overlays(monkeypatch, 
                         "source_name": "Terms-safe media index",
                         "source_url": "https://news.example.test/search?q=1020",
                         "article_url": "https://news.example.test/article/1",
-                        "cache_updated_at": "2026-06-25T08:00:00+00:00",
+                        "cache_updated_at": "2026-07-17T08:00:00+00:00",
                         "source_updated_at": "2026-06-24T08:00:00+00:00",
+                        "source_checked_at": "2026-07-17T07:00:00+00:00",
+                        "source_temporality": "current_feed",
+                        "media_source_class": "independent_press",
+                        "independent_press": True,
                         "uncertainty_label": "topic aggregate",
                     }
                 ]
