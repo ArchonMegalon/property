@@ -807,6 +807,35 @@ def test_property_search_agent_plan_limits_are_enforced() -> None:
     assert len(agent_agents) == 30
 
 
+def test_property_search_preferences_preserve_agents_beyond_execution_plan_limit() -> None:
+    raw_agents = [
+        {
+            "agent_id": f"agent-{index}",
+            "name": f"Saved search {index}",
+            "country_code": "AT",
+            "location_query": f"10{index + 10} Vienna",
+        }
+        for index in range(3)
+    ]
+
+    durable_preferences = OnboardingService._normalize_property_search_preferences(
+        {
+            "country_code": "AT",
+            "location_query": "Vienna",
+            "search_agents": raw_agents,
+            "property_commercial": {"active_plan_key": "free"},
+        }
+    )
+    execution_agents = OnboardingService._normalize_property_search_agents(durable_preferences)
+
+    assert [agent["agent_id"] for agent in durable_preferences["search_agents"]] == [
+        "agent-0",
+        "agent-1",
+        "agent-2",
+    ]
+    assert [agent["agent_id"] for agent in execution_agents] == ["agent-0"]
+
+
 def test_property_search_agent_payloads_do_not_embed_other_agents() -> None:
     agents = OnboardingService._normalize_property_search_agents(
         {

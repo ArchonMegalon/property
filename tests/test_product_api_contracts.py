@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 import time
 import urllib.parse
 import zipfile
@@ -20,12 +21,15 @@ from urllib.parse import urlparse
 from uuid import uuid4
 
 import pytest
+from fastapi import HTTPException
 
 import app.api.routes.channels as channel_routes
 import app.api.routes.landing as landing_routes
 import app.api.routes.landing_objects as landing_objects
 import app.api.routes.landing_property_workspace_helpers as property_workspace_helpers
 import app.api.routes.product_api_delivery as product_api_delivery_routes
+import app.api.routes.public_tours as public_tour_routes
+import app.api.routes.public_tour_payloads as public_tour_payloads
 import app.product.property_tour_hosting as property_tour_hosting
 import app.product.service as product_service
 from app.api.dependencies import RequestContext
@@ -37,6 +41,515 @@ from app.services.fliplink import build_fliplink_packet_service
 from app.services.heyy_whatsapp_service import redact_phone_number
 from starlette.requests import Request
 from tests.product_test_helpers import build_operator_product_client, build_product_client, build_property_client, seed_product_state, start_workspace
+
+
+def _generated_reconstruction_transaction_kwargs() -> dict[str, object]:
+    return {
+        "principal_id": "exec-reconstruction-transaction",
+        "title": "Transaction Test Home",
+        "listing_id": "transaction-listing",
+        "property_url": "https://example.test/property/transaction-listing",
+        "variant_key": "layout_first",
+        "media_urls": ("https://assets.example.test/photo.jpg",),
+        "floorplan_urls": ("https://assets.example.test/floorplan.jpg",),
+        "property_facts_json": {"has_floorplan": True, "floorplan_count": 1},
+        "source_host": "example.test",
+    }
+
+
+def test_generated_reconstruction_publication_status_fails_closed() -> None:
+    with pytest.raises(HTTPException) as raised:
+        public_tour_payloads.require_public_tour_viewable(
+            {"publication_status": "generating", "tour_privacy_mode": "anonymous_public"}
+        )
+
+    assert getattr(raised.value, "status_code", None) == 404
+    assert getattr(raised.value, "detail", None) == "tour_not_found"
+    public_tour_payloads.require_public_tour_viewable(
+        {"publication_status": "ready", "tour_privacy_mode": "anonymous_public"}
+    )
+
+
+@pytest.mark.parametrize("dockerfile_name", ("Dockerfile.property", "Dockerfile.property-web"))
+def test_property_runtime_images_package_tour_verifier_dependencies(dockerfile_name: str) -> None:
+    dockerfile = (Path(__file__).resolve().parents[1] / "ea" / dockerfile_name).read_text(encoding="utf-8")
+
+    assert "COPY scripts/verify_property_tour_controls.py /app/scripts/verify_property_tour_controls.py" in dockerfile
+    assert (
+        "COPY scripts/property_tour_3dvista_provenance.py "
+        "/app/scripts/property_tour_3dvista_provenance.py"
+    ) in dockerfile
+    assert "COPY scripts/property_tour_runtime_paths.py /app/scripts/property_tour_runtime_paths.py" in dockerfile
+
+
+def test_property_render_image_packages_magicfit_acceptance_cli_only() -> None:
+    dockerfile_root = Path(__file__).resolve().parents[1] / "ea"
+    render_dockerfile = (dockerfile_root / "Dockerfile.property").read_text(encoding="utf-8")
+    web_dockerfile = (dockerfile_root / "Dockerfile.property-web").read_text(encoding="utf-8")
+    acceptance_copy = "COPY scripts/accept_magicfit_delivery.py /app/scripts/accept_magicfit_delivery.py"
+
+    assert acceptance_copy in render_dockerfile
+    assert acceptance_copy not in web_dockerfile
+
+
+def test_generated_reconstruction_transaction_removes_failed_new_bundle(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    kwargs = _generated_reconstruction_transaction_kwargs()
+    monkeypatch.setattr(product_service, "_public_tour_dir", lambda: tmp_path)
+    monkeypatch.setattr(product_service, "_hosted_property_tour_public_base_url", lambda: "/tours")
+    slug = product_service._make_hosted_property_tour_slug(
+        title=str(kwargs["title"]),
+        listing_id=str(kwargs["listing_id"]),
+        property_url=str(kwargs["property_url"]),
+        variant_key=str(kwargs["variant_key"]),
+        principal_id=str(kwargs["principal_id"]),
+    )
+    bundle_dir = tmp_path / slug
+
+    def _fail_after_partial_write(**_kwargs: object) -> dict[str, object]:
+        product_service._write_hosted_property_tour_payload(
+            bundle_dir,
+            {
+                "slug": slug,
+                "principal_id": kwargs["principal_id"],
+                "title": kwargs["title"],
+                "scene_count": 1,
+                "scene_strategy": "generated_reconstruction",
+                "creation_mode": "generated_reconstruction_tour",
+                "publication_status": "generating",
+                "scenes": [],
+                "facts": {"has_floorplan": True, "floorplan_count": 1},
+            },
+        )
+        (bundle_dir / "partial-render.bin").write_bytes(b"partial")
+        raise RuntimeError("render_bridge_unavailable")
+
+    monkeypatch.setattr(
+        product_service,
+        "_write_generated_reconstruction_property_tour_bundle_unchecked",
+        _fail_after_partial_write,
+    )
+
+    with pytest.raises(RuntimeError, match="render_bridge_unavailable"):
+        product_service._write_generated_reconstruction_property_tour_bundle(**kwargs)
+
+    assert not bundle_dir.exists()
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_generated_reconstruction_transaction_restores_previous_bundle(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    kwargs = _generated_reconstruction_transaction_kwargs()
+    monkeypatch.setattr(product_service, "_public_tour_dir", lambda: tmp_path)
+    monkeypatch.setattr(product_service, "_hosted_property_tour_public_base_url", lambda: "/tours")
+    slug = product_service._make_hosted_property_tour_slug(
+        title=str(kwargs["title"]),
+        listing_id=str(kwargs["listing_id"]),
+        property_url=str(kwargs["property_url"]),
+        variant_key=str(kwargs["variant_key"]),
+        principal_id=str(kwargs["principal_id"]),
+    )
+    bundle_dir = tmp_path / slug
+    product_service._write_hosted_property_tour_payload(
+        bundle_dir,
+        {
+            "slug": slug,
+            "principal_id": kwargs["principal_id"],
+            "title": "Previous owned bundle",
+            "scene_count": 1,
+            "scene_strategy": "layout_first",
+            "creation_mode": "hosted_property_tour",
+            "publication_status": "ready",
+            "scenes": [{"name": "Previous", "role": "photo", "image_url": ""}],
+            "facts": {},
+        },
+    )
+    (bundle_dir / "previous-asset.bin").write_bytes(b"preserve-me")
+    before = {
+        path.relative_to(bundle_dir).as_posix(): path.read_bytes()
+        for path in sorted(bundle_dir.rglob("*"))
+        if path.is_file()
+    }
+
+    def _fail_after_overwrite(**_kwargs: object) -> dict[str, object]:
+        bundle_dir.mkdir(parents=True, exist_ok=True)
+        (bundle_dir / "tour.json").write_text('{"publication_status":"generating"}', encoding="utf-8")
+        (bundle_dir / "previous-asset.bin").write_bytes(b"overwritten")
+        (bundle_dir / "partial-render.bin").write_bytes(b"partial")
+        raise RuntimeError("render_validation_failed")
+
+    monkeypatch.setattr(
+        product_service,
+        "_write_generated_reconstruction_property_tour_bundle_unchecked",
+        _fail_after_overwrite,
+    )
+
+    with pytest.raises(RuntimeError, match="render_validation_failed"):
+        product_service._write_generated_reconstruction_property_tour_bundle(**kwargs)
+
+    after = {
+        path.relative_to(bundle_dir).as_posix(): path.read_bytes()
+        for path in sorted(bundle_dir.rglob("*"))
+        if path.is_file()
+    }
+    assert after == before
+    assert sorted(path.name for path in tmp_path.iterdir()) == [slug]
+
+
+def test_generated_reconstruction_transaction_finalizes_ready_manifest_without_private_fields(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    kwargs = _generated_reconstruction_transaction_kwargs()
+    monkeypatch.setattr(product_service, "_public_tour_dir", lambda: tmp_path)
+    monkeypatch.setattr(product_service, "_hosted_property_tour_public_base_url", lambda: "/tours")
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_generated_reconstruction_bundle_ready",
+        lambda _tour_url: True,
+    )
+    slug = product_service._make_hosted_property_tour_slug(
+        title=str(kwargs["title"]),
+        listing_id=str(kwargs["listing_id"]),
+        property_url=str(kwargs["property_url"]),
+        variant_key=str(kwargs["variant_key"]),
+        principal_id=str(kwargs["principal_id"]),
+    )
+    bundle_dir = tmp_path / slug
+
+    def _complete_render(**_kwargs: object) -> dict[str, object]:
+        product_service._write_hosted_property_tour_payload(
+            bundle_dir,
+            {
+                "slug": slug,
+                "principal_id": kwargs["principal_id"],
+                "title": kwargs["title"],
+                "scene_count": 1,
+                "scene_strategy": "generated_reconstruction",
+                "creation_mode": "generated_reconstruction_tour",
+                "publication_status": "generating",
+                "scenes": [{"name": "Layout", "role": "diorama", "image_url": ""}],
+                "facts": {"has_floorplan": True, "floorplan_count": 1},
+            },
+        )
+        return product_service._load_hosted_property_tour_payload(
+            bundle_dir,
+            principal_id=str(kwargs["principal_id"]),
+        )
+
+    monkeypatch.setattr(
+        product_service,
+        "_write_generated_reconstruction_property_tour_bundle_unchecked",
+        _complete_render,
+    )
+
+    result = product_service._write_generated_reconstruction_property_tour_bundle(**kwargs)
+    public_payload = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
+
+    assert result["publication_status"] == "ready"
+    assert result["principal_id"] == kwargs["principal_id"]
+    assert public_payload["publication_status"] == "ready"
+    assert "principal_id" not in public_payload
+
+
+def test_generated_reconstruction_ready_bundle_returns_without_bundle_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    kwargs = _generated_reconstruction_transaction_kwargs()
+    monkeypatch.setattr(product_service, "_public_tour_dir", lambda: tmp_path)
+    monkeypatch.setattr(product_service, "_hosted_property_tour_public_base_url", lambda: "/tours")
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_generated_reconstruction_bundle_ready",
+        lambda _tour_url: True,
+    )
+    slug = product_service._make_hosted_property_tour_slug(
+        title=str(kwargs["title"]),
+        listing_id=str(kwargs["listing_id"]),
+        property_url=str(kwargs["property_url"]),
+        variant_key=str(kwargs["variant_key"]),
+        principal_id=str(kwargs["principal_id"]),
+    )
+    bundle_dir = tmp_path / slug
+    product_service._write_hosted_property_tour_payload(
+        bundle_dir,
+        {
+            "slug": slug,
+            "principal_id": kwargs["principal_id"],
+            "title": kwargs["title"],
+            "scene_count": 1,
+            "scene_strategy": "generated_reconstruction",
+            "creation_mode": "generated_reconstruction_tour",
+            "publication_status": "ready",
+            "scenes": [{"name": "Layout", "role": "diorama", "image_url": ""}],
+            "facts": {"has_floorplan": True, "floorplan_count": 1},
+            "generated_reconstruction": {
+                "viewer_version": product_service._PROPERTY_RECONSTRUCTION_VIEWER_VERSION,
+            },
+        },
+    )
+    before = {
+        path.name: (path.read_bytes(), path.stat().st_mtime_ns)
+        for path in (bundle_dir / "tour.json", bundle_dir / "tour.private.json")
+    }
+    existing_payload = product_service._load_hosted_property_tour_payload(
+        bundle_dir,
+        principal_id=str(kwargs["principal_id"]),
+    )
+    existing_payload["generated_reconstruction"] = {
+        "viewer_version": product_service._PROPERTY_RECONSTRUCTION_VIEWER_VERSION,
+    }
+    monkeypatch.setattr(
+        product_service,
+        "_existing_owned_hosted_property_tour_payload",
+        lambda **_kwargs: dict(existing_payload),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_write_generated_reconstruction_property_tour_bundle_unchecked",
+        lambda **_kwargs: pytest.fail("ready bundle must not be regenerated"),
+    )
+
+    result = product_service._write_generated_reconstruction_property_tour_bundle(**kwargs)
+
+    after = {
+        path.name: (path.read_bytes(), path.stat().st_mtime_ns)
+        for path in (bundle_dir / "tour.json", bundle_dir / "tour.private.json")
+    }
+    assert result["publication_status"] == "ready"
+    assert after == before
+    assert sorted(path.name for path in tmp_path.iterdir()) == [slug]
+
+
+def test_generated_reconstruction_restore_failure_retains_recovery_bundle(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    kwargs = _generated_reconstruction_transaction_kwargs()
+    monkeypatch.setattr(product_service, "_public_tour_dir", lambda: tmp_path)
+    monkeypatch.setattr(product_service, "_hosted_property_tour_public_base_url", lambda: "/tours")
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_generated_reconstruction_bundle_ready",
+        lambda _tour_url: False,
+    )
+    slug = product_service._make_hosted_property_tour_slug(
+        title=str(kwargs["title"]),
+        listing_id=str(kwargs["listing_id"]),
+        property_url=str(kwargs["property_url"]),
+        variant_key=str(kwargs["variant_key"]),
+        principal_id=str(kwargs["principal_id"]),
+    )
+    bundle_dir = tmp_path / slug
+    product_service._write_hosted_property_tour_payload(
+        bundle_dir,
+        {
+            "slug": slug,
+            "principal_id": kwargs["principal_id"],
+            "title": "Previous owned bundle",
+            "scene_count": 1,
+            "scene_strategy": "layout_first",
+            "creation_mode": "hosted_property_tour",
+            "publication_status": "ready",
+            "scenes": [{"name": "Previous", "role": "photo", "image_url": ""}],
+            "facts": {},
+        },
+    )
+    (bundle_dir / "previous-asset.bin").write_bytes(b"preserve-me")
+
+    def _fail_after_partial_write(**_kwargs: object) -> dict[str, object]:
+        product_service._write_hosted_property_tour_payload(
+            bundle_dir,
+            {
+                "slug": slug,
+                "principal_id": kwargs["principal_id"],
+                "title": kwargs["title"],
+                "scene_count": 1,
+                "scene_strategy": "generated_reconstruction",
+                "creation_mode": "generated_reconstruction_tour",
+                "publication_status": "generating",
+                "scenes": [],
+                "facts": {"has_floorplan": True},
+            },
+        )
+        raise RuntimeError("render_failed")
+
+    monkeypatch.setattr(
+        product_service,
+        "_write_generated_reconstruction_property_tour_bundle_unchecked",
+        _fail_after_partial_write,
+    )
+    real_replace = os.replace
+
+    def _replace_with_restore_failure(
+        source: object,
+        destination: object,
+        *args: object,
+        **replace_kwargs: object,
+    ) -> None:
+        if Path(source).name == "previous-bundle" and Path(destination) == bundle_dir:
+            raise OSError("injected restore failure")
+        real_replace(source, destination, *args, **replace_kwargs)
+
+    monkeypatch.setattr(product_service.os, "replace", _replace_with_restore_failure)
+
+    with pytest.raises(RuntimeError, match="property_reconstruction_rollback_failed:restore"):
+        product_service._write_generated_reconstruction_property_tour_bundle(**kwargs)
+
+    control_root = tmp_path.parent / f".{tmp_path.name}.publication-control"
+    transactions = list((control_root / "transactions").iterdir())
+    assert len(transactions) == 1
+    recovery_dir = transactions[0]
+    assert (recovery_dir / "previous-bundle" / "previous-asset.bin").read_bytes() == b"preserve-me"
+    assert (recovery_dir / "failed-bundle" / "tour.json").is_file()
+    assert not bundle_dir.exists()
+
+
+def test_generated_reconstruction_same_slug_publication_serializes_and_reuses_ready_bundle(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    kwargs = _generated_reconstruction_transaction_kwargs()
+    monkeypatch.setattr(product_service, "_public_tour_dir", lambda: tmp_path)
+    monkeypatch.setattr(product_service, "_hosted_property_tour_public_base_url", lambda: "/tours")
+    slug = product_service._make_hosted_property_tour_slug(
+        title=str(kwargs["title"]),
+        listing_id=str(kwargs["listing_id"]),
+        property_url=str(kwargs["property_url"]),
+        variant_key=str(kwargs["variant_key"]),
+        principal_id=str(kwargs["principal_id"]),
+    )
+    bundle_dir = tmp_path / slug
+
+    def _bundle_ready(_tour_url: str) -> bool:
+        try:
+            payload = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
+        except Exception:
+            return False
+        return isinstance(payload, dict) and payload.get("publication_status") == "ready"
+
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_generated_reconstruction_bundle_ready",
+        _bundle_ready,
+    )
+    def _existing_ready_payload(**lookup_kwargs: object) -> dict[str, object]:
+        del lookup_kwargs
+        if not _bundle_ready(""):
+            return {}
+        payload = product_service._load_hosted_property_tour_payload(
+            bundle_dir,
+            principal_id=str(kwargs["principal_id"]),
+        )
+        return {
+            **payload,
+            "generated_reconstruction": {
+                "viewer_version": product_service._PROPERTY_RECONSTRUCTION_VIEWER_VERSION,
+            },
+        }
+
+    monkeypatch.setattr(
+        product_service,
+        "_existing_owned_hosted_property_tour_payload",
+        _existing_ready_payload,
+    )
+    entered = threading.Event()
+    release = threading.Event()
+    state_lock = threading.Lock()
+    render_calls = 0
+    active_renders = 0
+    max_active_renders = 0
+
+    def _complete_render(**_kwargs: object) -> dict[str, object]:
+        nonlocal render_calls, active_renders, max_active_renders
+        with state_lock:
+            render_calls += 1
+            active_renders += 1
+            max_active_renders = max(max_active_renders, active_renders)
+        entered.set()
+        try:
+            if not release.wait(timeout=5):
+                raise RuntimeError("test_render_release_timeout")
+            product_service._write_hosted_property_tour_payload(
+                bundle_dir,
+                {
+                    "slug": slug,
+                    "principal_id": kwargs["principal_id"],
+                    "title": kwargs["title"],
+                    "scene_count": 1,
+                    "scene_strategy": "generated_reconstruction",
+                    "creation_mode": "generated_reconstruction_tour",
+                    "publication_status": "generating",
+                    "scenes": [{"name": "Layout", "role": "diorama", "image_url": ""}],
+                    "facts": {"has_floorplan": True},
+                    "generated_reconstruction": {
+                        "viewer_version": product_service._PROPERTY_RECONSTRUCTION_VIEWER_VERSION,
+                    },
+                },
+            )
+            return product_service._load_hosted_property_tour_payload(
+                bundle_dir,
+                principal_id=str(kwargs["principal_id"]),
+            )
+        finally:
+            with state_lock:
+                active_renders -= 1
+
+    monkeypatch.setattr(
+        product_service,
+        "_write_generated_reconstruction_property_tour_bundle_unchecked",
+        _complete_render,
+    )
+    results: list[dict[str, object]] = []
+    errors: list[BaseException] = []
+
+    def _publish() -> None:
+        try:
+            results.append(product_service._write_generated_reconstruction_property_tour_bundle(**kwargs))
+        except BaseException as exc:  # pragma: no cover - asserted below
+            errors.append(exc)
+
+    first = threading.Thread(target=_publish)
+    second = threading.Thread(target=_publish)
+    first.start()
+    assert entered.wait(timeout=5)
+    second.start()
+    time.sleep(0.05)
+    with state_lock:
+        assert render_calls == 1
+        assert max_active_renders == 1
+    release.set()
+    first.join(timeout=5)
+    second.join(timeout=5)
+
+    assert not first.is_alive()
+    assert not second.is_alive()
+    assert errors == []
+    assert len(results) == 2
+    assert all(result.get("publication_status") == "ready" for result in results)
+    assert render_calls == 1
+    assert max_active_renders == 1
+
+
+def test_public_tour_routes_reject_hidden_transaction_like_slugs(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    hidden_bundle = tmp_path / ".publication-transaction"
+    hidden_bundle.mkdir()
+    (hidden_bundle / "tour.json").write_text('{"publication_status":"ready"}', encoding="utf-8")
+
+    for resolver in (public_tour_routes._resolved_tour_bundle, public_tour_routes._tour_path):
+        with pytest.raises(HTTPException) as raised:
+            resolver(".publication-transaction")
+        assert raised.value.status_code == 404
+        assert raised.value.detail == "tour_not_found"
 
 
 @pytest.fixture(autouse=True)
@@ -5080,6 +5593,182 @@ def test_property_scout_fit_over_60_does_not_auto_render_magicfit_flythrough_by_
     assert candidate["flythrough_status"] == "skipped"
     assert candidate["flythrough_provider"] == ""
     assert candidate["flythrough_url"] == ""
+
+
+@pytest.mark.parametrize(
+    ("cached_floorplan_available", "expected_detail_fetches"),
+    ((True, 0), (False, 1)),
+)
+def test_property_scout_shortlist_uses_cached_or_required_floorplan_detail_when_fast_title_is_real(
+    monkeypatch,
+    cached_floorplan_available: bool,
+    expected_detail_fetches: int,
+) -> None:
+    principal_id = "cf-email:derstandard-floorplan-cache@example.com"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Scout Floorplan Cache Office")
+    source_url = "https://immobilien.derstandard.at/suche/mieten/wien"
+    property_url = "https://immobilien.derstandard.at/detail/15201500"
+    floorplan_url = "https://i.prod.mp-dst.onyx60.com/plain/floorplan-15201500.jpg"
+    monkeypatch.setattr(
+        product_service,
+        "generated_property_source_specs",
+        lambda *, preferences, selected_platforms, principal_id, default_person_id, max_results: (
+            {
+                "url": source_url,
+                "label": "DER STANDARD Immobilien",
+                "platform": "derstandard_at",
+                "principal_id": principal_id,
+                "preference_person_id": default_person_id,
+                "notify_telegram": False,
+                "max_results": 1,
+            },
+        ),
+    )
+    monkeypatch.setattr(product_service, "_property_scout_fetch_html", lambda *args, **kwargs: "<html></html>")
+    monkeypatch.setattr(product_service, "_property_scout_extract_listing_urls", lambda **kwargs: (property_url,))
+    fast_preview = {
+        "listing_id": "immobilien.derstandard.at:15201500",
+        "title": "Wohnung mieten in 1220 Wien | 57.23 m² | 2 Zimmer",
+        "summary": "Two-room rental with balcony.",
+        "property_facts_json": {
+            "property_type": "apartment",
+            "area_sqm": 57.23,
+            "price_eur": 1490,
+            "listing_status": "active",
+            "has_floorplan": False,
+            "floorplan_count": 0,
+        },
+    }
+    rich_preview = {
+        **fast_preview,
+        "floorplan_urls_json": [floorplan_url],
+        "media_urls_json": ["https://i.prod.mp-dst.onyx60.com/plain/living-room.jpg"],
+        "property_facts_json": {
+            **dict(fast_preview["property_facts_json"]),
+            "has_floorplan": True,
+            "floorplan_count": 1,
+            "floorplan_urls_json": [floorplan_url],
+            "floorplan_detection_method": "gallery_image_classifier",
+        },
+    }
+    cached_preview = (
+        {
+            **dict(rich_preview),
+            "title": "Stale cached listing title",
+            "summary": "Stale cached summary.",
+            "property_facts_json": {
+                **dict(rich_preview["property_facts_json"]),
+                "price_eur": 990,
+                "listing_status": "withdrawn",
+                "cached_supplemental_fact": "preserve-if-missing",
+            },
+        }
+        if cached_floorplan_available
+        else {
+            **fast_preview,
+            "media_urls_json": ["https://i.prod.mp-dst.onyx60.com/plain/living-room.jpg"],
+            "property_facts_json": dict(fast_preview["property_facts_json"]),
+        }
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_warm_property_public_preview_cache_for_sources",
+        lambda self, **kwargs: {
+            "enabled": False,
+            "warmed_total": 0,
+            "sources_touched": 0,
+            "worker_concurrency": 1,
+        },
+    )
+
+    def _prefetch_fast_preview(self, *, source_jobs, **kwargs):
+        job = dict(source_jobs[0])
+        source_key = (str(job.get("platform") or ""), str(job.get("__source_url__") or ""))
+        return {
+            "source_results": {
+                source_key: {
+                    "previews": {property_url: dict(fast_preview)},
+                    "errors": {},
+                }
+            },
+            "cache_hit_total": 0,
+            "cache_refresh_total": 0,
+            "worker_concurrency": 1,
+        }
+
+    monkeypatch.setattr(ProductService, "_prefetch_property_public_previews_for_sources", _prefetch_fast_preview)
+    monkeypatch.setattr(
+        ProductService,
+        "_property_public_preview_cache_lookup",
+        lambda self, **kwargs: dict(cached_preview),
+    )
+    detailed_fetches: list[str] = []
+
+    def _unexpected_detail_fetch(url: str, *, prefer_fast: bool = False):
+        detailed_fetches.append(url)
+        return dict(rich_preview)
+
+    monkeypatch.setattr(product_service, "_property_scout_page_preview_with_timeout", _unexpected_detail_fetch)
+    assessed_facts: list[dict[str, object]] = []
+
+    def _assess_candidate(**kwargs):
+        assessed_facts.append(dict(kwargs.get("object_payload") or {}))
+        return {
+            "fit_score": 39.0,
+            "confidence": 0.8,
+            "predicted_reaction": "consider",
+            "recommendation": "review",
+            "match_reasons_json": ["Relevant Vienna rental."],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+            "blocking_constraints_json": [],
+        }
+
+    monkeypatch.setattr(
+        client.app.state.container.preference_profiles,
+        "assess_candidate",
+        _assess_candidate,
+    )
+    service = product_service.build_product_service(client.app.state.container)
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("derstandard_at",),
+        property_search_preferences={
+            "property_type": "apartment",
+            "listing_mode": "rent",
+            "search_mode": "discovery",
+            "require_floorplan": True,
+            "min_match_score": 1,
+            "property_commercial": {
+                "active_plan_key": "plus",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+        },
+        max_results_per_source=1,
+        force_refresh=True,
+    )
+
+    assert result["listing_total"] == 1
+    assert result["require_floorplan"] is True
+    assert detailed_fetches == [property_url] * expected_detail_fetches
+    enriched_assessment = next(
+        facts for facts in assessed_facts if facts.get("has_floorplan") is True
+    )
+    assert enriched_assessment["floorplan_count"] == 1
+    assert enriched_assessment["floorplan_urls_json"] == [floorplan_url]
+    candidate = result["sources"][0]["top_candidates"][0]
+    assert candidate["title"] == fast_preview["title"]
+    assert candidate["property_facts"]["price_eur"] == 1490
+    assert candidate["property_facts"]["listing_status"] == "active"
+    assert candidate["property_facts"]["has_floorplan"] is True
+    assert (
+        candidate["property_facts"].get("cached_supplemental_fact")
+        == ("preserve-if-missing" if cached_floorplan_available else None)
+    )
 
 
 def test_property_scout_require_floorplan_filters_before_shortlist_and_prebuilds_tour(monkeypatch) -> None:
@@ -11219,6 +11908,7 @@ def test_property_scout_page_preview_detects_unlabelled_gallery_floorplan_image(
     listing_url = "https://www.kalandra.at/objekt/plain-gallery-floorplan"
     photo_url = "https://storage.justimmo.at/thumb/interior-01.jpg"
     plan_url = "https://storage.justimmo.at/thumb/gallery-35.jpg"
+    broker_logo_url = "https://storage.justimmo.at/thumb/broker-wordmark.jpg"
     image = product_service.Image.new("RGB", (900, 620), "white")
     draw = ImageDraw.Draw(image)
     for offset in (40, 90, 150, 220, 300, 390, 500, 610, 740):
@@ -11236,6 +11926,12 @@ def test_property_scout_page_preview_detects_unlabelled_gallery_floorplan_image(
     draw.text((160, 440), "Wohnzimmer", fill="black")
     plan_bytes = io.BytesIO()
     image.save(plan_bytes, format="PNG")
+    broker_logo = product_service.Image.new("RGB", (266, 146), "white")
+    broker_logo_draw = ImageDraw.Draw(broker_logo)
+    for offset in (15, 65, 115, 165, 215):
+        broker_logo_draw.rectangle((offset, 10, offset + 30, 100), fill="black")
+    broker_logo_bytes = io.BytesIO()
+    broker_logo.save(broker_logo_bytes, format="PNG")
 
     monkeypatch.setattr(
         product_service,
@@ -11246,6 +11942,7 @@ def test_property_scout_page_preview_detects_unlabelled_gallery_floorplan_image(
               <body>
                 <img alt="Bild 1" src="{photo_url}">
                 <img alt="Bild 35" src="{plan_url}">
+                <img alt="Maklerlogo" src="{broker_logo_url}">
               </body>
             </html>
         """,
@@ -11254,6 +11951,8 @@ def test_property_scout_page_preview_detects_unlabelled_gallery_floorplan_image(
     def _download(url: str, *, timeout_seconds: float = 5.0, max_bytes: int = 0) -> tuple[bytes, str]:
         if url == plan_url:
             return plan_bytes.getvalue(), "image/png"
+        if url == broker_logo_url:
+            return broker_logo_bytes.getvalue(), "image/png"
         return b"not-an-image", "image/jpeg"
 
     monkeypatch.setattr(product_service, "_property_scout_download_bytes", _download)

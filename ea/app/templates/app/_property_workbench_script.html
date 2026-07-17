@@ -3872,6 +3872,18 @@
     };
     initializeMobileFoldAccordions();
     window.addEventListener('resize', initializeMobileFoldAccordions);
+    const syncWhatMattersNativeAccordion = () => {
+      const panel = root.querySelector('[data-property-what-matters-panel]');
+      if (!(panel instanceof HTMLElement)) return;
+      const mobile = window.matchMedia('(max-width: 760px)').matches;
+      panel.querySelectorAll('details[data-what-matters-group]').forEach((details) => {
+        if (!(details instanceof HTMLDetailsElement)) return;
+        if (mobile) details.setAttribute('name', 'property-what-matters-mobile');
+        else if (details.getAttribute('name') === 'property-what-matters-mobile') details.removeAttribute('name');
+      });
+    };
+    syncWhatMattersNativeAccordion();
+    window.addEventListener('resize', syncWhatMattersNativeAccordion);
     bindMobileAccordionPanels({ selector: 'details[data-what-matters-group]', container: root });
     const preferredWhatMattersAccordionPanel = (container) => {
       if (!(container instanceof HTMLElement)) return null;
@@ -4095,9 +4107,13 @@
         }
         if (actions) actions.hidden = current !== visibleSteps.length - 1;
         if (!silent && stepNav && typeof stepNav.scrollIntoView === 'function') {
-          window.requestAnimationFrame(() => {
-            stepNav.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' });
-          });
+          if (isMobileSearch || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+            stepNav.scrollIntoView({ behavior: 'auto', block: 'start', inline: 'nearest' });
+          } else {
+            window.requestAnimationFrame(() => {
+              stepNav.scrollIntoView({ behavior: 'smooth', block: 'start', inline: 'nearest' });
+            });
+          }
         }
         if (!silent) {
           form.dispatchEvent(new CustomEvent('propertyquarry:stepchange', { detail: { step: stepKey } }));

@@ -20399,6 +20399,10 @@ def test_property_shortlist_surface_keeps_results_first_and_restores_desktop_rev
     assert "provisional_facts.get('price_eur')" in body
     assert 'data-candidate-listing-url="${escapeHtml(propertyUrl)}"' in body
     assert "const openRowTarget = () => {" not in body
+    assert 'packetUrl ? `<a class="pqx-result-open" href="${escapeHtml(packetUrl)}">Open property</a>`' in body
+    assert 'data-rybbit-prop-cta-key="open_listing" data-rybbit-prop-surface="selected_review">Open listing</a>' in body
+    assert "const interactiveTarget = event.target?.closest?.('a, button, [data-pqx-scope-open]');" in body
+    assert "if (interactiveTarget && interactiveTarget !== row) return;" in body
     assert "selectCandidate(row.getAttribute('data-candidate-ref'));" in body
     assert "event.key !== 'Enter' && event.key !== ' '" in body
     assert 'aria-label="Account navigation"' in body
@@ -21476,11 +21480,11 @@ def test_propertyquarry_running_surface_exposes_full_history_fold_when_recent_ru
 
 
 def test_property_lookup_candidate_across_runs_collects_recent_run_ids_without_hydrating(monkeypatch) -> None:
-    observed_calls: list[tuple[str, int, bool]] = []
+    observed_calls: list[tuple[str, int]] = []
 
     class _StubProduct:
-        def list_property_search_runs(self, *, principal_id: str, limit: int = 8, hydrate: bool = True):
-            observed_calls.append((principal_id, limit, hydrate))
+        def list_property_search_runs(self, *, principal_id: str, limit: int = 8):
+            observed_calls.append((principal_id, limit))
             return [{"run_id": "run-recent-1"}]
 
         def get_property_search_run_status(self, *, principal_id: str, run_id: str):
@@ -21506,9 +21510,372 @@ def test_property_lookup_candidate_across_runs_collects_recent_run_ids_without_h
         max_runs=3,
     )
 
-    assert observed_calls == [("pq-research-cross-run", 3, False)]
+    assert observed_calls == [("pq-research-cross-run", 3)]
     assert matched_run_id == "run-recent-1"
     assert candidate == {"candidate_ref": "perf-candidate-1020"}
+
+
+def test_property_lookup_candidate_across_runs_resolves_compact_candidate_without_full_status() -> None:
+    full_status_calls: list[str] = []
+    candidate = {
+        "candidate_ref": "compact-candidate-1020",
+        "title": "Compact candidate",
+        "property_url": "https://example.test/compact-candidate-1020",
+    }
+
+    class _CompactProduct:
+        def list_property_search_runs(
+            self,
+            *,
+            principal_id: str,
+            limit: int = 8,
+            hydrate: bool = True,
+            account_email: str = "",
+        ):
+            assert principal_id == "pq-research-compact-hit"
+            assert limit == 3
+            assert hydrate is False
+            assert account_email == "workspace@example.test"
+            return [
+                {
+                    "run_id": "run-compact-hit",
+                    "status": "processed",
+                    "summary": {"ranked_candidates": [candidate]},
+                }
+            ]
+
+        def get_property_search_run_status(self, *, principal_id: str, run_id: str, **kwargs):
+            del principal_id, kwargs
+            full_status_calls.append(run_id)
+            raise AssertionError("compact candidate lookup must not hydrate full run status")
+
+    resolved, matched_run_id = landing_routes._property_lookup_candidate_across_runs(
+        _CompactProduct(),
+        principal_id="pq-research-compact-hit",
+        access_email="workspace@example.test",
+        candidate_ref="compact-candidate-1020",
+        max_runs=3,
+    )
+
+    assert resolved is not None
+    assert resolved["candidate_ref"] == "compact-candidate-1020"
+    assert matched_run_id == "run-compact-hit"
+    assert full_status_calls == []
+
+
+def test_property_lookup_candidate_across_runs_unknown_compact_projection_uses_bounded_full_status() -> None:
+    full_status_calls: list[str] = []
+
+    class _CompactProduct:
+        def list_property_search_runs(
+            self,
+            *,
+            principal_id: str,
+            limit: int = 8,
+            hydrate: bool = True,
+            account_email: str = "",
+        ):
+            assert principal_id == "pq-research-compact-miss"
+            assert hydrate is False
+            del limit, account_email
+            return [
+                {
+                    "run_id": "run-compact-miss",
+                    "status": "processed",
+                    "summary": {
+                        "ranked_candidates": [
+                            {
+                                "candidate_ref": "different-candidate",
+                                "title": "Different candidate",
+                                "property_url": "https://example.test/different-candidate",
+                            }
+                        ]
+                    },
+                }
+            ]
+
+        def get_property_search_run_status(self, *, principal_id: str, run_id: str, **kwargs):
+            del principal_id, kwargs
+            full_status_calls.append(run_id)
+            return {
+                "run_id": run_id,
+                "status": "processed",
+                "summary": {
+                    "ranked_candidates": [
+                        {
+                            "candidate_ref": "different-candidate",
+                            "title": "Different candidate",
+                            "property_url": "https://example.test/different-candidate",
+                        }
+                    ]
+                },
+            }
+
+    resolved, matched_run_id = landing_routes._property_lookup_candidate_across_runs(
+        _CompactProduct(),
+        principal_id="pq-research-compact-miss",
+        candidate_ref="missing-compact-candidate",
+        max_runs=3,
+    )
+
+    assert resolved is None
+    assert matched_run_id == ""
+    assert full_status_calls == ["run-compact-miss"]
+
+
+def test_property_lookup_candidate_across_runs_complete_compact_miss_skips_full_status() -> None:
+    full_status_calls: list[str] = []
+
+    class _CompleteCompactProduct:
+        def list_property_search_runs(self, **_kwargs):
+            return [
+                {
+                    "run_id": "run-complete-compact",
+                    "status": "processed",
+                    "summary": {
+                        "ranked_total": 1,
+                        "ranked_candidates": [
+                            {
+                                "candidate_ref": "different-candidate",
+                                "title": "Different candidate",
+                                "property_url": "https://example.test/different-candidate",
+                            }
+                        ],
+                    },
+                }
+            ]
+
+        def get_property_search_run_status(self, *, run_id: str, **_kwargs):
+            full_status_calls.append(run_id)
+            raise AssertionError("complete compact projections must not be hydrated")
+
+    resolved, matched_run_id = landing_routes._property_lookup_candidate_across_runs(
+        _CompleteCompactProduct(),
+        principal_id="pq-research-complete-compact-miss",
+        candidate_ref="missing-compact-candidate",
+        max_runs=3,
+    )
+
+    assert resolved is None
+    assert matched_run_id == ""
+    assert full_status_calls == []
+
+
+def test_property_lookup_candidate_across_runs_legacy_link_hydrates_truncated_projection() -> None:
+    full_status_calls: list[str] = []
+    target = {
+        "candidate_ref": "legacy-candidate-outside-projection",
+        "title": "Legacy candidate",
+        "property_url": "https://example.test/legacy-candidate",
+    }
+
+    class _TruncatedCompactProduct:
+        def list_property_search_runs(self, **_kwargs):
+            return [
+                {
+                    "run_id": "run-truncated-legacy",
+                    "status": "processed",
+                    "summary": {
+                        "ranked_total": 2,
+                        "ranked_candidates": [
+                            {
+                                "candidate_ref": "compact-candidate",
+                                "title": "Compact candidate",
+                                "property_url": "https://example.test/compact-candidate",
+                            }
+                        ],
+                    },
+                }
+            ]
+
+        def get_property_search_run_status(self, *, run_id: str, **_kwargs):
+            full_status_calls.append(run_id)
+            return {
+                "run_id": run_id,
+                "status": "processed",
+                "summary": {"ranked_candidates": [target]},
+            }
+
+    resolved, matched_run_id = landing_routes._property_lookup_candidate_across_runs(
+        _TruncatedCompactProduct(),
+        principal_id="pq-research-legacy-truncated",
+        candidate_ref="legacy-candidate-outside-projection",
+        max_runs=12,
+    )
+
+    assert resolved is not None
+    assert resolved["candidate_ref"] == target["candidate_ref"]
+    assert resolved["title"] == target["title"]
+    assert resolved["property_url"] == target["property_url"]
+    assert matched_run_id == "run-truncated-legacy"
+    assert full_status_calls == ["run-truncated-legacy"]
+
+
+def test_property_lookup_candidate_across_runs_hydrates_explicit_run_when_compact_projection_is_truncated() -> None:
+    full_status_calls: list[str] = []
+    compact_candidates = [
+        {
+            "candidate_ref": f"compact-candidate-{index}",
+            "title": f"Compact candidate {index}",
+            "property_url": f"https://example.test/compact-candidate-{index}",
+        }
+        for index in range(40)
+    ]
+    target_candidate = {
+        "candidate_ref": "candidate-outside-compact-projection",
+        "title": "Candidate outside compact projection",
+        "property_url": "https://example.test/candidate-outside-compact-projection",
+    }
+
+    class _TruncatedCompactProduct:
+        def list_property_search_runs(
+            self,
+            *,
+            principal_id: str,
+            limit: int = 8,
+            hydrate: bool = True,
+            account_email: str = "",
+        ):
+            assert principal_id == "pq-research-explicit-truncated"
+            assert hydrate is False
+            del limit, account_email
+            return [
+                {
+                    "run_id": "run-explicit-truncated",
+                    "status": "processed",
+                    "summary": {
+                        "ranked_total": 41,
+                        "ranked_candidates": compact_candidates,
+                    },
+                }
+            ]
+
+        def get_property_search_run_status(self, *, principal_id: str, run_id: str, **kwargs):
+            assert principal_id == "pq-research-explicit-truncated"
+            del kwargs
+            full_status_calls.append(run_id)
+            return {
+                "run_id": run_id,
+                "status": "processed",
+                "summary": {"ranked_candidates": [*compact_candidates, target_candidate]},
+            }
+
+    resolved, matched_run_id = landing_routes._property_lookup_candidate_across_runs(
+        _TruncatedCompactProduct(),
+        principal_id="pq-research-explicit-truncated",
+        candidate_ref="candidate-outside-compact-projection",
+        run_id="run-explicit-truncated",
+        max_runs=3,
+    )
+
+    assert resolved is not None
+    assert resolved["candidate_ref"] == "candidate-outside-compact-projection"
+    assert matched_run_id == "run-explicit-truncated"
+    assert full_status_calls == ["run-explicit-truncated"]
+
+
+def test_property_lookup_candidate_across_runs_hydrates_explicit_run_absent_from_compact_listing() -> None:
+    full_status_calls: list[str] = []
+    target_candidate = {
+        "candidate_ref": "candidate-from-older-explicit-run",
+        "title": "Candidate from older explicit run",
+        "property_url": "https://example.test/candidate-from-older-explicit-run",
+    }
+
+    class _RecentCompactProduct:
+        def list_property_search_runs(
+            self,
+            *,
+            principal_id: str,
+            limit: int = 8,
+            hydrate: bool = True,
+            account_email: str = "",
+        ):
+            assert principal_id == "pq-research-explicit-older-run"
+            assert hydrate is False
+            del limit, account_email
+            return [
+                {
+                    "run_id": "run-recent-without-target",
+                    "status": "processed",
+                    "summary": {
+                        "ranked_candidates": [
+                            {
+                                "candidate_ref": "different-recent-candidate",
+                                "title": "Different recent candidate",
+                                "property_url": "https://example.test/different-recent-candidate",
+                            }
+                        ]
+                    },
+                }
+            ]
+
+        def get_property_search_run_status(self, *, principal_id: str, run_id: str, **kwargs):
+            assert principal_id == "pq-research-explicit-older-run"
+            del kwargs
+            full_status_calls.append(run_id)
+            assert run_id == "run-explicit-older"
+            return {
+                "run_id": run_id,
+                "status": "processed",
+                "summary": {"ranked_candidates": [target_candidate]},
+            }
+
+    resolved, matched_run_id = landing_routes._property_lookup_candidate_across_runs(
+        _RecentCompactProduct(),
+        principal_id="pq-research-explicit-older-run",
+        candidate_ref="candidate-from-older-explicit-run",
+        run_id="run-explicit-older",
+        max_runs=3,
+    )
+
+    assert resolved is not None
+    assert resolved["candidate_ref"] == "candidate-from-older-explicit-run"
+    assert matched_run_id == "run-explicit-older"
+    assert full_status_calls == ["run-explicit-older"]
+
+
+def test_property_lookup_candidate_across_runs_stale_explicit_run_falls_back_with_shared_hydration_bound() -> None:
+    full_status_calls: list[str] = []
+    target_candidate = {
+        "candidate_ref": "candidate-from-bounded-fallback",
+        "title": "Candidate from bounded fallback",
+        "property_url": "https://example.test/candidate-from-bounded-fallback",
+    }
+
+    class _LegacyProduct:
+        def list_property_search_runs(self, *, principal_id: str, limit: int = 8):
+            assert principal_id == "pq-research-stale-explicit"
+            assert limit == 12
+            return [
+                {"run_id": "run-stale", "summary": {"ranked_candidates": []}},
+                {"run_id": "run-recent-1", "summary": {"ranked_candidates": []}},
+                {"run_id": "run-recent-2", "summary": {"ranked_candidates": []}},
+                {"run_id": "run-outside-bound", "summary": {"ranked_candidates": []}},
+            ]
+
+        def get_property_search_run_status(self, *, principal_id: str, run_id: str):
+            assert principal_id == "pq-research-stale-explicit"
+            full_status_calls.append(run_id)
+            return {
+                "run_id": run_id,
+                "summary": {
+                    "ranked_candidates": [target_candidate] if run_id == "run-recent-2" else [],
+                },
+            }
+
+    resolved, matched_run_id = landing_routes._property_lookup_candidate_across_runs(
+        _LegacyProduct(),
+        principal_id="pq-research-stale-explicit",
+        candidate_ref="candidate-from-bounded-fallback",
+        run_id="run-stale",
+        max_runs=12,
+    )
+
+    assert resolved is not None
+    assert resolved["candidate_ref"] == target_candidate["candidate_ref"]
+    assert matched_run_id == "run-recent-2"
+    assert full_status_calls == ["run-stale", "run-recent-1", "run-recent-2"]
 
 
 def test_property_research_packet_prefers_saved_shortlist_before_cross_run_scan(monkeypatch) -> None:

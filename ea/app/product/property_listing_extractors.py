@@ -164,7 +164,17 @@ def _property_scout_image_looks_like_floorplan(payload: bytes) -> tuple[bool, di
         )
         if marker in normalized_ocr
     )
-    plan_like_geometry = edge_mean >= 10.0 and light_ratio >= 0.42 and 0.01 <= dark_ratio <= 0.42 and avg_saturation <= 62.0
+    # Tiny broker marks and wordmark logos can have the same high-contrast,
+    # low-saturation geometry as a plan.  Gallery floorplans are expected to
+    # retain enough spatial resolution for review; keep the OCR path below as
+    # the escape hatch for genuinely labelled small plan thumbnails.
+    plan_like_geometry = (
+        min(width, height) >= 240
+        and edge_mean >= 10.0
+        and light_ratio >= 0.42
+        and 0.01 <= dark_ratio <= 0.42
+        and avg_saturation <= 62.0
+    )
     light_scan_like_plan = (
         edge_mean >= 13.0
         and light_ratio >= 0.78
@@ -183,7 +193,7 @@ def _property_scout_image_looks_like_floorplan(payload: bytes) -> tuple[bool, di
         "avg_saturation": round(avg_saturation, 2),
         "room_word_hits": room_word_hits,
         "ocr_used": bool(ocr_text),
-        "classifier": "geometry_or_ocr_floorplan_v1",
+        "classifier": "geometry_or_ocr_floorplan_v2",
     }
 
 

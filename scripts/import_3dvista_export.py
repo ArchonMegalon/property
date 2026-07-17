@@ -6,6 +6,7 @@ import contextlib
 import json
 import os
 import shutil
+import stat
 import tempfile
 import zipfile
 from datetime import datetime, timezone
@@ -15,6 +16,7 @@ if __package__:
     from .property_tour_3dvista_provenance import (
         THREE_D_VISTA_PROVENANCE_FILENAMES,
         find_3dvista_provenance_receipt,
+        export_tree_sha256,
         load_json_object,
         sha256_file,
         validate_3dvista_target_provenance,
@@ -23,6 +25,7 @@ else:
     from property_tour_3dvista_provenance import (
         THREE_D_VISTA_PROVENANCE_FILENAMES,
         find_3dvista_provenance_receipt,
+        export_tree_sha256,
         load_json_object,
         sha256_file,
         validate_3dvista_target_provenance,
@@ -146,6 +149,196 @@ def _write_json_private(path: Path, payload: dict[str, object]) -> None:
     path.chmod(0o600)
 
 
+def _normalize_web_readable_export_tree(
+    *, bundle_dir: Path, export_dir: Path
+) -> dict[str, object]:
+    """Normalize only the owned public export subtree and verify every node."""
+
+    bundle_root = bundle_dir.resolve()
+    if export_dir.is_symlink():
+        raise SystemExit("3dvista_export_permissions_invalid:symlink_root")
+    try:
+        export_root = export_dir.resolve()
+    except (OSError, RuntimeError) as exc:
+        raise SystemExit(
+            f"3dvista_export_permissions_invalid:{type(exc).__name__}"
+        ) from exc
+    if bundle_root not in export_root.parents or not export_root.is_dir():
+        raise SystemExit("3dvista_export_permissions_invalid:outside_owned_bundle")
+
+    directory_count = 0
+    file_count = 0
+
+    def _walk_error(error: OSError) -> None:
+        raise error
+
+    try:
+        export_root.chmod(0o755)
+        for current_root, directory_names, file_names in os.walk(
+            export_root, topdown=True, followlinks=False, onerror=_walk_error
+        ):
+            current = Path(current_root)
+            if current.is_symlink() or not stat.S_ISDIR(current.lstat().st_mode):
+                raise SystemExit("3dvista_export_permissions_invalid:non_directory")
+            current.chmod(0o755)
+            directory_count += 1
+            for name in directory_names:
+                directory = current / name
+                metadata = directory.lstat()
+                if directory.is_symlink() or not stat.S_ISDIR(metadata.st_mode):
+                    raise SystemExit("3dvista_export_permissions_invalid:symlink_or_special")
+                # chmod before os.walk descends so a 0700/000 vendor export can
+                # be made traversable by the unprivileged web process.
+                directory.chmod(0o755)
+            for name in file_names:
+                file_path = current / name
+                metadata = file_path.lstat()
+                if file_path.is_symlink() or not stat.S_ISREG(metadata.st_mode):
+                    raise SystemExit("3dvista_export_permissions_invalid:symlink_or_special")
+                file_path.chmod(0o644)
+                file_count += 1
+    except SystemExit:
+        raise
+    except OSError as exc:
+        raise SystemExit(
+            f"3dvista_export_permissions_invalid:{type(exc).__name__}"
+        ) from exc
+
+    try:
+        for current_root, directory_names, file_names in os.walk(
+            export_root, topdown=True, followlinks=False, onerror=_walk_error
+        ):
+            current = Path(current_root)
+            if current.stat().st_mode & 0o777 != 0o755:
+                raise SystemExit("3dvista_export_permissions_invalid:directory_mode")
+            for name in directory_names:
+                if (current / name).stat().st_mode & 0o777 != 0o755:
+                    raise SystemExit("3dvista_export_permissions_invalid:directory_mode")
+            for name in file_names:
+                if (current / name).stat().st_mode & 0o777 != 0o644:
+                    raise SystemExit("3dvista_export_permissions_invalid:file_mode")
+    except SystemExit:
+        raise
+    except OSError as exc:
+        raise SystemExit(
+            f"3dvista_export_permissions_invalid:{type(exc).__name__}"
+        ) from exc
+
+    return {
+        "status": "pass",
+        "scope": export_root.relative_to(bundle_root).as_posix(),
+        "directories_mode": "0755",
+        "files_mode": "0644",
+        "directory_count": directory_count,
+        "file_count": file_count,
+    }
+
+
+def _attach_existing_target_provenance(
+    *,
+    slug: str,
+    bundle_dir: Path,
+    manifest_path: Path,
+    target_subdir: str,
+    explicit_entry: str,
+    provenance_receipt: str,
+) -> int:
+    """Bind a reviewed receipt to an already imported export without recopying it."""
+
+    target_dir = (bundle_dir / target_subdir).resolve()
+    if bundle_dir.resolve() not in target_dir.parents or not target_dir.is_dir():
+        raise SystemExit("3dvista_existing_export_missing")
+    permissions_receipt = _normalize_web_readable_export_tree(
+        bundle_dir=bundle_dir, export_dir=target_dir
+    )
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        raise SystemExit(f"invalid_tour_manifest:{type(exc).__name__}") from exc
+    if not isinstance(manifest, dict):
+        raise SystemExit("invalid_tour_manifest")
+
+    configured_entry = _safe_relpath(
+        explicit_entry or str(manifest.get("three_d_vista_entry_relpath") or "")
+    )
+    prefix = f"{target_subdir}/"
+    if configured_entry.startswith(prefix):
+        entry_rel_to_export = configured_entry[len(prefix) :]
+    elif explicit_entry:
+        entry_rel_to_export = configured_entry
+    else:
+        raise SystemExit("3dvista_existing_entry_invalid")
+    if not entry_rel_to_export:
+        raise SystemExit("3dvista_existing_entry_invalid")
+    entry = _find_entry(target_dir, entry_rel_to_export)
+    if not _entry_has_3dvista_markers(target_dir, entry):
+        raise SystemExit("3dvista_export_entry_unverified")
+    if _export_has_trial_branding(target_dir, entry):
+        raise SystemExit("3dvista_trial_branding_present")
+
+    provenance_path = (
+        Path(provenance_receipt).expanduser().resolve()
+        if str(provenance_receipt or "").strip()
+        else find_3dvista_provenance_receipt(target_dir)
+    )
+    if provenance_path is None or not provenance_path.is_file():
+        raise SystemExit("3dvista_target_provenance_missing")
+    raw_provenance = load_json_object(provenance_path)
+    normalized_provenance, provenance_errors = validate_3dvista_target_provenance(
+        raw_provenance,
+        target_slug=slug,
+        export_dir=target_dir,
+        entry_relpath=entry_rel_to_export,
+    )
+    if provenance_errors:
+        raise SystemExit(
+            f"3dvista_target_provenance_invalid:{','.join(provenance_errors)}"
+        )
+    tree_digest_before = export_tree_sha256(target_dir)
+    if not tree_digest_before:
+        raise SystemExit("3dvista_existing_export_unhashable")
+    # Recompute after receipt validation so an export replacement cannot be
+    # silently attached to the digest validated above.
+    tree_digest_stable = export_tree_sha256(target_dir)
+    if tree_digest_stable != tree_digest_before:
+        raise SystemExit("3dvista_existing_export_changed")
+
+    private_path = bundle_dir / "tour.private.json"
+    private_payload = load_json_object(private_path)
+    normalized_provenance["source_receipt_sha256"] = sha256_file(provenance_path)
+    normalized_provenance["attached_at"] = (
+        datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    )
+    normalized_provenance["target_subdir"] = target_subdir
+    private_payload["three_d_vista_target_provenance"] = normalized_provenance
+    private_payload["three_d_vista_export_permissions"] = {
+        **permissions_receipt,
+        "normalized_at": normalized_provenance["attached_at"],
+    }
+    _write_json_private(private_path, private_payload)
+
+    tree_digest_after = export_tree_sha256(target_dir)
+    if tree_digest_after != tree_digest_before:
+        private_payload.pop("three_d_vista_target_provenance", None)
+        _write_json_private(private_path, private_payload)
+        raise SystemExit("3dvista_existing_export_changed")
+    print(
+        json.dumps(
+            {
+                "status": "provenance_attached",
+                "slug": slug,
+                "entry_relpath": f"{target_subdir}/{entry_rel_to_export}",
+                "control_url": f"/tours/{slug}/control/3dvista",
+                "export_tree_sha256": tree_digest_after,
+                "provenance_schema": normalized_provenance["schema"],
+                "web_permissions": permissions_receipt,
+            },
+            ensure_ascii=False,
+        )
+    )
+    return 0
+
+
 def _safe_extract_zip(zip_path: Path, target_dir: Path) -> Path:
     if not zip_path.is_file():
         raise SystemExit("3dvista_export_zip_missing")
@@ -176,6 +369,14 @@ def main() -> int:
     parser.add_argument("--entry", default="", help="Optional entry HTML path relative to export-dir.")
     parser.add_argument("--target-subdir", default="3dvista", help="Subdirectory inside the tour bundle.")
     parser.add_argument(
+        "--attach-provenance-only",
+        action="store_true",
+        help=(
+            "Validate and attach a property-bound receipt to the existing target export "
+            "without recopying export bytes."
+        ),
+    )
+    parser.add_argument(
         "--provenance-receipt",
         default="",
         help=(
@@ -193,10 +394,26 @@ def main() -> int:
     slug = _safe_relpath(args.slug)
     if "/" in slug or not slug:
         raise SystemExit("invalid_tour_slug")
-    if bool(str(args.export_dir or "").strip()) == bool(str(args.export_zip or "").strip()):
+    has_export_dir = bool(str(args.export_dir or "").strip())
+    has_export_zip = bool(str(args.export_zip or "").strip())
+    if args.attach_provenance_only:
+        if has_export_dir or has_export_zip:
+            raise SystemExit("3dvista_attach_provenance_rejects_export_source")
+    elif has_export_dir == has_export_zip:
         raise SystemExit("3dvista_requires_export_dir_or_zip")
 
-    bundle_dir = _public_tour_dir() / slug
+    public_root = _public_tour_dir()
+    bundle_dir = public_root / slug
+    try:
+        bundle_root = bundle_dir.resolve()
+    except (OSError, RuntimeError) as exc:
+        raise SystemExit(f"tour_bundle_invalid:{type(exc).__name__}") from exc
+    if (
+        public_root not in bundle_root.parents
+        or bundle_dir.is_symlink()
+        or not bundle_dir.is_dir()
+    ):
+        raise SystemExit("tour_bundle_invalid")
     manifest_path = bundle_dir / "tour.json"
     if not manifest_path.is_file():
         raise SystemExit("tour_manifest_missing")
@@ -204,6 +421,16 @@ def main() -> int:
     target_dir = (bundle_dir / target_subdir).resolve()
     if bundle_dir.resolve() not in target_dir.parents:
         raise SystemExit("invalid_3dvista_target")
+
+    if args.attach_provenance_only:
+        return _attach_existing_target_provenance(
+            slug=slug,
+            bundle_dir=bundle_dir,
+            manifest_path=manifest_path,
+            target_subdir=target_subdir,
+            explicit_entry=str(args.entry or ""),
+            provenance_receipt=str(args.provenance_receipt or ""),
+        )
 
     with contextlib.ExitStack() as stack:
         if str(args.export_zip or "").strip():
@@ -238,6 +465,16 @@ def main() -> int:
             raise SystemExit(f"3dvista_target_provenance_invalid:{','.join(provenance_errors)}")
         provenance_receipt_sha256 = sha256_file(provenance_path)
         _copy_export(export_dir, target_dir)
+        permissions_receipt = _normalize_web_readable_export_tree(
+            bundle_dir=bundle_dir, export_dir=target_dir
+        )
+        target_tree_sha256 = export_tree_sha256(target_dir)
+        artifact = normalized_provenance.get("artifact")
+        expected_tree_sha256 = (
+            str(artifact.get("sha256") or "") if isinstance(artifact, dict) else ""
+        )
+        if not target_tree_sha256 or target_tree_sha256 != expected_tree_sha256:
+            raise SystemExit("3dvista_copied_export_digest_mismatch")
 
     entry_relpath = f"{target_subdir}/{entry_rel_to_export}"
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -281,6 +518,10 @@ def main() -> int:
     normalized_provenance["imported_at"] = imported_at
     normalized_provenance["target_subdir"] = target_subdir
     private_payload["three_d_vista_target_provenance"] = normalized_provenance
+    private_payload["three_d_vista_export_permissions"] = {
+        **permissions_receipt,
+        "normalized_at": imported_at,
+    }
     manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     _write_json_private(private_path, private_payload)
     print(
@@ -291,6 +532,8 @@ def main() -> int:
                 "entry_relpath": entry_relpath,
                 "control_url": f"/tours/{slug}/control/3dvista",
                 "provenance_schema": normalized_provenance["schema"],
+                "export_tree_sha256": target_tree_sha256,
+                "web_permissions": permissions_receipt,
             },
             ensure_ascii=False,
         )

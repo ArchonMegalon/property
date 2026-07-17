@@ -35,6 +35,229 @@ _remote_png_bytes = _GREENFIELD_MODULE._remote_png_bytes
 _video_frame_brightness = _GREENFIELD_MODULE._video_frame_brightness
 
 
+def _prepare_what_matters_toggle_probe(page) -> int:
+    page.locator('[data-property-step-trigger="children"]').click()
+    page.wait_for_function(
+        """() => document.querySelector(
+          '[data-console-form-variant="property_search"]'
+        )?.dataset.propertyActiveStep === 'children'"""
+    )
+    groups = page.locator(
+        "[data-property-what-matters-panel] details[data-what-matters-group]"
+    )
+    groups.first.wait_for(state="attached")
+    visible_group_indices = [
+        index
+        for index in range(groups.count())
+        if groups.nth(index).locator(":scope > summary").is_visible()
+    ]
+    if len(visible_group_indices) < 2:
+        diagnostics = page.evaluate(
+            """() => Array.from(document.querySelectorAll(
+              '[data-property-what-matters-panel] details[data-what-matters-group]'
+            )).map((details) => {
+              const field = details.closest('[data-property-field-step]');
+              const panel = details.closest('[data-property-what-matters-panel]');
+              return {
+                fieldStep: field?.getAttribute('data-property-field-step') || '',
+                fieldHidden: Boolean(field?.hidden),
+                fieldAriaHidden: field?.getAttribute('aria-hidden') || '',
+                panelHidden: Boolean(panel?.hidden),
+                panelDisplay: panel ? getComputedStyle(panel).display : '',
+                summaryDisplay: getComputedStyle(details.querySelector(':scope > summary')).display,
+              };
+            })"""
+        )
+        raise AssertionError(f"expected two visible What Matters groups: {diagnostics}")
+    for probe_index, group_index in enumerate(visible_group_indices):
+        groups.nth(group_index).evaluate(
+            "(details, index) => details.dataset.pqWhatMattersProbe = String(index)",
+            probe_index,
+        )
+    page.evaluate(
+        """() => {
+            document.querySelectorAll(
+              '[data-property-what-matters-panel] details[data-pq-what-matters-probe]'
+            ).forEach((details) => {
+              details.open = false;
+            });
+        }"""
+    )
+    # Native details toggle events are queued. Install the probe only after the
+    # reset has settled so each count belongs to a user interaction below.
+    page.wait_for_timeout(50)
+    page.evaluate(
+        """() => {
+            const groups = Array.from(document.querySelectorAll(
+              '[data-property-what-matters-panel] details[data-pq-what-matters-probe]'
+            ));
+            window.__pqWhatMattersToggleCounts = groups.map(() => 0);
+            groups.forEach((details, index) => {
+              details.addEventListener('toggle', () => {
+                window.__pqWhatMattersToggleCounts[index] += 1;
+              });
+            });
+        }"""
+    )
+    return len(visible_group_indices)
+
+
+def _what_matters_probe_state(page) -> dict[str, object]:
+    state = page.evaluate(
+        """() => {
+            const groups = Array.from(document.querySelectorAll(
+              '[data-property-what-matters-panel] details[data-pq-what-matters-probe]'
+            ));
+            return {
+              open: groups.map((details) => details.open),
+              names: groups.map((details) => details.getAttribute('name')),
+              counts: Array.from(window.__pqWhatMattersToggleCounts || []),
+              focusedSummaryIndex: groups.findIndex(
+                (details) => details.querySelector(':scope > summary') === document.activeElement
+              ),
+            };
+        }"""
+    )
+    assert isinstance(state, dict)
+    return state
+
+
+def test_propertyquarry_mobile_what_matters_is_single_panel_and_keyboard_stable(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=True, width=390, height=844)
+    page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/search", wait_until="networkidle")
+        assert response is not None and response.ok
+        group_count = _prepare_what_matters_toggle_probe(page)
+        groups = page.locator("details[data-pq-what-matters-probe]")
+        first_summary = groups.nth(0).locator(":scope > summary")
+        second_summary = groups.nth(1).locator(":scope > summary")
+        expect(first_summary).to_be_visible()
+        expect(second_summary).to_be_visible()
+
+        state = _what_matters_probe_state(page)
+        assert state["names"] == ["property-what-matters-mobile"] * group_count
+
+        first_summary.click()
+        page.wait_for_function(
+            """() => document.querySelectorAll(
+              '[data-property-what-matters-panel] details[data-pq-what-matters-probe][open]'
+            ).length === 1"""
+        )
+        page.wait_for_timeout(50)
+        first_open = _what_matters_probe_state(page)
+        assert first_open["open"][:2] == [True, False]
+        assert first_open["counts"][:2] == [1, 0]
+        assert first_open["focusedSummaryIndex"] == 0
+
+        second_summary.click()
+        page.wait_for_function(
+            """() => {
+              const groups = Array.from(document.querySelectorAll(
+                '[data-property-what-matters-panel] details[data-pq-what-matters-probe]'
+              ));
+              return !groups[0]?.open && Boolean(groups[1]?.open);
+            }"""
+        )
+        page.wait_for_timeout(50)
+        second_open = _what_matters_probe_state(page)
+        assert sum(bool(value) for value in second_open["open"]) == 1
+        assert second_open["open"][:2] == [False, True]
+        # The selected panel toggles once. The first panel's second event is
+        # the expected close caused by the single-panel accordion contract.
+        assert second_open["counts"][:2] == [2, 1]
+        assert second_open["focusedSummaryIndex"] == 1
+
+        first_summary.press("Enter")
+        page.wait_for_function(
+            """() => {
+              const groups = Array.from(document.querySelectorAll(
+                '[data-property-what-matters-panel] details[data-pq-what-matters-probe]'
+              ));
+              return Boolean(groups[0]?.open) && !groups[1]?.open;
+            }"""
+        )
+        page.wait_for_timeout(50)
+        keyboard_open = _what_matters_probe_state(page)
+        assert sum(bool(value) for value in keyboard_open["open"]) == 1
+        assert keyboard_open["counts"][:2] == [3, 2]
+        assert keyboard_open["focusedSummaryIndex"] == 0
+    finally:
+        context.close()
+
+
+def test_propertyquarry_desktop_what_matters_is_independent_and_reduced_motion_is_instant(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False, width=1440, height=900)
+    page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/search", wait_until="networkidle")
+        assert response is not None and response.ok
+        group_count = _prepare_what_matters_toggle_probe(page)
+        groups = page.locator("details[data-pq-what-matters-probe]")
+        first_summary = groups.nth(0).locator(":scope > summary")
+        second_summary = groups.nth(1).locator(":scope > summary")
+        expect(first_summary).to_be_visible()
+        expect(second_summary).to_be_visible()
+
+        initial = _what_matters_probe_state(page)
+        assert initial["names"] == [None] * group_count
+        assert page.evaluate("window.matchMedia('(max-width: 760px)').matches") is False
+
+        first_summary.click()
+        page.wait_for_timeout(50)
+        first_open = _what_matters_probe_state(page)
+        assert first_open["open"][:2] == [True, False], first_open
+        second_summary.click()
+        page.wait_for_function(
+            """() => {
+              const groups = Array.from(document.querySelectorAll(
+                '[data-property-what-matters-panel] details[data-pq-what-matters-probe]'
+              ));
+              return Boolean(groups[0]?.open) && Boolean(groups[1]?.open);
+            }"""
+        )
+        page.wait_for_timeout(50)
+        both_open = _what_matters_probe_state(page)
+        assert both_open["open"][:2] == [True, True]
+        assert both_open["counts"][:2] == [1, 1]
+        assert both_open["focusedSummaryIndex"] == 1
+
+        page.emulate_media(reduced_motion="reduce")
+        page.evaluate(
+            """() => {
+              window.__pqScrollIntoViewCalls = [];
+              Element.prototype.scrollIntoView = function(options) {
+                window.__pqScrollIntoViewCalls.push(
+                  options && typeof options === 'object' ? { ...options } : options
+                );
+              };
+            }"""
+        )
+        page.locator('[data-property-step-trigger="providers"]').click()
+        page.wait_for_function(
+            """() => document.querySelector(
+              '[data-console-form-variant="property_search"]'
+            )?.dataset.propertyActiveStep === 'providers'"""
+        )
+        scroll_calls = page.evaluate("window.__pqScrollIntoViewCalls")
+        assert isinstance(scroll_calls, list) and len(scroll_calls) == 1
+        assert scroll_calls[0]["behavior"] == "auto"
+        assert all(
+            not isinstance(call, dict) or call.get("behavior") != "smooth"
+            for call in scroll_calls
+        )
+    finally:
+        context.close()
+
+
 def test_propertyquarry_mobile_flagship_flow_runs_search_opens_research_map_and_walkthrough(
     monkeypatch: pytest.MonkeyPatch,
     browser: Browser,
@@ -372,7 +595,7 @@ def test_propertyquarry_mobile_flagship_flow_runs_search_opens_research_map_and_
         )
         family_row = page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").first
         expect(family_row).to_be_visible()
-        family_row.get_by_role("link", name="Open property").click()
+        family_row.get_by_role("link", name="Open property", exact=True).click()
         page.wait_for_url(re.compile(r".*/app/research/[^?]+.*"), wait_until="commit", timeout=5_000)
         expect(page.locator("[data-property-research-detail]")).to_be_visible()
         expect(page.locator(".prd-media-frame")).to_be_visible()

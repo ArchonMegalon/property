@@ -174,6 +174,7 @@ from app.services.property_market_catalog import (
     search_goal_options as property_search_goal_options,
     supported_currency_codes,
 )
+from app.services.onboarding import flatten_property_search_preferences_snapshot
 from app.services.public_branding import request_brand
 from app.services.public_clickrank import (
     clickrank_head_snippet as _clickrank_head_snippet,
@@ -2964,44 +2965,135 @@ def _property_lookup_candidate_across_runs(
     if not normalized_candidate_ref:
         return None, ""
     run_ids: list[str] = []
+    listed_runs: list[dict[str, object]] = []
+    compact_listing_supported = False
+    incomplete_compact_run_ids: list[str] = []
+    complete_compact_run_ids: set[str] = set()
     if normalized_run_id:
         run_ids.append(normalized_run_id)
     try:
-        for row in list(
-            product.list_property_search_runs(
-                principal_id=principal_id,
-                limit=max_runs,
-                hydrate=False,
-                account_email=access_email,
+        listed_runs = [
+            dict(row)
+            for row in list(
+                product.list_property_search_runs(
+                    principal_id=principal_id,
+                    limit=max_runs,
+                    hydrate=False,
+                    account_email=access_email,
+                )
+                or []
             )
-            or []
-        ):
-            if not isinstance(row, dict):
-                continue
-            recent_run_id = str(row.get("run_id") or "").strip()
-            if recent_run_id and recent_run_id not in run_ids:
-                run_ids.append(recent_run_id)
+            if isinstance(row, dict)
+        ]
+        compact_listing_supported = True
     except TypeError:
         try:
-            for row in list(product.list_property_search_runs(principal_id=principal_id, limit=max_runs, hydrate=False) or []):
-                if not isinstance(row, dict):
-                    continue
-                recent_run_id = str(row.get("run_id") or "").strip()
-                if recent_run_id and recent_run_id not in run_ids:
-                    run_ids.append(recent_run_id)
+            listed_runs = [
+                dict(row)
+                for row in list(
+                    product.list_property_search_runs(
+                        principal_id=principal_id,
+                        limit=max_runs,
+                        hydrate=False,
+                    )
+                    or []
+                )
+                if isinstance(row, dict)
+            ]
+            compact_listing_supported = True
         except TypeError:
             with contextlib.suppress(Exception):
-                for row in list(product.list_property_search_runs(principal_id=principal_id, limit=max_runs) or []):
-                    if not isinstance(row, dict):
-                        continue
-                    recent_run_id = str(row.get("run_id") or "").strip()
-                    if recent_run_id and recent_run_id not in run_ids:
-                        run_ids.append(recent_run_id)
+                listed_runs = [
+                    dict(row)
+                    for row in list(product.list_property_search_runs(principal_id=principal_id, limit=max_runs) or [])
+                    if isinstance(row, dict)
+                ]
         except Exception:
             pass
     except Exception:
         pass
-    for row_run_id in run_ids[: max(int(max_runs or 0), 1)]:
+
+    for row in listed_runs:
+        recent_run_id = str(row.get("run_id") or "").strip()
+        if recent_run_id and recent_run_id not in run_ids:
+            run_ids.append(recent_run_id)
+
+    if compact_listing_supported and listed_runs:
+        for compact_run in listed_runs:
+            compact_run_id = str(compact_run.get("run_id") or "").strip()
+            try:
+                prepared_run = _propertyquarry_prepare_run_payload(
+                    product=product,
+                    run_payload=compact_run,
+                    backfill_cached_previews=False,
+                    principal_id=principal_id,
+                )
+            except Exception:
+                if compact_run_id and compact_run_id not in incomplete_compact_run_ids:
+                    incomplete_compact_run_ids.append(compact_run_id)
+                continue
+            candidate = _property_lookup_candidate(
+                property_context={"run": prepared_run},
+                candidate_ref=normalized_candidate_ref,
+            )
+            if candidate:
+                prepared_summary = (
+                    dict(prepared_run.get("summary") or {})
+                    if isinstance(prepared_run.get("summary"), dict)
+                    else {}
+                )
+                matched_run_id = str(
+                    prepared_run.get("run_id")
+                    or prepared_summary.get("run_id")
+                    or compact_run.get("run_id")
+                    or ""
+                ).strip()
+                return candidate, matched_run_id
+            compact_summary = (
+                dict(compact_run.get("summary") or {})
+                if isinstance(compact_run.get("summary"), dict)
+                else {}
+            )
+            compact_candidates = compact_summary.get("ranked_candidates")
+            projection_complete = False
+            if "ranked_total" in compact_summary and isinstance(compact_candidates, (list, tuple)):
+                try:
+                    ranked_total = int(compact_summary.get("ranked_total") or 0)
+                except Exception:
+                    ranked_total = -1
+                projection_complete = ranked_total >= 0 and len(compact_candidates) >= ranked_total
+            if projection_complete and compact_run_id:
+                complete_compact_run_ids.add(compact_run_id)
+            elif compact_run_id and compact_run_id not in incomplete_compact_run_ids:
+                incomplete_compact_run_ids.append(compact_run_id)
+
+    hydration_limit = min(max(int(max_runs or 0), 1), 3)
+    fallback_run_ids: list[str] = []
+
+    def _append_fallback_run_id(value: object) -> None:
+        fallback_run_id = str(value or "").strip()
+        if fallback_run_id and fallback_run_id not in fallback_run_ids:
+            fallback_run_ids.append(fallback_run_id)
+
+    if normalized_run_id and normalized_run_id not in complete_compact_run_ids:
+        # Resolve the link's exact run first when it is absent from the compact
+        # listing or its projection may be truncated.  A complete compact miss
+        # is authoritative and must not trigger redundant full hydration.
+        _append_fallback_run_id(normalized_run_id)
+    if compact_listing_supported:
+        # Compact projections are authoritative only when they explicitly say
+        # they contain every ranked candidate.  Unknown/truncated projections
+        # retain a small authorized legacy fallback so old links do not become
+        # 404s, while avoiding the previous unbounded cross-run hydration.
+        for incomplete_run_id in incomplete_compact_run_ids:
+            _append_fallback_run_id(incomplete_run_id)
+    else:
+        # Older service/test doubles do not expose the compact-listing marker.
+        # Their explicit run can be stale, so preserve the historical
+        # cross-run recovery order while applying the same strict I/O bound.
+        for recent_run_id in run_ids:
+            _append_fallback_run_id(recent_run_id)
+    for row_run_id in fallback_run_ids[:hydration_limit]:
         try:
             run_payload = dict(
                 product.get_property_search_run_status(
@@ -4655,7 +4747,18 @@ def _property_console_context(
     wants_learning_summary = surface_scope.wants_learning_summary
     wants_agent_views = surface_scope.wants_agent_views
     raw_property_preferences = dict(status.get("property_search_preferences") or {})
-    merged_preference_seed = dict(raw_property_preferences.get("raw_preferences") or raw_property_preferences)
+    try:
+        merged_preference_seed = flatten_property_search_preferences_snapshot(raw_property_preferences)
+    except ValueError:
+        # Keep the canonical account fields usable if a malformed legacy raw
+        # chain exceeds the bounded migration reader.  In particular, saved
+        # agents and shortlist state must never depend on their old duplicate
+        # copy inside raw_preferences.
+        merged_preference_seed = {
+            key: value
+            for key, value in raw_property_preferences.items()
+            if key != "raw_preferences"
+        }
     if isinstance(raw_property_preferences.get("property_commercial"), dict) and not isinstance(
         merged_preference_seed.get("property_commercial"),
         dict,

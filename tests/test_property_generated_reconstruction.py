@@ -2480,14 +2480,21 @@ def test_service_generated_reconstruction_uses_render_bridge_when_local_walkthro
             "satisfies_verified_tour_gate": False,
             "disclosure": "Planning preview built from the floor plan and listing photos. Use it as a layout aid, not as a captured tour.",
             "viewer": {"version": "propertyquarry_3d_tour_viewer_v3", "photo_reference_panel_count": 2},
+            "geometry": {"wall_rect_count": 4},
+            "room_dimensions_m": {"width": 8.0, "depth": 6.0, "height": 2.7},
             "walkable_scene": {
                 "kind": "generated_reconstruction_layout",
-                "rooms": [{"label": "entry/hall"}, {"label": "living area"}, {"label": "sleeping area"}, {"label": "balcony/terrace"}],
+                "rooms": [
+                    {"label": "entry/hall", "position": {"x": 0.0, "z": 0.0}, "focus": {"x": 1.0, "z": 1.0}},
+                    {"label": "living area", "position": {"x": 2.0, "z": 0.0}, "focus": {"x": 3.0, "z": 1.0}},
+                    {"label": "sleeping area", "position": {"x": 4.0, "z": 0.0}, "focus": {"x": 5.0, "z": 1.0}},
+                    {"label": "balcony/terrace", "position": {"x": 6.0, "z": 0.0}, "focus": {"x": 7.0, "z": 1.0}},
+                ],
                 "route": [
-                    {"label": "entry/hall"},
-                    {"label": "living area"},
-                    {"label": "sleeping area"},
-                    {"label": "balcony/terrace"},
+                    {"label": "entry/hall", "focus": {"x": 1.0, "z": 1.0}, "camera": {"x": 0.0, "z": 0.0}},
+                    {"label": "living area", "focus": {"x": 3.0, "z": 1.0}, "camera": {"x": 2.0, "z": 0.0}},
+                    {"label": "sleeping area", "focus": {"x": 5.0, "z": 1.0}, "camera": {"x": 4.0, "z": 0.0}},
+                    {"label": "balcony/terrace", "focus": {"x": 7.0, "z": 1.0}, "camera": {"x": 6.0, "z": 0.0}},
                 ],
             },
             "walkthrough": {
@@ -2514,6 +2521,7 @@ def test_service_generated_reconstruction_uses_render_bridge_when_local_walkthro
         manifest["generated_reconstruction"] = {
             "provider": "propertyquarry_generated_reconstruction",
             "viewer_relpath": "generated-reconstruction/viewer.html",
+            "manifest_relpath": "generated-reconstruction/reconstruction.json",
             "model_relpath": "generated-reconstruction/model.obj",
             "material_relpath": "generated-reconstruction/model.mtl",
             "floorplan_relpath": "generated-reconstruction/source-floorplan.jpg",

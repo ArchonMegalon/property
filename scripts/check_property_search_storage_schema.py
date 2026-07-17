@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import ast
 import os
 from pathlib import Path
 import sys
@@ -17,6 +18,44 @@ SCHEMA_SOURCE = ROOT / "ea" / "app" / "product" / "property_search_schema.py"
 DELIVERY_OUTBOX_SOURCE = ROOT / "ea" / "app" / "repositories" / "delivery_outbox_postgres.py"
 CONTENT_LEDGER_SOURCE = ROOT / "ea" / "app" / "services" / "property_content_job_ledger.py"
 SERVICE_SOURCE = ROOT / "ea" / "app" / "product" / "service.py"
+
+
+def _declared_migration_contracts(source: str) -> tuple[tuple[int, str], ...]:
+    """Read the version/name ledger without depending on source formatting."""
+
+    tree = ast.parse(source, filename=str(SCHEMA_SOURCE))
+    declaration: ast.AST | None = None
+    for node in tree.body:
+        if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            if node.target.id == "PROPERTY_SEARCH_MIGRATIONS":
+                declaration = node.value
+                break
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name)
+            and target.id == "PROPERTY_SEARCH_MIGRATIONS"
+            for target in node.targets
+        ):
+            declaration = node.value
+            break
+    if not isinstance(declaration, (ast.Tuple, ast.List)):
+        raise RuntimeError("migration_contract_declaration_missing")
+
+    contracts: list[tuple[int, str]] = []
+    for item in declaration.elts:
+        if (
+            not isinstance(item, ast.Call)
+            or not isinstance(item.func, ast.Name)
+            or item.func.id != "PropertySearchMigration"
+            or len(item.args) != 3
+            or item.keywords
+            or not isinstance(item.args[0], ast.Constant)
+            or type(item.args[0].value) is not int
+            or not isinstance(item.args[1], ast.Constant)
+            or type(item.args[1].value) is not str
+        ):
+            raise RuntimeError("migration_contract_entry_invalid")
+        contracts.append((item.args[0].value, item.args[1].value))
+    return tuple(contracts)
 
 
 def _check_source_contracts() -> None:
@@ -84,7 +123,7 @@ def _check_source_contracts() -> None:
         if fragment not in schema:
             raise RuntimeError(f"missing_migration_contract:{fragment[:80]}")
 
-    required_migrations = (
+    expected_migrations = (
         (1, "property_search_runs_tenant_schema"),
         (2, "property_search_durable_work_queue"),
         (3, "property_source_listing_cache"),
@@ -95,13 +134,12 @@ def _check_source_contracts() -> None:
         (8, "property_evidence_overlay_cached_read_model"),
         (9, "property_evidence_overlay_staged_snapshot_activation"),
     )
-    compact_schema = "".join(schema.split())
-    migration_offset = -1
-    for version, name in required_migrations:
-        signature = f'PropertySearchMigration({version},"{name}",'
-        migration_offset = compact_schema.find(signature, migration_offset + 1)
-        if migration_offset < 0:
-            raise RuntimeError(f"missing_or_out_of_order_migration_contract:{version}:{name}")
+    declared_migrations = _declared_migration_contracts(schema)
+    if declared_migrations != expected_migrations:
+        raise RuntimeError(
+            "property_search_migration_contract_drift:"
+            f"expected={expected_migrations!r}:actual={declared_migrations!r}"
+        )
 
     for fragment in (
         "pg_try_advisory_xact_lock",

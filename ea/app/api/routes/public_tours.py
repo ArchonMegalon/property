@@ -201,7 +201,7 @@ def _resolved_tour_root() -> Path:
 
 def _resolved_tour_bundle(slug: str) -> Path:
     safe = str(slug or "").strip()
-    if not safe or "/" in safe or ".." in safe:
+    if not safe or safe.startswith(".") or "/" in safe or ".." in safe:
         raise HTTPException(status_code=404, detail="tour_not_found")
     if hosted_property_tour_revocation_receipt(safe):
         raise HTTPException(status_code=410, detail="tour_revoked")
@@ -219,7 +219,7 @@ def _resolved_tour_bundle(slug: str) -> Path:
 
 def _tour_path(slug: str) -> Path:
     safe = str(slug or "").strip()
-    if not safe or "/" in safe or ".." in safe:
+    if not safe or safe.startswith(".") or "/" in safe or ".." in safe:
         raise HTTPException(status_code=404, detail="tour_not_found")
     try:
         bundle_dir = _resolved_tour_bundle(slug)

@@ -4,6 +4,7 @@ import base64
 import concurrent.futures
 import contextlib
 import csv
+import fcntl
 import hashlib
 import hmac
 import html
@@ -15,6 +16,7 @@ import os
 import re
 import secrets
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -67,7 +69,11 @@ from app.mootion_remote_asset_fetch import (
     _mootion_remote_asset_target_path,
     _mootion_remote_asset_timeout_seconds,
 )
-from app.services.onboarding import normalize_property_notification_channel, normalize_property_notification_channels
+from app.services.onboarding import (
+    flatten_property_search_preferences_snapshot,
+    normalize_property_notification_channel,
+    normalize_property_notification_channels,
+)
 from app.services.property_decision_loop import PropertyDecisionLoopSnapshot, build_property_decision_loop_snapshot
 from app.services.property_media_factory import (
     MediaRequirement,
@@ -718,6 +724,7 @@ _PROPERTY_SEARCH_RAW_RUN_INPUT_KEYS = frozenset(
         "active_search_agent_id",
         "selected_platforms",
         "max_results_per_source",
+        "min_match_score",
         "preference_person_id",
         "min_price_eur",
         "max_price_eur",
@@ -808,29 +815,29 @@ def _property_search_run_preferences_projection(
     preferences: dict[str, object] | None,
 ) -> dict[str, object]:
     """Return only search-run inputs plus a privacy-safe entitlement marker."""
-    projected = dict(preferences or {})
+    source = dict(preferences or {})
     raw_preferences = (
-        dict(projected.get("raw_preferences") or {})
-        if isinstance(projected.get("raw_preferences"), dict)
+        dict(source.get("raw_preferences") or {})
+        if isinstance(source.get("raw_preferences"), dict)
         else {}
     )
-    for raw_key in raw_preferences:
-        if not _property_search_raw_run_input_key_allowed(raw_key):
-            projected.pop(str(raw_key or "").strip(), None)
+    # Project from an allowlist instead of trying to subtract known workspace
+    # fields. Compact snapshots may already have flattened raw_preferences,
+    # so origin-based filtering can no longer distinguish a search input from
+    # private account state such as contact_email.
+    merged = {**raw_preferences, **source}
+    projected = {
+        str(key or "").strip(): value
+        for key, value in merged.items()
+        if _property_search_raw_run_input_key_allowed(key)
+        and str(key or "").strip() != "property_commercial"
+    }
     raw_commercial = (
-        dict(projected.get("property_commercial") or {})
-        if isinstance(projected.get("property_commercial"), dict)
+        dict(merged.get("property_commercial") or {})
+        if isinstance(merged.get("property_commercial"), dict)
         else {}
     )
     active_plan_key = str(raw_commercial.get("active_plan_key") or "").strip().lower()
-    for workspace_only_key in (
-        "search_agents",
-        "raw_preferences",
-        "property_commercial",
-        "saved_shortlist_candidates",
-        "saved_shortlist_share_slug",
-    ):
-        projected.pop(workspace_only_key, None)
     if active_plan_key:
         safe_commercial: dict[str, object] = {
             "active_plan_key": active_plan_key,
@@ -10804,16 +10811,26 @@ def _property_candidate_has_floorplan(
     )
     if preview_facts and _property_facts_have_floorplan(preview_facts, preview=preview_payload):
         return True
-    text_facts = {
-        key: value
-        for key, value in {**preview_facts, **facts}.items()
-        if str(key or "").strip()
-        not in {
-            "floorplan_recovery_diagnostics",
-            "missing_floorplan_diagnostics",
-            "provider_recovery_diagnostics",
-        }
+    diagnostic_fact_keys = {
+        "blocking_constraints_json",
+        "floorplan_recovery_diagnostics",
+        "mismatch_reasons_json",
+        "missing_floorplan_diagnostics",
+        "provider_recovery_diagnostics",
+        "research_tasks",
+        "unknowns_json",
     }
+    text_facts = {}
+    for key, value in {**preview_facts, **facts}.items():
+        normalized_key = str(key or "").strip().lower()
+        if (
+            not normalized_key
+            or normalized_key in diagnostic_fact_keys
+            or normalized_key.endswith("_diagnostics")
+            or normalized_key.endswith("_research_status")
+        ):
+            continue
+        text_facts[key] = value
     text = " ".join(
         part
         for part in (
@@ -17426,7 +17443,7 @@ def _run_property_reconstruction_render_bridge(
     return loaded
 
 
-def _write_generated_reconstruction_property_tour_bundle(
+def _write_generated_reconstruction_property_tour_bundle_unchecked(
     *,
     principal_id: str,
     title: str,
@@ -17556,6 +17573,7 @@ def _write_generated_reconstruction_property_tour_bundle(
             "scenes": payload.get("scenes") or [],
             "generated_at": _now_iso(),
             "creation_mode": "generated_reconstruction_tour",
+            "publication_status": "generating",
         }
     )
     manifest_path = bundle_dir / "tour.json"
@@ -17692,6 +17710,209 @@ def _write_generated_reconstruction_property_tour_bundle(
         bundle_dir,
         principal_id=normalized_principal,
     )
+
+
+def _write_generated_reconstruction_property_tour_bundle(
+    *,
+    principal_id: str,
+    title: str,
+    listing_id: str,
+    property_url: str,
+    variant_key: str,
+    media_urls: list[str] | tuple[str, ...],
+    floorplan_urls: list[str] | tuple[str, ...],
+    property_facts_json: dict[str, object],
+    source_host: str,
+    source_ref: str = "",
+    external_id: str = "",
+    recipient_email: str = "",
+    diorama_style_hint: str = "",
+) -> dict[str, object]:
+    """Publish a generated reconstruction atomically from the caller's view.
+
+    The renderer needs the canonical bundle path while it works.  Keep that
+    in-progress manifest fail-closed, preserve any prior owned bundle, and
+    either finalize a ready publication or restore the exact previous tree.
+    """
+
+    normalized_principal = str(principal_id or "").strip()
+    if not normalized_principal:
+        raise RuntimeError("hosted_property_tour_principal_required")
+    public_dir = _public_tour_dir()
+    public_dir.mkdir(parents=True, exist_ok=True)
+    if public_dir.is_symlink() or not public_dir.is_dir():
+        raise RuntimeError("property_reconstruction_public_root_invalid")
+    public_dir = public_dir.resolve()
+    slug = _make_hosted_property_tour_slug(
+        title=title,
+        listing_id=listing_id,
+        property_url=property_url,
+        variant_key=variant_key,
+        principal_id=normalized_principal,
+    )
+    bundle_dir = public_dir / slug
+    tour_url = f"{_hosted_property_tour_public_base_url()}/{slug}"
+    control_root = public_dir.parent / f".{public_dir.name}.publication-control"
+    if control_root.is_symlink():
+        raise RuntimeError("property_reconstruction_publication_control_invalid")
+    control_root.mkdir(mode=0o700, exist_ok=True)
+    control_root.chmod(0o700)
+    locks_root = control_root / "locks"
+    transactions_root = control_root / "transactions"
+    for private_root in (locks_root, transactions_root):
+        if private_root.is_symlink():
+            raise RuntimeError("property_reconstruction_publication_control_invalid")
+        private_root.mkdir(mode=0o700, exist_ok=True)
+        private_root.chmod(0o700)
+
+    def _fsync_directory(path: Path) -> None:
+        descriptor = -1
+        try:
+            descriptor = os.open(
+                path,
+                os.O_RDONLY
+                | getattr(os, "O_CLOEXEC", 0)
+                | getattr(os, "O_DIRECTORY", 0)
+                | getattr(os, "O_NOFOLLOW", 0),
+            )
+            os.fsync(descriptor)
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+
+    lock_path = locks_root / f"{slug}.lock"
+    lock_descriptor = os.open(
+        lock_path,
+        os.O_RDWR
+        | os.O_CREAT
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0),
+        0o600,
+    )
+    try:
+        lock_details = os.fstat(lock_descriptor)
+        if not stat.S_ISREG(lock_details.st_mode):
+            raise RuntimeError("property_reconstruction_publication_lock_invalid")
+        os.fchmod(lock_descriptor, 0o600)
+        fcntl.flock(lock_descriptor, fcntl.LOCK_EX)
+
+        legacy_slug = _make_hosted_property_tour_slug(
+            title=title,
+            listing_id=listing_id,
+            property_url=property_url,
+            variant_key=variant_key,
+        )
+        existing_payload = _existing_owned_hosted_property_tour_payload(
+            slug=slug,
+            legacy_slug=legacy_slug,
+            principal_id=normalized_principal,
+        )
+        existing_reconstruction = (
+            existing_payload.get("generated_reconstruction")
+            if isinstance(existing_payload.get("generated_reconstruction"), dict)
+            else {}
+        )
+        if (
+            existing_payload
+            and bundle_dir.is_dir()
+            and _hosted_property_tour_generated_reconstruction_bundle_ready(tour_url)
+            and str(existing_reconstruction.get("viewer_version") or "").strip()
+            == _PROPERTY_RECONSTRUCTION_VIEWER_VERSION
+        ):
+            return existing_payload
+
+        transaction_dir = Path(
+            tempfile.mkdtemp(
+                prefix=f"{slug}.",
+                dir=str(transactions_root),
+            )
+        )
+        backup_dir = transaction_dir / "previous-bundle"
+        failed_dir = transaction_dir / "failed-bundle"
+        bundle_existed = bundle_dir.exists()
+        retain_transaction = False
+        backup_created = False
+        try:
+            transaction_dir.chmod(0o700)
+            if bundle_existed:
+                os.replace(bundle_dir, backup_dir)
+                backup_created = True
+                _fsync_directory(public_dir)
+                _fsync_directory(transaction_dir)
+            _write_generated_reconstruction_property_tour_bundle_unchecked(
+                principal_id=normalized_principal,
+                title=title,
+                listing_id=listing_id,
+                property_url=property_url,
+                variant_key=variant_key,
+                media_urls=media_urls,
+                floorplan_urls=floorplan_urls,
+                property_facts_json=property_facts_json,
+                source_host=source_host,
+                source_ref=source_ref,
+                external_id=external_id,
+                recipient_email=recipient_email,
+                diorama_style_hint=diorama_style_hint,
+            )
+            manifest_path = bundle_dir / "tour.json"
+            try:
+                finalized_payload_raw = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except Exception as exc:
+                raise RuntimeError("property_reconstruction_publication_manifest_invalid") from exc
+            if not isinstance(finalized_payload_raw, dict):
+                raise RuntimeError("property_reconstruction_publication_manifest_invalid")
+            finalized_payload = dict(finalized_payload_raw)
+            finalized_payload["publication_status"] = "ready"
+            pending_manifest_path = bundle_dir / f".tour.json.{uuid4().hex}.tmp"
+            try:
+                with pending_manifest_path.open("w", encoding="utf-8") as handle:
+                    json.dump(finalized_payload, handle, ensure_ascii=False, indent=2)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                pending_manifest_path.chmod(0o644)
+                os.replace(pending_manifest_path, manifest_path)
+                _fsync_directory(bundle_dir)
+            finally:
+                pending_manifest_path.unlink(missing_ok=True)
+            if not _hosted_property_tour_generated_reconstruction_bundle_ready(tour_url):
+                raise RuntimeError("property_reconstruction_publication_not_ready")
+            return _load_hosted_property_tour_payload(
+                bundle_dir,
+                principal_id=normalized_principal,
+            )
+        except BaseException as publication_error:
+            if bundle_existed and not backup_created:
+                raise publication_error
+            try:
+                if bundle_dir.exists():
+                    os.replace(bundle_dir, failed_dir)
+                    _fsync_directory(public_dir)
+                    _fsync_directory(transaction_dir)
+            except Exception as quarantine_error:
+                retain_transaction = True
+                raise RuntimeError(
+                    f"property_reconstruction_rollback_failed:quarantine:{transaction_dir}"
+                ) from quarantine_error
+            if bundle_existed:
+                try:
+                    if not backup_dir.exists():
+                        raise RuntimeError("property_reconstruction_backup_missing")
+                    os.replace(backup_dir, bundle_dir)
+                    _fsync_directory(public_dir)
+                    _fsync_directory(transaction_dir)
+                except Exception as restore_error:
+                    retain_transaction = True
+                    raise RuntimeError(
+                        f"property_reconstruction_rollback_failed:restore:{transaction_dir}"
+                    ) from restore_error
+            raise publication_error
+        finally:
+            if not retain_transaction:
+                shutil.rmtree(transaction_dir, ignore_errors=True)
+    finally:
+        with contextlib.suppress(OSError):
+            fcntl.flock(lock_descriptor, fcntl.LOCK_UN)
+        os.close(lock_descriptor)
 
 
 def _feelestate_json_rpc(method: str, params: list[object]) -> dict[str, object]:
@@ -38253,11 +38474,9 @@ class ProductService:
         }
         try:
             onboarding_state = self._container.onboarding.status(principal_id=principal_id)
-            onboarding_preferences_payload = dict(onboarding_state.get("property_search_preferences") or {})
-            onboarding_preferences = {
-                **dict(onboarding_preferences_payload.get("raw_preferences") or {}),
-                **{key: value for key, value in onboarding_preferences_payload.items() if key != "raw_preferences"},
-            }
+            onboarding_preferences = flatten_property_search_preferences_snapshot(
+                dict(onboarding_state.get("property_search_preferences") or {})
+            )
             for key, value in onboarding_preferences.items():
                 if key in explicit_clearable_text_keys:
                     continue
@@ -38265,6 +38484,7 @@ class ProductService:
                     merged_preferences[key] = value
         except Exception:
             pass
+        merged_preferences.pop("raw_preferences", None)
         return merged_preferences
 
     def _prepare_property_search_request_preferences(
@@ -46406,38 +46626,148 @@ class ProductService:
                     "summary": str(row.get("summary") or "").strip(),
                     "property_facts_json": dict(row.get("property_facts") or {}) if isinstance(row.get("property_facts"), dict) else {},
                 }
-                if str(preview.get("title") or "").strip() == property_url:
-                    try:
-                        cached_preview = self._property_public_preview_cache_lookup(
-                            cache_index=public_preview_cache,
-                            property_url=property_url,
+                try:
+                    cached_preview = self._property_public_preview_cache_lookup(
+                        cache_index=public_preview_cache,
+                        property_url=property_url,
+                    )
+                    if cached_preview:
+                        current_facts = dict(preview.get("property_facts_json") or {})
+                        cached_facts = dict(cached_preview.get("property_facts_json") or {})
+                        merged_preview = dict(preview)
+                        merged_facts = dict(current_facts)
+                        volatile_fact_fragments = (
+                            "price",
+                            "rent",
+                            "status",
+                            "availab",
+                            "headline",
+                            "title",
+                            "summary",
+                            "listing",
+                            "published",
+                            "updated",
+                            "created",
+                            "timestamp",
+                            "_date",
+                            "_url",
                         )
-                        if cached_preview and dict(cached_preview.get("property_facts_json") or {}):
-                            detailed_preview = dict(cached_preview)
+                        for key, value in cached_facts.items():
+                            normalized_key = str(key or "").strip().lower()
+                            current_value = merged_facts.get(key)
+                            current_missing = current_value is None or current_value in ("", (), [], {})
+                            cached_present = value is not None and value not in ("", (), [], {})
+                            if (
+                                not normalized_key
+                                or not current_missing
+                                or not cached_present
+                                or any(fragment in normalized_key for fragment in volatile_fact_fragments)
+                            ):
+                                continue
+                            merged_facts[key] = value
+                        current_title = str(merged_preview.get("title") or "").strip()
+                        cached_title = str(cached_preview.get("title") or "").strip()
+                        if (
+                            (not current_title or current_title == property_url)
+                            and cached_title
+                            and cached_title != property_url
+                        ):
+                            merged_preview["title"] = cached_title
+                        if not str(merged_preview.get("summary") or "").strip():
+                            cached_summary = str(cached_preview.get("summary") or "").strip()
+                            if cached_summary:
+                                merged_preview["summary"] = cached_summary
+
+                        current_floorplans = list(
+                            _property_nonempty_sequence(merged_preview.get("floorplan_urls_json"))
+                        )
+                        for floorplan_source in (
+                            current_facts.get("floorplan_urls_json"),
+                            cached_preview.get("floorplan_urls_json"),
+                            cached_facts.get("floorplan_urls_json"),
+                        ):
+                            for cached_floorplan_url in _property_nonempty_sequence(floorplan_source):
+                                if cached_floorplan_url not in current_floorplans:
+                                    current_floorplans.append(cached_floorplan_url)
+                        if current_floorplans:
+                            merged_preview["floorplan_urls_json"] = current_floorplans
+                            merged_facts["has_floorplan"] = True
+                            floorplan_counts = [len(current_floorplans)]
+                            for count_value in (
+                                current_facts.get("floorplan_count"),
+                                cached_facts.get("floorplan_count"),
+                            ):
+                                with contextlib.suppress(Exception):
+                                    floorplan_counts.append(max(0, int(float(str(count_value or 0)))))
+                            merged_facts["floorplan_count"] = max(floorplan_counts)
+                            merged_facts["floorplan_urls_json"] = list(current_floorplans)
+                        if merged_facts != current_facts:
+                            merged_preview["property_facts_json"] = merged_facts
+
+                        if not _property_nonempty_sequence(merged_preview.get("media_urls_json")):
+                            cached_media = list(
+                                _property_nonempty_sequence(cached_preview.get("media_urls_json"))
+                            )
+                            if cached_media:
+                                merged_preview["media_urls_json"] = cached_media
+                        for supplemental_key in (
+                            "source_virtual_tour_url",
+                            "source_virtual_tour_provider",
+                            "source_virtual_tour_type",
+                            "source_virtual_tour_source",
+                        ):
+                            if str(merged_preview.get(supplemental_key) or "").strip():
+                                continue
+                            cached_value = str(cached_preview.get(supplemental_key) or "").strip()
+                            if cached_value:
+                                merged_preview[supplemental_key] = cached_value
+
+                        if merged_preview != preview:
+                            preview = merged_preview
                             public_property_cache_hit_total += 1
-                        else:
-                            _report(
-                                step="source_detail_check",
-                                message=f"Recovering listing details for candidate {ordinal} of {enrichment_limit} for {source_label}.",
-                                status="in_progress",
-                                steps_delta=0,
-                                summary_updates={
-                                    "reviewed_listing_total": reviewed_listing_total,
-                                    "current_source_reviewed_total": max(0, ordinal - 1),
-                                    "current_source_candidate_total": enrichment_limit,
-                                },
-                            )
-                            detailed_preview = _property_scout_page_preview_with_timeout(property_url, prefer_fast=False)
-                            self._property_public_preview_cache_store(
-                                cache_index=public_preview_cache,
-                                property_url=property_url,
-                                preview=detailed_preview,
-                            )
-                            public_property_cache_refresh_total += 1
+
+                    preview_needs_floorplan_detail = (
+                        bool(require_floorplan or enforce_floorplan_filter)
+                        and not _property_candidate_has_floorplan(
+                            property_url=property_url,
+                            title=str(preview.get("title") or ""),
+                            summary=str(preview.get("summary") or ""),
+                            property_facts=dict(preview.get("property_facts_json") or {}),
+                            preview=preview,
+                        )
+                    )
+                    if (
+                        str(preview.get("title") or "").strip() == property_url
+                        or preview_needs_floorplan_detail
+                    ):
+                        _report(
+                            step="source_detail_check",
+                            message=f"Recovering listing details for candidate {ordinal} of {enrichment_limit} for {source_label}.",
+                            status="in_progress",
+                            steps_delta=0,
+                            summary_updates={
+                                "reviewed_listing_total": reviewed_listing_total,
+                                "current_source_reviewed_total": max(0, ordinal - 1),
+                                "current_source_candidate_total": enrichment_limit,
+                            },
+                        )
+                        detailed_preview = _property_scout_page_preview_with_timeout(property_url, prefer_fast=False)
                         if isinstance(detailed_preview, dict) and detailed_preview:
                             preview = detailed_preview
-                    except Exception:
-                        pass
+                            try:
+                                self._property_public_preview_cache_store(
+                                    cache_index=public_preview_cache,
+                                    property_url=property_url,
+                                    preview=detailed_preview,
+                                )
+                                public_property_cache_refresh_total += 1
+                            except Exception:
+                                # A transient cache write must not discard the
+                                # fresh detail response that was already
+                                # fetched for this candidate.
+                                pass
+                except Exception:
+                    pass
                 detailed_facts = dict(preview.get("property_facts_json") or {}) if isinstance(preview.get("property_facts_json"), dict) else {}
                 detailed_facts = _property_facts_with_source_scope(
                     facts=detailed_facts,

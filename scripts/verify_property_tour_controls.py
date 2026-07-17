@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -13,7 +14,7 @@ import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
 from typing import Iterable
 
@@ -118,6 +119,79 @@ EQUIRECTANGULAR_MAX_RATIO = 2.1
 CLI_ENV_KEYS = {"KRPANO_LICENSE_DOMAIN", "KRPANO_LICENSE_KEY"}
 THREE_D_VISTA_WHITE_LABEL_SOURCE_PROJECT_TOKENS = ("propertyquarry", "property-quarry", "propertyquarry.com", "property_quarry")
 THREE_D_VISTA_CHUMMER_SOURCE_TOKENS = ("chummer", "horizon", "runsite")
+MAGICFIT_DELIVERY_ACCEPTANCE_CONTRACT = (
+    "propertyquarry.magicfit_delivery_acceptance.v1"
+)
+MAGICFIT_DELIVERY_REVIEW_CONTRACT = "propertyquarry.magicfit_delivery_review.v1"
+MAGICFIT_PENDING_POINTER_RELPATH = "tour.magicfit.pending.json"
+MAGICFIT_ACCEPTED_SIDECAR_FIELDS = frozenset(
+    {
+        "contract_name",
+        "provider",
+        "provider_key",
+        "provider_backend_key",
+        "render_status",
+        "status",
+        "acceptance_status",
+        "launch_eligible",
+        "video_relpath",
+        "video_sha256",
+        "source_receipt_sha256",
+        "generated_at",
+        "review",
+    }
+)
+MAGICFIT_REVIEW_FIELDS = frozenset(
+    {
+        "contract_name",
+        "reviewed_at",
+        "reviewer_authority_sha256",
+        "evidence_sha256",
+        "subject",
+        "checklist",
+    }
+)
+MAGICFIT_REVIEW_SUBJECT_FIELDS = frozenset(
+    {
+        "tour_slug",
+        "provider",
+        "delivery_contract_name",
+        "source_receipt_sha256",
+        "video_relpath",
+        "video_sha256",
+    }
+)
+MAGICFIT_REVIEW_CHECKS = frozenset(
+    {
+        "playback_to_end",
+        "continuous_walkthrough",
+        "no_visible_rotation_jump",
+        "intended_property_and_scope",
+        "no_sensitive_or_trial_branding",
+    }
+)
+MAGICFIT_REVIEW_MAX_FUTURE_SKEW = timedelta(minutes=5)
+MAGICFIT_UTC_TIMESTAMP_RE = re.compile(
+    r"\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:Z|\+00:00)\Z"
+)
+SHA256_HEX_RE = re.compile(r"\A[0-9a-f]{64}\Z")
+
+
+class _DuplicateJsonKey(ValueError):
+    pass
+
+
+def _strict_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise _DuplicateJsonKey(key)
+        result[key] = value
+    return result
+
+
+def _reject_nonfinite_json(value: str) -> None:
+    raise ValueError(f"nonfinite:{value}")
 
 
 def _tour_root() -> Path:
@@ -207,6 +281,44 @@ def _safe_asset_relpath(value: object) -> str:
     if not parts:
         return ""
     return "/".join(parts)
+
+
+def _canonical_asset_relpath(value: object) -> str:
+    """Return a safe path only when the supplied spelling is already canonical."""
+
+    if not isinstance(value, str) or not value or value != value.strip():
+        return ""
+    if "\\" in value or value.startswith("/"):
+        return ""
+    if any(part in {"", ".", ".."} for part in value.split("/")):
+        return ""
+    if any(
+        ord(character) < 0x20
+        or ord(character) == 0x7F
+        or 0xD800 <= ord(character) <= 0xDFFF
+        for character in value
+    ):
+        return ""
+    normalized = _safe_asset_relpath(value)
+    if normalized != value or PurePosixPath(value).as_posix() != value:
+        return ""
+    return normalized
+
+
+def _strict_magicfit_utc_timestamp(
+    value: object, *, require_z: bool = True
+) -> datetime | None:
+    if not isinstance(value, str) or not MAGICFIT_UTC_TIMESTAMP_RE.fullmatch(value):
+        return None
+    if require_z and not value.endswith("Z"):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() != timedelta(0):
+        return None
+    return parsed.astimezone(timezone.utc)
 
 
 def _safe_http_url(value: object, *, allowed_hosts: Iterable[str]) -> str:
@@ -494,7 +606,7 @@ def _three_d_vista_entry_relpath(payload: dict[str, object]) -> str:
 
 def _magicfit_video_relpath(payload: dict[str, object]) -> str:
     for key in ("video_relpath", "flythrough_video_relpath", "magicfit_video_relpath"):
-        relpath = _safe_asset_relpath(payload.get(key))
+        relpath = _canonical_asset_relpath(payload.get(key))
         if relpath and PurePosixPath(relpath).suffix.lower() in PUBLIC_VIDEO_EXTENSIONS:
             return relpath
     return ""
@@ -516,30 +628,185 @@ def _magicfit_provider_declared(payload: dict[str, object]) -> bool:
     return provider == "magicfit"
 
 
-def _magicfit_delivery_receipt_disqualified(bundle_dir: Path) -> bool:
-    receipt_path = bundle_dir / "tour.magicfit.json"
-    if not receipt_path.is_file():
+def _magicfit_manifest_tour_slug(
+    payload: dict[str, object], *, bundle_dir: Path
+) -> str:
+    if "slug" not in payload:
+        return bundle_dir.name
+    value = payload.get("slug")
+    if (
+        not isinstance(value, str)
+        or not value
+        or value != value.strip()
+        or value != bundle_dir.name
+    ):
+        return ""
+    return value
+
+
+def _magicfit_accepted_receipt_contract_valid(
+    receipt: dict[str, object],
+    *,
+    bundle_dir: Path,
+    active_video_relpath: str,
+    tour_slug: str,
+    observed_at: datetime | None = None,
+) -> bool:
+    """Validate the closed, structural v1 delivery-review profile.
+
+    This deliberately does not claim reviewer or provider authority.  The
+    digests are bindings for an independently signed launch receipt; this local
+    verifier only prevents an incomplete/pending sidecar from becoming eligible
+    through a status-field flip.
+    """
+
+    if set(receipt) != MAGICFIT_ACCEPTED_SIDECAR_FIELDS:
         return False
+    exact_values = {
+        "contract_name": MAGICFIT_DELIVERY_ACCEPTANCE_CONTRACT,
+        "provider": "magicfit",
+        "provider_key": "magicfit",
+        "provider_backend_key": "magicfit",
+        "render_status": "completed",
+        "status": "delivery_accepted",
+        "acceptance_status": "accepted",
+    }
+    if any(receipt.get(key) != value for key, value in exact_values.items()):
+        return False
+    if receipt.get("launch_eligible") is not True:
+        return False
+
+    receipt_video_relpath = _canonical_asset_relpath(receipt.get("video_relpath"))
+    video_sha256 = receipt.get("video_sha256")
+    source_receipt_sha256 = receipt.get("source_receipt_sha256")
+    if (
+        receipt_video_relpath != active_video_relpath
+        or not isinstance(video_sha256, str)
+        or SHA256_HEX_RE.fullmatch(video_sha256) is None
+        or not isinstance(source_receipt_sha256, str)
+        or SHA256_HEX_RE.fullmatch(source_receipt_sha256) is None
+    ):
+        return False
+
+    generated_at = _strict_magicfit_utc_timestamp(
+        receipt.get("generated_at"), require_z=False
+    )
+    review = receipt.get("review")
+    if generated_at is None or not isinstance(review, dict):
+        return False
+    if set(review) != MAGICFIT_REVIEW_FIELDS:
+        return False
+    if review.get("contract_name") != MAGICFIT_DELIVERY_REVIEW_CONTRACT:
+        return False
+    reviewed_at = _strict_magicfit_utc_timestamp(review.get("reviewed_at"))
+    authority_digest = review.get("reviewer_authority_sha256")
+    evidence_digest = review.get("evidence_sha256")
+    if (
+        reviewed_at is None
+        or reviewed_at < generated_at
+        or not isinstance(authority_digest, str)
+        or SHA256_HEX_RE.fullmatch(authority_digest) is None
+        or not isinstance(evidence_digest, str)
+        or SHA256_HEX_RE.fullmatch(evidence_digest) is None
+    ):
+        return False
+    now = observed_at or datetime.now(timezone.utc)
+    if not isinstance(now, datetime) or now.tzinfo is None or now.utcoffset() is None:
+        return False
+    if reviewed_at > now.astimezone(timezone.utc) + MAGICFIT_REVIEW_MAX_FUTURE_SKEW:
+        return False
+
+    subject = review.get("subject")
+    if not isinstance(subject, dict) or set(subject) != MAGICFIT_REVIEW_SUBJECT_FIELDS:
+        return False
+    # tour_slug is intentionally stored only inside the review subject.  Bind it
+    # to both the manifest identity and the containing public bundle.
+    if tour_slug != bundle_dir.name:
+        return False
+    expected_subject = {
+        "tour_slug": tour_slug,
+        "provider": "magicfit",
+        "delivery_contract_name": MAGICFIT_DELIVERY_ACCEPTANCE_CONTRACT,
+        "source_receipt_sha256": source_receipt_sha256,
+        "video_relpath": receipt_video_relpath,
+        "video_sha256": video_sha256,
+    }
+    if subject != expected_subject:
+        return False
+
+    checklist = review.get("checklist")
+    if not isinstance(checklist, dict) or set(checklist) != MAGICFIT_REVIEW_CHECKS:
+        return False
+    return all(checklist.get(key) is True for key in MAGICFIT_REVIEW_CHECKS)
+
+
+def _magicfit_delivery_receipt_disqualified(
+    bundle_dir: Path,
+    payload: dict[str, object],
+) -> bool:
+    if not _magicfit_provider_declared(payload):
+        return False
+    active_video_relpath = _magicfit_video_relpath(payload)
+    if not active_video_relpath:
+        return False
+    tour_slug = _magicfit_manifest_tour_slug(payload, bundle_dir=bundle_dir)
+    if not tour_slug:
+        return True
+    receipt_relpath = _canonical_asset_relpath(
+        payload.get("video_sidecar_relpath") or "tour.magicfit.json"
+    )
+    if not receipt_relpath:
+        return True
+    receipt_path = _local_asset_path(bundle_dir, receipt_relpath)
+    if receipt_path is None:
+        return True
     try:
-        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        receipt = json.loads(
+            receipt_path.read_text(encoding="utf-8"),
+            object_pairs_hook=_strict_json_object,
+            parse_constant=_reject_nonfinite_json,
+        )
     except Exception:
         return True
     if not isinstance(receipt, dict):
         return True
 
-    acceptance_status = str(receipt.get("acceptance_status") or "").strip().lower()
-    if acceptance_status in {"blocked", "disqualified", "fail", "failed", "rejected"}:
+    if not _magicfit_accepted_receipt_contract_valid(
+        receipt,
+        bundle_dir=bundle_dir,
+        active_video_relpath=active_video_relpath,
+        tour_slug=tour_slug,
+    ):
         return True
-    if "launch_eligible" in receipt and not _truthy(receipt.get("launch_eligible")):
+    receipt_video_sha256 = receipt["video_sha256"]
+    assert isinstance(receipt_video_sha256, str)
+    active_video_path = _local_asset_path(bundle_dir, active_video_relpath)
+    if active_video_path is None or not active_video_path.is_file():
         return True
-    disqualification = receipt.get("disqualification")
-    if isinstance(disqualification, dict) and disqualification:
+    digest = hashlib.sha256()
+    try:
+        with active_video_path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError:
         return True
-    if isinstance(disqualification, list) and disqualification:
-        return True
-    if isinstance(disqualification, str) and disqualification.strip():
+    if digest.hexdigest() != receipt_video_sha256:
         return True
     return False
+
+
+def _magicfit_pending_delivery_present(bundle_dir: Path) -> bool:
+    """Surface staged operator work without treating it as public evidence."""
+
+    pending_path = bundle_dir / MAGICFIT_PENDING_POINTER_RELPATH
+    try:
+        return (
+            pending_path.is_file()
+            and not pending_path.is_symlink()
+            and pending_path.stat().st_size > 0
+        )
+    except OSError:
+        return False
 
 
 def _file_exists(bundle_dir: Path, relpath: str) -> bool:
@@ -549,8 +816,12 @@ def _file_exists(bundle_dir: Path, relpath: str) -> bool:
 def _local_asset_path(bundle_dir: Path, relpath: str) -> Path | None:
     if not relpath:
         return None
-    candidate = (bundle_dir / relpath).resolve()
-    if bundle_dir.resolve() not in candidate.parents or not candidate.is_file():
+    try:
+        bundle_root = bundle_dir.resolve()
+        candidate = (bundle_dir / relpath).resolve()
+        if bundle_root not in candidate.parents or not candidate.is_file():
+            return None
+    except (OSError, RuntimeError, ValueError):
         return None
     return candidate
 
@@ -723,8 +994,8 @@ def _local_html_asset_has_forbidden_marker(bundle_dir: Path, relpath: str, *, ma
 def _local_video_asset_is_playable(bundle_dir: Path, relpath: str) -> bool:
     if not relpath:
         return False
-    candidate = (bundle_dir / relpath).resolve()
-    if bundle_dir.resolve() not in candidate.parents or not candidate.is_file():
+    candidate = _local_asset_path(bundle_dir, relpath)
+    if candidate is None:
         return False
     suffix = PurePosixPath(relpath).suffix.lower()
     try:
@@ -749,7 +1020,7 @@ def _local_video_asset_is_playable(bundle_dir: Path, relpath: str) -> bool:
 def _magicfit_local_video_ready(bundle_dir: Path, payload: dict[str, object]) -> bool:
     return (
         _magicfit_provider_declared(payload)
-        and not _magicfit_delivery_receipt_disqualified(bundle_dir)
+        and not _magicfit_delivery_receipt_disqualified(bundle_dir, payload)
         and _local_video_asset_is_playable(bundle_dir, _magicfit_video_relpath(payload))
     )
 
@@ -928,9 +1199,14 @@ def _provider_missing_evidence(bundle_dir: Path, payload: dict[str, object]) -> 
             or payload.get("video_render_provider")
             or ""
         ).strip().lower()
-        if _magicfit_delivery_receipt_disqualified(bundle_dir):
+        if _magicfit_delivery_receipt_disqualified(
+            bundle_dir, payload
+        ) or _magicfit_pending_delivery_present(bundle_dir):
             reason = "magicfit_walkthrough_disqualified"
-            action = "render and import a replacement MagicFit walkthrough that passes the delivery acceptance gate"
+            action = (
+                "complete delivery acceptance for the exact active MagicFit video, "
+                "or render and import a replacement MagicFit walkthrough if review rejects it"
+            )
         elif provider and provider != "magicfit":
             reason = "walkthrough_provider_not_magicfit"
             action = "render and import a MagicFit walkthrough with provider=magicfit"
@@ -1051,7 +1327,7 @@ def _control_candidates(*, slug: str, bundle_dir: Path, payload: dict[str, objec
 
     magicfit_relpath = _magicfit_video_relpath(payload)
     magicfit_url = _magicfit_video_url(payload)
-    magicfit_disqualified = _magicfit_delivery_receipt_disqualified(bundle_dir)
+    magicfit_disqualified = _magicfit_delivery_receipt_disqualified(bundle_dir, payload)
     if _magicfit_local_video_ready(bundle_dir, payload):
         rows.append(
             {
@@ -1094,6 +1370,27 @@ def _summarize_provider_blockers(reason_counts: dict[str, dict[str, dict[str, ob
             "reasons": rows,
         }
     return summary
+
+
+def _next_provider_action(
+    provider: str, provider_blockers: dict[str, dict[str, object]]
+) -> str:
+    blocker = provider_blockers.get(provider)
+    if isinstance(blocker, dict):
+        reasons = blocker.get("reasons")
+        if isinstance(reasons, list):
+            for row in reasons:
+                if isinstance(row, dict):
+                    action = str(row.get("action") or "").strip()
+                    if action:
+                        return action
+    return {
+        "matterport": "add a verified Matterport model URL to at least one hosted tour manifest",
+        "3dvista": "import a verified 3DVista export or add an allowlisted 3dvista.com tour URL",
+        "pano2vr": "import a verified Pano2VR export",
+        "krpano": "provide a real walkable_scene and krpano license environment",
+        "magicfit": "import a receipt-backed playable MagicFit walkthrough video",
+    }[provider]
 
 
 def _provider_delivery_contracts(
@@ -1274,7 +1571,11 @@ def build_property_tour_control_receipt(
         for manifest_path in manifests:
             bundle_dir = manifest_path.parent.resolve()
             try:
-                payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+                payload = json.loads(
+                    manifest_path.read_text(encoding="utf-8"),
+                    object_pairs_hook=_strict_json_object,
+                    parse_constant=_reject_nonfinite_json,
+                )
             except Exception as exc:
                 tours.append({"slug": manifest_path.parent.name, "status": "invalid_manifest", "error": f"{type(exc).__name__}: {exc}"})
                 failed_probes += 1
@@ -1454,13 +1755,7 @@ def build_property_tour_control_receipt(
                 {
                     "provider": provider,
                     "blocked_tour_count": action_counts[provider],
-                    "action": {
-                        "matterport": "add a verified Matterport model URL to at least one hosted tour manifest",
-                        "3dvista": "import a verified 3DVista export or add an allowlisted 3dvista.com tour URL",
-                        "pano2vr": "import a verified Pano2VR export",
-                        "krpano": "provide a real walkable_scene and krpano license environment",
-                        "magicfit": "import a receipt-backed playable MagicFit walkthrough video",
-                    }[provider],
+                    "action": _next_provider_action(provider, provider_blockers),
                 }
                 for provider in PUBLIC_REQUIRED_PROVIDER_MODES
                 if provider in missing_provider_modes

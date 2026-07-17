@@ -240,6 +240,16 @@ _PUBLIC_TOUR_PRIVACY_MODES = frozenset(
         "owner_private",
     }
 )
+_PUBLIC_TOUR_READY_PUBLICATION_STATUSES = frozenset(
+    {"active", "published", "ready"}
+)
+_PUBLIC_TOUR_PENDING_MAGICFIT_PROOF_STATUSES = frozenset(
+    {
+        "provider_render_pending_delivery_acceptance",
+        "render_verified_pending_delivery_acceptance",
+        "rendered_pending_delivery_acceptance",
+    }
+)
 _PUBLIC_TOUR_ADDRESS_ALLOWED_MODES = frozenset({"viewer_only", "agent_share", "family_review"})
 _PUBLIC_TOUR_EXACT_LOCATION_FACT_KEYS = frozenset(
     {
@@ -339,6 +349,7 @@ _PUBLIC_TOUR_TOP_LEVEL_KEYS = frozenset(
         "scene_count",
         "scene_strategy",
         "creation_mode",
+        "publication_status",
         "brand_name",
         "hosted_url",
         "public_url",
@@ -413,6 +424,34 @@ def public_tour_privacy_mode(payload: dict[str, object]) -> str:
 
 
 def require_public_tour_viewable(payload: dict[str, object]) -> None:
+    # Legacy manifests predate publication_status and remain viewable.  Once a
+    # producer opts into the field, however, only an explicit terminal public
+    # state is safe; unknown values must never become public by omission from a
+    # denylist.
+    if "publication_status" in payload:
+        publication_status = payload.get("publication_status")
+        normalized_publication_status = (
+            publication_status.strip().lower()
+            if isinstance(publication_status, str)
+            else ""
+        )
+        if normalized_publication_status not in _PUBLIC_TOUR_READY_PUBLICATION_STATUSES:
+            raise HTTPException(status_code=404, detail="tour_not_found")
+
+    # Suppress manifests written by the pre-activation MagicFit importer.  New
+    # imports leave the active manifest untouched until delivery acceptance,
+    # but this keeps already-staged/pending manifests fail-closed during an
+    # upgrade and does not reinterpret legacy manifests without an import
+    # contract.
+    magicfit_import = payload.get("magicfit_import")
+    if isinstance(magicfit_import, Mapping):
+        proof_status = magicfit_import.get("proof_status")
+        normalized_proof_status = (
+            proof_status.strip().lower() if isinstance(proof_status, str) else ""
+        )
+        if normalized_proof_status in _PUBLIC_TOUR_PENDING_MAGICFIT_PROOF_STATUSES:
+            raise HTTPException(status_code=404, detail="tour_not_found")
+
     if public_tour_privacy_mode(payload) == "owner_private":
         raise HTTPException(status_code=404, detail="tour_not_found")
     require_governed_spatial_public_tour_viewable(payload)

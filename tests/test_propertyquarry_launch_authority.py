@@ -888,6 +888,30 @@ def test_launch_authority_preserves_valid_metadata_only_ancestry_projection(
     }
 
 
+def test_launch_authority_rejects_missing_release_hygiene_ancestry_projection(
+    tmp_path: Path,
+) -> None:
+    inputs = _inputs(tmp_path)
+    gold_path = inputs["gold_status_path"]
+    assert isinstance(gold_path, Path)
+    gold = _read_payload(gold_path)
+    ancestry_fields = {
+        "parent_commit",
+        "manifest_descendant_paths",
+        "manifest_metadata_only_ancestor",
+    }
+    for projection in (gold["release_hygiene"], gold["pass_areas"][0]):  # type: ignore[index]
+        assert isinstance(projection, dict)
+        for field in ancestry_fields:
+            projection.pop(field, None)
+    _rewrite(gold_path, gold)
+
+    envelope = launch_authority.build_launch_authority_envelope(**inputs)
+
+    assert envelope["status"] == "withheld"
+    assert "gold_pass_area_candidate_mismatch" in envelope["failures"]
+
+
 def test_launch_authority_rejects_disallowed_metadata_ancestry_projection(
     tmp_path: Path,
 ) -> None:

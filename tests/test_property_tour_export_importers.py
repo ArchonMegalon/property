@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -8,9 +9,11 @@ import sys
 import zipfile
 from pathlib import Path
 
+import pytest
 from PIL import Image
 
 from scripts.discover_property_tour_exports import build_discovery_receipt
+from scripts.import_3dvista_export import _normalize_web_readable_export_tree
 from scripts.intake_3dvista_gold_artifact import build_3dvista_intake_receipt
 from scripts.property_tour_3dvista_provenance import (
     THREE_D_VISTA_TARGET_PROVENANCE_SCHEMA,
@@ -184,7 +187,12 @@ def test_3dvista_importer_requires_verified_export_markers(tmp_path: Path) -> No
     assert missing_provenance.returncode != 0
     assert "3dvista_target_provenance_missing" in missing_provenance.stderr
     assert not (bundle_dir / "3dvista" / "index.html").exists()
-    _write_3dvista_provenance(verified_export, slug)
+    provenance_receipt = _write_3dvista_provenance(verified_export, slug)
+    verified_export.chmod(0o700)
+    (verified_export / "runtime").chmod(0o700)
+    (verified_export / "index.html").chmod(0o600)
+    (verified_export / "runtime" / "app.js").chmod(0o600)
+    provenance_receipt.chmod(0o600)
 
     imported = _run_importer(
         "import_3dvista_export.py",
@@ -198,6 +206,9 @@ def test_3dvista_importer_requires_verified_export_markers(tmp_path: Path) -> No
     assert imported.returncode == 0, imported.stderr
     body = json.loads(imported.stdout)
     assert body["control_url"] == f"/tours/{slug}/control/3dvista"
+    assert body["web_permissions"]["status"] == "pass"
+    assert body["web_permissions"]["directories_mode"] == "0755"
+    assert body["web_permissions"]["files_mode"] == "0644"
     manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
     assert manifest["control_mode"] == "3dvista"
     assert manifest["viewer_provider"] == "3dvista_vt_pro"
@@ -211,9 +222,23 @@ def test_3dvista_importer_requires_verified_export_markers(tmp_path: Path) -> No
     provenance = private_manifest["three_d_vista_target_provenance"]
     assert provenance["target_slug"] == slug
     assert provenance["artifact"]["sha256"] == export_tree_sha256(verified_export)
+    permission_receipt = private_manifest["three_d_vista_export_permissions"]
+    assert permission_receipt["status"] == "pass"
+    assert permission_receipt["scope"] == "3dvista"
+    assert permission_receipt["normalized_at"]
     assert (bundle_dir / "tour.private.json").stat().st_mode & 0o777 == 0o600
     assert not (bundle_dir / "3dvista" / "3dvista-target-provenance.json").exists()
     assert (bundle_dir / "3dvista" / "runtime" / "app.js").exists()
+    assert (bundle_dir / "3dvista").stat().st_mode & 0o777 == 0o755
+    assert (bundle_dir / "3dvista" / "runtime").stat().st_mode & 0o777 == 0o755
+    assert (bundle_dir / "3dvista" / "index.html").stat().st_mode & 0o777 == 0o644
+    assert (bundle_dir / "3dvista" / "runtime" / "app.js").stat().st_mode & 0o777 == 0o644
+    # The importer normalizes only its owned copy, never the operator artifact
+    # or private provenance receipt outside the public bundle.
+    assert verified_export.stat().st_mode & 0o777 == 0o700
+    assert (verified_export / "runtime").stat().st_mode & 0o777 == 0o700
+    assert (verified_export / "index.html").stat().st_mode & 0o777 == 0o600
+    assert provenance_receipt.stat().st_mode & 0o777 == 0o600
 
 
 def test_3dvista_importer_rejects_wrong_target_hash_or_review(tmp_path: Path) -> None:
@@ -252,6 +277,185 @@ def test_3dvista_importer_rejects_wrong_target_hash_or_review(tmp_path: Path) ->
         assert "three_d_vista_entry_relpath" not in json.loads(
             (bundle_dir / "tour.json").read_text(encoding="utf-8")
         )
+
+
+def test_3dvista_importer_can_attach_reviewed_provenance_to_existing_export(
+    tmp_path: Path,
+) -> None:
+    slug = "existing-reviewed-3dvista"
+    bundle_dir = _write_base_tour(tmp_path, slug)
+    export_dir = bundle_dir / "3dvista"
+    export_dir.mkdir()
+    (export_dir / "index.htm").write_text(
+        "<!doctype html><script src='runtime/app.js'></script><div>3DVista export shell</div>",
+        encoding="utf-8",
+    )
+    (export_dir / "runtime").mkdir()
+    (export_dir / "runtime" / "app.js").write_text(
+        "window.TDVPlayer = true;", encoding="utf-8"
+    )
+    manifest_path = bundle_dir / "tour.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.update(
+        {
+            "control_mode": "3dvista",
+            "viewer_provider": "3dvista_vt_pro",
+            "three_d_vista_entry_relpath": "3dvista/index.htm",
+            "three_d_vista_export_root_relpath": "3dvista",
+        }
+    )
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    private_path = bundle_dir / "tour.private.json"
+    private_path.write_text(
+        json.dumps(
+            {
+                "private_marker": "preserved",
+                "three_d_vista_white_label_proof": {
+                    "source_project": "propertyquarry",
+                    "non_trial_export_verified": True,
+                    "propertyquarry_tour_metadata": True,
+                    "trial_branding_checked": True,
+                    "trial_branding_present": False,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    receipt_dir = tmp_path / "review"
+    receipt_dir.mkdir()
+    receipt_path = _write_3dvista_provenance(
+        receipt_dir,
+        slug,
+        entry_relpath="index.htm",
+    )
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["artifact"]["sha256"] = export_tree_sha256(export_dir)
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+    export_tree_before = export_tree_sha256(export_dir)
+    export_dir.chmod(0o700)
+    (export_dir / "runtime").chmod(0o700)
+    (export_dir / "index.htm").chmod(0o600)
+    (export_dir / "runtime" / "app.js").chmod(0o600)
+    receipt_path.chmod(0o600)
+
+    attached = _run_importer(
+        "import_3dvista_export.py",
+        tmp_path,
+        "--slug",
+        slug,
+        "--attach-provenance-only",
+        "--provenance-receipt",
+        str(receipt_path),
+    )
+
+    assert attached.returncode == 0, attached.stderr
+    result = json.loads(attached.stdout)
+    assert result["status"] == "provenance_attached"
+    assert result["export_tree_sha256"] == export_tree_before
+    assert result["web_permissions"]["status"] == "pass"
+    assert export_tree_sha256(export_dir) == export_tree_before
+    private_payload = json.loads(private_path.read_text(encoding="utf-8"))
+    assert private_payload["private_marker"] == "preserved"
+    provenance = private_payload["three_d_vista_target_provenance"]
+    assert provenance["target_slug"] == slug
+    assert provenance["artifact"]["sha256"] == export_tree_before
+    assert provenance["target_subdir"] == "3dvista"
+    permission_receipt = private_payload["three_d_vista_export_permissions"]
+    assert permission_receipt["status"] == "pass"
+    assert permission_receipt["scope"] == "3dvista"
+    assert private_path.stat().st_mode & 0o777 == 0o600
+    assert export_dir.stat().st_mode & 0o777 == 0o755
+    assert (export_dir / "runtime").stat().st_mode & 0o777 == 0o755
+    assert (export_dir / "index.htm").stat().st_mode & 0o777 == 0o644
+    assert (export_dir / "runtime" / "app.js").stat().st_mode & 0o777 == 0o644
+    assert receipt_path.stat().st_mode & 0o777 == 0o600
+
+
+def test_3dvista_attach_provenance_rejects_export_drift_or_source_mix(
+    tmp_path: Path,
+) -> None:
+    slug = "existing-drifted-3dvista"
+    bundle_dir = _write_base_tour(tmp_path, slug)
+    export_dir = bundle_dir / "3dvista"
+    export_dir.mkdir()
+    (export_dir / "index.htm").write_text(
+        "<!doctype html><script>window.TDVPlayer = true;</script>",
+        encoding="utf-8",
+    )
+    manifest_path = bundle_dir / "tour.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["three_d_vista_entry_relpath"] = "3dvista/index.htm"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    review_dir = tmp_path / "review-drift"
+    review_dir.mkdir()
+    receipt_path = _write_3dvista_provenance(
+        review_dir,
+        slug,
+        entry_relpath="index.htm",
+    )
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    receipt["artifact"]["sha256"] = "0" * 64
+    receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
+
+    rejected = _run_importer(
+        "import_3dvista_export.py",
+        tmp_path,
+        "--slug",
+        slug,
+        "--attach-provenance-only",
+        "--provenance-receipt",
+        str(receipt_path),
+    )
+    mixed = _run_importer(
+        "import_3dvista_export.py",
+        tmp_path,
+        "--slug",
+        slug,
+        "--attach-provenance-only",
+        "--export-dir",
+        str(export_dir),
+        "--provenance-receipt",
+        str(receipt_path),
+    )
+
+    assert rejected.returncode != 0
+    assert "artifact_sha256_mismatch" in rejected.stderr
+    assert not (bundle_dir / "tour.private.json").exists()
+    assert mixed.returncode != 0
+    assert "3dvista_attach_provenance_rejects_export_source" in mixed.stderr
+
+
+def test_3dvista_permission_normalization_denial_cannot_create_provider_truth(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    slug = "permission-denied-3dvista"
+    bundle_dir = _write_base_tour(tmp_path, slug)
+    export_dir = bundle_dir / "3dvista"
+    export_dir.mkdir()
+    entry = export_dir / "index.htm"
+    entry.write_text(
+        "<!doctype html><script>window.TDVPlayer = true;</script>",
+        encoding="utf-8",
+    )
+    manifest_path = bundle_dir / "tour.json"
+    manifest_before = manifest_path.read_bytes()
+    original_chmod = Path.chmod
+
+    def deny_entry_chmod(path: Path, mode: int, *args: object, **kwargs: object) -> None:
+        if path == entry:
+            raise PermissionError("fixture denies web-readable mode")
+        original_chmod(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "chmod", deny_entry_chmod)
+    with pytest.raises(SystemExit, match="3dvista_export_permissions_invalid"):
+        _normalize_web_readable_export_tree(
+            bundle_dir=bundle_dir,
+            export_dir=export_dir,
+        )
+
+    assert manifest_path.read_bytes() == manifest_before
+    assert not (bundle_dir / "tour.private.json").exists()
+    assert "three_d_vista_entry_relpath" not in json.loads(manifest_before)
 
 
 def test_3dvista_provenance_template_is_private_and_fails_closed_until_reviewed(tmp_path: Path) -> None:
@@ -1351,11 +1555,24 @@ def test_batch_tour_export_importer_materializes_krpano_and_magicfit_assets(tmp_
     magicfit_manifest = json.loads((public_root / "batch-magicfit" / "tour.json").read_text(encoding="utf-8"))
     assert krpano_manifest["control_mode"] == "krpano"
     assert krpano_manifest["walkable_scene"]["panorama_relpath"] == "krpano/panorama.jpg"
-    assert magicfit_manifest["video_provider"] == "magicfit"
-    assert magicfit_manifest["video_relpath"] == "magicfit-walkthrough.mp4"
+    assert "video_provider" not in magicfit_manifest
+    assert "video_relpath" not in magicfit_manifest
     verifier = build_property_tour_control_receipt(tour_root=public_root)
     assert verifier["provider_counts"]["krpano"] == 1
-    assert verifier["provider_counts"]["magicfit"] == 1
+    assert verifier["provider_counts"]["magicfit"] == 0
+    magicfit_pending = json.loads(
+        (public_root / "batch-magicfit" / "tour.magicfit.pending.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert magicfit_pending["acceptance_status"] == "pending"
+    assert magicfit_pending["launch_eligible"] is False
+    staged_video = public_root / "batch-magicfit" / magicfit_pending["staged_video_relpath"]
+    assert staged_video.is_file()
+    assert staged_video.stat().st_mode & 0o777 == 0o600
+    assert not (
+        public_root / "batch-magicfit" / magicfit_pending["video_relpath"]
+    ).exists()
 
 
 def test_batch_tour_export_importer_fails_placeholder_rows_without_false_ready(tmp_path: Path) -> None:
@@ -1439,6 +1656,7 @@ def test_magicfit_importer_materializes_playable_walkthrough_and_rejects_placeho
 
     playable_video = tmp_path / "walkthrough.mp4"
     _write_playable_mp4(playable_video)
+    playable_video.chmod(0o600)
     unreceipted = _run_importer(
         "import_magicfit_walkthrough.py",
         tmp_path,
@@ -1555,32 +1773,224 @@ def test_magicfit_importer_materializes_playable_walkthrough_and_rejects_placeho
 
     assert imported.returncode == 0, imported.stderr
     body = json.loads(imported.stdout)
-    assert body["video_url"] == f"/tours/files/{slug}/walkthrough/final.mp4"
+    assert body["status"] == "staged_pending_delivery_acceptance"
+    assert "video_url" not in body
     assert body["provider"] == "magicfit"
     assert body["provider_backend_key"] == "magicfit"
     manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
-    assert manifest["video_provider"] == "magicfit"
-    assert manifest["video_provider_backend_key"] == "magicfit"
-    assert manifest["video_relpath"] == "walkthrough/final.mp4"
-    assert manifest["video_coverage_proof"] == "boundary_verified_frame_continuation"
-    assert manifest["walkthrough_coverage_proof"]["status"] == "pass"
-    assert manifest["walkthrough_coverage_proof"]["segments_expected"] == ["entry", "living", "kitchen"]
-    assert manifest["magicfit_import"]["source"] == "magicfit_rendered_walkthrough"
-    assert manifest["magicfit_import"]["provider_backend_key"] == "magicfit"
-    assert manifest["magicfit_import"]["proof_status"] == "pass"
-    assert manifest["magicfit_import"]["source_receipt_path"] == str(receipt_path)
-    assert manifest["magicfit_import"]["coverage_proof"]["coverage_segments"][0]["segment"] == "entry"
-    assert manifest["magicfit_import"]["size_bytes"] == playable_video.stat().st_size
-    assert len(manifest["magicfit_import"]["sha256"]) == 64
-    assert (bundle_dir / "walkthrough" / "final.mp4").read_bytes() == playable_video.read_bytes()
+    assert manifest == {"slug": slug, "display_title": "Import target"}
+    assert "video_provider" not in manifest
+    assert "video_relpath" not in manifest
 
-    receipt = build_property_tour_control_receipt(tour_root=tmp_path / "public_tours")
-    assert receipt["provider_counts"]["magicfit"] == 1
-    assert receipt["magicfit_playback"]["playback_ok"] is True
-    assert receipt["magicfit_playback"]["playable_count"] == 1
-    assert receipt["magicfit_playback"]["ready_count"] == 1
-    assert receipt["ready_provider_modes"] == ["magicfit"]
-    assert receipt["tours"][0]["controls"][0]["evidence"] == "local_magicfit_playable_video"
+    pending_path = bundle_dir / "tour.magicfit.pending.json"
+    pending = json.loads(pending_path.read_text(encoding="utf-8"))
+    assert pending_path.stat().st_mode & 0o777 == 0o600
+    assert pending["contract_name"] == (
+        "propertyquarry.magicfit_delivery_acceptance.v1"
+    )
+    assert pending["render_status"] == "completed"
+    assert pending["generated_at"].endswith("Z")
+    assert pending["acceptance_status"] == "pending"
+    assert pending["launch_eligible"] is False
+    assert pending["video_relpath"].startswith("magicfit-media/final.")
+    assert pending["video_relpath"].endswith(".mp4")
+    assert body["video_relpath_after_acceptance"] == pending["video_relpath"]
+    assert body["public_video_url_after_acceptance"] == (
+        f"/tours/files/{slug}/{pending['video_relpath']}"
+    )
+    assert pending["source_receipt_sha256"] == hashlib.sha256(
+        receipt_path.read_bytes()
+    ).hexdigest()
+
+    staged_video = bundle_dir / pending["staged_video_relpath"]
+    assert staged_video.read_bytes() == playable_video.read_bytes()
+    assert staged_video.stat().st_mode & 0o777 == 0o600
+    assert not (bundle_dir / pending["video_relpath"]).exists()
+    assert not (bundle_dir / pending["accepted_sidecar_relpath"]).exists()
+
+    staged_manifest_path = bundle_dir / pending["staged_manifest_relpath"]
+    assert staged_manifest_path.stat().st_mode & 0o777 == 0o600
+    staged_manifest = json.loads(staged_manifest_path.read_text(encoding="utf-8"))
+    assert staged_manifest["video_provider"] == "magicfit"
+    assert staged_manifest["video_provider_backend_key"] == "magicfit"
+    assert staged_manifest["video_relpath"] == pending["video_relpath"]
+    assert staged_manifest["video_sidecar_relpath"] == pending["accepted_sidecar_relpath"]
+    assert (
+        staged_manifest["video_coverage_proof"] == "route_coverage_verified"
+    )
+    assert staged_manifest["walkthrough_coverage_proof"]["status"] == "pass"
+    assert staged_manifest["walkthrough_coverage_proof"]["segments_expected"] == ["entry", "living", "kitchen"]
+    assert staged_manifest["magicfit_import"]["source"] == "magicfit_rendered_walkthrough"
+    assert staged_manifest["magicfit_import"]["provider_backend_key"] == "magicfit"
+    assert staged_manifest["magicfit_import"]["proof_status"] == "delivery_accepted"
+    assert "source_receipt_path" not in staged_manifest["magicfit_import"]
+    assert len(staged_manifest["magicfit_import"]["source_receipt_sha256"]) == 64
+    assert staged_manifest["magicfit_import"]["coverage_proof"]["coverage_segments"][0]["segment"] == "entry"
+    assert staged_manifest["magicfit_import"]["size_bytes"] == playable_video.stat().st_size
+    assert len(staged_manifest["magicfit_import"]["sha256"]) == 64
+
+    pending_receipt = build_property_tour_control_receipt(
+        tour_root=tmp_path / "public_tours"
+    )
+    assert pending_receipt["provider_counts"]["magicfit"] == 0
+    assert pending_receipt["magicfit_playback"]["playback_ok"] is True
+    assert pending_receipt["magicfit_playback"]["playable_count"] == 0
+    assert pending_receipt["magicfit_playback"]["ready_count"] == 0
+    assert pending_receipt["ready_provider_modes"] == []
+    pending_missing = {
+        row["provider"]: row
+        for row in pending_receipt["tours"][0]["missing_evidence"]
+    }
+    assert pending_missing["magicfit"]["reason"] == "magicfit_walkthrough_disqualified"
+    pending_actions = {
+        row["provider"]: row["action"]
+        for row in pending_receipt["next_required_actions"]
+    }
+    assert "complete delivery acceptance" in pending_actions["magicfit"]
+
+    # Status flips on the private pending pointer cannot activate either the
+    # staged manifest or staged media.
+    pending["acceptance_status"] = "accepted"
+    pending["launch_eligible"] = True
+    pending_path.write_text(json.dumps(pending), encoding="utf-8")
+    status_flip_receipt = build_property_tour_control_receipt(
+        tour_root=tmp_path / "public_tours"
+    )
+    assert status_flip_receipt["provider_counts"]["magicfit"] == 0
+    status_flip_missing = {
+        row["provider"]: row
+        for row in status_flip_receipt["tours"][0]["missing_evidence"]
+    }
+    assert status_flip_missing["magicfit"]["reason"] == (
+        "magicfit_walkthrough_disqualified"
+    )
+    assert json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8")) == manifest
+    assert not (bundle_dir / pending["video_relpath"]).exists()
+
+
+def test_magicfit_importer_rejects_ambiguous_receipts_and_noncanonical_paths(
+    tmp_path: Path,
+) -> None:
+    playable_video = tmp_path / "walkthrough.mp4"
+    _write_playable_mp4(playable_video)
+    hosted_url = "https://media.powlcdn.com/magicfit/example.mp4"
+
+    def valid_receipt(target_slug: object) -> dict[str, object]:
+        return {
+            "provider": "magicfit",
+            "provider_backend_key": "magicfit",
+            "render_status": "completed",
+            "hosted_walkthrough_video_url": hosted_url,
+            "output_file": str(playable_video),
+            "target_slug": target_slug,
+        }
+
+    duplicate_slug = "duplicate-receipt"
+    duplicate_bundle = _write_base_tour(tmp_path, duplicate_slug)
+    duplicate_receipt = tmp_path / "duplicate-receipt.json"
+    duplicate_body = json.dumps(valid_receipt(duplicate_slug))
+    duplicate_receipt.write_text(
+        '{"provider":"wrong-provider",' + duplicate_body[1:],
+        encoding="utf-8",
+    )
+    duplicate_result = _run_importer(
+        "import_magicfit_walkthrough.py",
+        tmp_path,
+        "--slug",
+        duplicate_slug,
+        "--video-path",
+        str(playable_video),
+        "--source-receipt",
+        str(duplicate_receipt),
+    )
+    assert duplicate_result.returncode != 0
+    assert "magicfit_receipt_invalid:_DuplicateJsonKey" in duplicate_result.stderr
+    assert not (duplicate_bundle / "magicfit-walkthrough.mp4").exists()
+
+    nonfinite_slug = "nonfinite-receipt"
+    nonfinite_bundle = _write_base_tour(tmp_path, nonfinite_slug)
+    nonfinite_receipt = tmp_path / "nonfinite-receipt.json"
+    nonfinite_payload = valid_receipt(nonfinite_slug)
+    nonfinite_payload["unused_metric"] = float("nan")
+    nonfinite_receipt.write_text(json.dumps(nonfinite_payload), encoding="utf-8")
+    nonfinite_result = _run_importer(
+        "import_magicfit_walkthrough.py",
+        tmp_path,
+        "--slug",
+        nonfinite_slug,
+        "--video-path",
+        str(playable_video),
+        "--source-receipt",
+        str(nonfinite_receipt),
+    )
+    assert nonfinite_result.returncode != 0
+    assert "magicfit_receipt_invalid:ValueError" in nonfinite_result.stderr
+    assert not (nonfinite_bundle / "magicfit-walkthrough.mp4").exists()
+
+    numeric_slug = "123"
+    numeric_bundle = _write_base_tour(tmp_path, numeric_slug)
+    numeric_receipt = tmp_path / "numeric-receipt.json"
+    numeric_receipt.write_text(
+        json.dumps(valid_receipt(123)),
+        encoding="utf-8",
+    )
+    numeric_result = _run_importer(
+        "import_magicfit_walkthrough.py",
+        tmp_path,
+        "--slug",
+        numeric_slug,
+        "--video-path",
+        str(playable_video),
+        "--source-receipt",
+        str(numeric_receipt),
+    )
+    assert numeric_result.returncode != 0
+    assert "magicfit_receipt_target_mismatch" in numeric_result.stderr
+    assert not (numeric_bundle / "magicfit-walkthrough.mp4").exists()
+
+    target_slug = "noncanonical-target"
+    target_bundle = _write_base_tour(tmp_path, target_slug)
+    target_receipt = tmp_path / "target-receipt.json"
+    target_receipt.write_text(
+        json.dumps(valid_receipt(target_slug)),
+        encoding="utf-8",
+    )
+    target_result = _run_importer(
+        "import_magicfit_walkthrough.py",
+        tmp_path,
+        "--slug",
+        target_slug,
+        "--video-path",
+        str(playable_video),
+        "--target-relpath",
+        "nested/../final.mp4",
+        "--source-receipt",
+        str(target_receipt),
+    )
+    assert target_result.returncode != 0
+    assert "invalid_magicfit_target" in target_result.stderr
+    assert not (target_bundle / "nested" / "final.mp4").exists()
+
+    slug_alias = "canonical-target"
+    alias_bundle = _write_base_tour(tmp_path, slug_alias)
+    alias_receipt = tmp_path / "alias-receipt.json"
+    alias_receipt.write_text(
+        json.dumps(valid_receipt(slug_alias)),
+        encoding="utf-8",
+    )
+    alias_result = _run_importer(
+        "import_magicfit_walkthrough.py",
+        tmp_path,
+        "--slug",
+        f"../{slug_alias}",
+        "--video-path",
+        str(playable_video),
+        "--source-receipt",
+        str(alias_receipt),
+    )
+    assert alias_result.returncode != 0
+    assert "invalid_tour_slug" in alias_result.stderr
+    assert not (alias_bundle / "magicfit-walkthrough.mp4").exists()
 
 
 def test_krpano_control_requires_real_walkable_360_asset(tmp_path: Path, monkeypatch) -> None:

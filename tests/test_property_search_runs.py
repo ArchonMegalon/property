@@ -32,10 +32,233 @@ from app.product.service import ProductService
 from app.product.service import _property_alert_personal_fit_snapshot, _property_candidate_google_maps_url, _property_candidate_is_generic_listing_page, _property_candidate_matches_requested_location, _property_candidate_url_has_exact_location_probe, _property_candidate_url_has_location_probe, _property_search_location_hints
 from app.product.service import _property_investment_underwriting_payload
 from app.services.fliplink import build_fliplink_packet_service
+from app.services.onboarding import OnboardingService, flatten_property_search_preferences_snapshot
 from app.services.property_billing import property_billing_event_updates, property_billing_invoice_handoffs, property_commercial_snapshot, property_worker_cap
 from app.services import property_market_catalog
 from app.services.heyy_whatsapp_service import redact_phone_number
 from tests.product_test_helpers import build_product_client, build_property_client, seed_product_state, start_workspace
+
+
+def test_property_search_preferences_normalization_is_idempotent_and_preserves_raw_only_values() -> None:
+    normalized = OnboardingService._normalize_property_search_preferences(
+        {
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "Wien",
+            "selected_platforms": ["willhaben"],
+            "future_raw_only_preference": {"mode": "keep"},
+        }
+    )
+
+    serialized_sizes: list[int] = []
+    for _ in range(10):
+        normalized = OnboardingService._normalize_property_search_preferences(normalized)
+        raw_preferences = dict(normalized.get("raw_preferences") or {})
+        assert raw_preferences["future_raw_only_preference"] == {"mode": "keep"}
+        assert "raw_preferences" not in raw_preferences
+        assert "saved_shortlist_candidates" not in raw_preferences
+        assert "search_agents" not in raw_preferences
+        serialized_sizes.append(len(json.dumps(normalized, ensure_ascii=True, sort_keys=True)))
+
+    assert len(set(serialized_sizes)) == 1
+
+
+def test_property_search_preferences_normalization_preserves_explicit_agents_across_round_trips() -> None:
+    normalized = OnboardingService._normalize_property_search_preferences(
+        {
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "Wien",
+            "selected_platforms": ["willhaben"],
+            "active_search_agent_id": "agent-vienna-family",
+            "property_commercial": {
+                "active_plan_key": "agent",
+                "status": "active",
+                "active_until": "2999-01-01T00:00:00+00:00",
+            },
+            "search_agents": [
+                {
+                    "agent_id": "agent-vienna-family",
+                    "name": "Vienna family homes",
+                    "country_code": "AT",
+                    "listing_mode": "rent",
+                    "location_query": "Wien",
+                    "selected_platforms": ["willhaben"],
+                    "enabled": True,
+                    "duration_days": 45,
+                    "notification_limit": 7,
+                    "notification_period": "day",
+                },
+                {
+                    "agent_id": "agent-graz-investment",
+                    "name": "Graz investment homes",
+                    "country_code": "AT",
+                    "listing_mode": "buy",
+                    "location_query": "Graz",
+                    "selected_platforms": ["willhaben"],
+                    "enabled": False,
+                    "duration_days": 90,
+                    "notification_limit": 3,
+                    "notification_period": "week",
+                }
+            ],
+        }
+    )
+    expected_agents = [dict(agent) for agent in list(normalized.get("search_agents") or [])]
+    assert [agent["agent_id"] for agent in expected_agents] == [
+        "agent-vienna-family",
+        "agent-graz-investment",
+    ]
+
+    for _ in range(10):
+        agents = list(normalized.get("search_agents") or [])
+        assert agents == expected_agents
+        assert normalized["active_search_agent_id"] == "agent-vienna-family"
+        assert "search_agents" not in dict(normalized.get("raw_preferences") or {})
+        normalized = OnboardingService._normalize_property_search_preferences(normalized)
+
+
+def test_property_search_preferences_normalization_flattens_full_legacy_chain_with_outer_precedence() -> None:
+    normalized = OnboardingService._normalize_property_search_preferences(
+        {
+            "country_code": "AT",
+            "listing_mode": "buy",
+            "location_query": "Wien",
+            "selected_platforms": ["willhaben"],
+            "investment_strategy": "appreciation",
+            "raw_preferences": {
+                "alert_frequency": "weekday",
+                "raw_preferences": {
+                    "investment_strategy": "cash_flow",
+                    "include_shared_housing_sources": True,
+                    "raw_preferences": {"legacy_raw_only_leaf": "preserve-deep-value"},
+                },
+            },
+        }
+    )
+
+    raw_preferences = dict(normalized.get("raw_preferences") or {})
+    assert raw_preferences["investment_strategy"] == "appreciation"
+    assert raw_preferences["alert_frequency"] == "weekday"
+    assert raw_preferences["include_shared_housing_sources"] is True
+    assert raw_preferences["legacy_raw_only_leaf"] == "preserve-deep-value"
+    assert "raw_preferences" not in raw_preferences
+
+
+def test_property_search_preferences_snapshot_flattening_fails_closed_at_depth_bound() -> None:
+    nested: dict[str, object] = {"deep_value": "must-not-be-silently-lost"}
+    for _ in range(3):
+        nested = {"raw_preferences": nested}
+
+    with pytest.raises(ValueError, match="property_search_raw_preferences_depth_limit_exceeded"):
+        flatten_property_search_preferences_snapshot(nested, max_depth=2)
+
+
+def test_property_search_preferences_upsert_flattens_legacy_raw_snapshot_and_stays_bounded() -> None:
+    principal_id = "exec-property-search-raw-preferences-idempotent"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Raw Preferences Office")
+    onboarding = client.app.state.container.onboarding
+
+    state = onboarding.upsert_property_search_preferences(
+        principal_id=principal_id,
+        property_search_preferences_json={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "location_query": "Wien",
+            "raw_preferences": {
+                "location_query": "Graz",
+                "future_raw_only_preference": "preserve-me",
+                "raw_preferences": {
+                    "location_query": "legacy-nested-value",
+                    "legacy_nested_raw_only_value": "preserve-me-too",
+                },
+            },
+        },
+    )
+
+    serialized_sizes: list[int] = []
+    for _ in range(8):
+        preferences = dict(state.get("property_search_preferences") or {})
+        raw_preferences = dict(preferences.get("raw_preferences") or {})
+        assert preferences["location_query"] == "Wien"
+        assert raw_preferences["location_query"] == "Wien"
+        assert raw_preferences["future_raw_only_preference"] == "preserve-me"
+        assert "raw_preferences" not in raw_preferences
+        assert "saved_shortlist_candidates" not in raw_preferences
+        assert "search_agents" not in raw_preferences
+        assert raw_preferences["legacy_nested_raw_only_value"] == "preserve-me-too"
+        serialized_sizes.append(len(json.dumps(preferences, ensure_ascii=True, sort_keys=True)))
+        state = onboarding.upsert_property_search_preferences(
+            principal_id=principal_id,
+            property_search_preferences_json=preferences,
+        )
+
+    # The first persisted round trip may add derived agent/commercial defaults;
+    # subsequent full-state saves must remain stable instead of nesting again.
+    assert len(set(serialized_sizes[1:])) == 1
+    assert max(serialized_sizes) < min(serialized_sizes) * 2
+
+
+def test_property_search_run_merge_drops_legacy_nested_raw_preferences(monkeypatch: pytest.MonkeyPatch) -> None:
+    principal_id = "exec-property-search-run-legacy-raw"
+    client = build_property_client(principal_id=principal_id)
+    service = ProductService(client.app.state.container)
+    monkeypatch.setattr(
+        client.app.state.container.onboarding,
+        "status",
+        lambda *, principal_id: {
+            "property_search_preferences": {
+                "country_code": "AT",
+                "listing_mode": "rent",
+                "location_query": "Wien",
+                "selected_platforms": ["willhaben"],
+                "raw_preferences": {
+                    "future_raw_only_preference": "preserve-me",
+                    "raw_preferences": {
+                        "investment_strategy": "cash_flow",
+                        "alert_frequency": "weekday",
+                        "include_shared_housing_sources": True,
+                        "raw_preferences": {"legacy_raw_only_leaf": "preserve-deep-value"},
+                    },
+                },
+            }
+        },
+    )
+
+    merged = service._merged_raw_property_search_preferences(
+        principal_id=principal_id,
+        property_preferences=None,
+    )
+    assert merged["future_raw_only_preference"] == "preserve-me"
+    assert merged["investment_strategy"] == "cash_flow"
+    assert merged["alert_frequency"] == "weekday"
+    assert merged["include_shared_housing_sources"] is True
+    assert merged["legacy_raw_only_leaf"] == "preserve-deep-value"
+    assert "raw_preferences" not in merged
+
+    _platforms, resolved, _max_results = service._resolve_property_search_run_preferences(
+        principal_id=principal_id,
+        selected_platforms=("willhaben",),
+        property_preferences=None,
+        max_results_per_source=1,
+        force_refresh=False,
+    )
+    assert resolved["future_raw_only_preference"] == "preserve-me"
+    assert resolved["investment_strategy"] == "cash_flow"
+    assert resolved["alert_frequency"] == "weekday"
+    assert resolved["include_shared_housing_sources"] is True
+    assert resolved["legacy_raw_only_leaf"] == "preserve-deep-value"
+    assert "raw_preferences" not in resolved
+
+    record = product_service._new_property_search_run_record(
+        run_id="run-legacy-raw-preferences",
+        principal_id=principal_id,
+        selected_platforms=("willhaben",),
+        property_search_preferences=resolved,
+        force_refresh=False,
+    )
+    assert "raw_preferences" not in dict(record["property_search_preferences"])
 
 
 def test_property_search_compact_record_hydrates_preview_from_provider_media_diagnostics() -> None:

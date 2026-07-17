@@ -1,9 +1,18 @@
 from __future__ import annotations
 
 import secrets
+import sys
 import time
 import urllib.parse
 from collections.abc import Mapping
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+EA_ROOT = ROOT / "ea"
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+if str(EA_ROOT) not in sys.path:
+    sys.path.insert(0, str(EA_ROOT))
 
 from app.propertyquarry_release_probe import (
     PROPERTYQUARRY_RELEASE_PROBE_NONCE_HEADER,

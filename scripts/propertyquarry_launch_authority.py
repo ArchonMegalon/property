@@ -327,8 +327,6 @@ def _release_hygiene_binding_ok(
         "manifest_metadata_only_ancestor",
     }
     projected_fields = ancestry_fields.intersection(payload)
-    if not projected_fields:
-        return True
     if projected_fields != ancestry_fields:
         return False
     parent_commit = _text(payload.get("parent_commit")).lower()

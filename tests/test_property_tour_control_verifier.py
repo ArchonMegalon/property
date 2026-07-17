@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -8,8 +9,11 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+from fastapi import HTTPException
 from PIL import Image
 
+from app.api.routes.public_tour_payloads import require_public_tour_viewable
 from app.api.routes.public_tours import _tour_control_external_iframe_html
 from scripts.property_tour_3dvista_provenance import (
     THREE_D_VISTA_TARGET_PROVENANCE_SCHEMA,
@@ -53,6 +57,54 @@ def _write_tour(root: Path, slug: str, payload: dict[str, object], files: dict[s
             (bundle / "tour.json").write_text(json.dumps(body), encoding="utf-8")
 
 
+@pytest.mark.parametrize("publication_status", ["ready", "published", "active", " READY "])
+def test_public_tour_explicit_terminal_publication_status_is_viewable(
+    publication_status: str,
+) -> None:
+    require_public_tour_viewable({"publication_status": publication_status})
+
+
+def test_public_tour_absent_publication_status_remains_legacy_compatible() -> None:
+    require_public_tour_viewable({})
+
+
+@pytest.mark.parametrize(
+    "publication_status",
+    [
+        "draft",
+        "failed",
+        "blocked",
+        "rejected",
+        "garbage",
+        "generating",
+        "pending",
+        "staging",
+        "",
+        None,
+        False,
+    ],
+)
+def test_public_tour_any_explicit_nonterminal_publication_status_fails_closed(
+    publication_status: object,
+) -> None:
+    with pytest.raises(HTTPException) as exc_info:
+        require_public_tour_viewable({"publication_status": publication_status})
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "tour_not_found"
+
+
+def test_public_tour_pending_magicfit_import_fails_closed_during_upgrade() -> None:
+    with pytest.raises(HTTPException) as exc_info:
+        require_public_tour_viewable(
+            {
+                "magicfit_import": {
+                    "proof_status": "render_verified_pending_delivery_acceptance"
+                }
+            }
+        )
+    assert exc_info.value.status_code == 404
+
+
 def _write_playable_mp4(path: Path) -> None:
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
@@ -77,6 +129,62 @@ def _write_playable_mp4(path: Path) -> None:
         timeout=20,
     )
     assert result.returncode == 0, result.stderr
+
+
+def _accepted_magicfit_sidecar_payload(
+    tour_slug: str,
+    video_relpath: str,
+    video_bytes: bytes,
+) -> dict[str, object]:
+    video_sha256 = hashlib.sha256(video_bytes).hexdigest()
+    source_receipt_sha256 = "a" * 64
+    return {
+        "contract_name": "propertyquarry.magicfit_delivery_acceptance.v1",
+        "provider": "magicfit",
+        "provider_key": "magicfit",
+        "provider_backend_key": "magicfit",
+        "render_status": "completed",
+        "status": "delivery_accepted",
+        "acceptance_status": "accepted",
+        "launch_eligible": True,
+        "video_relpath": video_relpath,
+        "video_sha256": video_sha256,
+        "source_receipt_sha256": source_receipt_sha256,
+        "generated_at": "2024-01-01T00:00:00Z",
+        "review": {
+            "contract_name": "propertyquarry.magicfit_delivery_review.v1",
+            "reviewed_at": "2024-01-01T00:01:00Z",
+            "reviewer_authority_sha256": "b" * 64,
+            "evidence_sha256": "c" * 64,
+            "subject": {
+                "tour_slug": tour_slug,
+                "provider": "magicfit",
+                "delivery_contract_name": (
+                    "propertyquarry.magicfit_delivery_acceptance.v1"
+                ),
+                "source_receipt_sha256": source_receipt_sha256,
+                "video_relpath": video_relpath,
+                "video_sha256": video_sha256,
+            },
+            "checklist": {
+                "playback_to_end": True,
+                "continuous_walkthrough": True,
+                "no_visible_rotation_jump": True,
+                "intended_property_and_scope": True,
+                "no_sensitive_or_trial_branding": True,
+            },
+        },
+    }
+
+
+def _accepted_magicfit_sidecar(
+    tour_slug: str,
+    video_relpath: str,
+    video_bytes: bytes,
+) -> str:
+    return json.dumps(
+        _accepted_magicfit_sidecar_payload(tour_slug, video_relpath, video_bytes)
+    )
 
 
 def _write_equirectangular_image(path: Path) -> None:
@@ -681,11 +789,17 @@ def test_property_tour_control_verifier_reports_all_verified_provider_modes(
     )
     playable_magicfit = tmp_path / "walkthrough.mp4"
     _write_playable_mp4(playable_magicfit)
+    playable_magicfit_bytes = playable_magicfit.read_bytes()
     _write_tour(
         tmp_path,
         "magicfit-tour",
         {"video_provider": "magicfit", "video_relpath": "walkthrough.mp4"},
-        {"walkthrough.mp4": playable_magicfit.read_bytes()},
+        {
+            "walkthrough.mp4": playable_magicfit_bytes,
+            "tour.magicfit.json": _accepted_magicfit_sidecar(
+                "magicfit-tour", "walkthrough.mp4", playable_magicfit_bytes
+            ),
+        },
     )
 
     receipt = build_property_tour_control_receipt(tour_root=tmp_path)
@@ -919,11 +1033,17 @@ def test_property_tour_control_verifier_rejects_magicfit_placeholder_video(tmp_p
 
 
 def test_property_tour_control_verifier_rejects_magicfit_signature_only_stub(tmp_path: Path) -> None:
+    signature_only = b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom"
     _write_tour(
         tmp_path,
         "magicfit-stub",
         {"video_provider": "magicfit", "video_relpath": "walkthrough.mp4"},
-        {"walkthrough.mp4": b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom"},
+        {
+            "walkthrough.mp4": signature_only,
+            "tour.magicfit.json": _accepted_magicfit_sidecar(
+                "magicfit-stub", "walkthrough.mp4", signature_only
+            ),
+        },
     )
 
     receipt = build_property_tour_control_receipt(tour_root=tmp_path)
@@ -962,6 +1082,480 @@ def test_property_tour_control_verifier_rejects_disqualified_magicfit_delivery_r
         missing = {row["provider"]: row for row in tour["missing_evidence"]}
         assert missing["magicfit"]["reason"] == "magicfit_walkthrough_disqualified"
         assert "replacement MagicFit walkthrough" in missing["magicfit"]["action"]
+
+
+def test_property_tour_control_verifier_binds_magicfit_acceptance_to_active_video(
+    tmp_path: Path,
+) -> None:
+    playable_magicfit = tmp_path / "walkthrough.mp4"
+    _write_playable_mp4(playable_magicfit)
+    video_bytes = playable_magicfit.read_bytes()
+    accepted = _accepted_magicfit_sidecar_payload(
+        "accepted-binding", "walkthrough.mp4", video_bytes
+    )
+    _write_tour(
+        tmp_path,
+        "accepted-binding",
+        {
+            "video_provider": "magicfit",
+            "video_relpath": "walkthrough.mp4",
+            "video_sidecar_relpath": "tour.magicfit.json",
+        },
+        {
+            "walkthrough.mp4": video_bytes,
+            "tour.magicfit.json": json.dumps(accepted),
+        },
+    )
+    legacy_generated_at = _accepted_magicfit_sidecar_payload(
+        "accepted-legacy-generated-at", "walkthrough.mp4", video_bytes
+    )
+    legacy_generated_at["generated_at"] = "2024-01-01T00:00:00+00:00"
+    _write_tour(
+        tmp_path,
+        "accepted-legacy-generated-at",
+        {
+            "video_provider": "magicfit",
+            "video_relpath": "walkthrough.mp4",
+            "video_sidecar_relpath": "tour.magicfit.json",
+        },
+        {
+            "walkthrough.mp4": video_bytes,
+            "tour.magicfit.json": json.dumps(legacy_generated_at),
+        },
+    )
+    _write_tour(
+        tmp_path,
+        "stale-relpath-binding",
+        {
+            "video_provider": "magicfit",
+            "video_relpath": "replacement.mp4",
+            "video_sidecar_relpath": "tour.magicfit.json",
+        },
+        {
+            "replacement.mp4": video_bytes,
+            "tour.magicfit.json": json.dumps(
+                _accepted_magicfit_sidecar_payload(
+                    "stale-relpath-binding", "walkthrough.mp4", video_bytes
+                )
+            ),
+        },
+    )
+    stale_hash = _accepted_magicfit_sidecar_payload(
+        "stale-hash-binding", "walkthrough.mp4", video_bytes
+    )
+    stale_hash["video_sha256"] = "0" * 64
+    stale_hash_review = stale_hash["review"]
+    assert isinstance(stale_hash_review, dict)
+    stale_hash_subject = stale_hash_review["subject"]
+    assert isinstance(stale_hash_subject, dict)
+    stale_hash_subject["video_sha256"] = "0" * 64
+    _write_tour(
+        tmp_path,
+        "stale-hash-binding",
+        {
+            "video_provider": "magicfit",
+            "video_relpath": "walkthrough.mp4",
+            "video_sidecar_relpath": "tour.magicfit.json",
+        },
+        {
+            "walkthrough.mp4": video_bytes,
+            "tour.magicfit.json": json.dumps(stale_hash),
+        },
+    )
+    _write_tour(
+        tmp_path,
+        "unbound-acceptance",
+        {
+            "video_provider": "magicfit",
+            "video_relpath": "walkthrough.mp4",
+            "video_sidecar_relpath": "tour.magicfit.json",
+        },
+        {
+            "walkthrough.mp4": video_bytes,
+            "tour.magicfit.json": json.dumps(
+                {"acceptance_status": "accepted", "launch_eligible": True}
+            ),
+        },
+    )
+    _write_tour(
+        tmp_path,
+        "missing-acceptance",
+        {
+            "video_provider": "magicfit",
+            "video_relpath": "walkthrough.mp4",
+            "video_sidecar_relpath": "tour.magicfit.json",
+        },
+        {"walkthrough.mp4": video_bytes},
+    )
+    invalid_sidecars: list[tuple[str, dict[str, object]]] = []
+    for slug, field in (
+        ("missing-acceptance-status", "acceptance_status"),
+        ("missing-launch-eligibility", "launch_eligible"),
+    ):
+        sidecar = _accepted_magicfit_sidecar_payload(
+            slug, "walkthrough.mp4", video_bytes
+        )
+        sidecar.pop(field)
+        invalid_sidecars.append((slug, sidecar))
+    pending = _accepted_magicfit_sidecar_payload(
+        "pending-acceptance-status", "walkthrough.mp4", video_bytes
+    )
+    pending["acceptance_status"] = "pending"
+    invalid_sidecars.append(("pending-acceptance-status", pending))
+    for slug, sidecar in invalid_sidecars:
+        _write_tour(
+            tmp_path,
+            slug,
+            {
+                "video_provider": "magicfit",
+                "video_relpath": "walkthrough.mp4",
+                "video_sidecar_relpath": "tour.magicfit.json",
+            },
+            {
+                "walkthrough.mp4": video_bytes,
+                "tour.magicfit.json": json.dumps(sidecar),
+            },
+        )
+    _write_tour(
+        tmp_path,
+        "implicit-missing-acceptance",
+        {
+            "video_provider": "magicfit",
+            "video_relpath": "walkthrough.mp4",
+        },
+        {"walkthrough.mp4": video_bytes},
+    )
+
+    receipt = build_property_tour_control_receipt(tour_root=tmp_path)
+
+    tours = {row["slug"]: row for row in receipt["tours"]}
+    assert tours["accepted-binding"]["controls"][0]["provider"] == "magicfit"
+    assert tours["accepted-legacy-generated-at"]["controls"][0]["provider"] == (
+        "magicfit"
+    )
+    for slug in (
+        "stale-relpath-binding",
+        "stale-hash-binding",
+        "unbound-acceptance",
+        "missing-acceptance",
+        "missing-acceptance-status",
+        "missing-launch-eligibility",
+        "pending-acceptance-status",
+        "implicit-missing-acceptance",
+    ):
+        missing = {
+            row["provider"]: row for row in tours[slug]["missing_evidence"]
+        }
+        assert missing["magicfit"]["reason"] == "magicfit_walkthrough_disqualified"
+
+
+def test_magicfit_accepted_profile_is_closed_typed_and_review_bound(
+    tmp_path: Path,
+) -> None:
+    playable_magicfit = tmp_path / "closed-profile.mp4"
+    _write_playable_mp4(playable_magicfit)
+    video_bytes = playable_magicfit.read_bytes()
+
+    def payload(slug: str) -> dict[str, object]:
+        return _accepted_magicfit_sidecar_payload(
+            slug, "walkthrough.mp4", video_bytes
+        )
+
+    invalid: dict[str, dict[str, object]] = {}
+
+    status_flip = payload("status-flip-only")
+    status_flip["status"] = "rendered_pending_delivery_acceptance"
+    status_flip.pop("review")
+    invalid["status-flip-only"] = status_flip
+
+    for slug, field, value in (
+        ("acceptance-alias", "acceptance_status", "pass"),
+        ("render-alias", "render_status", "succeeded"),
+        ("truthy-launch", "launch_eligible", "true"),
+        ("wrong-contract", "contract_name", "other.contract.v1"),
+        ("extra-outer-field", "disqualification", {}),
+    ):
+        candidate = payload(slug)
+        candidate[field] = value
+        invalid[slug] = candidate
+
+    uppercase_source = payload("uppercase-source-hash")
+    uppercase_source["source_receipt_sha256"] = "A" * 64
+    uppercase_review = uppercase_source["review"]
+    assert isinstance(uppercase_review, dict)
+    uppercase_subject = uppercase_review["subject"]
+    assert isinstance(uppercase_subject, dict)
+    uppercase_subject["source_receipt_sha256"] = "A" * 64
+    invalid["uppercase-source-hash"] = uppercase_source
+
+    unreceipted = payload("empty-source-hash")
+    unreceipted["source_receipt_sha256"] = ""
+    empty_review = unreceipted["review"]
+    assert isinstance(empty_review, dict)
+    empty_subject = empty_review["subject"]
+    assert isinstance(empty_subject, dict)
+    empty_subject["source_receipt_sha256"] = ""
+    invalid["empty-source-hash"] = unreceipted
+
+    wrong_subject = payload("wrong-review-subject")
+    wrong_review = wrong_subject["review"]
+    assert isinstance(wrong_review, dict)
+    wrong_subject_body = wrong_review["subject"]
+    assert isinstance(wrong_subject_body, dict)
+    wrong_subject_body["tour_slug"] = "another-tour"
+    invalid["wrong-review-subject"] = wrong_subject
+
+    mismatched_subject_hash = payload("mismatched-subject-hash")
+    mismatched_review = mismatched_subject_hash["review"]
+    assert isinstance(mismatched_review, dict)
+    mismatched_subject = mismatched_review["subject"]
+    assert isinstance(mismatched_subject, dict)
+    mismatched_subject["video_sha256"] = "0" * 64
+    invalid["mismatched-subject-hash"] = mismatched_subject_hash
+
+    for slug, review_field, value in (
+        ("short-reviewer-authority", "reviewer_authority_sha256", "b" * 63),
+        ("uppercase-evidence-hash", "evidence_sha256", "C" * 64),
+    ):
+        candidate = payload(slug)
+        review = candidate["review"]
+        assert isinstance(review, dict)
+        review[review_field] = value
+        invalid[slug] = candidate
+
+    invalid["manifest-slug-mismatch"] = payload("manifest-slug-mismatch")
+    invalid["noncanonical-sidecar-path"] = payload("noncanonical-sidecar-path")
+
+    for slug, check_value in (
+        ("false-review-check", False),
+        ("string-review-check", "true"),
+    ):
+        candidate = payload(slug)
+        review = candidate["review"]
+        assert isinstance(review, dict)
+        checklist = review["checklist"]
+        assert isinstance(checklist, dict)
+        checklist["playback_to_end"] = check_value
+        invalid[slug] = candidate
+
+    extra_check = payload("extra-review-check")
+    extra_review = extra_check["review"]
+    assert isinstance(extra_review, dict)
+    extra_checklist = extra_review["checklist"]
+    assert isinstance(extra_checklist, dict)
+    extra_checklist["operator_said_ok"] = True
+    invalid["extra-review-check"] = extra_check
+
+    for slug, reviewed_at in (
+        ("naive-review-time", "2024-01-01T00:01:00"),
+        ("offset-review-time", "2024-01-01T01:01:00+01:00"),
+        ("utc-offset-review-time", "2024-01-01T00:01:00+00:00"),
+        ("future-review-time", "2999-01-01T00:01:00Z"),
+        ("pre-import-review-time", "2023-12-31T23:59:59Z"),
+    ):
+        candidate = payload(slug)
+        review = candidate["review"]
+        assert isinstance(review, dict)
+        review["reviewed_at"] = reviewed_at
+        invalid[slug] = candidate
+
+    noncanonical_path = payload("noncanonical-review-path")
+    noncanonical_path["video_relpath"] = "./walkthrough.mp4"
+    noncanonical_review = noncanonical_path["review"]
+    assert isinstance(noncanonical_review, dict)
+    noncanonical_subject = noncanonical_review["subject"]
+    assert isinstance(noncanonical_subject, dict)
+    noncanonical_subject["video_relpath"] = "./walkthrough.mp4"
+    invalid["noncanonical-review-path"] = noncanonical_path
+
+    for slug, relpath in (
+        ("parent-review-path", "nested/../walkthrough.mp4"),
+        ("absolute-review-path", "/walkthrough.mp4"),
+        ("backslash-review-path", "nested\\walkthrough.mp4"),
+        ("double-slash-review-path", "nested//walkthrough.mp4"),
+        ("control-review-path", "walk\x00through.mp4"),
+        ("surrogate-review-path", "walk\ud800through.mp4"),
+    ):
+        candidate = payload(slug)
+        candidate["video_relpath"] = relpath
+        candidate_review = candidate["review"]
+        assert isinstance(candidate_review, dict)
+        candidate_subject = candidate_review["subject"]
+        assert isinstance(candidate_subject, dict)
+        candidate_subject["video_relpath"] = relpath
+        invalid[slug] = candidate
+
+    for slug, sidecar in invalid.items():
+        manifest: dict[str, object] = {
+            "video_provider": "magicfit",
+            "video_relpath": "walkthrough.mp4",
+            "video_sidecar_relpath": "tour.magicfit.json",
+        }
+        if slug == "manifest-slug-mismatch":
+            manifest["slug"] = "other-slug"
+        if slug == "noncanonical-sidecar-path":
+            manifest["video_sidecar_relpath"] = "./tour.magicfit.json"
+        _write_tour(
+            tmp_path,
+            slug,
+            manifest,
+            {
+                "walkthrough.mp4": video_bytes,
+                "tour.magicfit.json": json.dumps(sidecar),
+            },
+        )
+
+    duplicate_slug = "duplicate-review-key"
+    duplicate = json.dumps(payload(duplicate_slug))
+    duplicate = '{"acceptance_status":"accepted",' + duplicate[1:]
+    _write_tour(
+        tmp_path,
+        duplicate_slug,
+        {
+            "video_provider": "magicfit",
+            "video_relpath": "walkthrough.mp4",
+            "video_sidecar_relpath": "tour.magicfit.json",
+        },
+        {
+            "walkthrough.mp4": video_bytes,
+            "tour.magicfit.json": duplicate,
+        },
+    )
+
+    duplicate_nested_slug = "duplicate-nested-review-key"
+    duplicate_nested = json.dumps(payload(duplicate_nested_slug))
+    duplicate_nested = duplicate_nested.replace(
+        '"playback_to_end": true',
+        '"playback_to_end": false, "playback_to_end": true',
+        1,
+    )
+    _write_tour(
+        tmp_path,
+        duplicate_nested_slug,
+        {
+            "video_provider": "magicfit",
+            "video_relpath": "walkthrough.mp4",
+            "video_sidecar_relpath": "tour.magicfit.json",
+        },
+        {
+            "walkthrough.mp4": video_bytes,
+            "tour.magicfit.json": duplicate_nested,
+        },
+    )
+
+    receipt = build_property_tour_control_receipt(tour_root=tmp_path)
+
+    assert receipt["provider_counts"]["magicfit"] == 0
+    tours = {row["slug"]: row for row in receipt["tours"]}
+    for slug in (*invalid, duplicate_slug, duplicate_nested_slug):
+        receipt_slug = "other-slug" if slug == "manifest-slug-mismatch" else slug
+        missing = {
+            row["provider"]: row
+            for row in tours[receipt_slug]["missing_evidence"]
+        }
+        assert missing["magicfit"]["reason"] == "magicfit_walkthrough_disqualified"
+
+
+def test_magicfit_manifest_identity_json_and_paths_fail_closed(
+    tmp_path: Path,
+) -> None:
+    playable_magicfit = tmp_path / "manifest-boundary.mp4"
+    _write_playable_mp4(playable_magicfit)
+    video_bytes = playable_magicfit.read_bytes()
+
+    numeric_slug = "123"
+    _write_tour(
+        tmp_path,
+        numeric_slug,
+        {
+            "video_provider": "magicfit",
+            "video_relpath": "walkthrough.mp4",
+            "video_sidecar_relpath": "tour.magicfit.json",
+        },
+        {
+            "walkthrough.mp4": video_bytes,
+            "tour.magicfit.json": _accepted_magicfit_sidecar(
+                numeric_slug, "walkthrough.mp4", video_bytes
+            ),
+        },
+    )
+    numeric_manifest = tmp_path / numeric_slug / "tour.json"
+    numeric_payload = json.loads(numeric_manifest.read_text(encoding="utf-8"))
+    numeric_payload["slug"] = 123
+    numeric_manifest.write_text(json.dumps(numeric_payload), encoding="utf-8")
+
+    duplicate_slug = "duplicate-manifest-key"
+    _write_tour(
+        tmp_path,
+        duplicate_slug,
+        {
+            "video_provider": "magicfit",
+            "video_relpath": "walkthrough.mp4",
+            "video_sidecar_relpath": "tour.magicfit.json",
+        },
+        {
+            "walkthrough.mp4": video_bytes,
+            "tour.magicfit.json": _accepted_magicfit_sidecar(
+                duplicate_slug, "walkthrough.mp4", video_bytes
+            ),
+        },
+    )
+    duplicate_manifest = tmp_path / duplicate_slug / "tour.json"
+    duplicate_body = duplicate_manifest.read_text(encoding="utf-8")
+    duplicate_manifest.write_text(
+        '{"video_provider":"not-magicfit",' + duplicate_body[1:],
+        encoding="utf-8",
+    )
+
+    nonfinite_slug = "nonfinite-manifest"
+    _write_tour(
+        tmp_path,
+        nonfinite_slug,
+        {
+            "video_provider": "magicfit",
+            "video_relpath": "walkthrough.mp4",
+            "video_sidecar_relpath": "tour.magicfit.json",
+        },
+        {
+            "walkthrough.mp4": video_bytes,
+            "tour.magicfit.json": _accepted_magicfit_sidecar(
+                nonfinite_slug, "walkthrough.mp4", video_bytes
+            ),
+        },
+    )
+    nonfinite_manifest = tmp_path / nonfinite_slug / "tour.json"
+    nonfinite_payload = json.loads(nonfinite_manifest.read_text(encoding="utf-8"))
+    nonfinite_payload["unrelated_metric"] = float("nan")
+    nonfinite_manifest.write_text(json.dumps(nonfinite_payload), encoding="utf-8")
+
+    invalid_path_slug = "invalid-manifest-path"
+    _write_tour(
+        tmp_path,
+        invalid_path_slug,
+        {
+            "video_provider": "magicfit",
+            "video_relpath": "walk\ud800through.mp4",
+            "video_sidecar_relpath": "tour.magicfit.json",
+        },
+        {"tour.magicfit.json": "{}"},
+    )
+
+    receipt = build_property_tour_control_receipt(tour_root=tmp_path)
+
+    assert receipt["status"] == "fail"
+    assert receipt["provider_counts"]["magicfit"] == 0
+    tours = {row["slug"]: row for row in receipt["tours"]}
+    numeric_missing = {
+        row["provider"]: row for row in tours[numeric_slug]["missing_evidence"]
+    }
+    assert numeric_missing["magicfit"]["reason"] == (
+        "magicfit_walkthrough_disqualified"
+    )
+    assert tours[duplicate_slug]["status"] == "invalid_manifest"
+    assert tours[nonfinite_slug]["status"] == "invalid_manifest"
+    assert tours[invalid_path_slug]["status"] == (
+        "blocked_missing_verified_controls"
+    )
 
 
 def test_property_tour_control_verifier_requires_live_probe_for_remote_magicfit_video(tmp_path: Path) -> None:
