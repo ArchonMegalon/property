@@ -8938,6 +8938,7 @@ def test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_b
         tour_url = str(open_3d_tour.get_attribute("href") or "").strip()
         assert tour_url.endswith("/tours/altbau-u6/control/3dvista")
         tour_entry = tour_url if tour_url.startswith("http") else f"{base_url}{tour_url}"
+        page.wait_for_load_state("networkidle")
         response = page.goto(f"{tour_entry}?pane=floorplan-pane", wait_until="networkidle")
         assert response is not None and response.ok
         page.locator("h1").wait_for()

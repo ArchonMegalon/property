@@ -25,7 +25,7 @@ def _client() -> TestClient:
 
 def test_memory_router_keeps_split_subrouters_mounted_under_v1_memory() -> None:
     client = _client()
-    route_paths = {route.path for route in client.app.routes}
+    route_paths = set(client.app.openapi()["paths"])
 
     expected_paths = {
         "/v1/memory/candidates",
