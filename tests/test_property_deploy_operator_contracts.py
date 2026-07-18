@@ -1697,6 +1697,9 @@ def test_runtime_hard_exit_gates_can_extend_into_propertyquarry_live_runtime() -
 def test_property_dockerfile_allowlists_runtime_scripts() -> None:
     dockerfile = _read("ea/Dockerfile.property")
 
+    assert dockerfile.startswith(
+        "FROM python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de\n"
+    )
     assert "COPY . /tmp/src" not in dockerfile
     assert "COPY ea/requirements.txt /app/requirements.txt" in dockerfile
     assert "COPY ea/requirements.lock /app/requirements.lock" in dockerfile
@@ -1745,6 +1748,13 @@ def test_runtime_dockerfiles_fail_closed_for_worker_and_scheduler_health() -> No
 def test_property_web_dockerfile_keeps_reconstruction_lightweight_and_excludes_browser_payloads() -> None:
     dockerfile = _read("ea/Dockerfile.property-web")
 
+    assert dockerfile.startswith(
+        "FROM python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de\n"
+    )
+    assert "curl" not in dockerfile.lower()
+    assert "python3-numpy" not in dockerfile.lower()
+    assert "http.client.HTTPConnection" in dockerfile
+    assert "exec python -c" in dockerfile
     assert "COPY . /tmp/src" not in dockerfile
     assert "COPY ea/requirements.txt /app/requirements.txt" in dockerfile
     assert "COPY ea/requirements.lock /app/requirements.lock" in dockerfile
