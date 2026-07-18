@@ -113,7 +113,7 @@ def test_registration_token_must_be_operator_minted_just_in_time() -> None:
 
 def test_downloaded_sources_are_bound_to_reviewed_hashes() -> None:
     workflow_text = WORKFLOW_PATH.read_text(encoding="utf-8")
-    assert _sha256(BOOTSTRAP_PATH) == "ef13bd828290f78356c450a4cca22f12115d6555787f61a42d8c32810c6a76d3"
+    assert _sha256(BOOTSTRAP_PATH) == "312bd2620d9fd410ff6badf82bc6a59e8b01f4139847523d6c3c36cfcb893945"
     assert _sha256(PREFLIGHT_PATH) == "7dc239ce8afe4333decfb9ba15fc8fc29d12ffd99b57433592d5a2b1f24c0374"
     assert _sha256(RUNNER_LOCK_PATH) == "e968dda8c1dee309698cf05e42932f786397e954ac034c4f90a0be0db32844fd"
     for identity in (_sha256(BOOTSTRAP_PATH), _sha256(PREFLIGHT_PATH), _sha256(RUNNER_LOCK_PATH)):
@@ -233,6 +233,10 @@ def test_runner_and_scanners_are_ephemeral_offline_and_hash_bound() -> None:
     assert 'BOOTSTRAP_STATUS="pass"' not in script
     assert "runner-diag" not in script
     assert 'chmod -R go-w "${INSTALL_ROOT}/pip-audit"' not in script
+    assert (
+        'pip/_internal/__init__.py")" == "root:root:755"'
+        in script
+    )
     assert script.index(
         'as_pq "${INSTALL_ROOT}/pip-audit/bin/pip-audit" --version'
     ) < script.index('"${RUNNER_ROOT}/config.sh"')

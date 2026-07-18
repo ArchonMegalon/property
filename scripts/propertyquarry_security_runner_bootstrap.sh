@@ -463,7 +463,7 @@ chown -R root:root "${INSTALL_ROOT}/pip-audit"
 chmod -R a+rX,go-w "${INSTALL_ROOT}/pip-audit"
 [[ "$(stat -c '%U:%G:%a' "${INSTALL_ROOT}/pip-audit")" == "root:root:755" ]] \
   || fail "pip-audit venv root posture mismatch"
-[[ "$(stat -c '%U:%G:%a' "${INSTALL_ROOT}/pip-audit/lib/python3.12/site-packages/pip/_internal/__init__.py")" == "root:root:644" ]] \
+[[ "$(stat -c '%U:%G:%a' "${INSTALL_ROOT}/pip-audit/lib/python3.12/site-packages/pip/_internal/__init__.py")" == "root:root:755" ]] \
   || fail "pip-audit package posture mismatch"
 if ! writable_venv_path="$(find "${INSTALL_ROOT}/pip-audit" -xdev \( -type f -o -type d \) -perm /022 -print -quit)"; then
   fail "pip-audit venv writability audit failed"
