@@ -323,7 +323,8 @@ install -d -o "${PQ_USER}" -g "${PQ_USER}" -m 0700 \
   "${PQ_HOME}/.config" "${PQ_HOME}/.config/docker" \
   "${PQ_HOME}/.config/systemd" "${PQ_HOME}/.config/systemd/user" \
   "${PQ_HOME}/.config/systemd/user/docker.service.d" \
-  "${PQ_HOME}/.local" "${PQ_HOME}/.local/share" "${PQ_HOME}/.local/share/docker"
+  "${PQ_HOME}/.cache" "${PQ_HOME}/.local" "${PQ_HOME}/.local/share" \
+  "${PQ_HOME}/.local/share/docker" "${PQ_HOME}/.local/state"
 printf '%s\n' \
   '{' \
   '  "data-root": "/home/pqsecurity/.local/share/docker",' \
@@ -339,10 +340,15 @@ printf '%s\n' \
   '[Service]' \
   "Environment=HOME=${PQ_HOME}" \
   "Environment=XDG_RUNTIME_DIR=${PQ_RUNTIME}" \
+  "Environment=XDG_CONFIG_HOME=${PQ_HOME}/.config" \
+  "Environment=XDG_DATA_HOME=${PQ_HOME}/.local/share" \
+  "Environment=XDG_STATE_HOME=${PQ_HOME}/.local/state" \
+  "Environment=XDG_CACHE_HOME=${PQ_HOME}/.cache" \
   "Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=${PQ_RUNTIME}/bus" \
   'Environment=DOCKERD_ROOTLESS_ROOTLESSKIT_NET=slirp4netns' \
   'Environment=DOCKERD_ROOTLESS_ROOTLESSKIT_PORT_DRIVER=builtin' \
   'Environment=DOCKERD_ROOTLESS_ROOTLESSKIT_DISABLE_HOST_LOOPBACK=true' \
+  'UnsetEnvironment=DOCKER_CONFIG DOCKER_CONTEXT DOCKER_HOST' \
   >"${PQ_HOME}/.config/systemd/user/docker.service.d/10-propertyquarry.conf"
 chown "${PQ_USER}:${PQ_USER}" \
   "${PQ_HOME}/.config/systemd/user/docker.service.d/10-propertyquarry.conf"
