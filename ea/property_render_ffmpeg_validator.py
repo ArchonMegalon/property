@@ -1,3 +1,5 @@
+"""Validate the bounded FFmpeg surface shipped in the render runtime."""
+
 from __future__ import annotations
 
 import json

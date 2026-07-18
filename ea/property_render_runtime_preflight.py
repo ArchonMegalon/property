@@ -598,7 +598,7 @@ def _check_ffmpeg_capability() -> None:
     if audit_root not in sys.path:
         sys.path.insert(0, audit_root)
     try:
-        import property_render_ffmpeg_audit as audit
+        import property_render_ffmpeg_validator as audit
     except Exception:
         _fail("ffmpeg_audit_import_failed")
     capability = audit.audit_ffmpeg_encoder(

@@ -4,7 +4,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from ea import property_web_elf_audit as audit
+from ea import property_web_elf_validator as audit
 
 
 def _completed(returncode: int, stdout: str = "", stderr: str = "") -> subprocess.CompletedProcess[str]:

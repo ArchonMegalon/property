@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from ea import property_render_elf_audit as elf_audit
+from ea import property_render_elf_validator as elf_audit
 from ea import property_render_entrypoint as entrypoint
-from ea import property_render_ffmpeg_audit as ffmpeg_audit
+from ea import property_render_ffmpeg_validator as ffmpeg_audit
 
 
 def test_render_ffmpeg_audit_is_pure_stdlib_with_stable_public_api() -> None:

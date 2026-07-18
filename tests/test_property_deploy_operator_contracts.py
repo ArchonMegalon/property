@@ -1767,8 +1767,8 @@ def test_property_dockerfile_allowlists_runtime_scripts() -> None:
     ]
     for retained_runtime_source in (
         "ea/property_render_entrypoint.py",
-        "ea/property_render_elf_audit.py",
-        "ea/property_render_ffmpeg_audit.py",
+        "ea/property_render_elf_validator.py",
+        "ea/property_render_ffmpeg_validator.py",
         "ea/property_render_runtime_preflight.py",
         "ea/property_render_media_provenance.json",
         "vendor/three",
@@ -1852,8 +1852,8 @@ def test_property_web_dockerfile_keeps_reconstruction_lightweight_and_excludes_b
         "/usr/local/libexec/property_web_entrypoint.py"
     ) in dockerfile
     assert (
-        "COPY --chmod=0555 ea/property_web_elf_audit.py "
-        "/usr/local/libexec/property_web_elf_audit.py"
+        "COPY --chmod=0555 ea/property_web_elf_validator.py "
+        "/usr/local/libexec/property_web_elf_validator.py"
     ) in dockerfile
     assert "COPY ea/docker-entrypoint.sh" not in dockerfile
     assert "chown -R ea:ea /app /data /home/ea" in dockerfile
@@ -1890,8 +1890,8 @@ def test_property_web_dockerfile_keeps_reconstruction_lightweight_and_excludes_b
     assert 'importlib.util.find_spec("_tkinter") is None' in dockerfile
     assert "uuid.uuid1().version == 1" in dockerfile
     assert "uuid.uuid4().version == 4" in dockerfile
-    assert "python -I -S /usr/local/libexec/property_web_elf_audit.py" in dockerfile
-    assert "rm -f /usr/local/libexec/property_web_elf_audit.py" in dockerfile
+    assert "python -I -S /usr/local/libexec/property_web_elf_validator.py" in dockerfile
+    assert "rm -f /usr/local/libexec/property_web_elf_validator.py" in dockerfile
 
     assert "FROM scratch AS runtime" in dockerfile
     assert "COPY --from=prepared / /" in dockerfile
@@ -2053,7 +2053,7 @@ def test_property_compose_container_names_are_recoverable() -> None:
 
 def test_property_vendor_runtime_readiness_uses_retained_functional_capabilities() -> None:
     verifier = _read("scripts/verify_property_tour_vendor_tooling.py")
-    ffmpeg_audit = _read("ea/property_render_ffmpeg_audit.py")
+    ffmpeg_audit = _read("ea/property_render_ffmpeg_validator.py")
 
     for required in (
         '"ffmpeg:bounded_encoder"',
@@ -2119,7 +2119,7 @@ def _bounded_ffmpeg_test_runner() -> tuple[
     dict[str, object],
     dict[str, str],
 ]:
-    from ea import property_render_ffmpeg_audit as verifier
+    from ea import property_render_ffmpeg_validator as verifier
 
     registry_outputs = {
         "-version": f"ffmpeg version {verifier.FFMPEG_EXPECTED_VERSION} Copyright",
@@ -2257,7 +2257,7 @@ def _bounded_ffmpeg_test_runner() -> tuple[
 
 
 def test_property_vendor_runtime_readiness_rejects_an_extra_ffmpeg_encoder() -> None:
-    from ea import property_render_ffmpeg_audit as verifier
+    from ea import property_render_ffmpeg_validator as verifier
 
     runner, registry_outputs, _payload, _auxiliary_paths = (
         _bounded_ffmpeg_test_runner()
@@ -2282,7 +2282,7 @@ def test_property_vendor_runtime_readiness_rejects_an_extra_ffmpeg_encoder() -> 
 
 
 def test_property_vendor_runtime_readiness_rejects_unexpected_bsf_and_provenance() -> None:
-    from ea import property_render_ffmpeg_audit as verifier
+    from ea import property_render_ffmpeg_validator as verifier
 
     runner, registry_outputs, payload, _auxiliary_paths = (
         _bounded_ffmpeg_test_runner()
@@ -2312,7 +2312,7 @@ def test_property_vendor_runtime_readiness_rejects_unexpected_bsf_and_provenance
 
 
 def test_property_vendor_runtime_readiness_requires_tools_to_be_absent_by_path() -> None:
-    from ea import property_render_ffmpeg_audit as verifier
+    from ea import property_render_ffmpeg_validator as verifier
 
     runner, _registry_outputs, _payload, auxiliary_paths = (
         _bounded_ffmpeg_test_runner()
@@ -2331,7 +2331,7 @@ def test_property_vendor_runtime_readiness_requires_tools_to_be_absent_by_path()
 def test_property_vendor_container_tool_resolution_uses_runtime_shutil_which(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from ea import property_render_ffmpeg_audit as verifier
+    from ea import property_render_ffmpeg_validator as verifier
 
     calls: list[list[str]] = []
     monkeypatch.setattr(verifier.shutil, "which", lambda command: "/usr/bin/docker")
@@ -2368,7 +2368,7 @@ def test_property_vendor_container_tool_resolution_uses_runtime_shutil_which(
 def test_property_vendor_container_tool_executes_only_resolved_path(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from ea import property_render_ffmpeg_audit as verifier
+    from ea import property_render_ffmpeg_validator as verifier
 
     calls: list[list[str]] = []
     monkeypatch.setattr(verifier.shutil, "which", lambda command: "/usr/bin/docker")

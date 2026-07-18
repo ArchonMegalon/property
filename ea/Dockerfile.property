@@ -225,8 +225,8 @@ COPY scripts/generate_property_reconstruction.py /app/scripts/generate_property_
 COPY scripts/property_reconstruction_render_bridge.py /app/scripts/property_reconstruction_render_bridge.py
 COPY vendor/three /app/vendor/three
 COPY --chmod=0555 ea/property_render_entrypoint.py /usr/local/libexec/property_render_entrypoint.py
-COPY --chmod=0555 ea/property_render_elf_audit.py /usr/local/libexec/property_render_elf_audit.py
-COPY --chmod=0555 ea/property_render_ffmpeg_audit.py /usr/local/libexec/property_render_ffmpeg_audit.py
+COPY --chmod=0555 ea/property_render_elf_validator.py /usr/local/libexec/property_render_elf_validator.py
+COPY --chmod=0555 ea/property_render_ffmpeg_validator.py /usr/local/libexec/property_render_ffmpeg_validator.py
 COPY --chmod=0555 ea/property_render_runtime_preflight.py /usr/local/libexec/property_render_runtime_preflight.py
 
 RUN chown -R 10001:10001 /data /home/ea && \
@@ -277,7 +277,7 @@ RUN set -eux; \
         | python -c 'import sys; rows=[line.rstrip("\n").split("\t") for line in sys.stdin]; bad=[row for row in rows if len(row) >= 3 and row[0] == "installed" and ((row[1].split()[0] if row[1].split() else row[2].split(":", 1)[0]) in {"gzip", "util-linux"})]; print("\n".join("\t".join(row) for row in bad), file=sys.stderr) if bad else None; raise SystemExit(bool(bad))'; \
     python -I -S -c 'import sysconfig; from pathlib import Path; root=Path(sysconfig.get_config_var("DESTSHARED")); modules=("_uuid", "_tkinter"); matches={module: sorted(root.glob(f"{module}.*")) for module in modules}; assert all(len(paths) == 1 for paths in matches.values()), matches; assert all(paths[0].is_file() and not paths[0].is_symlink() for paths in matches.values()), matches; [paths[0].unlink() for paths in matches.values()]'; \
     python -I -S -c 'import importlib.util, uuid; assert importlib.util.find_spec("_uuid") is None; assert importlib.util.find_spec("_tkinter") is None; assert uuid.uuid1().version == 1; assert uuid.uuid4().version == 4'; \
-    python -I -S /usr/local/libexec/property_render_elf_audit.py; \
+    python -I -S /usr/local/libexec/property_render_elf_validator.py; \
     rm -f /tmp/property-render-packages.before /tmp/property-render-packages.after; \
     python -I -S -c 'import shutil; forbidden=("blender","colmap","convert","curl","exiftool","ffplay","ffprobe","gzip","gunzip","magick","meshlab","meshlabserver","runuser"); present=[name for name in forbidden if shutil.which(name)]; assert not present, present'
 
