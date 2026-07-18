@@ -1,68 +1,310 @@
-FROM python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de
+# syntax=docker/dockerfile:1.7
+
+FROM alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce AS codec-builder
+
+ARG TARGETARCH=amd64
+
+RUN test "${TARGETARCH}" = "amd64" && \
+    apk add --no-cache \
+        bash=5.2.37-r0 \
+        build-base=0.5-r3 \
+        ca-certificates=20260611-r0 \
+        gnupg=2.4.9-r0 \
+        linux-headers=6.14.2-r0 \
+        nasm=2.16.03-r0 \
+        pkgconf=2.4.3-r0 \
+        tar=1.35-r3 \
+        xz=5.8.3-r0
+
+COPY --chmod=0444 \
+    ea/property_render_ffmpeg_builder_apk_manifest.txt \
+    /usr/local/share/propertyquarry/expected-ffmpeg-builder-apk-manifest.txt
+COPY --chmod=0555 \
+    ea/property_render_ffmpeg_build_recipe.sh \
+    /usr/local/libexec/property_render_ffmpeg_build_recipe.sh
+COPY --chmod=0444 \
+    ea/property_render_env_launcher.c \
+    /usr/local/src/property_render_env_launcher.c
+
+ADD --checksum=sha256:464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c \
+    https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz \
+    /sources/ffmpeg-8.1.2.tar.xz
+ADD --checksum=sha256:0a0963fccd70597838073f3e31b20f4a4d8cc2b5e577472c9a5a1f22624246f8 \
+    https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz.asc \
+    /sources/ffmpeg-8.1.2.tar.xz.asc
+ADD --checksum=sha256:397b3becedcd5a98769967ff1ff8501ddc89f8368b8f766e4701377d7dbaabe5 \
+    https://ffmpeg.org/ffmpeg-devel.asc \
+    /sources/ffmpeg-devel.asc
+ADD --checksum=sha256:d0967a1348c85dfde363bb52610403be898171493100561efa0dd05d5fd1ae50 \
+    https://code.videolan.org/videolan/x264/-/archive/0480cb05fa188d37ae87e8f4fd8f1aea3711f7ee/x264-0480cb05fa188d37ae87e8f4fd8f1aea3711f7ee.tar.gz \
+    /sources/x264-0480cb05fa188d37ae87e8f4fd8f1aea3711f7ee.tar.gz
+
+RUN /usr/local/libexec/property_render_ffmpeg_build_recipe.sh && \
+    cc -static -Os -s -Wall -Wextra -Werror \
+        -o /out/propertyquarry/property-render-env-launcher \
+        /usr/local/src/property_render_env_launcher.c && \
+    readelf -lW /out/propertyquarry/property-render-env-launcher \
+        > /out/propertyquarry/property-render-env-launcher.readelf && \
+    test -s /out/propertyquarry/property-render-env-launcher.readelf && \
+    awk '$1 == "INTERP" { found = 1 } END { exit found ? 1 : 0 }' \
+        /out/propertyquarry/property-render-env-launcher.readelf
+
+
+FROM debian:13.6-slim@sha256:020c0d20b9880058cbe785a9db107156c3c75c2ac944a6aa7ab59f2add76a7bd AS glib-builder
+
+ARG TARGETARCH=amd64
+
+COPY --chmod=0444 \
+    ea/property_render_debian_snapshot.sources \
+    /etc/apt/sources.list.d/debian.sources
+COPY --chmod=0555 \
+    ea/property_render_glib_build_recipe.sh \
+    /usr/local/libexec/property_render_glib_build_recipe.sh
+
+ADD --checksum=sha256:4b9e829d82cb5884e6de4250b4c31fd9030ca1be0c29f9b84e9141ee6d9344c1 \
+    https://snapshot.debian.org/archive/debian/20260713T000000Z/pool/main/g/glib2.0/glib2.0_2.84.4-3~deb13u3.dsc \
+    /sources/glib2.0_2.84.4-3~deb13u3.dsc
+ADD --checksum=sha256:8a9ea10943c36fc117e253f80c91e477b673525ae45762942858aef57631bb90 \
+    https://snapshot.debian.org/archive/debian/20260713T000000Z/pool/main/g/glib2.0/glib2.0_2.84.4.orig.tar.xz \
+    /sources/glib2.0_2.84.4.orig.tar.xz
+ADD --checksum=sha256:c1742461e8c0e9673a3453a3127671169de9cb0138493e5c916f1b989530efcd \
+    https://snapshot.debian.org/archive/debian/20260713T000000Z/pool/main/g/glib2.0/glib2.0_2.84.4.orig-unicode-data.tar.xz \
+    /sources/glib2.0_2.84.4.orig-unicode-data.tar.xz
+ADD --checksum=sha256:8e35b56abfed5cea96a93d032996efd3a3a5f445a2fc75445f5f42b4d84f42ef \
+    https://snapshot.debian.org/archive/debian/20260713T000000Z/pool/main/g/glib2.0/glib2.0_2.84.4-3~deb13u3.debian.tar.xz \
+    /sources/glib2.0_2.84.4-3~deb13u3.debian.tar.xz
+
+RUN test "${TARGETARCH}" = "amd64" && \
+    /usr/local/libexec/property_render_glib_build_recipe.sh
+
+
+FROM python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de AS prepared
+
+ARG TARGETARCH=amd64
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    blender ca-certificates colmap curl espeak-ng ffmpeg imagemagick libimage-exiftool-perl meshlab python3-numpy && \
+COPY --chmod=0444 \
+    ea/property_render_debian_snapshot.sources \
+    /etc/apt/sources.list.d/debian.sources
+
+RUN test "${TARGETARCH}" = "amd64" && \
+    apt-get update && \
+    apt-get install --yes --no-install-recommends \
+        ca-certificates \
+        fonts-dejavu-core \
+        fonts-liberation \
+        fonts-noto-color-emoji \
+        libasound2t64 \
+        libatk-bridge2.0-0t64 \
+        libatk1.0-0t64 \
+        libatspi2.0-0t64 \
+        libcairo2 \
+        libcups2t64 \
+        libdbus-1-3 \
+        libdrm2 \
+        libfontconfig1 \
+        libgbm1 \
+        libglib2.0-0t64 \
+        libnspr4 \
+        libnss3 \
+        libpango-1.0-0 \
+        libx11-6 \
+        libx11-xcb1 \
+        libxcb1 \
+        libxcomposite1 \
+        libxdamage1 \
+        libxext6 \
+        libxfixes3 \
+        libxkbcommon0 \
+        libxrandr2 \
+        libxshmfence1 && \
     rm -rf /var/lib/apt/lists/* && \
-    adduser --system --uid 10001 --group --home /home/ea --shell /bin/sh ea
+    adduser --system --uid 10001 --group --home /home/ea --shell /bin/sh ea && \
+    test "$(id -u ea)" = "10001" && \
+    test "$(id -g ea)" = "10001"
 
 WORKDIR /app
 
-COPY ea/requirements.txt /app/requirements.txt
-COPY ea/requirements.lock /app/requirements.lock
+COPY --chmod=0444 \
+    ea/requirements.property-render.txt \
+    /app/requirements.property-render.txt
 
-RUN python -m pip install --no-cache-dir --upgrade pip==26.1.2 && \
-    pip install --no-cache-dir -r requirements.txt -c requirements.lock && \
-    python -m playwright install --with-deps chromium && \
-    chown -R ea:ea /ms-playwright
+RUN python -m pip install \
+        --disable-pip-version-check \
+        --no-cache-dir \
+        --require-hashes \
+        --only-binary=:all: \
+        -r /app/requirements.property-render.txt && \
+    python -m playwright install chromium
 
-RUN mkdir -p /app/scripts /data/artifacts /data/public_property_tours /data/provider-ledger /home/ea
-COPY scripts/willhaben_property_packet.py /app/scripts/willhaben_property_packet.py
-COPY scripts/property_magicfit_env.py /app/scripts/property_magicfit_env.py
-COPY scripts/mootion_movie_worker.py /app/scripts/mootion_movie_worker.py
-COPY scripts/render_magicfit_property_flythrough.py /app/scripts/render_magicfit_property_flythrough.py
-COPY scripts/render_onemin_property_i2v_segment.py /app/scripts/render_onemin_property_i2v_segment.py
-COPY scripts/render_omagic_property_model_walkthrough.py /app/scripts/render_omagic_property_model_walkthrough.py
-COPY scripts/render_magicai_model_upload_adapter.py /app/scripts/render_magicai_model_upload_adapter.py
-COPY scripts/property_scene_video_readiness_report.py /app/scripts/property_scene_video_readiness_report.py
-COPY scripts/verify_property_scene_video_readiness.py /app/scripts/verify_property_scene_video_readiness.py
-COPY scripts/materialize_scene_video_provider_refresh_packet.py /app/scripts/materialize_scene_video_provider_refresh_packet.py
-COPY scripts/verify_scene_video_provider_refresh_packet.py /app/scripts/verify_scene_video_provider_refresh_packet.py
-COPY scripts/merge_scene_video_provider_accounts_env.py /app/scripts/merge_scene_video_provider_accounts_env.py
-COPY scripts/import_3dvista_export.py /app/scripts/import_3dvista_export.py
-COPY scripts/import_pano2vr_export.py /app/scripts/import_pano2vr_export.py
-COPY scripts/import_krpano_walkable_scene.py /app/scripts/import_krpano_walkable_scene.py
-COPY scripts/import_property_tour_exports.py /app/scripts/import_property_tour_exports.py
-COPY scripts/attach_provider_tour_layer.py /app/scripts/attach_provider_tour_layer.py
-COPY scripts/discover_property_tour_exports.py /app/scripts/discover_property_tour_exports.py
-COPY scripts/materialize_property_tour_export_manifest.py /app/scripts/materialize_property_tour_export_manifest.py
+COPY --chmod=0555 \
+    ea/property_render_browser_inventory.py \
+    /usr/local/libexec/property_render_browser_inventory.py
+
+RUN python -I -c 'from pathlib import Path; import shutil; root=Path("/ms-playwright"); removed=[]; [(shutil.rmtree(path), removed.append(path.name)) for path in sorted(root.iterdir()) if path.name.startswith("ffmpeg-")]; links=root/".links"; assert links.is_dir() and not links.is_symlink(), "Playwright link registry was not installed"; shutil.rmtree(links); assert removed, "Playwright FFmpeg payload was not installed"; assert {path.name for path in root.iterdir()} == {"chromium-1223", "chromium_headless_shell-1223"}' && \
+    printf '%s  %s\n' \
+        adc1c21ceed5c2a67184766376fe816ac03e556cc0ca3f782e8212235fe05c6f \
+        /ms-playwright/chromium-1223/chrome-linux64/chrome \
+        | sha256sum -c - && \
+    printf '%s  %s\n' \
+        7b8e92dca0acf9c24b5974507b3031d6bd18cc009cd431c2595e521430ea747a \
+        /ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-linux64/chrome-headless-shell \
+        | sha256sum -c - && \
+    python -I /usr/local/libexec/property_render_browser_inventory.py \
+        --root /ms-playwright \
+        --output /usr/local/share/propertyquarry/playwright-browser-inventory.json && \
+    printf '%s  %s\n' \
+        76e9ac14cf412e2c616e09f3e92b831a0a8c23d327e0a5c23d2e7ca6f5a93b93 \
+        /usr/local/share/propertyquarry/playwright-browser-inventory.json \
+        | sha256sum -c -
+
+COPY --from=codec-builder --chmod=0555 \
+    /out/propertyquarry/ffmpeg \
+    /usr/local/bin/ffmpeg
+COPY --from=codec-builder --chmod=0555 \
+    /out/propertyquarry/property-render-env-launcher \
+    /usr/local/bin/property-render-env-launcher
+COPY --from=codec-builder --chmod=0444 \
+    /out/propertyquarry/ffmpeg-builder-apk-manifest.txt \
+    /usr/local/share/propertyquarry/receipts/ffmpeg-builder-apk-manifest.txt
+COPY --from=codec-builder --chmod=0444 \
+    /out/propertyquarry/ffmpeg-buildconf.txt \
+    /usr/local/share/propertyquarry/ffmpeg-buildconf.txt
+COPY --from=codec-builder --chmod=0444 \
+    /out/propertyquarry/licenses \
+    /usr/local/share/licenses/propertyquarry-render
+COPY --from=codec-builder --chmod=0444 \
+    /usr/local/libexec/property_render_ffmpeg_build_recipe.sh \
+    /usr/local/share/propertyquarry/recipes/ffmpeg-build-recipe.sh
+COPY --from=glib-builder --chmod=0444 \
+    /out/propertyquarry/libglib2.0-0t64_2.84.4-3~deb13u3+pq1_amd64.deb \
+    /tmp/libglib2.0-0t64_2.84.4-3~deb13u3+pq1_amd64.deb
+COPY --from=glib-builder --chmod=0444 \
+    /out/propertyquarry/glib-buildinfo \
+    /usr/local/share/propertyquarry/glib-buildinfo
+COPY --from=glib-builder --chmod=0444 \
+    /out/propertyquarry/glib-builder-dpkg-manifest.txt \
+    /usr/local/share/propertyquarry/glib-builder-dpkg-manifest.txt
+COPY --from=glib-builder --chmod=0444 \
+    /usr/local/libexec/property_render_glib_build_recipe.sh \
+    /usr/local/share/propertyquarry/recipes/glib-build-recipe.sh
+
+COPY --chmod=0444 \
+    ea/property_render_ffmpeg_build_receipt.json \
+    /usr/local/share/propertyquarry/receipts/ffmpeg-build-receipt.json
+COPY --chmod=0444 \
+    ea/property_render_glib_build_receipt.json \
+    /usr/local/share/propertyquarry/receipts/glib-build-receipt.json
+COPY --chmod=0444 \
+    ea/property_render_media_provenance.json \
+    /usr/local/share/propertyquarry/render-media-provenance.json
+
+RUN printf '%s  %s\n' \
+        7f78780302454832988b84f1c3c4de31bbbf42a8e3be5dfe69f7980b98384cf8 \
+        /tmp/libglib2.0-0t64_2.84.4-3~deb13u3+pq1_amd64.deb \
+        | sha256sum -c - && \
+    dpkg --install /tmp/libglib2.0-0t64_2.84.4-3~deb13u3+pq1_amd64.deb && \
+    test "$(dpkg-query -W -f='${db:Status-Status}\t${Version}' libglib2.0-0t64)" = \
+        "$(printf 'installed\t2.84.4-3~deb13u3+pq1')" && \
+    rm -f /tmp/libglib2.0-0t64_2.84.4-3~deb13u3+pq1_amd64.deb
+
+RUN mkdir -p \
+        /app/scripts \
+        /app/vendor \
+        /data/public_property_tours \
+        /home/ea \
+        /usr/local/libexec \
+        /usr/local/share/propertyquarry/receipts \
+        /usr/local/share/propertyquarry/recipes
 COPY scripts/property_tour_runtime_paths.py /app/scripts/property_tour_runtime_paths.py
 COPY scripts/propertyquarry_playwright_runtime.py /app/scripts/propertyquarry_playwright_runtime.py
 COPY scripts/generate_property_reconstruction.py /app/scripts/generate_property_reconstruction.py
 COPY scripts/property_reconstruction_render_bridge.py /app/scripts/property_reconstruction_render_bridge.py
-COPY scripts/import_magicfit_walkthrough.py /app/scripts/import_magicfit_walkthrough.py
-COPY scripts/accept_magicfit_delivery.py /app/scripts/accept_magicfit_delivery.py
-COPY scripts/verify_property_tour_controls.py /app/scripts/verify_property_tour_controls.py
-COPY scripts/property_tour_3dvista_provenance.py /app/scripts/property_tour_3dvista_provenance.py
-COPY scripts/verify_property_tour_vendor_tooling.py /app/scripts/verify_property_tour_vendor_tooling.py
-COPY scripts/intake_3dvista_gold_artifact.py /app/scripts/intake_3dvista_gold_artifact.py
 COPY vendor/three /app/vendor/three
-COPY ea/app /app/app
-COPY ea/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-COPY LTDs.md /app/LTDs.md
+COPY --chmod=0555 ea/property_render_entrypoint.py /usr/local/libexec/property_render_entrypoint.py
+COPY --chmod=0555 ea/property_render_elf_audit.py /usr/local/libexec/property_render_elf_audit.py
+COPY --chmod=0555 ea/property_render_ffmpeg_audit.py /usr/local/libexec/property_render_ffmpeg_audit.py
+COPY --chmod=0555 ea/property_render_runtime_preflight.py /usr/local/libexec/property_render_runtime_preflight.py
 
-RUN set -eu; \
-    mkdir -p /data/artifacts /data/public_property_tours /data/provider-ledger /home/ea; \
-    chown -R ea:ea /app /data /home/ea /usr/local/bin/docker-entrypoint.sh; \
-    chmod +x /usr/local/bin/docker-entrypoint.sh
+RUN chown -R 10001:10001 /data /home/ea && \
+    chmod 0755 /data /data/public_property_tours /home/ea && \
+    chmod 0444 \
+        /app/scripts/generate_property_reconstruction.py \
+        /app/scripts/property_reconstruction_render_bridge.py \
+        /app/scripts/property_tour_runtime_paths.py \
+        /app/scripts/propertyquarry_playwright_runtime.py && \
+    python -I -S -c 'import os, stat; from pathlib import Path; root=Path("/app/vendor/three"); entries=[Path(directory) / name for directory, directories, files in os.walk(root, followlinks=False) for name in (*directories, *files)]; invalid=[str(path) for path in entries if not (stat.S_ISDIR(path.lstat().st_mode) or stat.S_ISREG(path.lstat().st_mode))]; assert not invalid, invalid' && \
+    chmod -R a=rX /app/vendor/three && \
+    chmod -R a=rX \
+        /usr/local/share/licenses/propertyquarry-render \
+        /usr/local/share/propertyquarry/glib-buildinfo && \
+    chmod 0555 \
+        /usr/local/share/propertyquarry/receipts \
+        /usr/local/share/propertyquarry/recipes && \
+    chmod 0555 /usr/local/bin/ffmpeg
 
-USER ea
+USER 0:0
+
+RUN set -eux; \
+    export DEBIAN_FRONTEND=noninteractive; \
+    apt-get clean; \
+    dpkg-query -W -f='${db:Status-Status}\t${Package}\n' \
+        > /tmp/property-render-packages.before; \
+    apt-get purge --yes --allow-remove-essential --no-auto-remove \
+        gzip \
+        bsdutils \
+        libblkid1 \
+        liblastlog2-2 \
+        libmount1 \
+        libsmartcols1 \
+        libuuid1 \
+        login \
+        mount \
+        util-linux; \
+    rm -rf /var/lib/apt/lists/*; \
+    test -s /var/lib/dpkg/status; \
+    audit_output="$(dpkg --audit)"; \
+    test -z "${audit_output}"; \
+    apt-get check; \
+    dpkg-query -W -f='${db:Status-Status}\t${Package}\n' \
+        > /tmp/property-render-packages.after; \
+    python -c 'from pathlib import Path; load=lambda name: {row[1] for line in Path(name).read_text(encoding="utf-8").splitlines() if len(row := line.split("\t")) == 2 and row[0] == "installed"}; before=load("/tmp/property-render-packages.before"); after=load("/tmp/property-render-packages.after"); removed=sorted(before-after); added=sorted(after-before); expected=sorted({"gzip", "bsdutils", "libblkid1", "liblastlog2-2", "libmount1", "libsmartcols1", "libuuid1", "login", "mount", "util-linux"}); invalid=removed != expected or bool(added); print("unexpected package delta: removed=" + repr(removed) + " added=" + repr(added), file=__import__("sys").stderr) if invalid else None; raise SystemExit(invalid)'; \
+    dpkg-query -W \
+        -f='${db:Status-Status}\t${source:Package}\t${binary:Package}\n' \
+        | python -c 'import sys; rows=[line.rstrip("\n").split("\t") for line in sys.stdin]; bad=[row for row in rows if len(row) >= 3 and row[0] == "installed" and ((row[1].split()[0] if row[1].split() else row[2].split(":", 1)[0]) in {"gzip", "util-linux"})]; print("\n".join("\t".join(row) for row in bad), file=sys.stderr) if bad else None; raise SystemExit(bool(bad))'; \
+    python -I -S -c 'import sysconfig; from pathlib import Path; root=Path(sysconfig.get_config_var("DESTSHARED")); modules=("_uuid", "_tkinter"); matches={module: sorted(root.glob(f"{module}.*")) for module in modules}; assert all(len(paths) == 1 for paths in matches.values()), matches; assert all(paths[0].is_file() and not paths[0].is_symlink() for paths in matches.values()), matches; [paths[0].unlink() for paths in matches.values()]'; \
+    python -I -S -c 'import importlib.util, uuid; assert importlib.util.find_spec("_uuid") is None; assert importlib.util.find_spec("_tkinter") is None; assert uuid.uuid1().version == 1; assert uuid.uuid4().version == 4'; \
+    python -I -S /usr/local/libexec/property_render_elf_audit.py; \
+    rm -f /tmp/property-render-packages.before /tmp/property-render-packages.after; \
+    python -I -S -c 'import shutil; forbidden=("blender","colmap","convert","curl","exiftool","ffplay","ffprobe","gzip","gunzip","magick","meshlab","meshlabserver","runuser"); present=[name for name in forbidden if shutil.which(name)]; assert not present, present'
+
+USER 10001:10001
+
+RUN /usr/local/bin/python -I /usr/local/libexec/property_render_runtime_preflight.py
+
+
+FROM scratch AS runtime
+
+COPY --from=prepared / /
+
+ENV HOME=/home/ea \
+    LANG=C.UTF-8 \
+    LOGNAME=ea \
+    PATH=/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    USER=ea
+
+WORKDIR /app
+
+USER 10001:10001
 
 HEALTHCHECK --interval=30s --timeout=15s --start-period=30s --retries=5 \
-  CMD ["/bin/sh", "-ec", "role=${EA_ROLE:-api}; case \"$role\" in worker|scheduler) exec python -m app.scheduler_healthcheck ;; *) curl -fsS --connect-timeout 2 --max-time 10 http://127.0.0.1:8090/health/live >/dev/null ;; esac"]
+    CMD ["/usr/local/bin/property-render-env-launcher", "/usr/local/bin/python", "-I", "-S", "-c", "import http.client; connection=http.client.HTTPConnection('127.0.0.1',8091,timeout=10); connection.request('GET','/health/ready'); response=connection.getresponse(); raise SystemExit(0 if response.status == 200 else 1)"]
 
-ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
-CMD ["python", "-m", "app.runner"]
+ENTRYPOINT ["/usr/local/bin/property-render-env-launcher", "/usr/local/bin/python", "-I", "-S", "/usr/local/libexec/property_render_entrypoint.py"]
+CMD ["/usr/local/bin/python", "-I", "/app/scripts/property_reconstruction_render_bridge.py"]

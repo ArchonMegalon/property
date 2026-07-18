@@ -11,14 +11,24 @@ import tarfile
 import tempfile
 import threading
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from contextlib import contextmanager
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
+from fastapi import HTTPException
 from PIL import Image, ImageDraw
 
+from app.api.routes import public_tours as public_tours_route
 from app.api.routes.public_tour_payloads import public_tour_allowed_asset_paths
+from app.api.routes.public_tour_payloads import (
+    public_tour_canonical_path,
+    public_tour_file_url,
+    public_tour_safe_slug,
+)
 from app.product import property_tour_hosting
 from app.product import service as product_service
 from scripts import generate_property_reconstruction as reconstruction_script
@@ -36,6 +46,45 @@ def _write_base_tour(tmp_path: Path, slug: str) -> Path:
         encoding="utf-8",
     )
     return bundle_dir
+
+
+def _write_valid_candidate_generation(
+    bundle_dir: Path,
+    *,
+    slug: str,
+    generation: str = "candidate",
+) -> None:
+    reconstruction_dir = bundle_dir / "generated-reconstruction"
+    reconstruction_dir.mkdir(exist_ok=True)
+    for name, content in (
+        ("viewer.html", "viewer\n"),
+        ("model.obj", "model\n"),
+        ("model.mtl", "material\n"),
+        ("model.glb", "glb\n"),
+    ):
+        (reconstruction_dir / name).write_text(content, encoding="utf-8")
+    (reconstruction_dir / "reconstruction.json").write_text(
+        json.dumps({"slug": slug}),
+        encoding="utf-8",
+    )
+    base = "generated-reconstruction"
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "generation": generation,
+                "generated_reconstruction": {
+                    "provider": "propertyquarry_generated_reconstruction",
+                    "viewer_relpath": f"{base}/viewer.html",
+                    "model_relpath": f"{base}/model.obj",
+                    "material_relpath": f"{base}/model.mtl",
+                    "manifest_relpath": f"{base}/reconstruction.json",
+                    "glb_model_relpath": f"{base}/model.glb",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
 
 
 def _write_floorplan(path: Path) -> None:
@@ -77,6 +126,1194 @@ def _write_photo(path: Path, color: tuple[int, int, int]) -> None:
     draw = ImageDraw.Draw(image)
     draw.rectangle((80, 100, 820, 620), outline=(255, 255, 255), width=8)
     image.save(path, format="JPEG")
+
+
+def test_normalized_image_metadata_redacts_operator_path(tmp_path: Path) -> None:
+    source = tmp_path / "operator-private" / "source.jpg"
+    source.parent.mkdir()
+    _write_photo(source, (126, 108, 82))
+    target = tmp_path / "public" / "photo-01.jpg"
+
+    metadata = reconstruction_script._copy_normalized_image(source, target)
+
+    assert metadata["source_path"] == "<provided-image>"
+    assert metadata["source_origin"] == "provided_image"
+    assert str(tmp_path) not in json.dumps(metadata, sort_keys=True)
+
+
+def test_normalized_image_failure_is_path_free_and_removes_partial_output(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "operator-private" / "corrupt-source.jpg"
+    source.parent.mkdir()
+    source.write_bytes(b"not-an-image")
+    target = tmp_path / "public" / "photo-01.jpg"
+
+    with pytest.raises(SystemExit) as observed:
+        reconstruction_script._copy_normalized_image(source, target)
+
+    assert str(observed.value) == "source_image_invalid"
+    assert str(tmp_path) not in str(observed.value)
+    assert not target.exists()
+
+
+@pytest.mark.parametrize("pillow_max_pixels", (3_000, 1_000))
+def test_normalized_image_rejects_pillow_decompression_bombs_with_stable_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    pillow_max_pixels: int,
+) -> None:
+    source = tmp_path / "source.png"
+    Image.new("RGB", (64, 64), color=(12, 34, 56)).save(source, format="PNG")
+    target = tmp_path / "normalized.png"
+    monkeypatch.setattr(reconstruction_script.Image, "MAX_IMAGE_PIXELS", pillow_max_pixels)
+
+    with pytest.raises(SystemExit) as observed:
+        reconstruction_script._copy_normalized_image(source, target)
+
+    assert str(observed.value) == "source_image_invalid"
+    assert not target.exists()
+
+
+@pytest.mark.parametrize(
+    ("limit_name", "limit_value"),
+    (
+        ("_MAX_SOURCE_IMAGE_DIMENSION", 31),
+        ("_MAX_SOURCE_IMAGE_PIXELS", 1_000),
+    ),
+)
+def test_normalized_image_rejects_oversized_dimensions_and_pixels(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    limit_name: str,
+    limit_value: int,
+) -> None:
+    source = tmp_path / "source.png"
+    Image.new("RGB", (32, 32), color=(12, 34, 56)).save(source, format="PNG")
+    target = tmp_path / "normalized.png"
+    monkeypatch.setattr(reconstruction_script, limit_name, limit_value)
+
+    with pytest.raises(SystemExit, match="source_image_invalid"):
+        reconstruction_script._copy_normalized_image(source, target)
+
+    assert not target.exists()
+
+
+def test_normalized_image_rejects_compressed_size_and_extreme_aspect_ratio(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    compressed = tmp_path / "compressed.png"
+    Image.new("RGB", (32, 32), color=(12, 34, 56)).save(compressed, format="PNG")
+    monkeypatch.setattr(
+        reconstruction_script,
+        "_MAX_SOURCE_IMAGE_COMPRESSED_BYTES",
+        compressed.stat().st_size - 1,
+    )
+    with pytest.raises(SystemExit, match="source_image_invalid"):
+        reconstruction_script._copy_normalized_image(
+            compressed,
+            tmp_path / "compressed-normalized.png",
+        )
+
+    monkeypatch.setattr(
+        reconstruction_script,
+        "_MAX_SOURCE_IMAGE_COMPRESSED_BYTES",
+        128 * 1024 * 1024,
+    )
+    extreme = tmp_path / "extreme.png"
+    Image.new("RGB", (16, 528), color=(12, 34, 56)).save(extreme, format="PNG")
+    with pytest.raises(SystemExit, match="source_image_invalid"):
+        reconstruction_script._copy_normalized_image(
+            extreme,
+            tmp_path / "extreme-normalized.png",
+        )
+
+
+def test_floorplan_derived_allocations_are_bounded_before_resize(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "floorplan.png"
+    Image.new("RGB", (64, 128), color=(255, 255, 255)).save(source, format="PNG")
+    monkeypatch.setattr(
+        reconstruction_script,
+        "_MAX_FLOORPLAN_DERIVED_DIMENSION",
+        200,
+    )
+
+    with pytest.raises(
+        reconstruction_script._SourceImageInvalid,
+        match="source_image_invalid",
+    ):
+        reconstruction_script._floorplan_content_bbox(source)
+
+
+def test_preview_failures_never_persist_operator_paths(tmp_path: Path) -> None:
+    private_source = tmp_path / "operator-private" / "missing.png"
+
+    receipt = reconstruction_script._write_generated_reconstruction_telegram_preview(
+        tmp_path / "public" / "telegram-preview.png",
+        source_path=private_source,
+    )
+
+    assert receipt == {
+        "status": "failed",
+        "reason": "telegram_preview_generation_failed",
+        "error_class": "FileNotFoundError",
+    }
+    assert str(tmp_path) not in json.dumps(receipt, sort_keys=True)
+
+
+def test_public_png_writer_is_atomic_symlink_safe_and_world_readable(
+    tmp_path: Path,
+) -> None:
+    victim = tmp_path / "victim.txt"
+    victim.write_text("unchanged\n", encoding="utf-8")
+    target = tmp_path / "diorama-preview.png"
+    target.symlink_to(victim)
+    image = Image.new("RGB", (8, 8), color=(126, 108, 82))
+    previous_umask = os.umask(0o027)
+    try:
+        reconstruction_script._write_public_png(image, target)
+    finally:
+        os.umask(previous_umask)
+        image.close()
+
+    assert target.is_file()
+    assert not target.is_symlink()
+    assert target.stat().st_mode & 0o777 == 0o644
+    assert target.read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+    assert victim.read_text(encoding="utf-8") == "unchanged\n"
+
+
+def test_public_png_writer_fails_closed_if_parent_changes_before_open(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parent = tmp_path / "public"
+    parent.mkdir()
+    moved_parent = tmp_path / "original-public"
+    target = parent / "preview.png"
+    real_open = reconstruction_script.os.open
+    swapped = False
+
+    def swapping_open(path: object, flags: int, *args: object, **kwargs: object) -> int:
+        nonlocal swapped
+        if not swapped and Path(path) == parent:
+            parent.rename(moved_parent)
+            parent.mkdir()
+            swapped = True
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(reconstruction_script.os, "open", swapping_open)
+    image = Image.new("RGB", (8, 8), color=(126, 108, 82))
+    try:
+        with pytest.raises(RuntimeError, match="public_preview_parent_changed"):
+            reconstruction_script._write_public_png(image, target)
+    finally:
+        image.close()
+
+    assert swapped is True
+    assert not target.exists()
+    assert not (moved_parent / "preview.png").exists()
+
+
+def test_public_png_writer_rolls_back_if_parent_changes_during_replace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parent = tmp_path / "public"
+    parent.mkdir()
+    moved_parent = tmp_path / "original-public"
+    target = parent / "preview.png"
+    target.write_bytes(b"previous-preview")
+    real_replace = reconstruction_script.os.replace
+    swapped = False
+
+    def swapping_replace(
+        source: object,
+        destination: object,
+        *args: object,
+        **kwargs: object,
+    ) -> None:
+        nonlocal swapped
+        if not swapped:
+            parent.rename(moved_parent)
+            parent.mkdir()
+            swapped = True
+        real_replace(source, destination, *args, **kwargs)
+
+    monkeypatch.setattr(reconstruction_script.os, "replace", swapping_replace)
+    image = Image.new("RGB", (8, 8), color=(126, 108, 82))
+    try:
+        with pytest.raises(RuntimeError, match="public_preview_parent_changed"):
+            reconstruction_script._write_public_png(image, target)
+    finally:
+        image.close()
+
+    assert swapped is True
+    assert not target.exists()
+    assert (moved_parent / "preview.png").read_bytes() == b"previous-preview"
+    assert list(moved_parent.iterdir()) == [moved_parent / "preview.png"]
+
+
+def test_public_png_writer_preserves_existing_target_on_encode_failure(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "public" / "preview.png"
+    target.parent.mkdir()
+    target.write_bytes(b"previous-preview")
+
+    class FailingImage:
+        def save(self, *_args: object, **_kwargs: object) -> None:
+            raise OSError(f"failed under {tmp_path}/operator-private")
+
+    with pytest.raises(RuntimeError, match="public_preview_encode_failed") as observed:
+        reconstruction_script._write_public_png(FailingImage(), target)  # type: ignore[arg-type]
+
+    assert str(tmp_path) not in str(observed.value)
+    assert target.read_bytes() == b"previous-preview"
+    assert list(target.parent.iterdir()) == [target]
+
+
+def test_public_bundle_transaction_exchanges_complete_tree_and_normalizes_modes(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "public_tours"
+    bundle = _write_base_tour(tmp_path, "launch-flat")
+    reconstruction = bundle / "generated-reconstruction"
+    reconstruction.mkdir()
+    (reconstruction / "old.txt").write_text("old\n", encoding="utf-8")
+
+    with reconstruction_script._staged_public_bundle(root, "launch-flat") as transaction:
+        staged_reconstruction = transaction.stage_dir / "generated-reconstruction"
+        (staged_reconstruction / "old.txt").unlink()
+        (staged_reconstruction / "new.txt").write_text("new\n", encoding="utf-8")
+        _write_valid_candidate_generation(
+            transaction.stage_dir,
+            slug="launch-flat",
+            generation="new",
+        )
+
+        assert (bundle / "generated-reconstruction" / "old.txt").is_file()
+        assert not (bundle / "generated-reconstruction" / "new.txt").exists()
+        transaction.publish(reconstruction_subdir="generated-reconstruction")
+
+        assert (bundle / "generated-reconstruction" / "new.txt").read_text(
+            encoding="utf-8"
+        ) == "new\n"
+        assert not (bundle / "generated-reconstruction" / "old.txt").exists()
+
+    assert json.loads((bundle / "tour.json").read_text(encoding="utf-8"))[
+        "generation"
+    ] == "new"
+    assert (bundle / "tour.json").stat().st_mode & 0o777 == 0o644
+    assert reconstruction.stat().st_mode & 0o777 == 0o755
+    assert not (bundle / ".propertyquarry-inputs").exists()
+    assert not any(path.name.startswith(".propertyquarry-stage-") for path in root.iterdir())
+
+
+def test_public_bundle_transaction_failure_preserves_live_tree(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "public_tours"
+    bundle = _write_base_tour(tmp_path, "launch-flat")
+    reconstruction = bundle / "generated-reconstruction"
+    reconstruction.mkdir()
+    old = reconstruction / "walkthrough.mp4"
+    old.write_bytes(b"old-video")
+
+    with pytest.raises(RuntimeError, match="simulated_generation_failure"):
+        with reconstruction_script._staged_public_bundle(root, "launch-flat") as transaction:
+            (transaction.stage_dir / "generated-reconstruction" / "walkthrough.mp4").unlink()
+            raise RuntimeError("simulated_generation_failure")
+
+    assert old.read_bytes() == b"old-video"
+    assert not any(path.name.startswith(".propertyquarry-stage-") for path in root.iterdir())
+
+
+def test_public_bundle_transaction_reaps_prior_private_stage_under_lock(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "public_tours"
+    _write_base_tour(tmp_path, "launch-flat")
+    orphan = root / f"{reconstruction_script._PUBLIC_BUNDLE_STAGE_PREFIX}{'a' * 32}"
+    private_inputs = orphan / reconstruction_script._PUBLIC_BUNDLE_INPUT_DIR
+    private_inputs.mkdir(parents=True)
+    (private_inputs / "operator-source.jpg").write_bytes(b"private-source")
+    stage_fd = os.open(orphan, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        reconstruction_script._write_transaction_stage_owner_marker(
+            stage_fd,
+            stage_name=orphan.name,
+        )
+    finally:
+        os.close(stage_fd)
+
+    with reconstruction_script._staged_public_bundle(root, "launch-flat") as transaction:
+        assert not orphan.exists()
+        assert transaction.stage_dir.is_dir()
+
+    assert not orphan.exists()
+    assert not any(
+        path.name.startswith(reconstruction_script._PUBLIC_BUNDLE_STAGE_PREFIX)
+        for path in root.iterdir()
+    )
+
+
+def test_internal_stage_slug_and_commit_metadata_are_never_public_urls(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "public_tours"
+    stage_slug = f"{reconstruction_script._PUBLIC_BUNDLE_STAGE_PREFIX}{'b' * 32}"
+    stage = root / stage_slug
+    stage.mkdir(parents=True)
+    (stage / "tour.json").write_text(
+        json.dumps({"slug": stage_slug, "publication_status": "ready"}),
+        encoding="utf-8",
+    )
+    (stage / reconstruction_script._PUBLIC_BUNDLE_COMMIT_MARKER).write_text(
+        "private-transaction-metadata\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(root))
+
+    assert public_tour_canonical_path(stage_slug) == ""
+    assert public_tour_file_url(stage_slug, "tour.json") == ""
+    assert (
+        public_tour_file_url(
+            stage_slug,
+            reconstruction_script._PUBLIC_BUNDLE_COMMIT_MARKER,
+        )
+        == ""
+    )
+    assert (
+        public_tour_file_url(
+            "launch-flat",
+            reconstruction_script._PUBLIC_BUNDLE_COMMIT_MARKER,
+        )
+        == ""
+    )
+    with pytest.raises(HTTPException) as observed:
+        public_tours_route._load_tour(stage_slug)
+    assert observed.value.status_code == 404
+    assert observed.value.detail == "tour_not_found"
+
+
+@pytest.mark.parametrize(
+    "slug",
+    (
+        ".propertyquarry-stage-" + ("a" * 32),
+        "a..b",
+        "space slug",
+        "query?slug",
+        "slash/slug",
+        "back\\slug",
+    ),
+)
+def test_generator_and_public_urls_share_strict_slug_rejection(slug: str) -> None:
+    with pytest.raises(SystemExit, match="invalid_tour_slug"):
+        reconstruction_script._validated_tour_slug(slug)
+    assert public_tour_safe_slug(slug) == ""
+    assert public_tour_canonical_path(slug) == ""
+    assert public_tour_file_url(slug, "preview.png") == ""
+
+
+def test_generator_and_public_urls_accept_canonical_slug_contract() -> None:
+    slug = "A.valid_slug-1"
+    assert reconstruction_script._validated_tour_slug(slug) == slug
+    assert public_tour_safe_slug(slug) == slug
+    assert public_tour_canonical_path(slug) == f"/tours/{slug}"
+
+
+def test_reserved_stage_slug_is_rejected_without_reaper_deletion(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "public_tours"
+    reserved_slug = f"{reconstruction_script._PUBLIC_BUNDLE_STAGE_PREFIX}{'d' * 32}"
+    reserved = root / reserved_slug
+    reserved.mkdir(parents=True)
+    private_file = reserved / "operator-source.jpg"
+    private_file.write_bytes(b"private")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(root))
+
+    with pytest.raises(SystemExit, match="invalid_tour_slug"):
+        reconstruction_script.main(["--slug", reserved_slug, "--skip-video"])
+
+    assert private_file.read_bytes() == b"private"
+
+
+def test_candidate_commit_marker_handles_partial_writes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle = _write_base_tour(tmp_path, "launch-flat")
+    real_write = reconstruction_script.os.write
+
+    def short_write(descriptor: int, payload: bytes) -> int:
+        return real_write(descriptor, payload[:3])
+
+    monkeypatch.setattr(reconstruction_script.os, "write", short_write)
+
+    reconstruction_script._write_candidate_commit_marker(
+        bundle_dir=bundle,
+        slug="launch-flat",
+        transaction_id="c" * 32,
+    )
+
+    marker = json.loads(
+        (bundle / reconstruction_script._PUBLIC_BUNDLE_COMMIT_MARKER).read_text(
+            encoding="utf-8"
+        )
+    )
+    assert marker["schema"] == "propertyquarry.render_bundle_commit.v1"
+    assert marker["slug"] == "launch-flat"
+    assert marker["transaction_id"] == "c" * 32
+    assert len(marker["tour_manifest_sha256"]) == 64
+
+
+def test_public_bundle_transaction_rejects_noncooperating_live_mutation(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "public_tours"
+    bundle = _write_base_tour(tmp_path, "launch-flat")
+    reconstruction = bundle / "generated-reconstruction"
+    reconstruction.mkdir()
+    old = reconstruction / "state.txt"
+    old.write_text("old\n", encoding="utf-8")
+
+    with reconstruction_script._staged_public_bundle(root, "launch-flat") as transaction:
+        (transaction.stage_dir / "generated-reconstruction" / "state.txt").write_text(
+            "candidate\n",
+            encoding="utf-8",
+        )
+        _write_valid_candidate_generation(
+            transaction.stage_dir,
+            slug="launch-flat",
+            generation="candidate",
+        )
+        old.write_text("concurrent-live-update\n", encoding="utf-8")
+
+        with pytest.raises(
+            reconstruction_script._PublicBundleTransactionError,
+            match="live_bundle_changed_during_generation",
+        ):
+            transaction.publish(reconstruction_subdir="generated-reconstruction")
+
+    assert old.read_text(encoding="utf-8") == "concurrent-live-update\n"
+    assert not any(path.name.startswith(".propertyquarry-stage-") for path in root.iterdir())
+
+
+def test_public_bundle_transaction_rechecks_live_after_candidate_validation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "public_tours"
+    bundle = _write_base_tour(tmp_path, "launch-flat")
+    reconstruction = bundle / "generated-reconstruction"
+    reconstruction.mkdir()
+    live_state = reconstruction / "state.txt"
+    live_state.write_text("old\n", encoding="utf-8")
+
+    with reconstruction_script._staged_public_bundle(root, "launch-flat") as transaction:
+        _write_valid_candidate_generation(
+            transaction.stage_dir,
+            slug="launch-flat",
+            generation="candidate",
+        )
+        original_sync = reconstruction_script._sync_and_validate_bundle_tree
+
+        def mutate_live_after_candidate_sync(descriptor: int) -> None:
+            original_sync(descriptor)
+            live_state.write_text("concurrent-live-update\n", encoding="utf-8")
+
+        monkeypatch.setattr(
+            reconstruction_script,
+            "_sync_and_validate_bundle_tree",
+            mutate_live_after_candidate_sync,
+        )
+
+        with pytest.raises(
+            reconstruction_script._PublicBundleTransactionError,
+            match="live_bundle_changed_during_generation",
+        ):
+            transaction.publish(reconstruction_subdir="generated-reconstruction")
+
+    assert live_state.read_text(encoding="utf-8") == "concurrent-live-update\n"
+
+
+def test_public_bundle_transaction_rolls_back_mutation_in_final_exchange_window(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "public_tours"
+    bundle = _write_base_tour(tmp_path, "launch-flat")
+    reconstruction = bundle / "generated-reconstruction"
+    reconstruction.mkdir()
+    live_state = reconstruction / "state.txt"
+    live_state.write_text("old\n", encoding="utf-8")
+    real_exchange = reconstruction_script._exchange_public_bundle_directories
+    exchange_calls = 0
+
+    def mutate_then_exchange(**kwargs: object) -> None:
+        nonlocal exchange_calls
+        exchange_calls += 1
+        if exchange_calls == 1:
+            live_state.write_text("concurrent-live-update\n", encoding="utf-8")
+        real_exchange(**kwargs)
+
+    with reconstruction_script._staged_public_bundle(root, "launch-flat") as transaction:
+        _write_valid_candidate_generation(
+            transaction.stage_dir,
+            slug="launch-flat",
+            generation="candidate",
+        )
+        (transaction.stage_dir / "generated-reconstruction" / "state.txt").write_text(
+            "candidate\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(
+            reconstruction_script,
+            "_exchange_public_bundle_directories",
+            mutate_then_exchange,
+        )
+
+        with pytest.raises(
+            reconstruction_script._PublicBundleTransactionError,
+            match="live_bundle_changed_during_atomic_exchange",
+        ):
+            transaction.publish(reconstruction_subdir="generated-reconstruction")
+
+    assert exchange_calls == 2
+    assert live_state.read_text(encoding="utf-8") == "concurrent-live-update\n"
+    preserved = [
+        path
+        for path in root.iterdir()
+        if path.name.startswith(reconstruction_script._PUBLIC_BUNDLE_QUARANTINE_PREFIX)
+    ]
+    assert len(preserved) == 1
+    assert (
+        preserved[0] / "generated-reconstruction" / "state.txt"
+    ).read_text(encoding="utf-8") == "candidate\n"
+
+
+def test_public_bundle_transaction_restores_concurrent_slug_replacement(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "public_tours"
+    bundle = _write_base_tour(tmp_path, "launch-flat")
+    reconstruction = bundle / "generated-reconstruction"
+    reconstruction.mkdir()
+    (reconstruction / "state.txt").write_text("old\n", encoding="utf-8")
+    displaced_original = root / "displaced-original"
+    real_exchange = reconstruction_script._exchange_public_bundle_directories
+    exchange_calls = 0
+
+    def replace_then_exchange(**kwargs: object) -> None:
+        nonlocal exchange_calls
+        exchange_calls += 1
+        if exchange_calls == 1:
+            bundle.rename(displaced_original)
+            bundle.mkdir()
+            (bundle / "concurrent.txt").write_text(
+                "concurrent-replacement\n",
+                encoding="utf-8",
+            )
+        real_exchange(**kwargs)
+
+    with reconstruction_script._staged_public_bundle(root, "launch-flat") as transaction:
+        _write_valid_candidate_generation(
+            transaction.stage_dir,
+            slug="launch-flat",
+            generation="candidate",
+        )
+        monkeypatch.setattr(
+            reconstruction_script,
+            "_exchange_public_bundle_directories",
+            replace_then_exchange,
+        )
+
+        with pytest.raises(
+            reconstruction_script._PublicBundleTransactionError,
+            match="live_bundle_changed_during_atomic_exchange",
+        ):
+            transaction.publish(reconstruction_subdir="generated-reconstruction")
+
+    assert exchange_calls == 2
+    assert (bundle / "concurrent.txt").read_text(encoding="utf-8") == (
+        "concurrent-replacement\n"
+    )
+    assert (displaced_original / "generated-reconstruction" / "state.txt").read_text(
+        encoding="utf-8"
+    ) == "old\n"
+    preserved = [
+        path
+        for path in root.iterdir()
+        if path.name.startswith(reconstruction_script._PUBLIC_BUNDLE_QUARANTINE_PREFIX)
+    ]
+    assert len(preserved) == 1
+    assert json.loads((preserved[0] / "tour.json").read_text(encoding="utf-8"))[
+        "generation"
+    ] == "candidate"
+
+
+def test_public_bundle_transaction_preserves_both_names_when_rollback_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "public_tours"
+    bundle = _write_base_tour(tmp_path, "launch-flat")
+    reconstruction = bundle / "generated-reconstruction"
+    reconstruction.mkdir()
+    live_state = reconstruction / "state.txt"
+    live_state.write_text("old\n", encoding="utf-8")
+    real_exchange = reconstruction_script._exchange_public_bundle_directories
+    exchange_calls = 0
+
+    def fail_rollback(**kwargs: object) -> None:
+        nonlocal exchange_calls
+        exchange_calls += 1
+        if exchange_calls == 1:
+            live_state.write_text("concurrent-live-update\n", encoding="utf-8")
+            real_exchange(**kwargs)
+            return
+        raise reconstruction_script._PublicBundleTransactionError(
+            "simulated_rollback_failure"
+        )
+
+    with reconstruction_script._staged_public_bundle(root, "launch-flat") as transaction:
+        _write_valid_candidate_generation(
+            transaction.stage_dir,
+            slug="launch-flat",
+            generation="candidate",
+        )
+        monkeypatch.setattr(
+            reconstruction_script,
+            "_exchange_public_bundle_directories",
+            fail_rollback,
+        )
+
+        with pytest.raises(
+            reconstruction_script._PublicBundleTransactionError,
+            match="atomic_bundle_exchange_rollback_failed",
+        ):
+            transaction.publish(reconstruction_subdir="generated-reconstruction")
+
+    assert exchange_calls == 2
+    assert json.loads((bundle / "tour.json").read_text(encoding="utf-8"))[
+        "generation"
+    ] == "candidate"
+    preserved = [
+        path
+        for path in root.iterdir()
+        if path.name.startswith(reconstruction_script._PUBLIC_BUNDLE_QUARANTINE_PREFIX)
+    ]
+    assert len(preserved) == 1
+    assert (
+        preserved[0] / "generated-reconstruction" / "state.txt"
+    ).read_text(encoding="utf-8") == "concurrent-live-update\n"
+
+    _write_base_tour(tmp_path, "second-flat")
+    with reconstruction_script._staged_public_bundle(root, "second-flat"):
+        pass
+    assert preserved[0].is_dir()
+    assert (
+        preserved[0] / "generated-reconstruction" / "state.txt"
+    ).read_text(encoding="utf-8") == "concurrent-live-update\n"
+
+
+def test_public_bundle_transaction_rolls_back_final_window_stage_replacement(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "public_tours"
+    bundle = _write_base_tour(tmp_path, "launch-flat")
+    reconstruction = bundle / "generated-reconstruction"
+    reconstruction.mkdir()
+    (reconstruction / "state.txt").write_text("old\n", encoding="utf-8")
+    real_exchange = reconstruction_script._exchange_public_bundle_directories
+    displaced_candidate = root / "displaced-candidate"
+    exchange_calls = 0
+
+    def replace_stage_then_exchange(**kwargs: object) -> None:
+        nonlocal exchange_calls
+        exchange_calls += 1
+        if exchange_calls == 1:
+            stage_name = str(kwargs["stage_name"])
+            (root / stage_name).rename(displaced_candidate)
+            (root / stage_name).mkdir()
+            (root / stage_name / "attacker.txt").write_text(
+                "concurrent-stage-replacement\n",
+                encoding="utf-8",
+            )
+        real_exchange(**kwargs)
+
+    with reconstruction_script._staged_public_bundle(root, "launch-flat") as transaction:
+        _write_valid_candidate_generation(
+            transaction.stage_dir,
+            slug="launch-flat",
+            generation="candidate",
+        )
+        monkeypatch.setattr(
+            reconstruction_script,
+            "_exchange_public_bundle_directories",
+            replace_stage_then_exchange,
+        )
+
+        with pytest.raises(
+            reconstruction_script._PublicBundleTransactionError,
+            match="live_bundle_changed_during_atomic_exchange",
+        ):
+            transaction.publish(reconstruction_subdir="generated-reconstruction")
+
+    assert exchange_calls == 2
+    assert (bundle / "generated-reconstruction" / "state.txt").read_text(
+        encoding="utf-8"
+    ) == "old\n"
+    assert json.loads((displaced_candidate / "tour.json").read_text(encoding="utf-8"))[
+        "generation"
+    ] == "candidate"
+    quarantined = [
+        path
+        for path in root.iterdir()
+        if path.name.startswith(reconstruction_script._PUBLIC_BUNDLE_QUARANTINE_PREFIX)
+    ]
+    assert len(quarantined) == 1
+    assert (quarantined[0] / "attacker.txt").read_text(encoding="utf-8") == (
+        "concurrent-stage-replacement\n"
+    )
+
+
+def test_public_tree_fingerprint_rejects_entry_added_after_initial_list(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tree = tmp_path / "tree"
+    tree.mkdir()
+    (tree / "initial.txt").write_text("initial\n", encoding="utf-8")
+    descriptor = os.open(tree, os.O_RDONLY | os.O_DIRECTORY)
+    real_listdir = reconstruction_script.os.listdir
+    injected = False
+
+    def listdir_with_late_entry(target: object) -> list[str]:
+        nonlocal injected
+        names = list(real_listdir(target))
+        if target == descriptor and not injected:
+            (tree / "late.txt").write_text("late\n", encoding="utf-8")
+            injected = True
+        return names
+
+    monkeypatch.setattr(reconstruction_script.os, "listdir", listdir_with_late_entry)
+    try:
+        with pytest.raises(
+            reconstruction_script._PublicBundleTransactionError,
+            match="bundle_tree_changed_during_fingerprint",
+        ):
+            reconstruction_script._public_tree_fingerprint(descriptor)
+    finally:
+        os.close(descriptor)
+
+    assert injected is True
+
+
+def test_public_bundle_transaction_rejects_source_symlink_without_following_it(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "public_tours"
+    bundle = _write_base_tour(tmp_path, "launch-flat")
+    outside = tmp_path / "operator-private.txt"
+    outside.write_text("private\n", encoding="utf-8")
+    (bundle / "linked.txt").symlink_to(outside)
+
+    with pytest.raises(
+        reconstruction_script._PublicBundleTransactionError,
+        match="bundle_source_symlink_forbidden",
+    ) as observed:
+        with reconstruction_script._staged_public_bundle(root, "launch-flat"):
+            pytest.fail("symlink-bearing bundle must not be staged")
+
+    assert str(tmp_path) not in str(observed.value)
+    assert outside.read_text(encoding="utf-8") == "private\n"
+    assert (bundle / "linked.txt").is_symlink()
+    assert not any(path.name.startswith(".propertyquarry-stage-") for path in root.iterdir())
+
+
+def test_generation_inputs_are_snapshotted_and_removed_before_publication(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "public_tours"
+    bundle = _write_base_tour(tmp_path, "launch-flat")
+    (bundle / "generated-reconstruction").mkdir()
+    floorplan = tmp_path / "operator-private" / "floorplan.jpg"
+    photo = tmp_path / "operator-private" / "living.jpg"
+    floorplan.parent.mkdir()
+    _write_floorplan(floorplan)
+    _write_photo(photo, (122, 106, 84))
+    args = reconstruction_script._parse_args(
+        [
+            "--slug",
+            "launch-flat",
+            "--floorplan",
+            str(floorplan),
+            "--photo",
+            str(photo),
+            "--skip-video",
+        ]
+    )
+
+    with reconstruction_script._staged_public_bundle(root, "launch-flat") as transaction:
+        snapshot_args = reconstruction_script._snapshot_generation_inputs(
+            args,
+            transaction,
+        )
+        snapshot_floorplan = Path(snapshot_args.floorplan)
+        snapshot_photo = Path(snapshot_args.photo[0])
+        floorplan.write_bytes(b"changed-after-snapshot")
+        photo.write_bytes(b"changed-after-snapshot")
+
+        assert snapshot_floorplan.read_bytes() != floorplan.read_bytes()
+        assert snapshot_photo.read_bytes() != photo.read_bytes()
+        assert str(snapshot_floorplan).startswith(
+            f"/proc/self/fd/{transaction.input_snapshot_fd}/"
+        )
+        assert str(snapshot_photo).startswith(
+            f"/proc/self/fd/{transaction.input_snapshot_fd}/"
+        )
+
+        reconstruction_script._remove_generation_input_snapshot(transaction)
+        assert not (transaction.stage_dir / ".propertyquarry-inputs").exists()
+
+    assert not (bundle / ".propertyquarry-inputs").exists()
+
+
+def test_generation_input_snapshot_rejects_ancestor_symlink_swap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "public_tours"
+    _write_base_tour(tmp_path, "launch-flat")
+    shared_source = root / "shared" / "inputs" / "floorplan.jpg"
+    shared_source.parent.mkdir(parents=True)
+    _write_floorplan(shared_source)
+    outside_source = tmp_path / "outside" / "inputs" / "floorplan.jpg"
+    outside_source.parent.mkdir(parents=True)
+    _write_photo(outside_source, (220, 20, 20))
+    args = reconstruction_script._parse_args(
+        [
+            "--slug",
+            "launch-flat",
+            "--floorplan",
+            str(shared_source),
+            "--skip-video",
+        ]
+    )
+    real_open = reconstruction_script.os.open
+    swapped = False
+
+    with reconstruction_script._staged_public_bundle(root, "launch-flat") as transaction:
+        def swapping_open(
+            path: object,
+            flags: int,
+            *open_args: object,
+            **open_kwargs: object,
+        ) -> int:
+            nonlocal swapped
+            if not swapped and path == "shared" and "dir_fd" in open_kwargs:
+                (root / "shared").rename(root / "shared-original")
+                (root / "shared").symlink_to(tmp_path / "outside", target_is_directory=True)
+                swapped = True
+            return real_open(path, flags, *open_args, **open_kwargs)
+
+        monkeypatch.setattr(reconstruction_script.os, "open", swapping_open)
+        with pytest.raises(
+            reconstruction_script._PublicBundleTransactionError,
+            match="generation_source_invalid",
+        ):
+            reconstruction_script._snapshot_generation_inputs(args, transaction)
+
+    assert swapped is True
+    assert outside_source.is_file()
+    assert (root / "shared").is_symlink()
+    assert not any(
+        path.name.startswith(reconstruction_script._PUBLIC_BUNDLE_STAGE_PREFIX)
+        for path in root.iterdir()
+    )
+
+
+def test_snapshotted_image_decode_stays_pinned_and_cleanup_rejects_inputs_symlink_swap(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "public_tours"
+    _write_base_tour(tmp_path, "launch-flat")
+    source = root / "shared" / "floorplan.jpg"
+    source.parent.mkdir()
+    _write_floorplan(source)
+    outside_dir = tmp_path / "outside-inputs"
+    outside_dir.mkdir()
+    outside_source = outside_dir / "floorplan.jpg"
+    _write_photo(outside_source, (220, 20, 20))
+    outside_guard = outside_dir / "must-survive.txt"
+    outside_guard.write_text("do-not-delete\n", encoding="utf-8")
+    args = reconstruction_script._parse_args(
+        [
+            "--slug",
+            "launch-flat",
+            "--floorplan",
+            str(source),
+            "--skip-video",
+        ]
+    )
+
+    with reconstruction_script._staged_public_bundle(root, "launch-flat") as transaction:
+        snapshot_args = reconstruction_script._snapshot_generation_inputs(
+            args,
+            transaction,
+        )
+        inputs = transaction.stage_dir / reconstruction_script._PUBLIC_BUNDLE_INPUT_DIR
+        original_inputs = transaction.stage_dir / ".propertyquarry-inputs-original"
+        inputs.rename(original_inputs)
+        inputs.symlink_to(outside_dir, target_is_directory=True)
+
+        normalized = transaction.anchored_stage_dir / "normalized.jpg"
+        metadata = reconstruction_script._copy_normalized_image(
+            Path(snapshot_args.floorplan),
+            normalized,
+        )
+
+        assert metadata["width"] == 1200
+        assert metadata["height"] == 800
+        with pytest.raises(
+            reconstruction_script._PublicBundleTransactionError,
+            match="generation_source_snapshot_cleanup_refused",
+        ):
+            reconstruction_script._remove_generation_input_snapshot(transaction)
+
+        assert outside_source.is_file()
+        assert outside_guard.read_text(encoding="utf-8") == "do-not-delete\n"
+
+    assert outside_source.is_file()
+    assert outside_guard.read_text(encoding="utf-8") == "do-not-delete\n"
+
+
+def test_generation_surface_stays_on_retained_stage_after_stage_name_swap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "public_tours"
+    bundle = _write_base_tour(tmp_path, "launch-flat")
+    existing_output = bundle / "generated-reconstruction"
+    existing_output.mkdir()
+    (existing_output / "old.txt").write_text("old\n", encoding="utf-8")
+    outside = tmp_path / "outside-stage-target"
+    outside_output = outside / "generated-reconstruction"
+    outside_output.mkdir(parents=True)
+    outside_guard = outside_output / "must-survive.txt"
+    outside_guard.write_text("do-not-delete\n", encoding="utf-8")
+    args = reconstruction_script._parse_args(
+        ["--slug", "launch-flat", "--skip-video"]
+    )
+
+    with reconstruction_script._staged_public_bundle(root, "launch-flat") as transaction:
+        stage_path = transaction.stage_dir
+        displaced_stage = root / ".displaced-propertyquarry-stage"
+        stage_path.rename(displaced_stage)
+        stage_path.symlink_to(outside, target_is_directory=True)
+
+        def generate_on_anchor(
+            _args: object,
+            *,
+            public_root: Path,
+            bundle_dir: Path,
+            output_dir: Path,
+            target_subdir: str,
+            slug: str,
+            bundle_uses_shared_runtime_root: bool,
+        ) -> tuple[int, dict[str, object]]:
+            del public_root, bundle_uses_shared_runtime_root
+            assert str(bundle_dir).startswith("/proc/self/fd/")
+            anchored_bundle = bundle_dir.stat()
+            retained_stage = os.fstat(transaction.stage_fd)
+            assert (anchored_bundle.st_dev, anchored_bundle.st_ino) == (
+                retained_stage.st_dev,
+                retained_stage.st_ino,
+            )
+            assert str(output_dir).startswith("/proc/self/fd/")
+            assert target_subdir == "generated-reconstruction"
+            assert slug == "launch-flat"
+            (output_dir / "anchored.txt").write_text(
+                "retained-stage\n",
+                encoding="utf-8",
+            )
+            return 0, {"status": "generated"}
+
+        monkeypatch.setattr(
+            reconstruction_script,
+            "_generate_reconstruction_on_anchored_surface",
+            generate_on_anchor,
+        )
+        try:
+            returncode, response = reconstruction_script._generate_reconstruction(
+                args,
+                public_root=root,
+                bundle_dir=transaction.anchored_stage_dir,
+                bundle_uses_shared_runtime_root=False,
+            )
+
+            assert returncode == 0
+            assert response == {"status": "generated"}
+            assert (
+                displaced_stage / "generated-reconstruction" / "anchored.txt"
+            ).read_text(encoding="utf-8") == "retained-stage\n"
+            assert outside_guard.read_text(encoding="utf-8") == "do-not-delete\n"
+        finally:
+            stage_path.unlink()
+            displaced_stage.rename(stage_path)
+
+
+def test_committed_runtime_receipt_update_rejects_symlink_without_reading_target(
+    tmp_path: Path,
+) -> None:
+    bundle = _write_base_tour(tmp_path, "launch-flat")
+    reconstruction = bundle / "generated-reconstruction"
+    reconstruction.mkdir()
+    outside = tmp_path / "operator-private.json"
+    outside.write_text('{"secret":"unchanged"}\n', encoding="utf-8")
+    (reconstruction / "reconstruction.json").symlink_to(outside)
+
+    with pytest.raises(
+        reconstruction_script._PublicBundleTransactionError,
+        match="committed_runtime_receipt_invalid",
+    ) as observed:
+        reconstruction_script._update_committed_runtime_publish_receipt(
+            bundle_dir=bundle,
+            reconstruction_subdir="generated-reconstruction",
+            runtime_publish={"status": "updated", "slug": "launch-flat"},
+            runtime_publish_required=True,
+        )
+
+    assert str(tmp_path) not in str(observed.value)
+    assert outside.read_text(encoding="utf-8") == '{"secret":"unchanged"}\n'
+
+
+def test_committed_runtime_receipt_update_rejects_inode_swap_before_replace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle = _write_base_tour(tmp_path, "launch-flat")
+    reconstruction = bundle / "generated-reconstruction"
+    reconstruction.mkdir()
+    receipt_path = reconstruction / "reconstruction.json"
+    receipt_path.write_text(
+        json.dumps(
+            {
+                "slug": "launch-flat",
+                "runtime_publish_required": True,
+                "runtime_publish_ok": False,
+                "runtime_publish": {"status": "pending_local_commit"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    original_reader = reconstruction_script._read_bounded_json_object
+
+    def swap_after_read(descriptor: int, **kwargs: object) -> dict[str, object]:
+        payload = original_reader(descriptor, **kwargs)
+        receipt_path.unlink()
+        receipt_path.write_text(json.dumps(payload), encoding="utf-8")
+        return payload
+
+    monkeypatch.setattr(
+        reconstruction_script,
+        "_read_bounded_json_object",
+        swap_after_read,
+    )
+
+    with pytest.raises(
+        reconstruction_script._PublicBundleTransactionError,
+        match="committed_runtime_receipt_changed",
+    ):
+        reconstruction_script._update_committed_runtime_publish_receipt(
+            bundle_dir=bundle,
+            reconstruction_subdir="generated-reconstruction",
+            runtime_publish={"status": "updated", "slug": "launch-flat"},
+            runtime_publish_required=True,
+        )
+
+
+def test_postcommit_receipt_error_reports_local_commit_and_runtime_outcome(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = tmp_path / "public_tours"
+    bundle = _write_base_tour(tmp_path, "launch-flat")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(root))
+    monkeypatch.setattr(
+        reconstruction_script,
+        "_bundle_uses_shared_runtime_root",
+        lambda _bundle: False,
+    )
+
+    def generated(
+        _args: object,
+        *,
+        public_root: Path,
+        bundle_dir: Path,
+        bundle_uses_shared_runtime_root: bool,
+    ) -> tuple[int, dict[str, object]]:
+        assert public_root == root
+        assert bundle_uses_shared_runtime_root is False
+        _write_valid_candidate_generation(
+            bundle_dir,
+            slug="launch-flat",
+            generation="candidate",
+        )
+        return 0, {
+            "status": "generated",
+            "slug": "launch-flat",
+            "runtime_publish_required": True,
+            "runtime_publish": {"status": "pending_local_commit"},
+            "_deferred_runtime_publish": True,
+        }
+
+    monkeypatch.setattr(reconstruction_script, "_generate_reconstruction", generated)
+    monkeypatch.setattr(
+        reconstruction_script,
+        "_sync_bundle_to_runtime_container",
+        lambda _bundle, *, slug: {"status": "updated", "slug": slug},
+    )
+    monkeypatch.setattr(
+        reconstruction_script,
+        "_update_committed_runtime_publish_receipt",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            reconstruction_script._PublicBundleTransactionError(
+                "committed_runtime_receipt_changed"
+            )
+        ),
+    )
+
+    returncode = reconstruction_script.main(
+        ["--slug", "launch-flat", "--skip-video"]
+    )
+    response = json.loads(capsys.readouterr().out)
+
+    assert returncode == 1
+    assert response["status"] == "failed"
+    assert response["reason"] == "committed_runtime_receipt_changed"
+    assert response["local_commit_applied"] is True
+    assert response["publication_durability"] == "fsynced"
+    assert response["replaced_bundle_cleanup"] == "removed"
+    assert response["runtime_publish"] == {
+        "status": "updated",
+        "slug": "launch-flat",
+    }
+    assert json.loads((bundle / "tour.json").read_text(encoding="utf-8"))[
+        "generation"
+    ] == "candidate"
 
 
 def _run_generator(tmp_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -320,6 +1557,56 @@ def test_generated_reconstruction_viewer_emits_launch_accessibility_contract(tmp
     assert 'matchMedia("(prefers-reduced-motion: reduce)")' in viewer_html
     assert "prefersReducedMotion" in viewer_html
     assert 'reason: "webgl_unavailable"' in viewer_html
+
+
+def test_viewer_manifest_json_is_script_safe_without_changing_display_data() -> None:
+    payload = '</script><img src=x onerror="window.__pqXss=1">&\u2028\u2029'
+    serialized = reconstruction_script._html_script_safe_json({"label": payload})
+
+    assert json.loads(serialized) == {"label": payload}
+    assert "<" not in serialized
+    assert ">" not in serialized
+    assert "&" not in serialized
+    assert "\u2028" not in serialized
+    assert "\u2029" not in serialized
+    assert "\\u003c/script\\u003e" in serialized
+    assert "\\u2028" in serialized
+    assert "\\u2029" in serialized
+
+    manifest = {
+        "room_dimensions_m": {"width": 8.0, "depth": 6.0, "height": 2.8},
+        "floorplan": {"relpath": "source-floorplan.jpg"},
+        "geometry": {
+            "floor_texture_crop": {
+                "offset_x": 0,
+                "offset_y": 0,
+                "repeat_x": 1,
+                "repeat_y": 1,
+            },
+            "wall_rectangles": [],
+        },
+        "walkable_scene": {
+            "route": [
+                {
+                    "label": payload,
+                    "focus": {"x": 0.0, "y": 1.2, "z": 0.0},
+                    "camera": {"x": 1.0, "y": 1.8, "z": 1.0},
+                }
+            ]
+        },
+        "photos": [],
+        "photo_reference_panels": [{"label": payload}],
+        "style_label": "safe",
+    }
+    viewer_html = reconstruction_script._viewer_html(
+        manifest=manifest,
+        three_relpath="vendor/three.module.js",
+        orbit_controls_relpath="vendor/examples/jsm/controls/OrbitControls.js",
+    )
+
+    assert payload not in viewer_html
+    assert '</script><img src=x onerror="window.__pqXss=1">' not in viewer_html
+    assert "\\u003c/script\\u003e\\u003cimg" in viewer_html
 
 
 def test_generated_reconstruction_viewer_honors_reduced_motion_and_webgl_fallback(tmp_path: Path) -> None:
@@ -590,6 +1877,131 @@ def test_generated_reconstruction_render_tools_runtime_defaults_to_stop_card_wal
     assert observed == {"viewer": 0, "stop_card": 1}
     assert receipt["status"] == "generated"
     assert receipt["composition"] == "route_focused_stop_cards"
+
+
+def test_viewer_walkthrough_serves_only_the_exact_output_fd_anchor(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output_dir = tmp_path / "generated-reconstruction"
+    output_dir.mkdir()
+    (output_dir / "viewer.html").write_text(
+        "<!doctype html><title>anchored viewer</title>\n",
+        encoding="utf-8",
+    )
+    secret_dir = tmp_path / "operator-private"
+    secret_dir.mkdir()
+    (secret_dir / "secret.txt").write_text(
+        "must-not-be-served\n",
+        encoding="utf-8",
+    )
+    directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    output_fd = os.open(output_dir, directory_flags)
+    secret_fd = os.open(secret_dir, directory_flags)
+    observed: dict[str, object] = {}
+    real_serve_directory = reconstruction_script._serve_directory
+
+    @contextmanager
+    def observed_serve_directory(root: Path):
+        observed["serve_root"] = str(root)
+        with real_serve_directory(root) as base_url:
+            yield base_url
+
+    class FakePage:
+        def goto(self, url: str, **_kwargs: object) -> None:
+            observed["viewer_url"] = url
+            with urllib.request.urlopen(url, timeout=3) as response:
+                observed["viewer_body"] = response.read().decode("utf-8")
+            parsed = urllib.parse.urlsplit(url)
+            base_url = f"{parsed.scheme}://{parsed.netloc}"
+            with urllib.request.urlopen(f"{base_url}/", timeout=3) as response:
+                observed["root_listing"] = response.read().decode("utf-8")
+            try:
+                with urllib.request.urlopen(
+                    f"{base_url}/{secret_fd}/secret.txt",
+                    timeout=3,
+                ) as response:
+                    observed["secret_status"] = response.status
+                    observed["secret_body"] = response.read().decode("utf-8")
+            except urllib.error.HTTPError as exc:
+                observed["secret_status"] = exc.code
+
+    class FakeBrowser:
+        def new_page(self, **_kwargs: object) -> FakePage:
+            return FakePage()
+
+        def close(self) -> None:
+            return None
+
+    class FakeChromium:
+        def launch(self, **_kwargs: object) -> FakeBrowser:
+            return FakeBrowser()
+
+    class FakePlaywright:
+        chromium = FakeChromium()
+
+    @contextmanager
+    def fake_sync_playwright():
+        yield FakePlaywright()
+
+    def stop_after_scope_probe(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("scope_probe_complete")
+
+    monkeypatch.setattr(
+        reconstruction_script,
+        "_serve_directory",
+        observed_serve_directory,
+    )
+    monkeypatch.setattr(
+        reconstruction_script,
+        "sync_playwright",
+        fake_sync_playwright,
+    )
+    monkeypatch.setattr(
+        reconstruction_script,
+        "_playwright_chromium_launch_kwargs",
+        lambda _playwright: {},
+    )
+    monkeypatch.setattr(
+        reconstruction_script,
+        "_viewer_storyboard_steps",
+        lambda *_args, **_kwargs: [
+            {
+                "label": "living room",
+                "sequence": 1,
+                "total": 1,
+                "state": {},
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        reconstruction_script,
+        "_wait_for_playwright_condition",
+        stop_after_scope_probe,
+    )
+    try:
+        anchored_output = Path(f"/proc/self/fd/{output_fd}")
+        receipt = reconstruction_script._write_viewer_walkthrough(
+            anchored_output / "generated-walkthrough.mp4",
+            viewer_path=anchored_output / "viewer.html",
+            expected_segments=["living room"],
+            route_stops=[],
+            seconds_per_stop=5.0,
+        )
+    finally:
+        os.close(secret_fd)
+        os.close(output_fd)
+
+    assert receipt == {
+        "status": "failed",
+        "reason": "viewer_capture_failed:RuntimeError",
+    }
+    assert observed["serve_root"] == f"/proc/self/fd/{output_fd}"
+    assert urllib.parse.urlsplit(str(observed["viewer_url"])).path == "/viewer.html"
+    assert "anchored viewer" in str(observed["viewer_body"])
+    assert f'href="{secret_fd}/"' not in str(observed["root_listing"])
+    assert observed["secret_status"] == 404
+    assert "secret_body" not in observed
 
 
 def test_generated_reconstruction_diorama_preview_reads_as_staged_layout_composition(tmp_path: Path) -> None:
@@ -1501,11 +2913,11 @@ def test_generated_reconstruction_runtime_sync_fails_closed_when_archive_extract
     assert receipt["status"] == "runtime_copy_failed"
     assert receipt["slug"] == slug
     assert receipt["container"] == "propertyquarry-api"
-    assert receipt["remote_bundle"] == f"/data/public_property_tours/{slug}"
-    assert receipt["remote_staging"] == (
-        f"/data/public_property_tours/.publish..staging/{slug}-{publish_token}"
-    )
-    assert "phase=extraction" in receipt["stderr"]
+    assert "remote_bundle" not in receipt
+    assert "remote_staging" not in receipt
+    assert "stderr" not in receipt
+    assert len(str(receipt["diagnostic_sha256"])) == 64
+    assert receipt["diagnostic_size_bytes"] > 0
     assert all("cp" not in call for call in calls)
     assert calls[0][3:6] == ["--user", "ea", "propertyquarry-api"]
     assert receipt["recovery"] == {"state": "not_committed", "cleanup": "complete"}
@@ -1533,7 +2945,8 @@ def test_generated_reconstruction_runtime_archive_rejects_symlink_before_contain
     assert receipt["status"] == "runtime_archive_failed"
     assert receipt["slug"] == slug
     assert receipt["container"] == "propertyquarry-api"
-    assert "unsafe" in receipt["error"]
+    assert receipt["error_class"] == "ValueError"
+    assert "error" not in receipt
     assert calls == []
 
 
@@ -1565,7 +2978,8 @@ def test_generated_reconstruction_runtime_recovery_oserror_returns_ambiguous_rec
     assert receipt["status"] == "runtime_copy_failed"
     assert receipt["recovery"]["state"] == "ambiguous"
     assert receipt["recovery"]["cleanup"] == "failed"
-    assert "FileNotFoundError" in receipt["recovery"]["stderr"]
+    assert receipt["recovery"]["error_class"] == "FileNotFoundError"
+    assert "stderr" not in receipt["recovery"]
     assert len(calls) == 2
 
 
@@ -1592,10 +3006,9 @@ def test_generated_reconstruction_runtime_finalize_timeout_returns_receipt(
     receipt = reconstruction_script._sync_bundle_to_runtime_container(bundle_dir, slug=slug)
 
     assert receipt["status"] == "runtime_finalize_timeout"
-    assert receipt["remote_bundle"] == f"/data/public_property_tours/{slug}"
-    assert receipt["remote_staging"] == (
-        f"/data/public_property_tours/.publish..staging/{slug}-{publish_token}"
-    )
+    assert "remote_bundle" not in receipt
+    assert "remote_staging" not in receipt
+    assert receipt["timeout_seconds"] > 0
     assert receipt["recovery"] == {"state": "not_committed", "cleanup": "complete"}
     assert len(calls) == 2
 
@@ -1897,6 +3310,7 @@ def test_generated_reconstruction_required_runtime_publish_failure_exits_nonzero
         str(floorplan),
         "--photo",
         str(photo),
+        "--skip-video",
         env_overrides={
             "PROPERTYQUARRY_RECONSTRUCTION_REQUIRE_RUNTIME_PUBLISH": "1",
             "PROPERTYQUARRY_RECONSTRUCTION_ALLOW_LOCAL_ONLY": None,
@@ -1906,16 +3320,20 @@ def test_generated_reconstruction_required_runtime_publish_failure_exits_nonzero
     assert generated.returncode == 1, generated.stdout or generated.stderr
     body = json.loads(generated.stdout)
     assert body["status"] == "failed"
-    assert body["reason"] == "runtime_publish_failed"
+    assert body["reason"] == "runtime_publish_failed_after_local_commit"
     assert body["local_bundle_generated"] is True
+    assert body["local_commit_applied"] is True
+    assert body["publication_durability"] == "fsynced"
+    assert body["replaced_bundle_cleanup"] == "removed"
     assert body["runtime_publish_required"] is True
     assert body["runtime_publish"]["status"] == "docker_unavailable"
-    receipt = json.loads(
-        (bundle_dir / "generated-reconstruction" / "reconstruction.json").read_text(encoding="utf-8")
+    manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
+    assert manifest["slug"] == slug
+    assert manifest["generated_reconstruction"]["provider"] == (
+        "propertyquarry_generated_reconstruction"
     )
-    assert receipt["runtime_publish_required"] is True
-    assert receipt["runtime_publish_ok"] is False
-    assert receipt["runtime_publish"]["status"] == "docker_unavailable"
+    assert (bundle_dir / "generated-reconstruction" / "viewer.html").is_file()
+    assert (bundle_dir / ".propertyquarry-render-commit.json").is_file()
 
 
 def test_generated_reconstruction_review_build_never_invokes_runtime_publish(

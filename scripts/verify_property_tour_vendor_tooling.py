@@ -13,6 +13,11 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from ea.property_render_ffmpeg_audit import (
+    audit_ffmpeg_encoder as _ffmpeg_encoder_capability,
+    capture_container_tool as _capture_container_tool,
+    capture_local_tool as _capture_local_tool,
+)
 from scripts.property_magicfit_env import default_magicfit_env_files, discover_magicfit_env
 from scripts.discover_property_tour_exports import build_discovery_receipt
 from scripts.property_tour_runtime_paths import preferred_public_tour_root
@@ -54,6 +59,8 @@ MAGICFIT_CREDENTIAL_ENV_PAIRS = (
     ("CHUMMER_EA_MAGICFIT_EMAIL", "CHUMMER_EA_MAGICFIT_PASSWORD"),
 )
 MAGICFIT_RENDER_PYTHON_MODULES = ("playwright", "requests")
+RUNTIME_GENERATOR_MODULE = "scripts.generate_property_reconstruction"
+RUNTIME_DIRECT_GLB_SYMBOL = "_write_glb"
 OMAGIC_MODEL_UPLOAD_ENABLE_ENV = "PROPERTYQUARRY_OMAGIC_MODEL_UPLOAD_ENABLED"
 OMAGIC_RENDER_ENDPOINT_ENV_NAMES = (
     "PROPERTYQUARRY_OMAGIC_RENDER_ENDPOINT",
@@ -180,10 +187,14 @@ def _container_python_import_available(container: str, module: str) -> dict[str,
     docker = shutil.which("docker")
     if not docker:
         return {"available": False, "container": container, "module": module, "reason": "docker_missing"}
-    script = f"python3 - <<'PY'\nimport {module}\nprint({module}.__version__ if hasattr({module}, '__version__') else 'available')\nPY"
+    script = (
+        "import importlib; "
+        f"candidate = importlib.import_module({module!r}); "
+        "print(getattr(candidate, '__version__', 'available'))"
+    )
     try:
         completed = subprocess.run(
-            [docker, "exec", container, "sh", "-lc", script],
+            [docker, "exec", container, "/usr/local/bin/python", "-c", script],
             check=False,
             capture_output=True,
             text=True,
@@ -200,15 +211,113 @@ def _container_python_import_available(container: str, module: str) -> dict[str,
     }
 
 
+def _python_symbol_status(module: str, symbol: str) -> dict[str, object]:
+    script = (
+        "import importlib; "
+        f"candidate = importlib.import_module({module!r}); "
+        f"raise SystemExit(0 if callable(getattr(candidate, {symbol!r}, None)) else 1)"
+    )
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-c", script],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=8,
+        )
+    except Exception as exc:
+        return {
+            "available": False,
+            "path": sys.executable,
+            "module": module,
+            "symbol": symbol,
+            "reason": type(exc).__name__,
+        }
+    return {
+        "available": completed.returncode == 0,
+        "path": sys.executable,
+        "module": module,
+        "symbol": symbol,
+        "implementation": "direct_python_glb_writer",
+        "returncode": int(completed.returncode),
+    }
+
+
+def _container_python_symbol_available(container: str, module: str, symbol: str) -> dict[str, object]:
+    if not container:
+        return {
+            "available": False,
+            "container": "",
+            "module": module,
+            "symbol": symbol,
+        }
+    docker = shutil.which("docker")
+    if not docker:
+        return {
+            "available": False,
+            "container": container,
+            "module": module,
+            "symbol": symbol,
+            "reason": "docker_missing",
+        }
+    script = (
+        "import importlib; "
+        f"candidate = importlib.import_module({module!r}); "
+        f"raise SystemExit(0 if callable(getattr(candidate, {symbol!r}, None)) else 1)"
+    )
+    try:
+        completed = subprocess.run(
+            [
+                docker,
+                "exec",
+                container,
+                "/usr/local/bin/python",
+                "-c",
+                script,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=8,
+        )
+    except Exception as exc:
+        return {
+            "available": False,
+            "container": container,
+            "module": module,
+            "symbol": symbol,
+            "reason": type(exc).__name__,
+        }
+    return {
+        "available": completed.returncode == 0,
+        "container": container,
+        "module": module,
+        "symbol": symbol,
+        "implementation": "direct_python_glb_writer",
+        "returncode": int(completed.returncode),
+    }
+
+
 def _container_file_available(container: str, path: str) -> dict[str, object]:
     if not container:
         return {"available": False, "container": "", "path": path}
     docker = shutil.which("docker")
     if not docker:
         return {"available": False, "container": container, "path": path, "reason": "docker_missing"}
+    script = (
+        "from pathlib import Path; "
+        f"raise SystemExit(0 if Path({path!r}).is_file() else 1)"
+    )
     try:
         completed = subprocess.run(
-            [docker, "exec", container, "test", "-f", path],
+            [
+                docker,
+                "exec",
+                container,
+                "/usr/local/bin/python",
+                "-c",
+                script,
+            ],
             check=False,
             capture_output=True,
             text=True,
@@ -668,23 +777,64 @@ def build_vendor_tooling_receipt(
         "exiftool": exiftool,
         "imagemagick": imagemagick,
     }
+    local_ffmpeg_encoder = _ffmpeg_encoder_capability(
+        _capture_local_tool,
+        require_bounded_surface=runtime_only,
+    )
+    local_ffmpeg_capability_name = (
+        "ffmpeg:bounded_encoder" if runtime_only else "ffmpeg:functional_encoder"
+    )
     runtime_local_tools = {
-        "ffmpeg": ffmpeg,
-        "blender": blender,
-        "colmap": colmap,
-        "exiftool": exiftool,
-        "convert": imagemagick,
-        "python:numpy": {"available": _python_module_available("numpy"), "path": "python", "version": ""},
+        local_ffmpeg_capability_name: local_ffmpeg_encoder,
+        "python:PIL": _python_module_status("PIL"),
+        "python:playwright": _python_module_status("playwright"),
+        "python:direct_glb": _python_symbol_status(
+            RUNTIME_GENERATOR_MODULE,
+            RUNTIME_DIRECT_GLB_SYMBOL,
+        ),
     }
-    generated_tour_tools = runtime_local_tools if runtime_only else host_generated_tour_tools
-    generated_tour_ready = all(bool(row.get("available")) for row in generated_tour_tools.values())
-    runtime_required_tools = ("ffmpeg", "blender", "colmap", "exiftool", "convert")
-    runtime_generated_tour_tools = {
-        command: _container_command_available(runtime_container, command)
-        for command in runtime_required_tools
-    } if runtime_container and not runtime_only else {}
-    if runtime_container:
-        runtime_generated_tour_tools["python:numpy"] = _container_python_import_available(runtime_container, "numpy")
+    generated_tour_readiness_capabilities = {
+        name: {
+            **row,
+            "affects_runtime_readiness": True,
+            "observation_posture": "retained_runtime_capability",
+        }
+        for name, row in runtime_local_tools.items()
+    }
+    legacy_generated_tour_observations = {
+        name: {
+            **row,
+            "affects_runtime_readiness": False,
+            "observation_posture": "legacy_host_observation_only",
+        }
+        for name, row in host_generated_tour_tools.items()
+    }
+    generated_tour_tools = {
+        **generated_tour_readiness_capabilities,
+        **legacy_generated_tour_observations,
+    }
+    generated_tour_ready = all(
+        bool(row.get("available")) for row in runtime_local_tools.values()
+    )
+    runtime_generated_tour_tools: dict[str, dict[str, object]] = {}
+    if runtime_container and not runtime_only:
+        runtime_generated_tour_tools = {
+            "ffmpeg:bounded_encoder": _ffmpeg_encoder_capability(
+                lambda command, *args: _capture_container_tool(
+                    runtime_container,
+                    command,
+                    *args,
+                ),
+                require_bounded_surface=True,
+            ),
+            "python:PIL": _container_python_import_available(runtime_container, "PIL"),
+            "python:playwright": _container_python_import_available(runtime_container, "playwright"),
+            "python:direct_glb": _container_python_symbol_available(
+                runtime_container,
+                RUNTIME_GENERATOR_MODULE,
+                RUNTIME_DIRECT_GLB_SYMBOL,
+            ),
+        }
     if runtime_only:
         runtime_generated_tour_tools = runtime_local_tools
     runtime_generated_tour_ready = (
@@ -713,12 +863,16 @@ def build_vendor_tooling_receipt(
             }
         )
     if not generated_tour_ready:
-        missing_tools = [name for name, row in generated_tour_tools.items() if not row.get("available")]
+        missing_tools = [
+            name
+            for name, row in generated_tour_readiness_capabilities.items()
+            if not row.get("available")
+        ]
         next_actions.append(
             {
                 "area": "runtime_generated_tour_tooling" if runtime_only else "generated_tour_tooling",
                 "missing_tools": missing_tools,
-                "action": "install the missing runtime generation tools before claiming floorplan/photos-to-tour readiness" if runtime_only else "install the missing local generation tools before claiming floorplan/photos-to-tour readiness",
+                "action": "restore the missing retained runtime generation capabilities before claiming floorplan/photos-to-tour readiness" if runtime_only else "restore the missing local generation capabilities before claiming floorplan/photos-to-tour readiness",
             }
         )
     if runtime_generated_tour_ready is False and not runtime_only:
@@ -728,7 +882,7 @@ def build_vendor_tooling_receipt(
                 "area": "runtime_generated_tour_tooling",
                 "container": runtime_container,
                 "missing_tools": missing_runtime_tools,
-                "action": "install missing runtime tools or route reconstruction generation to the prepared operator host lane",
+                "action": "rebuild the render runtime with its bounded encoder, Python imaging/browser, and direct-GLB capabilities",
             }
         )
     if not bool(magicfit_renderer.get("ready")):
@@ -803,6 +957,13 @@ def build_vendor_tooling_receipt(
         "host_ready": host_ready,
         "generated_tour_ready": generated_tour_ready,
         "generated_tour_tools": generated_tour_tools,
+        "generated_tour_readiness_capabilities": (
+            generated_tour_readiness_capabilities
+        ),
+        "legacy_host_tool_observations": {
+            "affects_runtime_readiness": False,
+            "tools": legacy_generated_tour_observations,
+        },
         "runtime_generated_tour_ready": runtime_generated_tour_ready,
         "runtime_generated_tour_tools": runtime_generated_tour_tools,
         "magicfit_renderer": magicfit_renderer,
@@ -833,7 +994,13 @@ def build_vendor_tooling_receipt(
         "discovery_import_count": int(discovery.get("import_count") or 0),
         "discovery_rejected_count": int(discovery.get("rejected_count") or 0),
         "next_actions": next_actions,
-        "note": "This receipt records only local tooling, installer, and verified-export readiness; private credentials and invoice data are intentionally omitted.",
+        "note": (
+            "Runtime readiness is based on the bounded FFmpeg encoder, Python "
+            "imaging/browser modules, and the direct Python GLB writer. Operator-host "
+            "FFmpeg is reported only as a functional encoder unless the runtime-only "
+            "contract is selected. Legacy host tool identities are informational only; "
+            "private credentials and invoice data are intentionally omitted."
+        ),
     }
 
 

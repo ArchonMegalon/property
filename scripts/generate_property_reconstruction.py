@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import argparse
 import base64
+import ctypes
+import fcntl
 import hashlib
 import html
 import io
@@ -13,16 +15,19 @@ import re
 import secrets
 import shutil
 import stat
+import struct
 import subprocess
 import sys
 import tarfile
 import tempfile
 import threading
 import time
+import warnings
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
+from typing import Any, BinaryIO, Iterable, Iterator
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 try:
@@ -62,6 +67,11 @@ DISCLOSURE = "Planning preview built from supplied source material. Use it as a 
 WALKTHROUGH_VIEWPORT_SIZE = (1280, 720)
 WALKTHROUGH_CARD_SIZE = (1440, 810)
 WALKTHROUGH_MAP_BOX = (988, 222, 1332, 452)
+WALKTHROUGH_OUTPUT_FPS = 12
+MAX_WALKTHROUGH_DURATION_SECONDS = 240.0
+MAX_WALKTHROUGH_ENCODED_FRAMES = int(
+    MAX_WALKTHROUGH_DURATION_SECONDS * WALKTHROUGH_OUTPUT_FPS
+)
 THREE_VENDOR_VERSION = "0.167.1"
 THREE_VENDOR_ROOT = ROOT / "vendor" / "three" / THREE_VENDOR_VERSION
 THREE_MODULE_SOURCE = THREE_VENDOR_ROOT / "three.module.js"
@@ -86,6 +96,1778 @@ _PREVIEW_FONT_PATHS = {
     ("serif", True): Path("/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf"),
 }
 _PREVIEW_FONT_CACHE: dict[tuple[str, bool, int], ImageFont.ImageFont] = {}
+_RENAME_EXCHANGE = 2
+_RENAME_NOREPLACE = 1
+_PUBLIC_BUNDLE_STAGE_PREFIX = ".propertyquarry-stage-"
+_PUBLIC_BUNDLE_QUARANTINE_PREFIX = ".propertyquarry-quarantine-"
+_PUBLIC_BUNDLE_INPUT_DIR = ".propertyquarry-inputs"
+_PUBLIC_BUNDLE_COMMIT_MARKER = ".propertyquarry-render-commit.json"
+_PUBLIC_BUNDLE_STAGE_OWNER_MARKER = ".propertyquarry-stage-owner.json"
+_PUBLIC_TOUR_SLUG_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+_MAX_TRANSACTION_TREE_ENTRIES = 50_000
+_MAX_TRANSACTION_TREE_BYTES = 4 * 1024 * 1024 * 1024
+_MAX_TRANSACTION_FILE_BYTES = 1024 * 1024 * 1024
+_MAX_TRANSACTION_TREE_DEPTH = 64
+_MAX_TRANSACTION_INPUTS = 65
+_MAX_SOURCE_IMAGE_COMPRESSED_BYTES = 128 * 1024 * 1024
+_MIN_SOURCE_IMAGE_DIMENSION = 16
+_MAX_SOURCE_IMAGE_DIMENSION = 16_384
+_MAX_SOURCE_IMAGE_PIXELS = 64_000_000
+_MAX_SOURCE_IMAGE_ASPECT_RATIO = 32.0
+_MAX_FLOORPLAN_DERIVED_DIMENSION = 4_096
+_MAX_FLOORPLAN_DERIVED_PIXELS = 4_000_000
+
+
+class _PublicBundleTransactionError(RuntimeError):
+    """Stable, path-free transactional publication failure."""
+
+
+class _SourceImageInvalid(RuntimeError):
+    """Stable, path-free rejection for an unsafe or invalid image."""
+
+
+def _directory_path_matches(
+    *,
+    parent_fd: int,
+    name: str,
+    expected: os.stat_result,
+) -> bool:
+    try:
+        observed = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    except OSError:
+        return False
+    return bool(
+        stat.S_ISDIR(observed.st_mode)
+        and not stat.S_ISLNK(observed.st_mode)
+        and observed.st_dev == expected.st_dev
+        and observed.st_ino == expected.st_ino
+        and stat.S_IMODE(observed.st_mode) == stat.S_IMODE(expected.st_mode)
+    )
+
+
+def _directory_path_identity_matches(
+    *,
+    parent_fd: int,
+    name: str,
+    expected: os.stat_result,
+) -> bool:
+    try:
+        observed = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+    except OSError:
+        return False
+    return bool(
+        stat.S_ISDIR(observed.st_mode)
+        and not stat.S_ISLNK(observed.st_mode)
+        and observed.st_dev == expected.st_dev
+        and observed.st_ino == expected.st_ino
+    )
+
+
+class _PublicBundleTransaction:
+    def __init__(
+        self,
+        *,
+        root: Path,
+        root_fd: int,
+        slug: str,
+        stage_name: str,
+        source_fingerprint: str,
+        stage_identity: tuple[int, int],
+        stage_fd: int,
+    ) -> None:
+        self.root = root
+        self.root_fd = root_fd
+        self.slug = slug
+        self.stage_name = stage_name
+        self.stage_dir = root / stage_name
+        self.live_dir = root / slug
+        self.source_fingerprint = source_fingerprint
+        self.stage_identity = stage_identity
+        self.stage_fd = stage_fd
+        self.input_snapshot_identity: tuple[int, int] | None = None
+        self.input_snapshot_fd = -1
+        self.published = False
+        self.preserve_stage_on_failure = False
+        self.durability_status = "not_started"
+        self.cleanup_status = "not_started"
+        self._replaced_bundle_identity: tuple[int, int] | None = None
+
+    def publish(
+        self,
+        *,
+        reconstruction_subdir: str,
+        require_walkthrough: bool = False,
+    ) -> None:
+        if self.published:
+            raise _PublicBundleTransactionError("bundle_transaction_already_published")
+        try:
+            stage_fd = os.dup(self.stage_fd)
+            retained_stage = os.fstat(stage_fd)
+        except OSError as exc:
+            raise _PublicBundleTransactionError("bundle_stage_invalid") from exc
+        if self.stage_identity != (
+            int(retained_stage.st_dev),
+            int(retained_stage.st_ino),
+        ) or not _directory_path_identity_matches(
+            parent_fd=self.root_fd,
+            name=self.stage_name,
+            expected=retained_stage,
+        ):
+            os.close(stage_fd)
+            raise _PublicBundleTransactionError("bundle_stage_changed_before_exchange")
+        try:
+            _disarm_transaction_stage_reaper(
+                stage_fd,
+                stage_name=self.stage_name,
+            )
+            _normalize_public_generation_surface(
+                stage_fd,
+                reconstruction_subdir=reconstruction_subdir,
+            )
+            _validate_candidate_generation_manifest(
+                stage_fd,
+                slug=self.slug,
+                reconstruction_subdir=reconstruction_subdir,
+                require_walkthrough=require_walkthrough,
+            )
+            _sync_and_validate_bundle_tree(stage_fd)
+            candidate_fingerprint = _public_tree_fingerprint(stage_fd)
+            opened_stage = os.fstat(stage_fd)
+            if not _directory_path_matches(
+                parent_fd=self.root_fd,
+                name=self.stage_name,
+                expected=opened_stage,
+            ):
+                raise _PublicBundleTransactionError("bundle_stage_changed_before_exchange")
+
+            # Candidate work is complete before the compare-and-exchange
+            # check. Keep both descriptors pinned through the exchange and its
+            # postconditions so the names can never be mistaken for the trees
+            # that were actually checked.
+            live_fd = _open_public_bundle_directory(
+                self.slug,
+                parent_fd=self.root_fd,
+                failure="tour_bundle_invalid",
+            )
+            try:
+                opened_live = os.fstat(live_fd)
+                if _public_tree_fingerprint(live_fd) != self.source_fingerprint:
+                    raise _PublicBundleTransactionError(
+                        "live_bundle_changed_during_generation"
+                    )
+                if not _directory_path_matches(
+                    parent_fd=self.root_fd,
+                    name=self.slug,
+                    expected=opened_live,
+                ):
+                    raise _PublicBundleTransactionError(
+                        "live_bundle_changed_during_generation"
+                    )
+
+                # Once renameat2 is entered, preserve both names on every
+                # exceptional path. A failed/ambiguous rollback must never fall
+                # through to generic stage cleanup.
+                self.preserve_stage_on_failure = True
+                self.cleanup_status = "preserved_after_exchange_failure"
+                _exchange_public_bundle_directories(
+                    root_fd=self.root_fd,
+                    stage_name=self.stage_name,
+                    slug=self.slug,
+                )
+
+                try:
+                    exchange_verified = bool(
+                        _directory_path_matches(
+                            parent_fd=self.root_fd,
+                            name=self.slug,
+                            expected=opened_stage,
+                        )
+                        and _directory_path_matches(
+                            parent_fd=self.root_fd,
+                            name=self.stage_name,
+                            expected=opened_live,
+                        )
+                        and _public_tree_fingerprint(stage_fd)
+                        == candidate_fingerprint
+                        and _public_tree_fingerprint(live_fd)
+                        == self.source_fingerprint
+                        and _directory_path_matches(
+                            parent_fd=self.root_fd,
+                            name=self.slug,
+                            expected=os.fstat(stage_fd),
+                        )
+                        and _directory_path_matches(
+                            parent_fd=self.root_fd,
+                            name=self.stage_name,
+                            expected=os.fstat(live_fd),
+                        )
+                    )
+                except (OSError, _PublicBundleTransactionError):
+                    exchange_verified = False
+
+                if not exchange_verified:
+                    # Invert the exchange only when at least one name still
+                    # anchors a known pre-exchange inode. If live is the exact
+                    # candidate, pin whatever arrived at stage (a last-window
+                    # live replacement). Symmetrically, if stage is the exact
+                    # old live tree, pin whatever arrived at live (a last-window
+                    # stage replacement). With neither anchor, touching either
+                    # name could exchange an unrelated concurrent tree.
+                    try:
+                        if _directory_path_matches(
+                            parent_fd=self.root_fd,
+                            name=self.slug,
+                            expected=opened_stage,
+                        ):
+                            rollback_live = os.stat(
+                                self.stage_name,
+                                dir_fd=self.root_fd,
+                                follow_symlinks=False,
+                            )
+                            rollback_stage = opened_stage
+                        elif _directory_path_matches(
+                            parent_fd=self.root_fd,
+                            name=self.stage_name,
+                            expected=opened_live,
+                        ):
+                            rollback_live = opened_live
+                            rollback_stage = os.stat(
+                                self.slug,
+                                dir_fd=self.root_fd,
+                                follow_symlinks=False,
+                            )
+                        else:
+                            raise _PublicBundleTransactionError(
+                                "atomic_bundle_exchange_rollback_refused"
+                            )
+                    except OSError as exc:
+                        raise _PublicBundleTransactionError(
+                            "atomic_bundle_exchange_rollback_refused"
+                        ) from exc
+                    if not (
+                        stat.S_ISDIR(rollback_live.st_mode)
+                        and stat.S_ISDIR(rollback_stage.st_mode)
+                    ):
+                        raise _PublicBundleTransactionError(
+                            "atomic_bundle_exchange_rollback_refused"
+                        )
+                    try:
+                        _exchange_public_bundle_directories(
+                            root_fd=self.root_fd,
+                            stage_name=self.stage_name,
+                            slug=self.slug,
+                        )
+                    except _PublicBundleTransactionError as exc:
+                        raise _PublicBundleTransactionError(
+                            "atomic_bundle_exchange_rollback_failed"
+                        ) from exc
+                    if not (
+                        _directory_path_matches(
+                            parent_fd=self.root_fd,
+                            name=self.slug,
+                            expected=rollback_live,
+                        )
+                        and _directory_path_matches(
+                            parent_fd=self.root_fd,
+                            name=self.stage_name,
+                            expected=rollback_stage,
+                        )
+                    ):
+                        raise _PublicBundleTransactionError(
+                            "atomic_bundle_exchange_rollback_unverified"
+                        )
+                    try:
+                        os.fsync(self.root_fd)
+                    except OSError as exc:
+                        raise _PublicBundleTransactionError(
+                            "atomic_bundle_exchange_rollback_durability_unverified"
+                        ) from exc
+                    raise _PublicBundleTransactionError(
+                        "live_bundle_changed_during_atomic_exchange"
+                    )
+
+                # Set the commit state before fallible descriptor cleanup. The
+                # old live identity is retained so cleanup will refuse a stage
+                # name that was replaced after the verified exchange.
+                self._replaced_bundle_identity = (
+                    int(opened_live.st_dev),
+                    int(opened_live.st_ino),
+                )
+                self.published = True
+                self.preserve_stage_on_failure = False
+                self.cleanup_status = "not_started"
+            finally:
+                os.close(live_fd)
+        finally:
+            os.close(stage_fd)
+        try:
+            os.fsync(self.root_fd)
+        except OSError:
+            self.durability_status = "unverified"
+        else:
+            self.durability_status = "fsynced"
+
+    def cleanup_replaced_bundle(self) -> None:
+        if not self.published:
+            raise _PublicBundleTransactionError("bundle_cleanup_before_publish")
+        if self.preserve_stage_on_failure:
+            raise _PublicBundleTransactionError("bundle_cleanup_preservation_required")
+        try:
+            current_stage = os.stat(
+                self.stage_name,
+                dir_fd=self.root_fd,
+                follow_symlinks=False,
+            )
+        except OSError:
+            self.cleanup_status = "preserved_after_stage_change"
+            return
+        if self._replaced_bundle_identity != (
+            int(current_stage.st_dev),
+            int(current_stage.st_ino),
+        ):
+            self.cleanup_status = "preserved_after_stage_change"
+            return
+        try:
+            _remove_transaction_stage(
+                self.root_fd,
+                self.stage_name,
+                expected_identity=self._replaced_bundle_identity,
+            )
+        except _PublicBundleTransactionError:
+            self.cleanup_status = "deferred"
+            return
+        self.cleanup_status = "removed"
+
+    def quarantine_preserved_stage(self) -> None:
+        if not self.preserve_stage_on_failure:
+            return
+        if not self.stage_name.startswith(_PUBLIC_BUNDLE_STAGE_PREFIX):
+            return
+        quarantine_name = self.stage_name.replace(
+            _PUBLIC_BUNDLE_STAGE_PREFIX,
+            _PUBLIC_BUNDLE_QUARANTINE_PREFIX,
+            1,
+        )
+        try:
+            _rename_public_bundle_directory_noreplace(
+                root_fd=self.root_fd,
+                source_name=self.stage_name,
+                destination_name=quarantine_name,
+            )
+            os.fsync(self.root_fd)
+        except (OSError, _PublicBundleTransactionError):
+            # The stage-owner marker was disarmed before the exchange, so even
+            # a quarantine failure remains ineligible for ordinary reaping.
+            self.cleanup_status = "preservation_unverified"
+            return
+        self.stage_name = quarantine_name
+        self.stage_dir = self.root / quarantine_name
+        self.cleanup_status = "quarantined_after_exchange_failure"
+
+    @property
+    def anchored_stage_dir(self) -> Path:
+        return Path(f"/proc/self/fd/{self.stage_fd}")
+
+
+def _open_public_bundle_directory(
+    name: str,
+    *,
+    parent_fd: int,
+    failure: str,
+) -> int:
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    try:
+        expected = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        descriptor = os.open(name, flags, dir_fd=parent_fd)
+        observed = os.fstat(descriptor)
+    except OSError as exc:
+        raise _PublicBundleTransactionError(failure) from exc
+    if (
+        not stat.S_ISDIR(expected.st_mode)
+        or not stat.S_ISDIR(observed.st_mode)
+        or expected.st_dev != observed.st_dev
+        or expected.st_ino != observed.st_ino
+    ):
+        os.close(descriptor)
+        raise _PublicBundleTransactionError(failure)
+    return descriptor
+
+
+def _open_directory_anchor(path: Path) -> tuple[int, os.stat_result]:
+    """Open a directory without following a caller-controlled final symlink.
+
+    Exact ``/proc/self/fd/N`` paths are internal retained-descriptor anchors, so
+    duplicate the descriptor instead of reopening the procfs symlink.  Ordinary
+    paths retain the existing lstat/open/fstat identity check.
+    """
+
+    proc_match = re.fullmatch(r"/proc/self/fd/([0-9]+)", os.fspath(path))
+    if proc_match is not None:
+        descriptor = os.dup(int(proc_match.group(1)))
+        observed = os.fstat(descriptor)
+        if not stat.S_ISDIR(observed.st_mode):
+            os.close(descriptor)
+            raise NotADirectoryError(os.fspath(path))
+        return descriptor, observed
+
+    expected = path.stat(follow_symlinks=False)
+    if not stat.S_ISDIR(expected.st_mode):
+        raise NotADirectoryError(os.fspath(path))
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    descriptor = os.open(path, flags)
+    observed = os.fstat(descriptor)
+    if (
+        not stat.S_ISDIR(observed.st_mode)
+        or observed.st_dev != expected.st_dev
+        or observed.st_ino != expected.st_ino
+    ):
+        os.close(descriptor)
+        raise OSError("directory_anchor_changed")
+    return descriptor, observed
+
+
+def _copy_regular_file_between_directories(
+    name: str,
+    *,
+    source_fd: int,
+    target_fd: int,
+    expected: os.stat_result,
+) -> None:
+    read_flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    write_flags = (
+        os.O_WRONLY
+        | os.O_CREAT
+        | os.O_EXCL
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    source_handle = -1
+    target_handle = -1
+    try:
+        source_handle = os.open(name, read_flags, dir_fd=source_fd)
+        observed = os.fstat(source_handle)
+        if (
+            not stat.S_ISREG(observed.st_mode)
+            or observed.st_dev != expected.st_dev
+            or observed.st_ino != expected.st_ino
+        ):
+            raise _PublicBundleTransactionError("bundle_source_entry_changed")
+        target_handle = os.open(name, write_flags, 0o600, dir_fd=target_fd)
+        while True:
+            chunk = os.read(source_handle, 1024 * 1024)
+            if not chunk:
+                break
+            offset = 0
+            while offset < len(chunk):
+                written = os.write(target_handle, chunk[offset:])
+                if written <= 0:
+                    raise _PublicBundleTransactionError("bundle_stage_copy_failed")
+                offset += written
+        os.fchmod(target_handle, stat.S_IMODE(expected.st_mode))
+        os.fsync(target_handle)
+    except _PublicBundleTransactionError:
+        raise
+    except OSError as exc:
+        raise _PublicBundleTransactionError("bundle_stage_copy_failed") from exc
+    finally:
+        if target_handle >= 0:
+            os.close(target_handle)
+        if source_handle >= 0:
+            os.close(source_handle)
+
+
+def _consume_transaction_tree_budget(
+    budget: dict[str, int],
+    *,
+    size_bytes: int,
+) -> None:
+    budget["entries"] = int(budget.get("entries") or 0) + 1
+    budget["bytes"] = int(budget.get("bytes") or 0) + max(0, int(size_bytes))
+    if budget["entries"] > _MAX_TRANSACTION_TREE_ENTRIES:
+        raise _PublicBundleTransactionError("bundle_tree_entry_limit_exceeded")
+    if budget["bytes"] > _MAX_TRANSACTION_TREE_BYTES:
+        raise _PublicBundleTransactionError("bundle_tree_size_limit_exceeded")
+
+
+def _clone_public_tree(
+    source_fd: int,
+    target_fd: int,
+    *,
+    depth: int = 0,
+    budget: dict[str, int] | None = None,
+) -> None:
+    if depth > _MAX_TRANSACTION_TREE_DEPTH:
+        raise _PublicBundleTransactionError("bundle_tree_depth_limit_exceeded")
+    tree_budget = budget if budget is not None else {"entries": 0, "bytes": 0}
+    try:
+        names = sorted(os.listdir(source_fd))
+    except OSError as exc:
+        raise _PublicBundleTransactionError("bundle_source_invalid") from exc
+    for name in names:
+        if not name or len(os.fsencode(name)) > 255:
+            raise _PublicBundleTransactionError("bundle_source_entry_name_invalid")
+        try:
+            expected = os.stat(name, dir_fd=source_fd, follow_symlinks=False)
+        except OSError as exc:
+            raise _PublicBundleTransactionError("bundle_source_entry_invalid") from exc
+        if stat.S_ISLNK(expected.st_mode):
+            raise _PublicBundleTransactionError("bundle_source_symlink_forbidden")
+        if stat.S_ISREG(expected.st_mode):
+            if expected.st_size > _MAX_TRANSACTION_FILE_BYTES:
+                raise _PublicBundleTransactionError(
+                    "bundle_source_file_size_limit_exceeded"
+                )
+            _consume_transaction_tree_budget(
+                tree_budget,
+                size_bytes=expected.st_size,
+            )
+            _copy_regular_file_between_directories(
+                name,
+                source_fd=source_fd,
+                target_fd=target_fd,
+                expected=expected,
+            )
+            continue
+        if not stat.S_ISDIR(expected.st_mode):
+            raise _PublicBundleTransactionError("bundle_source_special_entry_forbidden")
+        _consume_transaction_tree_budget(tree_budget, size_bytes=0)
+        try:
+            os.mkdir(name, 0o700, dir_fd=target_fd)
+        except OSError as exc:
+            raise _PublicBundleTransactionError("bundle_stage_copy_failed") from exc
+        source_child = _open_public_bundle_directory(
+            name,
+            parent_fd=source_fd,
+            failure="bundle_source_entry_changed",
+        )
+        target_child = _open_public_bundle_directory(
+            name,
+            parent_fd=target_fd,
+            failure="bundle_stage_copy_failed",
+        )
+        try:
+            os.fchmod(target_child, stat.S_IMODE(expected.st_mode))
+            _clone_public_tree(
+                source_child,
+                target_child,
+                depth=depth + 1,
+                budget=tree_budget,
+            )
+            os.fsync(target_child)
+        finally:
+            os.close(target_child)
+            os.close(source_child)
+
+
+def _update_public_tree_fingerprint(
+    directory_fd: int,
+    digest: Any,
+    *,
+    prefix: str = "",
+    depth: int = 0,
+    budget: dict[str, int] | None = None,
+) -> None:
+    if depth > _MAX_TRANSACTION_TREE_DEPTH:
+        raise _PublicBundleTransactionError("bundle_tree_depth_limit_exceeded")
+    tree_budget = budget if budget is not None else {"entries": 0, "bytes": 0}
+    try:
+        opened_directory = os.fstat(directory_fd)
+        if not stat.S_ISDIR(opened_directory.st_mode):
+            raise _PublicBundleTransactionError("bundle_tree_fingerprint_failed")
+        names = sorted(os.listdir(directory_fd))
+    except OSError as exc:
+        raise _PublicBundleTransactionError("bundle_tree_fingerprint_failed") from exc
+    for name in names:
+        encoded_name = os.fsencode(name)
+        if not name or len(encoded_name) > 255:
+            raise _PublicBundleTransactionError("bundle_tree_entry_name_invalid")
+        relpath = f"{prefix}/{name}" if prefix else name
+        encoded_relpath = os.fsencode(relpath)
+        try:
+            expected = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+        except OSError as exc:
+            raise _PublicBundleTransactionError("bundle_tree_fingerprint_failed") from exc
+        if stat.S_ISLNK(expected.st_mode):
+            raise _PublicBundleTransactionError("bundle_tree_symlink_forbidden")
+        if stat.S_ISDIR(expected.st_mode):
+            _consume_transaction_tree_budget(tree_budget, size_bytes=0)
+            digest.update(b"D\0")
+            digest.update(len(encoded_relpath).to_bytes(4, "big"))
+            digest.update(encoded_relpath)
+            digest.update(stat.S_IMODE(expected.st_mode).to_bytes(2, "big"))
+            child_fd = _open_public_bundle_directory(
+                name,
+                parent_fd=directory_fd,
+                failure="bundle_tree_entry_changed",
+            )
+            try:
+                _update_public_tree_fingerprint(
+                    child_fd,
+                    digest,
+                    prefix=relpath,
+                    depth=depth + 1,
+                    budget=tree_budget,
+                )
+            finally:
+                os.close(child_fd)
+            try:
+                final_entry = os.stat(
+                    name,
+                    dir_fd=directory_fd,
+                    follow_symlinks=False,
+                )
+            except OSError as exc:
+                raise _PublicBundleTransactionError(
+                    "bundle_tree_entry_changed"
+                ) from exc
+            if (
+                final_entry.st_dev != expected.st_dev
+                or final_entry.st_ino != expected.st_ino
+                or stat.S_IMODE(final_entry.st_mode)
+                != stat.S_IMODE(expected.st_mode)
+            ):
+                raise _PublicBundleTransactionError("bundle_tree_entry_changed")
+            continue
+        if not stat.S_ISREG(expected.st_mode):
+            raise _PublicBundleTransactionError("bundle_tree_special_entry_forbidden")
+        if expected.st_size > _MAX_TRANSACTION_FILE_BYTES:
+            raise _PublicBundleTransactionError("bundle_tree_file_size_limit_exceeded")
+        _consume_transaction_tree_budget(tree_budget, size_bytes=expected.st_size)
+        digest.update(b"F\0")
+        digest.update(len(encoded_relpath).to_bytes(4, "big"))
+        digest.update(encoded_relpath)
+        digest.update(stat.S_IMODE(expected.st_mode).to_bytes(2, "big"))
+        digest.update(int(expected.st_size).to_bytes(8, "big"))
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        try:
+            asset_fd = os.open(name, flags, dir_fd=directory_fd)
+            opened = os.fstat(asset_fd)
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or opened.st_dev != expected.st_dev
+                or opened.st_ino != expected.st_ino
+                or opened.st_size != expected.st_size
+            ):
+                raise _PublicBundleTransactionError("bundle_tree_entry_changed")
+            while True:
+                chunk = os.read(asset_fd, 1024 * 1024)
+                if not chunk:
+                    break
+                digest.update(chunk)
+            final = os.fstat(asset_fd)
+            if (
+                final.st_size != opened.st_size
+                or final.st_mtime_ns != opened.st_mtime_ns
+                or final.st_ctime_ns != opened.st_ctime_ns
+            ):
+                raise _PublicBundleTransactionError("bundle_tree_entry_changed")
+            final_entry = os.stat(
+                name,
+                dir_fd=directory_fd,
+                follow_symlinks=False,
+            )
+            if (
+                final_entry.st_dev != expected.st_dev
+                or final_entry.st_ino != expected.st_ino
+                or stat.S_IMODE(final_entry.st_mode)
+                != stat.S_IMODE(expected.st_mode)
+            ):
+                raise _PublicBundleTransactionError("bundle_tree_entry_changed")
+        except _PublicBundleTransactionError:
+            raise
+        except OSError as exc:
+            raise _PublicBundleTransactionError("bundle_tree_fingerprint_failed") from exc
+        finally:
+            if "asset_fd" in locals():
+                os.close(asset_fd)
+                del asset_fd
+    try:
+        final_names = sorted(os.listdir(directory_fd))
+        final_directory = os.fstat(directory_fd)
+    except OSError as exc:
+        raise _PublicBundleTransactionError("bundle_tree_fingerprint_failed") from exc
+    if (
+        final_names != names
+        or final_directory.st_dev != opened_directory.st_dev
+        or final_directory.st_ino != opened_directory.st_ino
+        or final_directory.st_mtime_ns != opened_directory.st_mtime_ns
+        or final_directory.st_ctime_ns != opened_directory.st_ctime_ns
+        or stat.S_IMODE(final_directory.st_mode)
+        != stat.S_IMODE(opened_directory.st_mode)
+    ):
+        raise _PublicBundleTransactionError("bundle_tree_changed_during_fingerprint")
+
+
+def _public_tree_fingerprint(directory_fd: int) -> str:
+    digest = hashlib.sha256()
+    _update_public_tree_fingerprint(directory_fd, digest)
+    return digest.hexdigest()
+
+
+def _sync_and_validate_bundle_tree(directory_fd: int) -> None:
+    try:
+        names = sorted(os.listdir(directory_fd))
+    except OSError as exc:
+        raise _PublicBundleTransactionError("bundle_stage_invalid") from exc
+    for name in names:
+        try:
+            expected = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+        except OSError as exc:
+            raise _PublicBundleTransactionError("bundle_stage_entry_invalid") from exc
+        if stat.S_ISLNK(expected.st_mode):
+            raise _PublicBundleTransactionError("bundle_stage_symlink_forbidden")
+        if stat.S_ISDIR(expected.st_mode):
+            child_fd = _open_public_bundle_directory(
+                name,
+                parent_fd=directory_fd,
+                failure="bundle_stage_entry_invalid",
+            )
+            try:
+                _sync_and_validate_bundle_tree(child_fd)
+            finally:
+                os.close(child_fd)
+            continue
+        if not stat.S_ISREG(expected.st_mode):
+            raise _PublicBundleTransactionError("bundle_stage_special_entry_forbidden")
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        try:
+            asset_fd = os.open(name, flags, dir_fd=directory_fd)
+            observed = os.fstat(asset_fd)
+            if (
+                not stat.S_ISREG(observed.st_mode)
+                or observed.st_dev != expected.st_dev
+                or observed.st_ino != expected.st_ino
+            ):
+                raise _PublicBundleTransactionError("bundle_stage_entry_changed")
+            os.fsync(asset_fd)
+        except _PublicBundleTransactionError:
+            raise
+        except OSError as exc:
+            raise _PublicBundleTransactionError("bundle_stage_entry_invalid") from exc
+        finally:
+            if "asset_fd" in locals():
+                os.close(asset_fd)
+                del asset_fd
+    os.fsync(directory_fd)
+
+
+def _open_regular_public_entry(
+    directory_fd: int,
+    name: str,
+    *,
+    failure: str,
+) -> int:
+    try:
+        expected = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+        descriptor = os.open(
+            name,
+            os.O_RDONLY
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+            dir_fd=directory_fd,
+        )
+        observed = os.fstat(descriptor)
+    except OSError as exc:
+        raise _PublicBundleTransactionError(failure) from exc
+    if (
+        not stat.S_ISREG(expected.st_mode)
+        or not stat.S_ISREG(observed.st_mode)
+        or expected.st_dev != observed.st_dev
+        or expected.st_ino != observed.st_ino
+    ):
+        os.close(descriptor)
+        raise _PublicBundleTransactionError(failure)
+    return descriptor
+
+
+def _open_public_directory_path(directory_fd: int, relpath: str) -> int:
+    normalized = PurePosixPath(str(relpath or ""))
+    parts = normalized.parts
+    if (
+        normalized.is_absolute()
+        or not parts
+        or any(part in {"", ".", ".."} for part in parts)
+    ):
+        raise _PublicBundleTransactionError("bundle_reconstruction_invalid")
+    current_fd = os.dup(directory_fd)
+    for part in parts:
+        try:
+            child_fd = _open_public_bundle_directory(
+                part,
+                parent_fd=current_fd,
+                failure="bundle_reconstruction_invalid",
+            )
+        except Exception:
+            os.close(current_fd)
+            raise
+        os.close(current_fd)
+        current_fd = child_fd
+    return current_fd
+
+
+def _normalize_public_subtree(directory_fd: int) -> None:
+    try:
+        os.fchmod(directory_fd, 0o755)
+        names = sorted(os.listdir(directory_fd))
+    except OSError as exc:
+        raise _PublicBundleTransactionError("public_generation_tree_invalid") from exc
+    for name in names:
+        try:
+            metadata = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+        except OSError as exc:
+            raise _PublicBundleTransactionError("public_generation_entry_invalid") from exc
+        if stat.S_ISDIR(metadata.st_mode):
+            child_fd = _open_public_bundle_directory(
+                name,
+                parent_fd=directory_fd,
+                failure="public_generation_entry_invalid",
+            )
+            try:
+                _normalize_public_subtree(child_fd)
+            finally:
+                os.close(child_fd)
+            continue
+        if not stat.S_ISREG(metadata.st_mode):
+            raise _PublicBundleTransactionError("public_generation_entry_invalid")
+        asset_fd = _open_regular_public_entry(
+            directory_fd,
+            name,
+            failure="public_generation_entry_invalid",
+        )
+        try:
+            os.fchmod(asset_fd, 0o644)
+            os.fsync(asset_fd)
+        finally:
+            os.close(asset_fd)
+    os.fsync(directory_fd)
+
+
+def _normalize_public_generation_surface(
+    bundle_fd: int,
+    *,
+    reconstruction_subdir: str,
+) -> None:
+    try:
+        os.fchmod(bundle_fd, 0o755)
+    except OSError as exc:
+        raise _PublicBundleTransactionError("bundle_stage_invalid") from exc
+    manifest_fd = _open_regular_public_entry(
+        bundle_fd,
+        "tour.json",
+        failure="bundle_manifest_invalid",
+    )
+    try:
+        os.fchmod(manifest_fd, 0o644)
+        os.fsync(manifest_fd)
+    finally:
+        os.close(manifest_fd)
+    reconstruction_fd = _open_public_directory_path(
+        bundle_fd,
+        reconstruction_subdir,
+    )
+    try:
+        _normalize_public_subtree(reconstruction_fd)
+    finally:
+        os.close(reconstruction_fd)
+    for preview_name in ("diorama-preview.png", "telegram-preview.png"):
+        try:
+            preview_fd = _open_regular_public_entry(
+                bundle_fd,
+                preview_name,
+                failure="bundle_preview_invalid",
+            )
+        except _PublicBundleTransactionError:
+            try:
+                os.stat(preview_name, dir_fd=bundle_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                continue
+            except OSError as exc:
+                raise _PublicBundleTransactionError(
+                    "bundle_preview_invalid"
+                ) from exc
+            raise
+        try:
+            os.fchmod(preview_fd, 0o644)
+            os.fsync(preview_fd)
+        finally:
+            os.close(preview_fd)
+    os.fsync(bundle_fd)
+
+
+def _read_bounded_json_object(
+    descriptor: int,
+    *,
+    failure: str,
+    maximum_bytes: int = 8 * 1024 * 1024,
+) -> dict[str, object]:
+    try:
+        metadata = os.fstat(descriptor)
+        if metadata.st_size < 2 or metadata.st_size > maximum_bytes:
+            raise _PublicBundleTransactionError(failure)
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        payload = bytearray()
+        while len(payload) <= maximum_bytes:
+            chunk = os.read(descriptor, min(1024 * 1024, maximum_bytes + 1 - len(payload)))
+            if not chunk:
+                break
+            payload.extend(chunk)
+        if len(payload) > maximum_bytes:
+            raise _PublicBundleTransactionError(failure)
+        final_metadata = os.fstat(descriptor)
+        if (
+            final_metadata.st_dev != metadata.st_dev
+            or final_metadata.st_ino != metadata.st_ino
+            or final_metadata.st_size != metadata.st_size
+            or final_metadata.st_mtime_ns != metadata.st_mtime_ns
+            or final_metadata.st_ctime_ns != metadata.st_ctime_ns
+        ):
+            raise _PublicBundleTransactionError(failure)
+        decoded = json.loads(bytes(payload).decode("utf-8"))
+    except _PublicBundleTransactionError:
+        raise
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        raise _PublicBundleTransactionError(failure) from exc
+    if not isinstance(decoded, dict):
+        raise _PublicBundleTransactionError(failure)
+    return decoded
+
+
+def _write_transaction_stage_owner_marker(
+    stage_fd: int,
+    *,
+    stage_name: str,
+) -> None:
+    opened_stage = os.fstat(stage_fd)
+    payload = (
+        json.dumps(
+            {
+                "schema": "propertyquarry.transaction_stage_owner.v1",
+                "stage_name": stage_name,
+                "stage_dev": int(opened_stage.st_dev),
+                "stage_ino": int(opened_stage.st_ino),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        + b"\n"
+    )
+    descriptor = -1
+    try:
+        descriptor = os.open(
+            _PUBLIC_BUNDLE_STAGE_OWNER_MARKER,
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+            dir_fd=stage_fd,
+        )
+        offset = 0
+        while offset < len(payload):
+            written = os.write(descriptor, payload[offset:])
+            if written <= 0:
+                raise OSError("stage_owner_marker_short_write")
+            offset += written
+        os.fsync(descriptor)
+        os.fsync(stage_fd)
+    except OSError as exc:
+        raise _PublicBundleTransactionError("bundle_stage_owner_marker_failed") from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+def _transaction_stage_owner_marker_matches(
+    stage_fd: int,
+    *,
+    stage_name: str,
+) -> bool:
+    marker_fd = -1
+    try:
+        marker_fd = _open_regular_public_entry(
+            stage_fd,
+            _PUBLIC_BUNDLE_STAGE_OWNER_MARKER,
+            failure="bundle_stage_owner_marker_invalid",
+        )
+        marker = _read_bounded_json_object(
+            marker_fd,
+            failure="bundle_stage_owner_marker_invalid",
+            maximum_bytes=4_096,
+        )
+        opened_stage = os.fstat(stage_fd)
+    except (OSError, _PublicBundleTransactionError):
+        return False
+    finally:
+        if marker_fd >= 0:
+            os.close(marker_fd)
+    return marker == {
+        "schema": "propertyquarry.transaction_stage_owner.v1",
+        "stage_name": stage_name,
+        "stage_dev": int(opened_stage.st_dev),
+        "stage_ino": int(opened_stage.st_ino),
+    }
+
+
+def _disarm_transaction_stage_reaper(
+    stage_fd: int,
+    *,
+    stage_name: str,
+) -> None:
+    if not _transaction_stage_owner_marker_matches(
+        stage_fd,
+        stage_name=stage_name,
+    ):
+        raise _PublicBundleTransactionError("bundle_stage_owner_marker_invalid")
+    try:
+        os.unlink(_PUBLIC_BUNDLE_STAGE_OWNER_MARKER, dir_fd=stage_fd)
+        os.fsync(stage_fd)
+    except OSError as exc:
+        raise _PublicBundleTransactionError("bundle_stage_owner_marker_failed") from exc
+
+
+def _require_regular_generated_asset(
+    reconstruction_fd: int,
+    name: str,
+) -> None:
+    descriptor = _open_regular_public_entry(
+        reconstruction_fd,
+        name,
+        failure="candidate_generated_asset_invalid",
+    )
+    os.close(descriptor)
+
+
+def _validate_candidate_generation_manifest(
+    bundle_fd: int,
+    *,
+    slug: str,
+    reconstruction_subdir: str,
+    require_walkthrough: bool,
+) -> None:
+    manifest_fd = _open_regular_public_entry(
+        bundle_fd,
+        "tour.json",
+        failure="candidate_manifest_invalid",
+    )
+    try:
+        manifest = _read_bounded_json_object(
+            manifest_fd,
+            failure="candidate_manifest_invalid",
+        )
+    finally:
+        os.close(manifest_fd)
+    if str(manifest.get("slug") or "").strip() != slug:
+        raise _PublicBundleTransactionError("candidate_manifest_slug_mismatch")
+    generated = manifest.get("generated_reconstruction")
+    if not isinstance(generated, dict) or str(generated.get("provider") or "") != (
+        "propertyquarry_generated_reconstruction"
+    ):
+        raise _PublicBundleTransactionError("candidate_manifest_generation_invalid")
+    base = PurePosixPath(reconstruction_subdir).as_posix()
+    required_relpaths = {
+        "viewer_relpath": f"{base}/viewer.html",
+        "model_relpath": f"{base}/model.obj",
+        "material_relpath": f"{base}/model.mtl",
+        "manifest_relpath": f"{base}/reconstruction.json",
+        "glb_model_relpath": f"{base}/model.glb",
+    }
+    if require_walkthrough:
+        required_relpaths["walkthrough_video_relpath"] = (
+            f"{base}/generated-walkthrough.mp4"
+        )
+    for key, expected in required_relpaths.items():
+        if str(generated.get(key) or "").strip() != expected:
+            raise _PublicBundleTransactionError(
+                "candidate_manifest_generated_relpath_invalid"
+            )
+    reconstruction_fd = _open_public_directory_path(bundle_fd, base)
+    try:
+        for name in (
+            "viewer.html",
+            "model.obj",
+            "model.mtl",
+            "reconstruction.json",
+            "model.glb",
+        ):
+            _require_regular_generated_asset(reconstruction_fd, name)
+        if require_walkthrough:
+            _require_regular_generated_asset(
+                reconstruction_fd,
+                "generated-walkthrough.mp4",
+            )
+        receipt_fd = _open_regular_public_entry(
+            reconstruction_fd,
+            "reconstruction.json",
+            failure="candidate_reconstruction_receipt_invalid",
+        )
+        try:
+            receipt = _read_bounded_json_object(
+                receipt_fd,
+                failure="candidate_reconstruction_receipt_invalid",
+            )
+        finally:
+            os.close(receipt_fd)
+        if str(receipt.get("slug") or "").strip() != slug:
+            raise _PublicBundleTransactionError(
+                "candidate_reconstruction_receipt_slug_mismatch"
+            )
+    finally:
+        os.close(reconstruction_fd)
+    if require_walkthrough and str(manifest.get("video_relpath") or "").strip() != (
+        f"{base}/generated-walkthrough.mp4"
+    ):
+        raise _PublicBundleTransactionError("candidate_manifest_video_invalid")
+
+
+def _exchange_public_bundle_directories(
+    *,
+    root_fd: int,
+    stage_name: str,
+    slug: str,
+) -> None:
+    try:
+        renameat2 = ctypes.CDLL(None, use_errno=True).renameat2
+    except (AttributeError, OSError) as exc:
+        raise _PublicBundleTransactionError("atomic_bundle_exchange_unavailable") from exc
+    renameat2.argtypes = (
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    )
+    renameat2.restype = ctypes.c_int
+    result = renameat2(
+        root_fd,
+        os.fsencode(stage_name),
+        root_fd,
+        os.fsencode(slug),
+        _RENAME_EXCHANGE,
+    )
+    if result != 0:
+        raise _PublicBundleTransactionError("atomic_bundle_exchange_failed")
+
+
+def _rename_public_bundle_directory_noreplace(
+    *,
+    root_fd: int,
+    source_name: str,
+    destination_name: str,
+) -> None:
+    try:
+        renameat2 = ctypes.CDLL(None, use_errno=True).renameat2
+    except (AttributeError, OSError) as exc:
+        raise _PublicBundleTransactionError("bundle_quarantine_unavailable") from exc
+    renameat2.argtypes = (
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    )
+    renameat2.restype = ctypes.c_int
+    result = renameat2(
+        root_fd,
+        os.fsencode(source_name),
+        root_fd,
+        os.fsencode(destination_name),
+        _RENAME_NOREPLACE,
+    )
+    if result != 0:
+        raise _PublicBundleTransactionError("bundle_quarantine_failed")
+
+
+def _remove_tree_contents(directory_fd: int) -> None:
+    try:
+        os.fchmod(directory_fd, 0o700)
+        names = sorted(os.listdir(directory_fd))
+    except OSError as exc:
+        raise _PublicBundleTransactionError("bundle_stage_cleanup_failed") from exc
+    for name in names:
+        try:
+            metadata = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+        except OSError as exc:
+            raise _PublicBundleTransactionError("bundle_stage_cleanup_failed") from exc
+        if stat.S_ISDIR(metadata.st_mode):
+            child_fd = _open_public_bundle_directory(
+                name,
+                parent_fd=directory_fd,
+                failure="bundle_stage_cleanup_failed",
+            )
+            try:
+                _remove_tree_contents(child_fd)
+            finally:
+                os.close(child_fd)
+            try:
+                os.rmdir(name, dir_fd=directory_fd)
+            except OSError as exc:
+                raise _PublicBundleTransactionError(
+                    "bundle_stage_cleanup_failed"
+                ) from exc
+            continue
+        try:
+            os.unlink(name, dir_fd=directory_fd)
+        except OSError as exc:
+            raise _PublicBundleTransactionError("bundle_stage_cleanup_failed") from exc
+    os.fsync(directory_fd)
+
+
+def _remove_transaction_stage(
+    root_fd: int,
+    stage_name: str,
+    *,
+    expected_identity: tuple[int, int] | None = None,
+) -> None:
+    if not stage_name.startswith(_PUBLIC_BUNDLE_STAGE_PREFIX):
+        raise _PublicBundleTransactionError("bundle_stage_name_invalid")
+    try:
+        stage_fd = _open_public_bundle_directory(
+            stage_name,
+            parent_fd=root_fd,
+            failure="bundle_stage_cleanup_failed",
+        )
+    except _PublicBundleTransactionError:
+        if expected_identity is None:
+            try:
+                os.stat(stage_name, dir_fd=root_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                return
+            except OSError:
+                pass
+        raise
+    try:
+        opened_stage = os.fstat(stage_fd)
+        opened_identity = (int(opened_stage.st_dev), int(opened_stage.st_ino))
+        if expected_identity is not None and opened_identity != expected_identity:
+            raise _PublicBundleTransactionError("bundle_stage_cleanup_refused")
+        if not _directory_path_identity_matches(
+            parent_fd=root_fd,
+            name=stage_name,
+            expected=opened_stage,
+        ):
+            raise _PublicBundleTransactionError("bundle_stage_cleanup_refused")
+        _remove_tree_contents(stage_fd)
+        if not _directory_path_identity_matches(
+            parent_fd=root_fd,
+            name=stage_name,
+            expected=opened_stage,
+        ):
+            raise _PublicBundleTransactionError("bundle_stage_cleanup_refused")
+        os.rmdir(stage_name, dir_fd=root_fd)
+        os.fsync(root_fd)
+    except _PublicBundleTransactionError:
+        raise
+    except OSError as exc:
+        raise _PublicBundleTransactionError("bundle_stage_cleanup_failed") from exc
+    finally:
+        os.close(stage_fd)
+
+
+def _reap_orphaned_transaction_stages(root_fd: int) -> None:
+    try:
+        names = sorted(os.listdir(root_fd))
+    except OSError as exc:
+        raise _PublicBundleTransactionError("bundle_stage_reaper_failed") from exc
+    for name in names:
+        if not name.startswith(_PUBLIC_BUNDLE_STAGE_PREFIX):
+            continue
+        try:
+            stage_fd = _open_public_bundle_directory(
+                name,
+                parent_fd=root_fd,
+                failure="bundle_stage_reaper_entry_invalid",
+            )
+        except _PublicBundleTransactionError:
+            continue
+        try:
+            opened_stage = os.fstat(stage_fd)
+            cleanup_allowed = _transaction_stage_owner_marker_matches(
+                stage_fd,
+                stage_name=name,
+            )
+        finally:
+            os.close(stage_fd)
+        if not cleanup_allowed:
+            continue
+        _remove_transaction_stage(
+            root_fd,
+            name,
+            expected_identity=(
+                int(opened_stage.st_dev),
+                int(opened_stage.st_ino),
+            ),
+        )
+
+
+@contextmanager
+def _staged_public_bundle(root: Path, slug: str) -> Iterator[_PublicBundleTransaction]:
+    directory_flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    try:
+        root_fd = os.open(root, directory_flags)
+    except OSError as exc:
+        raise _PublicBundleTransactionError("public_tour_root_invalid") from exc
+    stage_name = f"{_PUBLIC_BUNDLE_STAGE_PREFIX}{secrets.token_hex(16)}"
+    stage_created = False
+    stage_identity: tuple[int, int] | None = None
+    retained_stage_fd = -1
+    transaction: _PublicBundleTransaction | None = None
+    try:
+        fcntl.flock(root_fd, fcntl.LOCK_EX)
+        _reap_orphaned_transaction_stages(root_fd)
+        source_fd = _open_public_bundle_directory(
+            slug,
+            parent_fd=root_fd,
+            failure="tour_bundle_invalid",
+        )
+        try:
+            os.mkdir(stage_name, 0o700, dir_fd=root_fd)
+            stage_created = True
+            stage_fd = _open_public_bundle_directory(
+                stage_name,
+                parent_fd=root_fd,
+                failure="bundle_stage_invalid",
+            )
+            try:
+                created_stage = os.fstat(stage_fd)
+                stage_identity = (
+                    int(created_stage.st_dev),
+                    int(created_stage.st_ino),
+                )
+                _clone_public_tree(source_fd, stage_fd)
+                os.fsync(stage_fd)
+                staged_fingerprint = _public_tree_fingerprint(stage_fd)
+                source_fingerprint = _public_tree_fingerprint(source_fd)
+                if staged_fingerprint != source_fingerprint:
+                    raise _PublicBundleTransactionError(
+                        "bundle_source_changed_during_snapshot"
+                    )
+                _write_transaction_stage_owner_marker(
+                    stage_fd,
+                    stage_name=stage_name,
+                )
+                retained_stage_fd = os.dup(stage_fd)
+            finally:
+                os.close(stage_fd)
+        finally:
+            os.close(source_fd)
+        if stage_identity is None:
+            raise _PublicBundleTransactionError("bundle_stage_identity_unavailable")
+        transaction = _PublicBundleTransaction(
+            root=root,
+            root_fd=root_fd,
+            slug=slug,
+            stage_name=stage_name,
+            source_fingerprint=source_fingerprint,
+            stage_identity=stage_identity,
+            stage_fd=retained_stage_fd,
+        )
+        retained_stage_fd = -1
+        yield transaction
+    finally:
+        try:
+            if stage_created and stage_identity is not None and not (
+                transaction is not None and transaction.preserve_stage_on_failure
+            ):
+                if transaction is not None and transaction.published:
+                    if transaction.cleanup_status == "not_started":
+                        transaction.cleanup_replaced_bundle()
+                else:
+                    _remove_transaction_stage(
+                        root_fd,
+                        stage_name,
+                        expected_identity=stage_identity,
+                    )
+            elif transaction is not None and transaction.preserve_stage_on_failure:
+                transaction.quarantine_preserved_stage()
+        finally:
+            if transaction is not None:
+                if transaction.input_snapshot_fd >= 0:
+                    os.close(transaction.input_snapshot_fd)
+                    transaction.input_snapshot_fd = -1
+                os.close(transaction.stage_fd)
+            elif retained_stage_fd >= 0:
+                os.close(retained_stage_fd)
+            fcntl.flock(root_fd, fcntl.LOCK_UN)
+            os.close(root_fd)
+
+
+def _copy_generation_input_snapshot(
+    source: Path,
+    *,
+    transaction: _PublicBundleTransaction,
+    target_fd: int,
+    target_name: str,
+    budget: dict[str, int],
+) -> None:
+    target_flags = (
+        os.O_WRONLY
+        | os.O_CREAT
+        | os.O_EXCL
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    source_fd = -1
+    destination_fd = -1
+    try:
+        source_fd = _open_generation_source_descriptor(
+            source,
+            transaction=transaction,
+        )
+        observed = os.fstat(source_fd)
+        if not stat.S_ISREG(observed.st_mode):
+            raise _PublicBundleTransactionError("generation_source_invalid")
+        if observed.st_size > min(
+            _MAX_TRANSACTION_FILE_BYTES,
+            _MAX_SOURCE_IMAGE_COMPRESSED_BYTES,
+        ):
+            raise _PublicBundleTransactionError(
+                "generation_source_file_size_limit_exceeded"
+            )
+        if int(budget.get("bytes") or 0) + observed.st_size > (
+            _generation_source_total_limit_bytes()
+        ):
+            raise _PublicBundleTransactionError(
+                "generation_source_total_size_limit_exceeded"
+            )
+        _consume_transaction_tree_budget(budget, size_bytes=observed.st_size)
+        destination_fd = os.open(
+            target_name,
+            target_flags,
+            0o600,
+            dir_fd=target_fd,
+        )
+        while True:
+            chunk = os.read(source_fd, 1024 * 1024)
+            if not chunk:
+                break
+            offset = 0
+            while offset < len(chunk):
+                written = os.write(destination_fd, chunk[offset:])
+                if written <= 0:
+                    raise _PublicBundleTransactionError(
+                        "generation_source_snapshot_failed"
+                    )
+                offset += written
+        final_source = os.fstat(source_fd)
+        if (
+            final_source.st_size != observed.st_size
+            or final_source.st_mtime_ns != observed.st_mtime_ns
+            or final_source.st_ctime_ns != observed.st_ctime_ns
+        ):
+            raise _PublicBundleTransactionError(
+                "generation_source_changed_during_snapshot"
+            )
+        os.fsync(destination_fd)
+    except _PublicBundleTransactionError:
+        raise
+    except (OSError, ValueError) as exc:
+        raise _PublicBundleTransactionError("generation_source_snapshot_failed") from exc
+    finally:
+        if destination_fd >= 0:
+            os.close(destination_fd)
+        if source_fd >= 0:
+            os.close(source_fd)
+
+
+def _generation_source_total_limit_bytes() -> int:
+    raw = str(
+        os.getenv("PROPERTYQUARRY_RECONSTRUCTION_MAX_SOURCE_BYTES")
+        or str(1024 * 1024 * 1024)
+    ).strip()
+    try:
+        parsed = int(raw)
+    except ValueError as exc:
+        raise _PublicBundleTransactionError(
+            "generation_source_limit_invalid"
+        ) from exc
+    if parsed <= 0 or parsed > _MAX_TRANSACTION_TREE_BYTES:
+        raise _PublicBundleTransactionError("generation_source_limit_invalid")
+    return parsed
+
+
+def _open_relative_regular_file_no_symlinks(
+    anchor_fd: int,
+    parts: tuple[str, ...],
+    *,
+    failure: str,
+) -> int:
+    if not parts or any(part in {"", ".", ".."} for part in parts):
+        raise _PublicBundleTransactionError(failure)
+    directory_flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    file_flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    current_fd = -1
+    try:
+        current_fd = os.dup(anchor_fd)
+        for part in parts[:-1]:
+            next_fd = os.open(part, directory_flags, dir_fd=current_fd)
+            opened = os.fstat(next_fd)
+            if not stat.S_ISDIR(opened.st_mode):
+                os.close(next_fd)
+                raise _PublicBundleTransactionError(failure)
+            os.close(current_fd)
+            current_fd = next_fd
+        source_fd = os.open(parts[-1], file_flags, dir_fd=current_fd)
+        if not stat.S_ISREG(os.fstat(source_fd).st_mode):
+            os.close(source_fd)
+            raise _PublicBundleTransactionError(failure)
+        return source_fd
+    except _PublicBundleTransactionError:
+        raise
+    except OSError as exc:
+        raise _PublicBundleTransactionError(failure) from exc
+    finally:
+        if current_fd >= 0:
+            os.close(current_fd)
+
+
+def _open_absolute_regular_file_no_symlinks(
+    path: Path,
+    *,
+    failure: str,
+) -> int:
+    absolute = Path(os.path.abspath(os.fspath(path)))
+    absolute_parts = absolute.parts
+    if (
+        len(absolute_parts) >= 6
+        and absolute_parts[:4] == ("/", "proc", "self", "fd")
+        and absolute_parts[4].isdigit()
+    ):
+        anchor_fd = int(absolute_parts[4])
+        try:
+            if not stat.S_ISDIR(os.fstat(anchor_fd).st_mode):
+                raise _PublicBundleTransactionError(failure)
+        except OSError as exc:
+            raise _PublicBundleTransactionError(failure) from exc
+        return _open_relative_regular_file_no_symlinks(
+            anchor_fd,
+            absolute_parts[5:],
+            failure=failure,
+        )
+    root_fd = -1
+    try:
+        root_fd = os.open(
+            "/",
+            os.O_RDONLY
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_DIRECTORY", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+        )
+        return _open_relative_regular_file_no_symlinks(
+            root_fd,
+            absolute.parts[1:],
+            failure=failure,
+        )
+    except _PublicBundleTransactionError:
+        raise
+    except OSError as exc:
+        raise _PublicBundleTransactionError(failure) from exc
+    finally:
+        if root_fd >= 0:
+            os.close(root_fd)
+
+
+def _open_generation_source_descriptor(
+    source: Path,
+    *,
+    transaction: _PublicBundleTransaction,
+) -> int:
+    # Do not resolve through the pathname: each ancestor is opened relative to
+    # an already-pinned directory with O_NOFOLLOW. Shared-volume sources use
+    # the transaction's public-root descriptor; local CLI sources use a pinned
+    # filesystem root and the same component walk.
+    absolute_source = Path(os.path.abspath(os.fspath(source)))
+    absolute_root = Path(os.path.abspath(os.fspath(transaction.root)))
+    try:
+        relative = absolute_source.relative_to(absolute_root)
+    except ValueError:
+        return _open_absolute_regular_file_no_symlinks(
+            absolute_source,
+            failure="generation_source_invalid",
+        )
+    else:
+        return _open_relative_regular_file_no_symlinks(
+            transaction.root_fd,
+            relative.parts,
+            failure="generation_source_invalid",
+        )
+
+
+def _snapshot_generation_inputs(
+    args: argparse.Namespace,
+    transaction: _PublicBundleTransaction,
+) -> argparse.Namespace:
+    raw_floorplan = str(args.floorplan or "").strip()
+    raw_photos = [str(value or "").strip() for value in list(args.photo or [])]
+    source_rows: list[tuple[str, str]] = []
+    if raw_floorplan:
+        source_rows.append(("floorplan", raw_floorplan))
+    source_rows.extend(
+        (f"photo-{index:04d}", value)
+        for index, value in enumerate(raw_photos, start=1)
+        if value
+    )
+    if len(source_rows) > _MAX_TRANSACTION_INPUTS:
+        raise _PublicBundleTransactionError("generation_source_count_limit_exceeded")
+    if not source_rows:
+        return argparse.Namespace(**vars(args))
+    stage_fd = _open_public_bundle_directory(
+        transaction.stage_name,
+        parent_fd=transaction.root_fd,
+        failure="bundle_stage_invalid",
+    )
+    inputs_fd = -1
+    try:
+        try:
+            os.mkdir(_PUBLIC_BUNDLE_INPUT_DIR, 0o700, dir_fd=stage_fd)
+        except OSError as exc:
+            raise _PublicBundleTransactionError(
+                "generation_source_snapshot_directory_invalid"
+            ) from exc
+        inputs_fd = _open_public_bundle_directory(
+            _PUBLIC_BUNDLE_INPUT_DIR,
+            parent_fd=stage_fd,
+            failure="generation_source_snapshot_directory_invalid",
+        )
+        opened_inputs = os.fstat(inputs_fd)
+        transaction.input_snapshot_identity = (
+            int(opened_inputs.st_dev),
+            int(opened_inputs.st_ino),
+        )
+        if transaction.input_snapshot_fd >= 0:
+            os.close(transaction.input_snapshot_fd)
+        transaction.input_snapshot_fd = os.dup(inputs_fd)
+        budget = {"entries": 0, "bytes": 0}
+        snapshots: dict[str, str] = {}
+        photo_snapshots: list[str] = []
+        for label, raw_source in source_rows:
+            source = Path(raw_source).expanduser()
+            if not source.is_absolute():
+                source = Path.cwd() / source
+            suffix = source.suffix.lower()
+            if len(suffix) > 16 or not re.fullmatch(r"\.[a-z0-9]+", suffix):
+                suffix = ".bin"
+            target_name = f"{label}{suffix}"
+            _copy_generation_input_snapshot(
+                source,
+                transaction=transaction,
+                target_fd=inputs_fd,
+                target_name=target_name,
+                budget=budget,
+            )
+            snapshot_path = str(
+                Path(f"/proc/self/fd/{transaction.input_snapshot_fd}")
+                / target_name
+            )
+            if label == "floorplan":
+                snapshots["floorplan"] = snapshot_path
+            else:
+                photo_snapshots.append(snapshot_path)
+        os.fsync(inputs_fd)
+        os.fsync(stage_fd)
+    finally:
+        if inputs_fd >= 0:
+            os.close(inputs_fd)
+        os.close(stage_fd)
+    snapshot_args = argparse.Namespace(**vars(args))
+    snapshot_args.floorplan = snapshots.get("floorplan", "")
+    snapshot_args.photo = photo_snapshots
+    return snapshot_args
+
+
+def _remove_generation_input_snapshot(
+    transaction: _PublicBundleTransaction,
+) -> None:
+    stage_fd = -1
+    inputs_fd = -1
+    try:
+        stage_fd = os.dup(transaction.stage_fd)
+        opened_stage = os.fstat(stage_fd)
+        if transaction.stage_identity != (
+            int(opened_stage.st_dev),
+            int(opened_stage.st_ino),
+        ) or not _directory_path_identity_matches(
+            parent_fd=transaction.root_fd,
+            name=transaction.stage_name,
+            expected=opened_stage,
+        ):
+            raise _PublicBundleTransactionError(
+                "generation_source_snapshot_cleanup_refused"
+            )
+        if transaction.input_snapshot_fd < 0:
+            try:
+                os.stat(
+                    _PUBLIC_BUNDLE_INPUT_DIR,
+                    dir_fd=stage_fd,
+                    follow_symlinks=False,
+                )
+            except FileNotFoundError:
+                return
+            raise _PublicBundleTransactionError(
+                "generation_source_snapshot_cleanup_refused"
+            )
+        inputs_fd = os.dup(transaction.input_snapshot_fd)
+        opened_inputs = os.fstat(inputs_fd)
+        if transaction.input_snapshot_identity != (
+            int(opened_inputs.st_dev),
+            int(opened_inputs.st_ino),
+        ) or not _directory_path_identity_matches(
+            parent_fd=stage_fd,
+            name=_PUBLIC_BUNDLE_INPUT_DIR,
+            expected=opened_inputs,
+        ):
+            raise _PublicBundleTransactionError(
+                "generation_source_snapshot_cleanup_refused"
+            )
+        _remove_tree_contents(inputs_fd)
+        if not _directory_path_matches(
+            parent_fd=stage_fd,
+            name=_PUBLIC_BUNDLE_INPUT_DIR,
+            expected=opened_inputs,
+        ):
+            raise _PublicBundleTransactionError(
+                "generation_source_snapshot_cleanup_refused"
+            )
+        os.rmdir(_PUBLIC_BUNDLE_INPUT_DIR, dir_fd=stage_fd)
+        os.fsync(stage_fd)
+        transaction.input_snapshot_identity = None
+        os.close(transaction.input_snapshot_fd)
+        transaction.input_snapshot_fd = -1
+    except _PublicBundleTransactionError:
+        raise
+    except OSError as exc:
+        raise _PublicBundleTransactionError(
+            "generation_source_snapshot_cleanup_invalid"
+        ) from exc
+    finally:
+        if inputs_fd >= 0:
+            os.close(inputs_fd)
+        if stage_fd >= 0:
+            os.close(stage_fd)
 
 
 def _generated_reconstruction_disclosure(*, photo_count: int) -> str:
@@ -1220,6 +3002,201 @@ def _generated_reconstruction_floorplan_with_route(
     return floorplan
 
 
+def _write_public_png(image: Image.Image, output_path: Path) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    proc_parent = re.fullmatch(
+        r"/proc/self/fd/([0-9]+)",
+        os.fspath(output_path.parent),
+    )
+    ordinary_parent_was_valid = False
+    if proc_parent is None:
+        try:
+            ordinary_parent_was_valid = stat.S_ISDIR(
+                output_path.parent.stat(follow_symlinks=False).st_mode
+            )
+        except OSError:
+            ordinary_parent_was_valid = False
+        if not ordinary_parent_was_valid:
+            raise RuntimeError("public_preview_parent_invalid")
+    try:
+        directory_fd, parent_metadata = _open_directory_anchor(
+            output_path.parent
+        )
+    except OSError:
+        raise RuntimeError(
+            "public_preview_parent_changed"
+            if ordinary_parent_was_valid
+            else "public_preview_parent_invalid"
+        ) from None
+    temporary_fd = -1
+    temporary_name = ""
+    backup_name = ""
+    published_identity: tuple[int, int] | None = None
+    published_to_directory = False
+    committed = False
+    try:
+        opened_parent = os.fstat(directory_fd)
+        if (
+            opened_parent.st_dev != parent_metadata.st_dev
+            or opened_parent.st_ino != parent_metadata.st_ino
+            or not stat.S_ISDIR(opened_parent.st_mode)
+        ):
+            raise RuntimeError("public_preview_parent_changed")
+        temporary_name = (
+            f".{output_path.name}.{secrets.token_hex(16)}.tmp"
+        )
+        temporary_flags = (
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+        )
+        temporary_fd = os.open(
+            temporary_name,
+            temporary_flags,
+            0o600,
+            dir_fd=directory_fd,
+        )
+        with os.fdopen(temporary_fd, "wb") as handle:
+            temporary_fd = -1
+            try:
+                image.save(handle, format="PNG", optimize=True)
+            except (OSError, ValueError):
+                raise RuntimeError("public_preview_encode_failed") from None
+            handle.flush()
+            os.fchmod(handle.fileno(), 0o644)
+            os.fsync(handle.fileno())
+            temporary_metadata = os.fstat(handle.fileno())
+            published_identity = (
+                temporary_metadata.st_dev,
+                temporary_metadata.st_ino,
+            )
+        try:
+            existing = os.stat(
+                output_path.name,
+                dir_fd=directory_fd,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            existing = None
+        if existing is not None:
+            if not (
+                stat.S_ISREG(existing.st_mode)
+                or stat.S_ISLNK(existing.st_mode)
+            ):
+                raise RuntimeError("public_preview_existing_target_invalid")
+            backup_name = (
+                f".{output_path.name}.{secrets.token_hex(16)}.backup"
+            )
+            os.rename(
+                output_path.name,
+                backup_name,
+                src_dir_fd=directory_fd,
+                dst_dir_fd=directory_fd,
+            )
+        os.replace(
+            temporary_name,
+            output_path.name,
+            src_dir_fd=directory_fd,
+            dst_dir_fd=directory_fd,
+        )
+        temporary_name = ""
+        published_to_directory = True
+        published = os.stat(
+            output_path.name,
+            dir_fd=directory_fd,
+            follow_symlinks=False,
+        )
+        if (
+            not stat.S_ISREG(published.st_mode)
+            or stat.S_IMODE(published.st_mode) != 0o644
+            or published_identity != (published.st_dev, published.st_ino)
+        ):
+            raise RuntimeError("public_preview_publish_invalid")
+        os.fsync(directory_fd)
+        current_directory_fd = -1
+        try:
+            current_directory_fd, current_parent = _open_directory_anchor(
+                output_path.parent
+            )
+            current_target = os.stat(
+                output_path.name,
+                dir_fd=current_directory_fd,
+                follow_symlinks=False,
+            )
+            if (
+                current_parent.st_dev != opened_parent.st_dev
+                or current_parent.st_ino != opened_parent.st_ino
+                or published_identity
+                != (current_target.st_dev, current_target.st_ino)
+            ):
+                raise RuntimeError("public_preview_parent_changed")
+        except OSError:
+            raise RuntimeError("public_preview_parent_changed") from None
+        finally:
+            if current_directory_fd >= 0:
+                os.close(current_directory_fd)
+        if backup_name:
+            os.unlink(backup_name, dir_fd=directory_fd)
+            backup_name = ""
+            os.fsync(directory_fd)
+        committed = True
+    finally:
+        if temporary_fd >= 0:
+            os.close(temporary_fd)
+        if temporary_name:
+            try:
+                os.unlink(temporary_name, dir_fd=directory_fd)
+            except FileNotFoundError:
+                pass
+        if published_to_directory and not committed:
+            try:
+                current = os.stat(
+                    output_path.name,
+                    dir_fd=directory_fd,
+                    follow_symlinks=False,
+                )
+            except FileNotFoundError:
+                current = None
+            if (
+                current is not None
+                and published_identity == (current.st_dev, current.st_ino)
+            ):
+                try:
+                    os.unlink(output_path.name, dir_fd=directory_fd)
+                except FileNotFoundError:
+                    pass
+            if backup_name:
+                try:
+                    os.replace(
+                        backup_name,
+                        output_path.name,
+                        src_dir_fd=directory_fd,
+                        dst_dir_fd=directory_fd,
+                    )
+                    backup_name = ""
+                except OSError:
+                    pass
+            try:
+                os.fsync(directory_fd)
+            except OSError:
+                pass
+        if backup_name and not committed:
+            try:
+                os.replace(
+                    backup_name,
+                    output_path.name,
+                    src_dir_fd=directory_fd,
+                    dst_dir_fd=directory_fd,
+                )
+                backup_name = ""
+                os.fsync(directory_fd)
+            except OSError:
+                pass
+        os.close(directory_fd)
+
+
 def _write_generated_reconstruction_diorama_preview(
     output_path: Path,
     *,
@@ -1535,8 +3512,11 @@ def _write_generated_reconstruction_diorama_preview(
         if failed_layout_checks:
             raise RuntimeError(f"preview_layout_contract_failed:{','.join(failed_layout_checks)}")
 
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        canvas.convert("RGB").save(output_path, format="PNG", optimize=True)
+        public_preview = canvas.convert("RGB")
+        try:
+            _write_public_png(public_preview, output_path)
+        finally:
+            public_preview.close()
         return {
             "status": "generated",
             "bundle_relpath": output_path.name,
@@ -1564,7 +3544,11 @@ def _write_generated_reconstruction_diorama_preview(
             },
         }
     except Exception as exc:
-        return {"status": "failed", "reason": str(exc)}
+        return {
+            "status": "failed",
+            "reason": "diorama_preview_generation_failed",
+            "error_class": type(exc).__name__,
+        }
 
 
 def _write_generated_reconstruction_telegram_preview(
@@ -1621,8 +3605,11 @@ def _write_generated_reconstruction_telegram_preview(
             failed_layout_checks = [name for name, passed in layout_checks.items() if not passed]
             if failed_layout_checks:
                 raise RuntimeError(f"telegram_preview_layout_contract_failed:{','.join(failed_layout_checks)}")
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            canvas.convert("RGB").save(output_path, format="PNG", optimize=True)
+            public_preview = canvas.convert("RGB")
+            try:
+                _write_public_png(public_preview, output_path)
+            finally:
+                public_preview.close()
         return {
             "status": "generated",
             "bundle_relpath": output_path.name,
@@ -1638,7 +3625,11 @@ def _write_generated_reconstruction_telegram_preview(
             },
         }
     except Exception as exc:
-        return {"status": "failed", "reason": str(exc)}
+        return {
+            "status": "failed",
+            "reason": "telegram_preview_generation_failed",
+            "error_class": type(exc).__name__,
+        }
 
 
 def _walkthrough_route_map_inset(
@@ -2634,6 +4625,13 @@ def _recover_runtime_publish(
             return value.decode("utf-8", "replace")
         return str(value or "")
 
+    def _diagnostic(value: object) -> dict[str, object]:
+        payload = _text(value).encode("utf-8", errors="replace")
+        return {
+            "diagnostic_sha256": hashlib.sha256(payload).hexdigest(),
+            "diagnostic_size_bytes": len(payload),
+        }
+
     try:
         result = subprocess.run(
             command,
@@ -2653,7 +4651,7 @@ def _recover_runtime_publish(
         return {
             "state": "ambiguous",
             "cleanup": "failed",
-            "stderr": f"{type(exc).__name__}:{exc}"[-400:],
+            "error_class": type(exc).__name__,
         }
     output = _text(result.stdout)
     state_match = re.search(r"state=(committed|not_committed|superseded)", output)
@@ -2661,7 +4659,7 @@ def _recover_runtime_publish(
     return {
         "state": state,
         "cleanup": "complete" if result.returncode == 0 else "failed",
-        **({"stderr": _text(result.stderr).strip()[-400:]} if result.returncode != 0 else {}),
+        **(_diagnostic(result.stderr) if result.returncode != 0 else {}),
     }
 
 
@@ -2672,15 +4670,17 @@ def _sync_bundle_to_runtime_container(bundle_dir: Path, *, slug: str) -> dict[st
     container = str(os.getenv("PROPERTYQUARRY_RUNTIME_CONTAINER") or "propertyquarry-api").strip()
     if not container:
         return {"status": "runtime_container_missing", "slug": slug}
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", container):
+        return {"status": "runtime_container_invalid", "slug": slug}
     normalized_slug = str(slug or "").strip()
     if (
         not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,191}", normalized_slug)
         or ".." in normalized_slug
     ):
-        return {"status": "runtime_slug_invalid", "slug": normalized_slug}
+        return {"status": "runtime_slug_invalid"}
     normalized_bundle = bundle_dir.expanduser().resolve()
     if not normalized_bundle.is_dir():
-        return {"status": "bundle_missing", "slug": normalized_slug, "bundle_dir": str(normalized_bundle)}
+        return {"status": "bundle_missing", "slug": normalized_slug}
     remote_root = "/data/public_property_tours"
     remote_bundle = f"{remote_root}/{normalized_slug}"
     publish_token = _runtime_publish_token(normalized_slug)
@@ -2731,7 +4731,6 @@ def _sync_bundle_to_runtime_container(bundle_dir: Path, *, slug: str) -> dict[st
             "status": status,
             "slug": normalized_slug,
             "container": container,
-            "remote_staging": remote_staging,
             "recovery": _recovery(),
             **details,
         }
@@ -2750,7 +4749,7 @@ def _sync_bundle_to_runtime_container(bundle_dir: Path, *, slug: str) -> dict[st
                     "status": "runtime_archive_failed",
                     "slug": normalized_slug,
                     "container": container,
-                    "error": f"{type(exc).__name__}:{exc}"[-400:],
+                    "error_class": type(exc).__name__,
                 }
             try:
                 finalize_result = subprocess.run(
@@ -2795,13 +4794,14 @@ def _sync_bundle_to_runtime_container(bundle_dir: Path, *, slug: str) -> dict[st
                     "status": "runtime_finalize_timeout",
                     "slug": normalized_slug,
                     "container": container,
-                    "remote_bundle": remote_bundle,
-                    "remote_staging": remote_staging,
                     "timeout_seconds": exc.timeout,
                     "recovery": recovery,
                 }
     except OSError as exc:
-        return _failure("runtime_publish_io_failed", error=f"{type(exc).__name__}:{exc}"[-400:])
+        return _failure(
+            "runtime_publish_io_failed",
+            error_class=type(exc).__name__,
+        )
     if finalize_result.returncode != 0:
         stderr = (finalize_result.stderr or "").strip()[-400:]
         phase_match = re.search(r"phase=([a-z_]+)", stderr)
@@ -2825,9 +4825,12 @@ def _sync_bundle_to_runtime_container(bundle_dir: Path, *, slug: str) -> dict[st
             "status": status_by_phase.get(phase, "runtime_finalize_failed"),
             "slug": normalized_slug,
             "container": container,
-            "remote_bundle": remote_bundle,
-            "remote_staging": remote_staging,
-            "stderr": stderr,
+            "diagnostic_sha256": hashlib.sha256(
+                stderr.encode("utf-8", errors="replace")
+            ).hexdigest(),
+            "diagnostic_size_bytes": len(
+                stderr.encode("utf-8", errors="replace")
+            ),
             "recovery": recovery,
         }
     recovery = _recovery()
@@ -2836,8 +4839,6 @@ def _sync_bundle_to_runtime_container(bundle_dir: Path, *, slug: str) -> dict[st
             "status": "runtime_recovery_failed",
             "slug": normalized_slug,
             "container": container,
-            "remote_bundle": remote_bundle,
-            "remote_staging": remote_staging,
             "recovery": recovery,
         }
     return {
@@ -2852,6 +4853,17 @@ def _safe_relpath(value: str) -> str:
     normalized = str(value or "").strip().replace("\\", "/").lstrip("/")
     parts = [part for part in normalized.split("/") if part and part not in {".", ".."}]
     return "/".join(parts)
+
+
+def _validated_tour_slug(value: object) -> str:
+    normalized = str(value or "").strip()
+    if (
+        not _PUBLIC_TOUR_SLUG_PATTERN.fullmatch(normalized)
+        or ".." in normalized
+        or normalized.startswith(_PUBLIC_BUNDLE_STAGE_PREFIX)
+    ):
+        raise SystemExit("invalid_tour_slug")
+    return normalized
 
 
 def _sha256(path: Path) -> str:
@@ -2869,8 +4881,103 @@ def _web_safe_image_suffix(source: Path) -> str:
     return suffix or ".jpg"
 
 
+def _image_file_metadata_matches(
+    expected: os.stat_result,
+    observed: os.stat_result,
+) -> bool:
+    return bool(
+        stat.S_ISREG(expected.st_mode)
+        and stat.S_ISREG(observed.st_mode)
+        and expected.st_dev == observed.st_dev
+        and expected.st_ino == observed.st_ino
+        and expected.st_size == observed.st_size
+        and expected.st_mtime_ns == observed.st_mtime_ns
+        and expected.st_ctime_ns == observed.st_ctime_ns
+    )
+
+
+def _validate_source_image_dimensions(
+    width: int,
+    height: int,
+    *,
+    minimum_dimension: int | None = None,
+) -> None:
+    effective_minimum_dimension = (
+        _MIN_SOURCE_IMAGE_DIMENSION
+        if minimum_dimension is None
+        else max(1, int(minimum_dimension))
+    )
+    smaller = min(width, height)
+    larger = max(width, height)
+    if (
+        smaller < effective_minimum_dimension
+        or larger > _MAX_SOURCE_IMAGE_DIMENSION
+        or width * height > _MAX_SOURCE_IMAGE_PIXELS
+        or larger / max(smaller, 1) > _MAX_SOURCE_IMAGE_ASPECT_RATIO
+    ):
+        raise _SourceImageInvalid("source_image_invalid")
+
+
+def _validate_floorplan_derived_allocation(width: int, height: int) -> None:
+    if (
+        width <= 0
+        or height <= 0
+        or max(width, height) > _MAX_FLOORPLAN_DERIVED_DIMENSION
+        or width * height > _MAX_FLOORPLAN_DERIVED_PIXELS
+    ):
+        raise _SourceImageInvalid("source_image_invalid")
+
+
+@contextmanager
+def _open_bounded_source_image(
+    path: Path,
+    *,
+    minimum_dimension: int | None = None,
+) -> Iterator[Image.Image]:
+    descriptor = -1
+    try:
+        descriptor = _open_absolute_regular_file_no_symlinks(
+            path,
+            failure="source_image_invalid",
+        )
+        opened = os.fstat(descriptor)
+        if (
+            opened.st_size <= 0
+            or opened.st_size > _MAX_SOURCE_IMAGE_COMPRESSED_BYTES
+        ):
+            raise _SourceImageInvalid("source_image_invalid")
+        with os.fdopen(descriptor, "rb", closefd=True) as handle:
+            descriptor = -1
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", Image.DecompressionBombWarning)
+                with Image.open(handle) as image:
+                    _validate_source_image_dimensions(
+                        int(image.width),
+                        int(image.height),
+                        minimum_dimension=minimum_dimension,
+                    )
+                    yield image
+                    if not _image_file_metadata_matches(opened, os.fstat(handle.fileno())):
+                        raise _SourceImageInvalid("source_image_invalid")
+    except _SourceImageInvalid:
+        raise
+    except _PublicBundleTransactionError as exc:
+        raise _SourceImageInvalid("source_image_invalid") from exc
+    except (
+        Image.DecompressionBombError,
+        Image.DecompressionBombWarning,
+        MemoryError,
+        OSError,
+        ValueError,
+    ) as exc:
+        raise _SourceImageInvalid("source_image_invalid") from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
 def _image_metadata(path: Path) -> dict[str, object]:
-    with Image.open(path) as image:
+    with _open_bounded_source_image(path) as image:
         return {
             "width": int(image.width),
             "height": int(image.height),
@@ -2880,14 +4987,28 @@ def _image_metadata(path: Path) -> dict[str, object]:
 
 def _copy_normalized_image(source: Path, target: Path) -> dict[str, object]:
     if source.suffix.lower() not in IMAGE_EXTENSIONS:
-        raise SystemExit(f"unsupported_image_extension:{source.name}")
+        raise SystemExit("unsupported_image_extension")
     target.parent.mkdir(parents=True, exist_ok=True)
-    with Image.open(source) as image:
-        normalized = ImageOps.exif_transpose(image).convert("RGB")
-        normalized.save(target, format="JPEG" if target.suffix.lower() in {".jpg", ".jpeg"} else None, quality=90)
-    metadata = _image_metadata(target)
+    try:
+        with _open_bounded_source_image(source) as image:
+            normalized = ImageOps.exif_transpose(image).convert("RGB")
+            try:
+                normalized.save(
+                    target,
+                    format="JPEG"
+                    if target.suffix.lower() in {".jpg", ".jpeg"}
+                    else None,
+                    quality=90,
+                )
+            finally:
+                normalized.close()
+        metadata = _image_metadata(target)
+    except (_SourceImageInvalid, MemoryError, OSError, ValueError):
+        target.unlink(missing_ok=True)
+        raise SystemExit("source_image_invalid") from None
     return {
-        "source_path": str(source),
+        "source_path": "<provided-image>",
+        "source_origin": "provided_image",
         "relpath": target.name,
         "sha256": _sha256(target),
         "size_bytes": target.stat().st_size,
@@ -2952,11 +5073,12 @@ def _bbox_axis_gap(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -
 
 
 def _floorplan_content_bbox(path: Path) -> tuple[int, int, int, int]:
-    with Image.open(path) as floorplan_image:
+    with _open_bounded_source_image(path) as floorplan_image:
         normalized = ImageOps.exif_transpose(floorplan_image).convert("L")
         width, height = normalized.size
         preview_width = min(240, max(120, width // 4))
         preview_height = max(120, int(round(height * preview_width / max(width, 1))))
+        _validate_floorplan_derived_allocation(preview_width, preview_height)
         preview = ImageOps.autocontrast(
             normalized.resize((preview_width, preview_height), Image.Resampling.LANCZOS),
             cutoff=1,
@@ -3006,14 +5128,19 @@ def _extract_floorplan_geometry(
     *,
     max_grid_width: int = 120,
 ) -> dict[str, object]:
-    with Image.open(path) as floorplan_image:
+    with _open_bounded_source_image(path) as floorplan_image:
         normalized = ImageOps.exif_transpose(floorplan_image).convert("L")
         bbox = _floorplan_content_bbox(path)
         cropped = normalized.crop(bbox)
     crop_width, crop_height = cropped.size
     grid_width = max(96, min(max_grid_width, int(round(crop_width / 7.0))))
     grid_height = max(72, int(round(crop_height * grid_width / max(crop_width, 1))))
+    _validate_floorplan_derived_allocation(grid_width, grid_height)
     def _opened_geometry_mask(*, scale: int, threshold: int) -> Image.Image:
+        _validate_floorplan_derived_allocation(
+            grid_width * scale,
+            grid_height * scale,
+        )
         reduced = ImageOps.autocontrast(
             cropped.resize((grid_width * scale, grid_height * scale), Image.Resampling.LANCZOS),
             cutoff=1,
@@ -3610,51 +5737,221 @@ def _copy_viewer_vendor_assets(target_dir: Path) -> dict[str, object]:
     }
 
 
-def _write_glb_with_blender(target_dir: Path) -> dict[str, object]:
-    blender = shutil.which("blender")
-    if not blender:
-        return {"status": "skipped", "reason": "blender_missing"}
+def _write_glb(target_dir: Path) -> dict[str, object]:
     obj_path = target_dir / "model.obj"
     glb_path = target_dir / "model.glb"
+    temporary_glb_path = target_dir / f".model.glb.{secrets.token_hex(8)}.tmp"
     if not obj_path.is_file():
+        glb_path.unlink(missing_ok=True)
         return {"status": "skipped", "reason": "obj_missing"}
-    with tempfile.TemporaryDirectory(prefix="propertyquarry-blender-export-") as tempdir:
-        script_path = Path(tempdir) / "export_glb.py"
-        script_path.write_text(
-            "\n".join(
-                [
-                    "import bpy",
-                    "import sys",
-                    "from pathlib import Path",
-                    f"obj_path = Path({str(obj_path)!r})",
-                    f"glb_path = Path({str(glb_path)!r})",
-                    "bpy.ops.object.select_all(action='SELECT')",
-                    "bpy.ops.object.delete()",
-                    "if hasattr(bpy.ops.wm, 'obj_import'):",
-                    "    bpy.ops.wm.obj_import(filepath=str(obj_path))",
-                    "else:",
-                    "    bpy.ops.import_scene.obj(filepath=str(obj_path))",
-                    "for obj in bpy.context.scene.objects:",
-                    "    obj.select_set(True)",
-                    "bpy.ops.export_scene.gltf(filepath=str(glb_path), export_format='GLB', export_yup=True)",
-                ]
+
+    material_specs = (
+        ("warm_floor", (0.94, 0.90, 0.84, 1.0), 0.88),
+        ("warm_plaster", (0.90, 0.87, 0.81, 1.0), 0.82),
+    )
+    material_names = tuple(name for name, _color, _roughness in material_specs)
+
+    try:
+        source_vertices: list[tuple[float, float, float]] = []
+        faces_by_material: dict[str, list[tuple[int, ...]]] = {name: [] for name in material_names}
+        current_material = ""
+        for line_number, raw_line in enumerate(obj_path.read_text(encoding="utf-8").splitlines(), start=1):
+            fields = raw_line.strip().split()
+            if not fields or fields[0].startswith("#"):
+                continue
+            directive = fields[0]
+            if directive == "v":
+                if len(fields) < 4:
+                    raise ValueError(f"obj_vertex_invalid:{line_number}")
+                point = (float(fields[1]), float(fields[2]), float(fields[3]))
+                if not all(math.isfinite(value) for value in point):
+                    raise ValueError(f"obj_vertex_non_finite:{line_number}")
+                source_vertices.append(point)
+                continue
+            if directive == "usemtl":
+                if len(fields) != 2 or fields[1] not in material_names:
+                    raise ValueError(f"obj_material_unsupported:{line_number}")
+                current_material = fields[1]
+                continue
+            if directive != "f":
+                continue
+            if current_material not in material_names:
+                raise ValueError(f"obj_face_material_missing:{line_number}")
+            if len(fields) < 4:
+                raise ValueError(f"obj_face_invalid:{line_number}")
+            indexes: list[int] = []
+            for field in fields[1:]:
+                vertex_ref = field.split("/", 1)[0]
+                try:
+                    obj_index = int(vertex_ref)
+                except ValueError as exc:
+                    raise ValueError(f"obj_face_index_invalid:{line_number}") from exc
+                if obj_index == 0:
+                    raise ValueError(f"obj_face_index_zero:{line_number}")
+                vertex_index = obj_index - 1 if obj_index > 0 else len(source_vertices) + obj_index
+                if vertex_index < 0 or vertex_index >= len(source_vertices):
+                    raise ValueError(f"obj_face_index_out_of_range:{line_number}")
+                indexes.append(vertex_index)
+            faces_by_material[current_material].append(tuple(indexes))
+        if not source_vertices:
+            raise ValueError("obj_vertices_missing")
+        if not any(faces_by_material.values()):
+            raise ValueError("obj_faces_missing")
+
+        binary = bytearray()
+        buffer_views: list[dict[str, object]] = []
+        accessors: list[dict[str, object]] = []
+        primitives: list[dict[str, object]] = []
+
+        def append_binary(payload: bytes, *, target: int) -> int:
+            binary.extend(b"\x00" * (-len(binary) % 4))
+            byte_offset = len(binary)
+            binary.extend(payload)
+            buffer_views.append(
+                {
+                    "buffer": 0,
+                    "byteLength": len(payload),
+                    "byteOffset": byte_offset,
+                    "target": target,
+                }
             )
-            + "\n",
-            encoding="utf-8",
+            return len(buffer_views) - 1
+
+        def float32(value: float) -> float:
+            return struct.unpack("<f", struct.pack("<f", value))[0]
+
+        for material_index, (material_name, _color, _roughness) in enumerate(material_specs):
+            material_faces = faces_by_material[material_name]
+            if not material_faces:
+                continue
+            positions: list[tuple[float, float, float]] = []
+            normals: list[tuple[float, float, float]] = []
+            indices: list[int] = []
+            for face in material_faces:
+                points = [source_vertices[index] for index in face]
+                normal_x = normal_y = normal_z = 0.0
+                for point_index, point in enumerate(points):
+                    next_point = points[(point_index + 1) % len(points)]
+                    normal_x += (point[1] - next_point[1]) * (point[2] + next_point[2])
+                    normal_y += (point[2] - next_point[2]) * (point[0] + next_point[0])
+                    normal_z += (point[0] - next_point[0]) * (point[1] + next_point[1])
+                normal_length = math.sqrt((normal_x * normal_x) + (normal_y * normal_y) + (normal_z * normal_z))
+                if normal_length <= 1e-12:
+                    raise ValueError("obj_face_degenerate")
+                normal = (
+                    normal_x / normal_length,
+                    normal_y / normal_length,
+                    normal_z / normal_length,
+                )
+                base_index = len(positions)
+                positions.extend(points)
+                normals.extend([normal] * len(points))
+                for triangle_index in range(1, len(points) - 1):
+                    indices.extend((base_index, base_index + triangle_index, base_index + triangle_index + 1))
+
+            packed_positions = [tuple(float32(value) for value in point) for point in positions]
+            packed_normals = [tuple(float32(value) for value in normal) for normal in normals]
+            position_payload = b"".join(struct.pack("<3f", *point) for point in packed_positions)
+            normal_payload = b"".join(struct.pack("<3f", *normal) for normal in packed_normals)
+            position_view = append_binary(position_payload, target=34962)
+            normal_view = append_binary(normal_payload, target=34962)
+            position_accessor = len(accessors)
+            accessors.append(
+                {
+                    "bufferView": position_view,
+                    "componentType": 5126,
+                    "count": len(packed_positions),
+                    "max": [max(point[axis] for point in packed_positions) for axis in range(3)],
+                    "min": [min(point[axis] for point in packed_positions) for axis in range(3)],
+                    "type": "VEC3",
+                }
+            )
+            normal_accessor = len(accessors)
+            accessors.append(
+                {
+                    "bufferView": normal_view,
+                    "componentType": 5126,
+                    "count": len(packed_normals),
+                    "type": "VEC3",
+                }
+            )
+            index_component_type = 5123 if max(indices) <= 65535 else 5125
+            index_format = "<H" if index_component_type == 5123 else "<I"
+            index_payload = b"".join(struct.pack(index_format, index) for index in indices)
+            index_view = append_binary(index_payload, target=34963)
+            index_accessor = len(accessors)
+            accessors.append(
+                {
+                    "bufferView": index_view,
+                    "componentType": index_component_type,
+                    "count": len(indices),
+                    "max": [max(indices)],
+                    "min": [min(indices)],
+                    "type": "SCALAR",
+                }
+            )
+            primitives.append(
+                {
+                    "attributes": {"NORMAL": normal_accessor, "POSITION": position_accessor},
+                    "indices": index_accessor,
+                    "material": material_index,
+                    "mode": 4,
+                }
+            )
+
+        binary.extend(b"\x00" * (-len(binary) % 4))
+        document = {
+            "accessors": accessors,
+            "asset": {"generator": "PropertyQuarry deterministic GLB writer", "version": "2.0"},
+            "bufferViews": buffer_views,
+            "buffers": [{"byteLength": len(binary)}],
+            "materials": [
+                {
+                    "doubleSided": True,
+                    "name": name,
+                    "pbrMetallicRoughness": {
+                        "baseColorFactor": list(color),
+                        "metallicFactor": 0.0,
+                        "roughnessFactor": roughness,
+                    },
+                }
+                for name, color, roughness in material_specs
+            ],
+            "meshes": [{"name": "propertyquarry_generated_layout", "primitives": primitives}],
+            "nodes": [{"mesh": 0, "name": "propertyquarry_generated_layout"}],
+            "scene": 0,
+            "scenes": [{"nodes": [0]}],
+        }
+        json_payload = json.dumps(
+            document,
+            allow_nan=False,
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        json_payload += b" " * (-len(json_payload) % 4)
+        total_length = 12 + 8 + len(json_payload) + 8 + len(binary)
+        glb_payload = b"".join(
+            (
+                struct.pack("<III", 0x46546C67, 2, total_length),
+                struct.pack("<II", len(json_payload), 0x4E4F534A),
+                json_payload,
+                struct.pack("<II", len(binary), 0x004E4942),
+                bytes(binary),
+            )
         )
-        result = subprocess.run(
-            [blender, "--background", "--factory-startup", "--python", str(script_path)],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-    if result.returncode != 0 or not glb_path.is_file():
+        with temporary_glb_path.open("xb") as handle:
+            handle.write(glb_payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_glb_path, glb_path)
+    except (OSError, OverflowError, ValueError, struct.error) as exc:
+        temporary_glb_path.unlink(missing_ok=True)
+        glb_path.unlink(missing_ok=True)
         return {
             "status": "failed",
-            "reason": "blender_glb_export_failed",
-            "stdout_tail": (result.stdout or "")[-500:],
-            "stderr_tail": (result.stderr or "")[-500:],
+            "reason": "glb_export_failed",
+            "error_class": type(exc).__name__,
         }
     return {
         "status": "generated",
@@ -3664,30 +5961,316 @@ def _write_glb_with_blender(target_dir: Path) -> dict[str, object]:
     }
 
 
+def _iter_mp4_boxes(
+    handle: BinaryIO,
+    *,
+    start: int,
+    end: int,
+) -> Iterator[tuple[bytes, int, int]]:
+    position = start
+    while position + 8 <= end:
+        handle.seek(position)
+        header = handle.read(8)
+        if len(header) != 8:
+            raise ValueError("mp4_box_header_truncated")
+        size32, box_type = struct.unpack(">I4s", header)
+        header_size = 8
+        if size32 == 1:
+            extended = handle.read(8)
+            if len(extended) != 8:
+                raise ValueError("mp4_extended_size_truncated")
+            box_size = struct.unpack(">Q", extended)[0]
+            header_size = 16
+        elif size32 == 0:
+            box_size = end - position
+        else:
+            box_size = size32
+        if box_size < header_size:
+            raise ValueError("mp4_box_size_invalid")
+        box_end = position + box_size
+        if box_end > end:
+            raise ValueError("mp4_box_out_of_bounds")
+        yield box_type, position + header_size, box_end
+        position = box_end
+    if position != end:
+        raise ValueError("mp4_box_trailing_bytes")
+
+
 def _video_duration_seconds(path: Path) -> float:
-    ffprobe = shutil.which("ffprobe")
-    if not ffprobe or not path.is_file():
+    if not path.is_file():
         return 0.0
     try:
-        completed = subprocess.run(
-            [
-                ffprobe,
-                "-v",
-                "error",
-                "-show_entries",
-                "format=duration",
-                "-of",
-                "default=nw=1:nk=1",
-                str(path),
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        return max(0.0, float(str(completed.stdout or "0").strip() or 0.0))
-    except Exception:
+        file_size = path.stat().st_size
+        with path.open("rb") as handle:
+            top_level = list(_iter_mp4_boxes(handle, start=0, end=file_size))
+            moov_index = next(
+                (index for index, row in enumerate(top_level) if row[0] == b"moov"),
+                None,
+            )
+            mdat_index = next(
+                (index for index, row in enumerate(top_level) if row[0] == b"mdat"),
+                None,
+            )
+            if moov_index is None or mdat_index is None or moov_index >= mdat_index:
+                return 0.0
+            _box_type, payload_start, box_end = top_level[moov_index]
+            for child_type, child_start, child_end in _iter_mp4_boxes(
+                handle,
+                start=payload_start,
+                end=box_end,
+            ):
+                if child_type != b"mvhd":
+                    continue
+                handle.seek(child_start)
+                payload = handle.read(min(32, child_end - child_start))
+                if len(payload) < 20:
+                    raise ValueError("mp4_mvhd_truncated")
+                version = payload[0]
+                if version == 0:
+                    timescale, duration = struct.unpack_from(">II", payload, 12)
+                    unknown_duration = 0xFFFFFFFF
+                elif version == 1:
+                    if len(payload) < 32:
+                        raise ValueError("mp4_mvhd_v1_truncated")
+                    timescale, duration = struct.unpack_from(">IQ", payload, 20)
+                    unknown_duration = 0xFFFFFFFFFFFFFFFF
+                else:
+                    raise ValueError("mp4_mvhd_version_unsupported")
+                if timescale <= 0 or duration == unknown_duration:
+                    return 0.0
+                parsed = duration / timescale
+                return parsed if math.isfinite(parsed) and parsed >= 0.0 else 0.0
+    except (OSError, ValueError, struct.error):
         return 0.0
+    return 0.0
+
+
+def _rgb24_frame_bytes(
+    frame: Image.Image | Path,
+    *,
+    frame_size: tuple[int, int],
+) -> bytes:
+    if isinstance(frame, Path):
+        # Frame paths here are renderer-owned intermediates whose dimensions
+        # are checked exactly below.  Permit tiny test/internal frames without
+        # weakening the stricter floorplan and listing-photo intake default.
+        observed_size: tuple[int, int] | None = None
+        with _open_bounded_source_image(frame, minimum_dimension=1) as source:
+            source.load()
+            if source.size == frame_size:
+                return _rgb24_frame_bytes(source, frame_size=frame_size)
+            observed_size = (int(source.width), int(source.height))
+        raise ValueError(
+            f"raw_video_frame_size_invalid:{observed_size[0]}x{observed_size[1]}"
+        )
+    if frame.size != frame_size:
+        raise ValueError(
+            f"raw_video_frame_size_invalid:{frame.size[0]}x{frame.size[1]}"
+        )
+    rgb_frame = frame.convert("RGB")
+    try:
+        payload = rgb_frame.tobytes()
+    finally:
+        rgb_frame.close()
+    expected_size = frame_size[0] * frame_size[1] * 3
+    if len(payload) != expected_size:
+        raise ValueError("raw_video_frame_payload_invalid")
+    return payload
+
+
+def _encode_rgb24_mp4(
+    *,
+    frames: Iterable[Image.Image | Path],
+    target: Path,
+    frame_size: tuple[int, int],
+    input_fps: float,
+    output_fps: int,
+    expected_input_frame_count: int,
+    expected_frame_count: int,
+    crf: int,
+    timeout_seconds: int,
+) -> subprocess.CompletedProcess[bytes]:
+    ffmpeg = shutil.which("ffmpeg")
+    if not ffmpeg:
+        raise FileNotFoundError("ffmpeg_missing")
+    width, height = frame_size
+    if (
+        input_fps <= 0.0
+        or output_fps <= 0
+        or expected_input_frame_count <= 0
+        or expected_frame_count <= 0
+        or expected_frame_count > MAX_WALKTHROUGH_ENCODED_FRAMES
+    ):
+        raise ValueError("raw_video_timing_invalid")
+    temporary_target = target.with_name(
+        f".{target.name}.{secrets.token_hex(8)}.tmp"
+    )
+    command = [
+        ffmpeg,
+        "-nostdin",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-nostats",
+        "-y",
+        "-f",
+        "rawvideo",
+        "-pixel_format",
+        "rgb24",
+        "-video_size",
+        f"{width}x{height}",
+        "-framerate",
+        f"{input_fps:.6f}",
+        "-i",
+        "pipe:0",
+        "-map",
+        "0:v:0",
+        "-vf",
+        f"fps={output_fps},format=yuv420p",
+        "-frames:v",
+        str(expected_frame_count),
+        "-an",
+        "-sn",
+        "-dn",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        str(crf),
+        "-pix_fmt",
+        "yuv420p",
+        "-movflags",
+        "+faststart",
+        "-f",
+        "mp4",
+        str(temporary_target),
+    ]
+    inherited_anchor_fds = tuple(
+        sorted(
+            {
+                int(match.group(1))
+                for candidate in (target, temporary_target)
+                if (
+                    match := re.match(
+                        r"^/proc/self/fd/([0-9]+)(?:/|$)",
+                        os.fspath(candidate),
+                    )
+                )
+            }
+        )
+    )
+    process: subprocess.Popen[bytes] | None = None
+    timer: threading.Timer | None = None
+    timed_out = threading.Event()
+    try:
+        process = subprocess.Popen(
+            command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            pass_fds=inherited_anchor_fds,
+        )
+
+        def terminate_on_timeout() -> None:
+            timed_out.set()
+            try:
+                process.kill()
+            except OSError:
+                pass
+
+        timer = threading.Timer(timeout_seconds, terminate_on_timeout)
+        timer.daemon = True
+        timer.start()
+        input_frame_count = 0
+        try:
+            if process.stdin is None:
+                raise RuntimeError("ffmpeg_stdin_unavailable")
+            for frame in frames:
+                process.stdin.write(_rgb24_frame_bytes(frame, frame_size=frame_size))
+                input_frame_count += 1
+                if input_frame_count > expected_input_frame_count:
+                    raise ValueError("raw_video_input_frame_count_exceeded")
+            if input_frame_count != expected_input_frame_count:
+                raise ValueError("raw_video_input_frame_count_invalid")
+            process.stdin.close()
+            process.stdin = None
+            _stdout, stderr = process.communicate()
+        except BrokenPipeError:
+            if process.stdin is not None:
+                try:
+                    process.stdin.close()
+                except (BrokenPipeError, OSError):
+                    pass
+                process.stdin = None
+            _stdout, stderr = process.communicate()
+        if timed_out.is_set():
+            raise subprocess.TimeoutExpired(command, timeout_seconds)
+        completed = subprocess.CompletedProcess(
+            command,
+            process.returncode,
+            stdout=b"",
+            stderr=stderr or b"",
+        )
+        if completed.returncode == 0:
+            duration = _validated_mp4_duration(
+                temporary_target,
+                expected_frame_count=expected_frame_count,
+                fps=output_fps,
+            )
+            if duration <= 0.0:
+                raise ValueError("mp4_duration_validation_failed")
+            os.replace(temporary_target, target)
+        return completed
+    finally:
+        if timer is not None:
+            timer.cancel()
+        if process is not None:
+            if process.stdin is not None:
+                try:
+                    process.stdin.close()
+                except (BrokenPipeError, OSError):
+                    pass
+                process.stdin = None
+            if process.poll() is None:
+                try:
+                    process.kill()
+                except OSError:
+                    pass
+            try:
+                process.communicate()
+            except (BrokenPipeError, OSError, ValueError):
+                pass
+        temporary_target.unlink(missing_ok=True)
+
+
+def _ffmpeg_failure_receipt(
+    result: subprocess.CompletedProcess[bytes],
+) -> dict[str, object]:
+    diagnostic = bytes(result.stderr or b"")
+    return {
+        "status": "failed",
+        "reason": "ffmpeg_exit_nonzero",
+        "returncode": int(result.returncode),
+        "diagnostic_sha256": hashlib.sha256(diagnostic).hexdigest(),
+        "diagnostic_size_bytes": len(diagnostic),
+    }
+
+
+def _validated_mp4_duration(
+    path: Path,
+    *,
+    expected_frame_count: int,
+    fps: int,
+) -> float:
+    if expected_frame_count <= 0 or fps <= 0:
+        return 0.0
+    duration = _video_duration_seconds(path)
+    expected_duration = expected_frame_count / fps
+    tolerance = (1.0 / fps) + 1e-6
+    if duration <= 0.0 or abs(duration - expected_duration) > tolerance:
+        return 0.0
+    return duration
 
 
 def _declutter_floorplan_stop_positions(
@@ -3718,6 +6301,18 @@ def _declutter_floorplan_stop_positions(
                 break
         placed.append(selected)
     return placed
+
+
+def _html_script_safe_json(value: object) -> str:
+    """Serialize JSON without allowing data to terminate an HTML script."""
+    serialized = json.dumps(value, ensure_ascii=False)
+    return (
+        serialized.replace("&", "\\u0026")
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    )
 
 
 def _viewer_html(*, manifest: dict[str, object], three_relpath: str, orbit_controls_relpath: str) -> str:
@@ -4334,15 +6929,15 @@ const overviewButton = document.getElementById("view-overview");
 const dollhouseButton = document.getElementById("view-dollhouse");
 const insideButton = document.getElementById("view-inside");
 const guideButton = document.getElementById("view-guided-route");
-const wallRectangles = {json.dumps(wall_rectangles, ensure_ascii=False)};
-const walkableScene = {json.dumps(walkable_scene, ensure_ascii=False)};
+const wallRectangles = {_html_script_safe_json(wall_rectangles)};
+const walkableScene = {_html_script_safe_json(walkable_scene)};
 const routeStops = Array.isArray(walkableScene.route) ? walkableScene.route.filter((stop) => stop && typeof stop === "object") : [];
-const photoPanelSpecs = {json.dumps(photo_reference_panels, ensure_ascii=False)};
+const photoPanelSpecs = {_html_script_safe_json(photo_reference_panels)};
 const routeButtons = Array.from(document.querySelectorAll(".route-button"));
 const floorplanStopButtons = Array.from(document.querySelectorAll(".floorplan-stop"));
-const roomWidth = {json.dumps(width_m)};
-const roomDepth = {json.dumps(depth_m)};
-const roomHeight = {json.dumps(height_m)};
+const roomWidth = {_html_script_safe_json(width_m)};
+const roomDepth = {_html_script_safe_json(depth_m)};
+const roomHeight = {_html_script_safe_json(height_m)};
 const routeQuery = new URLSearchParams(window.location.search);
 const captureMode = routeQuery.get("capture") === "1";
 const guidedQueryEnabled = routeQuery.get("guided") === "1";
@@ -4443,10 +7038,10 @@ keyLight.shadow.camera.far = 40;
 scene.add(keyLight);
 
 const textureLoader = new THREE.TextureLoader();
-const floorTexture = textureLoader.load({json.dumps(str(dict(manifest.get("floorplan") or {}).get("relpath") or "source-floorplan.jpg"))});
+const floorTexture = textureLoader.load({_html_script_safe_json(str(dict(manifest.get("floorplan") or {}).get("relpath") or "source-floorplan.jpg"))});
 floorTexture.colorSpace = THREE.SRGBColorSpace;
 floorTexture.anisotropy = 8;
-const floorTextureCrop = {json.dumps(floor_texture_crop, ensure_ascii=False)};
+const floorTextureCrop = {_html_script_safe_json(floor_texture_crop)};
 floorTexture.offset.set(Number(floorTextureCrop.offset_x || 0), Number(floorTextureCrop.offset_y || 0));
 floorTexture.repeat.set(Number(floorTextureCrop.repeat_x || 1), Number(floorTextureCrop.repeat_y || 1));
 floorTexture.needsUpdate = true;
@@ -5967,25 +8562,30 @@ def _write_viewer_walkthrough(
     if not storyboard_steps:
         return {"status": "skipped", "reason": "viewer_storyboard_unavailable"}
 
-    fps = 12
+    fps = WALKTHROUGH_OUTPUT_FPS
     capture_frame_count = 6
     segment_frame_count = max(1, capture_frame_count)
     total_frame_count = max(1, segment_frame_count * len(storyboard_steps))
     duration_seconds = len(storyboard_steps) * seconds_per_stop
+    if duration_seconds > MAX_WALKTHROUGH_DURATION_SECONDS:
+        return {"status": "failed", "reason": "walkthrough_duration_limit_exceeded"}
     input_fps = max(1.0, segment_frame_count / max(seconds_per_stop, 0.001))
     sidecar_path = target.with_suffix(".quality.json")
+    target.unlink(missing_ok=True)
+    sidecar_path.unlink(missing_ok=True)
     last_metrics: dict[str, object] = {}
     move_phase_ratio = 0.42
     target.parent.mkdir(parents=True, exist_ok=True)
-    bundle_root = viewer_path.parent.parent
+    viewer_root = viewer_path.parent
 
     with tempfile.TemporaryDirectory(prefix="propertyquarry-viewer-walkthrough-", dir=str(target.parent)) as tempdir:
         working_dir = Path(tempdir)
         frames_dir = working_dir / "frames"
         frames_dir.mkdir(parents=True, exist_ok=True)
+        frame_paths: list[Path] = []
         try:
-            with _serve_directory(bundle_root) as base_url:
-                viewer_relpath = viewer_path.relative_to(bundle_root).as_posix()
+            with _serve_directory(viewer_root) as base_url:
+                viewer_relpath = "viewer.html"
                 with sync_playwright() as playwright:
                     browser = playwright.chromium.launch(**_playwright_chromium_launch_kwargs(playwright))
                     page = browser.new_page(
@@ -6072,6 +8672,8 @@ def _write_viewer_walkthrough(
                                         route_markers=route_markers,
                                     )
                                     decorated.save(frame_path, format="JPEG", quality=92, optimize=True)
+                                    decorated.close()
+                                frame_paths.append(frame_path)
                                 frame_index += 1
                             previous_state = next_state
                     finally:
@@ -6085,47 +8687,45 @@ def _write_viewer_walkthrough(
                 target.unlink()
             return {"status": "failed", "reason": f"viewer_capture_failed:{exc.__class__.__name__}"}
 
-        ffmpeg = shutil.which("ffmpeg")
-        if not ffmpeg:
-            return {"status": "skipped", "reason": "ffmpeg_missing"}
         try:
-            result = subprocess.run(
-                [
-                    ffmpeg,
-                    "-y",
-                    "-framerate",
-                    f"{input_fps:.3f}",
-                    "-i",
-                    str(frames_dir / "frame-%05d.jpg"),
-                    "-vf",
-                    f"fps={fps}",
-                    "-c:v",
-                    "libx264",
-                    "-preset",
-                    "veryfast",
-                    "-crf",
-                    "18",
-                    "-pix_fmt",
-                    "yuv420p",
-                    "-movflags",
-                    "+faststart",
-                    str(target),
-                ],
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=max(120, int(duration_seconds * 2.5)),
+            expected_output_frame_count = max(
+                1,
+                int(round(total_frame_count * fps / input_fps)),
             )
+            result = _encode_rgb24_mp4(
+                frames=(*frame_paths, frame_paths[-1]),
+                target=target,
+                frame_size=WALKTHROUGH_VIEWPORT_SIZE,
+                input_fps=input_fps,
+                output_fps=fps,
+                expected_input_frame_count=total_frame_count + 1,
+                expected_frame_count=expected_output_frame_count,
+                crf=18,
+                timeout_seconds=max(120, int(duration_seconds * 2.5)),
+            )
+        except FileNotFoundError:
+            return {"status": "skipped", "reason": "ffmpeg_missing"}
         except subprocess.TimeoutExpired:
             if target.exists():
                 target.unlink()
             return {"status": "failed", "reason": "ffmpeg_timeout"}
+        except (OSError, ValueError):
+            if target.exists():
+                target.unlink()
+            return {"status": "failed", "reason": "raw_video_failed"}
     if result.returncode != 0:
         if target.exists():
             target.unlink()
-        return {"status": "failed", "reason": (result.stderr or "ffmpeg_failed")[-500:]}
+        return _ffmpeg_failure_receipt(result)
 
-    duration = _video_duration_seconds(target)
+    duration = _validated_mp4_duration(
+        target,
+        expected_frame_count=expected_output_frame_count,
+        fps=fps,
+    )
+    if duration <= 0.0:
+        target.unlink(missing_ok=True)
+        return {"status": "failed", "reason": "mp4_duration_validation_failed"}
     coverage = {
         "status": "pass",
         "source": "propertyquarry_generated_reconstruction_viewer_capture",
@@ -6249,6 +8849,9 @@ def _write_stop_card_walkthrough(
     room_count: int = 0,
     walkable_scene: dict[str, object] | None = None,
 ) -> dict[str, object]:
+    sidecar_path = target.with_suffix(".quality.json")
+    target.unlink(missing_ok=True)
+    sidecar_path.unlink(missing_ok=True)
     ffmpeg = shutil.which("ffmpeg")
     if not ffmpeg:
         return {"status": "skipped", "reason": "ffmpeg_missing"}
@@ -6279,11 +8882,14 @@ def _write_stop_card_walkthrough(
             if fallback_stop_count <= 0:
                 fallback_stop_count = 1
             expected_segments = [f"Room view {index:02d}" for index in range(1, fallback_stop_count + 1)]
-        duration_seconds = min(240.0, max(seconds_per_stop, len(expected_segments) * seconds_per_stop))
-        fps = 12
+        duration_seconds = max(
+            seconds_per_stop,
+            len(expected_segments) * seconds_per_stop,
+        )
+        if duration_seconds > MAX_WALKTHROUGH_DURATION_SECONDS:
+            return {"status": "failed", "reason": "walkthrough_duration_limit_exceeded"}
+        fps = WALKTHROUGH_OUTPUT_FPS
         segment_frame_count = max(1, int(round(seconds_per_stop * fps)))
-        total_frame_count = max(1, segment_frame_count * max(1, len(expected_segments)))
-        duration_seconds = total_frame_count / fps
         viewport_w, viewport_h = WALKTHROUGH_VIEWPORT_SIZE
         card_w, card_h = WALKTHROUGH_CARD_SIZE
 
@@ -6323,10 +8929,28 @@ def _write_stop_card_walkthrough(
         timeout_seconds = max(300, int(duration_seconds * 8), configured_timeout_seconds)
         transition_duration = min(0.8, max(0.35, seconds_per_stop / 20.0)) if len(stop_card_paths) > 1 else 0.0
         transition_frame_count = int(round(transition_duration * fps)) if transition_duration > 0 else 0
-        try:
-            frames_dir = working_dir / "frames"
-            frames_dir.mkdir(parents=True, exist_ok=True)
-            card_images = [Image.open(path).convert("RGB") for path in stop_card_paths]
+        encoded_frame_count = 0
+        for index in range(len(stop_card_paths)):
+            incoming_transition_frames = transition_frame_count if index > 0 else 0
+            outgoing_transition_frames = (
+                transition_frame_count if index + 1 < len(stop_card_paths) else 0
+            )
+            encoded_frame_count += max(
+                1,
+                segment_frame_count
+                - incoming_transition_frames
+                - outgoing_transition_frames,
+            )
+            encoded_frame_count += outgoing_transition_frames
+        if encoded_frame_count > MAX_WALKTHROUGH_ENCODED_FRAMES:
+            return {"status": "failed", "reason": "walkthrough_frame_limit_exceeded"}
+
+        def iter_motion_frames() -> Iterator[Image.Image]:
+            card_images: list[Image.Image] = []
+            for path in stop_card_paths:
+                with Image.open(path) as source:
+                    source.load()
+                    card_images.append(source.convert("RGB"))
             motion_windows = [
                 _stop_card_motion_window(
                     stop_index=index,
@@ -6336,87 +8960,101 @@ def _write_stop_card_walkthrough(
                 )
                 for index in range(len(stop_card_paths))
             ]
-            frame_index = 0
-            for index, card_image in enumerate(card_images):
-                next_image = card_images[index + 1] if index + 1 < len(card_images) else None
-                incoming_transition_frames = transition_frame_count if index > 0 else 0
-                transition_frames_for_segment = transition_frame_count if next_image is not None else 0
-                steady_frame_count = max(
-                    1,
-                    segment_frame_count - incoming_transition_frames - transition_frames_for_segment,
-                )
-                for steady_index in range(steady_frame_count):
-                    progress = steady_index / max(steady_frame_count - 1, 1)
-                    frame = _render_stop_card_motion_frame(
+            try:
+                for index, card_image in enumerate(card_images):
+                    next_image = (
+                        card_images[index + 1]
+                        if index + 1 < len(card_images)
+                        else None
+                    )
+                    incoming_transition_frames = transition_frame_count if index > 0 else 0
+                    transition_frames_for_segment = (
+                        transition_frame_count if next_image is not None else 0
+                    )
+                    steady_frame_count = max(
+                        1,
+                        segment_frame_count
+                        - incoming_transition_frames
+                        - transition_frames_for_segment,
+                    )
+                    for steady_index in range(steady_frame_count):
+                        progress = steady_index / max(steady_frame_count - 1, 1)
+                        frame = _render_stop_card_motion_frame(
+                            card_image,
+                            motion_window=motion_windows[index],
+                            progress=progress,
+                            viewport_size=(viewport_w, viewport_h),
+                        )
+                        try:
+                            yield frame
+                        finally:
+                            frame.close()
+                    if next_image is None or transition_frames_for_segment <= 0:
+                        continue
+                    current_frame = _render_stop_card_motion_frame(
                         card_image,
                         motion_window=motion_windows[index],
-                        progress=progress,
+                        progress=1.0,
                         viewport_size=(viewport_w, viewport_h),
                     )
-                    frame.save(frames_dir / f"frame-{frame_index:05d}.jpg", format="JPEG", quality=92, optimize=True)
-                    frame_index += 1
-                if next_image is None or transition_frames_for_segment <= 0:
-                    continue
-                current_frame = _render_stop_card_motion_frame(
-                    card_image,
-                    motion_window=motion_windows[index],
-                    progress=1.0,
-                    viewport_size=(viewport_w, viewport_h),
-                )
-                next_frame = _render_stop_card_motion_frame(
-                    next_image,
-                    motion_window=motion_windows[index + 1],
-                    progress=0.0,
-                    viewport_size=(viewport_w, viewport_h),
-                )
-                for transition_index in range(transition_frames_for_segment):
-                    alpha = (transition_index + 1) / max(transition_frames_for_segment + 1, 1)
-                    frame = Image.blend(current_frame, next_frame, alpha)
-                    frame.save(frames_dir / f"frame-{frame_index:05d}.jpg", format="JPEG", quality=92, optimize=True)
-                    frame_index += 1
-            for card_image in card_images:
-                card_image.close()
+                    next_frame = _render_stop_card_motion_frame(
+                        next_image,
+                        motion_window=motion_windows[index + 1],
+                        progress=0.0,
+                        viewport_size=(viewport_w, viewport_h),
+                    )
+                    try:
+                        for transition_index in range(transition_frames_for_segment):
+                            alpha = (transition_index + 1) / max(
+                                transition_frames_for_segment + 1,
+                                1,
+                            )
+                            frame = Image.blend(current_frame, next_frame, alpha)
+                            try:
+                                yield frame
+                            finally:
+                                frame.close()
+                    finally:
+                        current_frame.close()
+                        next_frame.close()
+            finally:
+                for card_image in card_images:
+                    card_image.close()
 
-            command = [
-                ffmpeg,
-                "-y",
-                "-framerate",
-                str(fps),
-                "-i",
-                str(frames_dir / "frame-%05d.jpg"),
-            ]
-            command.extend(
-                [
-                    "-c:v",
-                    "libx264",
-                    "-preset",
-                    "veryfast",
-                    "-crf",
-                    "20",
-                    "-pix_fmt",
-                    "yuv420p",
-                    "-movflags",
-                    "+faststart",
-                    str(target),
-                ]
+        try:
+            result = _encode_rgb24_mp4(
+                frames=iter_motion_frames(),
+                target=target,
+                frame_size=WALKTHROUGH_VIEWPORT_SIZE,
+                input_fps=float(fps),
+                output_fps=fps,
+                expected_input_frame_count=encoded_frame_count,
+                expected_frame_count=encoded_frame_count,
+                crf=20,
+                timeout_seconds=timeout_seconds,
             )
-            result = subprocess.run(
-                command,
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=timeout_seconds,
-            )
+        except FileNotFoundError:
+            return {"status": "skipped", "reason": "ffmpeg_missing"}
         except subprocess.TimeoutExpired:
             if target.exists():
                 target.unlink()
             return {"status": "failed", "reason": "ffmpeg_timeout"}
+        except (OSError, ValueError):
+            if target.exists():
+                target.unlink()
+            return {"status": "failed", "reason": "raw_video_failed"}
     if result.returncode != 0:
         if target.exists():
             target.unlink()
-        return {"status": "failed", "reason": (result.stderr or "ffmpeg_failed")[-500:]}
-    duration = _video_duration_seconds(target)
-    sidecar_path = target.with_suffix(".quality.json")
+        return _ffmpeg_failure_receipt(result)
+    duration = _validated_mp4_duration(
+        target,
+        expected_frame_count=encoded_frame_count,
+        fps=fps,
+    )
+    if duration <= 0.0:
+        target.unlink(missing_ok=True)
+        return {"status": "failed", "reason": "mp4_duration_validation_failed"}
     coverage_step_seconds = max(0.0, seconds_per_stop - transition_duration)
     coverage = {
         "status": "pass",
@@ -6556,7 +9194,183 @@ def _write_walkthrough(
     )
 
 
-def main() -> int:
+def _open_relative_directory_components(
+    anchor_fd: int,
+    parts: tuple[str, ...],
+    *,
+    create_missing: bool,
+    failure: str,
+) -> int:
+    current_fd = -1
+    try:
+        current_fd = os.dup(anchor_fd)
+        for part in parts:
+            if part in {"", ".", ".."}:
+                raise _PublicBundleTransactionError(failure)
+            if create_missing:
+                try:
+                    os.mkdir(part, 0o700, dir_fd=current_fd)
+                except FileExistsError:
+                    pass
+            next_fd = _open_public_bundle_directory(
+                part,
+                parent_fd=current_fd,
+                failure=failure,
+            )
+            os.close(current_fd)
+            current_fd = next_fd
+        result_fd = current_fd
+        current_fd = -1
+        return result_fd
+    except _PublicBundleTransactionError:
+        raise
+    except OSError as exc:
+        raise _PublicBundleTransactionError(failure) from exc
+    finally:
+        if current_fd >= 0:
+            os.close(current_fd)
+
+
+def _reset_owned_generation_surface(
+    *,
+    bundle_fd: int,
+    target_subdir: str,
+) -> None:
+    parts = PurePosixPath(target_subdir).parts
+    if not parts or any(part in {"", ".", ".."} for part in parts):
+        raise _PublicBundleTransactionError("owned_generation_surface_invalid")
+    parent_fd = _open_relative_directory_components(
+        bundle_fd,
+        parts[:-1],
+        create_missing=True,
+        failure="owned_generation_surface_invalid",
+    )
+    output_fd = -1
+    try:
+        output_metadata = os.stat(
+            parts[-1],
+            dir_fd=parent_fd,
+            follow_symlinks=False,
+        )
+    except FileNotFoundError:
+        output_metadata = None
+    except OSError as exc:
+        os.close(parent_fd)
+        raise _PublicBundleTransactionError(
+            "owned_generation_surface_invalid"
+        ) from exc
+    try:
+        if output_metadata is not None:
+            if not stat.S_ISDIR(output_metadata.st_mode) or stat.S_ISLNK(
+                output_metadata.st_mode
+            ):
+                raise _PublicBundleTransactionError(
+                    "owned_generation_surface_invalid"
+                )
+            output_fd = _open_public_bundle_directory(
+                parts[-1],
+                parent_fd=parent_fd,
+                failure="owned_generation_surface_invalid",
+            )
+            opened_output = os.fstat(output_fd)
+            _remove_tree_contents(output_fd)
+            if not _directory_path_identity_matches(
+                parent_fd=parent_fd,
+                name=parts[-1],
+                expected=opened_output,
+            ):
+                raise _PublicBundleTransactionError(
+                    "owned_generation_surface_reset_refused"
+                )
+            os.rmdir(parts[-1], dir_fd=parent_fd)
+            os.close(output_fd)
+            output_fd = -1
+            os.fsync(parent_fd)
+        for preview_name in ("diorama-preview.png", "telegram-preview.png"):
+            try:
+                preview_metadata = os.stat(
+                    preview_name,
+                    dir_fd=bundle_fd,
+                    follow_symlinks=False,
+                )
+            except FileNotFoundError:
+                continue
+            except OSError as exc:
+                raise _PublicBundleTransactionError(
+                    "owned_generation_preview_invalid"
+                ) from exc
+            if not stat.S_ISREG(preview_metadata.st_mode):
+                raise _PublicBundleTransactionError(
+                    "owned_generation_preview_invalid"
+                )
+            preview_fd = _open_regular_public_entry(
+                bundle_fd,
+                preview_name,
+                failure="owned_generation_preview_invalid",
+            )
+            try:
+                opened_preview = os.fstat(preview_fd)
+            finally:
+                os.close(preview_fd)
+            current_preview = os.stat(
+                preview_name,
+                dir_fd=bundle_fd,
+                follow_symlinks=False,
+            )
+            if (
+                not stat.S_ISREG(current_preview.st_mode)
+                or current_preview.st_dev != opened_preview.st_dev
+                or current_preview.st_ino != opened_preview.st_ino
+            ):
+                raise _PublicBundleTransactionError(
+                    "owned_generation_preview_changed"
+                )
+            os.unlink(preview_name, dir_fd=bundle_fd)
+        os.fsync(bundle_fd)
+    except _PublicBundleTransactionError:
+        raise
+    except OSError as exc:
+        raise _PublicBundleTransactionError(
+            "owned_generation_surface_reset_failed"
+        ) from exc
+    finally:
+        if output_fd >= 0:
+            os.close(output_fd)
+        os.close(parent_fd)
+
+
+def _create_owned_generation_surface(
+    *,
+    bundle_fd: int,
+    target_subdir: str,
+) -> int:
+    parts = PurePosixPath(target_subdir).parts
+    parent_fd = _open_relative_directory_components(
+        bundle_fd,
+        parts[:-1],
+        create_missing=True,
+        failure="owned_generation_surface_invalid",
+    )
+    try:
+        os.mkdir(parts[-1], 0o700, dir_fd=parent_fd)
+        output_fd = _open_public_bundle_directory(
+            parts[-1],
+            parent_fd=parent_fd,
+            failure="owned_generation_surface_invalid",
+        )
+        os.fsync(parent_fd)
+        return output_fd
+    except _PublicBundleTransactionError:
+        raise
+    except OSError as exc:
+        raise _PublicBundleTransactionError(
+            "owned_generation_surface_create_failed"
+        ) from exc
+    finally:
+        os.close(parent_fd)
+
+
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate a PropertyQuarry reconstruction from a floorplan image and photos.")
     parser.add_argument("--slug", required=True, help="Existing PropertyQuarry public tour slug.")
     parser.add_argument("--floorplan", default="", help="Floorplan image. PDF support is intentionally not implied here.")
@@ -6572,26 +9386,74 @@ def main() -> int:
         help="Generate a disclosed schematic floorplan when no real floorplan image is available.",
     )
     parser.add_argument("--skip-video", action="store_true")
-    args = parser.parse_args()
+    return parser.parse_args(argv)
 
-    slug = _safe_relpath(args.slug)
-    if "/" in slug or not slug:
-        raise SystemExit("invalid_tour_slug")
-    public_root = _public_tour_dir()
-    bundle_dir = public_root / slug
-    manifest_path = bundle_dir / "tour.json"
-    if not manifest_path.is_file():
-        raise SystemExit("tour_manifest_missing")
+
+def _generate_reconstruction(
+    args: argparse.Namespace,
+    *,
+    public_root: Path,
+    bundle_dir: Path,
+    bundle_uses_shared_runtime_root: bool,
+) -> tuple[int, dict[str, object] | None]:
+    slug = _validated_tour_slug(args.slug)
     target_subdir = _safe_relpath(args.target_subdir) or "generated-reconstruction"
-    output_dir = (bundle_dir / target_subdir).resolve()
-    if bundle_dir.resolve() not in output_dir.parents:
-        raise SystemExit("invalid_reconstruction_target")
-    output_dir.mkdir(parents=True, exist_ok=True)
+    bundle_fd = -1
+    output_fd = -1
+    manifest_fd = -1
+    try:
+        try:
+            bundle_fd, _ = _open_directory_anchor(bundle_dir)
+        except OSError as exc:
+            raise _PublicBundleTransactionError(
+                "generation_bundle_anchor_invalid"
+            ) from exc
+        manifest_fd = _open_regular_public_entry(
+            bundle_fd,
+            "tour.json",
+            failure="tour_manifest_missing",
+        )
+        os.close(manifest_fd)
+        manifest_fd = -1
+        _reset_owned_generation_surface(
+            bundle_fd=bundle_fd,
+            target_subdir=target_subdir,
+        )
+        output_fd = _create_owned_generation_surface(
+            bundle_fd=bundle_fd,
+            target_subdir=target_subdir,
+        )
+        return _generate_reconstruction_on_anchored_surface(
+            args,
+            public_root=public_root,
+            bundle_dir=Path(f"/proc/self/fd/{bundle_fd}"),
+            output_dir=Path(f"/proc/self/fd/{output_fd}"),
+            target_subdir=target_subdir,
+            slug=slug,
+            bundle_uses_shared_runtime_root=bundle_uses_shared_runtime_root,
+        )
+    finally:
+        for descriptor in (manifest_fd, output_fd, bundle_fd):
+            if descriptor >= 0:
+                os.close(descriptor)
 
-    photo_sources = [Path(value).expanduser().resolve() for value in args.photo or []]
+
+def _generate_reconstruction_on_anchored_surface(
+    args: argparse.Namespace,
+    *,
+    public_root: Path,
+    bundle_dir: Path,
+    output_dir: Path,
+    target_subdir: str,
+    slug: str,
+    bundle_uses_shared_runtime_root: bool,
+) -> tuple[int, dict[str, object] | None]:
+    manifest_path = bundle_dir / "tour.json"
+
+    photo_sources = [Path(value).expanduser() for value in args.photo or []]
     floorplan_arg = str(args.floorplan or "").strip()
     if floorplan_arg:
-        floorplan_source = Path(floorplan_arg).expanduser().resolve()
+        floorplan_source = Path(floorplan_arg).expanduser()
         if not floorplan_source.is_file():
             raise SystemExit("floorplan_missing")
         floorplan_target = output_dir / f"source-floorplan{_web_safe_image_suffix(floorplan_source)}"
@@ -6637,10 +9499,41 @@ def main() -> int:
         height_m=height_m,
         wall_rectangles=wall_rectangles,
     )
-    glb_export = _write_glb_with_blender(output_dir)
+    glb_export = _write_glb(output_dir)
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise SystemExit("invalid_tour_manifest")
+    payload.pop("generated_reconstruction", None)
+    for preview_key in (
+        "diorama_preview_relpath",
+        "telegram_preview_relpath",
+    ):
+        if str(payload.get(preview_key) or "").strip() in {
+            "diorama-preview.png",
+            "telegram-preview.png",
+        }:
+            payload.pop(preview_key, None)
+    if str(payload.get("preview_relpath") or "").strip() in {
+        "diorama-preview.png",
+        "telegram-preview.png",
+    }:
+        payload.pop("preview_relpath", None)
+    public_assets = payload.get("public_assets")
+    if isinstance(public_assets, list):
+        payload["public_assets"] = [
+            row
+            for row in public_assets
+            if not (
+                isinstance(row, dict)
+                and (
+                    str(row.get("relpath") or "").strip().startswith(
+                        f"{target_subdir}/"
+                    )
+                    or str(row.get("relpath") or "").strip()
+                    in {"diorama-preview.png", "telegram-preview.png"}
+                )
+            )
+        ]
     source_images = [floorplan_target, *photo_paths]
     route_labels = _reconstruction_walkthrough_route_labels(
         payload,
@@ -6739,6 +9632,9 @@ def main() -> int:
         ),
         encoding="utf-8",
     )
+    if args.skip_video:
+        (output_dir / "generated-walkthrough.mp4").unlink(missing_ok=True)
+        (output_dir / "generated-walkthrough.quality.json").unlink(missing_ok=True)
     walkthrough = (
         {"status": "skipped", "reason": "skip_video_requested"}
         if args.skip_video
@@ -6753,6 +9649,32 @@ def main() -> int:
         )
     )
     receipt["walkthrough"] = walkthrough
+    required_artifact_failures: list[str] = []
+    if glb_export.get("status") != "generated":
+        required_artifact_failures.append("glb")
+    if not args.skip_video and walkthrough.get("status") != "generated":
+        required_artifact_failures.append("walkthrough")
+    if required_artifact_failures:
+        receipt["status"] = "failed"
+        receipt["reason"] = "required_render_artifact_failed"
+        receipt["failed_artifacts"] = required_artifact_failures
+        (output_dir / "reconstruction.json").write_text(
+            json.dumps(receipt, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        print(
+            json.dumps(
+                {
+                    "status": "failed",
+                    "reason": "required_render_artifact_failed",
+                    "failed_artifacts": required_artifact_failures,
+                    "glb_status": glb_export.get("status"),
+                    "walkthrough_status": walkthrough.get("status"),
+                },
+                ensure_ascii=False,
+            )
+        )
+        return 1, None
     (output_dir / "reconstruction.json").write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     receipt["viewer"]["sha256"] = _sha256(output_dir / "viewer.html")
     (output_dir / "reconstruction.json").write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -6863,12 +9785,11 @@ def main() -> int:
     manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     runtime_publish_required = _runtime_publish_required()
     runtime_publish_requested = _runtime_publish_requested()
-    bundle_uses_shared_runtime_root = _bundle_uses_shared_runtime_root(bundle_dir)
     if bundle_uses_shared_runtime_root:
         planned_runtime_publish = {"status": "skipped_shared_public_root", "slug": slug}
     elif runtime_publish_requested:
         planned_runtime_publish = {
-            "status": "updated",
+            "status": "pending_local_commit",
             "slug": slug,
             "container": str(os.getenv("PROPERTYQUARRY_RUNTIME_CONTAINER") or "propertyquarry-api").strip(),
         }
@@ -6884,10 +9805,10 @@ def main() -> int:
         json.dumps(receipt, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-    if runtime_publish_requested and not bundle_uses_shared_runtime_root:
-        runtime_publish = _sync_bundle_to_runtime_container(bundle_dir, slug=slug)
-    else:
-        runtime_publish = planned_runtime_publish
+    deferred_runtime_publish = bool(
+        runtime_publish_requested and not bundle_uses_shared_runtime_root
+    )
+    runtime_publish = planned_runtime_publish
     runtime_publish_ok = _runtime_publish_succeeded(runtime_publish)
     receipt["runtime_publish"] = runtime_publish
     receipt["runtime_publish_required"] = runtime_publish_required
@@ -6907,32 +9828,409 @@ def main() -> int:
         "verified_provider_capture": False,
         "runtime_publish": runtime_publish,
         "runtime_publish_required": runtime_publish_required,
+        "_deferred_runtime_publish": deferred_runtime_publish,
     }
 
-    if runtime_publish_required and not runtime_publish_ok:
+    if (
+        runtime_publish_required
+        and not runtime_publish_ok
+        and not deferred_runtime_publish
+    ):
         print(
             json.dumps(
                 {
                     "status": "failed",
                     "reason": "runtime_publish_failed",
-                    "local_bundle_generated": True,
+                    "staged_bundle_generated": True,
+                    "local_bundle_generated": False,
+                    "live_bundle_preserved": True,
                     **response,
                 },
                 ensure_ascii=False,
             )
         )
-        return 1
+        return 1, None
 
-    print(
-        json.dumps(
-            {
-                "status": "generated",
-                **response,
-            },
-            ensure_ascii=False,
-        )
+    return 0, {
+        "status": "generated",
+        **response,
+    }
+
+
+def _stable_generation_failure_reason(value: object) -> str:
+    reason = str(value or "generation_failed").strip().lower()
+    if re.fullmatch(r"[a-z0-9_:-]{1,160}", reason):
+        return reason
+    return "generation_failed"
+
+
+def _render_transaction_id() -> str:
+    supplied = str(
+        os.getenv("PROPERTYQUARRY_RECONSTRUCTION_TRANSACTION_ID") or ""
+    ).strip().lower()
+    if supplied:
+        if not re.fullmatch(r"[a-f0-9]{32}", supplied):
+            raise _PublicBundleTransactionError("render_transaction_id_invalid")
+        return supplied
+    return secrets.token_hex(16)
+
+
+def _write_candidate_commit_marker(
+    *,
+    bundle_dir: Path,
+    slug: str,
+    transaction_id: str,
+) -> None:
+    marker_path = bundle_dir / _PUBLIC_BUNDLE_COMMIT_MARKER
+    payload = {
+        "schema": "propertyquarry.render_bundle_commit.v1",
+        "transaction_id": transaction_id,
+        "slug": slug,
+        "tour_manifest_sha256": _sha256(bundle_dir / "tour.json"),
+    }
+    directory_fd = -1
+    temporary_fd = -1
+    temporary_name = (
+        f".{_PUBLIC_BUNDLE_COMMIT_MARKER}.{secrets.token_hex(16)}.tmp"
     )
-    return 0
+    try:
+        directory_fd, _ = _open_directory_anchor(bundle_dir)
+        encoded = (json.dumps(payload, sort_keys=True) + "\n").encode("utf-8")
+        temporary_fd = os.open(
+            temporary_name,
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+            dir_fd=directory_fd,
+        )
+        offset = 0
+        while offset < len(encoded):
+            written = os.write(temporary_fd, encoded[offset:])
+            if written <= 0:
+                raise OSError("render commit marker short write")
+            offset += written
+        os.fchmod(temporary_fd, 0o600)
+        os.fsync(temporary_fd)
+        os.close(temporary_fd)
+        temporary_fd = -1
+        os.replace(
+            temporary_name,
+            _PUBLIC_BUNDLE_COMMIT_MARKER,
+            src_dir_fd=directory_fd,
+            dst_dir_fd=directory_fd,
+        )
+        temporary_name = ""
+        os.fsync(directory_fd)
+    except OSError as exc:
+        raise _PublicBundleTransactionError(
+            "render_commit_marker_write_failed"
+        ) from exc
+    finally:
+        if temporary_fd >= 0:
+            os.close(temporary_fd)
+        if directory_fd >= 0:
+            if temporary_name:
+                try:
+                    os.unlink(temporary_name, dir_fd=directory_fd)
+                except FileNotFoundError:
+                    pass
+            os.close(directory_fd)
+
+
+def _update_committed_runtime_publish_receipt(
+    *,
+    bundle_dir: Path,
+    reconstruction_subdir: str,
+    runtime_publish: dict[str, object],
+    runtime_publish_required: bool,
+) -> None:
+    directory_flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    bundle_fd = -1
+    reconstruction_fd = -1
+    receipt_fd = -1
+    temporary_fd = -1
+    temporary_name = f".reconstruction.json.{secrets.token_hex(16)}.tmp"
+    try:
+        expected_bundle = bundle_dir.stat(follow_symlinks=False)
+        bundle_fd = os.open(bundle_dir, directory_flags)
+        opened_bundle = os.fstat(bundle_fd)
+        if (
+            not stat.S_ISDIR(expected_bundle.st_mode)
+            or not stat.S_ISDIR(opened_bundle.st_mode)
+            or opened_bundle.st_dev != expected_bundle.st_dev
+            or opened_bundle.st_ino != expected_bundle.st_ino
+        ):
+            raise _PublicBundleTransactionError(
+                "committed_bundle_changed"
+            )
+        reconstruction_fd = _open_public_directory_path(
+            bundle_fd,
+            reconstruction_subdir,
+        )
+        receipt_fd = _open_regular_public_entry(
+            reconstruction_fd,
+            "reconstruction.json",
+            failure="committed_runtime_receipt_invalid",
+        )
+        receipt_metadata = os.fstat(receipt_fd)
+        receipt = _read_bounded_json_object(
+            receipt_fd,
+            failure="committed_runtime_receipt_invalid",
+        )
+        receipt["runtime_publish"] = runtime_publish
+        receipt["runtime_publish_required"] = bool(runtime_publish_required)
+        receipt["runtime_publish_ok"] = _runtime_publish_succeeded(runtime_publish)
+        encoded = (
+            json.dumps(receipt, ensure_ascii=False, indent=2) + "\n"
+        ).encode("utf-8")
+        if len(encoded) > 8 * 1024 * 1024:
+            raise _PublicBundleTransactionError(
+                "committed_runtime_receipt_size_limit_exceeded"
+            )
+        temporary_fd = os.open(
+            temporary_name,
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+            dir_fd=reconstruction_fd,
+        )
+        offset = 0
+        while offset < len(encoded):
+            written = os.write(temporary_fd, encoded[offset:])
+            if written <= 0:
+                raise _PublicBundleTransactionError(
+                    "committed_runtime_receipt_write_failed"
+                )
+            offset += written
+        os.fchmod(temporary_fd, 0o644)
+        os.fsync(temporary_fd)
+        temporary_metadata = os.fstat(temporary_fd)
+        os.close(temporary_fd)
+        temporary_fd = -1
+        current_receipt = os.stat(
+            "reconstruction.json",
+            dir_fd=reconstruction_fd,
+            follow_symlinks=False,
+        )
+        if (
+            not stat.S_ISREG(current_receipt.st_mode)
+            or current_receipt.st_dev != receipt_metadata.st_dev
+            or current_receipt.st_ino != receipt_metadata.st_ino
+            or current_receipt.st_size != receipt_metadata.st_size
+            or current_receipt.st_mtime_ns != receipt_metadata.st_mtime_ns
+            or current_receipt.st_ctime_ns != receipt_metadata.st_ctime_ns
+            or stat.S_IMODE(current_receipt.st_mode)
+            != stat.S_IMODE(receipt_metadata.st_mode)
+        ):
+            raise _PublicBundleTransactionError(
+                "committed_runtime_receipt_changed"
+            )
+        os.replace(
+            temporary_name,
+            "reconstruction.json",
+            src_dir_fd=reconstruction_fd,
+            dst_dir_fd=reconstruction_fd,
+        )
+        temporary_name = ""
+        published_receipt = os.stat(
+            "reconstruction.json",
+            dir_fd=reconstruction_fd,
+            follow_symlinks=False,
+        )
+        if (
+            not stat.S_ISREG(published_receipt.st_mode)
+            or published_receipt.st_dev != temporary_metadata.st_dev
+            or published_receipt.st_ino != temporary_metadata.st_ino
+            or published_receipt.st_size != temporary_metadata.st_size
+            or stat.S_IMODE(published_receipt.st_mode) != 0o644
+        ):
+            raise _PublicBundleTransactionError(
+                "committed_runtime_receipt_publish_invalid"
+            )
+        os.fsync(reconstruction_fd)
+        final_bundle = bundle_dir.stat(follow_symlinks=False)
+        if (
+            final_bundle.st_dev != opened_bundle.st_dev
+            or final_bundle.st_ino != opened_bundle.st_ino
+        ):
+            raise _PublicBundleTransactionError("committed_bundle_changed")
+        os.fsync(bundle_fd)
+    except _PublicBundleTransactionError:
+        raise
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        raise _PublicBundleTransactionError(
+            "committed_runtime_receipt_write_failed"
+        ) from exc
+    finally:
+        if temporary_fd >= 0:
+            os.close(temporary_fd)
+        if reconstruction_fd >= 0:
+            if temporary_name:
+                try:
+                    os.unlink(temporary_name, dir_fd=reconstruction_fd)
+                except OSError:
+                    pass
+        for descriptor in (receipt_fd, reconstruction_fd, bundle_fd):
+            if descriptor >= 0:
+                os.close(descriptor)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
+    slug = _validated_tour_slug(args.slug)
+    public_root = _public_tour_dir()
+    live_bundle_dir = public_root / slug
+    if not live_bundle_dir.is_dir():
+        raise SystemExit("tour_bundle_missing")
+    bundle_uses_shared_runtime_root = _bundle_uses_shared_runtime_root(
+        live_bundle_dir
+    )
+    final_response: dict[str, object] | None = None
+    final_returncode = 0
+    try:
+        transaction_id = _render_transaction_id()
+        with _staged_public_bundle(public_root, slug) as transaction:
+            try:
+                snapshot_args = _snapshot_generation_inputs(args, transaction)
+                try:
+                    returncode, response = _generate_reconstruction(
+                        snapshot_args,
+                        public_root=public_root,
+                        bundle_dir=transaction.anchored_stage_dir,
+                        bundle_uses_shared_runtime_root=bundle_uses_shared_runtime_root,
+                    )
+                finally:
+                    _remove_generation_input_snapshot(transaction)
+            except SystemExit as exc:
+                print(
+                    json.dumps(
+                        {
+                            "status": "failed",
+                            "reason": _stable_generation_failure_reason(exc.code),
+                        },
+                        ensure_ascii=False,
+                    )
+                )
+                return 1
+            except _PublicBundleTransactionError:
+                raise
+            except Exception as exc:
+                print(
+                    json.dumps(
+                        {
+                            "status": "failed",
+                            "reason": "generation_internal_error",
+                            "error_class": type(exc).__name__,
+                        },
+                        ensure_ascii=False,
+                    )
+                )
+                return 1
+            if returncode != 0 or response is None:
+                return max(1, int(returncode))
+            deferred_runtime_publish = bool(
+                response.pop("_deferred_runtime_publish", False)
+            )
+            _write_candidate_commit_marker(
+                bundle_dir=transaction.anchored_stage_dir,
+                slug=slug,
+                transaction_id=transaction_id,
+            )
+            transaction.publish(
+                reconstruction_subdir=(
+                    _safe_relpath(args.target_subdir)
+                    or "generated-reconstruction"
+                ),
+                require_walkthrough=not bool(args.skip_video),
+            )
+            transaction.cleanup_replaced_bundle()
+            postcommit_failures: list[str] = []
+            postcommit_error_class = ""
+            try:
+                if deferred_runtime_publish:
+                    runtime_publish = _sync_bundle_to_runtime_container(
+                        live_bundle_dir,
+                        slug=slug,
+                    )
+                    runtime_publish_required = bool(
+                        response.get("runtime_publish_required")
+                    )
+                    # Preserve the observed runtime outcome even if the
+                    # receipt update itself fails after the local exchange.
+                    response["runtime_publish"] = runtime_publish
+                    _update_committed_runtime_publish_receipt(
+                        bundle_dir=live_bundle_dir,
+                        reconstruction_subdir=(
+                            _safe_relpath(args.target_subdir)
+                            or "generated-reconstruction"
+                        ),
+                        runtime_publish=runtime_publish,
+                        runtime_publish_required=runtime_publish_required,
+                    )
+                    if (
+                        runtime_publish_required
+                        and not _runtime_publish_succeeded(runtime_publish)
+                    ):
+                        postcommit_failures.append(
+                            "runtime_publish_failed_after_local_commit"
+                        )
+            except _PublicBundleTransactionError as exc:
+                postcommit_failures.append(
+                    _stable_generation_failure_reason(str(exc))
+                )
+            except Exception as exc:
+                postcommit_failures.append("postcommit_internal_error")
+                postcommit_error_class = type(exc).__name__
+            response["publication_durability"] = transaction.durability_status
+            response["replaced_bundle_cleanup"] = transaction.cleanup_status
+            if transaction.durability_status != "fsynced":
+                postcommit_failures.append("publication_durability_unverified")
+            if transaction.cleanup_status != "removed":
+                postcommit_failures.append("replaced_bundle_cleanup_deferred")
+            if postcommit_failures:
+                unique_failures = list(dict.fromkeys(postcommit_failures))
+                response["status"] = "failed"
+                response["reason"] = unique_failures[0]
+                if len(unique_failures) > 1:
+                    response["blocking_reasons"] = unique_failures
+                if postcommit_error_class:
+                    response["error_class"] = postcommit_error_class
+                response["local_bundle_generated"] = True
+                response["local_commit_applied"] = True
+                final_returncode = 1
+            final_response = response
+    except _PublicBundleTransactionError as exc:
+        print(
+            json.dumps(
+                {
+                    "status": "failed",
+                    "reason": _stable_generation_failure_reason(str(exc)),
+                },
+                ensure_ascii=False,
+            )
+        )
+        return 1
+    if final_response is None:
+        print(
+            json.dumps(
+                {"status": "failed", "reason": "generation_result_missing"},
+                ensure_ascii=False,
+            )
+        )
+        return 1
+    print(json.dumps(final_response, ensure_ascii=False))
+    return final_returncode
 
 
 if __name__ == "__main__":

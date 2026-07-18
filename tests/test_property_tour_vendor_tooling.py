@@ -48,6 +48,29 @@ def test_vendor_tooling_receipt_reports_missing_3dvista_and_pano2vr_exports(tmp_
     assert {"krpanotools", "blender", "colmap", "meshlabserver", "ffmpeg", "exiftool", "imagemagick"} <= set(
         receipt["generated_tour_tools"]
     )
+    assert {
+        "ffmpeg:functional_encoder",
+        "python:PIL",
+        "python:playwright",
+        "python:direct_glb",
+    } == set(receipt["generated_tour_readiness_capabilities"])
+    assert all(
+        row["affects_runtime_readiness"] is True
+        for row in receipt["generated_tour_readiness_capabilities"].values()
+    )
+    assert all(
+        receipt["generated_tour_tools"][name]["affects_runtime_readiness"]
+        is False
+        for name in (
+            "krpanotools",
+            "blender",
+            "colmap",
+            "meshlabserver",
+            "ffmpeg",
+            "exiftool",
+            "imagemagick",
+        )
+    )
     assert receipt["runtime_generated_tour_ready"] is None
     assert receipt["runtime_generated_tour_tools"] == {}
     assert receipt["verified_export_ready_counts"] == {"3dvista": 0, "pano2vr": 0}

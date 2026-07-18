@@ -1,0 +1,12 @@
+{
+  "builder_image": "debian:13.6-slim@sha256:020c0d20b9880058cbe785a9db107156c3c75c2ac944a6aa7ab59f2add76a7bd",
+  "dsc_signature_verified": true,
+  "libmount_disabled": true,
+  "recipe_script_sha256": "0063eb0d9a9733461cbfb9257d7549cd18affccc69664a7a48165699e7f3aaba",
+  "runtime_deb_sha256": "7f78780302454832988b84f1c3c4de31bbbf42a8e3be5dfe69f7980b98384cf8",
+  "runtime_version": "2.84.4-3~deb13u3+pq1",
+  "schema": "propertyquarry.render_media_build_receipt.v1",
+  "snapshot_root": "https://snapshot.debian.org/archive/debian/20260713T000000Z/pool/main/g/glib2.0/",
+  "source_version": "2.84.4-3~deb13u3",
+  "version": 1
+}

@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import json
 import os
 import re
+import shlex
 import subprocess
 from pathlib import Path
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -11,6 +15,50 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def _read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
+
+
+def test_property_render_runtime_uses_static_loader_environment_launcher() -> None:
+    dockerfile = _read("ea/Dockerfile.property")
+    launcher = _read("ea/property_render_env_launcher.c")
+
+    assert "ea/property_render_env_launcher.c" in dockerfile
+    assert "cc -static -Os -s -Wall -Wextra -Werror" in dockerfile
+    assert "readelf -lW /out/propertyquarry/property-render-env-launcher" in dockerfile
+    assert (
+        "> /out/propertyquarry/property-render-env-launcher.readelf"
+        in dockerfile
+    )
+    assert (
+        "test -s /out/propertyquarry/property-render-env-launcher.readelf"
+        in dockerfile
+    )
+    assert (
+        "'$1 == \"INTERP\" { found = 1 } END { exit found ? 1 : 0 }'"
+        in dockerfile
+    )
+    assert (
+        "COPY --from=codec-builder --chmod=0555 \\\n"
+        "    /out/propertyquarry/property-render-env-launcher \\\n"
+        "    /usr/local/bin/property-render-env-launcher"
+    ) in dockerfile
+    assert (
+        'ENTRYPOINT ["/usr/local/bin/property-render-env-launcher", '
+        '"/usr/local/bin/python", "-I", "-S", '
+        '"/usr/local/libexec/property_render_entrypoint.py"]'
+    ) in dockerfile
+    assert (
+        'CMD ["/usr/local/bin/property-render-env-launcher", '
+        '"/usr/local/bin/python", "-I", "-S", "-c"'
+    ) in dockerfile
+
+    assert 'memcmp(entry, "LD_", 3U) == 0' in launcher
+    assert 'static const char glibc_tunables[] = "GLIBC_TUNABLES";' in launcher
+    assert 'static const char gconv_path[] = "GCONV_PATH";' in launcher
+    assert "*destination = NULL;" in launcher
+    assert "execv(argv[1], &argv[1]);" in launcher
+    assert "perror(" not in launcher
+    assert "strerror(" not in launcher
+    assert 'static const char message[] = "property-render-launcher: failed\\n";' in launcher
 
 
 def _assert_external_deploy_controller_handoff(script: str) -> None:
@@ -771,7 +819,11 @@ def test_property_runtime_image_copies_reconstruction_playwright_dependency() ->
     assert dockerfile.count(runtime_copy) == 1
     assert dockerfile.count(generator_copy) == 1
     assert dockerfile.index(runtime_copy) < dockerfile.index(generator_copy)
-    assert dockerfile.index(generator_copy) < dockerfile.index("COPY ea/app /app/app")
+    assert dockerfile.index(generator_copy) < dockerfile.index(
+        "COPY scripts/property_reconstruction_render_bridge.py "
+        "/app/scripts/property_reconstruction_render_bridge.py"
+    )
+    assert "COPY ea/app /app/app" not in dockerfile
 
 
 def test_propertyquarry_deploy_wrapper_preflights_prod_and_probes_runtime(
@@ -1120,13 +1172,20 @@ def test_propertyquarry_runtime_images_use_image_baked_app_code_not_repo_bind_mo
     assert ".:/app" not in compose
 
 
-def test_propertyquarry_render_runtime_keeps_playwright_for_magicfit_render_lane() -> None:
+def test_propertyquarry_render_runtime_keeps_playwright_only_for_reconstruction() -> None:
     dockerfile = _read("ea/Dockerfile.property")
 
-    assert "COPY scripts/render_magicfit_property_flythrough.py /app/scripts/render_magicfit_property_flythrough.py" in dockerfile
     assert "PLAYWRIGHT_BROWSERS_PATH=/ms-playwright" in dockerfile
-    assert "python -m playwright install --with-deps chromium" in dockerfile
-    assert "chown -R ea:ea /ms-playwright" in dockerfile
+    assert "python -m playwright install chromium" in dockerfile
+    assert "playwright install --with-deps" not in dockerfile
+    for excluded_provider_runtime in (
+        "render_magicfit_property_flythrough.py",
+        "render_omagic_property_model_walkthrough.py",
+        "render_magicai_model_upload_adapter.py",
+        "render_onemin_property_i2v_segment.py",
+        "mootion_movie_worker.py",
+    ):
+        assert excluded_provider_runtime not in dockerfile
 
 
 def test_property_tour_export_scripts_share_container_incoming_path() -> None:
@@ -1697,52 +1756,60 @@ def test_runtime_hard_exit_gates_can_extend_into_propertyquarry_live_runtime() -
 def test_property_dockerfile_allowlists_runtime_scripts() -> None:
     dockerfile = _read("ea/Dockerfile.property")
 
-    assert dockerfile.startswith(
-        "FROM python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de\n"
-    )
     assert "COPY . /tmp/src" not in dockerfile
-    assert "COPY ea/requirements.txt /app/requirements.txt" in dockerfile
-    assert "COPY ea/requirements.lock /app/requirements.lock" in dockerfile
-    assert dockerfile.index("COPY ea/requirements.txt /app/requirements.txt") < dockerfile.index("pip install --no-cache-dir")
-    assert dockerfile.index("pip install --no-cache-dir") < dockerfile.index("COPY ea/app /app/app")
-    assert "COPY scripts/willhaben_property_packet.py /app/scripts/willhaben_property_packet.py" in dockerfile
-    assert "COPY scripts/property_magicfit_env.py /app/scripts/property_magicfit_env.py" in dockerfile
-    assert "COPY scripts/render_magicfit_property_flythrough.py /app/scripts/render_magicfit_property_flythrough.py" in dockerfile
-    assert "COPY scripts/render_omagic_property_model_walkthrough.py /app/scripts/render_omagic_property_model_walkthrough.py" in dockerfile
-    assert "COPY scripts/render_magicai_model_upload_adapter.py /app/scripts/render_magicai_model_upload_adapter.py" in dockerfile
-    assert "COPY scripts/property_scene_video_readiness_report.py /app/scripts/property_scene_video_readiness_report.py" in dockerfile
-    assert "COPY scripts/verify_property_scene_video_readiness.py /app/scripts/verify_property_scene_video_readiness.py" in dockerfile
-    assert "COPY scripts/materialize_scene_video_provider_refresh_packet.py /app/scripts/materialize_scene_video_provider_refresh_packet.py" in dockerfile
-    assert "COPY scripts/verify_scene_video_provider_refresh_packet.py /app/scripts/verify_scene_video_provider_refresh_packet.py" in dockerfile
-    assert "COPY scripts/merge_scene_video_provider_accounts_env.py /app/scripts/merge_scene_video_provider_accounts_env.py" in dockerfile
-    assert "COPY scripts/import_3dvista_export.py /app/scripts/import_3dvista_export.py" in dockerfile
-    assert "COPY scripts/import_pano2vr_export.py /app/scripts/import_pano2vr_export.py" in dockerfile
-    assert "COPY scripts/import_krpano_walkable_scene.py /app/scripts/import_krpano_walkable_scene.py" in dockerfile
-    assert "COPY scripts/import_property_tour_exports.py /app/scripts/import_property_tour_exports.py" in dockerfile
-    assert "COPY scripts/attach_provider_tour_layer.py /app/scripts/attach_provider_tour_layer.py" in dockerfile
-    assert "COPY scripts/materialize_property_tour_export_manifest.py /app/scripts/materialize_property_tour_export_manifest.py" in dockerfile
-    assert "COPY scripts/property_tour_runtime_paths.py /app/scripts/property_tour_runtime_paths.py" in dockerfile
-    assert "COPY scripts/generate_property_reconstruction.py /app/scripts/generate_property_reconstruction.py" in dockerfile
-    assert "COPY scripts/property_reconstruction_render_bridge.py /app/scripts/property_reconstruction_render_bridge.py" in dockerfile
-    assert "COPY scripts/import_magicfit_walkthrough.py /app/scripts/import_magicfit_walkthrough.py" in dockerfile
-    assert "COPY scripts/verify_property_tour_controls.py /app/scripts/verify_property_tour_controls.py" in dockerfile
-    assert "COPY scripts/verify_property_tour_vendor_tooling.py /app/scripts/verify_property_tour_vendor_tooling.py" in dockerfile
-    assert "COPY scripts/intake_3dvista_gold_artifact.py /app/scripts/intake_3dvista_gold_artifact.py" in dockerfile
+    assert "COPY ea/app /app/app" not in dockerfile
+    copied_scripts = re.findall(r"COPY\s+scripts/([^\s]+)\s+/app/scripts/", dockerfile)
+    assert copied_scripts == [
+        "property_tour_runtime_paths.py",
+        "propertyquarry_playwright_runtime.py",
+        "generate_property_reconstruction.py",
+        "property_reconstruction_render_bridge.py",
+    ]
+    for retained_runtime_source in (
+        "ea/property_render_entrypoint.py",
+        "ea/property_render_elf_audit.py",
+        "ea/property_render_ffmpeg_audit.py",
+        "ea/property_render_runtime_preflight.py",
+        "ea/property_render_media_provenance.json",
+        "vendor/three",
+    ):
+        assert retained_runtime_source in dockerfile
+    for excluded_provider_source in (
+        "willhaben_property_packet.py",
+        "property_magicfit_env.py",
+        "mootion_movie_worker.py",
+        "render_magicfit_property_flythrough.py",
+        "render_onemin_property_i2v_segment.py",
+        "render_omagic_property_model_walkthrough.py",
+        "render_magicai_model_upload_adapter.py",
+        "property_scene_video_readiness_report.py",
+        "materialize_scene_video_provider_refresh_packet.py",
+        "import_3dvista_export.py",
+        "import_pano2vr_export.py",
+        "import_krpano_walkable_scene.py",
+        "verify_property_tour_vendor_tooling.py",
+        "intake_3dvista_gold_artifact.py",
+        "COPY LTDs.md",
+    ):
+        assert excluded_provider_source not in dockerfile
     assert "PLAYWRIGHT_BROWSERS_PATH=/ms-playwright" in dockerfile
-    assert "python -m playwright install --with-deps chromium" in dockerfile
+    assert "python -m playwright install chromium" in dockerfile
+    assert "playwright install --with-deps" not in dockerfile
     assert "for script in /tmp/src/scripts/*" not in dockerfile
     assert 'for script in "$APP_SRC"/scripts/*' not in dockerfile
     assert 'cp "$script" /app/scripts/' not in dockerfile
-    assert "build_propertyquarry_magicfit_promo.py" not in dockerfile
 
 
 def test_runtime_dockerfiles_fail_closed_for_worker_and_scheduler_health() -> None:
-    for path in ("Dockerfile", "ea/Dockerfile", "ea/Dockerfile.property"):
+    for path in ("Dockerfile", "ea/Dockerfile"):
         dockerfile = _read(path)
         healthcheck = dockerfile[dockerfile.index("HEALTHCHECK") :]
 
         assert 'worker|scheduler) exec python -m app.scheduler_healthcheck' in healthcheck
         assert 'worker|scheduler) exit 0' not in healthcheck
+    render_dockerfile = _read("ea/Dockerfile.property")
+    assert "app.scheduler_healthcheck" not in render_dockerfile
+    assert "app.runner" not in render_dockerfile
 
 
 def test_property_web_dockerfile_keeps_reconstruction_lightweight_and_excludes_browser_payloads() -> None:
@@ -1880,35 +1947,10 @@ def test_property_runtime_copied_scripts_do_not_depend_on_fleet_paths() -> None:
     copied_scripts = re.findall(r"COPY\s+scripts/([^\s]+)\s+/app/scripts/", dockerfile)
 
     assert copied_scripts == [
-        "willhaben_property_packet.py",
-        "property_magicfit_env.py",
-        "mootion_movie_worker.py",
-        "render_magicfit_property_flythrough.py",
-        "render_onemin_property_i2v_segment.py",
-        "render_omagic_property_model_walkthrough.py",
-        "render_magicai_model_upload_adapter.py",
-        "property_scene_video_readiness_report.py",
-        "verify_property_scene_video_readiness.py",
-        "materialize_scene_video_provider_refresh_packet.py",
-        "verify_scene_video_provider_refresh_packet.py",
-        "merge_scene_video_provider_accounts_env.py",
-        "import_3dvista_export.py",
-        "import_pano2vr_export.py",
-        "import_krpano_walkable_scene.py",
-        "import_property_tour_exports.py",
-        "attach_provider_tour_layer.py",
-        "discover_property_tour_exports.py",
-        "materialize_property_tour_export_manifest.py",
         "property_tour_runtime_paths.py",
         "propertyquarry_playwright_runtime.py",
         "generate_property_reconstruction.py",
         "property_reconstruction_render_bridge.py",
-        "import_magicfit_walkthrough.py",
-        "accept_magicfit_delivery.py",
-        "verify_property_tour_controls.py",
-        "property_tour_3dvista_provenance.py",
-        "verify_property_tour_vendor_tooling.py",
-        "intake_3dvista_gold_artifact.py",
     ]
     for script_name in copied_scripts:
         body = _read(f"scripts/{script_name}")
@@ -1918,6 +1960,9 @@ def test_property_runtime_copied_scripts_do_not_depend_on_fleet_paths() -> None:
 
 def test_property_compose_container_names_are_recoverable() -> None:
     compose = _read("docker-compose.property.yml")
+    api_section = compose.split("  propertyquarry-api:", 1)[1].split(
+        "  propertyquarry-migrate:", 1
+    )[0]
 
     assert "dockerfile: ea/Dockerfile.property-web" in compose
     assert 'image: "${PROPERTYQUARRY_WEB_IMAGE:-propertyquarry-web-runtime:latest}"' in compose
@@ -1928,7 +1973,7 @@ def test_property_compose_container_names_are_recoverable() -> None:
     assert 'container_name: "${PROPERTYQUARRY_SCHEDULER_CONTAINER_NAME:-propertyquarry-scheduler}"' in compose
     assert 'container_name: "${PROPERTYQUARRY_DB_CONTAINER_NAME:-propertyquarry-db-live}"' in compose
     assert 'container_name: "${PROPERTYQUARRY_RENDER_CONTAINER_NAME:-propertyquarry-render-tools}"' in compose
-    assert compose.count("path: ./state/runtime/property_scene_video_shared.env") == 3
+    assert compose.count("path: ./state/runtime/property_scene_video_shared.env") == 2
     migration_section = compose.split("  propertyquarry-migrate:", 1)[1].split(
         "  propertyquarry-scheduler:", 1
     )[0]
@@ -1945,17 +1990,422 @@ def test_property_compose_container_names_are_recoverable() -> None:
     render_section = compose.split("  propertyquarry-render-tools:", 1)[1].split("  propertyquarry-db:", 1)[0]
     assert "profiles:" not in render_section
     assert "- render-tools" not in render_section
-    assert 'command: ["python", "/app/scripts/property_reconstruction_render_bridge.py"]' in render_section
+    assert (
+        'command: ["/usr/local/bin/python", '
+        '"-I", "/app/scripts/property_reconstruction_render_bridge.py"]'
+    ) in render_section
+    assert "env_file:" not in render_section
+    assert "property_scene_video_shared.env" not in render_section
+    assert "EA_ARTIFACTS_DIR" not in render_section
+    assert "EA_RESPONSES_PROVIDER_LEDGER_DIR" not in render_section
+    assert "TEABLE_" not in render_section
+    assert "incoming_property_tours" not in render_section
+    assert "provider-ledger" not in render_section
+    assert "propertyquarry_artifacts" not in render_section
+    assert "./config:" not in render_section
+    assert render_section.count("propertyquarry_public_tours:/data/public_property_tours") == 1
     assert 'PROPERTYQUARRY_RECONSTRUCTION_RENDER_HOST: "0.0.0.0"' in render_section
     assert (
         'PROPERTYQUARRY_RECONSTRUCTION_RENDER_BRIDGE_TOKEN: '
         '"${PROPERTYQUARRY_RECONSTRUCTION_RENDER_BRIDGE_TOKEN:?'
     ) in render_section
-    assert "command -v ffmpeg" in render_section
-    assert "command -v blender" in render_section
-    assert "command -v colmap" in render_section
-    assert "command -v exiftool" in render_section
-    assert "command -v convert" in render_section
-    assert "python -c 'import numpy'" in render_section
-    assert "http://127.0.0.1:8091/health" in render_section
+    assert "cap_drop:\n      - ALL" in render_section
+    assert 'security_opt:\n      - "no-new-privileges:true"' in render_section
+    assert "read_only: true" in render_section
+    assert (
+        "tmpfs:\n      - /tmp:rw,nosuid,nodev,noexec,size=2147483648"
+        in render_section
+    )
+    assert "- /run:rw,nosuid,nodev,noexec,size=16777216" in render_section
+    assert 'mem_limit: "${PROPERTYQUARRY_RENDER_MEMORY_LIMIT:-4g}"' in render_section
+    assert (
+        'memswap_limit: "${PROPERTYQUARRY_RENDER_MEMORY_SWAP_LIMIT:-4g}"'
+        in render_section
+    )
+    assert "pids_limit: ${PROPERTYQUARRY_RENDER_PIDS_LIMIT:-256}" in render_section
+    assert 'shm_size: "${PROPERTYQUARRY_RENDER_SHM_SIZE:-256m}"' in render_section
+    assert "networks:\n      - propertyquarry_render_internal" in render_section
+    assert "      - default" not in render_section
+    assert "networks:\n      - default\n      - propertyquarry_render_internal" in api_section
+    assert (
+        "networks:\n  propertyquarry_render_internal:\n    internal: true"
+        in compose
+    )
+    assert (
+        '"CMD",\n          "/usr/local/bin/property-render-env-launcher",\n'
+        '          "/usr/local/bin/python",\n          "-I",\n'
+        '          "-S",\n          "-c"'
+    ) in render_section
+    assert "http.client.HTTPConnection('127.0.0.1', 8091, timeout=10)" in render_section
+    assert "connection.request('GET', '/health/ready')" in render_section
+    assert "response.status == 200" in render_section
+    for identity_only_probe in (
+        "command -v blender",
+        "command -v colmap",
+        "command -v exiftool",
+        "command -v convert",
+        "import numpy",
+        "curl -fsS",
+    ):
+        assert identity_only_probe not in render_section
     assert "http://127.0.0.1:8090/health/live" not in render_section
+
+
+def test_property_vendor_runtime_readiness_uses_retained_functional_capabilities() -> None:
+    verifier = _read("scripts/verify_property_tour_vendor_tooling.py")
+    ffmpeg_audit = _read("ea/property_render_ffmpeg_audit.py")
+
+    for required in (
+        '"ffmpeg:bounded_encoder"',
+        '"ffmpeg:functional_encoder"',
+        '"python:PIL"',
+        '"python:playwright"',
+        '"python:direct_glb"',
+        'RUNTIME_DIRECT_GLB_SYMBOL = "_write_glb"',
+        'audit_ffmpeg_encoder as _ffmpeg_encoder_capability',
+        'capture_container_tool as _capture_container_tool',
+        'capture_local_tool as _capture_local_tool',
+        '"legacy_host_tool_observations"',
+        '"affects_runtime_readiness": False',
+        "Legacy host tool identities are informational only",
+    ):
+        assert required in verifier
+
+    for required in (
+        'else "functional_host"',
+        '"rawvideo_decoder_only"',
+        '"rawvideo_demuxer_only"',
+        '"libx264_encoder_only"',
+        '"mov_muxer_only"',
+        '"devices_absent"',
+        '"file_and_pipe_protocols_only"',
+        '"bounded_filter_surface"',
+        '"bounded_bitstream_filter_surface"',
+        '"hwaccels_absent"',
+        '"static_linkage_observed"',
+        '"version_exact"',
+        '"exact_configure_contract"',
+        '"explicit_enable_allowlist"',
+        '"explicit_disable_contract"',
+        '"ffprobe_absent"',
+        '"ffplay_absent"',
+        '"--disable-network"',
+        '"--disable-everything"',
+        '"--disable-autodetect"',
+        'RUNTIME_MEDIA_PROVENANCE_PATH = Path(',
+        '"propertyquarry.render_media_provenance.v1"',
+        '"binary_sha256_bound"',
+        '"build_receipts_bound"',
+    ):
+        assert required in ffmpeg_audit
+    assert ffmpeg_audit.count('"bounded_checks": bounded_checks') == 1
+
+    runtime_capabilities = verifier.split("runtime_generated_tour_tools = {", 1)[1].split(
+        "if runtime_only:", 1
+    )[0]
+    for removed_identity_gate in (
+        '"blender"',
+        '"colmap"',
+        '"exiftool"',
+        '"convert"',
+        '"python:numpy"',
+    ):
+        assert removed_identity_gate not in runtime_capabilities
+
+
+def _bounded_ffmpeg_test_runner() -> tuple[
+    object,
+    dict[str, str],
+    dict[str, object],
+    dict[str, str],
+]:
+    from ea import property_render_ffmpeg_audit as verifier
+
+    registry_outputs = {
+        "-version": f"ffmpeg version {verifier.FFMPEG_EXPECTED_VERSION} Copyright",
+        "-buildconf": (
+            "ffmpeg version test\nconfiguration: "
+            + shlex.join(sorted(verifier.FFMPEG_REQUIRED_CONFIGURE_FLAGS))
+            + "\nlibavutil 60.0"
+        ),
+        "-decoders": "Decoders:\n V..... rawvideo Raw video",
+        "-demuxers": "File formats:\n D rawvideo raw video",
+        "-encoders": "Encoders:\n V..... libx264 H.264",
+        "-muxers": "File formats:\n E mov QuickTime\n E mp4 MP4",
+        "-devices": "Devices:\n D. = Demuxing supported\n .E = Muxing supported",
+        "-protocols": "Input:\n file\n pipe\nOutput:\n file\n pipe",
+        "-filters": "Filters:\n"
+        + "\n".join(
+            f" .. {name} V->V"
+            for name in (
+                "abuffer",
+                "abuffersink",
+                "aformat",
+                "anull",
+                "atrim",
+                "buffer",
+                "buffersink",
+                "crop",
+                "format",
+                "fps",
+                "hflip",
+                "null",
+                "rotate",
+                "scale",
+                "transpose",
+                "trim",
+                "vflip",
+            )
+        ),
+        "-bsfs": "Bitstream filters:\naac_adtstoasc\nvp9_superframe",
+        "-hwaccels": "Hardware acceleration methods:",
+    }
+
+    receipt_hashes = {
+        "apk_manifest": "a" * 64,
+        "ffmpeg_recipe": "b" * 64,
+        "glib_recipe": "c" * 64,
+    }
+    declared_registries = {
+        "decoders": sorted(verifier.FFMPEG_ALLOWED_RUNTIME_DECODERS),
+        "demuxers": sorted(verifier.FFMPEG_ALLOWED_RUNTIME_DEMUXERS),
+        "encoders": sorted(verifier.FFMPEG_ALLOWED_RUNTIME_ENCODERS),
+        "muxers": sorted(verifier.FFMPEG_ALLOWED_RUNTIME_MUXERS),
+        "devices": [],
+        "protocols": sorted(verifier.FFMPEG_REQUIRED_PROTOCOLS),
+        "filters": sorted(verifier.FFMPEG_ALLOWED_RUNTIME_FILTERS),
+        "parsers": sorted(verifier.FFMPEG_ALLOWED_RUNTIME_PARSERS),
+        "bitstream_filters": sorted(
+            verifier.FFMPEG_ALLOWED_RUNTIME_BITSTREAM_FILTERS
+        ),
+        "hwaccels": sorted(verifier.FFMPEG_ALLOWED_RUNTIME_HWACCELS),
+    }
+    payload: dict[str, object] = {
+        "schema": "propertyquarry.render_media_provenance.v1",
+        "version": 1,
+        "ffmpeg": {
+            "version": verifier.FFMPEG_EXPECTED_VERSION,
+            "binary_sha256": verifier.FFMPEG_EXPECTED_BINARY_SHA256,
+            "binary_size": verifier.FFMPEG_EXPECTED_BINARY_SIZE,
+            "source_url": verifier.FFMPEG_EXPECTED_SOURCE_URL,
+            "source_sha256": verifier.FFMPEG_EXPECTED_SOURCE_SHA256,
+            "signature_url": verifier.FFMPEG_EXPECTED_SIGNATURE_URL,
+            "signature_sha256": verifier.FFMPEG_EXPECTED_SIGNATURE_SHA256,
+            "signing_key_url": verifier.FFMPEG_EXPECTED_SIGNING_KEY_URL,
+            "signing_key_sha256": verifier.FFMPEG_EXPECTED_SIGNING_KEY_SHA256,
+            "signing_fingerprint": verifier.FFMPEG_EXPECTED_SIGNING_FINGERPRINT,
+            "builder_image": verifier.FFMPEG_EXPECTED_BUILDER_IMAGE,
+            "x264_commit": verifier.X264_EXPECTED_COMMIT,
+            "x264_archive_url": verifier.X264_EXPECTED_ARCHIVE_URL,
+            "x264_archive_sha256": verifier.X264_EXPECTED_ARCHIVE_SHA256,
+            "configure_enable": sorted(verifier.FFMPEG_REQUIRED_ENABLE_FLAGS),
+            "configure_disable": sorted(verifier.FFMPEG_REQUIRED_DISABLE_FLAGS),
+            "registries": declared_registries,
+            "static": True,
+            "license": verifier.FFMPEG_EXPECTED_LICENSE,
+        },
+        "glib": {
+            "version": verifier.GLIB_EXPECTED_VERSION,
+            "runtime_deb_sha256": verifier.GLIB_EXPECTED_RUNTIME_DEB_SHA256,
+            "builder_image": verifier.GLIB_EXPECTED_BUILDER_IMAGE,
+            "snapshot_root": verifier.GLIB_EXPECTED_SNAPSHOT_ROOT,
+            **verifier.GLIB_EXPECTED_SOURCE_HASHES,
+            "libmount_disabled": True,
+        },
+        "build_receipts": {
+            name: {"path": str(path), "sha256": receipt_hashes[name]}
+            for name, path in verifier.RUNTIME_BUILD_RECEIPT_PATHS.items()
+        },
+    }
+    observed = {
+        "ffmpeg_path": "/usr/local/bin/ffmpeg",
+        "ffmpeg_binary_sha256": verifier.FFMPEG_EXPECTED_BINARY_SHA256,
+        "ffmpeg_binary_size": verifier.FFMPEG_EXPECTED_BINARY_SIZE,
+        "build_receipts": {
+            name: {"path": str(path), "sha256": receipt_hashes[name]}
+            for name, path in verifier.RUNTIME_BUILD_RECEIPT_PATHS.items()
+        },
+    }
+    auxiliary_paths = {"ffplay": "", "ffprobe": ""}
+
+    def runner(command: str, *args: str) -> dict[str, object]:
+        if command in {"ffplay", "ffprobe"}:
+            return {
+                "available": False,
+                "path": auxiliary_paths[command],
+                "returncode": 127,
+                "output": "",
+            }
+        if command == "ldd":
+            return {
+                "available": False,
+                "path": "/usr/bin/ldd",
+                "returncode": 1,
+                "output": "not a dynamic executable",
+            }
+        if command == "/usr/local/bin/python":
+            return {
+                "available": True,
+                "path": command,
+                "returncode": 0,
+                "output": json.dumps({"payload": payload, "observed": observed}),
+            }
+        output = registry_outputs[args[-1]]
+        return {"available": True, "path": "/usr/local/bin/ffmpeg", "returncode": 0, "output": output}
+
+    return runner, registry_outputs, payload, auxiliary_paths
+
+
+def test_property_vendor_runtime_readiness_rejects_an_extra_ffmpeg_encoder() -> None:
+    from ea import property_render_ffmpeg_audit as verifier
+
+    runner, registry_outputs, _payload, _auxiliary_paths = (
+        _bounded_ffmpeg_test_runner()
+    )
+
+    bounded = verifier.audit_ffmpeg_encoder(
+        runner,
+        require_bounded_surface=True,
+    )
+    assert bounded["available"] is True
+    assert bounded["bounded_encoder_only"] is True
+    assert all(bounded["provenance_checks"].values())
+
+    registry_outputs["-encoders"] += "\n V..... h264 unexpected"
+    expanded = verifier.audit_ffmpeg_encoder(
+        runner,
+        require_bounded_surface=True,
+    )
+    assert expanded["functional_ready"] is True
+    assert expanded["bounded_encoder_only"] is False
+    assert expanded["available"] is False
+
+
+def test_property_vendor_runtime_readiness_rejects_unexpected_bsf_and_provenance() -> None:
+    from ea import property_render_ffmpeg_audit as verifier
+
+    runner, registry_outputs, payload, _auxiliary_paths = (
+        _bounded_ffmpeg_test_runner()
+    )
+    registry_outputs["-bsfs"] += "\nh264_metadata"
+    registry_outputs["-hwaccels"] += "\nvaapi"
+    ffmpeg_payload = payload["ffmpeg"]
+    assert isinstance(ffmpeg_payload, dict)
+    ffmpeg_payload["source_sha256"] = "0" * 64
+    declared_registries = ffmpeg_payload["registries"]
+    assert isinstance(declared_registries, dict)
+    declared_parsers = declared_registries["parsers"]
+    assert isinstance(declared_parsers, list)
+    declared_parsers.append("h264")
+
+    capability = verifier.audit_ffmpeg_encoder(
+        runner,
+        require_bounded_surface=True,
+    )
+
+    assert capability["functional_ready"] is True
+    assert capability["bounded_checks"]["bounded_bitstream_filter_surface"] is False
+    assert capability["bounded_checks"]["hwaccels_absent"] is False
+    assert capability["provenance_checks"]["ffmpeg_source_exact"] is False
+    assert capability["provenance_checks"]["registry_manifest_exact"] is False
+    assert capability["available"] is False
+
+
+def test_property_vendor_runtime_readiness_requires_tools_to_be_absent_by_path() -> None:
+    from ea import property_render_ffmpeg_audit as verifier
+
+    runner, _registry_outputs, _payload, auxiliary_paths = (
+        _bounded_ffmpeg_test_runner()
+    )
+    auxiliary_paths["ffprobe"] = "/usr/local/bin/ffprobe"
+
+    capability = verifier.audit_ffmpeg_encoder(
+        runner,
+        require_bounded_surface=True,
+    )
+
+    assert capability["bounded_checks"]["ffprobe_absent"] is False
+    assert capability["available"] is False
+
+
+def test_property_vendor_container_tool_resolution_uses_runtime_shutil_which(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ea import property_render_ffmpeg_audit as verifier
+
+    calls: list[list[str]] = []
+    monkeypatch.setattr(verifier.shutil, "which", lambda command: "/usr/bin/docker")
+
+    def missing(
+        argv: list[str],
+        **_kwargs: object,
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, returncode=0, stdout="\n", stderr="")
+
+    monkeypatch.setattr(verifier.subprocess, "run", missing)
+
+    result = verifier.capture_container_tool(
+        "propertyquarry-render-tools",
+        "ffprobe",
+        "-version",
+    )
+
+    assert result["available"] is False
+    assert result["path"] == ""
+    assert result["reason"] == "command_missing"
+    assert len(calls) == 1
+    assert calls[0][3:8] == [
+        "/usr/local/bin/python",
+        "-I",
+        "-c",
+        calls[0][6],
+        "ffprobe",
+    ]
+    assert "shutil.which" in calls[0][6]
+
+
+def test_property_vendor_container_tool_executes_only_resolved_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from ea import property_render_ffmpeg_audit as verifier
+
+    calls: list[list[str]] = []
+    monkeypatch.setattr(verifier.shutil, "which", lambda command: "/usr/bin/docker")
+
+    def resolved(
+        argv: list[str],
+        **_kwargs: object,
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append(argv)
+        if len(calls) == 1:
+            return subprocess.CompletedProcess(
+                argv,
+                returncode=0,
+                stdout="/usr/local/bin/ffmpeg\n",
+                stderr="",
+            )
+        return subprocess.CompletedProcess(
+            argv,
+            returncode=0,
+            stdout="ffmpeg version 8.1.2\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(verifier.subprocess, "run", resolved)
+
+    result = verifier.capture_container_tool(
+        "propertyquarry-render-tools",
+        "ffmpeg",
+        "-version",
+    )
+
+    assert result["available"] is True
+    assert result["path"] == "/usr/local/bin/ffmpeg"
+    assert calls[1] == [
+        "/usr/bin/docker",
+        "exec",
+        "propertyquarry-render-tools",
+        "/usr/local/bin/ffmpeg",
+        "-version",
+    ]

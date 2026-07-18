@@ -1,0 +1,140 @@
+{
+  "build_receipts": {
+    "apk_manifest": {
+      "path": "/usr/local/share/propertyquarry/receipts/ffmpeg-builder-apk-manifest.txt",
+      "sha256": "3332b9d18da82b7b030f4e25dee90e566ad2867beefca8ec50acdfe0b443d16c"
+    },
+    "ffmpeg_recipe": {
+      "path": "/usr/local/share/propertyquarry/receipts/ffmpeg-build-receipt.json",
+      "sha256": "be6384a28dc6a6b71fe07358c517560b5cc65b3c6cabe6d577b3529ee7171341"
+    },
+    "glib_recipe": {
+      "path": "/usr/local/share/propertyquarry/receipts/glib-build-receipt.json",
+      "sha256": "8e71f8225a4c9931532475535fa43c4ea58cd991abb4d30d828e579368ca1ea0"
+    }
+  },
+  "ffmpeg": {
+    "binary_sha256": "742e5e1808ca6f3e0109567babd422c10adcde207a75ab446279aa7121fb2272",
+    "binary_size": 3046504,
+    "binary_size_bytes": 3046504,
+    "builder_image": "alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce",
+    "configure_disable": [
+      "--disable-autodetect",
+      "--disable-avdevice",
+      "--disable-debug",
+      "--disable-doc",
+      "--disable-everything",
+      "--disable-ffplay",
+      "--disable-ffprobe",
+      "--disable-iconv",
+      "--disable-network",
+      "--disable-shared",
+      "--disable-swresample"
+    ],
+    "configure_enable": [
+      "--enable-decoder=rawvideo",
+      "--enable-demuxer=rawvideo",
+      "--enable-encoder=libx264",
+      "--enable-ffmpeg",
+      "--enable-filter=format",
+      "--enable-filter=fps",
+      "--enable-filter=scale",
+      "--enable-gpl",
+      "--enable-libx264",
+      "--enable-muxer=mov",
+      "--enable-muxer=mp4",
+      "--enable-protocol=file",
+      "--enable-protocol=pipe",
+      "--enable-small",
+      "--enable-static"
+    ],
+    "license": "GPL-2.0-or-later",
+    "registries": {
+      "bitstream_filters": [
+        "aac_adtstoasc",
+        "vp9_superframe"
+      ],
+      "decoders": [
+        "rawvideo"
+      ],
+      "demuxers": [
+        "rawvideo"
+      ],
+      "devices": [],
+      "encoders": [
+        "libx264"
+      ],
+      "filters": [
+        "abuffer",
+        "abuffersink",
+        "aformat",
+        "anull",
+        "atrim",
+        "buffer",
+        "buffersink",
+        "crop",
+        "format",
+        "fps",
+        "hflip",
+        "null",
+        "rotate",
+        "scale",
+        "transpose",
+        "trim",
+        "vflip"
+      ],
+      "hwaccels": [],
+      "muxers": [
+        "mov",
+        "mp4"
+      ],
+      "parsers": [
+        "ac3"
+      ],
+      "protocols": [
+        "file",
+        "pipe"
+      ]
+    },
+    "signature_sha256": "0a0963fccd70597838073f3e31b20f4a4d8cc2b5e577472c9a5a1f22624246f8",
+    "signature_url": "https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz.asc",
+    "signature_verified": true,
+    "signing_fingerprint": "FCF986EA15E6E293A5644F10B4322F04D67658D8",
+    "signing_key_sha256": "397b3becedcd5a98769967ff1ff8501ddc89f8368b8f766e4701377d7dbaabe5",
+    "signing_key_url": "https://ffmpeg.org/ffmpeg-devel.asc",
+    "source_sha256": "464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c",
+    "source_url": "https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz",
+    "static": true,
+    "version": "8.1.2",
+    "x264_archive_sha256": "d0967a1348c85dfde363bb52610403be898171493100561efa0dd05d5fd1ae50",
+    "x264_archive_url": "https://code.videolan.org/videolan/x264/-/archive/0480cb05fa188d37ae87e8f4fd8f1aea3711f7ee/x264-0480cb05fa188d37ae87e8f4fd8f1aea3711f7ee.tar.gz",
+    "x264_commit": "0480cb05fa188d37ae87e8f4fd8f1aea3711f7ee",
+    "x264_upstream_ci_verified": false
+  },
+  "glib": {
+    "builder_image": "debian:13.6-slim@sha256:020c0d20b9880058cbe785a9db107156c3c75c2ac944a6aa7ab59f2add76a7bd",
+    "debian_tar_sha256": "8e35b56abfed5cea96a93d032996efd3a3a5f445a2fc75445f5f42b4d84f42ef",
+    "dsc_sha256": "4b9e829d82cb5884e6de4250b4c31fd9030ca1be0c29f9b84e9141ee6d9344c1",
+    "dsc_signature_verified": true,
+    "libmount_disabled": true,
+    "orig_sha256": "8a9ea10943c36fc117e253f80c91e477b673525ae45762942858aef57631bb90",
+    "runtime_deb_sha256": "7f78780302454832988b84f1c3c4de31bbbf42a8e3be5dfe69f7980b98384cf8",
+    "snapshot_root": "https://snapshot.debian.org/archive/debian/20260713T000000Z/pool/main/g/glib2.0/",
+    "source_version": "2.84.4-3~deb13u3",
+    "unicode_sha256": "c1742461e8c0e9673a3453a3127671169de9cb0138493e5c916f1b989530efcd",
+    "version": "2.84.4-3~deb13u3+pq1"
+  },
+  "playwright": {
+    "browser_inventory_path": "/usr/local/share/propertyquarry/playwright-browser-inventory.json",
+    "browser_inventory_sha256": "76e9ac14cf412e2c616e09f3e92b831a0a8c23d327e0a5c23d2e7ca6f5a93b93",
+    "chromium_executable_path": "/ms-playwright/chromium-1223/chrome-linux64/chrome",
+    "chromium_revision": "1223",
+    "chromium_sha256": "adc1c21ceed5c2a67184766376fe816ac03e556cc0ca3f782e8212235fe05c6f",
+    "chromium_version": "148.0.7778.96",
+    "headless_shell_path": "/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-linux64/chrome-headless-shell",
+    "headless_shell_sha256": "7b8e92dca0acf9c24b5974507b3031d6bd18cc009cd431c2595e521430ea747a",
+    "package_version": "1.60.0"
+  },
+  "schema": "propertyquarry.render_media_provenance.v1",
+  "version": 1
+}

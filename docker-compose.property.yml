@@ -95,6 +95,9 @@ services:
       - propertyquarry_artifacts:/data/artifacts
       - propertyquarry_public_tours:/data/public_property_tours
       - propertyquarry_provider_ledger:/data/provider-ledger
+    networks:
+      - default
+      - propertyquarry_render_internal
     depends_on:
       propertyquarry-db:
         condition: service_healthy
@@ -219,25 +222,10 @@ services:
     restart: unless-stopped
     # The bridge reads the same numeric seconds value and reserves 30s for process close.
     stop_grace_period: "${PROPERTYQUARRY_RENDER_STOP_GRACE_SECONDS:-1860}s"
-    env_file:
-      - path: ./state/runtime/property_scene_video_shared.env
-        required: false
-      - .env
     environment:
       EA_ROLE: render-tools
       EA_RUNTIME_MODE: "${EA_RUNTIME_MODE:-prod}"
-      EA_ARTIFACTS_DIR: /data/artifacts
       EA_PUBLIC_TOUR_DIR: /data/public_property_tours
-      PROPERTYQUARRY_TOUR_EXPORT_DROP_DIR: /data/incoming_property_tours
-      PROPERTYQUARRY_TOUR_EXPORT_INCOMING_DIR: /data/incoming_property_tours
-      EA_RESPONSES_PROVIDER_LEDGER_DIR: /data/provider-ledger
-      TEABLE_BASE_URL: "${TEABLE_BASE_URL:-https://app.teable.ai}"
-      TEABLE_TABLE_SYNC_CONFIG_JSON: "${TEABLE_TABLE_SYNC_CONFIG_JSON:-}"
-      PROPERTYQUARRY_TEABLE_BASE_ID: "${PROPERTYQUARRY_TEABLE_BASE_ID:-}"
-      PROPERTYQUARRY_TEABLE_TENANT_KEY: "${PROPERTYQUARRY_TEABLE_TENANT_KEY:-propertyquarry}"
-      PROPERTYQUARRY_TEABLE_TENANT_NAME: "${PROPERTYQUARRY_TEABLE_TENANT_NAME:-PropertyQuarry}"
-      PROPERTYQUARRY_TEABLE_TABLE_SYNC_CONFIG_JSON: "${PROPERTYQUARRY_TEABLE_TABLE_SYNC_CONFIG_JSON:-}"
-      PROPERTYQUARRY_TEABLE_AUTO_SYNC: "${PROPERTYQUARRY_TEABLE_AUTO_SYNC:-0}"
       PROPERTYQUARRY_RECONSTRUCTION_RENDER_HOST: "0.0.0.0"
       PROPERTYQUARRY_RECONSTRUCTION_RENDER_BRIDGE_TOKEN: "${PROPERTYQUARRY_RECONSTRUCTION_RENDER_BRIDGE_TOKEN:?Set PROPERTYQUARRY_RECONSTRUCTION_RENDER_BRIDGE_TOKEN for the render bridge}"
       PROPERTYQUARRY_RECONSTRUCTION_RENDER_REQUEST_TIMEOUT_SECONDS: "${PROPERTYQUARRY_RECONSTRUCTION_RENDER_REQUEST_TIMEOUT_SECONDS:-30}"
@@ -245,12 +233,25 @@ services:
       PROPERTYQUARRY_RENDER_STOP_GRACE_SECONDS: "${PROPERTYQUARRY_RENDER_STOP_GRACE_SECONDS:-1860}"
       HOME: /home/ea
       TZ: Europe/Vienna
-    command: ["python", "/app/scripts/property_reconstruction_render_bridge.py"]
+    command: ["/usr/local/bin/python", "-I", "/app/scripts/property_reconstruction_render_bridge.py"]
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=2147483648
+      - /run:rw,nosuid,nodev,noexec,size=16777216
     healthcheck:
       test:
         [
-          "CMD-SHELL",
-          "command -v ffmpeg >/dev/null && command -v blender >/dev/null && command -v colmap >/dev/null && command -v exiftool >/dev/null && command -v convert >/dev/null && python -c 'import numpy' && curl -fsS --connect-timeout 2 --max-time 10 http://127.0.0.1:8091/health >/dev/null",
+          "CMD",
+          "/usr/local/bin/property-render-env-launcher",
+          "/usr/local/bin/python",
+          "-I",
+          "-S",
+          "-c",
+          "import http.client; connection = http.client.HTTPConnection('127.0.0.1', 8091, timeout=10); connection.request('GET', '/health/ready'); response = connection.getresponse(); response.read(); connection.close(); raise SystemExit(0 if response.status == 200 else 1)",
         ]
       interval: 30s
       timeout: 15s
@@ -258,14 +259,14 @@ services:
       retries: 5
     cpu_shares: ${PROPERTYQUARRY_RENDER_CPU_SHARES:-512}
     cpus: ${PROPERTYQUARRY_RENDER_CPUS:-1.0}
-    # Memory, PID, and shared-memory limits require measured Blender/COLMAP peaks; do not guess them here.
+    mem_limit: "${PROPERTYQUARRY_RENDER_MEMORY_LIMIT:-4g}"
+    memswap_limit: "${PROPERTYQUARRY_RENDER_MEMORY_SWAP_LIMIT:-4g}"
+    pids_limit: ${PROPERTYQUARRY_RENDER_PIDS_LIMIT:-256}
+    shm_size: "${PROPERTYQUARRY_RENDER_SHM_SIZE:-256m}"
     volumes:
-      - ./config:/config:ro
-      - ./config:/app/config:ro
-      - ./state/incoming_property_tours:/data/incoming_property_tours
-      - propertyquarry_artifacts:/data/artifacts
       - propertyquarry_public_tours:/data/public_property_tours
-      - propertyquarry_provider_ledger:/data/provider-ledger
+    networks:
+      - propertyquarry_render_internal
 
   propertyquarry-db:
     image: postgres:16-alpine@sha256:16bc17c64a573ef34162af9298258d1aec548232985b33ed7b1eac33ba35c229
@@ -289,3 +290,7 @@ volumes:
   propertyquarry_pgdata: {}
   propertyquarry_public_tours: {}
   propertyquarry_provider_ledger: {}
+
+networks:
+  propertyquarry_render_internal:
+    internal: true

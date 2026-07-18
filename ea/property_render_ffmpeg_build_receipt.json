@@ -1,0 +1,15 @@
+{
+  "apk_manifest_sha256": "3332b9d18da82b7b030f4e25dee90e566ad2867beefca8ec50acdfe0b443d16c",
+  "builder_image": "alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce",
+  "ffmpeg_binary_sha256": "742e5e1808ca6f3e0109567babd422c10adcde207a75ab446279aa7121fb2272",
+  "ffmpeg_binary_size_bytes": 3046504,
+  "ffmpeg_source_sha256": "464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c",
+  "ffmpeg_version": "8.1.2",
+  "recipe_script_sha256": "a3061e5ce67a5c2223ab5f036c14d4db1eabda17851623d392038de9e209bd92",
+  "schema": "propertyquarry.render_media_build_receipt.v1",
+  "signature_verified": true,
+  "version": 1,
+  "x264_archive_sha256": "d0967a1348c85dfde363bb52610403be898171493100561efa0dd05d5fd1ae50",
+  "x264_commit": "0480cb05fa188d37ae87e8f4fd8f1aea3711f7ee",
+  "x264_upstream_ci_verified": false
+}

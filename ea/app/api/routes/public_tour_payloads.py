@@ -243,6 +243,8 @@ _PUBLIC_TOUR_PRIVACY_MODES = frozenset(
 _PUBLIC_TOUR_READY_PUBLICATION_STATUSES = frozenset(
     {"active", "published", "ready"}
 )
+_PUBLIC_TOUR_SLUG_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+_PUBLIC_TOUR_RESERVED_STAGE_PREFIX = ".propertyquarry-stage-"
 _PUBLIC_TOUR_PENDING_MAGICFIT_PROOF_STATUSES = frozenset(
     {
         "provider_render_pending_delivery_acceptance",
@@ -409,9 +411,23 @@ def public_tour_safe_asset_relpath(value: object) -> str:
     if not raw or "\x00" in raw or "://" in raw or raw.startswith("/"):
         return ""
     path = PurePosixPath(raw)
-    if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
+    if path.is_absolute() or any(
+        part in {"", ".", ".."} or part.startswith(".")
+        for part in path.parts
+    ):
         return ""
     return "/".join(path.parts)
+
+
+def public_tour_safe_slug(value: object) -> str:
+    normalized = str(value or "").strip()
+    if (
+        not _PUBLIC_TOUR_SLUG_PATTERN.fullmatch(normalized)
+        or ".." in normalized
+        or normalized.startswith(_PUBLIC_TOUR_RESERVED_STAGE_PREFIX)
+    ):
+        return ""
+    return normalized
 
 
 def public_tour_env_truthy(raw: object) -> bool:
@@ -789,17 +805,16 @@ def public_tour_asset_metadata(payload: dict[str, object]) -> dict[str, dict[str
 
 
 def public_tour_file_url(slug: str, relpath: str) -> str:
+    normalized_slug = public_tour_safe_slug(slug)
     safe_relpath = public_tour_safe_asset_relpath(relpath)
-    if not slug or not safe_relpath:
+    if not normalized_slug or not safe_relpath:
         return ""
-    return f"/tours/files/{slug}/{safe_relpath}"
+    return f"/tours/files/{normalized_slug}/{safe_relpath}"
 
 
 def public_tour_canonical_path(slug: str) -> str:
-    normalized_slug = str(slug or "").strip()
+    normalized_slug = public_tour_safe_slug(slug)
     if not normalized_slug:
-        return ""
-    if "/" in normalized_slug or "\\" in normalized_slug or ".." in normalized_slug:
         return ""
     return f"/tours/{normalized_slug}"
 

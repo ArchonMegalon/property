@@ -2,13 +2,16 @@
 from __future__ import annotations
 
 from collections import deque
+from contextlib import contextmanager
 from dataclasses import dataclass
+import hashlib
 import hmac
 import ipaddress
 import json
 import math
 import os
 import re
+import secrets
 import signal
 import stat
 import subprocess
@@ -17,7 +20,7 @@ import threading
 import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 
 DEFAULT_HOST = "127.0.0.1"
@@ -30,19 +33,181 @@ MIN_MAX_GENERATION_SECONDS = 120
 MAX_MAX_GENERATION_SECONDS = 7_200
 PROCESS_CLOSE_MARGIN_SECONDS = 30
 _GENERATED_BUNDLE_SLUG_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+_GENERATED_BUNDLE_COMMIT_MARKER = ".propertyquarry-render-commit.json"
+_GENERATED_BUNDLE_STAGE_PREFIX = ".propertyquarry-stage-"
+_GENERATION_SLUG_LOCKS_GUARD = threading.Lock()
+_GENERATION_SLUG_LOCKS: dict[str, dict[str, object]] = {}
+_PLAYWRIGHT_BROWSERS_PATH = "/ms-playwright"
+_PLAYWRIGHT_EXECUTION_CONTROL_ENV = {
+    "PLAYWRIGHT_NODEJS_PATH",
+    "_PLAYWRIGHT_DRIVER_CLI_PATH",
+    "_PLAYWRIGHT_DRIVER_EXECUTABLE_PATH",
+}
 
 
 class _GeneratedBundlePublishError(RuntimeError):
     """Stable, path-free failure raised while publishing a generated bundle."""
 
 
+def _valid_generated_bundle_slug(value: object) -> str:
+    normalized = str(value or "").strip()
+    if (
+        not _GENERATED_BUNDLE_SLUG_PATTERN.fullmatch(normalized)
+        or ".." in normalized
+        or normalized.startswith(_GENERATED_BUNDLE_STAGE_PREFIX)
+    ):
+        return ""
+    return normalized
+
+
+@contextmanager
+def _serialized_generation_slug(slug: str):
+    normalized_slug = _valid_generated_bundle_slug(slug)
+    if not normalized_slug:
+        raise ValueError("slug_invalid")
+    with _GENERATION_SLUG_LOCKS_GUARD:
+        entry = _GENERATION_SLUG_LOCKS.get(normalized_slug)
+        if entry is None:
+            entry = {"lock": threading.Lock(), "users": 0}
+            _GENERATION_SLUG_LOCKS[normalized_slug] = entry
+        entry["users"] = int(entry.get("users") or 0) + 1
+        slug_lock = entry["lock"]
+    if not isinstance(slug_lock, type(threading.Lock())):
+        raise RuntimeError("generation_slug_lock_invalid")
+    slug_lock.acquire()
+    try:
+        yield
+    finally:
+        slug_lock.release()
+        with _GENERATION_SLUG_LOCKS_GUARD:
+            entry["users"] = max(0, int(entry.get("users") or 0) - 1)
+            if (
+                int(entry.get("users") or 0) == 0
+                and _GENERATION_SLUG_LOCKS.get(normalized_slug) is entry
+            ):
+                _GENERATION_SLUG_LOCKS.pop(normalized_slug, None)
+
+
 def _generated_bundle_publish_failure(detail: str) -> dict[str, object]:
+    normalized_detail = str(detail or "").strip().lower()
+    if not re.fullmatch(r"[a-z0-9_]{1,160}", normalized_detail):
+        normalized_detail = "generated_bundle_publish_failed"
     return {
         "status": "failed",
         "reason": "generated_bundle_publish_failed",
-        "detail": str(detail or "generated_bundle_publish_failed").strip()
-        or "generated_bundle_publish_failed",
+        "detail": normalized_detail,
     }
+
+
+def _stable_generator_reason(value: object) -> str:
+    normalized = str(value or "generator_reported_non_generated_status").strip().lower()
+    if re.fullmatch(r"[a-z0-9_:-]{1,160}", normalized):
+        return normalized
+    return "generator_reported_non_generated_status"
+
+
+def _stable_validation_reason(value: object) -> str:
+    normalized = str(value or "request_validation_failed").strip().lower()
+    if re.fullmatch(r"[a-z0-9_]{1,160}", normalized):
+        return normalized
+    return "request_validation_failed"
+
+
+def _generator_environment(*, transaction_id: str) -> dict[str, str]:
+    environment = dict(os.environ)
+    for variable in tuple(environment):
+        if (
+            variable.startswith("LD_")
+            or variable.startswith("NODE_")
+            or variable in {"GCONV_PATH", "GLIBC_TUNABLES"}
+            or variable in _PLAYWRIGHT_EXECUTION_CONTROL_ENV
+        ):
+            environment.pop(variable, None)
+    environment.pop("PROPERTYQUARRY_RECONSTRUCTION_RENDER_BRIDGE_TOKEN", None)
+    environment["EA_PUBLIC_TOUR_DIR"] = str(_public_tour_dir())
+    environment["PLAYWRIGHT_BROWSERS_PATH"] = _PLAYWRIGHT_BROWSERS_PATH
+    environment["PROPERTYQUARRY_RECONSTRUCTION_TRANSACTION_ID"] = transaction_id
+    return environment
+
+
+def _safe_public_relpath(value: str) -> str | None:
+    normalized = str(value or "").strip()
+    if (
+        not normalized
+        or len(normalized.encode("utf-8", errors="replace")) > 500
+        or normalized.startswith("/")
+        or "\\" in normalized
+        or ":" in normalized
+        or any(ord(character) < 32 or ord(character) == 127 for character in normalized)
+    ):
+        return None
+    relpath = PurePosixPath(normalized)
+    if relpath.is_absolute() or not relpath.parts:
+        return None
+    if any(
+        part in {"", ".", ".."}
+        or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", part)
+        for part in relpath.parts
+    ):
+        return None
+    return relpath.as_posix()
+
+
+def _safe_generator_success_result(result: dict[str, object]) -> dict[str, object]:
+    safe: dict[str, object] = {}
+    scalar_keys = (
+        "slug",
+        "provider",
+        "viewer_relpath",
+        "model_relpath",
+        "diorama_preview_relpath",
+        "telegram_preview_relpath",
+        "public_tour_url",
+        "satisfies_verified_tour_gate",
+        "walkthrough_status",
+        "verified_provider_capture",
+        "runtime_publish_required",
+        "publication_durability",
+        "replaced_bundle_cleanup",
+    )
+    for key in scalar_keys:
+        value = result.get(key)
+        if isinstance(value, bool):
+            safe[key] = value
+            continue
+        if not isinstance(value, str):
+            continue
+        normalized = value.strip()
+        if len(normalized) > 500 or "\\" in normalized or "\x00" in normalized:
+            continue
+        if key.endswith("_relpath"):
+            safe_relpath = _safe_public_relpath(normalized)
+            if safe_relpath is None:
+                continue
+            relpath_parts = PurePosixPath(safe_relpath).parts
+            if not (
+                relpath_parts[0] == "generated-reconstruction"
+                or safe_relpath
+                in {"diorama-preview.png", "telegram-preview.png"}
+            ):
+                continue
+            normalized = safe_relpath
+        elif key == "public_tour_url":
+            if normalized:
+                continue
+        elif not re.fullmatch(r"[A-Za-z0-9._:-]{0,160}", normalized):
+            continue
+        safe[key] = normalized
+    runtime_publish = result.get("runtime_publish")
+    if isinstance(runtime_publish, dict):
+        safe["runtime_publish"] = {
+            key: value
+            for key, value in runtime_publish.items()
+            if key in {"status", "slug"}
+            and isinstance(value, str)
+            and re.fullmatch(r"[A-Za-z0-9._-]{1,160}", value.strip())
+        }
+    return safe
 
 
 def _required_container_stop_grace_seconds(
@@ -288,8 +453,8 @@ def _public_tour_dir() -> Path:
 
 
 def _generated_bundle_target(slug: object, *, require_exists: bool) -> Path:
-    normalized_slug = str(slug or "").strip()
-    if not _GENERATED_BUNDLE_SLUG_PATTERN.fullmatch(normalized_slug):
+    normalized_slug = _valid_generated_bundle_slug(slug)
+    if not normalized_slug:
         raise _GeneratedBundlePublishError("generated_bundle_slug_invalid")
     root = _public_tour_dir()
     try:
@@ -342,14 +507,19 @@ def _open_generated_bundle_entry(
     return descriptor
 
 
-def _fchmod_if_needed(descriptor: int, expected_mode: int) -> None:
+def _require_generated_bundle_mode(descriptor: int, expected_mode: int) -> None:
     current_mode = stat.S_IMODE(os.fstat(descriptor).st_mode)
     if current_mode != expected_mode:
-        os.fchmod(descriptor, expected_mode)
+        raise _GeneratedBundlePublishError("generated_bundle_permissions_invalid")
 
 
-def _normalize_generated_reconstruction_tree(directory_fd: int) -> None:
-    _fchmod_if_needed(directory_fd, 0o755)
+def _validate_generated_bundle_tree(
+    directory_fd: int,
+    *,
+    require_public_modes: bool,
+) -> None:
+    if require_public_modes:
+        _require_generated_bundle_mode(directory_fd, 0o755)
     try:
         names = sorted(os.listdir(directory_fd))
     except OSError as exc:
@@ -372,7 +542,10 @@ def _normalize_generated_reconstruction_tree(directory_fd: int) -> None:
             except OSError as exc:
                 raise _GeneratedBundlePublishError("generated_reconstruction_asset_invalid") from exc
             try:
-                _normalize_generated_reconstruction_tree(child_fd)
+                _validate_generated_bundle_tree(
+                    child_fd,
+                    require_public_modes=require_public_modes,
+                )
             finally:
                 os.close(child_fd)
             continue
@@ -388,12 +561,13 @@ def _normalize_generated_reconstruction_tree(directory_fd: int) -> None:
         except OSError as exc:
             raise _GeneratedBundlePublishError("generated_reconstruction_asset_invalid") from exc
         try:
-            _fchmod_if_needed(asset_fd, 0o644)
+            if require_public_modes:
+                _require_generated_bundle_mode(asset_fd, 0o644)
         finally:
             os.close(asset_fd)
 
 
-def _publish_generated_bundle_permissions(slug: object) -> None:
+def _validate_generated_bundle_publication(slug: object) -> None:
     bundle_dir = _generated_bundle_target(slug, require_exists=True)
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
@@ -403,7 +577,11 @@ def _publish_generated_bundle_permissions(slug: object) -> None:
     manifest_fd = -1
     reconstruction_fd = -1
     try:
-        _fchmod_if_needed(bundle_fd, 0o755)
+        _require_generated_bundle_mode(bundle_fd, 0o755)
+        _validate_generated_bundle_tree(
+            bundle_fd,
+            require_public_modes=False,
+        )
         try:
             manifest_stat = os.stat("tour.json", dir_fd=bundle_fd, follow_symlinks=False)
         except OSError as exc:
@@ -419,7 +597,7 @@ def _publish_generated_bundle_permissions(slug: object) -> None:
             )
         except OSError as exc:
             raise _GeneratedBundlePublishError("generated_bundle_manifest_invalid") from exc
-        _fchmod_if_needed(manifest_fd, 0o644)
+        _require_generated_bundle_mode(manifest_fd, 0o644)
 
         try:
             reconstruction_stat = os.stat(
@@ -440,13 +618,336 @@ def _publish_generated_bundle_permissions(slug: object) -> None:
             )
         except OSError as exc:
             raise _GeneratedBundlePublishError("generated_reconstruction_directory_invalid") from exc
-        _normalize_generated_reconstruction_tree(reconstruction_fd)
+        _validate_generated_bundle_tree(
+            reconstruction_fd,
+            require_public_modes=True,
+        )
+        for preview_name in ("diorama-preview.png", "telegram-preview.png"):
+            try:
+                preview_stat = os.stat(
+                    preview_name,
+                    dir_fd=bundle_fd,
+                    follow_symlinks=False,
+                )
+            except FileNotFoundError:
+                continue
+            except OSError as exc:
+                raise _GeneratedBundlePublishError(
+                    "generated_bundle_preview_invalid"
+                ) from exc
+            if not stat.S_ISREG(preview_stat.st_mode):
+                raise _GeneratedBundlePublishError(
+                    "generated_bundle_preview_invalid"
+                )
+            preview_fd = _open_generated_bundle_entry(
+                preview_name,
+                directory_fd=bundle_fd,
+                expected_stat=preview_stat,
+                directory=False,
+            )
+            try:
+                _require_generated_bundle_mode(preview_fd, 0o644)
+            finally:
+                os.close(preview_fd)
     finally:
         if reconstruction_fd >= 0:
             os.close(reconstruction_fd)
         if manifest_fd >= 0:
             os.close(manifest_fd)
         os.close(bundle_fd)
+
+
+def _read_bounded_json_descriptor(
+    descriptor: int,
+    *,
+    maximum_bytes: int,
+) -> tuple[bytes, dict[str, object]]:
+    opened = os.fstat(descriptor)
+    if (
+        not stat.S_ISREG(opened.st_mode)
+        or opened.st_size < 2
+        or opened.st_size > maximum_bytes
+    ):
+        raise _GeneratedBundlePublishError("generated_bundle_json_invalid")
+    payload = bytearray()
+    while len(payload) <= maximum_bytes:
+        chunk = os.read(
+            descriptor,
+            min(1024 * 1024, maximum_bytes + 1 - len(payload)),
+        )
+        if not chunk:
+            break
+        payload.extend(chunk)
+    final = os.fstat(descriptor)
+    if (
+        len(payload) != opened.st_size
+        or len(payload) > maximum_bytes
+        or final.st_dev != opened.st_dev
+        or final.st_ino != opened.st_ino
+        or final.st_size != opened.st_size
+        or final.st_mtime_ns != opened.st_mtime_ns
+        or final.st_ctime_ns != opened.st_ctime_ns
+    ):
+        raise _GeneratedBundlePublishError("generated_bundle_json_changed")
+    decoded = json.loads(bytes(payload).decode("utf-8"))
+    if not isinstance(decoded, dict):
+        raise _GeneratedBundlePublishError("generated_bundle_json_invalid")
+    return bytes(payload), decoded
+
+
+def _probe_committed_transaction(
+    *,
+    slug: str,
+    transaction_id: str,
+) -> dict[str, object] | None:
+    root_fd = -1
+    bundle_fd = -1
+    marker_fd = -1
+    manifest_fd = -1
+    reconstruction_fd = -1
+    receipt_fd = -1
+    try:
+        normalized_slug = _valid_generated_bundle_slug(slug)
+        if not normalized_slug or not re.fullmatch(r"[a-f0-9]{32}", transaction_id):
+            return None
+        _generated_bundle_target(normalized_slug, require_exists=True)
+        root_fd = os.open(
+            _public_tour_dir(),
+            os.O_RDONLY
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_DIRECTORY", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+        )
+        expected_bundle = os.stat(
+            normalized_slug,
+            dir_fd=root_fd,
+            follow_symlinks=False,
+        )
+        bundle_fd = _open_generated_bundle_entry(
+            normalized_slug,
+            directory_fd=root_fd,
+            expected_stat=expected_bundle,
+            directory=True,
+        )
+        marker_stat = os.stat(
+            _GENERATED_BUNDLE_COMMIT_MARKER,
+            dir_fd=bundle_fd,
+            follow_symlinks=False,
+        )
+        if (
+            not stat.S_ISREG(marker_stat.st_mode)
+            or stat.S_IMODE(marker_stat.st_mode) != 0o600
+        ):
+            return None
+        marker_fd = _open_generated_bundle_entry(
+            _GENERATED_BUNDLE_COMMIT_MARKER,
+            directory_fd=bundle_fd,
+            expected_stat=marker_stat,
+            directory=False,
+        )
+        _marker_bytes, marker = _read_bounded_json_descriptor(
+            marker_fd,
+            maximum_bytes=4096,
+        )
+        manifest_hash = str(marker.get("tour_manifest_sha256") or "")
+        if not re.fullmatch(r"[a-f0-9]{64}", manifest_hash):
+            return None
+        if marker != {
+            "schema": "propertyquarry.render_bundle_commit.v1",
+            "slug": normalized_slug,
+            "tour_manifest_sha256": manifest_hash,
+            "transaction_id": transaction_id,
+        }:
+            return None
+        manifest_stat = os.stat("tour.json", dir_fd=bundle_fd, follow_symlinks=False)
+        manifest_fd = _open_generated_bundle_entry(
+            "tour.json",
+            directory_fd=bundle_fd,
+            expected_stat=manifest_stat,
+            directory=False,
+        )
+        manifest_bytes, manifest = _read_bounded_json_descriptor(
+            manifest_fd,
+            maximum_bytes=8 * 1024 * 1024,
+        )
+        if (
+            hashlib.sha256(manifest_bytes).hexdigest() != manifest_hash
+            or str(manifest.get("slug") or "").strip() != normalized_slug
+        ):
+            return None
+        reconstruction_stat = os.stat(
+            "generated-reconstruction",
+            dir_fd=bundle_fd,
+            follow_symlinks=False,
+        )
+        reconstruction_fd = _open_generated_bundle_entry(
+            "generated-reconstruction",
+            directory_fd=bundle_fd,
+            expected_stat=reconstruction_stat,
+            directory=True,
+        )
+        receipt_stat = os.stat(
+            "reconstruction.json",
+            dir_fd=reconstruction_fd,
+            follow_symlinks=False,
+        )
+        receipt_fd = _open_generated_bundle_entry(
+            "reconstruction.json",
+            directory_fd=reconstruction_fd,
+            expected_stat=receipt_stat,
+            directory=False,
+        )
+        _receipt_bytes, receipt = _read_bounded_json_descriptor(
+            receipt_fd,
+            maximum_bytes=8 * 1024 * 1024,
+        )
+        if str(receipt.get("slug") or "").strip() != normalized_slug:
+            return None
+        runtime_publish_required = receipt.get("runtime_publish_required")
+        runtime_publish_ok = receipt.get("runtime_publish_ok")
+        runtime_publish = receipt.get("runtime_publish")
+        if (
+            not isinstance(runtime_publish_required, bool)
+            or not isinstance(runtime_publish_ok, bool)
+            or not isinstance(runtime_publish, dict)
+        ):
+            return None
+        runtime_publish_status = str(runtime_publish.get("status") or "").strip()
+        if not re.fullmatch(r"[a-z0-9_]{1,160}", runtime_publish_status):
+            return None
+        runtime_publication_proven = (
+            runtime_publish_required is False
+            or (
+                runtime_publish_ok is True
+                and runtime_publish_status
+                in {"updated", "skipped_shared_public_root"}
+            )
+        )
+        _validate_generated_bundle_publication(normalized_slug)
+        final_bundle = os.stat(
+            normalized_slug,
+            dir_fd=root_fd,
+            follow_symlinks=False,
+        )
+        opened_bundle = os.fstat(bundle_fd)
+        if (
+            final_bundle.st_dev != opened_bundle.st_dev
+            or final_bundle.st_ino != opened_bundle.st_ino
+        ):
+            return None
+        os.fsync(root_fd)
+    except (
+        OSError,
+        UnicodeDecodeError,
+        ValueError,
+        RecursionError,
+        json.JSONDecodeError,
+        _GeneratedBundlePublishError,
+    ):
+        return None
+    finally:
+        for descriptor in (
+            receipt_fd,
+            reconstruction_fd,
+            manifest_fd,
+            marker_fd,
+            bundle_fd,
+            root_fd,
+        ):
+            if descriptor >= 0:
+                os.close(descriptor)
+    return {
+        "slug": normalized_slug,
+        "transaction_id_bound": True,
+        "publication_durability": "fsynced_by_bridge_recovery",
+        "runtime_publish_required": runtime_publish_required,
+        "runtime_publish_ok": runtime_publish_ok,
+        "runtime_publish_status": runtime_publish_status,
+        "runtime_publication_proven": runtime_publication_proven,
+    }
+
+
+def _recovered_timeout_result(recovery: dict[str, object]) -> dict[str, object]:
+    runtime_fields = {
+        "runtime_publish_required": bool(
+            recovery.get("runtime_publish_required")
+        ),
+        "runtime_publish_ok": bool(recovery.get("runtime_publish_ok")),
+        "runtime_publish_status": str(
+            recovery.get("runtime_publish_status") or "unverified"
+        ),
+        "runtime_publication_proven": bool(
+            recovery.get("runtime_publication_proven")
+        ),
+    }
+    if not runtime_fields["runtime_publication_proven"]:
+        return {
+            "status": "failed",
+            "reason": "runtime_publication_unverified_after_timeout",
+            "slug": str(recovery.get("slug") or ""),
+            "local_commit_applied": True,
+            "generator_completion_observed": False,
+            "transaction_id_bound": bool(recovery.get("transaction_id_bound")),
+            "publication_durability": str(
+                recovery.get("publication_durability") or "unverified"
+            ),
+            "replaced_bundle_cleanup": "unverified_after_generator_exit",
+            **runtime_fields,
+        }
+    return {
+        "status": "generated",
+        "result": {
+            "slug": str(recovery.get("slug") or ""),
+            "local_commit_applied": True,
+            "generator_completion_observed": False,
+            "recovery_state": "local_commit_recovered_after_generator_timeout",
+            "transaction_id_bound": bool(recovery.get("transaction_id_bound")),
+            "publication_durability": str(
+                recovery.get("publication_durability") or "unverified"
+            ),
+            "replaced_bundle_cleanup": "unverified_after_generator_exit",
+            **runtime_fields,
+        },
+    }
+
+
+def _postcommit_failure(
+    *,
+    reason: str,
+    recovery: dict[str, object],
+    detail: str | None = None,
+    returncode: int | None = None,
+    diagnostic: bytes | None = None,
+) -> dict[str, object]:
+    result: dict[str, object] = {
+        "status": "failed",
+        "reason": reason,
+        "slug": str(recovery.get("slug") or ""),
+        "local_commit_applied": True,
+        "transaction_id_bound": bool(recovery.get("transaction_id_bound")),
+        "publication_durability": str(
+            recovery.get("publication_durability") or "unverified"
+        ),
+        "replaced_bundle_cleanup": "unverified_after_generator_exit",
+        "runtime_publish_required": bool(
+            recovery.get("runtime_publish_required")
+        ),
+        "runtime_publish_ok": bool(recovery.get("runtime_publish_ok")),
+        "runtime_publish_status": str(
+            recovery.get("runtime_publish_status") or "unverified"
+        ),
+        "runtime_publication_proven": bool(
+            recovery.get("runtime_publication_proven")
+        ),
+    }
+    if detail is not None:
+        result["detail"] = _stable_generator_reason(detail)
+    if returncode is not None:
+        result["returncode"] = int(returncode)
+    if diagnostic is not None:
+        result["diagnostic_sha256"] = hashlib.sha256(diagnostic).hexdigest()
+        result["diagnostic_size_bytes"] = len(diagnostic)
+    return result
 
 
 def _script_path() -> Path:
@@ -480,7 +981,7 @@ def _validate_generation_cost(payload: dict[str, object], *, config: BridgeConfi
     slug = str(payload.get("slug") or "").strip()
     if not slug:
         raise ValueError("slug_missing")
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", slug):
+    if not _valid_generated_bundle_slug(slug):
         raise ValueError("slug_invalid")
     if "skip_video" in payload and not isinstance(payload.get("skip_video"), bool):
         raise ValueError("skip_video_invalid")
@@ -631,13 +1132,65 @@ def _build_generator_command(payload: dict[str, object]) -> list[str]:
     return command
 
 
-def run_generation_request(
+def _run_generator_process(
+    command: list[str],
+    *,
+    timeout_seconds: int,
+    env: dict[str, str],
+) -> subprocess.CompletedProcess[str]:
+    process = subprocess.Popen(
+        command,
+        cwd="/app",
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = process.communicate(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired as exc:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except OSError:
+            try:
+                process.kill()
+            except OSError:
+                pass
+        stdout, stderr = process.communicate()
+        raise subprocess.TimeoutExpired(
+            command,
+            timeout_seconds,
+            output=stdout,
+            stderr=stderr,
+        ) from exc
+    except Exception:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except OSError:
+            try:
+                process.kill()
+            except OSError:
+                pass
+        try:
+            process.communicate()
+        except Exception:
+            pass
+        raise RuntimeError("generator_process_communication_failed") from None
+    return subprocess.CompletedProcess(
+        command,
+        int(process.returncode or 0),
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+
+def _run_generation_request_locked(
     payload: dict[str, object],
     *,
-    config: BridgeConfig | None = None,
+    runtime_config: BridgeConfig,
 ) -> dict[str, object]:
-    runtime_config = config or _load_bridge_config()
-    _validate_generation_cost(payload, config=runtime_config)
     try:
         _generated_bundle_target(payload.get("slug"), require_exists=False)
     except _GeneratedBundlePublishError as exc:
@@ -649,7 +1202,15 @@ def run_generation_request(
         payload.get("timeout_seconds"),
         maximum=runtime_config.max_generation_seconds,
     )
-    env = {**os.environ, "EA_PUBLIC_TOUR_DIR": str(_public_tour_dir())}
+    slug = _valid_generated_bundle_slug(payload.get("slug"))
+    transaction_id = secrets.token_hex(16)
+    env = _generator_environment(transaction_id=transaction_id)
+    # The generator is the authoritative snapshot boundary. Propagate the
+    # request's configured aggregate source cap so its fd-bound copy enforces
+    # the same limit after all bridge validation races have closed.
+    env["PROPERTYQUARRY_RECONSTRUCTION_MAX_SOURCE_BYTES"] = str(
+        runtime_config.max_source_bytes
+    )
     try:
         walkthrough_seconds_per_stop = float(payload.get("walkthrough_seconds_per_stop") or 0.0)
     except Exception:
@@ -657,49 +1218,93 @@ def run_generation_request(
     if walkthrough_seconds_per_stop > 0.0:
         env["PROPERTYQUARRY_RECONSTRUCTION_WALKTHROUGH_SECONDS_PER_STOP"] = str(walkthrough_seconds_per_stop)
     try:
-        completed = subprocess.run(
+        completed = _run_generator_process(
             command,
-            cwd="/app",
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-            check=False,
+            timeout_seconds=timeout_seconds,
             env=env,
         )
-    except subprocess.TimeoutExpired as exc:
+    except subprocess.TimeoutExpired:
+        recovery = _probe_committed_transaction(
+            slug=slug,
+            transaction_id=transaction_id,
+        )
+        if recovery is not None:
+            return _recovered_timeout_result(recovery)
         return {
             "status": "failed",
             "reason": "generator_timeout",
             "timeout_seconds": timeout_seconds,
-            "detail": str(exc)[:500],
         }
     if completed.returncode != 0:
+        diagnostic = str(completed.stderr or completed.stdout or "").encode(
+            "utf-8",
+            errors="replace",
+        )
+        recovery = _probe_committed_transaction(
+            slug=slug,
+            transaction_id=transaction_id,
+        )
+        if recovery is not None:
+            return _postcommit_failure(
+                reason="generator_exit_nonzero_after_local_commit",
+                recovery=recovery,
+                returncode=int(completed.returncode),
+                diagnostic=diagnostic,
+            )
         return {
             "status": "failed",
             "reason": "generator_exit_nonzero",
             "returncode": int(completed.returncode),
-            "detail": str((completed.stderr or completed.stdout or "").strip())[-500:],
+            "diagnostic_sha256": hashlib.sha256(diagnostic).hexdigest(),
+            "diagnostic_size_bytes": len(diagnostic),
         }
     raw_stdout = str(completed.stdout or "").strip()
     try:
         result = json.loads(raw_stdout or "{}")
     except Exception:
-        result = {}
+        result = None
     if not isinstance(result, dict):
+        recovery = _probe_committed_transaction(
+            slug=slug,
+            transaction_id=transaction_id,
+        )
+        if recovery is not None:
+            return _postcommit_failure(
+                reason="generator_unparseable_after_local_commit",
+                recovery=recovery,
+                detail="generator_result_not_object",
+            )
         return {
             "status": "failed",
             "reason": "generator_unparseable",
             "detail": "generator_result_not_object",
         }
     if str(result.get("status") or "").strip() != "generated":
+        recovery = _probe_committed_transaction(
+            slug=slug,
+            transaction_id=transaction_id,
+        )
+        if recovery is not None:
+            return _postcommit_failure(
+                reason="generator_reported_failure_after_local_commit",
+                recovery=recovery,
+                detail=str(
+                    result.get("reason")
+                    or result.get("status")
+                    or "generator_reported_non_generated_status"
+                ),
+            )
         return {
             "status": "failed",
             "reason": "generator_reported_failure",
-            "detail": str(result.get("reason") or result.get("status") or "generator_reported_non_generated_status")[:500],
-            "result": result,
+            "detail": _stable_generator_reason(
+                result.get("reason")
+                or result.get("status")
+                or "generator_reported_non_generated_status"
+            ),
         }
     try:
-        _publish_generated_bundle_permissions(payload.get("slug"))
+        _validate_generated_bundle_publication(payload.get("slug"))
     except PermissionError:
         return _generated_bundle_publish_failure("generated_bundle_permissions_denied")
     except _GeneratedBundlePublishError as exc:
@@ -708,10 +1313,59 @@ def run_generation_request(
         return _generated_bundle_publish_failure("generated_bundle_permissions_failed")
     except Exception:
         return _generated_bundle_publish_failure("generated_bundle_publish_failed")
+    recovery = _probe_committed_transaction(
+        slug=slug,
+        transaction_id=transaction_id,
+    )
+    if recovery is None:
+        return _generated_bundle_publish_failure(
+            "generated_bundle_transaction_binding_invalid"
+        )
+    if not bool(recovery.get("runtime_publication_proven")):
+        return _postcommit_failure(
+            reason="runtime_publication_unverified_after_generator_success",
+            recovery=recovery,
+        )
+    safe_result = _safe_generator_success_result(result)
+    safe_result.update(
+        {
+            "slug": slug,
+            "local_commit_applied": True,
+            "transaction_id_bound": True,
+            "publication_durability": str(
+                recovery.get("publication_durability") or "unverified"
+            ),
+            "runtime_publish_required": bool(
+                recovery.get("runtime_publish_required")
+            ),
+            "runtime_publish_ok": bool(recovery.get("runtime_publish_ok")),
+            "runtime_publish_status": str(
+                recovery.get("runtime_publish_status") or "unverified"
+            ),
+            "runtime_publication_proven": True,
+        }
+    )
     return {
         "status": "generated",
-        "result": result,
+        "result": safe_result,
     }
+
+
+def run_generation_request(
+    payload: dict[str, object],
+    *,
+    config: BridgeConfig | None = None,
+) -> dict[str, object]:
+    runtime_config = config or _load_bridge_config()
+    _validate_generation_cost(payload, config=runtime_config)
+    slug = _valid_generated_bundle_slug(payload.get("slug"))
+    if not slug:
+        raise ValueError("slug_invalid")
+    with _serialized_generation_slug(slug):
+        return _run_generation_request_locked(
+            payload,
+            runtime_config=runtime_config,
+        )
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -852,7 +1506,13 @@ class _Handler(BaseHTTPRequestHandler):
         try:
             _validate_generation_cost(payload, config=self._config)
         except ValueError as exc:
-            self._write_json(422, {"status": "rejected", "reason": str(exc)})
+            self._write_json(
+                422,
+                {
+                    "status": "rejected",
+                    "reason": _stable_validation_reason(exc),
+                },
+            )
             return
         if not self._generation_slots.acquire(blocking=False):
             self._write_json(503, {"status": "busy", "reason": "generation_concurrency_limit"})
@@ -861,10 +1521,23 @@ class _Handler(BaseHTTPRequestHandler):
             try:
                 result = run_generation_request(payload, config=self._config)
             except ValueError as exc:
-                self._write_json(422, {"status": "rejected", "reason": str(exc)})
+                self._write_json(
+                    422,
+                    {
+                        "status": "rejected",
+                        "reason": _stable_validation_reason(exc),
+                    },
+                )
                 return
             except Exception as exc:
-                self._write_json(500, {"status": "failed", "reason": type(exc).__name__, "detail": str(exc)[:500]})
+                self._write_json(
+                    500,
+                    {
+                        "status": "failed",
+                        "reason": "internal_generation_failure",
+                        "error_class": type(exc).__name__,
+                    },
+                )
                 return
         finally:
             self._generation_slots.release()
