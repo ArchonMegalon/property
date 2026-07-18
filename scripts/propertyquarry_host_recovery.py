@@ -430,7 +430,7 @@ def validate_static_compose_contract() -> None:
             "dedicated Compose contract is missing the ephemeral migration service"
         )
     if (
-        'command: ["python", "-m", "app.product.property_search_schema", "migrate"]'
+        'command: ["/usr/local/bin/python", "-m", "app.product.property_search_schema", "migrate"]'
         not in property_content
     ):
         raise RecoveryValidationError(
