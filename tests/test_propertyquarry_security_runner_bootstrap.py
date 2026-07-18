@@ -113,8 +113,8 @@ def test_registration_token_must_be_operator_minted_just_in_time() -> None:
 
 def test_downloaded_sources_are_bound_to_reviewed_hashes() -> None:
     workflow_text = WORKFLOW_PATH.read_text(encoding="utf-8")
-    assert _sha256(BOOTSTRAP_PATH) == "c2d90b70cf64df8ca97411540d90ac417f05716ad120cd994f46393737342c8f"
-    assert _sha256(PREFLIGHT_PATH) == "c08ecd4577a9cfb08c5b54029db6c7ff2ffe970b0839ce7baeb7e5936f66a1ca"
+    assert _sha256(BOOTSTRAP_PATH) == "dcad29f0d4be8d3e815d04f23f0a229bbf6ebbbe21512801411fd067bfa319d0"
+    assert _sha256(PREFLIGHT_PATH) == "7dc239ce8afe4333decfb9ba15fc8fc29d12ffd99b57433592d5a2b1f24c0374"
     assert _sha256(RUNNER_LOCK_PATH) == "e968dda8c1dee309698cf05e42932f786397e954ac034c4f90a0be0db32844fd"
     for identity in (_sha256(BOOTSTRAP_PATH), _sha256(PREFLIGHT_PATH), _sha256(RUNNER_LOCK_PATH)):
         assert identity in workflow_text
@@ -146,6 +146,9 @@ def test_rootless_runtime_bundle_is_exact_and_does_not_weaken_the_host() -> None
         "kernel.apparmor_restrict_unprivileged_userns",
         "verify_subid /etc/subuid",
         "verify_subid /etc/subgid",
+        'chown root:"${PQ_USER}" "${INSTALL_ROOT}"',
+        'chmod 750 "${INSTALL_ROOT}"',
+        "security install root posture mismatch",
         "unprivileged_userns_clone",
         "max_user_namespaces",
         'as_pq rootlesskit true || fail "RootlessKit namespace smoke check failed"',
@@ -185,6 +188,7 @@ def test_rootless_runtime_bundle_is_exact_and_does_not_weaken_the_host() -> None
         "--privileged",
         "chmod 666",
         "chmod 777",
+        'chmod 755 "${INSTALL_ROOT}"',
         "usermod -aG docker",
         "kernel.apparmor_restrict_unprivileged_userns=0",
         "sysctl -w",
@@ -248,11 +252,16 @@ def test_preflight_rejects_wrong_identity_credentials_or_runtime_state() -> None
         "Trivy database snapshot is stale",
         "rootless Docker daemon posture changed",
         "exact image digest is not local",
+        "security install root posture changed",
+        "rootless Docker socket owner UID changed",
+        "rootless Docker socket group is outside the security user mapping",
+        "600|660|1600|1660",
     ):
         assert expected in preflight
     assert "sudo -n true" in preflight
     assert "-r /var/run/docker.sock" in preflight
     assert '"root:root:4755"' in preflight
+    assert 'stat -Lc \'%U:%G\' "${EXPECTED_DOCKER_SOCKET}"' not in preflight
 
 
 def test_runner_lock_hashes_every_exact_dependency() -> None:

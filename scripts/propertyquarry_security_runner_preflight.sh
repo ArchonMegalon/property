@@ -3,9 +3,10 @@ set -Eeuo pipefail
 
 umask 077
 
-readonly GOVERNANCE_ROOT="/opt/propertyquarry-security/governance"
+readonly INSTALL_ROOT="/opt/propertyquarry-security"
+readonly GOVERNANCE_ROOT="${INSTALL_ROOT}/governance"
 readonly EXPECTED_FILE="${GOVERNANCE_ROOT}/expected.env"
-readonly EVIDENCE_ROOT="/opt/propertyquarry-security/evidence"
+readonly EVIDENCE_ROOT="${INSTALL_ROOT}/evidence"
 
 fail() {
   printf 'PropertyQuarry security runner preflight denied: %s\n' "$1" >&2
@@ -13,6 +14,10 @@ fail() {
 }
 
 [[ "$(id -un)" == "pqsecurity" ]] || fail "unexpected execution user"
+pq_uid="$(id -u)"
+pq_gid="$(id -g)"
+[[ "$(stat -Lc '%u:%g:%a' "${INSTALL_ROOT}")" == "0:${pq_gid}:750" ]] \
+  || fail "security install root posture changed"
 [[ -f "${EXPECTED_FILE}" ]] || fail "root-owned expectation file is missing"
 [[ "$(stat -c '%U:%G:%a' "${EXPECTED_FILE}")" == "root:root:444" ]] \
   || fail "expectation file ownership or mode changed"
@@ -134,10 +139,17 @@ verify_fresh_metadata "${EXPECTED_TRIVY_CACHE_DIR}/java-db/metadata.json" 604800
 
 [[ -S "${EXPECTED_DOCKER_SOCKET}" ]] || fail "rootless Docker socket is missing"
 [[ ! -L "${EXPECTED_DOCKER_SOCKET}" ]] || fail "rootless Docker socket is a symlink"
-[[ "$(stat -Lc '%U:%G' "${EXPECTED_DOCKER_SOCKET}")" == "pqsecurity:pqsecurity" ]] \
-  || fail "rootless Docker socket ownership changed"
+[[ "$(stat -Lc '%u' "${EXPECTED_DOCKER_SOCKET}")" == "${pq_uid}" ]] \
+  || fail "rootless Docker socket owner UID changed"
+socket_gid="$(stat -Lc '%g' "${EXPECTED_DOCKER_SOCKET}")"
+if [[ "${socket_gid}" != "${pq_gid}" ]]; then
+  awk -F: -v user="$(id -un)" -v socket_gid="${socket_gid}" '
+    $1 == user && socket_gid >= $2 && socket_gid < ($2 + $3) { found=1 }
+    END { exit found ? 0 : 1 }
+  ' /etc/subgid || fail "rootless Docker socket group is outside the security user mapping"
+fi
 case "$(stat -Lc '%a' "${EXPECTED_DOCKER_SOCKET}")" in
-  600|660) ;;
+  600|660|1600|1660) ;;
   *) fail "rootless Docker socket mode changed" ;;
 esac
 

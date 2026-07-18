@@ -316,6 +316,14 @@ verify_subid() {
 verify_subid /etc/subuid
 verify_subid /etc/subgid
 
+# The Actions runner resolves its installation path before it starts and needs
+# to enumerate each directory in that path. Restrict that capability to the
+# dedicated security group instead of making the install root world-readable.
+chown root:"${PQ_USER}" "${INSTALL_ROOT}"
+chmod 750 "${INSTALL_ROOT}"
+[[ "$(stat -c '%u:%g:%a' "${INSTALL_ROOT}")" == "0:${PQ_GID}:750" ]] \
+  || fail "security install root posture mismatch"
+
 if runuser -u "${PQ_USER}" -- env -i HOME="${PQ_HOME}" PATH=/usr/bin:/bin \
   DOCKER_HOST=unix:///var/run/docker.sock docker info >/dev/null 2>&1; then
   fail "security user can reach the outer Docker daemon"
