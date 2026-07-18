@@ -50,13 +50,26 @@ DOCKER_SOCKET=""
 DOCKER_HOST_VALUE=""
 RUNNER_NAME_VALUE=""
 RUNNER_AGENT_ID=""
-ROOTLESS_STARTED="false"
+ROOTLESS_SERVICE_ATTEMPTED="false"
 
 fail() {
   BOOTSTRAP_STATUS="failed"
   BOOTSTRAP_MESSAGE="$1"
   printf 'PropertyQuarry security runner bootstrap denied: %s\n' "$1" >&2
   return 1
+}
+
+on_unexpected_error() {
+  local exit_code="$?"
+  local line="$1"
+  trap - ERR
+  if [[ "${BOOTSTRAP_STATUS}" != "failed" ]]; then
+    BOOTSTRAP_STATUS="failed"
+    BOOTSTRAP_MESSAGE="unexpected command failure at line ${line} (exit ${exit_code})"
+    printf 'PropertyQuarry security runner bootstrap denied: %s\n' \
+      "${BOOTSTRAP_MESSAGE}" >&2
+  fi
+  return "${exit_code}"
 }
 
 sha256_file() {
@@ -103,14 +116,30 @@ as_pq() {
     "$@"
 }
 
+capture_rootless_diagnostics() {
+  [[ -n "${PQ_UID}" && "${ROOTLESS_SERVICE_ATTEMPTED}" == "true" ]] || return 0
+  {
+    printf 'PropertyQuarry rootless Docker diagnostic receipt\n'
+    printf 'captured_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    printf 'user=%s uid=%s runtime=%s\n' "${PQ_USER}" "${PQ_UID}" "${PQ_RUNTIME}"
+    printf '\n[systemctl-status]\n'
+    as_pq systemctl --user --no-pager --full status docker.service
+    printf '\n[systemctl-show]\n'
+    as_pq systemctl --user show docker.service \
+      --property=LoadState,ActiveState,SubState,Result,ExecMainCode,ExecMainStatus,FragmentPath,DropInPaths
+    printf '\n[journal]\n'
+    as_pq journalctl --user --unit docker.service --no-pager --output=short-precise --lines=500
+  } >"${EVIDENCE_ROOT}/rootless-docker.log" 2>&1
+  chmod 600 "${EVIDENCE_ROOT}/rootless-docker.log"
+}
+
 cleanup() {
   local exit_code="$?"
   set +e
   unset PQ_RUNNER_TOKEN PQ_GHCR_TOKEN GH_TOKEN GITHUB_TOKEN
-  if [[ -n "${PQ_UID}" && "${ROOTLESS_STARTED}" == "true" ]]; then
+  if [[ -n "${PQ_UID}" && "${ROOTLESS_SERVICE_ATTEMPTED}" == "true" ]]; then
+    capture_rootless_diagnostics
     as_pq systemctl --user stop docker.service >/dev/null 2>&1
-    as_pq journalctl --user --unit docker.service --no-pager \
-      >"${EVIDENCE_ROOT}/rootless-docker.log" 2>&1
   fi
   if [[ "${BOOTSTRAP_STATUS}" != "listener_exited" && "${BOOTSTRAP_STATUS}" != "failed" ]]; then
     BOOTSTRAP_STATUS="failed"
@@ -125,7 +154,7 @@ cleanup() {
   exit "${exit_code}"
 }
 trap cleanup EXIT
-trap 'fail "unexpected error at line ${LINENO}"' ERR
+trap 'on_unexpected_error "${LINENO}"' ERR
 
 [[ "${EUID}" -eq 0 ]] || fail "bootstrap must run as root on the disposable hosted VM"
 [[ "${GITHUB_ACTIONS:-}" == "true" ]] || fail "not running in GitHub Actions"
@@ -168,6 +197,12 @@ registration_remaining_seconds="$((registration_expires_epoch - $(date -u +%s)))
 [[ "$(stat -fc '%T' /sys/fs/cgroup)" == "cgroup2fs" ]] || fail "cgroup v2 is unavailable"
 [[ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns)" == "1" ]] \
   || fail "Ubuntu user-namespace restriction is not enforced"
+if [[ -r /proc/sys/kernel/unprivileged_userns_clone ]]; then
+  [[ "$(< /proc/sys/kernel/unprivileged_userns_clone)" == "1" ]] \
+    || fail "unprivileged user namespaces are disabled"
+fi
+(( $(< /proc/sys/user/max_user_namespaces) > 0 )) \
+  || fail "no unprivileged user namespaces are available"
 
 available_bytes="$(df --output=avail -B1 /opt | awk 'NR==2 {print $1}')"
 available_inodes="$(df --output=iavail /opt | awk 'NR==2 {print $1}')"
@@ -285,7 +320,10 @@ for _attempt in $(seq 1 30); do
 done
 [[ -S "${PQ_RUNTIME}/bus" ]] || fail "security user systemd bus did not start"
 install -d -o "${PQ_USER}" -g "${PQ_USER}" -m 0700 \
-  "${PQ_HOME}/.config/docker" "${PQ_HOME}/.local/share/docker"
+  "${PQ_HOME}/.config" "${PQ_HOME}/.config/docker" \
+  "${PQ_HOME}/.config/systemd" "${PQ_HOME}/.config/systemd/user" \
+  "${PQ_HOME}/.config/systemd/user/docker.service.d" \
+  "${PQ_HOME}/.local" "${PQ_HOME}/.local/share" "${PQ_HOME}/.local/share/docker"
 printf '%s\n' \
   '{' \
   '  "data-root": "/home/pqsecurity/.local/share/docker",' \
@@ -297,12 +335,31 @@ printf '%s\n' \
 chown "${PQ_USER}:${PQ_USER}" "${PQ_HOME}/.config/docker/daemon.json"
 chmod 600 "${PQ_HOME}/.config/docker/daemon.json"
 
-as_pq env \
-  DOCKERD_ROOTLESS_ROOTLESSKIT_NET=slirp4netns \
-  DOCKERD_ROOTLESS_ROOTLESSKIT_PORT_DRIVER=builtin \
-  dockerd-rootless-setuptool.sh install --force
-as_pq systemctl --user start docker.service
-ROOTLESS_STARTED="true"
+printf '%s\n' \
+  '[Service]' \
+  "Environment=HOME=${PQ_HOME}" \
+  "Environment=XDG_RUNTIME_DIR=${PQ_RUNTIME}" \
+  "Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=${PQ_RUNTIME}/bus" \
+  'Environment=DOCKERD_ROOTLESS_ROOTLESSKIT_NET=slirp4netns' \
+  'Environment=DOCKERD_ROOTLESS_ROOTLESSKIT_PORT_DRIVER=builtin' \
+  'Environment=DOCKERD_ROOTLESS_ROOTLESSKIT_DISABLE_HOST_LOOPBACK=true' \
+  >"${PQ_HOME}/.config/systemd/user/docker.service.d/10-propertyquarry.conf"
+chown "${PQ_USER}:${PQ_USER}" \
+  "${PQ_HOME}/.config/systemd/user/docker.service.d/10-propertyquarry.conf"
+chmod 600 "${PQ_HOME}/.config/systemd/user/docker.service.d/10-propertyquarry.conf"
+
+as_pq rootlesskit true || fail "RootlessKit namespace smoke check failed"
+ROOTLESS_SERVICE_ATTEMPTED="true"
+
+if ! as_pq dockerd-rootless-setuptool.sh install --force; then
+  BOOTSTRAP_STATUS="failed"
+  BOOTSTRAP_MESSAGE="rootless Docker user service failed to start; diagnostic receipt preserved"
+  printf 'PropertyQuarry security runner bootstrap denied: %s\n' \
+    "${BOOTSTRAP_MESSAGE}" >&2
+  exit 1
+fi
+[[ "$(as_pq systemctl --user is-active docker.service)" == "active" ]] \
+  || fail "rootless Docker user service is not active after setup"
 for _attempt in $(seq 1 60); do
   if [[ -S "${DOCKER_SOCKET}" ]] && as_pq docker info >/dev/null 2>&1; then
     break

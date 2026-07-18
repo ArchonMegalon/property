@@ -113,7 +113,7 @@ def test_registration_token_must_be_operator_minted_just_in_time() -> None:
 
 def test_downloaded_sources_are_bound_to_reviewed_hashes() -> None:
     workflow_text = WORKFLOW_PATH.read_text(encoding="utf-8")
-    assert _sha256(BOOTSTRAP_PATH) == "bc48c1c0a158f3ee9bd317fe84a509a02fa19039c977dc578e12e770f9a72f01"
+    assert _sha256(BOOTSTRAP_PATH) == "a9241cee69bcd424264ba0f825747030edea3e5a26bd5780864709817d2ee9f7"
     assert _sha256(PREFLIGHT_PATH) == "c08ecd4577a9cfb08c5b54029db6c7ff2ffe970b0839ce7baeb7e5936f66a1ca"
     assert _sha256(RUNNER_LOCK_PATH) == "e968dda8c1dee309698cf05e42932f786397e954ac034c4f90a0be0db32844fd"
     for identity in (_sha256(BOOTSTRAP_PATH), _sha256(PREFLIGHT_PATH), _sha256(RUNNER_LOCK_PATH)):
@@ -146,7 +146,16 @@ def test_rootless_runtime_bundle_is_exact_and_does_not_weaken_the_host() -> None
         "kernel.apparmor_restrict_unprivileged_userns",
         "verify_subid /etc/subuid",
         "verify_subid /etc/subgid",
+        "unprivileged_userns_clone",
+        "max_user_namespaces",
+        'as_pq rootlesskit true || fail "RootlessKit namespace smoke check failed"',
         "dockerd-rootless-setuptool.sh install --force",
+        "10-propertyquarry.conf",
+        "DOCKERD_ROOTLESS_ROOTLESSKIT_DISABLE_HOST_LOOPBACK=true",
+        "capture_rootless_diagnostics",
+        "systemctl --user --no-pager --full status docker.service",
+        "journalctl --user --unit docker.service",
+        "rootless Docker user service failed to start; diagnostic receipt preserved",
         '.SecurityOptions | any(contains("name=rootless"))',
         '.Driver == "overlay2"',
         '.CgroupDriver == "systemd"',
