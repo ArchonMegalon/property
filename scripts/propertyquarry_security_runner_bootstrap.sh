@@ -460,7 +460,18 @@ install -m 0444 "${PQ_LOCK_SOURCE}" "${GOVERNANCE_ROOT}/pip-audit.lock"
 [[ "$("${INSTALL_ROOT}/pip-audit/bin/python" -c 'import importlib.metadata, platform; print(platform.python_version() + "|" + importlib.metadata.version("pip-audit"))')" == "3.12.13|2.10.1" ]] \
   || fail "hash-locked pip-audit environment mismatch"
 chown -R root:root "${INSTALL_ROOT}/pip-audit"
-chmod -R go-w "${INSTALL_ROOT}/pip-audit"
+chmod -R a+rX,go-w "${INSTALL_ROOT}/pip-audit"
+[[ "$(stat -c '%U:%G:%a' "${INSTALL_ROOT}/pip-audit")" == "root:root:755" ]] \
+  || fail "pip-audit venv root posture mismatch"
+[[ "$(stat -c '%U:%G:%a' "${INSTALL_ROOT}/pip-audit/lib/python3.12/site-packages/pip/_internal/__init__.py")" == "root:root:644" ]] \
+  || fail "pip-audit package posture mismatch"
+if ! writable_venv_path="$(find "${INSTALL_ROOT}/pip-audit" -xdev \( -type f -o -type d \) -perm /022 -print -quit)"; then
+  fail "pip-audit venv writability audit failed"
+fi
+[[ -z "${writable_venv_path}" ]] \
+  || fail "pip-audit venv contains a group- or world-writable path"
+as_pq "${INSTALL_ROOT}/pip-audit/bin/pip-audit" --version >/dev/null \
+  || fail "security user cannot execute the hash-locked pip-audit environment"
 
 maintenance_cache="${INSTALL_ROOT}/trivy-maintenance"
 install -d -m 0700 "${maintenance_cache}"

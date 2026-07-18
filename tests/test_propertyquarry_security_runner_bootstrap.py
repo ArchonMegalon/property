@@ -113,7 +113,7 @@ def test_registration_token_must_be_operator_minted_just_in_time() -> None:
 
 def test_downloaded_sources_are_bound_to_reviewed_hashes() -> None:
     workflow_text = WORKFLOW_PATH.read_text(encoding="utf-8")
-    assert _sha256(BOOTSTRAP_PATH) == "dcad29f0d4be8d3e815d04f23f0a229bbf6ebbbe21512801411fd067bfa319d0"
+    assert _sha256(BOOTSTRAP_PATH) == "ef13bd828290f78356c450a4cca22f12115d6555787f61a42d8c32810c6a76d3"
     assert _sha256(PREFLIGHT_PATH) == "7dc239ce8afe4333decfb9ba15fc8fc29d12ffd99b57433592d5a2b1f24c0374"
     assert _sha256(RUNNER_LOCK_PATH) == "e968dda8c1dee309698cf05e42932f786397e954ac034c4f90a0be0db32844fd"
     for identity in (_sha256(BOOTSTRAP_PATH), _sha256(PREFLIGHT_PATH), _sha256(RUNNER_LOCK_PATH)):
@@ -212,6 +212,10 @@ def test_runner_and_scanners_are_ephemeral_offline_and_hash_bound() -> None:
         'TRIVY_ARCHIVE_SHA256="bbb64b9695866ce4a7a8f5c9592002c5961cab378577fa3f8a040df362b9b2ea"',
         'TRIVY_BINARY_SHA256="0e69edd134a3c338baa1a6806920773615d682b18cbc6a0cba2a3b658ef9b63e"',
         "--require-hashes --only-binary=:all:",
+        'chmod -R a+rX,go-w "${INSTALL_ROOT}/pip-audit"',
+        "pip-audit venv writability audit failed",
+        "pip-audit venv contains a group- or world-writable path",
+        "security user cannot execute the hash-locked pip-audit environment",
         "image --download-db-only",
         "image --download-java-db-only",
         "--ephemeral",
@@ -228,6 +232,10 @@ def test_runner_and_scanners_are_ephemeral_offline_and_hash_bound() -> None:
     assert "\n    --replace" not in script
     assert 'BOOTSTRAP_STATUS="pass"' not in script
     assert "runner-diag" not in script
+    assert 'chmod -R go-w "${INSTALL_ROOT}/pip-audit"' not in script
+    assert script.index(
+        'as_pq "${INSTALL_ROOT}/pip-audit/bin/pip-audit" --version'
+    ) < script.index('"${RUNNER_ROOT}/config.sh"')
 
 
 def test_preflight_rejects_wrong_identity_credentials_or_runtime_state() -> None:
