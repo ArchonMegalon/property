@@ -7,6 +7,10 @@ on:
   pull_request:
   workflow_dispatch:
     inputs:
+      security_runner_label:
+        description: One-time pqsec-<32 lowercase hex> label bound to the protected security runner
+        required: true
+        type: string
       run_activation_journey:
         description: Run the protected deployed activation-to-value journey after environment approval
         required: false
@@ -50,14 +54,15 @@ jobs:
           PYTHONPATH=ea python scripts/check_property_repo_isolation.py
 
   propertyquarry-flagship-security:
-    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && startsWith(inputs.security_runner_label, 'pqsec-') }}
     environment:
       name: propertyquarry-production
     permissions:
       contents: read
-    runs-on: [self-hosted, propertyquarry-security]
+    runs-on: [self-hosted, propertyquarry-security, "${{ inputs.security_runner_label }}"]
     env:
       PROPERTYQUARRY_WORKFLOW_HEAD_SHA: ${{ github.sha }}
+      PROPERTYQUARRY_SECURITY_RUNNER_LABEL: ${{ inputs.security_runner_label }}
       PROPERTYQUARRY_WEB_IMAGE: ${{ vars.PROPERTYQUARRY_WEB_IMAGE }}
       PROPERTYQUARRY_RENDER_IMAGE: ${{ vars.PROPERTYQUARRY_RENDER_IMAGE }}
     steps:

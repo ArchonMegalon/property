@@ -462,7 +462,8 @@ def test_ci_flagship_security_job_is_focused_protected_and_blocks_live_gate() ->
     assert "github.ref == 'refs/heads/main'" in job
     assert "environment:\n      name: propertyquarry-production" in job
     assert "permissions:\n      contents: read" in job
-    assert "runs-on: [self-hosted, propertyquarry-security]" in job
+    assert 'runs-on: [self-hosted, propertyquarry-security, "${{ inputs.security_runner_label }}"]' in job
+    assert "PROPERTYQUARRY_SECURITY_RUNNER_LABEL: ${{ inputs.security_runner_label }}" in job
     assert "persist-credentials: false" in job
     assert "command -v pip-audit" not in job
     assert "command -v syft" not in job

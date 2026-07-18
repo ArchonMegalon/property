@@ -1,0 +1,223 @@
+name: propertyquarry-security-runner-bootstrap
+
+on:
+  workflow_dispatch:
+    inputs:
+      security_run_id:
+        description: Exact pre-approved smoke-runtime workflow_dispatch run waiting for the flagship security runner
+        required: true
+        type: string
+      security_runner_label:
+        description: Exact one-time pqsec label supplied to the pre-approved security run
+        required: true
+        type: string
+      security_runner_token_expires_at:
+        description: Expiration returned with the just-in-time operator-minted registration token
+        required: true
+        type: string
+
+concurrency:
+  group: propertyquarry-security-runner-bootstrap
+  cancel-in-progress: false
+
+permissions:
+  actions: read
+  contents: read
+  packages: read
+
+jobs:
+  bootstrap:
+    if: ${{ github.ref == 'refs/heads/main' && github.event.repository.full_name == 'ArchonMegalon/property' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    environment:
+      name: propertyquarry-production
+    steps:
+      - name: Validate the exact queued flagship security job
+        id: target
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SECURITY_RUN_ID: ${{ inputs.security_run_id }}
+          SECURITY_RUNNER_LABEL: ${{ inputs.security_runner_label }}
+          SECURITY_RUNNER_TOKEN_EXPIRES_AT: ${{ inputs.security_runner_token_expires_at }}
+        run: |
+          set -Eeuo pipefail
+          [[ "${SECURITY_RUN_ID}" =~ ^[0-9]+$ ]]
+          [[ "${SECURITY_RUNNER_LABEL}" =~ ^pqsec-[0-9a-f]{32}$ ]]
+          token_expires_epoch="$(date -u -d "${SECURITY_RUNNER_TOKEN_EXPIRES_AT}" +%s)"
+          token_remaining_seconds="$((token_expires_epoch - $(date -u +%s)))"
+          (( token_remaining_seconds >= 3000 && token_remaining_seconds <= 3700 ))
+
+          target_run="$(
+            gh api \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "repos/${GITHUB_REPOSITORY}/actions/runs/${SECURITY_RUN_ID}"
+          )"
+          jq -e \
+            --arg repository "${GITHUB_REPOSITORY}" \
+            --arg head_sha "${GITHUB_SHA}" '
+              .repository.full_name == $repository and
+              .event == "workflow_dispatch" and
+              .head_branch == "main" and
+              .head_sha == $head_sha and
+              .path == ".github/workflows/smoke-runtime.yml" and
+              .run_attempt >= 1 and
+              (.status == "queued" or .status == "in_progress") and
+              .conclusion == null
+            ' <<<"${target_run}" >/dev/null
+
+          target_jobs="$(
+            gh api \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "repos/${GITHUB_REPOSITORY}/actions/runs/${SECURITY_RUN_ID}/jobs?filter=latest&per_page=100"
+          )"
+          [[ "$(jq '[.jobs[] | select(.name == "propertyquarry-flagship-security")] | length' <<<"${target_jobs}")" == "1" ]]
+          target_job="$(
+            jq -c '.jobs[] | select(.name == "propertyquarry-flagship-security")' \
+              <<<"${target_jobs}"
+          )"
+          jq -e \
+            --arg head_sha "${GITHUB_SHA}" \
+            --arg runner_label "${SECURITY_RUNNER_LABEL}" '
+              .name == "propertyquarry-flagship-security" and
+              .status == "queued" and
+              .conclusion == null and
+              .head_sha == $head_sha and
+              (.labels | index("self-hosted") != null) and
+              (.labels | index("propertyquarry-security") != null) and
+              (.labels | index($runner_label) != null)
+            ' <<<"${target_job}" >/dev/null
+
+          run_attempt="$(jq -er '.run_attempt | tostring' <<<"${target_run}")"
+          job_id="$(jq -er '.id | tostring' <<<"${target_job}")"
+          workflow_ref="${GITHUB_REPOSITORY}/.github/workflows/smoke-runtime.yml@refs/heads/main"
+          {
+            printf 'PQ_SECURITY_RUN_ID=%s\n' "${SECURITY_RUN_ID}"
+            printf 'PQ_SECURITY_RUN_ATTEMPT=%s\n' "${run_attempt}"
+            printf 'PQ_SECURITY_JOB_ID=%s\n' "${job_id}"
+            printf 'PQ_SECURITY_RUNNER_LABEL=%s\n' "${SECURITY_RUNNER_LABEL}"
+            printf 'PQ_EXPECTED_WORKFLOW_REF=%s\n' "${workflow_ref}"
+          } >>"${GITHUB_ENV}"
+
+      - name: Set up the reviewed scanner Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: 3.12.13
+          check-latest: false
+
+      - name: Materialize exact commit-bound bootstrap sources
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          source_root="${RUNNER_TEMP}/propertyquarry-security-bootstrap-source"
+          install -d -m 0700 "${source_root}"
+
+          materialize() {
+            local repository_path="$1"
+            local destination="$2"
+            gh api \
+              -H 'Accept: application/vnd.github.raw+json' \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "repos/${GITHUB_REPOSITORY}/contents/${repository_path}?ref=${GITHUB_SHA}" \
+              >"${destination}"
+          }
+
+          materialize scripts/propertyquarry_security_runner_bootstrap.sh "${source_root}/bootstrap.sh"
+          materialize scripts/propertyquarry_security_runner_preflight.sh "${source_root}/preflight.sh"
+          materialize config/propertyquarry_security_runner_requirements.lock "${source_root}/pip-audit.lock"
+
+          printf '%s  %s\n' \
+            'bc48c1c0a158f3ee9bd317fe84a509a02fa19039c977dc578e12e770f9a72f01' \
+            "${source_root}/bootstrap.sh" \
+            'c08ecd4577a9cfb08c5b54029db6c7ff2ffe970b0839ce7baeb7e5936f66a1ca' \
+            "${source_root}/preflight.sh" \
+            'e968dda8c1dee309698cf05e42932f786397e954ac034c4f90a0be0db32844fd' \
+            "${source_root}/pip-audit.lock" \
+            | sha256sum --check --strict
+          chmod 500 "${source_root}/bootstrap.sh"
+          chmod 400 "${source_root}/preflight.sh" "${source_root}/pip-audit.lock"
+          printf 'PQ_BOOTSTRAP_SOURCE_ROOT=%s\n' "${source_root}" >>"${GITHUB_ENV}"
+
+      - name: Provision and run the exact one-job ephemeral rootless runner
+        id: bootstrap
+        shell: bash
+        env:
+          PQ_RUNNER_TOKEN: ${{ secrets.PROPERTYQUARRY_SECURITY_RUNNER_TOKEN }}
+          PQ_RUNNER_TOKEN_EXPIRES_AT: ${{ inputs.security_runner_token_expires_at }}
+          PQ_GHCR_TOKEN: ${{ github.token }}
+          PQ_WEB_IMAGE: ${{ vars.PROPERTYQUARRY_WEB_IMAGE }}
+          PQ_RENDER_IMAGE: ${{ vars.PROPERTYQUARRY_RENDER_IMAGE }}
+        run: |
+          set -Eeuo pipefail
+          export PQ_REPOSITORY="${GITHUB_REPOSITORY}"
+          export PQ_EXPECTED_HEAD_SHA="${GITHUB_SHA}"
+          export PQ_LOCK_SOURCE="${PQ_BOOTSTRAP_SOURCE_ROOT}/pip-audit.lock"
+          export PQ_LOCK_SHA256="e968dda8c1dee309698cf05e42932f786397e954ac034c4f90a0be0db32844fd"
+          export PQ_PREFLIGHT_SOURCE="${PQ_BOOTSTRAP_SOURCE_ROOT}/preflight.sh"
+          export PQ_PREFLIGHT_SHA256="c08ecd4577a9cfb08c5b54029db6c7ff2ffe970b0839ce7baeb7e5936f66a1ca"
+          export PQ_PYTHON_BIN="${pythonLocation}/bin/python"
+          export PQ_EVIDENCE_ROOT="${RUNNER_TEMP}/propertyquarry-security-bootstrap-evidence"
+          export PQ_OUTER_UID="$(id -u)"
+          export PQ_OUTER_GID="$(id -g)"
+
+          [[ -n "${PQ_RUNNER_TOKEN:-}" ]]
+          registration_expires_epoch="$(date -u -d "${PQ_RUNNER_TOKEN_EXPIRES_AT:?Missing registration-token expiration}" +%s)"
+          registration_remaining_seconds="$((registration_expires_epoch - $(date -u +%s)))"
+          (( registration_remaining_seconds >= 3000 && registration_remaining_seconds <= 3700 ))
+          printf '::add-mask::%s\n' "${PQ_RUNNER_TOKEN}"
+
+          sudo --preserve-env=GITHUB_ACTIONS,GITHUB_ACTOR,GITHUB_REF,GITHUB_REPOSITORY,GITHUB_RUN_ATTEMPT,GITHUB_RUN_ID,GITHUB_SHA,ImageOS,ImageVersion,RUNNER_ENVIRONMENT,PQ_REPOSITORY,PQ_EXPECTED_HEAD_SHA,PQ_EXPECTED_WORKFLOW_REF,PQ_SECURITY_RUN_ID,PQ_SECURITY_RUN_ATTEMPT,PQ_SECURITY_JOB_ID,PQ_SECURITY_RUNNER_LABEL,PQ_RUNNER_TOKEN,PQ_RUNNER_TOKEN_EXPIRES_AT,PQ_GHCR_TOKEN,PQ_WEB_IMAGE,PQ_RENDER_IMAGE,PQ_LOCK_SOURCE,PQ_LOCK_SHA256,PQ_PREFLIGHT_SOURCE,PQ_PREFLIGHT_SHA256,PQ_PYTHON_BIN,PQ_EVIDENCE_ROOT,PQ_OUTER_UID,PQ_OUTER_GID \
+            /bin/bash "${PQ_BOOTSTRAP_SOURCE_ROOT}/bootstrap.sh"
+          unset PQ_RUNNER_TOKEN PQ_RUNNER_TOKEN_EXPIRES_AT
+
+      - name: Verify the exact flagship security job consumed the runner
+        if: ${{ always() && steps.bootstrap.outcome == 'success' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          target_job="$(
+            gh api \
+              -H 'X-GitHub-Api-Version: 2026-03-10' \
+              "repos/${GITHUB_REPOSITORY}/actions/jobs/${PQ_SECURITY_JOB_ID}"
+          )"
+          expected_runner="pq-security-${GITHUB_RUN_ID}-${PQ_SECURITY_RUN_ID}"
+          jq -e \
+            --arg head_sha "${GITHUB_SHA}" \
+            --arg runner_name "${expected_runner}" \
+            --arg runner_label "${PQ_SECURITY_RUNNER_LABEL}" '
+              .name == "propertyquarry-flagship-security" and
+              .status == "completed" and
+              .conclusion == "success" and
+              .head_sha == $head_sha and
+              .runner_name == $runner_name and
+              (.labels | index($runner_label) != null)
+            ' <<<"${target_job}" >/dev/null
+          evidence_root="${RUNNER_TEMP}/propertyquarry-security-bootstrap-evidence"
+          jq -n \
+            --arg schema "propertyquarry.security_runner_consumption.v1" \
+            --arg status "pass" \
+            --arg run_id "${PQ_SECURITY_RUN_ID}" \
+            --arg run_attempt "${PQ_SECURITY_RUN_ATTEMPT}" \
+            --arg job_id "${PQ_SECURITY_JOB_ID}" \
+            --arg head_sha "${GITHUB_SHA}" \
+            --arg runner_name "${expected_runner}" \
+            --arg runner_label "${PQ_SECURITY_RUNNER_LABEL}" \
+            --arg runner_token_expires_at "${{ inputs.security_runner_token_expires_at }}" \
+            --arg verified_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{schema:$schema,status:$status,run_id:$run_id,run_attempt:$run_attempt,job_id:$job_id,head_sha:$head_sha,runner_name:$runner_name,runner_label:$runner_label,registration_token_expires_at:$runner_token_expires_at,verified_at:$verified_at}' \
+            >"${evidence_root}/consumption.json"
+          chmod 600 "${evidence_root}/consumption.json"
+
+      - name: Preserve governed runner-maintenance evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: propertyquarry-security-runner-bootstrap-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/propertyquarry-security-bootstrap-evidence
+          if-no-files-found: error
+          retention-days: 30
