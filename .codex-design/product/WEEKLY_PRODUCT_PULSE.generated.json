@@ -1,8 +1,8 @@
 {
   "contract_name": "ea.weekly_product_pulse",
   "contract_version": 2,
-  "generated_at": "2026-07-17T22:58:26Z",
-  "as_of": "2026-07-17",
+  "generated_at": "2026-07-18T00:54:16Z",
+  "as_of": "2026-07-18",
   "scorecard_source": ".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml",
   "release_truth_source": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
   "release_truth_provenance": {
@@ -13,7 +13,7 @@
     "mtime_utc": "2026-07-17T22:58:22Z",
     "sha256": "e746a6e1faaab100838839e1d165660e355c06469478a15e2e0cccaf92dc1fd2",
     "git_repo_root": "/dev/shm/propertyquarry-tour-bootstrap-e05b",
-    "git_head": "6c96b01b2f4a7d630ca2e276913bb5754412d16f",
+    "git_head": "7aae6d5a87c7004d9b591396bd4951d35a61991b",
     "git_branch": "release/propertyquarry-20260717-tour-bootstrap",
     "repo_relative_path": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"
   },
@@ -155,13 +155,13 @@
     "provider_route_stewardship": {
       "default_status": "PropertyQuarry routes are governed by local truth surfaces.",
       "canary_status": "Browser execution proof is published for the source/browser candidate; protected live evidence remains separate.",
-      "review_due": "2026-07-24T22:58:26Z",
+      "review_due": "2026-07-25T00:54:16Z",
       "next_decision": "Complete the protected launch profile and live receipts, then re-materialize this pulse."
     },
     "journey_gate_source": "/docker/fleet/.codex-studio/published/JOURNEY_GATES.generated.json",
     "journey_gate_git_head": "99f7fc42bac6a172d4ec2c02ed59807461d10038",
     "flagship_release_receipt_source": ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
-    "flagship_release_receipt_git_head": "6c96b01b2f4a7d630ca2e276913bb5754412d16f",
+    "flagship_release_receipt_git_head": "7aae6d5a87c7004d9b591396bd4951d35a61991b",
     "scorecard_source": ".codex-design/product/PRODUCT_HEALTH_SCORECARD.yaml",
     "release_pipeline_source": ".codex-design/product/RELEASE_PIPELINE.md",
     "governor_loop_source": ".codex-design/product/PRODUCT_GOVERNOR_AND_AUTOPILOT_LOOP.md",
