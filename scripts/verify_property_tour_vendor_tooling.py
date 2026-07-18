@@ -13,7 +13,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from ea.property_render_ffmpeg_audit import (
+from ea.property_render_ffmpeg_validator import (
     audit_ffmpeg_encoder as _ffmpeg_encoder_capability,
     capture_container_tool as _capture_container_tool,
     capture_local_tool as _capture_local_tool,
