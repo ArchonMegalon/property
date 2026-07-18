@@ -113,8 +113,8 @@ def test_registration_token_must_be_operator_minted_just_in_time() -> None:
 
 def test_downloaded_sources_are_bound_to_reviewed_hashes() -> None:
     workflow_text = WORKFLOW_PATH.read_text(encoding="utf-8")
-    assert _sha256(BOOTSTRAP_PATH) == "b7842dfe87eac16f425b1d641b1be591edb026ead038a63979f1087121217ec0"
-    assert _sha256(PREFLIGHT_PATH) == "bcf708f45053c685cc4ec5ff025303154be0c550ab7caf44ddf40acfb87449db"
+    assert _sha256(BOOTSTRAP_PATH) == "d408ec27b3f554775aa68a3b83c3c8584866d99d52ec92d1811fb20ee7582a8e"
+    assert _sha256(PREFLIGHT_PATH) == "1450cd2506ed02edd5445861678aa80da92f5535161cdfa569d34622311796e3"
     assert _sha256(RUNNER_LOCK_PATH) == "e968dda8c1dee309698cf05e42932f786397e954ac034c4f90a0be0db32844fd"
     for identity in (_sha256(BOOTSTRAP_PATH), _sha256(PREFLIGHT_PATH), _sha256(RUNNER_LOCK_PATH)):
         assert identity in workflow_text
@@ -231,6 +231,7 @@ def test_runner_and_scanners_are_ephemeral_offline_and_hash_bound() -> None:
         "Actions runner runtime contains a group- or world-writable path",
         "Actions runner Node 24 runtime posture mismatch",
         "security user cannot execute the Actions runner Node 24 runtime",
+        'PATH="$(<"${RUNNER_ROOT}/.path")"',
         '"EXPECTED_SYSCTL_BIN=/usr/sbin/sysctl"',
         '"EXPECTED_SYSCTL_SHA256=$(sha256_file /usr/sbin/sysctl)"',
         '|| LISTENER_EXIT_CODE="$?"',
@@ -279,6 +280,10 @@ def test_preflight_rejects_wrong_identity_credentials_or_runtime_state() -> None
         "Trivy cache backend is not memory-only",
         "Trivy snapshot root ownership or mode changed",
         "required governed file is missing",
+        '"${PATH:-}" == "${governed_scanner_path}"',
+        '"$(command -v pip-audit)" == "${EXPECTED_PIP_AUDIT_BIN}"',
+        '"$(command -v syft)" == "${EXPECTED_SYFT_BIN}"',
+        '"$(command -v trivy)" == "${EXPECTED_TRIVY_BIN}"',
         'verify_file "${EXPECTED_SYSCTL_BIN}" "${EXPECTED_SYSCTL_SHA256}" "root:root:755"',
         '"${EXPECTED_SYSCTL_BIN}" -n kernel.apparmor_restrict_unprivileged_userns',
         "Trivy database snapshot is stale",

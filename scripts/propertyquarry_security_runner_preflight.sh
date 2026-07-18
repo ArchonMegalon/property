@@ -98,6 +98,18 @@ verify_file "${EXPECTED_RUNNER_ENV}" "${EXPECTED_RUNNER_ENV_SHA256}" "root:root:
 verify_file "${EXPECTED_RUNNER_PATH}" "${EXPECTED_RUNNER_PATH_SHA256}" "root:root:444"
 verify_file "${EXPECTED_RUNNER_LOCK}" "${EXPECTED_RUNNER_LOCK_SHA256}" "root:root:444"
 
+# Named scanner execution in the release gate must resolve only to the
+# hash-verified tools provisioned by the reviewed bootstrap.
+governed_scanner_path="$(<"${EXPECTED_RUNNER_PATH}")"
+[[ -n "${governed_scanner_path}" && "${PATH:-}" == "${governed_scanner_path}" ]] \
+  || fail "runner executable path changed"
+[[ "$(command -v pip-audit)" == "${EXPECTED_PIP_AUDIT_BIN}" ]] \
+  || fail "pip-audit command resolution changed"
+[[ "$(command -v syft)" == "${EXPECTED_SYFT_BIN}" ]] \
+  || fail "Syft command resolution changed"
+[[ "$(command -v trivy)" == "${EXPECTED_TRIVY_BIN}" ]] \
+  || fail "Trivy command resolution changed"
+
 [[ "$("${EXPECTED_PIP_AUDIT_BIN}" --version)" == "pip-audit 2.10.1" ]] \
   || fail "pip-audit version changed"
 [[ "$("${EXPECTED_PYTHON_BIN}" -c 'import importlib.metadata, platform; print(platform.python_version() + "|" + importlib.metadata.version("pip-audit"))')" == "3.12.13|2.10.1" ]] \

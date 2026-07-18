@@ -130,9 +130,9 @@ jobs:
           materialize config/propertyquarry_security_runner_requirements.lock "${source_root}/pip-audit.lock"
 
           printf '%s  %s\n' \
-            'b7842dfe87eac16f425b1d641b1be591edb026ead038a63979f1087121217ec0' \
+            'd408ec27b3f554775aa68a3b83c3c8584866d99d52ec92d1811fb20ee7582a8e' \
             "${source_root}/bootstrap.sh" \
-            'bcf708f45053c685cc4ec5ff025303154be0c550ab7caf44ddf40acfb87449db' \
+            '1450cd2506ed02edd5445861678aa80da92f5535161cdfa569d34622311796e3' \
             "${source_root}/preflight.sh" \
             'e968dda8c1dee309698cf05e42932f786397e954ac034c4f90a0be0db32844fd' \
             "${source_root}/pip-audit.lock" \
@@ -157,7 +157,7 @@ jobs:
           export PQ_LOCK_SOURCE="${PQ_BOOTSTRAP_SOURCE_ROOT}/pip-audit.lock"
           export PQ_LOCK_SHA256="e968dda8c1dee309698cf05e42932f786397e954ac034c4f90a0be0db32844fd"
           export PQ_PREFLIGHT_SOURCE="${PQ_BOOTSTRAP_SOURCE_ROOT}/preflight.sh"
-          export PQ_PREFLIGHT_SHA256="bcf708f45053c685cc4ec5ff025303154be0c550ab7caf44ddf40acfb87449db"
+          export PQ_PREFLIGHT_SHA256="1450cd2506ed02edd5445861678aa80da92f5535161cdfa569d34622311796e3"
           export PQ_PYTHON_BIN="${pythonLocation}/bin/python"
           export PQ_EVIDENCE_ROOT="${RUNNER_TEMP}/propertyquarry-security-bootstrap-evidence"
           export PQ_OUTER_UID="$(id -u)"

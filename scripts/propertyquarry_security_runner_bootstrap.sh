@@ -700,12 +700,14 @@ BOOTSTRAP_STATUS="listener_running"
 BOOTSTRAP_MESSAGE="exact ephemeral runner listener started"
 write_receipt
 LISTENER_EXIT_CODE="0"
+# Runner.Listener loads .env but does not consume the .path snapshot when it
+# is invoked directly, so bind the listener to that root-owned exact value.
 runuser -u "${PQ_USER}" -- env -i \
   HOME="${PQ_HOME}" \
   USER="${PQ_USER}" \
   LOGNAME="${PQ_USER}" \
   SHELL="/bin/bash" \
-  PATH="/usr/bin:/bin" \
+  PATH="$(<"${RUNNER_ROOT}/.path")" \
   /bin/bash -c 'cd /opt/propertyquarry-security/runner && exec ./bin/Runner.Listener run' \
   || LISTENER_EXIT_CODE="$?"
 
