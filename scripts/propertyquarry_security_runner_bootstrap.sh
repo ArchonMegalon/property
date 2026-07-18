@@ -52,6 +52,7 @@ DOCKER_HOST_VALUE=""
 RUNNER_NAME_VALUE=""
 RUNNER_AGENT_ID=""
 ROOTLESS_SERVICE_ATTEMPTED="false"
+LISTENER_EXIT_CODE=""
 
 fail() {
   BOOTSTRAP_STATUS="failed"
@@ -93,6 +94,7 @@ write_receipt() {
     --arg runner_name "${RUNNER_NAME_VALUE}" \
     --arg runner_label "${PQ_SECURITY_RUNNER_LABEL:-}" \
     --arg runner_agent_id "${RUNNER_AGENT_ID}" \
+    --arg listener_exit_code "${LISTENER_EXIT_CODE}" \
     --arg runner_token_expires_at "${PQ_RUNNER_TOKEN_EXPIRES_AT:-}" \
     --arg image_os "${ImageOS:-}" \
     --arg image_version "${ImageVersion:-}" \
@@ -100,7 +102,7 @@ write_receipt() {
     --arg web_image "${PQ_WEB_IMAGE:-}" \
     --arg render_image "${PQ_RENDER_IMAGE:-}" \
     --arg recorded_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    '{schema:$schema,status:$status,message:$message,repository:$repository,target:{run_id:$target_run_id,run_attempt:$target_run_attempt,job_id:$target_job_id,head_sha:$target_head_sha},bootstrap:{run_id:$outer_run_id,run_attempt:$outer_run_attempt},runner:{name:$runner_name,label:$runner_label,agent_id:$runner_agent_id,registration_token_expires_at:$runner_token_expires_at},hosted_image:{os:$image_os,version:$image_version,kernel:$kernel},images:{web:$web_image,render:$render_image},recorded_at:$recorded_at}' \
+    '{schema:$schema,status:$status,message:$message,repository:$repository,target:{run_id:$target_run_id,run_attempt:$target_run_attempt,job_id:$target_job_id,head_sha:$target_head_sha},bootstrap:{run_id:$outer_run_id,run_attempt:$outer_run_attempt},runner:{name:$runner_name,label:$runner_label,agent_id:$runner_agent_id,listener_exit_code:$listener_exit_code,registration_token_expires_at:$runner_token_expires_at},hosted_image:{os:$image_os,version:$image_version,kernel:$kernel},images:{web:$web_image,render:$render_image},recorded_at:$recorded_at}' \
     >"${EVIDENCE_ROOT}/bootstrap-receipt.json"
   chmod 600 "${EVIDENCE_ROOT}/bootstrap-receipt.json"
 }
@@ -569,6 +571,10 @@ install -d -o "${PQ_USER}" -g "${PQ_USER}" -m 0700 \
 printf '%s\n' \
   "DOCKER_HOST=${DOCKER_HOST_VALUE}" \
   "XDG_RUNTIME_DIR=${PQ_RUNTIME}" \
+  "PROPERTYQUARRY_WORKFLOW_HEAD_SHA=${PQ_EXPECTED_HEAD_SHA}" \
+  "PROPERTYQUARRY_SECURITY_RUNNER_LABEL=${PQ_SECURITY_RUNNER_LABEL}" \
+  "PROPERTYQUARRY_WEB_IMAGE=${PQ_WEB_IMAGE}" \
+  "PROPERTYQUARRY_RENDER_IMAGE=${PQ_RENDER_IMAGE}" \
   "TRIVY_CACHE_DIR=${operational_cache}" \
   "TRIVY_CACHE_BACKEND=memory" \
   "TRIVY_SKIP_VERSION_CHECK=true" \
@@ -590,10 +596,24 @@ for config_file in .runner .credentials .credentials_rsaparams; do
   chmod 440 "${RUNNER_ROOT}/${config_file}"
 done
 chown -R root:root "${RUNNER_ROOT}/bin" "${RUNNER_ROOT}/externals"
-chmod -R go-w "${RUNNER_ROOT}/bin" "${RUNNER_ROOT}/externals"
+chmod -R a+rX,go-w "${RUNNER_ROOT}/bin" "${RUNNER_ROOT}/externals"
+if ! writable_runner_path="$(find "${RUNNER_ROOT}/bin" "${RUNNER_ROOT}/externals" \
+  -xdev \( -type f -o -type d \) -perm /022 -print -quit)"; then
+  fail "Actions runner runtime writability audit failed"
+fi
+[[ -z "${writable_runner_path}" ]] \
+  || fail "Actions runner runtime contains a group- or world-writable path"
+[[ "$(stat -c '%U:%G:%a' "${RUNNER_ROOT}/externals/node24/bin/node")" == "root:root:755" ]] \
+  || fail "Actions runner Node 24 runtime posture mismatch"
+as_pq "${RUNNER_ROOT}/externals/node24/bin/node" --version >/dev/null \
+  || fail "security user cannot execute the Actions runner Node 24 runtime"
 chown root:root "${RUNNER_ROOT}" "${RUNNER_ROOT}/run.sh" "${RUNNER_ROOT}/config.sh"
 chmod 755 "${RUNNER_ROOT}"
 chmod 555 "${RUNNER_ROOT}/run.sh" "${RUNNER_ROOT}/config.sh" "${RUNNER_ROOT}/bin/Runner.Listener"
+
+RUNNER_SETTINGS_SHA256="$(sha256_file "${RUNNER_ROOT}/.runner")"
+RUNNER_CREDENTIALS_SHA256="$(sha256_file "${RUNNER_ROOT}/.credentials")"
+RUNNER_RSA_SHA256="$(sha256_file "${RUNNER_ROOT}/.credentials_rsaparams")"
 
 expected_file="${GOVERNANCE_ROOT}/expected.env"
 printf '%s\n' \
@@ -677,13 +697,23 @@ as_pq docker info >/dev/null
 BOOTSTRAP_STATUS="listener_running"
 BOOTSTRAP_MESSAGE="exact ephemeral runner listener started"
 write_receipt
+LISTENER_EXIT_CODE="0"
 runuser -u "${PQ_USER}" -- env -i \
   HOME="${PQ_HOME}" \
   USER="${PQ_USER}" \
   LOGNAME="${PQ_USER}" \
   SHELL="/bin/bash" \
   PATH="/usr/bin:/bin" \
-  /bin/bash -c 'cd /opt/propertyquarry-security/runner && exec ./bin/Runner.Listener run'
+  /bin/bash -c 'cd /opt/propertyquarry-security/runner && exec ./bin/Runner.Listener run' \
+  || LISTENER_EXIT_CODE="$?"
+
+# The pinned ephemeral runner removes its local configuration only after the
+# exact one-time job has completed. Those files and their parent deliberately
+# remain root-owned and non-writable during the untrusted scan, so that local
+# cleanup is denied with the pinned terminated-error code. The outer workflow
+# remains the sole authority for proving that the exact remote job succeeded.
+[[ "${LISTENER_EXIT_CODE}" == "2" ]] \
+  || fail "pinned runner exited outside the immutable local-config cleanup boundary"
 
 verify_post_job_file() {
   local path="$1"
@@ -695,6 +725,15 @@ verify_post_job_file() {
   [[ "$(stat -c '%U:%G:%a' "${path}")" == "${expected_mode}" ]] \
     || fail "post-job governed file ownership or mode changed"
 }
+
+verify_post_job_file "${RUNNER_ROOT}/.runner" \
+  "${RUNNER_SETTINGS_SHA256}" "root:${PQ_USER}:440"
+verify_post_job_file "${RUNNER_ROOT}/.credentials" \
+  "${RUNNER_CREDENTIALS_SHA256}" "root:${PQ_USER}:440"
+verify_post_job_file "${RUNNER_ROOT}/.credentials_rsaparams" \
+  "${RUNNER_RSA_SHA256}" "root:${PQ_USER}:440"
+[[ "$(stat -c '%U:%G:%a' "${RUNNER_ROOT}")" == "root:root:755" ]] \
+  || fail "post-job runner root posture changed"
 
 # Re-check mutable-time boundaries after the untrusted job has ended. The
 # separate outer workflow step is still the only authority that can declare
@@ -726,5 +765,5 @@ jq -n \
 chmod 600 "${EVIDENCE_ROOT}/post-job-integrity.json"
 
 BOOTSTRAP_STATUS="listener_exited"
-BOOTSTRAP_MESSAGE="ephemeral listener exited; awaiting exact remote job verification"
+BOOTSTRAP_MESSAGE="ephemeral listener reached immutable cleanup boundary; awaiting exact remote job verification"
 write_receipt

@@ -113,7 +113,7 @@ def test_registration_token_must_be_operator_minted_just_in_time() -> None:
 
 def test_downloaded_sources_are_bound_to_reviewed_hashes() -> None:
     workflow_text = WORKFLOW_PATH.read_text(encoding="utf-8")
-    assert _sha256(BOOTSTRAP_PATH) == "312bd2620d9fd410ff6badf82bc6a59e8b01f4139847523d6c3c36cfcb893945"
+    assert _sha256(BOOTSTRAP_PATH) == "e8893f861fe6900739f640df97ee030d6f7f8cb3bcb80dbab5b727c53481f245"
     assert _sha256(PREFLIGHT_PATH) == "7dc239ce8afe4333decfb9ba15fc8fc29d12ffd99b57433592d5a2b1f24c0374"
     assert _sha256(RUNNER_LOCK_PATH) == "e968dda8c1dee309698cf05e42932f786397e954ac034c4f90a0be0db32844fd"
     for identity in (_sha256(BOOTSTRAP_PATH), _sha256(PREFLIGHT_PATH), _sha256(RUNNER_LOCK_PATH)):
@@ -221,8 +221,23 @@ def test_runner_and_scanners_are_ephemeral_offline_and_hash_bound() -> None:
         "--ephemeral",
         "--disableupdate",
         "ACTIONS_RUNNER_HOOK_JOB_STARTED=",
+        "PROPERTYQUARRY_WORKFLOW_HEAD_SHA=${PQ_EXPECTED_HEAD_SHA}",
+        "PROPERTYQUARRY_SECURITY_RUNNER_LABEL=${PQ_SECURITY_RUNNER_LABEL}",
+        "PROPERTYQUARRY_WEB_IMAGE=${PQ_WEB_IMAGE}",
+        "PROPERTYQUARRY_RENDER_IMAGE=${PQ_RENDER_IMAGE}",
         "runuser -u \"${PQ_USER}\" -- env -i",
         '--labels "propertyquarry-security,${PQ_SECURITY_RUNNER_LABEL}"',
+        'chmod -R a+rX,go-w "${RUNNER_ROOT}/bin" "${RUNNER_ROOT}/externals"',
+        "Actions runner runtime contains a group- or world-writable path",
+        "Actions runner Node 24 runtime posture mismatch",
+        "security user cannot execute the Actions runner Node 24 runtime",
+        '|| LISTENER_EXIT_CODE="$?"',
+        '[[ "${LISTENER_EXIT_CODE}" == "2" ]]',
+        "listener_exit_code:$listener_exit_code",
+        "pinned runner exited outside the immutable local-config cleanup boundary",
+        '"${RUNNER_SETTINGS_SHA256}" "root:${PQ_USER}:440"',
+        '"${RUNNER_CREDENTIALS_SHA256}" "root:${PQ_USER}:440"',
+        '"${RUNNER_RSA_SHA256}" "root:${PQ_USER}:440"',
         'TRIVY_CACHE_BACKEND=memory',
         'operational_cache="${SNAPSHOT_ROOT}"',
         'post-job-integrity.json',
@@ -233,6 +248,7 @@ def test_runner_and_scanners_are_ephemeral_offline_and_hash_bound() -> None:
     assert 'BOOTSTRAP_STATUS="pass"' not in script
     assert "runner-diag" not in script
     assert 'chmod -R go-w "${INSTALL_ROOT}/pip-audit"' not in script
+    assert 'chmod -R go-w "${RUNNER_ROOT}/bin"' not in script
     assert (
         'pip/_internal/__init__.py")" == "root:root:755"'
         in script

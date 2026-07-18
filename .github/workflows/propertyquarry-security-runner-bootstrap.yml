@@ -130,7 +130,7 @@ jobs:
           materialize config/propertyquarry_security_runner_requirements.lock "${source_root}/pip-audit.lock"
 
           printf '%s  %s\n' \
-            '312bd2620d9fd410ff6badf82bc6a59e8b01f4139847523d6c3c36cfcb893945' \
+            'e8893f861fe6900739f640df97ee030d6f7f8cb3bcb80dbab5b727c53481f245' \
             "${source_root}/bootstrap.sh" \
             '7dc239ce8afe4333decfb9ba15fc8fc29d12ffd99b57433592d5a2b1f24c0374' \
             "${source_root}/preflight.sh" \
