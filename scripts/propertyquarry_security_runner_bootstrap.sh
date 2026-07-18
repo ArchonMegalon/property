@@ -393,8 +393,15 @@ done
 [[ ! -L "${DOCKER_SOCKET}" ]] || fail "rootless Docker socket is a symlink"
 [[ "$(stat -Lc '%u' "${DOCKER_SOCKET}")" == "${PQ_UID}" ]] \
   || fail "rootless Docker socket owner UID mismatch"
+socket_gid="$(stat -Lc '%g' "${DOCKER_SOCKET}")"
+if [[ "${socket_gid}" != "${PQ_GID}" ]]; then
+  awk -F: -v user="${PQ_USER}" -v socket_gid="${socket_gid}" '
+    $1 == user && socket_gid >= $2 && socket_gid < ($2 + $3) { found=1 }
+    END { exit found ? 0 : 1 }
+  ' /etc/subgid || fail "rootless Docker socket group is outside the security user mapping"
+fi
 case "$(stat -Lc '%a' "${DOCKER_SOCKET}")" in
-  600|660) ;;
+  600|660|1600|1660) ;;
   *) fail "rootless Docker socket mode mismatch" ;;
 esac
 if runuser -u runner -- env -i HOME=/home/runner PATH=/usr/bin:/bin \

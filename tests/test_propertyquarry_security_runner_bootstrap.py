@@ -113,7 +113,7 @@ def test_registration_token_must_be_operator_minted_just_in_time() -> None:
 
 def test_downloaded_sources_are_bound_to_reviewed_hashes() -> None:
     workflow_text = WORKFLOW_PATH.read_text(encoding="utf-8")
-    assert _sha256(BOOTSTRAP_PATH) == "c74ea052a9ac5c3645f5dfc29fde5ea64cb354c3ebafd116ec44f22cffbe8f52"
+    assert _sha256(BOOTSTRAP_PATH) == "c2d90b70cf64df8ca97411540d90ac417f05716ad120cd994f46393737342c8f"
     assert _sha256(PREFLIGHT_PATH) == "c08ecd4577a9cfb08c5b54029db6c7ff2ffe970b0839ce7baeb7e5936f66a1ca"
     assert _sha256(RUNNER_LOCK_PATH) == "e968dda8c1dee309698cf05e42932f786397e954ac034c4f90a0be0db32844fd"
     for identity in (_sha256(BOOTSTRAP_PATH), _sha256(PREFLIGHT_PATH), _sha256(RUNNER_LOCK_PATH)):
@@ -166,6 +166,8 @@ def test_rootless_runtime_bundle_is_exact_and_does_not_weaken_the_host() -> None
         "[socket-posture]",
         "security user runtime directory posture mismatch",
         "rootless Docker socket owner UID mismatch",
+        "rootless Docker socket group is outside the security user mapping",
+        "600|660|1600|1660",
         "outer runner user can reach the isolated rootless Docker socket",
         "systemctl --user --no-pager --full status docker.service",
         "journalctl --user --unit docker.service",
