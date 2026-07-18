@@ -45,6 +45,7 @@ readonly TRIVY_BINARY_SHA256="0e69edd134a3c338baa1a6806920773615d682b18cbc6a0cba
 BOOTSTRAP_STATUS="initializing"
 BOOTSTRAP_MESSAGE="bootstrap started"
 PQ_UID=""
+PQ_GID=""
 PQ_RUNTIME=""
 DOCKER_SOCKET=""
 DOCKER_HOST_VALUE=""
@@ -127,6 +128,13 @@ capture_rootless_diagnostics() {
     printf '\n[systemctl-show]\n'
     as_pq systemctl --user show docker.service \
       --property=LoadState,ActiveState,SubState,Result,ExecMainCode,ExecMainStatus,FragmentPath,DropInPaths
+    printf '\n[socket-posture]\n'
+    if [[ -e "${PQ_RUNTIME}" ]]; then
+      stat -Lc 'runtime_path=%n uid=%u gid=%g mode=%a type=%F' "${PQ_RUNTIME}"
+    fi
+    if [[ -e "${DOCKER_SOCKET}" ]]; then
+      stat -Lc 'socket_path=%n uid=%u gid=%g mode=%a type=%F' "${DOCKER_SOCKET}"
+    fi
     printf '\n[journal]\n'
     as_pq journalctl --user --unit docker.service --no-pager --output=short-precise --lines=500
   } >"${EVIDENCE_ROOT}/rootless-docker.log" 2>&1
@@ -283,6 +291,7 @@ fi
 useradd --create-home --user-group --shell /bin/bash "${PQ_USER}"
 passwd --lock "${PQ_USER}" >/dev/null
 PQ_UID="$(id -u "${PQ_USER}")"
+PQ_GID="$(id -g "${PQ_USER}")"
 PQ_RUNTIME="/run/user/${PQ_UID}"
 DOCKER_SOCKET="${PQ_RUNTIME}/docker.sock"
 DOCKER_HOST_VALUE="unix://${DOCKER_SOCKET}"
@@ -319,6 +328,8 @@ for _attempt in $(seq 1 30); do
   sleep 1
 done
 [[ -S "${PQ_RUNTIME}/bus" ]] || fail "security user systemd bus did not start"
+[[ "$(stat -Lc '%u:%g:%a' "${PQ_RUNTIME}")" == "${PQ_UID}:${PQ_GID}:700" ]] \
+  || fail "security user runtime directory posture mismatch"
 install -d -o "${PQ_USER}" -g "${PQ_USER}" -m 0700 \
   "${PQ_HOME}/.config" "${PQ_HOME}/.config/docker" \
   "${PQ_HOME}/.config/systemd" "${PQ_HOME}/.config/systemd/user" \
@@ -380,12 +391,16 @@ for _attempt in $(seq 1 60); do
 done
 [[ -S "${DOCKER_SOCKET}" ]] || fail "rootless Docker socket did not appear"
 [[ ! -L "${DOCKER_SOCKET}" ]] || fail "rootless Docker socket is a symlink"
-[[ "$(stat -Lc '%U:%G' "${DOCKER_SOCKET}")" == "${PQ_USER}:${PQ_USER}" ]] \
-  || fail "rootless Docker socket ownership mismatch"
+[[ "$(stat -Lc '%u' "${DOCKER_SOCKET}")" == "${PQ_UID}" ]] \
+  || fail "rootless Docker socket owner UID mismatch"
 case "$(stat -Lc '%a' "${DOCKER_SOCKET}")" in
   600|660) ;;
   *) fail "rootless Docker socket mode mismatch" ;;
 esac
+if runuser -u runner -- env -i HOME=/home/runner PATH=/usr/bin:/bin \
+  DOCKER_HOST="${DOCKER_HOST_VALUE}" docker info >/dev/null 2>&1; then
+  fail "outer runner user can reach the isolated rootless Docker socket"
+fi
 
 docker_info="$(as_pq docker info --format '{{json .}}')"
 jq -e --arg home "${PQ_HOME}" '
