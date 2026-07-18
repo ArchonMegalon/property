@@ -91,6 +91,7 @@ verify_file "${EXPECTED_ROOTLESSKIT_BIN}" "${EXPECTED_ROOTLESSKIT_SHA256}" "root
 verify_file "${EXPECTED_SLIRP_BIN}" "${EXPECTED_SLIRP_SHA256}" "root:root:755"
 verify_file "${EXPECTED_NEWUIDMAP_BIN}" "${EXPECTED_NEWUIDMAP_SHA256}" "root:root:4755"
 verify_file "${EXPECTED_NEWGIDMAP_BIN}" "${EXPECTED_NEWGIDMAP_SHA256}" "root:root:4755"
+verify_file "${EXPECTED_SYSCTL_BIN}" "${EXPECTED_SYSCTL_SHA256}" "root:root:755"
 verify_file "${EXPECTED_APPARMOR_PROFILE}" "${EXPECTED_APPARMOR_PROFILE_SHA256}" "root:root:644"
 verify_file "${EXPECTED_RUNNER_LISTENER}" "${EXPECTED_RUNNER_LISTENER_SHA256}" "root:root:555"
 verify_file "${EXPECTED_RUNNER_ENV}" "${EXPECTED_RUNNER_ENV_SHA256}" "root:root:444"
@@ -101,7 +102,7 @@ verify_file "${EXPECTED_RUNNER_LOCK}" "${EXPECTED_RUNNER_LOCK_SHA256}" "root:roo
   || fail "pip-audit version changed"
 [[ "$("${EXPECTED_PYTHON_BIN}" -c 'import importlib.metadata, platform; print(platform.python_version() + "|" + importlib.metadata.version("pip-audit"))')" == "3.12.13|2.10.1" ]] \
   || fail "scanner Python environment changed"
-[[ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns)" == "1" ]] \
+[[ "$("${EXPECTED_SYSCTL_BIN}" -n kernel.apparmor_restrict_unprivileged_userns)" == "1" ]] \
   || fail "Ubuntu user-namespace restriction changed"
 
 verify_file "${EXPECTED_TRIVY_CACHE_DIR}/db/trivy.db" "${EXPECTED_TRIVY_DB_SHA256}" "root:root:444"

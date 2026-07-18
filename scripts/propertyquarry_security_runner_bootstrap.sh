@@ -656,6 +656,8 @@ printf '%s\n' \
   "EXPECTED_NEWUIDMAP_SHA256=$(sha256_file /usr/bin/newuidmap)" \
   "EXPECTED_NEWGIDMAP_BIN=/usr/bin/newgidmap" \
   "EXPECTED_NEWGIDMAP_SHA256=$(sha256_file /usr/bin/newgidmap)" \
+  "EXPECTED_SYSCTL_BIN=/usr/sbin/sysctl" \
+  "EXPECTED_SYSCTL_SHA256=$(sha256_file /usr/sbin/sysctl)" \
   "EXPECTED_APPARMOR_PROFILE=/etc/apparmor.d/rootlesskit" \
   "EXPECTED_APPARMOR_PROFILE_SHA256=a6a1a760d88312275d64f195e6b2f51627e8cabfdf4e355262c86f0578c66d80" \
   "EXPECTED_RUNNER_LISTENER=${RUNNER_ROOT}/bin/Runner.Listener" \
