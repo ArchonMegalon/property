@@ -6,6 +6,10 @@ services:
     image: "${PROPERTYQUARRY_WEB_IMAGE:-propertyquarry-web-runtime:latest}"
     container_name: "${PROPERTYQUARRY_API_CONTAINER_NAME:-propertyquarry-api}"
     cgroup_parent: "${PROPERTYQUARRY_RUNTIME_CGROUP_PARENT:-system.slice}"
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
     restart: unless-stopped
     env_file:
       - path: ./state/runtime/property_scene_video_shared.env
@@ -101,6 +105,10 @@ services:
     image: "${PROPERTYQUARRY_WEB_IMAGE:-propertyquarry-web-runtime:latest}"
     container_name: "${PROPERTYQUARRY_MIGRATE_CONTAINER_NAME:-propertyquarry-migrate}"
     cgroup_parent: "${PROPERTYQUARRY_RUNTIME_CGROUP_PARENT:-system.slice}"
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
     restart: "no"
     environment:
       EA_ROLE: property-search-migrate
@@ -109,7 +117,7 @@ services:
       PROPERTYQUARRY_RELEASE_COMMIT_SHA: "${PROPERTYQUARRY_RELEASE_COMMIT_SHA:-}"
       HOME: /home/ea
       TZ: Europe/Vienna
-    command: ["python", "-m", "app.product.property_search_schema", "migrate"]
+    command: ["/usr/local/bin/python", "-m", "app.product.property_search_schema", "migrate"]
     depends_on:
       propertyquarry-db:
         condition: service_healthy
@@ -118,6 +126,10 @@ services:
     image: "${PROPERTYQUARRY_WEB_IMAGE:-propertyquarry-web-runtime:latest}"
     container_name: "${PROPERTYQUARRY_SCHEDULER_CONTAINER_NAME:-propertyquarry-scheduler}"
     cgroup_parent: "${PROPERTYQUARRY_RUNTIME_CGROUP_PARENT:-system.slice}"
+    cap_drop:
+      - ALL
+    security_opt:
+      - "no-new-privileges:true"
     restart: unless-stopped
     env_file:
       - path: ./state/runtime/property_scene_video_shared.env
@@ -191,7 +203,7 @@ services:
       propertyquarry-migrate:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "python", "-m", "app.scheduler_healthcheck"]
+      test: ["CMD", "/usr/local/bin/python", "-m", "app.scheduler_healthcheck"]
       interval: 30s
       timeout: 10s
       start_period: 90s

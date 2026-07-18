@@ -1749,12 +1749,12 @@ def test_property_web_dockerfile_keeps_reconstruction_lightweight_and_excludes_b
     dockerfile = _read("ea/Dockerfile.property-web")
 
     assert dockerfile.startswith(
-        "FROM python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de\n"
+        "FROM python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de AS prepared\n"
     )
     assert "curl" not in dockerfile.lower()
     assert "python3-numpy" not in dockerfile.lower()
     assert "http.client.HTTPConnection" in dockerfile
-    assert "exec python -c" in dockerfile
+    assert "exec /usr/local/bin/python -c" in dockerfile
     assert "COPY . /tmp/src" not in dockerfile
     assert "COPY ea/requirements.txt /app/requirements.txt" in dockerfile
     assert "COPY ea/requirements.lock /app/requirements.lock" in dockerfile
@@ -1779,6 +1779,100 @@ def test_property_web_dockerfile_keeps_reconstruction_lightweight_and_excludes_b
     assert "libimage-exiftool-perl" not in dockerfile.lower()
     assert "for script in /tmp/src/scripts/*" not in dockerfile
     assert 'cp "$script" /app/scripts/' not in dockerfile
+
+    assert (
+        "COPY --chmod=0555 ea/property_web_entrypoint.py "
+        "/usr/local/libexec/property_web_entrypoint.py"
+    ) in dockerfile
+    assert (
+        "COPY --chmod=0555 ea/property_web_elf_audit.py "
+        "/usr/local/libexec/property_web_elf_audit.py"
+    ) in dockerfile
+    assert "COPY ea/docker-entrypoint.sh" not in dockerfile
+    assert "chown -R ea:ea /app /data /home/ea" in dockerfile
+    assert "/usr/local/libexec/property_web_entrypoint.py;" not in dockerfile
+    assert "apt-get purge --yes --allow-remove-essential --no-auto-remove" in dockerfile
+    assert "property-web-packages.before" in dockerfile
+    assert "property-web-packages.after" in dockerfile
+    assert "removed != expected" in dockerfile
+    assert "added=sorted(after-before)" in dockerfile
+    assert "or bool(added)" in dockerfile
+    for package in (
+        "gzip",
+        "bsdutils",
+        "libblkid1",
+        "liblastlog2-2",
+        "libmount1",
+        "libsmartcols1",
+        "libuuid1",
+        "login",
+        "mount",
+    ):
+        assert f"        {package} \\\n" in dockerfile
+    assert "        util-linux;" in dockerfile
+    assert "test -s /var/lib/dpkg/status" in dockerfile
+    assert 'audit_output="$(dpkg --audit)"' in dockerfile
+    assert 'test -z "${audit_output}"' in dockerfile
+    assert 'in {"gzip", "util-linux"}' in dockerfile
+    assert "rm -rf /var/lib/dpkg" not in dockerfile
+    assert "! command -v gzip" in dockerfile
+    assert "! command -v gunzip" in dockerfile
+    assert "! command -v runuser" in dockerfile
+    assert 'modules=("_uuid", "_tkinter")' in dockerfile
+    assert 'importlib.util.find_spec("_uuid") is None' in dockerfile
+    assert 'importlib.util.find_spec("_tkinter") is None' in dockerfile
+    assert "uuid.uuid1().version == 1" in dockerfile
+    assert "uuid.uuid4().version == 4" in dockerfile
+    assert "python -I -S /usr/local/libexec/property_web_elf_audit.py" in dockerfile
+    assert "rm -f /usr/local/libexec/property_web_elf_audit.py" in dockerfile
+
+    assert "FROM scratch AS runtime" in dockerfile
+    assert "COPY --from=prepared / /" in dockerfile
+    assert "USER 10001:10001" in dockerfile
+    assert (
+        'ENTRYPOINT ["/usr/local/bin/python", "-I", "-S", '
+        '"/usr/local/libexec/property_web_entrypoint.py"]'
+    ) in dockerfile
+    assert 'CMD ["/usr/local/bin/python", "-m", "app.runner"]' in dockerfile
+
+    prune_at = dockerfile.index("apt-get purge")
+    final_at = dockerfile.index("FROM scratch AS runtime")
+    assert prune_at > dockerfile.index("COPY LTDs.md /app/LTDs.md")
+    assert "COPY " not in dockerfile[prune_at:final_at]
+    runtime = dockerfile[final_at:]
+    assert runtime.count("COPY ") == 1
+    assert "RUN " not in runtime
+    assert "apt-get" not in runtime
+    assert "dpkg" not in runtime
+
+
+def test_property_web_services_keep_the_fixed_image_identity_and_entrypoint() -> None:
+    compose = _read("docker-compose.property.yml")
+    api = compose.split("  propertyquarry-api:\n", 1)[1].split(
+        "  propertyquarry-migrate:\n", 1
+    )[0]
+    migrate = compose.split("  propertyquarry-migrate:\n", 1)[1].split(
+        "  propertyquarry-scheduler:\n", 1
+    )[0]
+    scheduler = compose.split("  propertyquarry-scheduler:\n", 1)[1].split(
+        "  propertyquarry-render-tools:\n", 1
+    )[0]
+
+    for section in (api, migrate, scheduler):
+        assert re.search(r"^    (?:user|entrypoint):", section, flags=re.MULTILINE) is None
+        assert "/var/run/docker.sock" not in section
+        assert "\n    cap_drop:\n      - ALL\n" in section
+        assert '\n    security_opt:\n      - "no-new-privileges:true"\n' in section
+        for forbidden in ("group_add:", "cap_add:", "privileged:", "network_mode: host"):
+            assert forbidden not in section
+
+    assert "\n    command:" not in api
+    assert (
+        'command: ["/usr/local/bin/python", "-m", '
+        '"app.product.property_search_schema", "migrate"]'
+        in migrate
+    )
+    assert "\n    command:" not in scheduler
 
 
 def test_property_runtime_copied_scripts_do_not_depend_on_fleet_paths() -> None:
@@ -1841,11 +1935,11 @@ def test_property_compose_container_names_are_recoverable() -> None:
     assert "property_scene_video_shared.env" not in migration_section
     assert "env_file:" not in migration_section
     assert "EA_ROLE: property-search-migrate" in migration_section
-    assert 'command: ["python", "-m", "app.product.property_search_schema", "migrate"]' in migration_section
+    assert 'command: ["/usr/local/bin/python", "-m", "app.product.property_search_schema", "migrate"]' in migration_section
     assert 'restart: "no"' in migration_section
     assert "EA_SCHEDULER_HEARTBEAT_PATH: /data/artifacts/propertyquarry-scheduler-heartbeat.json" in compose
     assert 'EA_SCHEDULER_HEARTBEAT_MAX_AGE_SECONDS: "${EA_SCHEDULER_HEARTBEAT_MAX_AGE_SECONDS:-900}"' in compose
-    assert 'test: ["CMD", "python", "-m", "app.scheduler_healthcheck"]' in compose
+    assert 'test: ["CMD", "/usr/local/bin/python", "-m", "app.scheduler_healthcheck"]' in compose
     scheduler_section = compose.split("  propertyquarry-scheduler:", 1)[1].split("  propertyquarry-db:", 1)[0]
     assert "disable: true" not in scheduler_section
     render_section = compose.split("  propertyquarry-render-tools:", 1)[1].split("  propertyquarry-db:", 1)[0]
