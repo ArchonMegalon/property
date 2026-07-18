@@ -329,12 +329,18 @@ printf '%s\n' \
   '{' \
   '  "data-root": "/home/pqsecurity/.local/share/docker",' \
   '  "storage-driver": "overlay2",' \
+  '  "bridge": "none",' \
+  '  "ip-forward": false,' \
+  '  "ip-masq": false,' \
+  '  "icc": false,' \
   '  "userland-proxy": false,' \
   '  "log-driver": "local",' \
   '  "log-opts": {"max-size": "10m", "max-file": "3"}' \
   '}' >"${PQ_HOME}/.config/docker/daemon.json"
 chown "${PQ_USER}:${PQ_USER}" "${PQ_HOME}/.config/docker/daemon.json"
 chmod 600 "${PQ_HOME}/.config/docker/daemon.json"
+as_pq dockerd --validate --config-file "${PQ_HOME}/.config/docker/daemon.json" >/dev/null \
+  || fail "rootless Docker daemon configuration is invalid"
 
 printf '%s\n' \
   '[Service]' \
@@ -348,7 +354,7 @@ printf '%s\n' \
   'Environment=DOCKERD_ROOTLESS_ROOTLESSKIT_NET=slirp4netns' \
   'Environment=DOCKERD_ROOTLESS_ROOTLESSKIT_PORT_DRIVER=builtin' \
   'Environment=DOCKERD_ROOTLESS_ROOTLESSKIT_DISABLE_HOST_LOOPBACK=true' \
-  'UnsetEnvironment=DOCKER_CONFIG DOCKER_CONTEXT DOCKER_HOST' \
+  'UnsetEnvironment=DOCKER_CONFIG DOCKER_CONTEXT DOCKER_HOST DOCKER_IGNORE_BR_NETFILTER_ERROR' \
   >"${PQ_HOME}/.config/systemd/user/docker.service.d/10-propertyquarry.conf"
 chown "${PQ_USER}:${PQ_USER}" \
   "${PQ_HOME}/.config/systemd/user/docker.service.d/10-propertyquarry.conf"

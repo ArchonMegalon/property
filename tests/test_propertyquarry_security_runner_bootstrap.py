@@ -113,7 +113,7 @@ def test_registration_token_must_be_operator_minted_just_in_time() -> None:
 
 def test_downloaded_sources_are_bound_to_reviewed_hashes() -> None:
     workflow_text = WORKFLOW_PATH.read_text(encoding="utf-8")
-    assert _sha256(BOOTSTRAP_PATH) == "2006d64194317d6d34069b121968b524a91836174b0c2b8be8dee8e955fc0885"
+    assert _sha256(BOOTSTRAP_PATH) == "6bf12e8a583f125822c9b58836705f6787a4628dc3636d101180c096b1e73f1e"
     assert _sha256(PREFLIGHT_PATH) == "c08ecd4577a9cfb08c5b54029db6c7ff2ffe970b0839ce7baeb7e5936f66a1ca"
     assert _sha256(RUNNER_LOCK_PATH) == "e968dda8c1dee309698cf05e42932f786397e954ac034c4f90a0be0db32844fd"
     for identity in (_sha256(BOOTSTRAP_PATH), _sha256(PREFLIGHT_PATH), _sha256(RUNNER_LOCK_PATH)):
@@ -155,8 +155,13 @@ def test_rootless_runtime_bundle_is_exact_and_does_not_weaken_the_host() -> None
         "Environment=XDG_DATA_HOME=${PQ_HOME}/.local/share",
         "Environment=XDG_STATE_HOME=${PQ_HOME}/.local/state",
         "Environment=XDG_CACHE_HOME=${PQ_HOME}/.cache",
-        "UnsetEnvironment=DOCKER_CONFIG DOCKER_CONTEXT DOCKER_HOST",
+        "UnsetEnvironment=DOCKER_CONFIG DOCKER_CONTEXT DOCKER_HOST DOCKER_IGNORE_BR_NETFILTER_ERROR",
         "DOCKERD_ROOTLESS_ROOTLESSKIT_DISABLE_HOST_LOOPBACK=true",
+        '\"bridge\": \"none\"',
+        '\"ip-forward\": false',
+        '\"ip-masq\": false',
+        '\"icc\": false',
+        'dockerd --validate --config-file "${PQ_HOME}/.config/docker/daemon.json"',
         "capture_rootless_diagnostics",
         "systemctl --user --no-pager --full status docker.service",
         "journalctl --user --unit docker.service",
@@ -177,8 +182,13 @@ def test_rootless_runtime_bundle_is_exact_and_does_not_weaken_the_host() -> None
         "usermod -aG docker",
         "kernel.apparmor_restrict_unprivileged_userns=0",
         "sysctl -w",
+        'Environment=DOCKER_IGNORE_BR_NETFILTER_ERROR=',
+        'export DOCKER_IGNORE_BR_NETFILTER_ERROR=',
+        '\"iptables\": false',
+        '\"ip6tables\": false',
     ):
         assert forbidden not in script
+    assert script.count("DOCKER_IGNORE_BR_NETFILTER_ERROR") == 1
     assert "\n    --replace" not in script
 
 
