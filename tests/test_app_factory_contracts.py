@@ -41,19 +41,27 @@ def _client(
 
 
 def _assert_unique_routes_and_operation_ids(client: TestClient) -> None:
+    openapi_paths = client.app.openapi().get("paths", {})
     route_keys = [
-        (str(route.path), str(method))
-        for route in client.app.routes
-        for method in sorted(getattr(route, "methods", set()) or set())
+        (str(path), str(method).upper())
+        for path, path_item in openapi_paths.items()
+        for method, operation in path_item.items()
+        if isinstance(operation, dict)
     ]
     assert len(route_keys) == len(set(route_keys))
     operation_ids = [
         str(operation.get("operationId") or "")
-        for path_item in client.app.openapi().get("paths", {}).values()
+        for path_item in openapi_paths.values()
         for operation in path_item.values()
         if isinstance(operation, dict) and operation.get("operationId")
     ]
     assert len(operation_ids) == len(set(operation_ids))
+
+
+def _openapi_route_paths(client: TestClient) -> set[str]:
+    """Return canonical public paths without depending on router internals."""
+
+    return set(client.app.openapi().get("paths", {}))
 
 
 def test_app_factory_uses_helper_mount_functions() -> None:
@@ -67,7 +75,7 @@ def test_app_factory_uses_helper_mount_functions() -> None:
 
 def test_app_factory_omits_optional_public_routes_by_default() -> None:
     client = _client()
-    route_paths = {route.path for route in client.app.routes}
+    route_paths = _openapi_route_paths(client)
 
     assert "/results/{slug}" not in route_paths
     assert "/results/{slug}.json" not in route_paths
@@ -79,16 +87,16 @@ def test_app_factory_omits_optional_public_routes_by_default() -> None:
 
 def test_app_factory_mounts_optional_public_routes_when_enabled() -> None:
     client = _client(public_results_enabled=True, public_tours_enabled=True, public_memorials_enabled=True)
-    route_paths = {route.path for route in client.app.routes}
+    route_paths = _openapi_route_paths(client)
 
     assert "/results/{slug}" in route_paths
     assert "/results/{slug}.json" in route_paths
-    assert "/results/files/{slug}/{asset_path:path}" in route_paths
+    assert "/results/files/{slug}/{asset_path}" in route_paths
     assert "/tours/{slug}.json" in route_paths
-    assert "/tours/files/{slug}/{asset_path:path}" in route_paths
+    assert "/tours/files/{slug}/{asset_path}" in route_paths
     assert "/memorials/{slug}" in route_paths
     assert "/memorials/{slug}.json" in route_paths
-    assert "/memorials/files/{slug}/{asset_path:path}" in route_paths
+    assert "/memorials/files/{slug}/{asset_path}" in route_paths
 
 
 def test_app_factory_propertyquarry_flags_win_over_ea_public_surface_flags() -> None:
@@ -106,7 +114,7 @@ def test_app_factory_propertyquarry_flags_win_over_ea_public_surface_flags() -> 
     from app.api.app import create_app
 
     client = TestClient(create_app())
-    route_paths = {route.path for route in client.app.routes}
+    route_paths = _openapi_route_paths(client)
     assert "/results/{slug}" not in route_paths
     assert "/tours/{slug}.json" not in route_paths
     assert "/memorials/{slug}" not in route_paths
@@ -114,7 +122,7 @@ def test_app_factory_propertyquarry_flags_win_over_ea_public_surface_flags() -> 
 
 def test_app_factory_omits_legacy_authenticated_runtime_routes_by_default() -> None:
     client = _client()
-    route_paths = {route.path for route in client.app.routes}
+    route_paths = _openapi_route_paths(client)
 
     assert "/v1/responses" not in route_paths
     assert "/v1/human/tasks" not in route_paths
@@ -127,7 +135,7 @@ def test_app_factory_omits_legacy_authenticated_runtime_routes_by_default() -> N
 
 def test_app_factory_mounts_legacy_authenticated_runtime_routes_when_enabled() -> None:
     client = _client(legacy_runtime_surfaces_enabled=True)
-    route_paths = {route.path for route in client.app.routes}
+    route_paths = _openapi_route_paths(client)
     assert "/v1/responses" in route_paths
     assert "/v1/human/tasks" in route_paths
     assert "/v1/channels/telegram/ingest" in route_paths

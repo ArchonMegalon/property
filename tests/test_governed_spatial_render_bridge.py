@@ -1256,7 +1256,7 @@ def test_authenticated_principal_cannot_read_or_close_another_principals_tenant_
 
 def test_exact_research_regression_route_remains_representable(tmp_path: Path) -> None:
     client, _calls, _store = _landing_client(tmp_path)
-    route_paths = {route.path for route in client.app.routes}
+    route_paths = set(client.app.openapi().get("paths", {}))
 
     assert "/app/research/{candidate_ref}" in route_paths
     url = "/app/research/d907fa5b6b5d7308?run_id=727428e87aa544de82d2682a79e6da16"

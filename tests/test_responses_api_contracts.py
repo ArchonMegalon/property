@@ -7,6 +7,7 @@ import os
 import re
 import shlex
 import subprocess
+import threading
 import time
 from dataclasses import replace
 from pathlib import Path
@@ -4060,6 +4061,23 @@ def test_responses_stream_persists_in_progress_state_for_retrieval(monkeypatch: 
     read_client = _client(principal_id="codex-stream-retrieval")
     from app.api.routes import responses
 
+    in_progress_persisted = threading.Event()
+    release_upstream = threading.Event()
+    response_id = ""
+    original_store_response = responses._store_response
+
+    def recording_store_response(**kwargs: object) -> None:
+        nonlocal response_id
+        original_store_response(**kwargs)
+        response_obj = kwargs.get("response_obj")
+        if (
+            isinstance(response_obj, dict)
+            and response_obj.get("status") == "in_progress"
+            and kwargs.get("principal_id") == "codex-stream-retrieval"
+        ):
+            response_id = str(kwargs.get("response_id") or "")
+            in_progress_persisted.set()
+
     def fake_generate(
         *,
         prompt: str,
@@ -4068,7 +4086,7 @@ def test_responses_stream_persists_in_progress_state_for_retrieval(monkeypatch: 
         max_output_tokens: int | None = None,
         **_: object,
     ) -> UpstreamResult:
-        time.sleep(0.05)
+        assert release_upstream.wait(timeout=5)
         return UpstreamResult(
             text="stream lifecycle",
             provider_key="magixai",
@@ -4078,27 +4096,39 @@ def test_responses_stream_persists_in_progress_state_for_retrieval(monkeypatch: 
         )
 
     monkeypatch.setattr(responses, "_generate_upstream_text", fake_generate)
+    monkeypatch.setattr(responses, "_store_response", recording_store_response)
     monkeypatch.setattr(responses, "STREAM_HEARTBEAT_SECONDS", 0.01)
 
-    with client.stream("POST", "/v1/responses", json={"input": "stream lifecycle", "stream": True}) as resp:
-        assert resp.status_code == 200
-        buffer = ""
-        response_id = ""
-        stream_iter = resp.iter_text()
-        for chunk in stream_iter:
-            buffer += chunk
-            if "event: response.created" not in buffer:
-                continue
-            match = re.search(r'"id":"(resp_[^"]+)"', buffer)
-            if match:
-                response_id = match.group(1)
-                break
+    stream_result: dict[str, object] = {}
+
+    def drain_stream() -> None:
+        try:
+            with client.stream(
+                "POST",
+                "/v1/responses",
+                json={"input": "stream lifecycle", "stream": True},
+            ) as resp:
+                stream_result["status_code"] = resp.status_code
+                stream_result["body"] = "".join(resp.iter_text())
+        except BaseException as exc:  # pragma: no cover - surfaced in the main test thread
+            stream_result["error"] = exc
+
+    stream_thread = threading.Thread(target=drain_stream, daemon=True)
+    stream_thread.start()
+    try:
+        assert in_progress_persisted.wait(timeout=5)
         assert response_id
         retrieved = read_client.get(f"/v1/responses/{response_id}")
         assert retrieved.status_code == 200
         assert retrieved.json()["status"] == "in_progress"
-        # Drain remaining SSE payload to let the stream complete cleanly.
-        _ = "".join(stream_iter)
+    finally:
+        release_upstream.set()
+        stream_thread.join(timeout=5)
+
+    assert not stream_thread.is_alive()
+    assert "error" not in stream_result
+    assert stream_result["status_code"] == 200
+    assert "event: response.completed" in str(stream_result["body"])
 
 
 @pytest.mark.parametrize(
