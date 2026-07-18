@@ -1812,6 +1812,69 @@ def test_runtime_dockerfiles_fail_closed_for_worker_and_scheduler_health() -> No
     assert "app.runner" not in render_dockerfile
 
 
+def test_property_render_dockerfile_prunes_frozen_packages_and_restores_only_pinned_gbm() -> None:
+    dockerfile = _read("ea/Dockerfile.property")
+    prune_at = dockerfile.rindex("RUN set -eux;")
+    final_at = dockerfile.index("FROM scratch AS runtime")
+    prune = dockerfile[prune_at:final_at]
+
+    assert "apt-get purge --yes --allow-remove-essential --no-auto-remove" in prune
+    for package in (
+        "gzip",
+        "libgbm1",
+        "libllvm19",
+        "libxml2",
+        "mesa-libgallium",
+        "perl-base",
+        "bsdutils",
+        "libblkid1",
+        "liblastlog2-2",
+        "libmount1",
+        "libsmartcols1",
+        "libuuid1",
+        "login",
+        "mount",
+    ):
+        assert f"        {package} \\\n" in prune
+    assert "        util-linux;" in prune
+    assert "removed != expected" in prune
+    assert "added=sorted(after-before)" in prune
+    assert "or bool(added)" in prune
+    for package in (
+        '"libgbm1"',
+        '"libllvm19"',
+        '"libxml2"',
+        '"mesa-libgallium"',
+        '"perl-base"',
+    ):
+        assert package in prune
+    assert (
+        'forbidden={"gzip", "libxml2", "llvm-toolchain-19", '
+        '"mesa", "perl", "util-linux"}'
+    ) in prune
+
+    gbm_sha256 = "ab1e16db65ef9809ee3bc2925c611dcb15e2d78a510c310f0193716c16ea6c2e"
+    assert prune.count(gbm_sha256) == 2
+    assert "test \"${libgbm_real}\" = /usr/lib/x86_64-linux-gnu/libgbm.so.1.0.0" in prune
+    assert "cp --preserve=mode,ownership,timestamps" in prune
+    assert "install -m 0644" in prune
+    assert "ln -s libgbm.so.1.0.0 /usr/lib/x86_64-linux-gnu/libgbm.so.1" in prune
+    assert "/sbin/ldconfig" in prune
+    assert "rmdir /tmp/property-render-libgbm" in prune
+    assert prune.index("cp --preserve=mode,ownership,timestamps") < prune.index(
+        "apt-get purge"
+    )
+    assert prune.index("apt-get purge") < prune.index("install -m 0644")
+    assert prune.index("install -m 0644") < prune.index(
+        "property_render_elf_validator.py"
+    )
+    assert '"perl"' in prune
+    assert "FROM scratch AS runtime" in dockerfile
+    runtime = dockerfile[final_at:]
+    assert runtime.count("COPY ") == 1
+    assert "RUN " not in runtime
+
+
 def test_property_web_dockerfile_keeps_reconstruction_lightweight_and_excludes_browser_payloads() -> None:
     dockerfile = _read("ea/Dockerfile.property-web")
 
@@ -1874,16 +1937,18 @@ def test_property_web_dockerfile_keeps_reconstruction_lightweight_and_excludes_b
         "libuuid1",
         "login",
         "mount",
+        "perl-base",
     ):
         assert f"        {package} \\\n" in dockerfile
     assert "        util-linux;" in dockerfile
     assert "test -s /var/lib/dpkg/status" in dockerfile
     assert 'audit_output="$(dpkg --audit)"' in dockerfile
     assert 'test -z "${audit_output}"' in dockerfile
-    assert 'in {"gzip", "util-linux"}' in dockerfile
+    assert 'in {"gzip", "perl", "util-linux"}' in dockerfile
     assert "rm -rf /var/lib/dpkg" not in dockerfile
     assert "! command -v gzip" in dockerfile
     assert "! command -v gunzip" in dockerfile
+    assert "! command -v perl" in dockerfile
     assert "! command -v runuser" in dockerfile
     assert 'modules=("_uuid", "_tkinter")' in dockerfile
     assert 'importlib.util.find_spec("_uuid") is None' in dockerfile

@@ -250,11 +250,27 @@ USER 0:0
 
 RUN set -eux; \
     export DEBIAN_FRONTEND=noninteractive; \
+    libgbm_link=/usr/lib/x86_64-linux-gnu/libgbm.so.1; \
+    libgbm_real="$(readlink -f "${libgbm_link}")"; \
+    test "${libgbm_real}" = /usr/lib/x86_64-linux-gnu/libgbm.so.1.0.0; \
+    printf '%s  %s\n' \
+        ab1e16db65ef9809ee3bc2925c611dcb15e2d78a510c310f0193716c16ea6c2e \
+        "${libgbm_real}" \
+        | sha256sum -c -; \
+    install -d -m 0755 /tmp/property-render-libgbm; \
+    cp --preserve=mode,ownership,timestamps \
+        "${libgbm_real}" \
+        /tmp/property-render-libgbm/libgbm.so.1.0.0; \
     apt-get clean; \
     dpkg-query -W -f='${db:Status-Status}\t${Package}\n' \
         > /tmp/property-render-packages.before; \
     apt-get purge --yes --allow-remove-essential --no-auto-remove \
         gzip \
+        libgbm1 \
+        libllvm19 \
+        libxml2 \
+        mesa-libgallium \
+        perl-base \
         bsdutils \
         libblkid1 \
         liblastlog2-2 \
@@ -271,15 +287,26 @@ RUN set -eux; \
     apt-get check; \
     dpkg-query -W -f='${db:Status-Status}\t${Package}\n' \
         > /tmp/property-render-packages.after; \
-    python -c 'from pathlib import Path; load=lambda name: {row[1] for line in Path(name).read_text(encoding="utf-8").splitlines() if len(row := line.split("\t")) == 2 and row[0] == "installed"}; before=load("/tmp/property-render-packages.before"); after=load("/tmp/property-render-packages.after"); removed=sorted(before-after); added=sorted(after-before); expected=sorted({"gzip", "bsdutils", "libblkid1", "liblastlog2-2", "libmount1", "libsmartcols1", "libuuid1", "login", "mount", "util-linux"}); invalid=removed != expected or bool(added); print("unexpected package delta: removed=" + repr(removed) + " added=" + repr(added), file=__import__("sys").stderr) if invalid else None; raise SystemExit(invalid)'; \
+    python -c 'from pathlib import Path; load=lambda name: {row[1] for line in Path(name).read_text(encoding="utf-8").splitlines() if len(row := line.split("\t")) == 2 and row[0] == "installed"}; before=load("/tmp/property-render-packages.before"); after=load("/tmp/property-render-packages.after"); removed=sorted(before-after); added=sorted(after-before); expected=sorted({"gzip", "bsdutils", "libblkid1", "libgbm1", "liblastlog2-2", "libllvm19", "libmount1", "libsmartcols1", "libuuid1", "libxml2", "login", "mesa-libgallium", "mount", "perl-base", "util-linux"}); invalid=removed != expected or bool(added); print("unexpected package delta: removed=" + repr(removed) + " added=" + repr(added), file=__import__("sys").stderr) if invalid else None; raise SystemExit(invalid)'; \
     dpkg-query -W \
         -f='${db:Status-Status}\t${source:Package}\t${binary:Package}\n' \
-        | python -c 'import sys; rows=[line.rstrip("\n").split("\t") for line in sys.stdin]; bad=[row for row in rows if len(row) >= 3 and row[0] == "installed" and ((row[1].split()[0] if row[1].split() else row[2].split(":", 1)[0]) in {"gzip", "util-linux"})]; print("\n".join("\t".join(row) for row in bad), file=sys.stderr) if bad else None; raise SystemExit(bool(bad))'; \
+        | python -c 'import sys; rows=[line.rstrip("\n").split("\t") for line in sys.stdin]; forbidden={"gzip", "libxml2", "llvm-toolchain-19", "mesa", "perl", "util-linux"}; bad=[row for row in rows if len(row) >= 3 and row[0] == "installed" and ((row[1].split()[0] if row[1].split() else row[2].split(":", 1)[0]) in forbidden)]; print("\n".join("\t".join(row) for row in bad), file=sys.stderr) if bad else None; raise SystemExit(bool(bad))'; \
+    install -m 0644 \
+        /tmp/property-render-libgbm/libgbm.so.1.0.0 \
+        /usr/lib/x86_64-linux-gnu/libgbm.so.1.0.0; \
+    ln -s libgbm.so.1.0.0 /usr/lib/x86_64-linux-gnu/libgbm.so.1; \
+    /sbin/ldconfig; \
+    printf '%s  %s\n' \
+        ab1e16db65ef9809ee3bc2925c611dcb15e2d78a510c310f0193716c16ea6c2e \
+        /usr/lib/x86_64-linux-gnu/libgbm.so.1.0.0 \
+        | sha256sum -c -; \
+    rm -f /tmp/property-render-libgbm/libgbm.so.1.0.0; \
+    rmdir /tmp/property-render-libgbm; \
     python -I -S -c 'import sysconfig; from pathlib import Path; root=Path(sysconfig.get_config_var("DESTSHARED")); modules=("_uuid", "_tkinter"); matches={module: sorted(root.glob(f"{module}.*")) for module in modules}; assert all(len(paths) == 1 for paths in matches.values()), matches; assert all(paths[0].is_file() and not paths[0].is_symlink() for paths in matches.values()), matches; [paths[0].unlink() for paths in matches.values()]'; \
     python -I -S -c 'import importlib.util, uuid; assert importlib.util.find_spec("_uuid") is None; assert importlib.util.find_spec("_tkinter") is None; assert uuid.uuid1().version == 1; assert uuid.uuid4().version == 4'; \
     python -I -S /usr/local/libexec/property_render_elf_validator.py; \
     rm -f /tmp/property-render-packages.before /tmp/property-render-packages.after; \
-    python -I -S -c 'import shutil; forbidden=("blender","colmap","convert","curl","exiftool","ffplay","ffprobe","gzip","gunzip","magick","meshlab","meshlabserver","runuser"); present=[name for name in forbidden if shutil.which(name)]; assert not present, present'
+    python -I -S -c 'import shutil; forbidden=("blender","colmap","convert","curl","exiftool","ffplay","ffprobe","gzip","gunzip","magick","meshlab","meshlabserver","perl","runuser"); present=[name for name in forbidden if shutil.which(name)]; assert not present, present'
 
 USER 10001:10001
 
