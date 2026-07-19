@@ -18,6 +18,24 @@ pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _isolate_provider_contract_persistence(
+    tmp_path_factory: pytest.TempPathFactory,
+):
+    isolated_root = tmp_path_factory.mktemp("provider-contract-persistence")
+    keys = ("EA_LTD_MARKDOWN_PATH",)
+    previous = {key: os.environ.get(key) for key in keys}
+    os.environ["EA_LTD_MARKDOWN_PATH"] = str(isolated_root / "LTDs.md")
+    try:
+        yield
+    finally:
+        for key, value in previous.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
 def _client(*, principal_id: str, operator: bool = False) -> TestClient:
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ.pop("EA_LEDGER_BACKEND", None)
@@ -38,6 +56,81 @@ def _client(*, principal_id: str, operator: bool = False) -> TestClient:
         client.headers.update({"Authorization": "Bearer test-token"})
     client.headers.update({"X-EA-Principal-ID": principal_id})
     return client
+
+
+def _write_3dvista_private_receipt(
+    bundle_dir: Path,
+    *,
+    slug: str,
+    browser_rendered: bool,
+    provider_url: str = "",
+    export_dir: Path | None = None,
+    entry_relpath: str = "",
+) -> None:
+    from scripts.property_tour_3dvista_provenance import export_tree_sha256, sha256_text
+
+    if bool(provider_url) == bool(export_dir):
+        raise AssertionError("3DVista fixture requires exactly one hosted URL or local export")
+    provenance: dict[str, object] = {
+        "schema": "propertyquarry.3dvista_target_provenance.v1",
+        "status": "pass",
+        "provider": "3dvista",
+        "target_slug": slug,
+        "authorization": {
+            "status": "approved",
+            "reference": "test-fixture:licensed-3dvista",
+        },
+        "review": {
+            "property_match": "pass",
+            "visual_match": "pass",
+            "reviewed_by": "propertyquarry-test-suite",
+            "reviewed_at": "2026-07-19T00:00:00+00:00",
+        },
+    }
+    private_receipt: dict[str, object] = {
+        "three_d_vista_import": {"source_project": "propertyquarry"},
+        "three_d_vista_white_label_proof": {
+            "source_project": "propertyquarry",
+            "private_viewer_verified": True,
+            "non_trial_export_verified": True,
+            "propertyquarry_tour_metadata": True,
+            "trial_branding_checked": True,
+            "trial_branding_present": False,
+        },
+    }
+    if browser_rendered:
+        private_receipt["three_d_vista_browser_render_proof"] = {
+            "provider": "3dvista",
+            "status": "pass",
+            "rendered_viewer": True,
+        }
+    if provider_url:
+        private_receipt["three_d_vista_url"] = provider_url
+        provenance["artifact"] = {
+            "kind": "hosted_url",
+            "sha256": sha256_text(provider_url),
+        }
+    else:
+        assert export_dir is not None
+        entry_parts = Path(entry_relpath).parts
+        if len(entry_parts) < 2:
+            raise AssertionError("local 3DVista fixture entry must include its export subdirectory")
+        target_subdir = entry_parts[0]
+        private_receipt["three_d_vista_entry_relpath"] = entry_relpath
+        private_receipt["three_d_vista_import"] = {
+            "source_project": "propertyquarry",
+            "target_subdir": target_subdir,
+        }
+        provenance["target_subdir"] = target_subdir
+        provenance["artifact"] = {
+            "kind": "local_export",
+            "sha256": export_tree_sha256(export_dir),
+            "entry_relpath": "/".join(entry_parts[1:]),
+        }
+    private_receipt["three_d_vista_target_provenance"] = provenance
+    private_path = bundle_dir / "tour.private.json"
+    private_path.write_text(json.dumps(private_receipt, ensure_ascii=False), encoding="utf-8")
+    private_path.chmod(0o600)
 
 
 def _assert_no_product_drift(text: str) -> None:
@@ -4946,7 +5039,14 @@ def test_onemin_billing_refresh_chooses_browser_proxy_from_pool_per_account(
 
 def test_onemin_billing_refresh_provisions_fastestvpn_services_on_demand(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
+    isolated_ltd_path = tmp_path / "LTDs.md"
+    monkeypatch.setenv("EA_LTD_MARKDOWN_PATH", str(isolated_ltd_path))
+    monkeypatch.setenv(
+        "EA_RESPONSES_PROVIDER_LEDGER_DIR",
+        str(tmp_path / "provider-ledger"),
+    )
     owner = _client(principal_id="exec-1", operator=True)
     monkeypatch.setenv("EA_UI_BROWSER_PROXY_SERVER", "http://ea-fastestvpn-proxy:3128")
 
@@ -5007,6 +5107,7 @@ def test_onemin_billing_refresh_provisions_fastestvpn_services_on_demand(
     assert response.status_code == 200
     assert ensured == [(("ea-fastestvpn-proxy",), "onemin.browseract.refresh")]
     assert stopped == [(("ea-fastestvpn-proxy",), "onemin.browseract.refresh:cleanup")]
+    assert not isolated_ltd_path.exists()
 
 
 def test_fastestvpn_service_provision_uses_no_build_startup(
@@ -8538,7 +8639,6 @@ def test_public_tour_routes_embed_live_360_source_when_present(
     assert 'href="#live-360"' in page.text
     assert "Open 3D tour" in page.text
     assert "Interactive tour" in page.text
-    assert "Link</b>myexternalbrain.com" in page.text
     assert "Open Live 360" not in page.text
     assert "Live Panorama Viewer" not in page.text
     assert "Hosted on myexternalbrain.com" not in page.text
@@ -8627,21 +8727,6 @@ def test_public_tour_routes_expose_propertyquarry_3dvista_private_viewer_proof(
                 "hosted_url": f"https://propertyquarry.com/tours/{slug}",
                 "scene_strategy": "walkable_panorama",
                 "creation_mode": "hosted_walkable_360",
-                "three_d_vista_entry_relpath": "3dvista/index.htm",
-                "three_d_vista_import": {"source_project": "propertyquarry"},
-                "three_d_vista_white_label_proof": {
-                    "source_project": "propertyquarry",
-                    "private_viewer_verified": True,
-                    "non_trial_export_verified": True,
-                    "propertyquarry_tour_metadata": True,
-                    "trial_branding_checked": True,
-                    "trial_branding_present": False,
-                },
-                "three_d_vista_browser_render_proof": {
-                    "provider": "3dvista",
-                    "status": "pass",
-                    "rendered_viewer": True,
-                },
                 "video_relpath": "walkthrough.mp4",
                 "video_provider": "magicfit",
                 "video_coverage_proof": "boundary_verified_frame_continuation",
@@ -8656,6 +8741,13 @@ def test_public_tour_routes_expose_propertyquarry_3dvista_private_viewer_proof(
             ensure_ascii=False,
         ),
         encoding="utf-8",
+    )
+    _write_3dvista_private_receipt(
+        bundle_dir,
+        slug=slug,
+        browser_rendered=True,
+        export_dir=vista_dir,
+        entry_relpath="3dvista/index.htm",
     )
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
 
@@ -8740,16 +8832,6 @@ def test_public_tour_hides_3dvista_link_without_browser_render_proof_but_keeps_p
                 "title": "Unrendered 3DVista",
                 "display_title": "Unrendered 3DVista",
                 "hosted_url": f"https://propertyquarry.com/tours/{slug}",
-                "three_d_vista_entry_relpath": "3dvista/index.htm",
-                "three_d_vista_import": {"source_project": "propertyquarry"},
-                "three_d_vista_white_label_proof": {
-                    "source_project": "propertyquarry",
-                    "private_viewer_verified": True,
-                    "non_trial_export_verified": True,
-                    "propertyquarry_tour_metadata": True,
-                    "trial_branding_checked": True,
-                    "trial_branding_present": False,
-                },
                 "scenes": [
                     {
                         "name": "Panorama",
@@ -8761,6 +8843,13 @@ def test_public_tour_hides_3dvista_link_without_browser_render_proof_but_keeps_p
             ensure_ascii=False,
         ),
         encoding="utf-8",
+    )
+    _write_3dvista_private_receipt(
+        bundle_dir,
+        slug=slug,
+        browser_rendered=False,
+        export_dir=vista_dir,
+        entry_relpath="3dvista/index.htm",
     )
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
 
@@ -8794,16 +8883,6 @@ def test_public_tour_hides_external_3dvista_without_browser_render_proof_but_kee
                 "title": "External 3DVista without proof",
                 "display_title": "External 3DVista without proof",
                 "hosted_url": f"https://propertyquarry.com/tours/{slug}",
-                "source_virtual_tour_url": external_url,
-                "three_d_vista_import": {"source_project": "propertyquarry"},
-                "three_d_vista_white_label_proof": {
-                    "source_project": "propertyquarry",
-                    "private_viewer_verified": True,
-                    "non_trial_export_verified": True,
-                    "propertyquarry_tour_metadata": True,
-                    "trial_branding_checked": True,
-                    "trial_branding_present": False,
-                },
                 "scenes": [
                     {
                         "name": "Panorama preview",
@@ -8815,6 +8894,12 @@ def test_public_tour_hides_external_3dvista_without_browser_render_proof_but_kee
             ensure_ascii=False,
         ),
         encoding="utf-8",
+    )
+    _write_3dvista_private_receipt(
+        bundle_dir,
+        slug=slug,
+        browser_rendered=False,
+        provider_url=external_url,
     )
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
 
@@ -8847,21 +8932,6 @@ def test_public_tour_exposes_external_3dvista_only_with_browser_render_proof(
                 "title": "External 3DVista with proof",
                 "display_title": "External 3DVista with proof",
                 "hosted_url": f"https://propertyquarry.com/tours/{slug}",
-                "source_virtual_tour_url": external_url,
-                "three_d_vista_import": {"source_project": "propertyquarry"},
-                "three_d_vista_white_label_proof": {
-                    "source_project": "propertyquarry",
-                    "private_viewer_verified": True,
-                    "non_trial_export_verified": True,
-                    "propertyquarry_tour_metadata": True,
-                    "trial_branding_checked": True,
-                    "trial_branding_present": False,
-                },
-                "three_d_vista_browser_render_proof": {
-                    "provider": "3dvista",
-                    "status": "pass",
-                    "rendered_viewer": True,
-                },
                 "scenes": [
                     {
                         "name": "Panorama preview",
@@ -8873,6 +8943,12 @@ def test_public_tour_exposes_external_3dvista_only_with_browser_render_proof(
             ensure_ascii=False,
         ),
         encoding="utf-8",
+    )
+    _write_3dvista_private_receipt(
+        bundle_dir,
+        slug=slug,
+        browser_rendered=True,
+        provider_url=external_url,
     )
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
 
@@ -8886,7 +8962,8 @@ def test_public_tour_exposes_external_3dvista_only_with_browser_render_proof(
     assert entry.status_code == 302
     assert entry.headers["location"] == f"/tours/{slug}/control/3dvista"
     assert page.status_code == 200
-    assert f'src="{external_url}"' in page.text
+    assert f'href="/tours/{slug}/control/3dvista"' in page.text
+    assert external_url not in page.text
     assert "Open 3D tour" in page.text
     assert f"/tours/{slug}/control/3dvista" in page.text
 

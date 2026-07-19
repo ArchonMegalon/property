@@ -44,6 +44,11 @@ from scripts.propertyquarry_live_http_security import (
     validated_live_base_origin,
 )
 from scripts.propertyquarry_live_probe_auth import live_probe_request_headers
+from scripts.propertyquarry_live_probe_secret_scope import (
+    read_release_probe_secret_from_stdin,
+    release_probe_secret_environment_scrubbed,
+    scrub_release_probe_secret_environment,
+)
 
 
 DEFAULT_ROUTES = (
@@ -361,6 +366,9 @@ def _playwright_route_metrics_worker(
     release_probe_secret: str = "",
     release_probe_configured_routes: tuple[str, ...] = (),
 ) -> None:
+    # This worker may be invoked through either multiprocessing start mode.
+    # Scrub again before Playwright starts its driver or browser process.
+    scrub_release_probe_secret_environment()
     normalized_engine = normalize_playwright_engine(browser_engine)
     try:
         from playwright.sync_api import sync_playwright
@@ -477,7 +485,11 @@ def collect_playwright_route_metrics(
             "release_probe_configured_routes": release_probe_configured_routes,
         },
     )
-    process.start()
+    # multiprocessing has no per-Process env argument.  Remove both supported
+    # probe credential names during start so neither the Python worker nor its
+    # eventual Playwright/browser descendants inherit them.
+    with release_probe_secret_environment_scrubbed():
+        process.start()
     route_log_label = _route_log_label(route)
     process.join(route_deadline_seconds + 3)
     if process.is_alive():
@@ -2152,7 +2164,11 @@ def main() -> int:
     parser.add_argument("--base-url", default=_env("PROPERTYQUARRY_LIVE_BASE_URL", "http://localhost:8097"))
     parser.add_argument("--host-header", default=_env("PROPERTYQUARRY_LIVE_HOST_HEADER"))
     parser.add_argument("--api-token", default=_env("PROPERTYQUARRY_LIVE_API_TOKEN") or _env("EA_API_TOKEN"))
-    parser.add_argument("--release-probe-secret", default=_env("PROPERTYQUARRY_LIVE_PROBE_SECRET"))
+    parser.add_argument(
+        "--release-probe-secret-stdin",
+        action="store_true",
+        help="Read the protected release-probe credential once from bounded stdin.",
+    )
     parser.add_argument("--principal-id", default=_env("PROPERTYQUARRY_LIVE_PRINCIPAL_ID", "pq-live-mobile-smoke"))
     configured_research_detail = _env("PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE")
     default_routes = (*DEFAULT_ROUTES, configured_research_detail) if configured_research_detail else DEFAULT_ROUTES
@@ -2202,6 +2218,11 @@ def main() -> int:
     parser.add_argument("--timeout-ms", type=int, default=int(_env("PROPERTYQUARRY_LIVE_MOBILE_TIMEOUT_MS", "60000") or 60000))
     parser.add_argument("--write", default="_completion/smoke/property-live-mobile-surface-latest.json")
     args = parser.parse_args()
+    release_probe_secret = read_release_probe_secret_from_stdin(
+        parser,
+        enabled=bool(args.release_probe_secret_stdin),
+    )
+    scrub_release_probe_secret_environment()
 
     width_text, _, height_text = str(args.viewport).lower().partition("x")
     width = int(width_text or 390)
@@ -2234,7 +2255,7 @@ def main() -> int:
     seeded_route = ""
     if args.seed_research_detail_fixture:
         try:
-            if str(args.release_probe_secret or "").strip():
+            if release_probe_secret:
                 raise RuntimeError("release_probe_mode_blocks_research_detail_seed_post")
             _log_smoke_progress("seeding research detail fixture")
             seeded_route = seed_research_detail_fixture(
@@ -2254,7 +2275,7 @@ def main() -> int:
                 viewport_height=height,
                 error=f"seed_research_detail_fixture_failed:{type(exc).__name__}: {exc}",
                 api_token=str(args.api_token or "").strip(),
-                release_probe_secret=str(args.release_probe_secret or "").strip(),
+                release_probe_secret=release_probe_secret,
                 proof_mode=normalized_proof_mode,
                 browser_engine=selected_browser_engine,
                 required_browser_engines=required_browser_engines,
@@ -2274,7 +2295,7 @@ def main() -> int:
         base_url=str(args.base_url).strip(),
         api_token=str(args.api_token or "").strip(),
         principal_id=str(args.principal_id or "").strip() or "pq-live-mobile-smoke",
-        release_probe_secret=str(args.release_probe_secret or "").strip(),
+        release_probe_secret=release_probe_secret,
         host_header=str(args.host_header or "").strip(),
         routes=routes or DEFAULT_ROUTES,
         require_research_detail=bool(args.require_research_detail),

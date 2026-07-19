@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import hashlib
+import ipaddress
 import json
 import math
 import os
@@ -13,10 +14,15 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, Mapping
+from urllib.parse import urlsplit
 
 if __package__:
     from scripts import propertyquarry_evidence_contract as evidence_contract
+    from scripts.propertyquarry_advanced_visual_gold_binding import (
+        UNBOUND_PRODUCER_STATE,
+        verify_advanced_visual_binding_receipt,
+    )
     from scripts.propertyquarry_continuous_ux_gate import (
         validate_visual_baseline_receipt,
         visual_baseline_payload_sha256,
@@ -42,8 +48,17 @@ if __package__:
     from scripts.propertyquarry_rybbit_evidence import (
         verify_receipt as verify_rybbit_delivery_receipt,
     )
+    from scripts.propertyquarry_strict_json import (
+        StrictJsonError,
+        load_strict_json_object_snapshot,
+        loads_strict_json_object,
+    )
 else:
     import propertyquarry_evidence_contract as evidence_contract
+    from propertyquarry_advanced_visual_gold_binding import (
+        UNBOUND_PRODUCER_STATE,
+        verify_advanced_visual_binding_receipt,
+    )
     from propertyquarry_continuous_ux_gate import (
         validate_visual_baseline_receipt,
         visual_baseline_payload_sha256,
@@ -69,11 +84,34 @@ else:
     from propertyquarry_rybbit_evidence import (
         verify_receipt as verify_rybbit_delivery_receipt,
     )
+    from propertyquarry_strict_json import (  # type: ignore[no-redef]
+        StrictJsonError,
+        load_strict_json_object_snapshot,
+        loads_strict_json_object,
+    )
 
 
+GOLD_STATUS_SCHEMA = "propertyquarry.gold_status.v1"
+CORE_REQUIRED_TOUR_PROVIDER_MODES = ("3dvista",)
+ADVANCED_VISUAL_REQUIRED_PROVIDER_MODES = ("magicfit", "magic", "omagic")
+# Legacy combined/operator vocabulary. New release decisions must use the
+# explicit core/advanced fields below rather than inferring policy from it.
 REQUIRED_TOUR_PROVIDER_MODES = ("matterport", "3dvista", "magicfit")
 OPTIONAL_TOUR_PROVIDER_MODES = ("pano2vr", "krpano")
 REQUIRED_SCENE_VIDEO_PARITY_PROVIDERS = ("magicfit", "magic", "omagic")
+ADVANCED_VISUAL_BLOCKER_AREAS = frozenset(
+    {
+        "advanced_visual_provider_modes",
+        "magicfit_walkthrough_playback",
+        "walkthrough_quality",
+        "walkthrough_provider_proof",
+        "scene_video_readiness",
+        "scene_video_provider_refresh_packet",
+        "omagic_model_upload_adapter_deploy",
+        "scene_video_provider_runtime",
+        "advanced_visual_candidate_binding",
+    }
+)
 ACTIVE_PROVIDER_MATRIX_COUNTRY_CODES = ("AT", "DE", "CR")
 REQUIRED_RESEARCH_PERFORMANCE_CHECKS = (
     "research_candidate",
@@ -99,6 +137,154 @@ REQUIRED_RYBBIT_PERFORMANCE_CHECKS = (
     "rybbit_allowed_attributes_only",
     "rybbit_no_private_payload",
 )
+AUTHENTICATED_PERFORMANCE_FLAGSHIP_SCHEMA = (
+    "propertyquarry.authenticated_performance.v2"
+)
+AUTHENTICATED_PERFORMANCE_FIXED_SERVER_THRESHOLDS = {
+    "warm_route_budget_ms": 1_200,
+    "cold_route_budget_ms": 2_400,
+}
+AUTHENTICATED_PERFORMANCE_RELEASE_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+AUTHENTICATED_PERFORMANCE_RELEASE_IMAGE_RE = re.compile(
+    r"^sha256:[0-9a-f]{64}$"
+)
+AUTHENTICATED_PERFORMANCE_DEPLOYMENT_ID_RE = re.compile(
+    r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+)
+AUTHENTICATED_PERFORMANCE_REPLICA_ID_RE = re.compile(
+    r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+)
+AUTHENTICATED_PERFORMANCE_PLACEHOLDER_HOST_RE = re.compile(
+    r"(?:^|[.-])(?:example|placeholder|invalid|localhost|local|test|demo|dummy)(?:[.-]|$)",
+    re.IGNORECASE,
+)
+AUTHENTICATED_PERFORMANCE_MAX_EXECUTABLE_BYTES = 1_073_741_824
+AUTHENTICATED_PERFORMANCE_MIN_EXECUTABLE_BYTES = 1_048_576
+AUTHENTICATED_PERFORMANCE_RESOURCE_TYPES = frozenset(
+    {
+        "Document",
+        "Stylesheet",
+        "Image",
+        "Media",
+        "Font",
+        "Script",
+        "TextTrack",
+        "XHR",
+        "Fetch",
+        "Prefetch",
+        "EventSource",
+        "WebSocket",
+        "Manifest",
+        "SignedExchange",
+        "Ping",
+        "CSPViolationReport",
+        "Preflight",
+        "Other",
+    }
+)
+AUTHENTICATED_PERFORMANCE_FLAGSHIP_PROFILE = {
+    "name": "low_end_mobile_lab_v1",
+    "cpu": {
+        "slowdown_rate": 4,
+        "claim": "browser_lab_emulation_only",
+    },
+    "network": {
+        "latency_ms": 150,
+        "download_kbps": 1600,
+        "upload_kbps": 750,
+        "offline": False,
+        "claim": "browser_lab_emulation_only",
+    },
+    "viewport": {
+        "width": 390,
+        "height": 844,
+        "device_scale_factor": 1,
+        "is_mobile": True,
+        "has_touch": True,
+        "claim": "emulated_viewport_not_physical_device",
+    },
+    "cache_policy": {
+        "cold": "browser_http_cache_cleared_before_first_navigation",
+        "warm": "same_context_repeat_navigation_cache_eligible",
+        "service_workers": "blocked",
+    },
+    "thresholds": {
+        "cold_navigation_budget_ms": 15_000,
+        "warm_navigation_budget_ms": 8_000,
+        "max_request_count": 120,
+        "max_transferred_bytes": 3_000_000,
+        "max_failed_requests": 0,
+        "slowest_resource_limit": 5,
+        "navigation_timeout_ms": 30_000,
+    },
+}
+REQUIRED_AUTHENTICATED_PERFORMANCE_SERVER_ROUTES = (
+    "/sign-in",
+    "/app/search",
+    "/app/agents",
+    "/app/properties",
+    "/app/shortlist",
+    "/app/research/",
+    "/app/alerts",
+    "/app/account",
+    "/app/billing",
+    "/app/settings/google",
+    "/app/settings/access",
+    "/app/settings/usage",
+    "/app/settings/support",
+    "/app/settings/trust",
+    "/app/settings/invitations",
+)
+AUTHENTICATED_PERFORMANCE_BROWSER_MEASUREMENT_FIELDS = frozenset(
+    {
+        "phase",
+        "cache_state",
+        "duration_ms",
+        "status_code",
+        "final_url",
+        "document_release_identity",
+        "document_authentication_binding",
+        "request_count",
+        "transferred_bytes",
+        "failed_request_count",
+        "failed_requests",
+        "incomplete_request_count",
+        "cache_hit_count",
+        "subresource_cache_hit_count",
+        "slowest_resources",
+        "navigation_timing",
+        "checks",
+        "ok",
+    }
+)
+AUTHENTICATED_PERFORMANCE_DOCUMENT_RELEASE_IDENTITY_FIELDS = frozenset(
+    {
+        "commit_sha",
+        "image_digest",
+        "deployment_id",
+        "manifest_status",
+        "manifest_sha256",
+        "replica_id",
+    }
+)
+AUTHENTICATED_PERFORMANCE_DOCUMENT_AUTHENTICATION_BINDING_FIELDS = frozenset(
+    {
+        "cache_control",
+        "expected_nonce_sha256",
+        "acknowledged_nonce_sha256",
+    }
+)
+AUTHENTICATED_PERFORMANCE_NAVIGATION_TIMING_FIELDS = frozenset(
+    {
+        "responseStartMs",
+        "responseEndMs",
+        "domContentLoadedMs",
+        "loadEventMs",
+        "transferSize",
+        "encodedBodySize",
+        "decodedBodySize",
+    }
+)
 REQUIRED_LIVE_MOBILE_ROUTES = (
     "/app/properties",
     "/app/search",
@@ -113,12 +299,22 @@ REQUIRED_LIVE_MOBILE_ROUTES = (
     "/app/settings/support",
     "/app/settings/trust",
     "/app/settings/invitations",
+    "/app/settings/outcomes",
+    "/app/settings/plan",
     "/app/research",
     "/app/properties/packets",
+    "/app/properties/notifications/preview",
+    "/app/support",
 )
-REQUIRED_LIVE_MOBILE_DETAIL_PREFIXES = ("/app/research/",)
+REQUIRED_LIVE_MOBILE_DETAIL_PREFIXES = (
+    "/app/research/",
+    "/app/shortlist/run/",
+    "/tours/",
+)
 REQUIRED_LIVE_MOBILE_COVERAGE_CHECKS = (
     "research_detail_route_configured",
+    "shortlist_run_route_configured",
+    "public_tour_route_configured",
     "registry_mobile_customer_surfaces_covered",
 )
 REQUIRED_FLAGSHIP_MOBILE_VIEWPORTS = ((390, 844), (412, 915))
@@ -194,16 +390,32 @@ DEFAULT_EVIDENCE_OVERLAY_MAX_AGE_HOURS = 48.0
 DEFAULT_RYBBIT_EVIDENCE_MAX_AGE_MINUTES = 15.0
 DEFAULT_SLO_EVIDENCE_MAX_AGE_SECONDS = 900
 SLO_EVIDENCE_RECEIPT_SCHEMA = "propertyquarry.slo_evidence_receipt.v2"
+GLOBAL_MARKET_ENVELOPE_RECEIPT_SCHEMA = (
+    "propertyquarry.global_market_envelope_receipt.v1"
+)
+INCIDENT_SUPPORT_GATE_RECEIPT_SCHEMA = "propertyquarry.incident_support_gate.v1"
+GLOBAL_EXPERIENCE_GATE_RECEIPT_SCHEMA = "propertyquarry.global_experience_gate.v1"
+JURISDICTION_PRIVACY_RIGHTS_GATE_RECEIPT_SCHEMA = (
+    "propertyquarry.jurisdiction_privacy_rights_gate.v1"
+)
+JURISDICTION_PRIVACY_RIGHTS_CONTRACT_PATH = Path(
+    "config/compliance/propertyquarry_jurisdiction_privacy_rights.v1.json"
+)
+JURISDICTION_PRIVACY_RIGHTS_MARKET_ENVELOPE_PATH = Path(
+    "docs/propertyquarry_global_market_envelope.v1.json"
+)
 REQUIRED_FLAGSHIP_ACCESSIBILITY_ROUTES = (
     *REQUIRED_PUBLIC_INFORMATION_ROUTES,
-    *(route for route in REQUIRED_LIVE_MOBILE_ROUTES if route != "/app/billing"),
+    *REQUIRED_LIVE_MOBILE_ROUTES,
 )
 REQUIRED_FLAGSHIP_ACCESSIBILITY_CHECKS = (
     "route_document_loaded",
     "axe_core_version_pinned",
-    "axe_no_serious_or_critical_violations",
+    "axe_no_moderate_or_higher_wcag_violations",
     "keyboard_only_navigation",
     "visible_keyboard_focus",
+    "focus_not_obscured",
+    "target_size_24_css_px_or_spacing",
     "dialog_focus_contract",
     "semantic_error_states",
     "semantic_live_progress_states",
@@ -253,12 +465,17 @@ REQUIRED_FLAGSHIP_FAILURE_STATES = (
     "internal_error",
     "offline",
     "expired_session",
+    "delayed",
+    "quota_blocked",
+    "payment_failed",
     "empty",
     "partial",
     "provider_blocked",
     "stale",
     "missing_packet",
+    "missing_media",
 )
+REQUIRED_FLAGSHIP_FAILURE_PRESERVATION_ROUTE = "/v1/onboarding/property-search/preferences"
 REQUIRED_FLAGSHIP_FAILURE_STATE_CHECKS = (
     "state_marker_visible",
     "calm_customer_copy",
@@ -266,6 +483,7 @@ REQUIRED_FLAGSHIP_FAILURE_STATE_CHECKS = (
     "semantic_status_contract",
     "raw_diagnostics_hidden",
     "scenario_transition_proven",
+    "customer_data_preserved",
 )
 REQUIRED_ACTIVATION_TO_VALUE_STEPS = (
     "landing",
@@ -398,6 +616,30 @@ DEFAULT_RECEIPT_PATTERNS = {
         "_completion/scene_video_readiness/*provider-refresh-packet-verifier*.json",
     ),
     "id_austria": ("_completion/id_austria/ID_AUSTRIA_PROVIDER_VERIFICATION*.json",),
+    "global_market_envelope": (
+        "state/receipts/propertyquarry_global_market_envelope_receipt*.json",
+        "state/receipts/propertyquarry-global-market-envelope-receipt*.json",
+        "_completion/global_market_envelope/propertyquarry-global-market-envelope-receipt*.json",
+        "_completion/property_gold_status/global-market-envelope-receipt*.json",
+    ),
+    "incident_support": (
+        "state/receipts/propertyquarry_incident_support_gate*.json",
+        "state/receipts/propertyquarry-incident-support-gate*.json",
+        "_completion/incident_support/propertyquarry-incident-support-gate*.json",
+        "_completion/property_gold_status/incident-support-gate*.json",
+    ),
+    "global_experience": (
+        "state/receipts/propertyquarry_global_experience_gate*.json",
+        "state/receipts/propertyquarry-global-experience-gate*.json",
+        "_completion/global_experience/propertyquarry-global-experience-gate*.json",
+        "_completion/property_gold_status/global-experience-gate*.json",
+    ),
+    "jurisdiction_privacy_rights": (
+        "state/receipts/propertyquarry_jurisdiction_privacy_rights_gate*.json",
+        "state/receipts/propertyquarry-jurisdiction-privacy-rights-gate*.json",
+        "_completion/jurisdiction_privacy_rights/propertyquarry-jurisdiction-privacy-rights-gate*.json",
+        "_completion/property_gold_status/jurisdiction-privacy-rights-gate*.json",
+    ),
 }
 DEFAULT_RECEIPT_FALLBACKS = {
     "performance": "_completion/smoke/property-auth-performance-latest.json",
@@ -435,6 +677,10 @@ DEFAULT_RECEIPT_FALLBACKS = {
     "scene_video_provider_refresh_packet": "_completion/scene_video_readiness/provider-refresh-packet.json",
     "scene_video_provider_refresh_packet_verifier": "_completion/scene_video_readiness/provider-refresh-packet-verifier.json",
     "id_austria": "_completion/id_austria/ID_AUSTRIA_PROVIDER_VERIFICATION.generated.json",
+    "global_market_envelope": "_completion/global_market_envelope/propertyquarry-global-market-envelope-receipt-latest.json",
+    "incident_support": "_completion/incident_support/propertyquarry-incident-support-gate-latest.json",
+    "global_experience": "_completion/global_experience/propertyquarry-global-experience-gate-latest.json",
+    "jurisdiction_privacy_rights": "_completion/jurisdiction_privacy_rights/propertyquarry-jurisdiction-privacy-rights-gate-latest.json",
 }
 
 _CANONICAL_GOLD_STATUS_LATEST_PATHS = (
@@ -442,39 +688,39 @@ _CANONICAL_GOLD_STATUS_LATEST_PATHS = (
     "_completion/propertyquarry-gold-status-latest.json",
 )
 _CANONICAL_GOLD_STATUS_RELEASE_GATE_PATH = "_completion/property_gold_status/release-gate.json"
+_MAX_GOLD_RECEIPT_BYTES = 64 * 1024 * 1024
 
 
 def _load_json(path: Path) -> dict[str, Any]:
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
+    if not path.exists():
         return {"status": "missing", "path": str(path)}
+    try:
+        payload, _raw, _digest = load_strict_json_object_snapshot(
+            path,
+            field="Gold receipt",
+            maximum_bytes=_MAX_GOLD_RECEIPT_BYTES,
+        )
     except Exception as exc:
         return {"status": "invalid", "path": str(path), "error": f"{type(exc).__name__}: {exc}"}
-    if not isinstance(payload, dict):
-        return {"status": "invalid", "path": str(path), "error": "json_root_not_object"}
     return payload
 
 
 def _load_json_snapshot(path: Path) -> tuple[dict[str, Any], str]:
-    try:
-        raw = path.read_bytes()
-        payload = json.loads(raw.decode("utf-8"))
-    except FileNotFoundError:
+    if not path.exists():
         return {"status": "missing", "path": str(path)}, ""
+    try:
+        payload, _raw, digest = load_strict_json_object_snapshot(
+            path,
+            field="Gold receipt",
+            maximum_bytes=_MAX_GOLD_RECEIPT_BYTES,
+        )
     except Exception as exc:
         return {
             "status": "invalid",
             "path": str(path),
             "error": f"{type(exc).__name__}: {exc}",
         }, ""
-    if not isinstance(payload, dict):
-        return {
-            "status": "invalid",
-            "path": str(path),
-            "error": "json_root_not_object",
-        }, ""
-    return payload, hashlib.sha256(raw).hexdigest()
+    return payload, digest
 
 
 def _scene_video_runtime_status_summary(payload: dict[str, Any]) -> dict[str, Any]:
@@ -887,6 +1133,173 @@ def _parse_receipt_datetime(value: object) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def _exact_json_equal(actual: object, expected: object) -> bool:
+    """Compare JSON-like values without Python's bool/int equality aliasing."""
+    if type(actual) is not type(expected):
+        return False
+    if type(expected) is dict:
+        actual_dict = actual
+        expected_dict = expected
+        return set(actual_dict) == set(expected_dict) and all(
+            _exact_json_equal(actual_dict[key], expected_dict[key])
+            for key in expected_dict
+        )
+    if type(expected) is list:
+        actual_list = actual
+        expected_list = expected
+        return len(actual_list) == len(expected_list) and all(
+            _exact_json_equal(actual_item, expected_item)
+            for actual_item, expected_item in zip(actual_list, expected_list)
+        )
+    return actual == expected
+
+
+def _open_verified_browser_parent(path: Path) -> tuple[int, str]:
+    directory_flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    descriptor = -1
+    try:
+        descriptor = os.open(path.anchor, directory_flags)
+        for component in (None, *path.parent.parts[1:]):
+            if component is not None:
+                child = os.open(component, directory_flags, dir_fd=descriptor)
+                os.close(descriptor)
+                descriptor = child
+            metadata = os.fstat(descriptor)
+            mode = stat.S_IMODE(metadata.st_mode)
+            sticky_root_directory = (
+                metadata.st_uid == 0
+                and bool(metadata.st_mode & stat.S_ISVTX)
+            )
+            if (
+                not stat.S_ISDIR(metadata.st_mode)
+                or metadata.st_uid not in {0, os.geteuid()}
+                or (mode & 0o022 and not sticky_root_directory)
+            ):
+                os.close(descriptor)
+                return -1, "browser_executable_directory_chain_unsafe"
+        return descriptor, ""
+    except OSError as exc:
+        if descriptor >= 0:
+            os.close(descriptor)
+        return -1, f"browser_executable_directory_chain_failed:{type(exc).__name__}"
+
+
+def _verified_regular_file_identity(path_value: object) -> tuple[dict[str, object], str]:
+    """Hash an immutable snapshot of a regular file without following its final link."""
+    raw_path = str(path_value or "").strip()
+    path = Path(raw_path)
+    if not raw_path or not path.is_absolute():
+        return {}, "browser_executable_path_not_absolute"
+    if os.path.normpath(raw_path) != raw_path or os.path.realpath(raw_path) != raw_path:
+        return {}, "browser_executable_path_not_canonical"
+    parent_descriptor, parent_error = _open_verified_browser_parent(path)
+    if parent_error:
+        return {}, parent_error
+    descriptor = -1
+    try:
+        before = os.stat(
+            path.name,
+            dir_fd=parent_descriptor,
+            follow_symlinks=False,
+        )
+    except OSError as exc:
+        os.close(parent_descriptor)
+        return {}, f"browser_executable_lstat_failed:{type(exc).__name__}"
+    if stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode):
+        os.close(parent_descriptor)
+        return {}, "browser_executable_not_regular_nonsymlink"
+    if stat.S_IMODE(before.st_mode) & 0o111 == 0:
+        os.close(parent_descriptor)
+        return {}, "browser_executable_not_executable"
+    if (
+        before.st_uid not in {0, os.geteuid()}
+        or stat.S_IMODE(before.st_mode) & 0o022
+        or before.st_nlink != 1
+    ):
+        os.close(parent_descriptor)
+        return {}, "browser_executable_ownership_or_mode_unsafe"
+    if (
+        before.st_size < AUTHENTICATED_PERFORMANCE_MIN_EXECUTABLE_BYTES
+        or before.st_size > AUTHENTICATED_PERFORMANCE_MAX_EXECUTABLE_BYTES
+    ):
+        os.close(parent_descriptor)
+        return {}, "browser_executable_size_out_of_range"
+    if path.name.lower() not in {
+        "chrome",
+        "chromium",
+        "headless_shell",
+        "chrome-headless-shell",
+    } or not any(
+        "chrom" in component.lower() for component in path.parts[:-1]
+    ):
+        os.close(parent_descriptor)
+        return {}, "browser_executable_path_not_chromium"
+
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path.name, flags, dir_fd=parent_descriptor)
+    except OSError as exc:
+        os.close(parent_descriptor)
+        return {}, f"browser_executable_open_failed:{type(exc).__name__}"
+    digest = hashlib.sha256()
+    prefix = b""
+    marker_window = b""
+    chromium_marker_observed = False
+    try:
+        opened = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or opened.st_dev != before.st_dev
+            or opened.st_ino != before.st_ino
+            or opened.st_size != before.st_size
+        ):
+            return {}, "browser_executable_changed_before_hash"
+        while True:
+            chunk = os.read(descriptor, 1024 * 1024)
+            if not chunk:
+                break
+            if not prefix:
+                prefix = chunk[:4]
+            marker_window = (marker_window + chunk)[-2 * 1024 * 1024 :]
+            if b"Chromium" in marker_window or b"Google Chrome" in marker_window:
+                chromium_marker_observed = True
+            digest.update(chunk)
+        after = os.fstat(descriptor)
+        after_path = os.stat(
+            path.name,
+            dir_fd=parent_descriptor,
+            follow_symlinks=False,
+        )
+        if (
+            after.st_dev != opened.st_dev
+            or after.st_ino != opened.st_ino
+            or after.st_size != opened.st_size
+            or after.st_mtime_ns != opened.st_mtime_ns
+            or after.st_ctime_ns != opened.st_ctime_ns
+            or after_path.st_dev != after.st_dev
+            or after_path.st_ino != after.st_ino
+            or after_path.st_size != after.st_size
+        ):
+            return {}, "browser_executable_changed_during_hash"
+    except OSError as exc:
+        return {}, f"browser_executable_hash_failed:{type(exc).__name__}"
+    finally:
+        os.close(descriptor)
+        os.close(parent_descriptor)
+    if prefix != b"\x7fELF" or not chromium_marker_observed:
+        return {}, "browser_executable_not_chromium_elf"
+    return {
+        "executable_path": raw_path,
+        "executable_sha256": digest.hexdigest(),
+        "executable_bytes": before.st_size,
+    }, ""
+
+
 def _receipt_generated_at(payload: dict[str, Any]) -> tuple[datetime | None, str, str]:
     candidates: tuple[tuple[str, object], ...] = (
         ("generated_at", payload.get("generated_at")),
@@ -923,7 +1336,21 @@ def _receipt_freshness_status(
                 }
             )
             continue
-        age_seconds = max(0.0, (current_time - generated_at).total_seconds())
+        age_seconds = (current_time - generated_at).total_seconds()
+        if age_seconds < -30.0:
+            rows.append(
+                {
+                    "area": area,
+                    "status": "future_dated",
+                    "generated_at": generated_at.isoformat(),
+                    "timestamp_source": timestamp_source,
+                    "raw_generated_at": raw_generated_at,
+                    "future_seconds": round(-age_seconds, 2),
+                    "maximum_future_skew_seconds": 30,
+                }
+            )
+            continue
+        age_seconds = max(0.0, age_seconds)
         age_hours = age_seconds / 3600.0
         if age_hours > max_age_hours:
             rows.append(
@@ -1156,6 +1583,78 @@ def _normalize_readiness_profile(value: str) -> str:
     raise ValueError(f"unsupported_propertyquarry_readiness_profile:{normalized}")
 
 
+def _normalize_claim_scope(value: str) -> str:
+    normalized = str(value or "core").strip().lower().replace("-", "_")
+    if normalized in {"", "core"}:
+        return "core"
+    if normalized in {"advanced", "advanced_visual"}:
+        return "advanced_visual"
+    raise ValueError(f"unsupported_propertyquarry_claim_scope:{normalized}")
+
+
+def _resolve_readiness_request(
+    readiness_profile: str,
+    claim_scope: str | None,
+) -> tuple[str, str, str]:
+    requested = str(readiness_profile or "standard").strip().lower().replace("-", "_")
+    alias_scopes = {
+        "core_gold": "core",
+        "advanced_visual_gold": "advanced_visual",
+    }
+    if requested in alias_scopes:
+        alias_scope = alias_scopes[requested]
+        if claim_scope is not None and _normalize_claim_scope(claim_scope) != alias_scope:
+            raise ValueError(
+                f"propertyquarry_gold_alias_scope_conflict:{requested}:{claim_scope}"
+            )
+        return "launch", alias_scope, requested
+    return (
+        _normalize_readiness_profile(requested),
+        _normalize_claim_scope(claim_scope or "core"),
+        requested or "standard",
+    )
+
+
+def _magicfit_playback_receipt_ok(
+    playback: dict[str, Any],
+    *,
+    required: bool,
+) -> bool:
+    if not required:
+        return True
+    try:
+        ready_count = int(playback.get("ready_count") or 0)
+        playable_count = int(playback.get("playable_count") or 0)
+    except (TypeError, ValueError):
+        return False
+    evidence = [
+        dict(row)
+        for row in list(playback.get("evidence") or [])
+        if isinstance(row, dict)
+    ]
+    identities: set[tuple[str, str]] = set()
+    for row in evidence:
+        slug = str(row.get("slug") or "").strip()
+        provider = str(row.get("provider") or "").strip().lower()
+        media_identity = str(row.get("media_identity") or "").strip()
+        control_path = str(row.get("control_path") or "").strip()
+        if (
+            not slug
+            or provider != "magicfit"
+            or not media_identity
+            or media_identity != control_path
+        ):
+            return False
+        identities.add((slug, media_identity))
+    return (
+        playback.get("playback_ok") is True
+        and ready_count > 0
+        and playable_count == ready_count
+        and len(evidence) == ready_count
+        and len(identities) == ready_count
+    )
+
+
 def _missing_provider_modes(tour_receipt: dict[str, Any]) -> list[str]:
     required_modes = {
         str(provider or "").strip().lower()
@@ -1184,6 +1683,38 @@ def _missing_provider_modes(tour_receipt: dict[str, Any]) -> list[str]:
         if provider not in missing:
             missing.append(provider)
     return missing
+
+
+def _missing_profile_provider_modes(
+    tour_receipt: dict[str, Any],
+    *,
+    required_field: str,
+    missing_field: str,
+    default_required_modes: tuple[str, ...],
+) -> list[str]:
+    required_modes = tuple(
+        provider
+        for provider in (
+            str(value or "").strip().lower()
+            for value in list(tour_receipt.get(required_field) or default_required_modes)
+        )
+        if provider in default_required_modes
+    ) or default_required_modes
+    ready_modes = {
+        str(value or "").strip().lower()
+        for value in list(tour_receipt.get("ready_provider_modes") or [])
+        if str(value or "").strip()
+    }
+    explicit_missing = {
+        str(value or "").strip().lower()
+        for value in list(tour_receipt.get(missing_field) or [])
+        if str(value or "").strip().lower() in required_modes
+    }
+    return [
+        provider
+        for provider in required_modes
+        if provider not in ready_modes or provider in explicit_missing
+    ]
 
 
 def _tour_provider_evidence_action(missing_provider_modes: list[str]) -> str:
@@ -1374,6 +1905,1085 @@ def _performance_analytics_checks(performance: dict[str, Any]) -> tuple[bool, li
     return not missing_by_route and not failed_checks, missing_by_route, failed_checks, routes_with_analytics_checks
 
 
+def _exact_public_https_origin(value: object) -> tuple[str, str, int] | None:
+    if (
+        type(value) is not str
+        or value != value.strip()
+        or not value
+        or len(value) > 2_048
+        or any(character.isspace() or ord(character) < 32 for character in value)
+    ):
+        return None
+    try:
+        parsed = urlsplit(value)
+        _ = parsed.port
+    except ValueError:
+        return None
+    hostname = str(parsed.hostname or "")
+    labels = hostname.split(".")
+    dns_valid = (
+        hostname == hostname.lower()
+        and hostname == hostname.rstrip(".")
+        and len(labels) >= 2
+        and all(
+            re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label)
+            for label in labels
+        )
+    )
+    try:
+        ipaddress.ip_address(hostname)
+        is_ip_literal = True
+    except ValueError:
+        is_ip_literal = False
+    if (
+        parsed.scheme != "https"
+        or not hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.port is not None
+        or parsed.path != ""
+        or parsed.query
+        or parsed.fragment
+        or parsed.netloc != hostname
+        or value != f"https://{hostname}"
+        or is_ip_literal
+        or not dns_valid
+        or AUTHENTICATED_PERFORMANCE_PLACEHOLDER_HOST_RE.search(hostname)
+        or not (
+            hostname == "propertyquarry.com"
+            or hostname.endswith(".propertyquarry.com")
+        )
+    ):
+        return None
+    return ("https", hostname, 443)
+
+
+def _flagship_authenticated_performance_proof(
+    performance: dict[str, Any],
+    *,
+    expected_public_origin: str = "",
+    expected_release_commit_sha: str = "",
+    expected_release_image_digest: str = "",
+    expected_release_deployment_id: str = "",
+    expected_release_manifest_sha256: str = "",
+    expected_chromium_executable_path: str = "",
+    expected_chromium_executable_sha256: str = "",
+) -> tuple[bool, dict[str, Any]]:
+    errors: list[str] = []
+
+    def reject(reason: str) -> None:
+        if reason not in errors:
+            errors.append(reason)
+
+    def normalized_origin(value: object) -> tuple[str, str, int] | None:
+        try:
+            parsed = urlsplit(str(value or "").strip())
+            port = parsed.port
+        except ValueError:
+            return None
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            return None
+        return (
+            parsed.scheme.lower(),
+            parsed.hostname.lower(),
+            port or (443 if parsed.scheme.lower() == "https" else 80),
+        )
+
+    raw_expected_manifest_sha256 = expected_release_manifest_sha256
+    normalized_expected_manifest_sha256 = str(
+        expected_release_manifest_sha256 or ""
+    ).strip().lower()
+    expected_release_identity = {
+        "commit_sha": str(expected_release_commit_sha or "").strip().lower(),
+        "image_digest": str(expected_release_image_digest or "").strip().lower(),
+        "deployment_id": str(expected_release_deployment_id or "").strip(),
+        "manifest_sha256": normalized_expected_manifest_sha256,
+    }
+    if AUTHENTICATED_PERFORMANCE_RELEASE_COMMIT_RE.fullmatch(
+        expected_release_identity["commit_sha"]
+    ) is None:
+        reject("expected_release_commit_sha_invalid")
+    if AUTHENTICATED_PERFORMANCE_RELEASE_IMAGE_RE.fullmatch(
+        expected_release_identity["image_digest"]
+    ) is None:
+        reject("expected_release_image_digest_invalid")
+    if AUTHENTICATED_PERFORMANCE_DEPLOYMENT_ID_RE.fullmatch(
+        expected_release_identity["deployment_id"]
+    ) is None:
+        reject("expected_release_deployment_id_invalid")
+    if (
+        type(raw_expected_manifest_sha256) is not str
+        or raw_expected_manifest_sha256 != normalized_expected_manifest_sha256
+        or re.fullmatch(r"[0-9a-f]{64}", normalized_expected_manifest_sha256)
+        is None
+        or len(set(normalized_expected_manifest_sha256)) == 1
+    ):
+        reject("expected_release_manifest_sha256_invalid")
+    normalized_expected_chromium_path = str(
+        expected_chromium_executable_path or ""
+    ).strip()
+    normalized_expected_chromium_sha256 = str(
+        expected_chromium_executable_sha256 or ""
+    ).strip().lower()
+    if not normalized_expected_chromium_path or not Path(
+        normalized_expected_chromium_path
+    ).is_absolute():
+        reject("expected_chromium_executable_path_invalid")
+    if re.fullmatch(
+        r"[0-9a-f]{64}", normalized_expected_chromium_sha256
+    ) is None or len(set(normalized_expected_chromium_sha256)) == 1:
+        reject("expected_chromium_executable_sha256_invalid")
+
+    if type(performance) is not dict or set(performance) != {
+        "schema",
+        "status",
+        "status_scope",
+        "flagship_status",
+        "flagship_blockers",
+        "generated_at",
+        "release_identity",
+        "principal_id",
+        "run_id",
+        "route_count",
+        "failed_count",
+        "thresholds",
+        "server_request_evidence",
+        "routes",
+        "constrained_client_evidence",
+        "claims",
+        "notes",
+    }:
+        reject("performance_receipt_fields_not_exact")
+
+    if performance.get("schema") != AUTHENTICATED_PERFORMANCE_FLAGSHIP_SCHEMA:
+        reject("schema_must_be_authenticated_performance_v2")
+    if performance.get("status") != "pass":
+        reject("legacy_authenticated_route_status_not_pass")
+    if performance.get("flagship_status") != "pass":
+        reject("flagship_status_not_pass")
+    if performance.get("flagship_blockers") != []:
+        reject("flagship_blockers_not_empty")
+    if performance.get("status_scope") != (
+        "legacy_authenticated_route_smoke_plus_any_explicitly_requested_constrained_probe"
+    ):
+        reject("performance_status_scope_invalid")
+    if type(performance.get("principal_id")) is not str or not str(
+        performance.get("principal_id") or ""
+    ).strip():
+        reject("performance_principal_id_invalid")
+    if type(performance.get("run_id")) is not str or not str(
+        performance.get("run_id") or ""
+    ).strip():
+        reject("performance_run_id_invalid")
+    if not isinstance(performance.get("notes"), list) or any(
+        type(note) is not str or not note.strip()
+        for note in list(performance.get("notes") or [])
+    ):
+        reject("performance_notes_invalid")
+    if type(performance.get("failed_count")) is not int or performance.get(
+        "failed_count"
+    ) != 0:
+        reject("server_failed_count_not_zero")
+    if not _exact_json_equal(
+        performance.get("thresholds"),
+        AUTHENTICATED_PERFORMANCE_FIXED_SERVER_THRESHOLDS,
+    ):
+        reject("flagship_server_thresholds_not_fixed")
+    if not _exact_json_equal(
+        performance.get("release_identity"), expected_release_identity
+    ):
+        reject("performance_release_identity_not_exact")
+
+    route_count = performance.get("route_count")
+    routes = performance.get("routes")
+    if (
+        type(route_count) is not int
+        or route_count != len(REQUIRED_AUTHENTICATED_PERFORMANCE_SERVER_ROUTES)
+        or not isinstance(routes, list)
+        or len(routes) != route_count
+    ):
+        reject("server_route_count_or_rows_invalid")
+        route_rows: list[Mapping[str, Any]] = []
+    else:
+        route_rows = [row for row in routes if isinstance(row, Mapping)]
+        if len(route_rows) != route_count:
+            reject("server_route_row_not_object")
+
+    observed_paths: set[str] = set()
+    observed_route_keys: set[str] = set()
+    for index, row in enumerate(route_rows):
+        if type(row) is not dict or set(row) != {
+            "path",
+            "status_code",
+            "duration_ms",
+            "first_duration_ms",
+            "attempt_durations_ms",
+            "attempt_count",
+            "budget_ms",
+            "cold_budget_ms",
+            "measurements",
+            "cold_to_warm",
+            "ok",
+            "checks",
+        }:
+            reject(f"server_route_{index}_fields_invalid")
+        path = str(row.get("path") or "").split("?", 1)[0]
+        if path:
+            observed_paths.add(path)
+        route_key = "/app/research/" if path.startswith("/app/research/") else path
+        if route_key in observed_route_keys:
+            reject(f"server_route_{index}_duplicate")
+        observed_route_keys.add(route_key)
+        attempt_count = row.get("attempt_count")
+        attempt_durations = row.get("attempt_durations_ms")
+        cold_duration = row.get("first_duration_ms")
+        warm_duration = row.get("duration_ms")
+        if (
+            row.get("ok") is not True
+            or type(attempt_count) is not int
+            or attempt_count != 2
+            or type(attempt_durations) is not list
+            or len(attempt_durations) != 2
+            or any(type(value) is not int or value < 0 for value in attempt_durations)
+            or type(cold_duration) is not int
+            or type(warm_duration) is not int
+            or cold_duration != attempt_durations[0]
+            or warm_duration != attempt_durations[1]
+            or type(row.get("budget_ms")) is not int
+            or row.get("budget_ms") != 1_200
+            or type(row.get("cold_budget_ms")) is not int
+            or row.get("cold_budget_ms") != 2_400
+            or type(row.get("status_code")) is not int
+            or not 200 <= row.get("status_code") < 400
+        ):
+            reject(f"server_route_{index}_cold_warm_status_invalid")
+        measurements = row.get("measurements")
+        if type(measurements) is not dict or set(measurements) != {
+            "cold",
+            "warm",
+        }:
+            reject(f"server_route_{index}_measurements_invalid")
+            continue
+        for phase in ("cold", "warm"):
+            measurement = measurements.get(phase)
+            if type(measurement) is not dict or set(measurement) != {
+                "sequence",
+                "kind",
+                "cache_state",
+                "duration_ms",
+                "status_code",
+                "response_bytes",
+                "budget_ms",
+                "ok",
+            }:
+                reject(f"server_route_{index}_{phase}_measurement_invalid")
+                continue
+            duration_ms = measurement.get("duration_ms")
+            budget_ms = measurement.get("budget_ms")
+            status_code = measurement.get("status_code")
+            expected_budget = 2_400 if phase == "cold" else 1_200
+            expected_duration = cold_duration if phase == "cold" else warm_duration
+            expected_sequence = 1 if phase == "cold" else 2
+            expected_kind = (
+                "first_measured_request_after_fixture_setup"
+                if phase == "cold"
+                else "same_client_immediate_repeat_request"
+            )
+            expected_cache_state = (
+                "server_cache_not_explicitly_prewarmed_or_cleared"
+                if phase == "cold"
+                else "same_process_and_client_repeat_eligible"
+            )
+            if (
+                measurement.get("ok") is not True
+                or type(measurement.get("sequence")) is not int
+                or measurement.get("sequence") != expected_sequence
+                or measurement.get("kind") != expected_kind
+                or measurement.get("cache_state") != expected_cache_state
+                or type(duration_ms) is not int
+                or duration_ms < 0
+                or duration_ms != expected_duration
+                or type(budget_ms) is not int
+                or budget_ms != expected_budget
+                or duration_ms > budget_ms
+                or type(status_code) is not int
+                or not 200 <= status_code < 400
+                or type(measurement.get("response_bytes")) is not int
+                or measurement.get("response_bytes") <= 0
+                or (
+                    phase == "warm"
+                    and status_code != row.get("status_code")
+                )
+            ):
+                reject(f"server_route_{index}_{phase}_measurement_invalid")
+
+        comparison = row.get("cold_to_warm")
+        if not _exact_json_equal(
+            comparison,
+            {
+                "duration_delta_ms": cold_duration - warm_duration
+                if type(cold_duration) is int and type(warm_duration) is int
+                else None,
+                "response_bytes_delta": (
+                    measurements["cold"].get("response_bytes")
+                    - measurements["warm"].get("response_bytes")
+                    if type(measurements.get("cold")) is dict
+                    and type(measurements.get("warm")) is dict
+                    and type(measurements["cold"].get("response_bytes")) is int
+                    and type(measurements["warm"].get("response_bytes")) is int
+                    else None
+                ),
+            },
+        ):
+            reject(f"server_route_{index}_comparison_inconsistent")
+        checks = row.get("checks")
+        if not isinstance(checks, list) or not checks:
+            reject(f"server_route_{index}_checks_invalid")
+        else:
+            check_names = [
+                str(check.get("name") or "")
+                for check in checks
+                if isinstance(check, Mapping)
+            ]
+            if (
+                len(check_names) != len(checks)
+                or len(check_names) != len(set(check_names))
+                or any(
+                    not isinstance(check, Mapping)
+                    or type(check.get("name")) is not str
+                    or not str(check.get("name") or "").strip()
+                    or check.get("ok") is not True
+                    for check in checks
+                )
+            ):
+                reject(f"server_route_{index}_checks_invalid")
+
+    missing_server_routes = [
+        required
+        for required in REQUIRED_AUTHENTICATED_PERFORMANCE_SERVER_ROUTES
+        if not (
+            any(path.startswith(required) for path in observed_paths)
+            if required == "/app/research/"
+            else required in observed_paths
+        )
+    ]
+    if missing_server_routes:
+        reject("required_authenticated_server_routes_missing")
+    if observed_route_keys != set(REQUIRED_AUTHENTICATED_PERFORMANCE_SERVER_ROUTES):
+        reject("authenticated_server_route_set_not_exact")
+
+    server_evidence = performance.get("server_request_evidence")
+    if type(server_evidence) is not dict or set(server_evidence) != {
+        "status",
+        "cold_definition",
+        "warm_definition",
+        "cold_route_count",
+        "warm_route_count",
+    }:
+        reject("server_request_evidence_missing")
+    elif (
+        server_evidence.get("status") != "pass"
+        or type(server_evidence.get("cold_route_count")) is not int
+        or server_evidence.get("cold_route_count") != route_count
+        or type(server_evidence.get("warm_route_count")) is not int
+        or server_evidence.get("warm_route_count") != route_count
+        or server_evidence.get("cold_definition")
+        != "first measured route request after authenticated fixture setup; server caches are neither claimed empty nor explicitly prewarmed"
+        or server_evidence.get("warm_definition")
+        != "immediate same-process and same-client repeat request"
+    ):
+        reject("server_request_evidence_invalid")
+
+    claims = performance.get("claims")
+    expected_claims = {
+        "cold_and_warm_server_request_lab_evidence": True,
+        "constrained_browser_lab_evidence": True,
+        "signed_release_probe_authentication": True,
+        "exact_live_release_identity_observed": True,
+        "field_core_web_vitals": False,
+        "physical_device_performance": False,
+    }
+    if not _exact_json_equal(claims, expected_claims):
+        reject("performance_claims_not_exact_or_overclaimed")
+
+    constrained = performance.get("constrained_client_evidence")
+    if type(constrained) is not dict or set(constrained) != {
+        "status",
+        "profile",
+        "target",
+        "release_identity",
+        "requested_browser_engines",
+        "engine_rows",
+        "limitations_by_engine",
+        "field_core_web_vitals_claimed",
+        "physical_device_claimed",
+    }:
+        reject("constrained_client_evidence_missing")
+        constrained = {}
+    if constrained.get("status") != "pass":
+        reject("constrained_client_status_not_pass")
+    if not _exact_json_equal(
+        constrained.get("profile"), AUTHENTICATED_PERFORMANCE_FLAGSHIP_PROFILE
+    ):
+        reject("constrained_client_profile_not_exact")
+    if not _exact_json_equal(
+        constrained.get("requested_browser_engines"), ["chromium"]
+    ):
+        reject("constrained_client_requires_exact_chromium_engine_set")
+    if not _exact_json_equal(constrained.get("limitations_by_engine"), {}):
+        reject("passing_constrained_client_has_engine_limitations")
+    if constrained.get("field_core_web_vitals_claimed") is not False:
+        reject("field_core_web_vitals_claim_forbidden")
+    if constrained.get("physical_device_claimed") is not False:
+        reject("physical_device_claim_forbidden")
+
+    target = str(constrained.get("target") or "").strip()
+    target_origin = normalized_origin(target)
+    try:
+        target_parts = urlsplit(target)
+    except ValueError:
+        target_parts = urlsplit("")
+    target_is_loopback = (
+        target_origin is not None
+        and target_origin[1] in {"localhost", "127.0.0.1", "::1"}
+    )
+    if (
+        target_origin is None
+        or target_parts.query
+        or target_parts.fragment
+        or target_parts.path != "/app/search"
+        or (target_origin[0] != "https" and not target_is_loopback)
+    ):
+        reject("constrained_client_target_not_sanitized_secure_url")
+    expected_origin = _exact_public_https_origin(expected_public_origin)
+    if (
+        expected_origin is None
+        or target_origin != expected_origin
+    ):
+        reject("constrained_client_target_origin_mismatch")
+
+    target_hostname = str(target_parts.hostname or "").lower()
+    target_rendered_hostname = (
+        f"[{target_hostname}]" if ":" in target_hostname else target_hostname
+    )
+    target_default_port = 443 if target_parts.scheme == "https" else 80
+    target_effective_port = target_origin[2] if target_origin is not None else 0
+    target_rendered_port = (
+        f":{target_effective_port}"
+        if target_effective_port and target_effective_port != target_default_port
+        else ""
+    )
+    expected_version_url = (
+        f"{target_parts.scheme.lower()}://{target_rendered_hostname}"
+        f"{target_rendered_port}/version"
+        if target_origin is not None
+        else ""
+    )
+    release_identity = constrained.get("release_identity")
+    expected_release_identity_fields = {
+        "status",
+        "version_url",
+        "status_code",
+        "tls_verified",
+        "expected",
+        "observed",
+        "matches_expected",
+        "error",
+        "credential_persisted",
+    }
+    if (
+        type(release_identity) is not dict
+        or set(release_identity) != expected_release_identity_fields
+    ):
+        reject("constrained_release_identity_fields_invalid")
+        release_identity = {}
+    observed_release_identity = release_identity.get("observed")
+    expected_observed_release_identity_fields = {
+        "commit_sha",
+        "image_digest",
+        "deployment_id",
+        "manifest_status",
+        "manifest_sha256",
+        "replica_id",
+    }
+    if (
+        type(observed_release_identity) is not dict
+        or set(observed_release_identity)
+        != expected_observed_release_identity_fields
+    ):
+        reject("constrained_observed_release_identity_fields_invalid")
+        observed_release_identity = {}
+    if (
+        release_identity.get("status") != "pass"
+        or release_identity.get("version_url") != expected_version_url
+        or type(release_identity.get("status_code")) is not int
+        or release_identity.get("status_code") != 200
+        or release_identity.get("tls_verified") is not True
+        or not _exact_json_equal(
+            release_identity.get("expected"), expected_release_identity
+        )
+        or release_identity.get("matches_expected") is not True
+        or release_identity.get("error") != ""
+        or release_identity.get("credential_persisted") is not False
+        or observed_release_identity.get("commit_sha")
+        != expected_release_identity["commit_sha"]
+        or observed_release_identity.get("image_digest")
+        != expected_release_identity["image_digest"]
+        or observed_release_identity.get("deployment_id")
+        != expected_release_identity["deployment_id"]
+        or observed_release_identity.get("manifest_status") != "complete"
+        or re.fullmatch(
+            r"[0-9a-f]{64}",
+            str(observed_release_identity.get("manifest_sha256") or ""),
+        )
+        is None
+        or observed_release_identity.get("manifest_sha256")
+        != normalized_expected_manifest_sha256
+        or type(observed_release_identity.get("replica_id")) is not str
+        or AUTHENTICATED_PERFORMANCE_REPLICA_ID_RE.fullmatch(
+            observed_release_identity.get("replica_id", "")
+        )
+        is None
+    ):
+        reject("constrained_release_identity_not_exact")
+
+    engine_rows = constrained.get("engine_rows")
+    if not isinstance(engine_rows, list) or len(engine_rows) != 1 or not isinstance(
+        engine_rows[0], Mapping
+    ):
+        reject("constrained_client_exact_chromium_row_missing")
+        engine: Mapping[str, Any] = {}
+    else:
+        engine = engine_rows[0]
+    expected_engine_fields = {
+        "status",
+        "browser_engine",
+        "identity",
+        "launch_binding",
+        "profile_support",
+        "authentication",
+        "measurements",
+        "cold_to_warm",
+        "limitations",
+        "field_core_web_vitals_claimed",
+        "physical_device_claimed",
+    }
+    if set(engine) != expected_engine_fields:
+        reject("chromium_receipt_fields_not_exact")
+    if engine.get("status") != "pass" or engine.get("browser_engine") != "chromium":
+        reject("chromium_receipt_status_or_engine_invalid")
+
+    identity = engine.get("identity")
+    expected_identity_fields = {
+        "engine",
+        "browser_version",
+        "playwright_version",
+        "executable_path",
+        "executable_sha256",
+        "executable_bytes",
+    }
+    if type(identity) is not dict or set(identity) != expected_identity_fields:
+        reject("chromium_identity_fields_invalid")
+        identity = {}
+    executable_path = str(identity.get("executable_path") or "")
+    verified_executable_identity: dict[str, object] = {}
+    if (
+        identity.get("engine") != "chromium"
+        or type(identity.get("browser_version")) is not str
+        or not str(identity.get("browser_version") or "").strip()
+        or len(str(identity.get("browser_version") or "")) > 100
+        or type(identity.get("playwright_version")) is not str
+        or not str(identity.get("playwright_version") or "").strip()
+        or len(str(identity.get("playwright_version") or "")) > 100
+        or not Path(executable_path).is_absolute()
+        or type(identity.get("executable_sha256")) is not str
+        or re.fullmatch(
+            r"[0-9a-f]{64}", str(identity.get("executable_sha256") or "")
+        )
+        is None
+        or type(identity.get("executable_bytes")) is not int
+        or int(identity.get("executable_bytes") or 0) <= 0
+    ):
+        reject("chromium_identity_invalid")
+    else:
+        verified_executable_identity, executable_error = (
+            _verified_regular_file_identity(executable_path)
+        )
+        if executable_error:
+            reject(executable_error)
+        elif not _exact_json_equal(
+            verified_executable_identity,
+            {
+                "executable_path": executable_path,
+                "executable_sha256": identity.get("executable_sha256"),
+                "executable_bytes": identity.get("executable_bytes"),
+            },
+        ):
+            reject("chromium_executable_identity_mismatch")
+        elif (
+            executable_path != normalized_expected_chromium_path
+            or identity.get("executable_sha256")
+            != normalized_expected_chromium_sha256
+        ):
+            reject("chromium_executable_not_controller_bound")
+
+    launch_binding = engine.get("launch_binding")
+    expected_launch_binding_fields = {
+        "mechanism",
+        "executable_path",
+        "executable_sha256",
+        "prelaunch_bytes",
+        "postlaunch_identity_match",
+    }
+    if (
+        type(launch_binding) is not dict
+        or set(launch_binding) != expected_launch_binding_fields
+        or launch_binding.get("mechanism")
+        != "playwright_explicit_executable_path"
+        or type(launch_binding.get("executable_path")) is not str
+        or launch_binding.get("executable_path")
+        != normalized_expected_chromium_path
+        or launch_binding.get("executable_path") != identity.get("executable_path")
+        or type(launch_binding.get("executable_sha256")) is not str
+        or launch_binding.get("executable_sha256")
+        != normalized_expected_chromium_sha256
+        or launch_binding.get("executable_sha256")
+        != identity.get("executable_sha256")
+        or type(launch_binding.get("prelaunch_bytes")) is not int
+        or launch_binding.get("prelaunch_bytes") != identity.get("executable_bytes")
+        or launch_binding.get("postlaunch_identity_match") is not True
+    ):
+        reject("chromium_explicit_launch_binding_invalid")
+
+    profile_support = engine.get("profile_support")
+    expected_profile_support = {
+        "cpu_throttling": {
+            "requested_rate": 4,
+            "applied": True,
+            "mechanism": "chromium_cdp_Emulation.setCPUThrottlingRate",
+        },
+        "network_throttling": {
+            "latency_ms": 150,
+            "download_kbps": 1600,
+            "upload_kbps": 750,
+            "applied": True,
+            "mechanism": "chromium_cdp_Network.emulateNetworkConditions",
+        },
+        "viewport_emulation": {
+            "applied": True,
+            "mechanism": "playwright_context",
+        },
+    }
+    if not _exact_json_equal(profile_support, expected_profile_support):
+        reject("chromium_profile_controls_not_exactly_applied")
+
+    expected_authentication = {
+        "method": "signed_release_probe_per_navigation",
+        "navigation_signing_mechanism": (
+            "chromium_cdp_Fetch.requestPaused_document_only"
+        ),
+        "playwright_routing_used": False,
+        "subresource_http_cache_preserved": True,
+        "signed_navigation_count": 2,
+        "distinct_nonce_count": 2,
+        "target_surface_observed": True,
+        "release_probe_secret_persisted": False,
+    }
+    if not _exact_json_equal(
+        engine.get("authentication"), expected_authentication
+    ):
+        reject("authenticated_target_not_proven")
+
+    browser_measurements = engine.get("measurements")
+    valid_measurements: dict[str, Mapping[str, Any]] = {}
+    valid_probe_nonce_bindings: dict[str, Mapping[str, Any]] = {}
+    if not isinstance(browser_measurements, Mapping) or set(
+        browser_measurements
+    ) != {"cold", "warm"}:
+        reject("chromium_cold_warm_measurements_missing")
+    else:
+        thresholds = AUTHENTICATED_PERFORMANCE_FLAGSHIP_PROFILE["thresholds"]
+        for phase in ("cold", "warm"):
+            measurement = browser_measurements.get(phase)
+            if not isinstance(measurement, Mapping) or set(
+                measurement
+            ) != AUTHENTICATED_PERFORMANCE_BROWSER_MEASUREMENT_FIELDS:
+                reject(f"chromium_{phase}_measurement_fields_invalid")
+                continue
+            valid_measurements[phase] = measurement
+            expected_cache_state = (
+                "cleared_before_navigation"
+                if phase == "cold"
+                else "same_context_repeat_cache_observed"
+            )
+            duration_budget = int(
+                thresholds[
+                    "cold_navigation_budget_ms"
+                    if phase == "cold"
+                    else "warm_navigation_budget_ms"
+                ]
+            )
+            duration_ms = measurement.get("duration_ms")
+            status_code = measurement.get("status_code")
+            final_url = measurement.get("final_url")
+            document_release_identity = measurement.get(
+                "document_release_identity"
+            )
+            document_authentication_binding = measurement.get(
+                "document_authentication_binding"
+            )
+            request_count = measurement.get("request_count")
+            transferred_bytes = measurement.get("transferred_bytes")
+            failed_request_count = measurement.get("failed_request_count")
+            incomplete_request_count = measurement.get(
+                "incomplete_request_count"
+            )
+            cache_hit_count = measurement.get("cache_hit_count")
+            subresource_cache_hit_count = measurement.get(
+                "subresource_cache_hit_count"
+            )
+            if (
+                measurement.get("phase") != phase
+                or measurement.get("cache_state") != expected_cache_state
+                or measurement.get("ok") is not True
+                or type(duration_ms) is not int
+                or not 0 <= duration_ms <= duration_budget
+                or type(status_code) is not int
+                or not 200 <= status_code < 300
+                or type(final_url) is not str
+                or final_url != target
+                or type(request_count) is not int
+                or not 1 <= request_count <= int(thresholds["max_request_count"])
+                or type(transferred_bytes) is not int
+                or not 0 <= transferred_bytes
+                <= int(thresholds["max_transferred_bytes"])
+                or (phase == "cold" and transferred_bytes == 0)
+                or type(failed_request_count) is not int
+                or failed_request_count != 0
+                or type(incomplete_request_count) is not int
+                or incomplete_request_count != 0
+                or type(cache_hit_count) is not int
+                or not 0 <= cache_hit_count <= request_count
+                or (phase == "warm" and cache_hit_count < 1)
+                or type(subresource_cache_hit_count) is not int
+                or not 0 <= subresource_cache_hit_count <= cache_hit_count
+                or (phase == "cold" and subresource_cache_hit_count != 0)
+                or (phase == "warm" and subresource_cache_hit_count < 1)
+            ):
+                reject(f"chromium_{phase}_measurement_thresholds_invalid")
+
+            if (
+                type(document_release_identity) is not dict
+                or set(document_release_identity)
+                != AUTHENTICATED_PERFORMANCE_DOCUMENT_RELEASE_IDENTITY_FIELDS
+                or type(document_release_identity.get("commit_sha")) is not str
+                or document_release_identity.get("commit_sha")
+                != expected_release_identity["commit_sha"]
+                or type(document_release_identity.get("image_digest")) is not str
+                or document_release_identity.get("image_digest")
+                != expected_release_identity["image_digest"]
+                or type(document_release_identity.get("deployment_id")) is not str
+                or document_release_identity.get("deployment_id")
+                != expected_release_identity["deployment_id"]
+                or type(document_release_identity.get("manifest_status")) is not str
+                or document_release_identity.get("manifest_status") != "complete"
+                or type(document_release_identity.get("manifest_sha256")) is not str
+                or document_release_identity.get("manifest_sha256")
+                != normalized_expected_manifest_sha256
+                or type(document_release_identity.get("replica_id")) is not str
+                or AUTHENTICATED_PERFORMANCE_REPLICA_ID_RE.fullmatch(
+                    document_release_identity.get("replica_id", "")
+                )
+                is None
+            ):
+                reject(f"chromium_{phase}_document_release_identity_invalid")
+
+            if (
+                type(document_authentication_binding) is not dict
+                or set(document_authentication_binding)
+                != AUTHENTICATED_PERFORMANCE_DOCUMENT_AUTHENTICATION_BINDING_FIELDS
+            ):
+                reject(
+                    f"chromium_{phase}_document_authentication_binding_invalid"
+                )
+            else:
+                expected_nonce_sha256 = document_authentication_binding.get(
+                    "expected_nonce_sha256"
+                )
+                acknowledged_nonce_sha256 = document_authentication_binding.get(
+                    "acknowledged_nonce_sha256"
+                )
+                if (
+                    document_authentication_binding.get("cache_control")
+                    != "no-store"
+                    or type(expected_nonce_sha256) is not str
+                    or re.fullmatch(r"[0-9a-f]{64}", expected_nonce_sha256)
+                    is None
+                    or len(set(expected_nonce_sha256)) == 1
+                    or acknowledged_nonce_sha256 != expected_nonce_sha256
+                ):
+                    reject(
+                        f"chromium_{phase}_document_authentication_binding_invalid"
+                    )
+                else:
+                    valid_probe_nonce_bindings[phase] = (
+                        document_authentication_binding
+                    )
+
+            failed_requests = measurement.get("failed_requests")
+            if failed_requests != []:
+                reject(f"chromium_{phase}_failed_requests_invalid")
+            slowest_resources = measurement.get("slowest_resources")
+            if (
+                not isinstance(slowest_resources, list)
+                or not slowest_resources
+                or len(slowest_resources)
+                > int(thresholds["slowest_resource_limit"])
+            ):
+                reject(f"chromium_{phase}_waterfall_summary_invalid")
+            else:
+                for resource in slowest_resources:
+                    expected_resource_fields = {
+                        "url",
+                        "resource_type",
+                        "status_code",
+                        "duration_ms",
+                        "transferred_bytes",
+                        "cache_source",
+                        "failed",
+                        "incomplete",
+                    }
+                    if not isinstance(resource, Mapping) or set(resource) != expected_resource_fields:
+                        reject(f"chromium_{phase}_waterfall_resource_invalid")
+                        break
+                    resource_url = str(resource.get("url") or "")
+                    try:
+                        resource_parts = urlsplit(resource_url)
+                        resource_query = resource_parts.query
+                        resource_port = resource_parts.port
+                    except ValueError:
+                        resource_parts = urlsplit("")
+                        resource_query = "invalid"
+                        resource_port = None
+                    resource_hostname = str(resource_parts.hostname or "").lower()
+                    resource_is_loopback = resource_hostname in {
+                        "localhost",
+                        "127.0.0.1",
+                        "::1",
+                    }
+                    resource_path = resource_parts.path or "/"
+                    resource_path_is_sanitized = (
+                        resource_path in {"/version", "/app/search", "/app/assets/:asset"}
+                        or re.fullmatch(
+                            r"/_path-sha256/[0-9a-f]{24}", resource_path
+                        )
+                        is not None
+                    )
+                    if (
+                        not resource_url
+                        or resource_parts.scheme not in {"http", "https"}
+                        or not resource_hostname
+                        or resource_parts.username is not None
+                        or resource_parts.password is not None
+                        or resource_query
+                        or resource_parts.fragment
+                        or (resource_parts.scheme != "https" and not resource_is_loopback)
+                        or resource_port is not None
+                        and not 1 <= resource_port <= 65_535
+                        or not resource_path_is_sanitized
+                        or type(resource.get("resource_type")) is not str
+                        or resource.get("resource_type")
+                        not in AUTHENTICATED_PERFORMANCE_RESOURCE_TYPES
+                        or type(resource.get("status_code")) is not int
+                        or not 100 <= resource.get("status_code") < 400
+                        or type(resource.get("duration_ms")) is not int
+                        or int(resource.get("duration_ms") or 0) < 0
+                        or type(resource.get("transferred_bytes")) is not int
+                        or int(resource.get("transferred_bytes") or 0) < 0
+                        or type(resource.get("cache_source")) is not str
+                        or resource.get("cache_source")
+                        not in {"network", "disk_cache", "browser_cache"}
+                        or resource.get("failed") is not False
+                        or resource.get("incomplete") is not False
+                    ):
+                        reject(f"chromium_{phase}_waterfall_resource_invalid")
+                        break
+
+            navigation_timing = measurement.get("navigation_timing")
+            if (
+                not isinstance(navigation_timing, Mapping)
+                or set(navigation_timing)
+                != AUTHENTICATED_PERFORMANCE_NAVIGATION_TIMING_FIELDS
+                or any(
+                    type(value) is not int or value < 0
+                    for value in navigation_timing.values()
+                )
+            ):
+                reject(f"chromium_{phase}_navigation_timing_invalid")
+
+            checks = measurement.get("checks")
+            expected_checks = {
+                f"{phase}_navigation_under_budget",
+                f"{phase}_request_observed",
+                f"{phase}_request_count_under_budget",
+                f"{phase}_transferred_bytes_under_budget",
+                f"{phase}_failed_requests_under_budget",
+                f"{phase}_requests_completed",
+                f"{phase}_navigation_status_ok",
+                f"{phase}_final_target_url_observed",
+                f"{phase}_document_release_identity_exact",
+                f"{phase}_document_cache_control_no_store",
+                f"{phase}_server_verified_probe_nonce_acknowledged",
+                f"{phase}_authenticated_app_surface_observed",
+            }
+            if phase == "cold":
+                expected_checks.add("cold_transferred_bytes_observed")
+                expected_checks.add("cold_cdp_document_signing_interception_ok")
+            else:
+                expected_checks.add("warm_signed_release_probe_nonces_unique")
+                expected_checks.add("warm_cdp_document_signing_interception_ok")
+                expected_checks.add("warm_http_cache_reuse_observed")
+            if not isinstance(checks, list):
+                reject(f"chromium_{phase}_checks_invalid")
+            else:
+                check_names = [
+                    str(check.get("name") or "")
+                    for check in checks
+                    if isinstance(check, Mapping)
+                ]
+                if (
+                    len(check_names) != len(checks)
+                    or len(check_names) != len(set(check_names))
+                    or set(check_names) != expected_checks
+                    or any(
+                        not isinstance(check, Mapping)
+                        or check.get("ok") is not True
+                        for check in checks
+                    )
+                ):
+                    reject(f"chromium_{phase}_checks_invalid")
+
+        if set(valid_probe_nonce_bindings) == {"cold", "warm"} and len(
+            {
+                valid_probe_nonce_bindings[phase][
+                    "acknowledged_nonce_sha256"
+                ]
+                for phase in ("cold", "warm")
+            }
+        ) != 2:
+            reject("chromium_probe_nonce_bindings_not_distinct")
+
+    comparison = engine.get("cold_to_warm")
+    expected_comparison_fields = {
+        "duration_delta_ms",
+        "request_count_delta",
+        "transferred_bytes_delta",
+    }
+    if not isinstance(comparison, Mapping) or set(
+        comparison
+    ) != expected_comparison_fields or any(
+        type(value) is not int for value in comparison.values()
+    ):
+        reject("chromium_cold_to_warm_comparison_invalid")
+    elif set(valid_measurements) == {"cold", "warm"}:
+        cold = valid_measurements["cold"]
+        warm = valid_measurements["warm"]
+        expected_comparison = {
+            "duration_delta_ms": int(cold["duration_ms"])
+            - int(warm["duration_ms"]),
+            "request_count_delta": int(cold["request_count"])
+            - int(warm["request_count"]),
+            "transferred_bytes_delta": int(cold["transferred_bytes"])
+            - int(warm["transferred_bytes"]),
+        }
+        if dict(comparison) != expected_comparison:
+            reject("chromium_cold_to_warm_comparison_inconsistent")
+        if (
+            type(cold.get("transferred_bytes")) is not int
+            or type(warm.get("transferred_bytes")) is not int
+            or type(warm.get("subresource_cache_hit_count")) is not int
+            or int(warm["subresource_cache_hit_count"]) < 1
+            or int(warm["transferred_bytes"])
+            >= int(cold["transferred_bytes"])
+        ):
+            reject("chromium_warm_http_cache_reuse_not_observed")
+
+    limitations = engine.get("limitations")
+    if (
+        not isinstance(limitations, list)
+        or not limitations
+        or any(type(item) is not str or not item.strip() for item in limitations)
+    ):
+        reject("chromium_limitations_missing")
+    if engine.get("field_core_web_vitals_claimed") is not False:
+        reject("chromium_field_core_web_vitals_claim_forbidden")
+    if engine.get("physical_device_claimed") is not False:
+        reject("chromium_physical_device_claim_forbidden")
+
+    details = {
+        "required_schema": AUTHENTICATED_PERFORMANCE_FLAGSHIP_SCHEMA,
+        "reported_schema": str(performance.get("schema") or ""),
+        "flagship_status": str(performance.get("flagship_status") or ""),
+        "server_request_evidence_status": str(
+            server_evidence.get("status") if isinstance(server_evidence, Mapping) else ""
+        ),
+        "route_count": route_count if type(route_count) is int else None,
+        "missing_server_routes": missing_server_routes,
+        "constrained_client_status": str(constrained.get("status") or ""),
+        "profile_name": str(
+            dict(constrained.get("profile") or {}).get("name")
+            if isinstance(constrained.get("profile"), Mapping)
+            else ""
+        ),
+        "target": target,
+        "target_origin_matches_expected": (
+            target_origin == expected_origin
+            if str(expected_public_origin or "").strip()
+            else None
+        ),
+        "expected_release_identity": expected_release_identity,
+        "expected_chromium_executable": {
+            "path": normalized_expected_chromium_path,
+            "sha256": normalized_expected_chromium_sha256,
+        },
+        "observed_release_identity": dict(observed_release_identity),
+        "release_identity_matches_expected": (
+            release_identity.get("matches_expected") is True
+        ),
+        "requested_browser_engines": list(
+            constrained.get("requested_browser_engines") or []
+        ),
+        "browser_identity": {
+            "engine": str(identity.get("engine") or ""),
+            "browser_version": str(identity.get("browser_version") or ""),
+            "playwright_version": str(identity.get("playwright_version") or ""),
+            "executable_path": executable_path,
+            "executable_sha256": str(identity.get("executable_sha256") or ""),
+            "executable_bytes": identity.get("executable_bytes"),
+            "independently_rehashed": bool(verified_executable_identity),
+        },
+        "field_core_web_vitals_claimed": False
+        if constrained.get("field_core_web_vitals_claimed") is False
+        and engine.get("field_core_web_vitals_claimed") is False
+        and isinstance(claims, Mapping)
+        and claims.get("field_core_web_vitals") is False
+        else None,
+        "physical_device_claimed": False
+        if constrained.get("physical_device_claimed") is False
+        and engine.get("physical_device_claimed") is False
+        and isinstance(claims, Mapping)
+        and claims.get("physical_device_performance") is False
+        else None,
+        "errors": errors[:80],
+    }
+    return not errors, details
+
+
 def _covered_live_mobile_routes(live_mobile: dict[str, Any]) -> set[str]:
     covered: set[str] = set()
     for row in list(live_mobile.get("routes") or []):
@@ -1404,10 +3014,15 @@ def _failed_live_mobile_coverage_checks(live_mobile: dict[str, Any]) -> list[dic
         )
     for required_name in REQUIRED_LIVE_MOBILE_COVERAGE_CHECKS:
         if required_name not in observed_names:
+            required_prefix = {
+                "research_detail_route_configured": "/app/research/",
+                "shortlist_run_route_configured": "/app/shortlist/run/",
+                "public_tour_route_configured": "/tours/",
+            }.get(required_name, "")
             failed.append(
                 {
                     "name": required_name,
-                    "required_route_prefix": "/app/research/" if required_name == "research_detail_route_configured" else "",
+                    "required_route_prefix": required_prefix,
                     "reason": "Live mobile receipt predates the required all-surface coverage contract.",
                 }
             )
@@ -1503,17 +3118,24 @@ def _live_mobile_flagship_browser_proof(
         for width, height in REQUIRED_FLAGSHIP_MOBILE_VIEWPORTS
         if (engine, route, width, height) not in observed_samples
     ]
-    research_detail_samples = {
-        (engine, width, height)
-        for engine, route, width, height in observed_samples
-        if route.startswith("/app/research/") and route != "/app/research"
+    dynamic_route_families = {
+        "research_detail": lambda route: route.startswith("/app/research/") and route != "/app/research",
+        "shortlist_run": lambda route: route.startswith("/app/shortlist/run/") and route != "/app/shortlist/run",
+        "public_tour": lambda route: route.startswith("/tours/") and route.count("/") == 2,
     }
-    missing_research_detail_viewports = [
-        {"browser_engine": engine, "width": width, "height": height}
-        for engine in normalized_required_engines
-        for width, height in REQUIRED_FLAGSHIP_MOBILE_VIEWPORTS
-        if (engine, width, height) not in research_detail_samples
-    ]
+    missing_dynamic_route_viewports: dict[str, list[dict[str, Any]]] = {}
+    for family, route_matches in dynamic_route_families.items():
+        observed_family_samples = {
+            (engine, width, height)
+            for engine, route, width, height in observed_samples
+            if route_matches(route)
+        }
+        missing_dynamic_route_viewports[family] = [
+            {"browser_engine": engine, "width": width, "height": height}
+            for engine in normalized_required_engines
+            for width, height in REQUIRED_FLAGSHIP_MOBILE_VIEWPORTS
+            if (engine, width, height) not in observed_family_samples
+        ]
     observed_engines = {engine for engine, _, _, _ in observed_samples if engine}
     missing_browser_engines = sorted(required_engine_set - observed_engines)
     top_level_contract_ok = (
@@ -1542,7 +3164,8 @@ def _live_mobile_flagship_browser_proof(
             for width, height in sorted(declared_viewports)
         ],
         "missing_samples": missing_samples,
-        "missing_research_detail_viewports": missing_research_detail_viewports,
+        "missing_research_detail_viewports": missing_dynamic_route_viewports["research_detail"],
+        "missing_dynamic_route_viewports": missing_dynamic_route_viewports,
         "static_or_synthetic_rows": static_or_synthetic_rows,
         "failed_browser_rows": failed_rows,
     }
@@ -1550,7 +3173,7 @@ def _live_mobile_flagship_browser_proof(
         top_level_contract_ok
         and not missing_browser_engines
         and not missing_samples
-        and not missing_research_detail_viewports
+        and not any(missing_dynamic_route_viewports.values())
         and not static_or_synthetic_rows
         and not failed_rows,
         details,
@@ -2007,6 +3630,40 @@ def _flagship_continuous_ux_proof(
     return ready, details
 
 
+def _flagship_accessibility_route_has_literal_placeholder(route: object) -> bool:
+    return bool(
+        re.search(
+            r"(?:[{}\[\]<>]|%(?:7b|7d|5b|5d|3c|3e))",
+            str(route or ""),
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _flagship_accessibility_route_key(route: object) -> str:
+    route_text = str(route or "").strip()
+    route_path, separator, _query = route_text.partition("?")
+    route_path = route_path.rstrip("/") or "/"
+    if _flagship_accessibility_route_has_literal_placeholder(route):
+        return route_path
+    if route_path.startswith("/app/research/") and route_path.count("/") == 3:
+        return "/app/research/[detail]"
+    if (
+        not separator
+        and route_path.startswith("/app/shortlist/run/")
+        and route_path.count("/") == 4
+    ):
+        return "/app/shortlist/run/[run]"
+    if (
+        not separator
+        and route_path.startswith("/tours/")
+        and route_path.count("/") == 2
+        and not route_path.endswith(".json")
+    ):
+        return "/tours/[slug]"
+    return route_path
+
+
 def _flagship_accessibility_proof(
     accessibility: dict[str, Any],
     *,
@@ -2020,11 +3677,19 @@ def _flagship_accessibility_proof(
         if str(engine or "").strip()
     }
     configured_routes = [str(route or "").strip() for route in list(accessibility.get("configured_routes") or [])]
-    detail_routes = [
+    dynamic_routes = {
+        family: [route for route in configured_routes if _flagship_accessibility_route_key(route) == family]
+        for family in (
+            "/app/research/[detail]",
+            "/app/shortlist/run/[run]",
+            "/tours/[slug]",
+        )
+    }
+    detail_routes = dynamic_routes["/app/research/[detail]"]
+    literal_placeholder_routes = [
         route
         for route in configured_routes
-        if route.split("?", 1)[0].rstrip("/").startswith("/app/research/")
-        and route.split("?", 1)[0].rstrip("/") != "/app/research"
+        if _flagship_accessibility_route_has_literal_placeholder(route)
     ]
     rows = [dict(row) for row in list(accessibility.get("routes") or []) if isinstance(row, dict)]
     observed_samples: set[tuple[str, str]] = set()
@@ -2032,11 +3697,7 @@ def _flagship_accessibility_proof(
     for row in rows:
         route = str(row.get("route") or "").strip()
         route_path = route.split("?", 1)[0].rstrip("/") or "/"
-        route_key = (
-            "/app/research/[detail]"
-            if route_path.startswith("/app/research/") and route_path != "/app/research"
-            else route_path
-        )
+        route_key = _flagship_accessibility_route_key(route)
         engine = str(row.get("browser_engine") or "").strip().lower()
         checks = {
             str(check.get("name") or ""): check.get("ok") is True
@@ -2045,11 +3706,15 @@ def _flagship_accessibility_proof(
         }
         missing_checks = [name for name in REQUIRED_FLAGSHIP_ACCESSIBILITY_CHECKS if checks.get(name) is not True]
         metrics = dict(row.get("metrics") or {})
+        moderate_or_higher_wcag_count = metrics.get(
+            "axe_moderate_or_higher_wcag_count"
+        )
         row_ok = (
             row.get("ok") is True
             and not missing_checks
             and metrics.get("axe_core_version") == REQUIRED_AXE_CORE_VERSION
-            and int(metrics.get("axe_serious_critical_count") or 0) == 0
+            and type(moderate_or_higher_wcag_count) is int
+            and moderate_or_higher_wcag_count == 0
         )
         if row_ok:
             observed_samples.add((engine, route_key))
@@ -2061,12 +3726,19 @@ def _flagship_accessibility_proof(
                     "missing_checks": missing_checks,
                     "axe_core_version": str(metrics.get("axe_core_version") or ""),
                     "serious_critical_count": int(metrics.get("axe_serious_critical_count") or 0),
+                    "moderate_or_higher_wcag_count": (
+                        moderate_or_higher_wcag_count
+                        if type(moderate_or_higher_wcag_count) is int
+                        else "missing_or_invalid"
+                    ),
                     "error": str(metrics.get("error") or ""),
                 }
             )
     expected_route_keys = {
-        *(str(route).split("?", 1)[0].rstrip("/") or "/" for route in REQUIRED_FLAGSHIP_ACCESSIBILITY_ROUTES),
+        *(_flagship_accessibility_route_key(route) for route in REQUIRED_FLAGSHIP_ACCESSIBILITY_ROUTES),
         "/app/research/[detail]",
+        "/app/shortlist/run/[run]",
+        "/tours/[slug]",
     }
     expected_samples = {(engine, route) for engine in engines for route in expected_route_keys}
     missing_samples = sorted(expected_samples - observed_samples)
@@ -2079,7 +3751,11 @@ def _flagship_accessibility_proof(
         "axe_core_pinned_input",
         "accessibility_route_engine_matrix_complete",
         "public_information_route_matrix_configured",
+        "flagship_static_route_matrix_configured",
+        "literal_route_placeholders_absent",
         "research_detail_route_configured",
+        "shortlist_run_route_configured",
+        "public_tour_route_configured",
         "dialog_focus_interaction_sampled",
     )
     missing_top_checks = [name for name in required_top_checks if top_checks.get(name) is not True]
@@ -2093,6 +3769,8 @@ def _flagship_accessibility_proof(
         "required_routes": sorted(expected_route_keys),
         "configured_routes": configured_routes,
         "research_detail_routes": detail_routes,
+        "dynamic_routes": dynamic_routes,
+        "literal_placeholder_routes": literal_placeholder_routes,
         "required_axe_core_version": REQUIRED_AXE_CORE_VERSION,
         "reported_axe_core_version": str(accessibility.get("axe_core_version") or ""),
         "missing_samples": [
@@ -2107,7 +3785,8 @@ def _flagship_accessibility_proof(
         and int(accessibility.get("failed_count") or 0) == 0
         and accessibility.get("axe_core_version") == REQUIRED_AXE_CORE_VERSION
         and engine_set.issubset(declared_engines)
-        and bool(detail_routes)
+        and all(dynamic_routes.values())
+        and not literal_placeholder_routes
         and not missing_engines
         and not missing_samples
         and not missing_top_checks
@@ -2133,6 +3812,7 @@ def _flagship_failure_state_proof(
         if str(state or "").strip()
     }
     rows = [dict(row) for row in list(failure_states.get("rows") or []) if isinstance(row, dict)]
+    preservation_probe_route = str(failure_states.get("preservation_probe_route") or "").strip()
     observed_samples: set[tuple[str, str]] = set()
     failed_rows: list[dict[str, Any]] = []
     for row in rows:
@@ -2147,6 +3827,39 @@ def _flagship_failure_state_proof(
             name for name in REQUIRED_FLAGSHIP_FAILURE_STATE_CHECKS
             if row_checks.get(name) is not True
         ]
+        preservation = dict(row.get("preservation_probe") or {})
+        preservation_before = dict(preservation.get("before") or {})
+        preservation_after = dict(preservation.get("after") or {})
+        before_sha = str(preservation_before.get("sha256") or "").strip().lower()
+        after_sha = str(preservation_after.get("sha256") or "").strip().lower()
+        before_status = preservation_before.get("status_code")
+        after_status = preservation_after.get("status_code")
+        before_body_bytes = preservation_before.get("body_bytes")
+        after_body_bytes = preservation_after.get("body_bytes")
+        before_canonical_bytes = preservation_before.get("canonical_bytes")
+        after_canonical_bytes = preservation_after.get("canonical_bytes")
+        preservation_receipt_ok = (
+            row.get("customer_data_preserved") is True
+            and preservation.get("same_digest") is True
+            and preservation_before.get("ok") is True
+            and preservation_after.get("ok") is True
+            and type(before_status) is int
+            and before_status == 200
+            and type(after_status) is int
+            and after_status == 200
+            and type(before_body_bytes) is int
+            and before_body_bytes > 0
+            and type(after_body_bytes) is int
+            and after_body_bytes > 0
+            and type(before_canonical_bytes) is int
+            and before_canonical_bytes > 0
+            and type(after_canonical_bytes) is int
+            and after_canonical_bytes > 0
+            and re.fullmatch(r"[0-9a-f]{64}", before_sha) is not None
+            and before_sha == after_sha
+        )
+        if not preservation_receipt_ok:
+            missing_checks.append("preservation_probe_receipt")
         if row.get("ok") is True and not missing_checks:
             observed_samples.add((engine, state))
         else:
@@ -2173,6 +3886,7 @@ def _flagship_failure_state_proof(
         "required_failure_scenarios_configured",
         "browser_state_engine_matrix_complete",
         "no_provider_response_mocking",
+        "customer_data_preservation_matrix_complete",
     )
     missing_top_checks = [name for name in required_top_checks if top_checks.get(name) is not True]
     details = {
@@ -2181,6 +3895,8 @@ def _flagship_failure_state_proof(
         "declared_browser_engines": sorted(declared_engines),
         "required_failure_states": list(REQUIRED_FLAGSHIP_FAILURE_STATES),
         "declared_failure_states": sorted(declared_states),
+        "required_preservation_probe_route": REQUIRED_FLAGSHIP_FAILURE_PRESERVATION_ROUTE,
+        "preservation_probe_route": preservation_probe_route,
         "missing_top_checks": missing_top_checks,
         "missing_samples": [
             {"browser_engine": engine, "state": state}
@@ -2194,6 +3910,7 @@ def _flagship_failure_state_proof(
         and details["proof_mode"] == "playwright_browser_all"
         and set(engines).issubset(declared_engines)
         and set(REQUIRED_FLAGSHIP_FAILURE_STATES).issubset(declared_states)
+        and preservation_probe_route == REQUIRED_FLAGSHIP_FAILURE_PRESERVATION_ROUTE
         and not missing_top_checks
         and not missing_samples
         and not failed_rows
@@ -3070,12 +4787,704 @@ def _rybbit_launch_status(
     )
 
 
+def _exact_release_binding_errors(
+    receipt: dict[str, Any],
+    *,
+    expected_release_commit_sha: str,
+    expected_release_image_digest: str,
+    label: str,
+) -> tuple[list[str], dict[str, str]]:
+    errors: list[str] = []
+    expected_sha = str(expected_release_commit_sha or "").strip().lower()
+    expected_image = str(expected_release_image_digest or "").strip().lower()
+    identity = (
+        dict(receipt.get("release_identity") or {})
+        if isinstance(receipt.get("release_identity"), dict)
+        else {}
+    )
+    observed_sha = str(identity.get("commit_sha") or "").strip().lower()
+    observed_image = str(identity.get("image_digest") or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{40}", expected_sha):
+        errors.append(f"{label} validation requires the exact Gold release SHA")
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", expected_image):
+        errors.append(f"{label} validation requires the immutable Gold image digest")
+    if observed_sha != expected_sha:
+        errors.append(f"{label} receipt commit does not match the Gold release")
+    if observed_image != expected_image:
+        errors.append(f"{label} receipt image does not match the Gold release")
+    return errors, {
+        "commit_sha": observed_sha,
+        "image_digest": observed_image,
+    }
+
+
+def _governed_receipt_age(
+    receipt: dict[str, Any],
+    *,
+    now: datetime | None,
+    max_age_hours: float,
+    label: str,
+) -> tuple[list[str], str, float | None]:
+    errors: list[str] = []
+    raw_generated_at = str(receipt.get("generated_at") or "").strip()
+    generated_at = _parse_receipt_datetime(raw_generated_at)
+    if generated_at is None:
+        errors.append(f"{label} receipt has no timezone-aware generated_at")
+        return errors, raw_generated_at, None
+    observed_now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    age_seconds = (observed_now - generated_at).total_seconds()
+    if (
+        not math.isfinite(age_seconds)
+        or age_seconds < 0
+        or age_seconds > float(max_age_hours) * 3600
+    ):
+        errors.append(f"{label} receipt is stale or future-dated")
+    return errors, raw_generated_at, age_seconds
+
+
+def _global_market_envelope_launch_status(
+    receipt: dict[str, Any],
+    *,
+    receipt_present: bool,
+    required: bool,
+    expected_release_commit_sha: str,
+    expected_release_image_digest: str,
+    now: datetime | None,
+    max_age_hours: float,
+) -> tuple[bool, dict[str, Any]]:
+    if not receipt_present:
+        return (
+            not required,
+            {
+                "status": "missing" if required else "not_required",
+                "errors": (
+                    ["global market envelope receipt is required for launch/Core"]
+                    if required
+                    else []
+                ),
+                "receipt_status": "",
+                "schema": "",
+                "release_identity": {},
+                "generated_at": "",
+                "age_seconds": None,
+                "required_markets": list(ACTIVE_PROVIDER_MATRIX_COUNTRY_CODES),
+                "launch_supported_markets": [],
+                "market_results": [],
+                "source_blockers": [],
+            },
+        )
+
+    errors: list[str] = []
+    schema = str(receipt.get("schema") or "").strip()
+    receipt_status = str(receipt.get("status") or "").strip()
+    if schema != GLOBAL_MARKET_ENVELOPE_RECEIPT_SCHEMA:
+        errors.append("global market envelope receipt has the wrong schema")
+    if str(receipt.get("source_schema") or "").strip() != (
+        "propertyquarry.global_market_envelope.v1"
+    ):
+        errors.append("global market envelope receipt has the wrong source schema")
+    if not str(receipt.get("source_envelope_id") or "").strip():
+        errors.append("global market envelope receipt has no source envelope ID")
+    if not re.fullmatch(
+        r"[0-9a-f]{64}",
+        str(receipt.get("source_sha256") or "").strip().lower(),
+    ):
+        errors.append("global market envelope receipt has no valid source SHA-256")
+    if receipt_status.lower() != "ready":
+        errors.append("global market envelope receipt is not READY")
+    if receipt.get("independently_attested") is not True:
+        errors.append("global market envelope receipt is not independently attested")
+    if not str(receipt.get("live_receipt_ref") or "").strip():
+        errors.append("global market envelope receipt has no governed live evidence reference")
+    try:
+        live_receipt_age_seconds = float(receipt.get("live_receipt_age_seconds"))
+    except (TypeError, ValueError):
+        live_receipt_age_seconds = None
+    if (
+        live_receipt_age_seconds is None
+        or not math.isfinite(live_receipt_age_seconds)
+        or live_receipt_age_seconds < -300
+        or live_receipt_age_seconds > float(max_age_hours) * 3600
+    ):
+        errors.append("global market envelope live evidence is stale, future-dated, or missing")
+    source_blockers = [
+        dict(row) if isinstance(row, dict) else {"detail": str(row)}
+        for row in list(receipt.get("blockers") or [])[:20]
+    ]
+    if source_blockers:
+        errors.append("global market envelope receipt still contains blockers")
+
+    phase_one = (
+        dict(receipt.get("phase_one") or {})
+        if isinstance(receipt.get("phase_one"), dict)
+        else {}
+    )
+    if str(phase_one.get("operating_mode") or "").strip() != "launch":
+        errors.append("global market envelope is not declared for launch operation")
+
+    summary = (
+        dict(receipt.get("summary") or {})
+        if isinstance(receipt.get("summary"), dict)
+        else {}
+    )
+    expected_markets = tuple(ACTIVE_PROVIDER_MATRIX_COUNTRY_CODES)
+    launch_supported_markets = tuple(
+        dict.fromkeys(
+            str(value or "").strip().upper()
+            for value in list(summary.get("launch_supported_markets") or [])
+            if str(value or "").strip()
+        )
+    )
+    classifications = (
+        dict(summary.get("classifications") or {})
+        if isinstance(summary.get("classifications"), dict)
+        else {}
+    )
+    classified_launch_markets = tuple(
+        dict.fromkeys(
+            str(value or "").strip().upper()
+            for value in list(classifications.get("launch_supported") or [])
+            if str(value or "").strip()
+        )
+    )
+    if set(launch_supported_markets) != set(expected_markets):
+        errors.append("global market envelope does not launch-support exact AT/DE/CR scope")
+    if set(classified_launch_markets) != set(expected_markets):
+        errors.append("global market envelope launch classification is incomplete")
+    if type(summary.get("market_count")) is not int or summary.get(
+        "market_count"
+    ) != len(expected_markets):
+        errors.append("global market envelope summary market count is invalid")
+    if type(summary.get("blocker_count")) is not int or summary.get(
+        "blocker_count"
+    ) != 0:
+        errors.append("global market envelope summary reports blockers")
+
+    market_rows = [
+        dict(row)
+        for row in list(receipt.get("markets") or [])
+        if isinstance(row, dict)
+    ]
+    market_codes = [
+        str(row.get("country_code") or "").strip().upper()
+        for row in market_rows
+    ]
+    if len(market_codes) != len(set(market_codes)) or set(market_codes) != set(
+        expected_markets
+    ):
+        errors.append("global market envelope market rows are not exact unique AT/DE/CR")
+    for row in market_rows:
+        country_code = str(row.get("country_code") or "").strip().upper()
+        if country_code not in expected_markets:
+            continue
+        if (
+            str(row.get("declared_classification") or "").strip()
+            != "launch_supported"
+            or str(row.get("computed_classification") or "").strip()
+            != "launch_supported"
+            or row.get("classification_match") is not True
+            or row.get("launch_supported") is not True
+            or str(row.get("status") or "").strip().upper() != "READY"
+            or list(row.get("missing_dimensions") or [])
+        ):
+            errors.append(
+                f"global market envelope {country_code} row is not fully launch-supported"
+            )
+
+    binding_errors, release_identity = _exact_release_binding_errors(
+        receipt,
+        expected_release_commit_sha=expected_release_commit_sha,
+        expected_release_image_digest=expected_release_image_digest,
+        label="global market envelope",
+    )
+    age_errors, generated_at, age_seconds = _governed_receipt_age(
+        receipt,
+        now=now,
+        max_age_hours=max_age_hours,
+        label="global market envelope",
+    )
+    errors.extend(binding_errors)
+    errors.extend(age_errors)
+    errors = list(dict.fromkeys(errors))
+    return (
+        not errors,
+        {
+            "status": "pass" if not errors else "blocked",
+            "errors": errors,
+            "receipt_status": receipt_status,
+            "schema": schema,
+            "release_identity": release_identity,
+            "generated_at": generated_at,
+            "age_seconds": age_seconds,
+            "live_receipt_age_seconds": live_receipt_age_seconds,
+            "required_markets": list(expected_markets),
+            "launch_supported_markets": list(launch_supported_markets),
+            "market_results": market_rows,
+            "source_blockers": source_blockers,
+        },
+    )
+
+
+def _incident_support_launch_status(
+    receipt: dict[str, Any],
+    *,
+    receipt_present: bool,
+    required: bool,
+    expected_release_commit_sha: str,
+    expected_release_image_digest: str,
+    now: datetime | None,
+    max_age_hours: float,
+) -> tuple[bool, dict[str, Any]]:
+    if not receipt_present:
+        return (
+            not required,
+            {
+                "status": "missing" if required else "not_required",
+                "errors": (
+                    ["incident/support gate receipt is required for launch/Core"]
+                    if required
+                    else []
+                ),
+                "receipt_status": "",
+                "schema": "",
+                "release_identity": {},
+                "generated_at": "",
+                "age_seconds": None,
+                "live_receipt_age_seconds": None,
+                "required_markets": list(ACTIVE_PROVIDER_MATRIX_COUNTRY_CODES),
+                "source_blockers": [],
+            },
+        )
+
+    errors: list[str] = []
+    schema = str(receipt.get("schema") or "").strip()
+    receipt_status = str(receipt.get("status") or "").strip()
+    if schema != INCIDENT_SUPPORT_GATE_RECEIPT_SCHEMA:
+        errors.append("incident/support gate receipt has the wrong schema")
+    if receipt_status.lower() != "pass":
+        errors.append("incident/support gate receipt is not pass")
+    source_blockers = [str(value or "").strip() for value in list(receipt.get("blockers") or [])]
+    source_blockers = [value for value in source_blockers if value]
+    if source_blockers:
+        errors.append("incident/support gate receipt still contains blockers")
+    source_contract = (
+        dict(receipt.get("source_contract") or {})
+        if isinstance(receipt.get("source_contract"), dict)
+        else {}
+    )
+    if str(source_contract.get("status") or "").strip().lower() != "pass":
+        errors.append("incident/support source contract is not pass")
+    if not re.fullmatch(
+        r"sha256:[0-9a-f]{64}",
+        str(source_contract.get("sha256") or "").strip().lower(),
+    ):
+        errors.append("incident/support source contract digest is invalid")
+    if not str(receipt.get("live_receipt_path") or "").strip():
+        errors.append("incident/support gate has no independently attested live receipt")
+
+    expected_markets = tuple(ACTIVE_PROVIDER_MATRIX_COUNTRY_CODES)
+    required_markets = tuple(
+        dict.fromkeys(
+            str(value or "").strip().upper()
+            for value in list(receipt.get("required_markets") or [])
+            if str(value or "").strip()
+        )
+    )
+    if set(required_markets) != set(expected_markets):
+        errors.append("incident/support gate does not cover exact AT/DE/CR launch scope")
+
+    live_receipt_age_seconds: float | None
+    try:
+        live_receipt_age_seconds = float(receipt.get("live_receipt_age_seconds"))
+    except (TypeError, ValueError):
+        live_receipt_age_seconds = None
+    if (
+        live_receipt_age_seconds is None
+        or not math.isfinite(live_receipt_age_seconds)
+        or live_receipt_age_seconds < 0
+        or live_receipt_age_seconds > float(max_age_hours) * 3600
+    ):
+        errors.append("incident/support live attestation is stale, future-dated, or missing")
+
+    binding_errors, release_identity = _exact_release_binding_errors(
+        receipt,
+        expected_release_commit_sha=expected_release_commit_sha,
+        expected_release_image_digest=expected_release_image_digest,
+        label="incident/support gate",
+    )
+    age_errors, generated_at, age_seconds = _governed_receipt_age(
+        receipt,
+        now=now,
+        max_age_hours=max_age_hours,
+        label="incident/support gate",
+    )
+    errors.extend(binding_errors)
+    errors.extend(age_errors)
+    errors = list(dict.fromkeys(errors))
+    return (
+        not errors,
+        {
+            "status": "pass" if not errors else "blocked",
+            "errors": errors,
+            "receipt_status": receipt_status,
+            "schema": schema,
+            "release_identity": release_identity,
+            "generated_at": generated_at,
+            "age_seconds": age_seconds,
+            "live_receipt_age_seconds": live_receipt_age_seconds,
+            "required_markets": list(required_markets),
+            "source_blockers": source_blockers,
+        },
+    )
+
+
+def _global_experience_launch_status(
+    receipt: dict[str, Any],
+    *,
+    receipt_present: bool,
+    required: bool,
+    expected_release_commit_sha: str,
+    expected_release_image_digest: str,
+    now: datetime | None,
+    max_age_hours: float,
+) -> tuple[bool, dict[str, Any]]:
+    expected_locales = {"AT": "de-AT", "DE": "de-DE", "CR": "es-CR"}
+    if not receipt_present:
+        return (
+            not required,
+            {
+                "status": "missing" if required else "not_required",
+                "errors": (
+                    ["global-experience gate receipt is required for launch/Core"]
+                    if required
+                    else []
+                ),
+                "receipt_status": "",
+                "schema": "",
+                "release_identity": {},
+                "generated_at": "",
+                "age_seconds": None,
+                "live_receipt_age_seconds": None,
+                "required_markets": list(expected_locales),
+                "market_results": [],
+                "source_blockers": [],
+                "independently_attested": False,
+            },
+        )
+
+    errors: list[str] = []
+    schema = str(receipt.get("schema") or "").strip()
+    receipt_status = str(receipt.get("status") or "").strip()
+    if schema != GLOBAL_EXPERIENCE_GATE_RECEIPT_SCHEMA:
+        errors.append("global-experience gate receipt has the wrong schema")
+    if receipt_status.lower() != "pass":
+        errors.append("global-experience gate receipt is not pass")
+    if (
+        str(receipt.get("profile") or "").strip() != "launch"
+        or str(receipt.get("claim_scope") or "").strip() != "core"
+    ):
+        errors.append("global-experience gate is not scoped to launch/Core")
+    if str(receipt.get("source_contract_status") or "").strip() != (
+        "defined_not_live_evidence"
+    ):
+        errors.append("global-experience source contract status is invalid")
+    if not re.fullmatch(
+        r"[0-9a-f]{64}",
+        str(receipt.get("contract_sha256") or "").strip().lower(),
+    ):
+        errors.append("global-experience source contract digest is invalid")
+    if not str(receipt.get("live_receipt_path") or "").strip():
+        errors.append("global-experience gate has no independently attested live receipt")
+    if receipt.get("independently_attested") is not True:
+        errors.append("global-experience gate is not independently attested")
+
+    source_blockers = [
+        str(value or "").strip() for value in list(receipt.get("blockers") or [])
+    ]
+    source_blockers = [value for value in source_blockers if value]
+    if source_blockers:
+        errors.append("global-experience gate receipt still contains blockers")
+
+    required_rows = [
+        dict(row)
+        for row in list(receipt.get("required_markets") or [])
+        if isinstance(row, dict)
+    ]
+    required_codes = [
+        str(row.get("country_code") or "").strip().upper()
+        for row in required_rows
+    ]
+    if (
+        len(required_codes) != len(set(required_codes))
+        or set(required_codes) != set(expected_locales)
+        or any(
+            str(row.get("locale") or "").strip()
+            != expected_locales.get(str(row.get("country_code") or "").strip().upper())
+            for row in required_rows
+        )
+    ):
+        errors.append("global-experience gate does not cover exact AT/de-AT, DE/de-DE, and CR/es-CR scope")
+
+    market_results = [
+        dict(row)
+        for row in list(receipt.get("market_results") or [])
+        if isinstance(row, dict)
+    ]
+    market_codes = [
+        str(row.get("country_code") or "").strip().upper()
+        for row in market_results
+    ]
+    if len(market_codes) != len(set(market_codes)) or set(market_codes) != set(
+        expected_locales
+    ):
+        errors.append("global-experience market results are not exact unique AT/DE/CR")
+    for row in market_results:
+        country_code = str(row.get("country_code") or "").strip().upper()
+        if (
+            str(row.get("locale") or "").strip()
+            != expected_locales.get(country_code)
+            or str(row.get("status") or "").strip().lower() != "pass"
+            or list(row.get("blockers") or [])
+        ):
+            errors.append(
+                f"global-experience {country_code or 'unknown'} market result is not pass"
+            )
+
+    live_receipt_age_seconds: float | None
+    try:
+        live_receipt_age_seconds = float(receipt.get("live_receipt_age_seconds"))
+    except (TypeError, ValueError):
+        live_receipt_age_seconds = None
+    if (
+        live_receipt_age_seconds is None
+        or not math.isfinite(live_receipt_age_seconds)
+        or live_receipt_age_seconds < 0
+        or live_receipt_age_seconds > float(max_age_hours) * 3600
+    ):
+        errors.append("global-experience live attestation is stale, future-dated, or missing")
+    try:
+        declared_max_age_hours = float(receipt.get("maximum_age_hours"))
+    except (TypeError, ValueError):
+        declared_max_age_hours = 0.0
+    if (
+        not math.isfinite(declared_max_age_hours)
+        or declared_max_age_hours <= 0
+        or declared_max_age_hours > min(24.0, float(max_age_hours))
+    ):
+        errors.append("global-experience evidence freshness policy is missing or weakened")
+
+    binding_errors, release_identity = _exact_release_binding_errors(
+        receipt,
+        expected_release_commit_sha=expected_release_commit_sha,
+        expected_release_image_digest=expected_release_image_digest,
+        label="global-experience gate",
+    )
+    age_errors, generated_at, age_seconds = _governed_receipt_age(
+        receipt,
+        now=now,
+        max_age_hours=max_age_hours,
+        label="global-experience gate",
+    )
+    errors.extend(binding_errors)
+    errors.extend(age_errors)
+    errors = list(dict.fromkeys(errors))
+    return (
+        not errors,
+        {
+            "status": "pass" if not errors else "blocked",
+            "errors": errors,
+            "receipt_status": receipt_status,
+            "schema": schema,
+            "release_identity": release_identity,
+            "generated_at": generated_at,
+            "age_seconds": age_seconds,
+            "live_receipt_age_seconds": live_receipt_age_seconds,
+            "maximum_age_hours": declared_max_age_hours,
+            "required_markets": required_rows,
+            "market_results": market_results,
+            "source_blockers": source_blockers,
+            "independently_attested": receipt.get("independently_attested") is True,
+        },
+    )
+
+
+def _jurisdiction_privacy_rights_launch_status(
+    receipt: dict[str, Any],
+    *,
+    receipt_present: bool,
+    required: bool,
+    expected_release_commit_sha: str,
+    expected_release_image_digest: str,
+    now: datetime | None,
+    max_age_hours: float,
+) -> tuple[bool, dict[str, Any]]:
+    expected_markets = tuple(ACTIVE_PROVIDER_MATRIX_COUNTRY_CODES)
+    if not receipt_present:
+        return (
+            not required,
+            {
+                "status": "missing" if required else "not_required",
+                "errors": (
+                    [
+                        "jurisdiction/privacy/provider-rights gate receipt is required for launch/Core"
+                    ]
+                    if required
+                    else []
+                ),
+                "receipt_status": "",
+                "schema": "",
+                "release_identity": {},
+                "generated_at": "",
+                "age_seconds": None,
+                "live_receipt_age_seconds": None,
+                "required_markets": list(expected_markets),
+                "source_contract": {},
+                "market_envelope": {},
+                "source_blockers": [],
+            },
+        )
+
+    errors: list[str] = []
+    schema = str(receipt.get("schema") or "").strip()
+    receipt_status = str(receipt.get("status") or "").strip()
+    if schema != JURISDICTION_PRIVACY_RIGHTS_GATE_RECEIPT_SCHEMA:
+        errors.append("jurisdiction/privacy/provider-rights gate receipt has the wrong schema")
+    if receipt_status.lower() != "pass":
+        errors.append("jurisdiction/privacy/provider-rights gate receipt is not pass")
+    source_blockers = [
+        str(value or "").strip() for value in list(receipt.get("blockers") or [])
+    ]
+    source_blockers = [value for value in source_blockers if value]
+    if source_blockers:
+        errors.append(
+            "jurisdiction/privacy/provider-rights gate receipt still contains blockers"
+        )
+    if not str(receipt.get("live_receipt_path") or "").strip():
+        errors.append(
+            "jurisdiction/privacy/provider-rights gate has no independently attested live receipt"
+        )
+
+    repo_root = Path(__file__).resolve().parents[1]
+    expected_contract_path = JURISDICTION_PRIVACY_RIGHTS_CONTRACT_PATH.as_posix()
+    expected_envelope_path = (
+        JURISDICTION_PRIVACY_RIGHTS_MARKET_ENVELOPE_PATH.as_posix()
+    )
+    try:
+        current_contract_sha256 = "sha256:" + hashlib.sha256(
+            (repo_root / JURISDICTION_PRIVACY_RIGHTS_CONTRACT_PATH).read_bytes()
+        ).hexdigest()
+    except OSError:
+        current_contract_sha256 = ""
+        errors.append(
+            "current jurisdiction/privacy/provider-rights source contract is unreadable"
+        )
+    try:
+        current_market_envelope_sha256 = "sha256:" + hashlib.sha256(
+            (
+                repo_root / JURISDICTION_PRIVACY_RIGHTS_MARKET_ENVELOPE_PATH
+            ).read_bytes()
+        ).hexdigest()
+    except OSError:
+        current_market_envelope_sha256 = ""
+        errors.append("current governed global market envelope is unreadable")
+
+    source_contract = (
+        dict(receipt.get("source_contract") or {})
+        if isinstance(receipt.get("source_contract"), dict)
+        else {}
+    )
+    if (
+        str(source_contract.get("status") or "").strip().lower() != "pass"
+        or str(source_contract.get("path") or "").strip() != expected_contract_path
+        or str(source_contract.get("sha256") or "").strip().lower()
+        != current_contract_sha256
+    ):
+        errors.append(
+            "jurisdiction/privacy/provider-rights gate is not bound to the current source contract"
+        )
+    market_envelope = (
+        dict(receipt.get("market_envelope") or {})
+        if isinstance(receipt.get("market_envelope"), dict)
+        else {}
+    )
+    if (
+        str(market_envelope.get("status") or "").strip().lower() != "pass"
+        or str(market_envelope.get("path") or "").strip()
+        != expected_envelope_path
+        or str(market_envelope.get("sha256") or "").strip().lower()
+        != current_market_envelope_sha256
+    ):
+        errors.append(
+            "jurisdiction/privacy/provider-rights gate is not bound to the current global market envelope"
+        )
+
+    required_markets = tuple(
+        str(value or "").strip().upper()
+        for value in list(receipt.get("required_markets") or [])
+        if str(value or "").strip()
+    )
+    if required_markets != expected_markets:
+        errors.append(
+            "jurisdiction/privacy/provider-rights gate does not cover exact ordered AT/DE/CR scope"
+        )
+
+    live_receipt_age_seconds: float | None
+    try:
+        live_receipt_age_seconds = float(receipt.get("live_receipt_age_seconds"))
+    except (TypeError, ValueError):
+        live_receipt_age_seconds = None
+    if (
+        live_receipt_age_seconds is None
+        or not math.isfinite(live_receipt_age_seconds)
+        or live_receipt_age_seconds < 0
+        or live_receipt_age_seconds > float(max_age_hours) * 3600
+    ):
+        errors.append(
+            "jurisdiction/privacy/provider-rights live attestation is stale, future-dated, or missing"
+        )
+
+    binding_errors, release_identity = _exact_release_binding_errors(
+        receipt,
+        expected_release_commit_sha=expected_release_commit_sha,
+        expected_release_image_digest=expected_release_image_digest,
+        label="jurisdiction/privacy/provider-rights gate",
+    )
+    age_errors, generated_at, age_seconds = _governed_receipt_age(
+        receipt,
+        now=now,
+        max_age_hours=max_age_hours,
+        label="jurisdiction/privacy/provider-rights gate",
+    )
+    errors.extend(binding_errors)
+    errors.extend(age_errors)
+    errors = list(dict.fromkeys(errors))
+    return (
+        not errors,
+        {
+            "status": "pass" if not errors else "blocked",
+            "errors": errors,
+            "receipt_status": receipt_status,
+            "schema": schema,
+            "release_identity": release_identity,
+            "generated_at": generated_at,
+            "age_seconds": age_seconds,
+            "live_receipt_age_seconds": live_receipt_age_seconds,
+            "required_markets": list(required_markets),
+            "source_contract": source_contract,
+            "market_envelope": market_envelope,
+            "current_source_contract_sha256": current_contract_sha256,
+            "current_market_envelope_sha256": current_market_envelope_sha256,
+            "source_blockers": source_blockers,
+        },
+    )
+
+
 def build_gold_status_receipt(
     *,
     performance_receipt_path: Path,
     continuous_ux_receipt_path: Path | None = None,
     tour_control_receipt_path: Path,
-    export_discovery_receipt_path: Path,
+    export_discovery_receipt_path: Path | None,
     import_manifest_receipt_path: Path | None = None,
     repair_canary_receipt_path: Path,
     provider_matrix_receipt_path: Path,
@@ -3105,11 +5514,20 @@ def build_gold_status_receipt(
     scene_video_runtime_status_receipt_path: Path | None = None,
     scene_video_provider_refresh_packet_path: Path | None = None,
     scene_video_provider_refresh_packet_verifier_receipt_path: Path | None = None,
+    advanced_visual_binding_receipt_path: Path | None = None,
     slo_evidence_receipt_path: Path | None = None,
     evidence_overlay_receipt_path: Path | None = None,
     rybbit_evidence_receipt_path: Path | None = None,
+    global_market_envelope_receipt_path: Path | None = None,
+    incident_support_receipt_path: Path | None = None,
+    global_experience_receipt_path: Path | None = None,
+    jurisdiction_privacy_rights_receipt_path: Path | None = None,
     expected_release_commit_sha: str = "",
     expected_release_image_digest: str = "",
+    expected_release_deployment_id: str = "",
+    expected_release_manifest_sha256: str = "",
+    expected_performance_chromium_executable_path: str = "",
+    expected_performance_chromium_executable_sha256: str = "",
     expected_public_origin: str = "",
     expected_teable_origin: str = "",
     expected_teable_base_id_sha256: str = "",
@@ -3123,12 +5541,48 @@ def build_gold_status_receipt(
     max_receipt_age_hours: float | None = None,
     provider_catalog_receipt_path: Path | None = None,
     readiness_profile: str = "standard",
+    claim_scope: str | None = None,
     required_browser_engines: tuple[str, ...] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    normalized_readiness_profile = _normalize_readiness_profile(readiness_profile)
+    normalized_expected_release_commit_sha = str(
+        expected_release_commit_sha or ""
+    ).strip().lower()
+    normalized_expected_release_image_digest = str(
+        expected_release_image_digest or ""
+    ).strip().lower()
+    normalized_expected_release_deployment_id = str(
+        expected_release_deployment_id or ""
+    ).strip()
+    normalized_expected_release_manifest_sha256 = str(
+        expected_release_manifest_sha256 or ""
+    ).strip().lower()
+    (
+        normalized_readiness_profile,
+        normalized_claim_scope,
+        requested_readiness_profile,
+    ) = _resolve_readiness_request(readiness_profile, claim_scope)
     flagship_profile = normalized_readiness_profile in {"flagship", "launch"}
     launch_profile = normalized_readiness_profile == "launch"
+    advanced_visual_profile = normalized_claim_scope == "advanced_visual"
+    core_launch_governance_required = launch_profile and not advanced_visual_profile
+    if not advanced_visual_profile:
+        export_discovery_receipt_path = None
+        import_manifest_receipt_path = None
+        vendor_tooling_receipt_path = None
+        walkthrough_quality_receipt_path = None
+        walkthrough_provider_proof_receipt_path = None
+        scene_video_readiness_receipt_path = None
+        scene_video_readiness_verifier_receipt_path = None
+        scene_video_runtime_status_receipt_path = None
+        scene_video_provider_refresh_packet_path = None
+        scene_video_provider_refresh_packet_verifier_receipt_path = None
+        advanced_visual_binding_receipt_path = None
+    core_customer_ux_receipt_areas = tuple(
+        area
+        for area in FLAGSHIP_CUSTOMER_UX_RECEIPT_AREAS
+        if area != "walkthrough_quality"
+    )
     configured_browser_engines = _normalize_required_browser_engines(
         required_browser_engines
         if required_browser_engines is not None
@@ -3141,14 +5595,16 @@ def build_gold_status_receipt(
             if engine.strip()
         )
     )
-    if max_receipt_age_hours is not None and not math.isfinite(float(max_receipt_age_hours)):
-        effective_max_receipt_age_hours = 0.0
-    else:
-        effective_max_receipt_age_hours = (
-            DEFAULT_FLAGSHIP_MAX_RECEIPT_AGE_HOURS
-            if flagship_profile and (max_receipt_age_hours is None or max_receipt_age_hours <= 0)
-            else max_receipt_age_hours
-        )
+    if max_receipt_age_hours is not None and not math.isfinite(
+        float(max_receipt_age_hours)
+    ):
+        raise ValueError("max_receipt_age_hours_must_be_finite")
+    effective_max_receipt_age_hours = (
+        DEFAULT_FLAGSHIP_MAX_RECEIPT_AGE_HOURS
+        if flagship_profile
+        and (max_receipt_age_hours is None or max_receipt_age_hours <= 0)
+        else max_receipt_age_hours
+    )
     flagship_customer_ux_receipt_paths: dict[str, Path | None] = {
         "continuous_ux": continuous_ux_receipt_path,
         "public_auth_surfaces": public_smoke_receipt_path,
@@ -3164,7 +5620,7 @@ def build_gold_status_receipt(
     }
     missing_flagship_customer_ux_receipts = [
         area
-        for area in FLAGSHIP_CUSTOMER_UX_RECEIPT_AREAS
+        for area in core_customer_ux_receipt_areas
         if flagship_customer_ux_receipt_paths.get(area) is None
     ] if flagship_profile else []
     performance = _load_json(performance_receipt_path)
@@ -3184,7 +5640,11 @@ def build_gold_status_receipt(
     public_smoke = _load_json(public_smoke_receipt_path) if public_smoke_receipt_path is not None else {}
     authenticated_smoke = _load_json(authenticated_smoke_receipt_path) if authenticated_smoke_receipt_path is not None else {}
     tour_controls = _load_json(tour_control_receipt_path)
-    export_discovery = _load_json(export_discovery_receipt_path)
+    export_discovery = (
+        _load_json(export_discovery_receipt_path)
+        if export_discovery_receipt_path is not None
+        else {}
+    )
     import_manifest = _load_json(import_manifest_receipt_path) if import_manifest_receipt_path is not None else {}
     billing_receipt = _load_json(billing_receipt_path) if billing_receipt_path is not None else {}
     tour_provider_ownership = _load_json(tour_provider_ownership_receipt_path) if tour_provider_ownership_receipt_path is not None else {}
@@ -3226,6 +5686,11 @@ def build_gold_status_receipt(
         if scene_video_provider_refresh_packet_verifier_receipt_path is not None
         else {}
     )
+    advanced_visual_binding = (
+        _load_json(advanced_visual_binding_receipt_path)
+        if advanced_visual_binding_receipt_path is not None
+        else {}
+    )
     slo_evidence = (
         _load_json(slo_evidence_receipt_path)
         if slo_evidence_receipt_path is not None
@@ -3241,6 +5706,26 @@ def build_gold_status_receipt(
         if rybbit_evidence_receipt_path is not None
         else {}
     )
+    global_market_envelope = (
+        _load_json(global_market_envelope_receipt_path)
+        if global_market_envelope_receipt_path is not None
+        else {}
+    )
+    incident_support = (
+        _load_json(incident_support_receipt_path)
+        if incident_support_receipt_path is not None
+        else {}
+    )
+    global_experience = (
+        _load_json(global_experience_receipt_path)
+        if global_experience_receipt_path is not None
+        else {}
+    )
+    jurisdiction_privacy_rights = (
+        _load_json(jurisdiction_privacy_rights_receipt_path)
+        if jurisdiction_privacy_rights_receipt_path is not None
+        else {}
+    )
     id_austria_receipt = _load_json(id_austria_receipt_path) if id_austria_receipt_path is not None else {}
     repair_canary = _load_json(repair_canary_receipt_path)
     provider_catalog = _load_json(provider_catalog_receipt_path) if provider_catalog_receipt_path is not None else {}
@@ -3250,7 +5735,11 @@ def build_gold_status_receipt(
             "performance": performance,
             **({"continuous_ux": continuous_ux} if continuous_ux_receipt_path is not None else {}),
             "tour_controls": tour_controls,
-            "export_discovery": export_discovery,
+            **(
+                {"export_discovery": export_discovery}
+                if export_discovery_receipt_path is not None
+                else {}
+            ),
             **({"billing_handoff": billing_receipt} if billing_receipt_path is not None else {}),
             **({"id_austria": id_austria_receipt} if id_austria_receipt_path is not None else {}),
             "repair_canary": repair_canary,
@@ -3289,6 +5778,11 @@ def build_gold_status_receipt(
             **({"scene_video_runtime_status": scene_video_runtime_status} if scene_video_runtime_status_receipt_path is not None else {}),
             **({"scene_video_provider_refresh_packet": scene_video_provider_refresh_packet} if scene_video_provider_refresh_packet_path is not None else {}),
             **({"scene_video_provider_refresh_packet_verifier": scene_video_provider_refresh_packet_verifier} if scene_video_provider_refresh_packet_verifier_receipt_path is not None else {}),
+            **(
+                {"advanced_visual_candidate_binding": advanced_visual_binding}
+                if advanced_visual_binding_receipt_path is not None
+                else {}
+            ),
         },
         now=now,
         max_age_hours=effective_max_receipt_age_hours,
@@ -3353,18 +5847,97 @@ def build_gold_status_receipt(
         if rybbit_evidence_required
         else (True, {"status": "not_required", "errors": []})
     )
+    requested_governance_max_age_hours = (
+        float(effective_max_receipt_age_hours)
+        if effective_max_receipt_age_hours is not None
+        else DEFAULT_FLAGSHIP_MAX_RECEIPT_AGE_HOURS
+    )
+    effective_governance_max_age_hours = (
+        min(
+            requested_governance_max_age_hours,
+            DEFAULT_FLAGSHIP_MAX_RECEIPT_AGE_HOURS,
+        )
+        if math.isfinite(requested_governance_max_age_hours)
+        and requested_governance_max_age_hours > 0
+        else DEFAULT_FLAGSHIP_MAX_RECEIPT_AGE_HOURS
+    )
+    global_market_envelope_ok, global_market_envelope_details = (
+        _global_market_envelope_launch_status(
+            global_market_envelope,
+            receipt_present=global_market_envelope_receipt_path is not None,
+            required=core_launch_governance_required,
+            expected_release_commit_sha=expected_release_commit_sha,
+            expected_release_image_digest=expected_release_image_digest,
+            now=now,
+            max_age_hours=effective_governance_max_age_hours,
+        )
+    )
+    incident_support_ok, incident_support_details = _incident_support_launch_status(
+        incident_support,
+        receipt_present=incident_support_receipt_path is not None,
+        required=core_launch_governance_required,
+        expected_release_commit_sha=expected_release_commit_sha,
+        expected_release_image_digest=expected_release_image_digest,
+        now=now,
+        max_age_hours=effective_governance_max_age_hours,
+    )
+    global_experience_ok, global_experience_details = (
+        _global_experience_launch_status(
+            global_experience,
+            receipt_present=global_experience_receipt_path is not None,
+            required=core_launch_governance_required,
+            expected_release_commit_sha=expected_release_commit_sha,
+            expected_release_image_digest=expected_release_image_digest,
+            now=now,
+            max_age_hours=effective_governance_max_age_hours,
+        )
+    )
+    (
+        jurisdiction_privacy_rights_ok,
+        jurisdiction_privacy_rights_details,
+    ) = _jurisdiction_privacy_rights_launch_status(
+        jurisdiction_privacy_rights,
+        receipt_present=jurisdiction_privacy_rights_receipt_path is not None,
+        required=core_launch_governance_required,
+        expected_release_commit_sha=expected_release_commit_sha,
+        expected_release_image_digest=expected_release_image_digest,
+        now=now,
+        max_age_hours=effective_governance_max_age_hours,
+    )
 
     missing_provider_modes = _missing_provider_modes(tour_controls)
+    core_missing_provider_modes = _missing_profile_provider_modes(
+        tour_controls,
+        required_field="core_required_provider_modes",
+        missing_field="core_missing_provider_modes",
+        default_required_modes=CORE_REQUIRED_TOUR_PROVIDER_MODES,
+    )
+    advanced_visual_tour_missing_provider_modes = _missing_profile_provider_modes(
+        tour_controls,
+        required_field="advanced_visual_required_provider_modes",
+        missing_field="advanced_visual_missing_provider_modes",
+        default_required_modes=("magicfit",),
+    )
     magicfit_playback = dict(tour_controls.get("magicfit_playback") or {})
     magicfit_ready = "magicfit" in {
         str(provider or "").strip().lower()
         for provider in list(tour_controls.get("ready_provider_modes") or [])
         if str(provider or "").strip()
     }
-    magicfit_playback_ok = (
-        not magicfit_ready
-        or not magicfit_playback
-        or magicfit_playback.get("playback_ok") is True
+    walkthrough_provider_binding_claimed = bool(
+        isinstance(walkthrough_quality.get("provider_media_binding"), dict)
+        and walkthrough_quality.get("provider_media_binding")
+    ) or bool(
+        str(walkthrough_quality.get("provider_proof_receipt_path") or "").strip()
+    )
+    magicfit_playback_required = (
+        magicfit_ready
+        or advanced_visual_profile
+        or walkthrough_provider_binding_claimed
+    )
+    magicfit_playback_ok = _magicfit_playback_receipt_ok(
+        magicfit_playback,
+        required=magicfit_playback_required,
     )
     provider_matrix_summary = dict(provider_matrix.get("targeted_search_matrix_summary") or {})
     provider_matrix_case_count = int(provider_matrix_summary.get("case_count") or provider_matrix_summary.get("executed_case_count") or 0)
@@ -3403,11 +5976,33 @@ def build_gold_status_receipt(
     research_performance_ok, missing_research_performance_checks, research_performance_path = _performance_research_detail_checks(performance)
     search_performance_ok, missing_search_performance_checks, search_performance_path = _performance_search_checks(performance)
     analytics_ok, missing_analytics_checks, failed_analytics_checks, analytics_route_count = _performance_analytics_checks(performance)
-    performance_ok = (
+    legacy_performance_ok = (
         performance.get("status") == "pass"
         and int(performance.get("failed_count") or 0) == 0
         and research_performance_ok
         and search_performance_ok
+    )
+    (
+        flagship_authenticated_performance_ok,
+        flagship_authenticated_performance_details,
+    ) = _flagship_authenticated_performance_proof(
+        performance,
+        expected_public_origin=expected_public_origin,
+        expected_release_commit_sha=normalized_expected_release_commit_sha,
+        expected_release_image_digest=normalized_expected_release_image_digest,
+        expected_release_deployment_id=normalized_expected_release_deployment_id,
+        expected_release_manifest_sha256=(
+            normalized_expected_release_manifest_sha256
+        ),
+        expected_chromium_executable_path=(
+            expected_performance_chromium_executable_path
+        ),
+        expected_chromium_executable_sha256=(
+            expected_performance_chromium_executable_sha256
+        ),
+    )
+    performance_ok = legacy_performance_ok and (
+        not flagship_profile or flagship_authenticated_performance_ok
     )
     flagship_continuous_ux_ok, flagship_continuous_ux_details = (
         _flagship_continuous_ux_proof(
@@ -3493,7 +6088,14 @@ def build_gold_status_receipt(
             and authenticated_notifications_ok
         )
     )
-    tour_controls_ok = tour_controls.get("status") == "pass" and not missing_provider_modes and magicfit_playback_ok
+    tour_control_status = str(tour_controls.get("status") or "").strip().lower()
+    tour_controls_ok = (
+        tour_control_status == "pass"
+        or (
+            tour_control_status == "blocked_missing_provider_modes"
+            and not core_missing_provider_modes
+        )
+    ) and not core_missing_provider_modes and magicfit_playback_ok
     browser_3d_gate_ok = (
         (browser_3d_gate_receipt_path is None and not flagship_profile)
         or _hard_gate_receipt_ok(browser_3d_gate)
@@ -3547,12 +6149,8 @@ def build_gold_status_receipt(
             and service_generated_reconstruction.get("public_route_contract_ok") is True
         )
     )
-    walkthrough_provider_binding_claimed = bool(
-        isinstance(walkthrough_quality.get("provider_media_binding"), dict)
-        and walkthrough_quality.get("provider_media_binding")
-    ) or bool(str(walkthrough_quality.get("provider_proof_receipt_path") or "").strip())
     walkthrough_provider_proof_required = (
-        scene_video_readiness_receipt_path is not None
+        advanced_visual_profile
         or walkthrough_provider_proof_receipt_path is not None
         or walkthrough_provider_binding_claimed
     )
@@ -3699,6 +6297,93 @@ def build_gold_status_receipt(
         scene_video_readiness_receipt_path is not None
         and (scene_video_blocked_provider_count > 0 or bool(scene_video_next_actions) or bool(scene_video_required_provider_gaps))
     )
+    advanced_visual_missing_provider_set = set(
+        advanced_visual_tour_missing_provider_modes
+    )
+    if scene_video_runtime_status_receipt_path is None:
+        advanced_visual_missing_provider_set.update(
+            REQUIRED_SCENE_VIDEO_PARITY_PROVIDERS
+        )
+    else:
+        advanced_visual_missing_provider_set.update(
+            scene_video_required_provider_gaps
+        )
+    advanced_visual_missing_provider_modes = [
+        provider
+        for provider in ADVANCED_VISUAL_REQUIRED_PROVIDER_MODES
+        if provider in advanced_visual_missing_provider_set
+    ]
+    advanced_visual_missing_receipts = [
+        name
+        for name, path in (
+            ("walkthrough_quality", walkthrough_quality_receipt_path),
+            ("walkthrough_provider_proof", walkthrough_provider_proof_receipt_path),
+            ("scene_video_readiness", scene_video_readiness_receipt_path),
+            ("scene_video_readiness_verifier", scene_video_readiness_verifier_receipt_path),
+            ("scene_video_runtime_status", scene_video_runtime_status_receipt_path),
+            ("scene_video_provider_refresh_packet", scene_video_provider_refresh_packet_path),
+            (
+                "scene_video_provider_refresh_packet_verifier",
+                scene_video_provider_refresh_packet_verifier_receipt_path,
+            ),
+            ("privacy", security_posture_receipt_path),
+            ("advanced_visual_candidate_binding", advanced_visual_binding_receipt_path),
+        )
+        if path is None
+    ]
+    advanced_visual_source_receipt_paths = {
+        "walkthrough_quality": walkthrough_quality_receipt_path,
+        "walkthrough_provider_proof": walkthrough_provider_proof_receipt_path,
+        "scene_video_readiness": scene_video_readiness_receipt_path,
+        "scene_video_readiness_verifier": scene_video_readiness_verifier_receipt_path,
+        "scene_video_runtime_status": scene_video_runtime_status_receipt_path,
+        "scene_video_provider_refresh_packet": scene_video_provider_refresh_packet_path,
+        "scene_video_provider_refresh_packet_verifier": (
+            scene_video_provider_refresh_packet_verifier_receipt_path
+        ),
+        "privacy": security_posture_receipt_path,
+    }
+    advanced_visual_binding_errors: list[str] = []
+    if advanced_visual_binding_receipt_path is None:
+        advanced_visual_binding_errors.append("binding_receipt_missing")
+    elif any(path is None for path in advanced_visual_source_receipt_paths.values()):
+        advanced_visual_binding_errors.append("binding_source_receipts_missing")
+    else:
+        try:
+            advanced_visual_binding_errors.extend(
+                verify_advanced_visual_binding_receipt(
+                    advanced_visual_binding,
+                    expected_release_commit_sha=expected_release_commit_sha,
+                    expected_release_image_digest=expected_release_image_digest,
+                    source_receipt_paths={
+                        name: path
+                        for name, path in advanced_visual_source_receipt_paths.items()
+                        if path is not None
+                    },
+                    max_age_hours=float(
+                        effective_max_receipt_age_hours
+                        or DEFAULT_FLAGSHIP_MAX_RECEIPT_AGE_HOURS
+                    ),
+                    now=now,
+                )
+            )
+        except Exception as exc:
+            advanced_visual_binding_errors.append(
+                f"binding_verifier_error:{type(exc).__name__}"
+            )
+    advanced_visual_binding_ok = not advanced_visual_binding_errors
+    advanced_visual_evidence_ok = (
+        not advanced_visual_missing_provider_modes
+        and not advanced_visual_missing_receipts
+        and magicfit_playback_ok
+        and _hard_gate_receipt_ok(walkthrough_quality)
+        and _walkthrough_provider_proof_receipt_ok(walkthrough_provider_proof)
+        and scene_video_readiness_verifier_ok
+        and scene_video_provider_refresh_packet_verifier_ok
+        and scene_video_provider_runtime_ready
+        and not scene_video_provider_action_required
+        and advanced_visual_binding_ok
+    )
     billing_readiness = _billing_handoff_readiness_details(
         billing_receipt,
         authenticated_smoke=authenticated_smoke if authenticated_smoke_receipt_path is not None else None,
@@ -3717,18 +6402,22 @@ def build_gold_status_receipt(
     }
     import_manifest_status = str(import_manifest.get("status") or "").strip()
     import_manifest_not_needed = (
-        import_manifest_receipt_path is not None
-        and import_manifest_status not in {"missing", "invalid"}
-        and not missing_provider_modes
-        and int(import_manifest.get("import_count") or 0) == 0
+        not advanced_visual_profile
+        or (
+            import_manifest_receipt_path is not None
+            and import_manifest_status not in {"missing", "invalid"}
+            and not core_missing_provider_modes
+            and int(import_manifest.get("import_count") or 0) == 0
+        )
     )
     export_discovery_ok = (
-        export_discovery.get("status") in {"ready", "pass"}
+        not advanced_visual_profile
+        or export_discovery.get("status") in {"ready", "pass"}
         or import_manifest_not_needed
     )
     expected_import_providers = (
         set()
-        if import_manifest_not_needed
+        if not advanced_visual_profile or import_manifest_not_needed
         else (manifest_providers or {"3dvista", "magicfit"})
     )
     prepared_drop_providers = set(_operator_drop_provider_rows(import_manifest))
@@ -3737,7 +6426,8 @@ def build_gold_status_receipt(
         expected_providers=expected_import_providers,
     )
     operator_import_manifest_ready = (
-        import_manifest_not_needed
+        not advanced_visual_profile
+        or import_manifest_not_needed
         or (
             import_manifest_status in {"ready_for_exports", "waiting_for_verified_assets", "partial_ready_for_import", "ready_for_import"}
             and int(import_manifest.get("import_count") or 0) >= len(expected_import_providers)
@@ -3825,11 +6515,18 @@ def build_gold_status_receipt(
         or (
             tour_delivery_contract.get("status") == "pass"
             and not list(tour_delivery_contract.get("failures") or [])
-            and "matterport" in set(tour_delivery_contract.get("ready_provider_modes") or [])
-            and int(tour_delivery_contract.get("matterport_ready_count") or 0) > 0
+            and set(CORE_REQUIRED_TOUR_PROVIDER_MODES).issubset(
+                set(tour_delivery_contract.get("ready_provider_modes") or [])
+            )
             and (
-                set(tour_delivery_contract.get("required_provider_modes") or tour_delivery_contract.get("required_providers") or [])
-                == set(REQUIRED_TOUR_PROVIDER_MODES)
+                set(
+                    tour_delivery_contract.get("core_required_provider_modes")
+                    or tour_delivery_contract.get("required_provider_modes")
+                    or tour_delivery_contract.get("required_providers")
+                    or []
+                )
+                .intersection(CORE_REQUIRED_TOUR_PROVIDER_MODES)
+                == set(CORE_REQUIRED_TOUR_PROVIDER_MODES)
             )
         )
     )
@@ -3839,6 +6536,112 @@ def build_gold_status_receipt(
     )
 
     blockers: list[dict[str, Any]] = []
+    if core_launch_governance_required and not global_market_envelope_ok:
+        blockers.append(
+            {
+                "area": "global_market_envelope",
+                "status": global_market_envelope_details.get("status")
+                or "blocked",
+                "errors": list(global_market_envelope_details.get("errors") or []),
+                "release_identity": dict(
+                    global_market_envelope_details.get("release_identity") or {}
+                ),
+                "required_markets": list(
+                    global_market_envelope_details.get("required_markets") or []
+                ),
+                "launch_supported_markets": list(
+                    global_market_envelope_details.get("launch_supported_markets")
+                    or []
+                ),
+                "source_blockers": list(
+                    global_market_envelope_details.get("source_blockers") or []
+                )[:20],
+                "action": "materialize a fresh global-market-envelope launch receipt for exact AT/DE/CR scope with every market launch-supported, no missing dimensions, and the exact Gold release SHA/image identity",
+            }
+        )
+    if core_launch_governance_required and not incident_support_ok:
+        blockers.append(
+            {
+                "area": "incident_support",
+                "status": incident_support_details.get("status") or "blocked",
+                "errors": list(incident_support_details.get("errors") or []),
+                "release_identity": dict(
+                    incident_support_details.get("release_identity") or {}
+                ),
+                "required_markets": list(
+                    incident_support_details.get("required_markets") or []
+                ),
+                "live_receipt_age_seconds": incident_support_details.get(
+                    "live_receipt_age_seconds"
+                ),
+                "source_blockers": list(
+                    incident_support_details.get("source_blockers") or []
+                )[:20],
+                "action": "run propertyquarry_incident_support_gate.py with a fresh independently attested AT/DE/CR live support receipt and the exact Gold release SHA/image identity",
+            }
+        )
+    if core_launch_governance_required and not global_experience_ok:
+        blockers.append(
+            {
+                "area": "global_experience",
+                "status": global_experience_details.get("status") or "blocked",
+                "errors": list(global_experience_details.get("errors") or []),
+                "release_identity": dict(
+                    global_experience_details.get("release_identity") or {}
+                ),
+                "required_markets": list(
+                    global_experience_details.get("required_markets") or []
+                ),
+                "market_results": list(
+                    global_experience_details.get("market_results") or []
+                ),
+                "live_receipt_age_seconds": global_experience_details.get(
+                    "live_receipt_age_seconds"
+                ),
+                "independently_attested": global_experience_details.get(
+                    "independently_attested"
+                ),
+                "source_blockers": list(
+                    global_experience_details.get("source_blockers") or []
+                )[:20],
+                "action": "run propertyquarry_global_experience_gate.py with fresh independently attested AT/DE/CR native-language, WCAG 2.2 AA, manual accessibility, tri-engine/mobile, field-CWV, degraded-network, and localized-SEO evidence bound to the exact Gold release SHA/image",
+            }
+        )
+    if core_launch_governance_required and not jurisdiction_privacy_rights_ok:
+        blockers.append(
+            {
+                "area": "jurisdiction_privacy_rights",
+                "status": jurisdiction_privacy_rights_details.get("status")
+                or "blocked",
+                "errors": list(
+                    jurisdiction_privacy_rights_details.get("errors") or []
+                ),
+                "release_identity": dict(
+                    jurisdiction_privacy_rights_details.get("release_identity")
+                    or {}
+                ),
+                "required_markets": list(
+                    jurisdiction_privacy_rights_details.get("required_markets")
+                    or []
+                ),
+                "source_contract": dict(
+                    jurisdiction_privacy_rights_details.get("source_contract")
+                    or {}
+                ),
+                "market_envelope": dict(
+                    jurisdiction_privacy_rights_details.get("market_envelope")
+                    or {}
+                ),
+                "live_receipt_age_seconds": jurisdiction_privacy_rights_details.get(
+                    "live_receipt_age_seconds"
+                ),
+                "source_blockers": list(
+                    jurisdiction_privacy_rights_details.get("source_blockers")
+                    or []
+                )[:20],
+                "action": "run propertyquarry_jurisdiction_privacy_rights_gate.py with a fresh independently attested AT/DE/CR legal, privacy-residency, consumer-rights, and exact provider-permission receipt bound to the current contract, current global market envelope, and exact Gold release SHA/image",
+            }
+        )
     if slo_evidence_required and not slo_evidence_ok:
         blockers.append(
             {
@@ -3914,9 +6717,19 @@ def build_gold_status_receipt(
             {
                 "area": "mobile_and_authenticated_surfaces",
                 "status": performance.get("status") or "unknown",
+                "flagship_status": performance.get("flagship_status"),
                 "missing_research_detail_checks": missing_research_performance_checks,
                 "missing_search_checks": missing_search_performance_checks,
-                "action": "rerun and fix propertyquarry_authenticated_performance_smoke until every measured route passes",
+                "flagship_proof": (
+                    flagship_authenticated_performance_details
+                    if flagship_profile
+                    else None
+                ),
+                "action": (
+                    "run propertyquarry_authenticated_performance_smoke.py against the exact deployed /app/search target with the protected read-only release-probe credential; require two fresh nonce-bound signed navigations, exact /version commit/image/deployment identity, the fixed low_end_mobile_lab_v1 Chromium CDP CPU/network/viewport/cache profile, independently valid cold and warm waterfall evidence, and no field Core Web Vitals or physical-device claim"
+                    if flagship_profile
+                    else "rerun and fix propertyquarry_authenticated_performance_smoke until every measured route passes"
+                ),
             }
         )
     if not analytics_ok:
@@ -3953,7 +6766,7 @@ def build_gold_status_receipt(
                 "status": accessibility.get("status")
                 or ("not_configured" if accessibility_receipt_path is None else "missing"),
                 "proof": flagship_accessibility_details,
-                "action": "run propertyquarry_accessibility_gate.py against every configured customer route and required browser engine with the pinned local axe-core input, then fix serious/critical violations, keyboard/focus/dialog, semantics, 200% reflow, contrast, and reduced-motion failures",
+                "action": "run propertyquarry_accessibility_gate.py against every Gold static route plus concrete research-detail, shortlist-run, and public-tour routes in every configured browser engine with the pinned local axe-core input, then fix moderate-or-higher WCAG-tagged violations, 24 CSS-pixel target-size, unobscured keyboard focus, dialog, semantics, reflow, contrast, and reduced-motion failures; manual assistive-technology evidence remains separately required",
             }
         )
     if not failure_states_ok:
@@ -3963,7 +6776,7 @@ def build_gold_status_receipt(
                 "status": failure_states.get("status")
                 or ("not_configured" if failure_state_receipt_path is None else "missing"),
                 "proof": flagship_failure_states_details,
-                "action": "run propertyquarry_failure_state_gate.py against pre-provisioned read-only 500, empty, partial, and provider-blocked canaries plus the deterministic 404, offline, expired-session, stale-link, and missing-packet routes in every required browser engine; fix calm copy, semantics, recovery actions, or leaked diagnostics without mocking provider responses",
+                "action": "run propertyquarry_failure_state_gate.py against pre-provisioned read-only 500, delayed, quota-blocked, payment-failed, empty, partial, provider-blocked, and missing-media canaries plus the deterministic 404, offline, expired-session, stale-link, and missing-packet routes in every required browser engine; prove the exact authenticated preferences snapshot has the same canonical digest before and after every state, and fix calm copy, semantics, recovery actions, or leaked diagnostics without mocking provider responses",
             }
         )
     if not activation_to_value_ok:
@@ -4017,23 +6830,43 @@ def build_gold_status_receipt(
                 ),
             }
         )
-    if missing_provider_modes:
-        provider_details: dict[str, dict[str, Any]] = {}
-        if "magicfit" in missing_provider_modes:
-            provider_details["magicfit"] = {
+    if core_missing_provider_modes:
+        blockers.append(
+            {
+                "area": "verified_tour_provider_modes",
+                "missing_provider_modes": core_missing_provider_modes,
+                "core_missing_provider_modes": core_missing_provider_modes,
+                "action": _tour_provider_evidence_action(core_missing_provider_modes),
+            }
+        )
+    if advanced_visual_missing_provider_modes or advanced_visual_missing_receipts:
+        advanced_provider_details: dict[str, dict[str, Any]] = {}
+        if "magicfit" in advanced_visual_missing_provider_modes:
+            advanced_provider_details["magicfit"] = {
                 "renderer_ready": magicfit_renderer.get("ready"),
                 "renderer_status": magicfit_renderer.get("status"),
                 "script_ready": magicfit_renderer.get("script_ready"),
-                "credentials_configured": magicfit_renderer.get("credentials_configured"),
-                "missing_python_modules": magicfit_renderer.get("missing_python_modules"),
+                "credentials_configured": magicfit_renderer.get(
+                    "credentials_configured"
+                ),
+                "missing_python_modules": magicfit_renderer.get(
+                    "missing_python_modules"
+                ),
                 "next_action": magicfit_renderer.get("next_action"),
             }
         blockers.append(
             {
-                "area": "verified_tour_provider_modes",
-                "missing_provider_modes": missing_provider_modes,
-                "action": _tour_provider_evidence_action(missing_provider_modes),
-                **({"provider_details": provider_details} if provider_details else {}),
+                "area": "advanced_visual_provider_modes",
+                "status": "unavailable",
+                "missing_provider_modes": advanced_visual_missing_provider_modes,
+                "advanced_visual_missing_provider_modes": advanced_visual_missing_provider_modes,
+                "missing_receipts": advanced_visual_missing_receipts,
+                "action": "supply exact governed provider, playback, quota, privacy, and isolation receipts before selecting Advanced Visual Gold",
+                **(
+                    {"provider_details": advanced_provider_details}
+                    if advanced_provider_details
+                    else {}
+                ),
             }
         )
     if not magicfit_playback_ok:
@@ -4041,6 +6874,7 @@ def build_gold_status_receipt(
             {
                 "area": "magicfit_walkthrough_playback",
                 "status": "failed",
+                "customer_claim_blocking": magicfit_ready,
                 "playable_count": magicfit_playback.get("playable_count"),
                 "ready_count": magicfit_playback.get("ready_count"),
                 "action": "rerun verify_property_tour_controls.py and keep MagicFit ready only when every ready MagicFit control has local playable or live-probed video evidence",
@@ -4118,6 +6952,7 @@ def build_gold_status_receipt(
         blockers.append(
             {
                 "area": "walkthrough_quality",
+                "customer_claim_blocking": walkthrough_quality_receipt_path is not None,
                 "status": walkthrough_quality.get("status") or ("not_configured" if walkthrough_quality_receipt_path is None else "missing"),
                 "failed_count": walkthrough_quality.get("failed_count"),
                 "video_relpath": str(walkthrough_quality.get("video_relpath") or ""),
@@ -4132,6 +6967,10 @@ def build_gold_status_receipt(
         blockers.append(
             {
                 "area": "walkthrough_provider_proof",
+                "customer_claim_blocking": (
+                    walkthrough_provider_proof_receipt_path is not None
+                    or walkthrough_provider_binding_claimed
+                ),
                 "status": walkthrough_provider_proof.get("status")
                 or ("not_configured" if walkthrough_provider_proof_receipt_path is None else "missing"),
                 "required_providers": ["magicfit", "omagic"],
@@ -4196,6 +7035,24 @@ def build_gold_status_receipt(
                 "runtime_status_receipt_path": str(scene_video_runtime_status_receipt_path) if scene_video_runtime_status_receipt_path is not None else "",
                 "runtime_status_providers": scene_video_runtime_status_blocked_rows[:12],
                 "action": "clear the current scene-video provider runtime gaps, rerun property_scene_video_readiness_report.py, then refresh the gold receipt before claiming Crezlo-level video/provider parity",
+            }
+        )
+    if not advanced_visual_binding_ok:
+        blockers.append(
+            {
+                "area": "advanced_visual_candidate_binding",
+                "status": str(advanced_visual_binding.get("status") or "blocked"),
+                "errors": advanced_visual_binding_errors,
+                "release_commit_sha": str(
+                    advanced_visual_binding.get("release_commit_sha") or ""
+                ),
+                "release_image_digest": str(
+                    advanced_visual_binding.get("release_image_digest") or ""
+                ),
+                "receipt_path": str(advanced_visual_binding_receipt_path)
+                if advanced_visual_binding_receipt_path is not None
+                else "",
+                "action": "materialize a fresh offline advanced-visual binding for the exact release SHA/image and unchanged source receipt/media hashes, then rerun Gold without provider or network access",
             }
         )
     if not export_discovery_ok:
@@ -4360,9 +7217,10 @@ def build_gold_status_receipt(
                 "status": tour_delivery_contract.get("status") or "missing",
                 "matterport_ready_count": tour_delivery_contract.get("matterport_ready_count"),
                 "ready_provider_modes": tour_delivery_contract.get("ready_provider_modes") or [],
+                "core_required_provider_modes": list(CORE_REQUIRED_TOUR_PROVIDER_MODES),
                 "missing_provider_modes": tour_delivery_contract.get("missing_provider_modes") or [],
                 "failures": list(tour_delivery_contract.get("failures") or [])[:12],
-                "action": "rerun check_property_tour_delivery_contract.py --write and keep public-safe ready_payload, blocked_reason, required_to_send, white-label separation, and first-class Matterport readiness passing",
+                "action": "rerun check_property_tour_delivery_contract.py --write and keep public-safe ready_payload, blocked_reason, required_to_send, white-label separation, and first-party 3DVista readiness passing",
             }
         )
     if not receipt_freshness_ok:
@@ -4675,6 +7533,87 @@ def build_gold_status_receipt(
         if scene_video_provider_refresh_packet_verifier_receipt_path is not None and scene_video_provider_refresh_packet_verifier_ok
         else None,
         {
+            "area": "advanced_visual_candidate_binding",
+            "status": "pass",
+            "release_commit_sha": str(
+                advanced_visual_binding.get("release_commit_sha") or ""
+            ),
+            "release_image_digest": str(
+                advanced_visual_binding.get("release_image_digest") or ""
+            ),
+            "receipt_path": str(advanced_visual_binding_receipt_path),
+        }
+        if advanced_visual_binding_receipt_path is not None
+        and advanced_visual_binding_ok
+        else None,
+        {
+            "area": "global_market_envelope",
+            "status": "pass",
+            "release_identity": dict(
+                global_market_envelope_details.get("release_identity") or {}
+            ),
+            "launch_supported_markets": list(
+                global_market_envelope_details.get("launch_supported_markets")
+                or []
+            ),
+            "receipt_path": str(global_market_envelope_receipt_path),
+        }
+        if global_market_envelope_receipt_path is not None
+        and global_market_envelope_ok
+        else None,
+        {
+            "area": "incident_support",
+            "status": "pass",
+            "release_identity": dict(
+                incident_support_details.get("release_identity") or {}
+            ),
+            "required_markets": list(
+                incident_support_details.get("required_markets") or []
+            ),
+            "live_receipt_age_seconds": incident_support_details.get(
+                "live_receipt_age_seconds"
+            ),
+            "receipt_path": str(incident_support_receipt_path),
+        }
+        if incident_support_receipt_path is not None and incident_support_ok
+        else None,
+        {
+            "area": "global_experience",
+            "status": "pass",
+            "release_identity": dict(
+                global_experience_details.get("release_identity") or {}
+            ),
+            "required_markets": list(
+                global_experience_details.get("required_markets") or []
+            ),
+            "live_receipt_age_seconds": global_experience_details.get(
+                "live_receipt_age_seconds"
+            ),
+            "receipt_path": str(global_experience_receipt_path),
+        }
+        if global_experience_receipt_path is not None and global_experience_ok
+        else None,
+        {
+            "area": "jurisdiction_privacy_rights",
+            "status": "pass",
+            "release_identity": dict(
+                jurisdiction_privacy_rights_details.get("release_identity") or {}
+            ),
+            "required_markets": list(
+                jurisdiction_privacy_rights_details.get("required_markets") or []
+            ),
+            "source_contract": dict(
+                jurisdiction_privacy_rights_details.get("source_contract") or {}
+            ),
+            "market_envelope": dict(
+                jurisdiction_privacy_rights_details.get("market_envelope") or {}
+            ),
+            "receipt_path": str(jurisdiction_privacy_rights_receipt_path),
+        }
+        if jurisdiction_privacy_rights_receipt_path is not None
+        and jurisdiction_privacy_rights_ok
+        else None,
+        {
             "area": "slo_evidence",
             "status": "pass",
             "release_commit_sha": slo_evidence_details.get("release_commit_sha"),
@@ -4712,44 +7651,94 @@ def build_gold_status_receipt(
         if receipt_freshness_ok
         else None,
     ]
+    operator_blockers = list(blockers)
+    core_blockers = [
+        row
+        for row in operator_blockers
+        if str(row.get("area") or "").strip() not in ADVANCED_VISUAL_BLOCKER_AREAS
+        or row.get("customer_claim_blocking") is True
+    ]
+    selected_profile_blockers = (
+        operator_blockers if advanced_visual_profile else core_blockers
+    )
+    operator_next_required_actions = list(next_required_actions)
+    core_next_required_actions = [
+        row
+        for row in operator_next_required_actions
+        if str(row.get("area") or "").strip() not in ADVANCED_VISUAL_BLOCKER_AREAS
+        and (
+            not str(row.get("provider") or "").strip()
+            or str(row.get("provider") or "").strip().lower()
+            in set(CORE_REQUIRED_TOUR_PROVIDER_MODES)
+        )
+    ]
+    selected_next_required_actions = (
+        operator_next_required_actions
+        if advanced_visual_profile
+        else core_next_required_actions
+    )
+    core_conditions_ok = (
+        not core_blockers
+        and performance_ok
+        and analytics_ok
+        and live_mobile_ok
+        and accessibility_ok
+        and failure_states_ok
+        and activation_to_value_ok
+        and public_auth_ok
+        and id_austria_ok
+        and authenticated_customer_ok
+        and tour_controls_ok
+        and export_discovery_ok
+        and operator_import_manifest_ok
+        and billing_ok
+        and repair_canary_ok
+        and provider_catalog_smoke_ok
+        and provider_matrix_ok
+        and whole_project_scope_ok
+        and security_posture_ok
+        and release_hygiene_ok
+        and furniture_style_contract_ok
+        and bts_methodology_contract_ok
+        and tour_delivery_contract_ok
+        and map_preview_flagship_ok
+        and browser_3d_gate_ok
+        and runtime_reconstruction_ok
+        and service_generated_reconstruction_ok
+        and (
+            walkthrough_quality_ok
+            if walkthrough_quality_receipt_path is not None
+            else True
+        )
+        and (
+            walkthrough_provider_proof_ok
+            if (
+                walkthrough_provider_proof_receipt_path is not None
+                or walkthrough_provider_binding_claimed
+            )
+            else True
+        )
+        and (not slo_evidence_required or slo_evidence_ok)
+        and (not evidence_overlay_required or evidence_overlay_ok)
+        and (not rybbit_evidence_required or rybbit_evidence_ok)
+        and (
+            not core_launch_governance_required
+            or global_market_envelope_ok
+        )
+        and (not core_launch_governance_required or incident_support_ok)
+        and (not core_launch_governance_required or global_experience_ok)
+        and (
+            not core_launch_governance_required
+            or jurisdiction_privacy_rights_ok
+        )
+        and receipt_freshness_ok
+    )
     status = (
         "pass"
         if (
-            not blockers
-            and performance_ok
-            and analytics_ok
-            and live_mobile_ok
-            and accessibility_ok
-            and failure_states_ok
-            and activation_to_value_ok
-            and public_auth_ok
-            and id_austria_ok
-            and authenticated_customer_ok
-            and tour_controls_ok
-            and export_discovery_ok
-            and operator_import_manifest_ok
-            and billing_ok
-            and repair_canary_ok
-            and provider_catalog_smoke_ok
-            and provider_matrix_ok
-            and whole_project_scope_ok
-            and security_posture_ok
-            and release_hygiene_ok
-            and furniture_style_contract_ok
-            and bts_methodology_contract_ok
-            and tour_delivery_contract_ok
-            and map_preview_flagship_ok
-            and browser_3d_gate_ok
-            and runtime_reconstruction_ok
-            and service_generated_reconstruction_ok
-            and walkthrough_quality_ok
-            and walkthrough_provider_proof_ok
-            and scene_video_readiness_verifier_ok
-            and scene_video_provider_refresh_packet_verifier_ok
-            and (not slo_evidence_required or slo_evidence_ok)
-            and (not evidence_overlay_required or evidence_overlay_ok)
-            and (not rybbit_evidence_required or rybbit_evidence_ok)
-            and receipt_freshness_ok
+            core_conditions_ok
+            and not selected_profile_blockers
+            and (not advanced_visual_profile or advanced_visual_evidence_ok)
         )
         else "blocked"
     )
@@ -4782,7 +7771,7 @@ def build_gold_status_receipt(
         )
     else:
         notes.append("Gold remains blocked until every failing gate below is repaired.")
-        if not missing_provider_modes:
+        if not core_missing_provider_modes:
             notes.append("Tour provider coverage is complete in the active verifier output.")
         if not repair_canary_ok:
             notes.append("Self-healing is proven only when the repair canary repairs or safely quarantines a failed provider source.")
@@ -4790,8 +7779,8 @@ def build_gold_status_receipt(
             notes.append(
                 "Provider E2E is proven only when every search-ready provider has executed strict and soft-filter targeted search cases."
             )
-        if missing_provider_modes:
-            notes.append("Every required tour provider mode must stay backed by verified evidence.")
+        if core_missing_provider_modes:
+            notes.append("Every Core Gold tour provider mode must stay backed by verified evidence.")
         if not release_hygiene_ok:
             notes.append(
                 "Release-manifest authority is blocked until /version matches the candidate commit; PropertyQuarry API and render containers run image-baked /app code, so host worktree changes do not count as runtime proof until rebuild/recreate."
@@ -4804,9 +7793,30 @@ def build_gold_status_receipt(
             notes.append(
                 "Rybbit is blocked until the protected browser event is accepted by the collector and appears through the authenticated site/data/events APIs."
             )
+        if core_launch_governance_required and not global_market_envelope_ok:
+            notes.append(
+                "Core launch is blocked until AT, DE, and CR are all launch-supported by a fresh market-envelope receipt bound to the exact release SHA and image."
+            )
+        if core_launch_governance_required and not incident_support_ok:
+            notes.append(
+                "Core launch is blocked until fresh independently attested incident/support coverage for AT, DE, and CR is bound to the exact release SHA and image."
+            )
+        if core_launch_governance_required and not global_experience_ok:
+            notes.append(
+                "Core launch is blocked until fresh independently attested native-language, WCAG 2.2 AA, manual accessibility, tri-engine/mobile, field-CWV, degraded-network recovery, and localized-SEO evidence for AT, DE, and CR is bound to the exact release SHA and image."
+            )
+        if core_launch_governance_required and not jurisdiction_privacy_rights_ok:
+            notes.append(
+                "Core launch is blocked until fresh independently attested jurisdiction, privacy-residency, consumer-rights, and provider-permission evidence for AT, DE, and CR is bound to the current contract, current global market envelope, and exact release SHA and image."
+            )
         if billing_readiness.get("provider_disabled") is True:
             notes.append("Paid-persona billing is intentionally disabled, so flagship launch readiness remains blocked until a no-second-login account handoff is enabled and verified live.")
-        if "magicfit" in missing_provider_modes and vendor_tooling_receipt_path is not None and not bool(magicfit_renderer.get("ready")):
+        if (
+            advanced_visual_profile
+            and "magicfit" in advanced_visual_missing_provider_modes
+            and vendor_tooling_receipt_path is not None
+            and not bool(magicfit_renderer.get("ready"))
+        ):
             notes.append("MagicFit is still blocked on renderer configuration, not just a missing imported walkthrough asset.")
         if not browser_3d_gate_ok:
             notes.append("3D browser readiness is blocked until the viewer renders in Chromium, not merely until a tour route exists.")
@@ -4826,8 +7836,36 @@ def build_gold_status_receipt(
             notes.append("Scene-video provider runtime is blocked until MagicFit/Magic/OMagic account, credit, credential, and adapter gaps are cleared in the readiness receipt.")
         if bool(omagic_adapter.get("runtime_checked")) and not bool(omagic_adapter.get("ready")):
             notes.append("OMagic model-upload adapter deployment is blocked until the checked runtime contains the packaged adapter script.")
-    notes.append(_tour_provider_missing_note(missing_provider_modes))
-    ready_for_notification = status == "pass" and not blockers and not next_required_actions
+    advanced_visual_binding_state = str(
+        advanced_visual_binding.get("binding_state") or ""
+    ).strip()
+    advanced_visual_unbound_producers = (
+        advanced_visual_binding_state == UNBOUND_PRODUCER_STATE
+        or UNBOUND_PRODUCER_STATE in advanced_visual_binding_errors
+    )
+    if advanced_visual_missing_provider_modes or advanced_visual_missing_receipts:
+        notes.append(
+            "Advanced Visual Gold is unavailable until its governed provider and receipt set is complete; this does not block Core Gold unless the advanced profile or a customer-facing walkthrough claim is selected."
+        )
+    if advanced_visual_unbound_producers:
+        notes.append(
+            "Advanced Visual Gold is unavailable_unbound_producer_receipts: the aggregate will not relabel producer receipts that lack exact source-side candidate/image identities or upstream receipt hashes."
+        )
+    notes.append(_tour_provider_missing_note(core_missing_provider_modes))
+    advanced_visual_gold_status = (
+        "pass"
+        if advanced_visual_evidence_ok
+        else "unavailable"
+        if advanced_visual_missing_provider_modes
+        or advanced_visual_missing_receipts
+        or advanced_visual_unbound_producers
+        else "blocked"
+    )
+    ready_for_notification = (
+        status == "pass"
+        and not selected_profile_blockers
+        and not selected_next_required_actions
+    )
     flagship_customer_ux_ready = (
         flagship_profile
         and not missing_flagship_customer_ux_receipts
@@ -4841,11 +7879,15 @@ def build_gold_status_receipt(
         and billing_ok
         and browser_3d_gate_ok
         and map_preview_flagship_ok
-        and walkthrough_quality_ok
+        and (
+            walkthrough_quality_ok
+            if walkthrough_quality_receipt_path is not None
+            else True
+        )
         and receipt_freshness_ok
     )
-    normalized_blockers: list[dict[str, Any]] = []
-    for row in blockers:
+    normalized_operator_blockers: list[dict[str, Any]] = []
+    for row in operator_blockers:
         normalized_row = dict(row)
         normalized_area = str(normalized_row.get("area") or "").strip()
         if normalized_area and not str(normalized_row.get("key") or "").strip():
@@ -4855,17 +7897,80 @@ def build_gold_status_receipt(
             normalized_row["receipt_status"] = raw_status
             normalized_row["status"] = "blocked"
             normalized_row.setdefault("blocking_reason", "required_checks_incomplete")
-        normalized_blockers.append(normalized_row)
+        normalized_operator_blockers.append(normalized_row)
+    normalized_blockers = (
+        normalized_operator_blockers
+        if advanced_visual_profile
+        else [
+            row
+            for row in normalized_operator_blockers
+            if str(row.get("area") or "").strip()
+            not in ADVANCED_VISUAL_BLOCKER_AREAS
+            or row.get("customer_claim_blocking") is True
+        ]
+    )
 
     return {
+        "schema": GOLD_STATUS_SCHEMA,
+        "release_identity": {
+            "commit_sha": normalized_expected_release_commit_sha,
+            "image_digest": normalized_expected_release_image_digest,
+        },
         "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "status": status,
         "ready_for_notification": ready_for_notification,
         "readiness_profile": normalized_readiness_profile,
+        "requested_readiness_profile": requested_readiness_profile,
+        "evidence_tier": normalized_readiness_profile,
+        "claim_scope": normalized_claim_scope,
+        "core_gold_status": "pass" if core_conditions_ok else "blocked",
+        "advanced_visual_gold_status": advanced_visual_gold_status,
+        "core_required_provider_modes": list(CORE_REQUIRED_TOUR_PROVIDER_MODES),
+        "advanced_visual_required_provider_modes": list(
+            ADVANCED_VISUAL_REQUIRED_PROVIDER_MODES
+        ),
+        "core_missing_provider_modes": core_missing_provider_modes,
+        "advanced_visual_missing_provider_modes": advanced_visual_missing_provider_modes,
+        "operator_missing_provider_modes": sorted(
+            set(core_missing_provider_modes)
+            | set(advanced_visual_missing_provider_modes)
+        ),
+        "advanced_visual_gold": {
+            "status": advanced_visual_gold_status,
+            "selected": advanced_visual_profile,
+            "required_provider_modes": list(
+                ADVANCED_VISUAL_REQUIRED_PROVIDER_MODES
+            ),
+            "missing_provider_modes": advanced_visual_missing_provider_modes,
+            "missing_receipts": advanced_visual_missing_receipts,
+            "provider_evidence_ready": advanced_visual_evidence_ok,
+            "candidate_binding": {
+                "ready": advanced_visual_binding_ok,
+                "state": advanced_visual_binding_state,
+                "errors": advanced_visual_binding_errors,
+                "release_commit_sha": str(
+                    advanced_visual_binding.get("release_commit_sha") or ""
+                ),
+                "release_image_digest": str(
+                    advanced_visual_binding.get("release_image_digest") or ""
+                ),
+                "source_receipts": advanced_visual_binding.get("source_receipts")
+                or {},
+                "source_links": advanced_visual_binding.get("source_links") or {},
+                "source_artifact_hashes": advanced_visual_binding.get(
+                    "source_artifact_hashes"
+                )
+                or {},
+                "receipt_path": str(advanced_visual_binding_receipt_path)
+                if advanced_visual_binding_receipt_path is not None
+                else "",
+            },
+            "note": "Advanced Visual Gold is additive and fail-closed; it cannot substitute configured adapters or provider availability for exact receipt, playback, quota, privacy, and isolation evidence.",
+        },
         "flagship_customer_ux_evidence": {
             "required": flagship_profile,
             "ready": flagship_customer_ux_ready if flagship_profile else None,
-            "required_receipts": list(FLAGSHIP_CUSTOMER_UX_RECEIPT_AREAS),
+            "required_receipts": list(core_customer_ux_receipt_areas),
             "missing_receipts": missing_flagship_customer_ux_receipts,
             "research_detail_required": flagship_profile,
             "browser_all_mobile_proof_required": flagship_profile,
@@ -4907,7 +8012,9 @@ def build_gold_status_receipt(
             "note": "Launch requires a candidate-bound Teable-to-Postgres eight-layer read model and real Rybbit collector/dashboard delivery proof; registry fixtures and markup checks are supplemental only.",
         },
         "performance": {
+            "schema": performance.get("schema"),
             "status": performance.get("status"),
+            "flagship_status": performance.get("flagship_status"),
             "failed_count": performance.get("failed_count"),
             "route_count": performance.get("route_count"),
             "research_detail_path": research_performance_path,
@@ -4916,6 +8023,13 @@ def build_gold_status_receipt(
             "search_path": search_performance_path,
             "search_checks_ok": search_performance_ok,
             "missing_search_checks": missing_search_performance_checks,
+            "flagship_proof_required": flagship_profile,
+            "flagship_proof_ok": (
+                flagship_authenticated_performance_ok
+                if flagship_profile
+                else None
+            ),
+            "flagship_proof": flagship_authenticated_performance_details,
             "receipt_path": str(performance_receipt_path),
         },
         "continuous_ux": {
@@ -5029,6 +8143,16 @@ def build_gold_status_receipt(
             "magicfit_playback": magicfit_playback,
             "magicfit_playback_ok": magicfit_playback_ok,
             "ready_provider_modes": tour_controls.get("ready_provider_modes"),
+            "core_required_provider_modes": list(CORE_REQUIRED_TOUR_PROVIDER_MODES),
+            "advanced_visual_required_provider_modes": list(
+                ADVANCED_VISUAL_REQUIRED_PROVIDER_MODES
+            ),
+            "core_missing_provider_modes": core_missing_provider_modes,
+            "advanced_visual_missing_provider_modes": advanced_visual_missing_provider_modes,
+            "operator_missing_provider_modes": sorted(
+                set(core_missing_provider_modes)
+                | set(advanced_visual_missing_provider_modes)
+            ),
             "required_provider_modes": list(REQUIRED_TOUR_PROVIDER_MODES),
             "optional_provider_modes": list(OPTIONAL_TOUR_PROVIDER_MODES),
             "receipt_required_provider_modes": tour_controls.get("required_provider_modes") or [],
@@ -5402,7 +8526,75 @@ def build_gold_status_receipt(
             "failure_count": len(list(tour_delivery_contract.get("failures") or [])) if tour_delivery_contract_receipt_path is not None else None,
             "failures": list(tour_delivery_contract.get("failures") or [])[:12] if tour_delivery_contract_receipt_path is not None else [],
             "receipt_path": str(tour_delivery_contract_receipt_path) if tour_delivery_contract_receipt_path is not None else "",
-            "note": "Public-safe tour delivery contract shape gate with Chummer-derived ready/blocker vocabulary and first-class Matterport readiness.",
+            "note": "Public-safe tour delivery contract shape gate: Core Gold requires first-party 3DVista; advanced walkthrough providers remain a separately governed claim.",
+        },
+        "global_market_envelope": {
+            **global_market_envelope_details,
+            "required": core_launch_governance_required,
+            "ready": (
+                global_market_envelope_ok
+                if global_market_envelope_receipt_path is not None
+                or core_launch_governance_required
+                else None
+            ),
+            "max_age_hours": effective_governance_max_age_hours,
+            "receipt_path": (
+                str(global_market_envelope_receipt_path)
+                if global_market_envelope_receipt_path is not None
+                else ""
+            ),
+            "note": "Launch/Core requires exact AT/DE/CR launch classifications, zero market blockers, freshness, and exact Gold release SHA/image binding; standard and flagship only surface optional evidence.",
+        },
+        "incident_support": {
+            **incident_support_details,
+            "required": core_launch_governance_required,
+            "ready": (
+                incident_support_ok
+                if incident_support_receipt_path is not None
+                or core_launch_governance_required
+                else None
+            ),
+            "max_age_hours": effective_governance_max_age_hours,
+            "receipt_path": (
+                str(incident_support_receipt_path)
+                if incident_support_receipt_path is not None
+                else ""
+            ),
+            "note": "Launch/Core requires a passing independently attested incident/support gate for exact AT/DE/CR scope, fresh live coverage, and exact Gold release SHA/image binding; standard and flagship only surface optional evidence.",
+        },
+        "global_experience": {
+            **global_experience_details,
+            "required": core_launch_governance_required,
+            "ready": (
+                global_experience_ok
+                if global_experience_receipt_path is not None
+                or core_launch_governance_required
+                else None
+            ),
+            "max_age_hours": effective_governance_max_age_hours,
+            "receipt_path": (
+                str(global_experience_receipt_path)
+                if global_experience_receipt_path is not None
+                else ""
+            ),
+            "note": "Launch/Core requires a passing independently attested global-experience gate for exact AT/de-AT, DE/de-DE, and CR/es-CR scope, fresh native/content, WCAG 2.2 AA, manual accessibility, browser/device, field-CWV, recovery, and localized-SEO evidence, and exact Gold release SHA/image binding; standard and flagship only surface optional health.",
+        },
+        "jurisdiction_privacy_rights": {
+            **jurisdiction_privacy_rights_details,
+            "required": core_launch_governance_required,
+            "ready": (
+                jurisdiction_privacy_rights_ok
+                if jurisdiction_privacy_rights_receipt_path is not None
+                or core_launch_governance_required
+                else None
+            ),
+            "max_age_hours": effective_governance_max_age_hours,
+            "receipt_path": (
+                str(jurisdiction_privacy_rights_receipt_path)
+                if jurisdiction_privacy_rights_receipt_path is not None
+                else ""
+            ),
+            "note": "Launch/Core requires a passing independently attested jurisdiction/privacy/provider-rights gate for exact AT/DE/CR scope, a fresh live receipt, exact Gold release SHA/image binding, and digests of the current legal contract and global market envelope; standard and flagship only surface optional health.",
         },
         "slo_evidence": {
             **slo_evidence_details,
@@ -5418,8 +8610,10 @@ def build_gold_status_receipt(
             "stale_receipts": stale_receipts,
         },
         "blockers": normalized_blockers,
+        "operator_blockers": normalized_operator_blockers,
         "pass_areas": [row for row in pass_areas if row is not None],
-        "next_required_actions": next_required_actions,
+        "next_required_actions": selected_next_required_actions,
+        "operator_next_required_actions": operator_next_required_actions,
         "notes": notes,
     }
 
@@ -5532,8 +8726,12 @@ def _pin_launch_input_set(
     companions: set[tuple[Path, str]] = set()
     for bundle_name in ("metrics_snapshot", "metrics_probe"):
         try:
-            payload = json.loads(raw_by_name[bundle_name])
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            payload = loads_strict_json_object(
+                raw_by_name[bundle_name],
+                field=f"canonical launch input {bundle_name}",
+                maximum_bytes=128 * 1024 * 1024,
+            )
+        except StrictJsonError as exc:
             raise ValueError(f"{bundle_name} is not strict JSON") from exc
         rows = payload.get("replicas") if isinstance(payload, dict) else None
         if not isinstance(rows, list):
@@ -5900,9 +9098,30 @@ def main() -> int:
     parser.add_argument("--scene-video-runtime-status-receipt", default="")
     parser.add_argument("--scene-video-provider-refresh-packet", default="")
     parser.add_argument("--scene-video-provider-refresh-packet-verifier-receipt", default="")
+    parser.add_argument("--advanced-visual-binding-receipt", default="")
     parser.add_argument("--slo-evidence-receipt", default="")
     parser.add_argument("--evidence-overlay-receipt", default="")
     parser.add_argument("--rybbit-evidence-receipt", default="")
+    parser.add_argument(
+        "--global-market-envelope-receipt",
+        default="",
+        help="Versioned AT/DE/CR global-market-envelope receipt; mandatory and exact-release-bound for launch/Core.",
+    )
+    parser.add_argument(
+        "--incident-support-receipt",
+        default="",
+        help="Incident/support gate receipt; mandatory and exact-release-bound for launch/Core.",
+    )
+    parser.add_argument(
+        "--global-experience-receipt",
+        default="",
+        help="Global-experience gate receipt; mandatory, fresh, independently attested, and exact-release-bound for launch/Core.",
+    )
+    parser.add_argument(
+        "--jurisdiction-privacy-rights-receipt",
+        default="",
+        help="Jurisdiction/privacy/provider-rights gate receipt; mandatory, current-contract-bound, and exact-release-bound for launch/Core.",
+    )
     parser.add_argument("--slo-metrics-snapshot", default="")
     parser.add_argument("--slo-metrics-probe", default="")
     parser.add_argument("--monitoring-runtime-receipt", default="")
@@ -5930,6 +9149,32 @@ def main() -> int:
     parser.add_argument(
         "--expected-image-digest",
         default=os.environ.get("PROPERTYQUARRY_RELEASE_IMAGE_DIGEST", ""),
+    )
+    parser.add_argument(
+        "--expected-release-deployment-id",
+        default=os.environ.get("PROPERTYQUARRY_EXPECTED_RELEASE_DEPLOYMENT_ID", ""),
+        help="Exact deployment identity expected from the live /version surface.",
+    )
+    parser.add_argument(
+        "--expected-release-manifest-sha256",
+        default=os.environ.get(
+            "PROPERTYQUARRY_EXPECTED_RELEASE_MANIFEST_SHA256", ""
+        ),
+        help="Independent controller-provided lowercase SHA-256 of the canonical runtime manifest.",
+    )
+    parser.add_argument(
+        "--expected-performance-chromium-executable-path",
+        default=os.environ.get(
+            "PROPERTYQUARRY_EXPECTED_PERFORMANCE_CHROMIUM_EXECUTABLE_PATH", ""
+        ),
+        help="Controller-bound absolute Chromium executable path used by the performance lane.",
+    )
+    parser.add_argument(
+        "--expected-performance-chromium-executable-sha256",
+        default=os.environ.get(
+            "PROPERTYQUARRY_EXPECTED_PERFORMANCE_CHROMIUM_EXECUTABLE_SHA256", ""
+        ),
+        help="Controller-bound unprefixed SHA-256 of that Chromium executable.",
     )
     parser.add_argument(
         "--expected-public-origin",
@@ -5985,9 +9230,21 @@ def main() -> int:
     parser.add_argument("--max-receipt-age-hours", type=float, default=24.0)
     parser.add_argument(
         "--profile",
-        choices=("standard", "flagship", "launch"),
+        choices=(
+            "standard",
+            "core_gold",
+            "advanced_visual_gold",
+            "flagship",
+            "launch",
+        ),
         default="standard",
-        help="Use flagship/launch to require fresh deployed customer-UX evidence; standard preserves legacy optional receipts.",
+        help="Select the evidence tier. core_gold and advanced_visual_gold are strict launch-tier compatibility aliases; standard preserves operator-summary semantics.",
+    )
+    parser.add_argument(
+        "--claim-scope",
+        choices=("core", "advanced_visual"),
+        default=os.environ.get("PROPERTYQUARRY_GOLD_SCOPE") or None,
+        help="Select the Core claim or additive Advanced Visual claim independently of the evidence tier.",
     )
     parser.add_argument(
         "--required-browser-engines",
@@ -5999,7 +9256,14 @@ def main() -> int:
     )
     parser.add_argument("--fail-on-blocked", action="store_true")
     args = parser.parse_args()
-    if args.require_launch_evidence and args.profile != "launch":
+    try:
+        cli_evidence_tier, cli_claim_scope, _ = _resolve_readiness_request(
+            args.profile,
+            args.claim_scope,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
+    if args.require_launch_evidence and cli_evidence_tier != "launch":
         parser.error("--require-launch-evidence requires --profile launch")
     for option, value in (
         ("--max-receipt-age-hours", args.max_receipt_age_hours),
@@ -6015,7 +9279,7 @@ def main() -> int:
     except ValueError as exc:
         parser.error(str(exc))
 
-    if args.profile == "launch":
+    if cli_evidence_tier == "launch":
         launch_product_arguments = {
             "--evidence-overlay-receipt": args.evidence_overlay_receipt,
             "--rybbit-evidence-receipt": args.rybbit_evidence_receipt,
@@ -6044,7 +9308,7 @@ def main() -> int:
     }
     launch_evidence_requested = (
         args.require_launch_evidence
-        or args.profile in {"flagship", "launch"}
+        or cli_evidence_tier in {"flagship", "launch"}
         or any(raw_launch_arguments.values())
     )
     launch_slo_receipt: dict[str, Any] = {}
@@ -6059,8 +9323,20 @@ def main() -> int:
                 "canonical launch evidence requires all raw inputs; missing "
                 + ", ".join(missing_launch_arguments)
             )
-        if not args.expected_release_sha or not args.expected_image_digest:
-            parser.error("canonical launch evidence requires --expected-release-sha and --expected-image-digest")
+        if (
+            not args.expected_release_sha
+            or not args.expected_image_digest
+            or not args.expected_release_deployment_id
+            or not args.expected_release_manifest_sha256
+            or not args.expected_performance_chromium_executable_path
+            or not args.expected_performance_chromium_executable_sha256
+        ):
+            parser.error(
+                "canonical launch evidence requires --expected-release-sha, "
+                "--expected-image-digest, --expected-release-deployment-id, "
+                "--expected-release-manifest-sha256, and "
+                "controller-bound Chromium executable path/SHA-256"
+            )
         (
             launch_slo_receipt,
             launch_observability_receipt,
@@ -6111,11 +9387,29 @@ def main() -> int:
         public_smoke_receipt_path=Path(args.public_smoke_receipt) if args.public_smoke_receipt else _default_receipt_path("public_smoke"),
         authenticated_smoke_receipt_path=Path(args.authenticated_smoke_receipt) if args.authenticated_smoke_receipt else _default_receipt_path("authenticated_smoke"),
         tour_control_receipt_path=Path(args.tour_control_receipt) if args.tour_control_receipt else _default_receipt_path("tour_control"),
-        export_discovery_receipt_path=Path(args.export_discovery_receipt) if args.export_discovery_receipt else _default_receipt_path("export_discovery"),
-        import_manifest_receipt_path=Path(args.import_manifest_receipt) if args.import_manifest_receipt else _default_receipt_path("import_manifest"),
+        export_discovery_receipt_path=(
+            Path(args.export_discovery_receipt)
+            if args.export_discovery_receipt
+            else _default_receipt_path("export_discovery")
+        )
+        if cli_claim_scope == "advanced_visual"
+        else None,
+        import_manifest_receipt_path=(
+            Path(args.import_manifest_receipt)
+            if args.import_manifest_receipt
+            else _default_receipt_path("import_manifest")
+        )
+        if cli_claim_scope == "advanced_visual"
+        else None,
         billing_receipt_path=Path(args.billing_receipt) if args.billing_receipt else _default_receipt_path("billing"),
         tour_provider_ownership_receipt_path=Path(args.tour_provider_ownership_receipt) if args.tour_provider_ownership_receipt else _default_receipt_path("tour_provider_ownership"),
-        vendor_tooling_receipt_path=Path(args.vendor_tooling_receipt) if args.vendor_tooling_receipt else _default_receipt_path("vendor_tooling"),
+        vendor_tooling_receipt_path=(
+            Path(args.vendor_tooling_receipt)
+            if args.vendor_tooling_receipt
+            else _default_receipt_path("vendor_tooling")
+        )
+        if cli_claim_scope == "advanced_visual"
+        else None,
         whole_project_scope_receipt_path=Path(args.whole_project_scope_receipt) if args.whole_project_scope_receipt else _default_receipt_path("whole_project_scope"),
         security_posture_receipt_path=Path(args.security_posture_receipt) if args.security_posture_receipt else _default_receipt_path("security_posture"),
         release_hygiene_receipt_path=Path(args.release_hygiene_receipt) if args.release_hygiene_receipt else _default_receipt_path("release_hygiene"),
@@ -6134,37 +9428,62 @@ def main() -> int:
             if args.service_generated_reconstruction_receipt
             else _default_receipt_path("service_generated_reconstruction")
         ),
-        walkthrough_quality_receipt_path=Path(args.walkthrough_quality_receipt) if args.walkthrough_quality_receipt else _default_receipt_path("walkthrough_quality"),
+        walkthrough_quality_receipt_path=(
+            Path(args.walkthrough_quality_receipt)
+            if args.walkthrough_quality_receipt
+            else _default_receipt_path("walkthrough_quality")
+        )
+        if cli_claim_scope == "advanced_visual"
+        else None,
         walkthrough_provider_proof_receipt_path=(
             Path(args.walkthrough_provider_proof_receipt)
             if args.walkthrough_provider_proof_receipt
             else _default_receipt_path("walkthrough_provider_proof")
-        ),
+        )
+        if cli_claim_scope == "advanced_visual"
+        else None,
         scene_video_readiness_receipt_path=(
             Path(args.scene_video_readiness_receipt)
             if args.scene_video_readiness_receipt
             else _default_receipt_path("scene_video_readiness")
-        ),
+        )
+        if cli_claim_scope == "advanced_visual"
+        else None,
         scene_video_readiness_verifier_receipt_path=(
             Path(args.scene_video_readiness_verifier_receipt)
             if args.scene_video_readiness_verifier_receipt
             else _default_receipt_path("scene_video_readiness_verifier")
-        ),
+        )
+        if cli_claim_scope == "advanced_visual"
+        else None,
         scene_video_runtime_status_receipt_path=(
             Path(args.scene_video_runtime_status_receipt)
             if args.scene_video_runtime_status_receipt
             else _default_receipt_path("scene_video_runtime_status")
-        ),
+        )
+        if cli_claim_scope == "advanced_visual"
+        else None,
         scene_video_provider_refresh_packet_path=(
             Path(args.scene_video_provider_refresh_packet)
             if args.scene_video_provider_refresh_packet
             else _default_receipt_path("scene_video_provider_refresh_packet")
-        ),
+        )
+        if cli_claim_scope == "advanced_visual"
+        else None,
         scene_video_provider_refresh_packet_verifier_receipt_path=(
             Path(args.scene_video_provider_refresh_packet_verifier_receipt)
             if args.scene_video_provider_refresh_packet_verifier_receipt
             else _default_receipt_path("scene_video_provider_refresh_packet_verifier")
-        ),
+        )
+        if cli_claim_scope == "advanced_visual"
+        else None,
+        advanced_visual_binding_receipt_path=(
+            Path(args.advanced_visual_binding_receipt)
+            if args.advanced_visual_binding_receipt
+            else None
+        )
+        if cli_claim_scope == "advanced_visual"
+        else None,
         slo_evidence_receipt_path=(
             Path(args.slo_evidence_receipt) if args.slo_evidence_receipt else None
         ),
@@ -6178,8 +9497,36 @@ def main() -> int:
             if args.rybbit_evidence_receipt
             else None
         ),
+        global_market_envelope_receipt_path=(
+            Path(args.global_market_envelope_receipt)
+            if args.global_market_envelope_receipt
+            else _default_receipt_path_if_exists("global_market_envelope")
+        ),
+        incident_support_receipt_path=(
+            Path(args.incident_support_receipt)
+            if args.incident_support_receipt
+            else _default_receipt_path_if_exists("incident_support")
+        ),
+        global_experience_receipt_path=(
+            Path(args.global_experience_receipt)
+            if args.global_experience_receipt
+            else _default_receipt_path_if_exists("global_experience")
+        ),
+        jurisdiction_privacy_rights_receipt_path=(
+            Path(args.jurisdiction_privacy_rights_receipt)
+            if args.jurisdiction_privacy_rights_receipt
+            else _default_receipt_path_if_exists("jurisdiction_privacy_rights")
+        ),
         expected_release_commit_sha=args.expected_release_sha,
         expected_release_image_digest=args.expected_image_digest,
+        expected_release_deployment_id=args.expected_release_deployment_id,
+        expected_release_manifest_sha256=args.expected_release_manifest_sha256,
+        expected_performance_chromium_executable_path=(
+            args.expected_performance_chromium_executable_path
+        ),
+        expected_performance_chromium_executable_sha256=(
+            args.expected_performance_chromium_executable_sha256
+        ),
         expected_public_origin=args.expected_public_origin,
         expected_teable_origin=args.expected_teable_origin,
         expected_teable_base_id_sha256=args.expected_teable_base_id_sha256,
@@ -6199,6 +9546,7 @@ def main() -> int:
         provider_matrix_receipt_path=Path(args.provider_matrix_receipt) if args.provider_matrix_receipt else _default_receipt_path("provider_matrix"),
         max_receipt_age_hours=args.max_receipt_age_hours,
         readiness_profile=args.profile,
+        claim_scope=cli_claim_scope,
         required_browser_engines=configured_browser_engines,
     )
     if launch_evidence_requested:

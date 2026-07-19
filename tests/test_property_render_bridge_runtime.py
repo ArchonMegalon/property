@@ -14,6 +14,7 @@ import yaml
 
 from scripts import ensure_propertyquarry_render_bridge_runtime as runtime
 from scripts import property_reconstruction_render_bridge as bridge
+from app.services.admission_control import MemoryAdmissionBackend
 
 
 def test_property_compose_wires_protected_restart_resilient_render_bridge() -> None:
@@ -30,7 +31,7 @@ def test_property_compose_wires_protected_restart_resilient_render_bridge() -> N
         "${PROPERTYQUARRY_RECONSTRUCTION_RENDER_BRIDGE_TOKEN:?"
         "Set PROPERTYQUARRY_RECONSTRUCTION_RENDER_BRIDGE_TOKEN for the render bridge}"
     )
-    assert render["restart"] == "unless-stopped"
+    assert render["restart"] == "${PROPERTYQUARRY_RENDER_RESTART_POLICY:-on-failure:3}"
     assert render["stop_grace_period"] == "${PROPERTYQUARRY_RENDER_STOP_GRACE_SECONDS:-1860}s"
     assert render["environment"]["PROPERTYQUARRY_RECONSTRUCTION_RENDER_REQUEST_TIMEOUT_SECONDS"] == (
         "${PROPERTYQUARRY_RECONSTRUCTION_RENDER_REQUEST_TIMEOUT_SECONDS:-30}"
@@ -40,6 +41,16 @@ def test_property_compose_wires_protected_restart_resilient_render_bridge() -> N
     )
     assert render["environment"]["PROPERTYQUARRY_RENDER_STOP_GRACE_SECONDS"] == (
         "${PROPERTYQUARRY_RENDER_STOP_GRACE_SECONDS:-1860}"
+    )
+    assert render["environment"]["DATABASE_URL"] == (
+        "${PROPERTYQUARRY_RENDER_DATABASE_URL:?Set a least-privilege "
+        "PROPERTYQUARRY_RENDER_DATABASE_URL for admission state}"
+    )
+    assert render["networks"] == ["propertyquarry_render_internal"]
+    assert "propertyquarry_render_internal" in services["propertyquarry-db"]["networks"]
+    assert render["depends_on"]["propertyquarry-db"]["condition"] == "service_healthy"
+    assert render["depends_on"]["propertyquarry-migrate"]["condition"] == (
+        "service_completed_successfully"
     )
 
 
@@ -141,8 +152,16 @@ def test_render_bridge_readiness_fails_closed_while_draining_without_provider_cl
     monkeypatch.setattr(bridge, "_public_tour_dir", lambda: public_tour_dir)
     config = bridge.BridgeConfig(auth_token="test-bridge-token")
 
-    ready, ready_payload = bridge._bridge_readiness(config)
-    draining_ready, draining_payload = bridge._bridge_readiness(config, draining=True)
+    admission_backend = MemoryAdmissionBackend()
+    ready, ready_payload = bridge._bridge_readiness(
+        config,
+        admission_backend=admission_backend,
+    )
+    draining_ready, draining_payload = bridge._bridge_readiness(
+        config,
+        draining=True,
+        admission_backend=admission_backend,
+    )
 
     assert ready is True
     assert ready_payload["provider_readiness_claimed"] is False
@@ -167,6 +186,7 @@ def test_render_bridge_server_waits_for_active_requests_with_a_bound() -> None:
         (config.host, config.port),
         bridge._Handler,
         config=config,
+        admission_backend=MemoryAdmissionBackend(),
     )
     try:
         server._request_started()

@@ -836,6 +836,66 @@ def test_property_search_preferences_preserve_agents_beyond_execution_plan_limit
     assert [agent["agent_id"] for agent in execution_agents] == ["agent-0"]
 
 
+def test_preexisting_agents_survive_free_plan_save_load_and_landing() -> None:
+    principal_id = "exec-property-search-agent-preserve-over-limit"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Preserved searches")
+    raw_agents = [
+        {
+            "agent_id": f"agent-{index}",
+            "name": f"Preserved search {index}",
+            "enabled": True,
+            "country_code": "AT",
+            "region_code": "vienna",
+            "location_query": f"10{index + 10} Vienna",
+            "listing_mode": "rent",
+            "property_type": "apartment",
+        }
+        for index in range(3)
+    ]
+
+    saved = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "region_code": "vienna",
+            "location_query": "1010 Vienna",
+            "listing_mode": "rent",
+            "property_type": "apartment",
+            "active_search_agent_id": "agent-0",
+            "property_commercial": {"active_plan_key": "free"},
+            "search_agents": raw_agents,
+        },
+    )
+
+    assert saved.status_code == 200, saved.text
+    saved_preferences = dict(saved.json()["property_search_preferences"])
+    assert OnboardingService._property_search_agent_limit(saved_preferences) == 1
+    assert [row["agent_id"] for row in saved_preferences["search_agents"]] == [
+        "agent-0",
+        "agent-1",
+        "agent-2",
+    ]
+
+    loaded = client.get("/v1/onboarding/property-search/preferences")
+    assert loaded.status_code == 200, loaded.text
+    assert [
+        row["agent_id"]
+        for row in loaded.json()["property_search_preferences"]["search_agents"]
+    ] == ["agent-0", "agent-1", "agent-2"]
+
+    page = client.get("/app/agents", headers={"host": "propertyquarry.com"})
+    assert page.status_code == 200
+    assert all(agent["name"] in page.text for agent in raw_agents)
+
+    duplicate = client.post(
+        "/v1/onboarding/property-search/agents/agent-0",
+        json={"action": "duplicate"},
+    )
+    assert duplicate.status_code == 400
+    assert "property_search_agent_limit_reached:1" in duplicate.text
+
+
 def test_property_search_agent_payloads_do_not_embed_other_agents() -> None:
     agents = OnboardingService._normalize_property_search_agents(
         {

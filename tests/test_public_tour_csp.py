@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -9,7 +10,7 @@ import pytest
 from tests.product_test_helpers import build_product_client
 
 
-def _clean_3dvista_proof() -> dict[str, object]:
+def _clean_3dvista_proof(*, slug: str, provider_url: str) -> dict[str, object]:
     return {
         "three_d_vista_white_label_proof": {
             "source_project": "propertyquarry",
@@ -24,12 +25,33 @@ def _clean_3dvista_proof() -> dict[str, object]:
             "status": "pass",
             "rendered_viewer": True,
         },
+        "three_d_vista_target_provenance": {
+            "schema": "propertyquarry.3dvista_target_provenance.v1",
+            "status": "pass",
+            "provider": "3dvista",
+            "target_slug": slug,
+            "artifact": {
+                "kind": "hosted_url",
+                "sha256": hashlib.sha256(provider_url.encode("utf-8")).hexdigest(),
+            },
+            "authorization": {
+                "status": "approved",
+                "reference": "test-fixture:licensed-3dvista",
+            },
+            "review": {
+                "property_match": "pass",
+                "visual_match": "pass",
+                "reviewed_by": "propertyquarry-test-suite",
+                "reviewed_at": "2026-07-19T00:00:00+00:00",
+            },
+        },
     }
 
 
 def _write_external_3dvista_bundle(root: Path, *, slug: str) -> None:
     bundle_dir = root / slug
     bundle_dir.mkdir(parents=True)
+    provider_url = "https://viewer.3dvista.com/tours/launch-ready/index.html"
     (bundle_dir / "tour.json").write_text(
         json.dumps(
             {
@@ -53,15 +75,17 @@ def _write_external_3dvista_bundle(root: Path, *, slug: str) -> None:
         ),
         encoding="utf-8",
     )
-    (bundle_dir / "tour.private.json").write_text(
+    private_path = bundle_dir / "tour.private.json"
+    private_path.write_text(
         json.dumps(
             {
-                "three_d_vista_url": "https://viewer.3dvista.com/tours/launch-ready/index.html",
-                **_clean_3dvista_proof(),
+                "three_d_vista_url": provider_url,
+                **_clean_3dvista_proof(slug=slug, provider_url=provider_url),
             }
         ),
         encoding="utf-8",
     )
+    private_path.chmod(0o600)
 
 
 def _control_response(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, slug: str = "csp-external"):
@@ -104,8 +128,13 @@ def test_vendor_export_csp_confines_legacy_runtime_grants_to_vendor_profile() ->
     assert "'unsafe-eval'" not in normal_policy
     assert "'unsafe-inline'" in vendor_policy
     assert "'unsafe-eval'" in vendor_policy
-    assert "'unsafe-inline'" not in report_only_policy
+    assert "'unsafe-inline'" in report_only_policy
+    assert "script-src 'self' 'unsafe-inline'" in report_only_policy
+    assert "script-src-attr 'unsafe-inline'" in report_only_policy
+    assert "style-src 'self' 'unsafe-inline'" in report_only_policy
+    assert "style-src-attr 'unsafe-inline'" in report_only_policy
     assert "'unsafe-eval'" not in report_only_policy
+    assert "'wasm-unsafe-eval'" not in report_only_policy
 
 
 def test_public_tour_origins_reject_url_parser_confusion_and_env_directive_injection(

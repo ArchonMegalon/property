@@ -15,19 +15,101 @@ def _write_json(path: Path, payload: dict[str, object]) -> None:
 
 
 def _passing_browser_proof() -> dict[str, object]:
-    return json.loads(
+    proof = json.loads(
         (ROOT / ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json").read_text(
             encoding="utf-8"
         )
     )
+    seed = json.loads(
+        (ROOT / ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json").read_text(encoding="utf-8")
+    )
+    proof["status"] = "pass"
+    proof["blocking_reasons"] = []
+    proof["current_limitations"] = []
+    proof["release_claim_summary"] = seed["release_claim"]["summary"]
+    proof["expected_browser_signals"] = seed["browser_workflow_proof"]["expected_browser_signals"]
+
+    source_lanes = {
+        lane.get("test_file"): lane
+        for lane in proof.get("source_backed_journey_proofs", [])
+        if isinstance(lane, dict)
+    }
+    singular_source_lane = proof.get("source_backed_journey_proof")
+    if isinstance(singular_source_lane, dict):
+        source_lanes.setdefault(singular_source_lane.get("test_file"), singular_source_lane)
+    normalized_source_lanes: list[dict[str, object]] = []
+
+    for source in seed["browser_workflow_proof"]["evidence_sources"]:
+        test_file = source["file"]
+        if "/e2e/" in test_file:
+            lane = proof["real_browser_e2e_proof"]
+        else:
+            lane = source_lanes.get(test_file, {"test_file": test_file})
+            normalized_source_lanes.append(lane)
+        cases = list(source["cases"])
+        lane["status"] = "pass"
+        lane["test_file"] = test_file
+        lane["cases"] = cases
+        lane["required_case_count"] = len(cases)
+        lane["selected_count"] = len(cases)
+        lane["executed_count"] = len(cases)
+        lane["exit_code"] = 0
+        lane["limitations"] = []
+        lane["outcome_counts"] = {
+            "passed": len(cases),
+            "failed": 0,
+            "skipped": 0,
+            "errors": 0,
+            "xfailed": 0,
+            "xpassed": 0,
+        }
+
+    proof["source_backed_journey_proofs"] = normalized_source_lanes
+    proof["source_backed_journey_proof"] = normalized_source_lanes[0]
+
+    source_binding = proof.get("source_binding")
+    runtime_commit_sha = (
+        str(source_binding.get("code_commit") or "") if isinstance(source_binding, dict) else ""
+    )
+    matrix_seed = seed["journey_evidence_matrix"]
+    proof["journey_evidence_matrix"] = {
+        "version": matrix_seed["version"],
+        "status": "pass",
+        "readiness_scope": matrix_seed["readiness_scope"],
+        "runtime_commit_sha": runtime_commit_sha,
+        "required_journey_ids": list(matrix_seed["required_journey_ids"]),
+        "rows": [
+            {
+                "journey_id": row["journey_id"],
+                "label": row["label"],
+                "proof_status": "pass",
+                "evidence_sources": [
+                    {
+                        "file": source["file"],
+                        "cases": list(source["cases"]),
+                        "lane_status": "pass",
+                    }
+                    for source in row["evidence_sources"]
+                ],
+                "live_requirement": dict(row["live_requirement"]),
+                "blocking_reasons": [],
+            }
+            for row in matrix_seed["rows"]
+        ],
+    }
+    return proof
 
 
 def _passing_flagship_receipt() -> dict[str, object]:
-    return json.loads(
+    receipt = json.loads(
         (ROOT / ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json").read_text(
             encoding="utf-8"
         )
     )
+    receipt["status"] = "pass"
+    receipt["blocking_reasons"] = []
+    receipt["current_limitations"] = []
+    return receipt
 
 
 def _passing_pulse(*, journey_path: Path | None = None) -> dict[str, object]:
@@ -36,6 +118,9 @@ def _passing_pulse(*, journey_path: Path | None = None) -> dict[str, object]:
             encoding="utf-8"
         )
     )
+    pulse["release_health"]["candidate_state"] = "clear"
+    pulse["release_health"]["flagship_receipt_status"] = "pass"
+    pulse["flagship_readiness"]["candidate_state"] = "clear"
     if journey_path is not None:
         source = journey_path.as_posix()
         pulse["journey_gate_source"] = source

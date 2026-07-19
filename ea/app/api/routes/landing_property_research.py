@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 import urllib.parse
+from datetime import datetime
 from typing import Any
 
 from app.api.routes.landing_property_workspace_helpers import (
@@ -39,6 +40,13 @@ from app.product.service import (
 )
 from app.product import property_tour_hosting
 from app.services.property_customer_copy import sanitize_property_marketing_copy, summarize_property_description_copy
+from app.services.property_locale import (
+    PropertyLocaleError,
+    format_market_currency,
+    format_market_datetime,
+    format_market_decimal,
+    resolve_market_locale,
+)
 from app.services.property_market_catalog import supported_currency_codes
 
 
@@ -59,6 +67,135 @@ _PROPERTY_TOUR_TERMINAL_SOURCE_GAP_REASONS = frozenset(
         "pure_360_assets_unavailable",
     }
 )
+
+
+def _property_market_country_code(values: dict[str, object]) -> str:
+    """Return only an explicit country covered by the governed locale catalog."""
+
+    for key in (
+        "market_country_code",
+        "country_code",
+        "property_country_code",
+        "source_country_code",
+    ):
+        country_code = str(values.get(key) or "").strip().upper()
+        if not country_code:
+            continue
+        try:
+            return resolve_market_locale(country_code).country_code
+        except PropertyLocaleError:
+            return ""
+    return ""
+
+
+def _property_market_fraction_digits(value: object) -> int:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return 0
+    return 0 if numeric.is_integer() else 1
+
+
+def _property_market_decimal_display(
+    value: object,
+    *,
+    facts: dict[str, object],
+) -> str:
+    country_code = _property_market_country_code(facts)
+    if not country_code:
+        return ""
+    try:
+        return format_market_decimal(
+            value,
+            country_code=country_code,
+            fraction_digits=_property_market_fraction_digits(value),
+        )
+    except PropertyLocaleError:
+        return ""
+
+
+def _property_market_currency_display(
+    value: object,
+    *,
+    facts: dict[str, object],
+    currency_code: str,
+) -> str:
+    country_code = _property_market_country_code(facts)
+    if not country_code:
+        return ""
+    try:
+        return format_market_currency(
+            value,
+            country_code=country_code,
+            currency_code=currency_code,
+            fraction_digits=0,
+        )
+    except PropertyLocaleError:
+        return ""
+
+
+def _property_market_display_context(
+    *,
+    facts: dict[str, object],
+    observed_at: object = "",
+) -> dict[str, str]:
+    country_code = _property_market_country_code(facts)
+    if not country_code:
+        return {}
+    try:
+        spec = resolve_market_locale(country_code)
+    except PropertyLocaleError:
+        return {}
+    locale_labels = {
+        "de-AT": "Deutsch (Österreich)",
+        "de-DE": "Deutsch (Deutschland)",
+        "es-CR": "Español (Costa Rica)",
+    }
+    supported_currencies = set(supported_currency_codes())
+    explicit_currency_code = next(
+        (
+            str(facts.get(key) or "").strip().upper()
+            for key in ("price_currency", "currency_code", "currency")
+            if str(facts.get(key) or "").strip().upper() in supported_currencies
+        ),
+        "",
+    )
+    has_explicit_eur_amount = any(
+        key.endswith("_eur") and value not in (None, "", [])
+        for key, value in facts.items()
+    )
+    currency_code = explicit_currency_code or ("EUR" if has_explicit_eur_amount else spec.currency_code)
+    result = {
+        "country_code": spec.country_code,
+        "locale": spec.locale,
+        "locale_label": locale_labels.get(spec.locale, spec.locale),
+        "currency_code": currency_code or spec.currency_code,
+        "timezone": spec.timezone,
+        "updated_at_iso": "",
+        "updated_at_display": "",
+    }
+    parsed: datetime | None = None
+    if isinstance(observed_at, datetime):
+        parsed = observed_at
+    else:
+        raw = str(observed_at or "").strip()
+        if raw and len(raw) <= 80:
+            try:
+                parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            except ValueError:
+                parsed = None
+    if parsed is None or parsed.tzinfo is None:
+        return result
+    try:
+        result["updated_at_display"] = format_market_datetime(
+            parsed,
+            country_code=spec.country_code,
+            requested_locale=spec.locale,
+        )
+    except PropertyLocaleError:
+        return result
+    result["updated_at_iso"] = parsed.isoformat()
+    return result
 
 
 def _object_detail_row(
@@ -381,6 +518,7 @@ def _property_enriched_candidate_facts(
     *,
     candidate: dict[str, object],
     preferences: dict[str, object] | None = None,
+    market_preferences: dict[str, object] | None = None,
     force_source_research_for_selected_distances: bool = False,
 ) -> dict[str, object]:
     facts = _property_candidate_display_facts(candidate)
@@ -459,6 +597,14 @@ def _property_enriched_candidate_facts(
         source_label=str(candidate.get("source_label") or "").strip(),
     )
     normalized_preferences = dict(preferences or {})
+    normalized_market_preferences = (
+        normalized_preferences
+        if market_preferences is None
+        else dict(market_preferences)
+    )
+    market_country_code = _property_market_country_code(normalized_market_preferences)
+    if market_country_code:
+        facts.setdefault("market_country_code", market_country_code)
     property_url = str(candidate.get("property_url") or "").strip()
     selected_distance_rows = _property_selected_distance_rows(
         facts=facts,
@@ -532,7 +678,8 @@ def _property_rooms_display(facts: dict[str, object]) -> str:
         return label
     raw_value = facts.get("rooms") or facts.get("room_count")
     if raw_value not in (None, "", []):
-        return f"{raw_value} rooms"
+        localized_value = _property_market_decimal_display(raw_value, facts=facts)
+        return f"{localized_value or raw_value} rooms"
     item = _property_missing_fact_item(facts, "rooms")
     if item:
         display_value = str(item.get("display_value") or "").strip()
@@ -583,14 +730,27 @@ def _property_fact_rows(facts: dict[str, object]) -> list[dict[str, str]]:
             continue
         text = str(value).strip()
         if key.endswith("_eur"):
-            try:
-                text = _property_money_amount_label(float(str(value).replace(",", "").strip()), currency_code=currency_code)
-            except Exception:
-                text = f"{currency_code} {text}"
+            localized_money = _property_market_currency_display(
+                value,
+                facts=facts,
+                currency_code=currency_code,
+            )
+            if localized_money:
+                text = localized_money
+            else:
+                try:
+                    text = _property_money_amount_label(float(str(value).replace(",", "").strip()), currency_code=currency_code)
+                except Exception:
+                    text = f"{currency_code} {text}"
         elif key.endswith("_m"):
-            text = f"{text} m"
+            localized_value = _property_market_decimal_display(value, facts=facts)
+            text = f"{localized_value or text} m"
         elif key == "area_m2":
-            text = f"{text} m2"
+            localized_value = _property_market_decimal_display(value, facts=facts)
+            text = f"{localized_value} m²" if localized_value else f"{text} m2"
+        elif key in {"rooms", "bedrooms", "bathrooms", "floor"}:
+            localized_value = _property_market_decimal_display(value, facts=facts)
+            text = localized_value or text
         elif isinstance(value, bool):
             text = "Yes" if value else "No"
         rows.append(_object_detail_row(label, text, "Fact"))

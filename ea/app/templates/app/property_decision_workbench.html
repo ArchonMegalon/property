@@ -41,6 +41,7 @@
 {% set research_tasks = workbench.get('research_tasks') or [] %}
 {% set research_task_counts = workbench.get('research_task_counts') or {} %}
 {% set empty_outcome = workbench.get('empty_outcome') or {} %}
+{% set surface_failure_state = workbench.get('failure_state') or {} %}
 {% set score_methodology = workbench.get('score_methodology') or {} %}
 {% set request_run_id = request.query_params.get('run_id') if request is defined and request.query_params is defined else '' %}
 {% set topnav_run_id = run.get('run_id') or requested_run_id or request_run_id or '' %}
@@ -536,7 +537,7 @@
 </div>
 {%- endmacro %}
 <!doctype html>
-<html lang="en">
+<html lang="{{ document_language|default('en', true)|e }}" dir="{{ document_direction|default('ltr', true)|e }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -4846,6 +4847,7 @@
         min-height: 0;
         max-height: 100%;
         overflow-y: auto;
+        scroll-behavior: auto;
         overscroll-behavior: contain;
         overflow-anchor: none;
         -webkit-overflow-scrolling: touch;
@@ -10763,6 +10765,125 @@
       color: inherit;
     }
     {% endif %}
+    /* PQ_FLAGSHIP_MINIMAL_WORKBENCH_V1 */
+    .pqx-shell {
+      --pq-shadow: 0 2px 10px rgba(38, 32, 22, 0.06);
+      --pq-shadow-soft: 0 1px 4px rgba(38, 32, 22, 0.05);
+      --pq-hover-shadow: 0 4px 14px rgba(38, 32, 22, 0.08);
+      background: var(--pq-bg);
+    }
+    .pqx-skip-link {
+      position: fixed;
+      top: 8px;
+      left: 8px;
+      z-index: 1000;
+      min-height: 42px;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 12px;
+      border: 1px solid var(--pq-line-strong);
+      border-radius: 8px;
+      background: var(--pq-paper);
+      color: var(--pq-ink);
+      font-weight: 800;
+      transform: translateY(calc(-100% - 16px));
+      transition: transform 120ms ease;
+    }
+    .pqx-skip-link:focus {
+      transform: translateY(0);
+      outline: var(--pq-focus-ring);
+      outline-offset: 2px;
+    }
+    #pqx-main-content:focus { outline: none; }
+    .pqx-topbar {
+      border-bottom-color: var(--pq-line);
+      background: color-mix(in srgb, var(--pq-paper) 96%, transparent);
+      box-shadow: none;
+    }
+    .pqx-mark,
+    .pqx-primary-nav :is(a, span),
+    .pqx-button,
+    .pqx-link-button,
+    .pqx-mode-button,
+    .pqx-account-menu summary,
+    .pqx-context-tools summary {
+      border-radius: 8px;
+      box-shadow: none;
+    }
+    .pqx-primary-nav :is(a, span) {
+      transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+    }
+    .pqx-shell :is(
+      .pqx-card,
+      .pqx-panel,
+      .pqx-command,
+      .pqx-run-hero,
+      .pqx-result-panel,
+      .pqx-review,
+      .pqx-result,
+      .pqx-account-action-card,
+      .pqx-billing-card,
+      .pqx-billing-summary-card,
+      .pqx-automation-card,
+      .pqx-research-task,
+      .pqx-progress-board
+    ) {
+      border-radius: 10px;
+      background-image: none;
+      box-shadow: none;
+    }
+    .pqx-shell :is(.pqx-result, .pqx-account-action-card, .pqx-billing-card, .pqx-automation-card):hover {
+      transform: none;
+      box-shadow: none;
+    }
+    .pqx-thumb,
+    .pqx-result-diorama,
+    .pqx-inline-map-preview,
+    .pqx-evidence-atlas-stage {
+      border-radius: 8px;
+    }
+    .pqx-result-diorama-empty-label {
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+      display: grid;
+      place-items: center;
+      padding: 12px;
+      color: var(--pq-muted);
+      font-size: 12px;
+      font-weight: 700;
+      text-align: center;
+    }
+    .pqx-shell[data-pqx-surface="shortlist"] .pqx-result-diorama.is-placeholder {
+      min-height: 96px;
+      height: 96px;
+      aspect-ratio: auto;
+      background: var(--pq-panel);
+    }
+    .pqx-shell :is(a, button, summary, input, select, textarea):focus-visible {
+      outline: var(--pq-focus-ring);
+      outline-offset: 2px;
+    }
+    @media (min-width: 761px) {
+      .pqx-topbar { min-height: 58px; }
+      .pqx-main { padding-top: 18px; }
+    }
+    @media (max-width: 760px) {
+      .pqx-topbar {
+        border-radius: 0;
+        background: var(--pq-paper);
+      }
+      .pqx-primary-nav :is(a, span) { border-radius: 8px; }
+      .pqx-main {
+        width: min(100%, 760px);
+        padding-inline: 8px;
+      }
+      .pqx-shell[data-pqx-surface="shortlist"] .pqx-result-diorama.is-placeholder {
+        width: 100%;
+        min-height: 96px !important;
+        height: 96px !important;
+      }
+    }
     @media (max-width: 760px), (pointer: coarse) {
       .pqx-shell[data-pqx-surface] :is(
         button,
@@ -10810,6 +10931,7 @@
   <link rel="stylesheet" href="{{ property_workbench_css_asset_url(static_surface=static_surface) }}">
 </head>
 <body>
+  <a class="pqx-skip-link" href="#pqx-main-content">Skip to content</a>
   {% set workbench_client = {
     'results': workbench.get('client_results') or results,
     'selected': workbench.get('client_selected') or selected,
@@ -10866,6 +10988,7 @@
       </details>
       {% endif %}
       <div class="pqx-top-actions" data-pq-context-actions>
+        <span data-pq-localization-slot></span>
         {% if run_active or has_results or run_terminal_no_results %}
         <div class="pqx-run-summary" data-property-pulse-strip aria-label="Current search summary">
           <span class="pqx-run-chip is-market">{{ brief.get('country') or 'Market' }}{% if brief.get('region') %} · {{ brief.get('region') }}{% endif %}</span>
@@ -11022,7 +11145,18 @@
       })();
     </script>
 
-    <main class="pqx-main">
+    <main class="pqx-main" id="pqx-main-content" tabindex="-1">
+      {% if surface_failure_state.get('state') == 'payment_failed' %}
+      <aside class="pqx-recovery-banner" data-pq-failure-state="payment_failed" role="alert" aria-live="assertive" aria-atomic="true">
+        <div>
+          <strong>{{ surface_failure_state.get('title') or 'Payment needs attention' }}</strong>
+          <span>{{ surface_failure_state.get('detail') or 'The latest payment did not complete. Your existing access and saved work are unchanged.' }}</span>
+        </div>
+        <div class="pqx-recovery-meta">
+          <a class="pqx-link-button subtle" data-pq-next-action href="{{ surface_failure_state.get('action_href') or '/support' }}">{{ surface_failure_state.get('action_label') or 'Get billing help' }}</a>
+        </div>
+      </aside>
+      {% endif %}
       {% if route_recovery %}
       <aside class="pqx-recovery-banner" data-pqx-route-recovery data-pq-failure-state="stale" role="status" aria-live="polite">
         <div>
@@ -12741,6 +12875,13 @@
                   {% endif %}
                 </div>
                 <div class="pqx-decision-status pqx-mobile-visual-status" data-pw-visual-request-status{% if not selected_visual_status %} hidden{% endif %}>{{ selected_visual_status }}</div>
+                {% if selected_visual_property_url and not selected_preview and not selected_visual_media_ready and not selected_tour_url and not selected_flythrough.get('url') %}
+                <div class="pqx-decision-status" data-pq-failure-state="missing_media" role="status" aria-live="polite" aria-atomic="true">
+                  <strong>Media preview not available.</strong>
+                  <span>The listing is still available, and your saved property details are unchanged.</span>
+                  <a class="pqx-link-button subtle" data-pq-next-action href="{{ selected_visual_property_url }}" target="_blank" rel="noreferrer">Open listing</a>
+                </div>
+                {% endif %}
               </div>
             </div>
           </div>

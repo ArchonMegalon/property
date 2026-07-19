@@ -7331,15 +7331,18 @@ def test_responses_provider_health_fallback_counts_manifest_backed_onemin_slots(
     ]
 
 
-def test_responses_provider_health_exposes_gemini_vortex(monkeypatch: pytest.MonkeyPatch) -> None:
-    client = _client(principal_id="codex-gemini-health")
-
+def test_responses_provider_health_exposes_gemini_vortex(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(tmp_path / "provider-ledger"))
     monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "sh")
     monkeypatch.setenv("EA_GEMINI_VORTEX_MODEL", "gemini-2.5-flash")
     monkeypatch.setenv("GOOGLE_API_KEY_FALLBACK_1", "vertex-fallback")
     monkeypatch.setenv("EA_GEMINI_VORTEX_SELECTION_MODE", "round_robin")
     monkeypatch.setenv("EA_GEMINI_VORTEX_SLOT_DEFAULT_OWNER", "fleet-primary")
     monkeypatch.setenv("EA_GEMINI_VORTEX_SLOT_FALLBACK_1_OWNER", "fleet-shadow")
+    client = _client(principal_id="codex-gemini-health")
 
     response = client.get("/v1/responses/_provider_health")
     assert response.status_code == 200
@@ -8546,9 +8549,16 @@ def test_route_runtime_helpers_cover_header_profile_trace_metadata_and_preferred
         }
     )
     request.state.correlation_id = "corr-123"
+    request.state.traceparent = (
+        "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+    )
     assert runtime.header_codex_profile_from_request(request) == "review_light"
     assert runtime.payload_with_request_trace_metadata({"metadata": {"existing": "yes"}}, request=request) == {
-        "metadata": {"existing": "yes", "ea_correlation_id": "corr-123"}
+        "metadata": {
+            "existing": "yes",
+            "ea_correlation_id": "corr-123",
+            "ea_traceparent": "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+        }
     }
     assert runtime.preferred_onemin_labels_from_request(request) == ("primary", "shadow")
 

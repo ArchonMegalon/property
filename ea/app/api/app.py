@@ -9,15 +9,20 @@ from fastapi import APIRouter, Depends, FastAPI
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.responses import Response
 from starlette.staticfiles import StaticFiles
-from starlette.types import Scope
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from app.api.dependencies import require_request_auth
 from app.api.errors import install_error_handlers
 from app.api.ingress import IngressAbuseMiddleware, IngressPolicy
 from app.api.principal_identity import PrincipalIdentityMiddleware, PrincipalIdentityPolicy
+from app.api.propertyquarry_localization import PropertyQuarryLocalizationMiddleware
 from app.api.threadpool_compat import inline_sync_handlers_enabled, install_inline_threadpool_compat
 from app.container import build_container
 from app.observability import RuntimeMetrics
+from app.services.admission_control import (
+    build_admission_backend,
+    resolve_api_admission_database_url,
+)
 from app.settings import get_settings, validate_startup_settings
 
 
@@ -35,6 +40,50 @@ class CachedStaticFiles(StaticFiles):
         response = super().file_response(full_path, stat_result, scope, status_code=status_code)
         response.headers.setdefault("Cache-Control", "public, max-age=3600, stale-while-revalidate=86400")
         return response
+
+
+class PropertyQuarryReleaseIdentityMiddleware:
+    """Bind the measured app document to the replica that served it."""
+
+    def __init__(self, app: ASGIApp, *, identity_provider) -> None:  # type: ignore[no-untyped-def]
+        self.app = app
+        self.identity_provider = identity_provider
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if (
+            scope.get("type") != "http"
+            or scope.get("method") not in {"GET", "HEAD"}
+            or scope.get("path") != "/app/search"
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        identity = self.identity_provider()
+        from app.api.routes.health import RELEASE_IDENTITY_RESPONSE_HEADERS
+
+        header_names = {
+            header_name.lower().encode("ascii")
+            for _field, header_name in RELEASE_IDENTITY_RESPONSE_HEADERS
+        }
+
+        async def send_with_release_identity(message: Message) -> None:
+            if message.get("type") == "http.response.start":
+                existing = [
+                    (name, value)
+                    for name, value in message.get("headers", [])
+                    if name.lower() not in header_names
+                ]
+                existing.extend(
+                    (
+                        header_name.lower().encode("ascii"),
+                        identity.get(field, "").encode("ascii"),
+                    )
+                    for field, header_name in RELEASE_IDENTITY_RESPONSE_HEADERS
+                )
+                message = {**message, "headers": existing}
+            await send(message)
+
+        await self.app(scope, receive, send_with_release_identity)
 
 
 async def _prewarm_provider_health_cache() -> None:
@@ -284,11 +333,26 @@ def create_app() -> FastAPI:
     static_root = Path(__file__).resolve().parents[1] / "static"
     if static_root.exists():
         app.mount("/static", CachedStaticFiles(directory=static_root), name="static")
+    app.add_middleware(
+        PropertyQuarryReleaseIdentityMiddleware,
+        identity_provider=route_modules["health"].release_runtime_identity,
+    )
+    app.add_middleware(PropertyQuarryLocalizationMiddleware)
     app.add_middleware(GZipMiddleware, minimum_size=1024)
     ingress_policy = IngressPolicy.from_environ(runtime_mode=s.runtime.mode)
+    admission_database_url = resolve_api_admission_database_url(
+        runtime_mode=s.runtime.mode,
+        primary_database_url=s.database_url,
+    )
+    admission_backend = build_admission_backend(
+        runtime_mode=s.runtime.mode,
+        database_url=admission_database_url,
+    )
+    app.state.admission_backend = admission_backend
     app.add_middleware(
         IngressAbuseMiddleware,
         policy=ingress_policy,
+        admission_backend=admission_backend,
     )
     app.add_middleware(
         PrincipalIdentityMiddleware,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Callable
 
 
@@ -18,6 +19,19 @@ PLAYWRIGHT_EXECUTABLE_ENV_BY_ENGINE = {
     "firefox": "PROPERTYQUARRY_PLAYWRIGHT_FIREFOX_EXECUTABLE",
     "webkit": "PROPERTYQUARRY_PLAYWRIGHT_WEBKIT_EXECUTABLE",
 }
+WEBKIT_CI_CPU_AFFINITY_LIMIT_ENV = "PROPERTYQUARRY_PLAYWRIGHT_WEBKIT_CPU_AFFINITY_LIMIT"
+WEBKIT_CI_CPU_AFFINITY_LIMIT_DEFAULT = 1
+WEBKIT_CI_CPU_AFFINITY_LIMIT_MAXIMUM = 4
+FIREFOX_CI_REDUCED_CONTENT_PROCESS_PROFILE_NAME = "firefox-reduced-content-process-v1"
+# Bound Firefox renderer concurrency for host-safe CI while preserving e10s/Fission.
+# Do not add security/isolation, GPU, network, or media process disables here.
+FIREFOX_CI_REDUCED_CONTENT_PROCESS_USER_PREFS = MappingProxyType(
+    {
+        "dom.ipc.processCount": 1,
+        "dom.ipc.processCount.webIsolated": 1,
+        "dom.ipc.processPrelaunch.enabled": False,
+    }
+)
 _PLAYWRIGHT_NATIVE_LAUNCH_CRASH_SIGNATURES = (
     "general protection fault",
     "received signal 11",
@@ -66,14 +80,30 @@ def playwright_engine_launch_kwargs(
     *,
     engine: str = "chromium",
     args: list[str] | None = None,
+    headless: bool = True,
+    executable_path: str | None = None,
 ) -> dict[str, object]:
     normalized_engine = normalize_playwright_engine(engine)
-    launch_kwargs: dict[str, object] = {"headless": True}
-    executable = playwright_engine_executable(playwright, engine=normalized_engine)
+    if type(headless) is not bool:
+        raise ValueError("playwright_headless_mode_invalid")
+    launch_kwargs: dict[str, object] = {"headless": headless}
+    if executable_path is not None:
+        if type(executable_path) is not str or executable_path != executable_path.strip():
+            raise ValueError("playwright_executable_path_invalid")
+        candidate_path = Path(executable_path)
+        if not candidate_path.is_absolute() or not candidate_path.is_file():
+            raise ValueError("playwright_executable_path_invalid")
+        executable = executable_path
+    else:
+        executable = playwright_engine_executable(playwright, engine=normalized_engine)
     if executable:
         launch_kwargs["executable_path"] = executable
     if args and normalized_engine == "chromium":
         launch_kwargs["args"] = list(args)
+    if normalized_engine == "firefox":
+        launch_kwargs["firefox_user_prefs"] = dict(
+            FIREFOX_CI_REDUCED_CONTENT_PROCESS_USER_PREFS
+        )
     return launch_kwargs
 
 
@@ -84,11 +114,60 @@ def _is_retryable_playwright_native_launch_crash(exc: Exception) -> bool:
     return any(signature in message for signature in _PLAYWRIGHT_NATIVE_LAUNCH_CRASH_SIGNATURES)
 
 
+def playwright_webkit_cpu_affinity_limit() -> int:
+    raw_limit = str(
+        os.getenv(WEBKIT_CI_CPU_AFFINITY_LIMIT_ENV)
+        or WEBKIT_CI_CPU_AFFINITY_LIMIT_DEFAULT
+    ).strip()
+    try:
+        requested_limit = int(raw_limit)
+    except (TypeError, ValueError):
+        requested_limit = WEBKIT_CI_CPU_AFFINITY_LIMIT_DEFAULT
+    return max(1, min(WEBKIT_CI_CPU_AFFINITY_LIMIT_MAXIMUM, requested_limit))
+
+
+def _launch_webkit_with_bounded_cpu_affinity(
+    browser_type: Any,
+    launch_kwargs: dict[str, object],
+) -> Browser:
+    get_affinity = getattr(os, "sched_getaffinity", None)
+    set_affinity = getattr(os, "sched_setaffinity", None)
+    if not callable(get_affinity) or not callable(set_affinity):
+        return browser_type.launch(**launch_kwargs)
+
+    try:
+        raw_affinity = get_affinity(0)
+        original_affinity = frozenset(raw_affinity)
+    except (OSError, TypeError, ValueError) as exc:
+        raise RuntimeError("playwright_webkit_cpu_affinity_unavailable") from exc
+    if not original_affinity or any(
+        type(cpu) is not int or cpu < 0 for cpu in original_affinity
+    ):
+        raise RuntimeError("playwright_webkit_cpu_affinity_invalid")
+
+    bounded_affinity = frozenset(
+        sorted(original_affinity)[:playwright_webkit_cpu_affinity_limit()]
+    )
+    try:
+        set_affinity(0, bounded_affinity)
+    except (OSError, TypeError, ValueError) as exc:
+        raise RuntimeError("playwright_webkit_cpu_affinity_apply_failed") from exc
+    try:
+        return browser_type.launch(**launch_kwargs)
+    finally:
+        try:
+            set_affinity(0, original_affinity)
+        except (OSError, TypeError, ValueError) as exc:
+            raise RuntimeError("playwright_webkit_cpu_affinity_restore_failed") from exc
+
+
 def playwright_engine_launch_browser(
     playwright: object,
     *,
     engine: str = "chromium",
     args: list[str] | None = None,
+    headless: bool = True,
+    executable_path: str | None = None,
 ) -> Browser:
     """Launch once more only when the first browser process dies from a native crash."""
 
@@ -98,13 +177,24 @@ def playwright_engine_launch_browser(
         playwright,
         engine=normalized_engine,
         args=args,
+        headless=headless,
+        executable_path=executable_path,
     )
-    try:
+
+    def _launch_once() -> Browser:
+        if normalized_engine == "webkit":
+            return _launch_webkit_with_bounded_cpu_affinity(
+                browser_type,
+                launch_kwargs,
+            )
         return browser_type.launch(**launch_kwargs)
+
+    try:
+        return _launch_once()
     except Exception as exc:
         if not _is_retryable_playwright_native_launch_crash(exc):
             raise
-    return browser_type.launch(**launch_kwargs)
+    return _launch_once()
 
 
 def playwright_engine_capture_available(

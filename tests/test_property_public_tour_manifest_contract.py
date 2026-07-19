@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 
@@ -60,6 +61,36 @@ def test_governed_public_projection_drops_external_media_and_embedded_authority_
     assert "governed_spatial" not in projection
     assert "private.invalid" not in str(projection)
     assert "provider.invalid" not in str(projection)
+
+
+def test_public_projection_preserves_coarse_location_while_scrubbing_copied_exact_address() -> None:
+    payload = {
+        "slug": "coarse-location-contract",
+        "display_title": "Private Generated Street 9, 1190 Wien",
+        "facts": {
+            "postal_name": "1190 Wien",
+            "city": "Wien",
+            "district": "Döbling",
+            "municipality": "Vienna",
+            "exact_address": "Private Generated Street 9, 1190 Wien",
+            "address_lines": ["Private Generated Street 9", "1190 Wien"],
+        },
+    }
+
+    projection = public_tour_payloads.build_public_tour_manifest(
+        payload,
+        url_allowed=lambda _value: False,
+        bundle_dir_resolver=lambda _slug: None,
+    ).as_dict()
+
+    assert projection["facts"] == {
+        "postal_name": "1190 Wien",
+        "city": "Wien",
+        "district": "Döbling",
+        "municipality": "Vienna",
+    }
+    assert projection["display_title"] == "Property tour"
+    assert "Private Generated Street" not in json.dumps(projection, sort_keys=True)
 
 
 def test_public_tour_manifest_contract_script_passes() -> None:

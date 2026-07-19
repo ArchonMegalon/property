@@ -6,6 +6,7 @@ import contextlib
 import fcntl
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -274,7 +275,11 @@ def _video_probe(path: Path) -> dict[str, object]:
         raise SystemExit(f"magicfit_acceptance_video_probe_invalid:{type(exc).__name__}") from exc
     if not any(str(row.get("codec_type") or "").lower() == "video" for row in streams):
         raise SystemExit("magicfit_acceptance_video_stream_missing")
-    if duration <= 0.0 or size_bytes != path.stat().st_size:
+    if (
+        not math.isfinite(duration)
+        or duration <= 0.0
+        or size_bytes != path.stat().st_size
+    ):
         raise SystemExit("magicfit_acceptance_video_probe_invalid")
     return {"duration_seconds": duration, "size_bytes": size_bytes}
 
@@ -338,6 +343,7 @@ def _validate_evidence(
     if (
         video.get("sha256") != video_sha256
         or evidence_size != int(video_probe["size_bytes"])
+        or not math.isfinite(evidence_duration)
         or evidence_duration <= 0.0
         or abs(evidence_duration - float(video_probe["duration_seconds"])) > 0.1
     ):
@@ -407,6 +413,8 @@ def _validate_browser_receipt(
         or observed_at is None
         or observed_at < generated_at
         or observed_at > now + MAX_FUTURE_SKEW
+        or not math.isfinite(duration)
+        or not math.isfinite(final_current_time)
         or duration <= 0.0
         or abs(duration - video_duration) > 0.1
         or final_current_time < duration - 0.25

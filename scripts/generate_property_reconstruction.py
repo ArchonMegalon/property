@@ -1893,6 +1893,22 @@ def _env_flag(name: str) -> bool:
     return str(os.getenv(name) or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _ffmpeg_thread_limit() -> int:
+    """Keep PropertyQuarry reconstruction encodes from fanning out across the host."""
+
+    raw_limit = str(os.getenv("PROPERTYQUARRY_RECONSTRUCTION_FFMPEG_THREADS") or "1").strip()
+    try:
+        requested_limit = int(raw_limit)
+    except (TypeError, ValueError):
+        requested_limit = 1
+    return max(1, min(4, requested_limit))
+
+
+def _ffmpeg_thread_options() -> tuple[tuple[str, str], tuple[str, str]]:
+    thread_limit = str(_ffmpeg_thread_limit())
+    return (("-filter_threads", thread_limit), ("-threads", thread_limit))
+
+
 def _numeric_room_count(value: object) -> int:
     try:
         if value in (None, "", False):
@@ -6105,6 +6121,7 @@ def _encode_rgb24_mp4(
     temporary_target = target.with_name(
         f".{target.name}.{secrets.token_hex(8)}.tmp"
     )
+    filter_thread_options, encoder_thread_options = _ffmpeg_thread_options()
     command = [
         ffmpeg,
         "-nostdin",
@@ -6113,6 +6130,7 @@ def _encode_rgb24_mp4(
         "error",
         "-nostats",
         "-y",
+        *filter_thread_options,
         "-f",
         "rawvideo",
         "-pixel_format",
@@ -6140,6 +6158,7 @@ def _encode_rgb24_mp4(
         str(crf),
         "-pix_fmt",
         "yuv420p",
+        *encoder_thread_options,
         "-movflags",
         "+faststart",
         "-f",

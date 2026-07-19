@@ -4,6 +4,12 @@ PropertyQuarry is a standalone property discovery product: cross-platform search
 
 This repository now contains the runnable product runtime that had previously lived inside the broader EA codebase. The goal of this repo is not a docs mirror. It is the source of truth for the PropertyQuarry app, tests, deployment scripts, and branded public surfaces.
 
+## Repository authority
+
+[`ArchonMegalon/property`](https://github.com/ArchonMegalon/property) is the sole canonical PropertyQuarry source and release repository. [`ArchonMegalon/propertyquarry`](https://github.com/ArchonMegalon/propertyquarry) is a byte-exact, non-advancing mirror: it may accept only the canonical commit through the governed mirror-sync path, must never contain an independent commit, and must never advance ahead of canonical `main`. A lagging, ahead, divergent, same-tree/different-commit, or independently modified mirror is release-blocking rather than an alternate release envelope.
+
+The protected security-runner bootstrap currently verifies exact runner consumption in its separate manual workflow after the flagship job completes. GitHub Actions does not provide a locally contract-testable cross-workflow `needs` edge from that post-job verification back into the originating release graph. Production release therefore remains blocked until bootstrap-consumption evidence is made an explicit, structurally verifiable prerequisite of the canonical release graph; a successful bootstrap artifact alone is not release authority.
+
 ## What is in this repo
 
 - public product surface for `propertyquarry.com`
@@ -111,11 +117,18 @@ budget above the reconstruction generation ceiling; adjust both budgets together
 if that ceiling changes.
 
 The disposable topology runs `propertyquarry-migrate` as an ephemeral phase,
-then starts `propertyquarry-api`, `propertyquarry-scheduler`,
+then starts `propertyquarry-api`, the property-only durable-search consumer
+`propertyquarry-worker`, `propertyquarry-scheduler`,
 `propertyquarry-render-tools`, and `propertyquarry-db`. The migration container
 must exit `0`; it is never counted as a running or healthy runtime service. See
 `docs/PROPERTYQUARRY_SCHEMA_MIGRATIONS.md`.
-The API and scheduler build `ea/Dockerfile.property-web`, a lightweight web runtime without Blender, COLMAP, MeshLab, or bundled Playwright browser payloads.
+The API, worker, and scheduler use `ea/Dockerfile.property-web`, a lightweight
+web runtime without Blender, COLMAP, MeshLab, or bundled Playwright browser
+payloads. The API readiness contract requires a fresh role-correct worker
+heartbeat, so a missing or wedged durable consumer fails closed instead of
+accepting searches that cannot progress. The worker is fixed to the
+`property_only` profile, does not load the advanced-visual env bundle, and does
+not join the render network; Core Gold does not depend on paid visual tooling.
 Native 3D reconstruction and vendor tooling stay in the explicit `render-tools` profile, which builds `ea/Dockerfile.property`.
 Browser-backed PDF/render fallbacks must use MarkupGo or an explicit helper/render lane rather than adding Chromium to the request-serving image.
 Both images omit Docker CLI tooling and run the app process as the non-root `ea` user.
@@ -238,7 +251,7 @@ Supported controls include:
 Use the product-only release bundle when validating the standalone PropertyQuarry surface:
 
 - `make property-release-gates`
-- `bash scripts/property_release_gates.sh`
+- `./scripts/property_release_gates.sh`
 
 This bundle includes docs links, runtime security posture, repo-isolation checks, browser contracts, and property run/catalog contracts.
 

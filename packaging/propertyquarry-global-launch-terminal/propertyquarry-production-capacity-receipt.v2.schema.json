@@ -1,0 +1,459 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://propertyquarry.at/schemas/propertyquarry-production-capacity-receipt.v2.schema.json",
+  "title": "PropertyQuarry protected production capacity receipt v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "contract_sha256",
+    "status",
+    "evidence_level",
+    "deployment_id",
+    "observed_at",
+    "release_identity",
+    "measurement_window",
+    "summary",
+    "resources"
+  ],
+  "properties": {
+    "schema": {
+      "const": "propertyquarry.production_capacity_receipt.v2"
+    },
+    "contract_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "status": {
+      "const": "pass"
+    },
+    "evidence_level": {
+      "const": "protected_production"
+    },
+    "deployment_id": {
+      "const": "propertyquarry-production"
+    },
+    "observed_at": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "release_identity": {
+      "$ref": "#/$defs/releaseIdentity"
+    },
+    "measurement_window": {
+      "$ref": "#/$defs/measurementWindow"
+    },
+    "summary": {
+      "$ref": "#/$defs/summary"
+    },
+    "resources": {
+      "type": "array",
+      "minItems": 12,
+      "maxItems": 12,
+      "items": {
+        "$ref": "#/$defs/resource"
+      },
+      "allOf": [
+        {
+          "contains": {"properties": {"resource": {"const": "api"}}},
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {"properties": {"resource": {"const": "database"}}},
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {"properties": {"resource": {"const": "queue"}}},
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {"properties": {"resource": {"const": "scheduler"}}},
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {"properties": {"resource": {"const": "browser_workers"}}},
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {"properties": {"resource": {"const": "render_workers"}}},
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {"properties": {"resource": {"const": "provider_quotas"}}},
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {"properties": {"resource": {"const": "memory"}}},
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {"properties": {"resource": {"const": "cpu"}}},
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {"properties": {"resource": {"const": "pids"}}},
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {"properties": {"resource": {"const": "disk"}}},
+          "minContains": 1,
+          "maxContains": 1
+        },
+        {
+          "contains": {"properties": {"resource": {"const": "network"}}},
+          "minContains": 1,
+          "maxContains": 1
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    },
+    "nonnegativeInteger": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9223372036854775807
+    },
+    "positiveInteger": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9223372036854775807
+    },
+    "releaseIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["commit_sha", "image_digest"],
+      "properties": {
+        "commit_sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "image_digest": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "measurementWindow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["started_at", "ended_at", "duration_seconds"],
+      "properties": {
+        "started_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "ended_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "duration_seconds": {
+          "type": "integer",
+          "minimum": 300,
+          "maximum": 86400
+        }
+      }
+    },
+    "resourceWindow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "started_at",
+        "ended_at",
+        "duration_seconds",
+        "sample_count"
+      ],
+      "properties": {
+        "started_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "ended_at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "duration_seconds": {
+          "type": "integer",
+          "minimum": 300,
+          "maximum": 86400
+        },
+        "sample_count": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 9223372036854775807
+        }
+      }
+    },
+    "demand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observed_peak", "forecast_peak", "required_peak"],
+      "properties": {
+        "observed_peak": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "forecast_peak": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "required_peak": {
+          "$ref": "#/$defs/positiveInteger"
+        }
+      }
+    },
+    "capacity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "verified_sustainable_capacity",
+        "operational_limit",
+        "headroom_absolute",
+        "headroom_basis_points",
+        "sustainable_capacity_evidence_sha256"
+      ],
+      "properties": {
+        "verified_sustainable_capacity": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "operational_limit": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "headroom_absolute": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "headroom_basis_points": {
+          "type": "integer",
+          "minimum": 2500,
+          "maximum": 9223372036854775807
+        },
+        "sustainable_capacity_evidence_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "limitTest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "configured_limit",
+        "attempted_over_limit",
+        "accepted_over_limit",
+        "controlled_over_limit",
+        "evidence_sha256"
+      ],
+      "properties": {
+        "configured_limit": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "attempted_over_limit": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "accepted_over_limit": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        },
+        "controlled_over_limit": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "evidence_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "backpressureTest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "offered_at_saturation",
+        "admitted_at_saturation",
+        "deferred",
+        "rejected",
+        "uncontrolled_failures",
+        "accepted_work_lost",
+        "recovery_seconds",
+        "evidence_sha256"
+      ],
+      "properties": {
+        "offered_at_saturation": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "admitted_at_saturation": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "deferred": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        },
+        "rejected": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        },
+        "uncontrolled_failures": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        },
+        "accepted_work_lost": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        },
+        "recovery_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3600
+        },
+        "evidence_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resource_count",
+        "total_sample_count",
+        "minimum_headroom_basis_points",
+        "maximum_recovery_seconds"
+      ],
+      "properties": {
+        "resource_count": {
+          "const": 12
+        },
+        "total_sample_count": {
+          "$ref": "#/$defs/positiveInteger"
+        },
+        "minimum_headroom_basis_points": {
+          "type": "integer",
+          "minimum": 2500,
+          "maximum": 9223372036854775807
+        },
+        "maximum_recovery_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3600
+        }
+      }
+    },
+    "resource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "resource",
+        "unit",
+        "window",
+        "demand",
+        "capacity",
+        "limit_test",
+        "backpressure_test",
+        "telemetry_evidence_sha256"
+      ],
+      "properties": {
+        "resource": {
+          "enum": [
+            "api",
+            "database",
+            "queue",
+            "scheduler",
+            "browser_workers",
+            "render_workers",
+            "provider_quotas",
+            "memory",
+            "cpu",
+            "pids",
+            "disk",
+            "network"
+          ]
+        },
+        "unit": {
+          "enum": [
+            "requests_per_second",
+            "active_connections",
+            "queued_jobs",
+            "jobs_per_minute",
+            "concurrent_workers",
+            "requests_per_quota_window",
+            "mebibytes",
+            "millicores",
+            "processes",
+            "mebibytes_per_second",
+            "kilobits_per_second"
+          ]
+        },
+        "window": {
+          "$ref": "#/$defs/resourceWindow"
+        },
+        "demand": {
+          "$ref": "#/$defs/demand"
+        },
+        "capacity": {
+          "$ref": "#/$defs/capacity"
+        },
+        "limit_test": {
+          "$ref": "#/$defs/limitTest"
+        },
+        "backpressure_test": {
+          "$ref": "#/$defs/backpressureTest"
+        },
+        "telemetry_evidence_sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"resource": {"const": "api"}}},
+          "then": {"properties": {"unit": {"const": "requests_per_second"}}}
+        },
+        {
+          "if": {"properties": {"resource": {"const": "database"}}},
+          "then": {"properties": {"unit": {"const": "active_connections"}}}
+        },
+        {
+          "if": {"properties": {"resource": {"const": "queue"}}},
+          "then": {"properties": {"unit": {"const": "queued_jobs"}}}
+        },
+        {
+          "if": {"properties": {"resource": {"const": "scheduler"}}},
+          "then": {"properties": {"unit": {"const": "jobs_per_minute"}}}
+        },
+        {
+          "if": {"properties": {"resource": {"const": "browser_workers"}}},
+          "then": {"properties": {"unit": {"const": "concurrent_workers"}}}
+        },
+        {
+          "if": {"properties": {"resource": {"const": "render_workers"}}},
+          "then": {"properties": {"unit": {"const": "concurrent_workers"}}}
+        },
+        {
+          "if": {"properties": {"resource": {"const": "provider_quotas"}}},
+          "then": {"properties": {"unit": {"const": "requests_per_quota_window"}}}
+        },
+        {
+          "if": {"properties": {"resource": {"const": "memory"}}},
+          "then": {"properties": {"unit": {"const": "mebibytes"}}}
+        },
+        {
+          "if": {"properties": {"resource": {"const": "cpu"}}},
+          "then": {"properties": {"unit": {"const": "millicores"}}}
+        },
+        {
+          "if": {"properties": {"resource": {"const": "pids"}}},
+          "then": {"properties": {"unit": {"const": "processes"}}}
+        },
+        {
+          "if": {"properties": {"resource": {"const": "disk"}}},
+          "then": {"properties": {"unit": {"const": "mebibytes_per_second"}}}
+        },
+        {
+          "if": {"properties": {"resource": {"const": "network"}}},
+          "then": {"properties": {"unit": {"const": "kilobits_per_second"}}}
+        }
+      ]
+    }
+  }
+}

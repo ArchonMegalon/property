@@ -451,19 +451,48 @@ def _workflow_job(workflow: str, job_name: str) -> str:
     return workflow[start:end]
 
 
-def test_ci_flagship_security_job_is_focused_protected_and_blocks_live_gate() -> None:
+def test_ci_flagship_security_job_is_protected_and_blocks_v2_release_authority() -> None:
     workflow = (gate.APP_ROOT / ".github/workflows/smoke-runtime.yml").read_text(
         encoding="utf-8"
     )
+    preflight_job = _workflow_job(workflow, "propertyquarry-protected-dispatch-inputs")
     job = _workflow_job(workflow, "propertyquarry-flagship-security")
-    live_job = _workflow_job(workflow, "propertyquarry-live-release-gates")
+    release_job = _workflow_job(workflow, "propertyquarry-release-v2")
 
+    assert "environment:\n      name: propertyquarry-production" in preflight_job
+    assert "security_runner_label: ${{ steps.validate.outputs.security_runner_label }}" in preflight_job
+    assert (
+        "PROPERTYQUARRY_APPROVED_SECURITY_RUNNER_LABEL: "
+        "${{ vars.PROPERTYQUARRY_SECURITY_RUNNER_LABEL }}"
+        in preflight_job
+    )
+    assert "security_runner_label_does_not_match_protected_environment" in preflight_job
+    assert "def write_output(output, key: str, value: str) -> None:" in preflight_job
+    assert 're.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", key)' in preflight_job
+    assert "not 1 <= len(value) <= 256" in preflight_job
+    assert '"\\n" in value or "\\r" in value' in preflight_job
+    assert 'output.write(f"{key}={value}\\n")' in preflight_job
+    assert 'write_output(output, "security_runner_label", approved_label)' in preflight_job
+    assert re.search(
+        r'write_output\(\s*output,\s*"security_runner_token_expires_at",\s*'
+        r"canonical_token_expires_at,?\s*\)",
+        preflight_job,
+    )
+    assert 'output.write(f"security_runner_label=' not in preflight_job
+    assert 'output.write(f"security_runner_token_expires_at=' not in preflight_job
     assert "workflow_dispatch" in job
     assert "github.ref == 'refs/heads/main'" in job
+    assert "startsWith(inputs.security_runner_label, 'pqsec-')" in job
     assert "environment:\n      name: propertyquarry-production" in job
     assert "permissions:\n      contents: read" in job
-    assert 'runs-on: [self-hosted, propertyquarry-security, "${{ inputs.security_runner_label }}"]' in job
-    assert "PROPERTYQUARRY_SECURITY_RUNNER_LABEL: ${{ inputs.security_runner_label }}" in job
+    validated_label = (
+        "${{ needs['propertyquarry-protected-dispatch-inputs'].outputs."
+        "security_runner_label }}"
+    )
+    assert f'runs-on: [self-hosted, propertyquarry-security, "{validated_label}"]' in job
+    assert f"PROPERTYQUARRY_SECURITY_RUNNER_LABEL: {validated_label}" in job
+    assert 'runs-on: [self-hosted, propertyquarry-security, "${{ inputs.security_runner_label }}"]' not in job
+    assert "PROPERTYQUARRY_SECURITY_RUNNER_LABEL: ${{ inputs.security_runner_label }}" not in job
     assert "persist-credentials: false" in job
     assert "command -v pip-audit" not in job
     assert "command -v syft" not in job
@@ -484,14 +513,23 @@ def test_ci_flagship_security_job_is_focused_protected_and_blocks_live_gate() ->
     assert "ea-api" not in job
     assert (
         "needs:\n"
+        "      - propertyquarry-protected-dispatch-inputs\n"
         "      - propertyquarry-ordinary-ci-success\n"
         "      - propertyquarry-flagship-security\n"
+        "      - propertyquarry-security-bootstrap-attestation\n"
         "      - propertyquarry-continuous-ux"
-        in live_job
+        in release_job
     )
-    assert "needs['propertyquarry-ordinary-ci-success'].result == 'success'" in live_job
-    assert "needs['propertyquarry-flagship-security'].result == 'success'" in live_job
-    assert "needs['propertyquarry-continuous-ux'].result == 'success'" in live_job
+    assert "needs['propertyquarry-ordinary-ci-success'].result == 'success'" in release_job
+    assert "needs['propertyquarry-flagship-security'].result == 'success'" in release_job
+    assert (
+        "needs['propertyquarry-security-bootstrap-attestation'].result == 'success'"
+        in release_job
+    )
+    assert "needs['propertyquarry-continuous-ux'].result == 'success'" in release_job
+    assert "secrets." not in release_job
+    assert "vars." not in release_job
+    assert "actions/checkout" not in release_job
     assert "PROPERTYQUARRY_WORKFLOW_HEAD_SHA: ${{ github.sha }}" in job
     assert "release_manifest_runtime_sha" in job
     assert "workflow-binding.json" in job

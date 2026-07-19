@@ -13,7 +13,6 @@ import pytest
 from app.api.dependencies import RequestContext
 from app.api.errors import install_error_handlers
 from app.api.ingress import (
-    FixedWindowQuota,
     IngressAbuseMiddleware,
     IngressPolicy,
     parse_trusted_proxy_cidrs,
@@ -25,6 +24,8 @@ from app.api.routes.product_api_contracts import (
     PropertySearchRunStartIn,
 )
 from app.observability import RuntimeMetrics
+from app.services.admission_control import MemoryAdmissionBackend, QuotaCharge
+from app.services.admission_control import AdmissionBackendUnavailable
 
 
 def _policy(**overrides: object) -> IngressPolicy:
@@ -49,6 +50,7 @@ def _app_with_ingress(
     *,
     policy: IngressPolicy,
     clock=lambda: 1.0,
+    admission_backend=None,
     context_resolver=None,
     active_search_counter=None,
 ) -> FastAPI:
@@ -57,7 +59,7 @@ def _app_with_ingress(
     app.add_middleware(
         IngressAbuseMiddleware,
         policy=policy,
-        clock=clock,
+        admission_backend=admission_backend or MemoryAdmissionBackend(clock=clock),
         context_resolver=context_resolver,
         active_search_counter=active_search_counter,
     )
@@ -101,6 +103,11 @@ def test_ingress_policy_is_production_on_and_test_dev_deterministic() -> None:
     assert production.quotas_enabled is True
     assert test.quotas_enabled is False
     assert explicit_dev.quotas_enabled is True
+    with pytest.raises(RuntimeError, match="ingress_quotas_required_in_prod"):
+        IngressPolicy.from_environ(
+            runtime_mode="prod",
+            environ={"PROPERTYQUARRY_INGRESS_QUOTAS_ENABLED": "false"},
+        )
     assert resolve_client_ip(
         peer_host="127.0.0.1",
         headers={"x-forwarded-for": "198.51.100.3"},
@@ -197,6 +204,30 @@ def test_ingress_rate_limit_has_retry_after_envelope_and_health_bypass() -> None
     assert 'propertyquarry_ingress_rejections_total{reason="ingress_rate_limit_exceeded",dimension="ip"} 1' in metrics
 
 
+def test_ingress_fails_closed_when_distributed_admission_is_unavailable() -> None:
+    class _UnavailableAdmission:
+        backend_name = "postgres"
+
+        def consume_many(self, charges):  # noqa: ANN001
+            raise AdmissionBackendUnavailable("database unavailable")
+
+    app = _app_with_ingress(
+        policy=_policy(),
+        admission_backend=_UnavailableAdmission(),
+    )
+
+    response = TestClient(app).get("/limited")
+
+    assert response.status_code == 503
+    assert response.headers["Retry-After"] == "5"
+    assert response.json()["error"]["code"] == "ingress_admission_unavailable"
+    metrics = app.state.runtime_metrics.render_prometheus(readiness_ready=True)
+    assert (
+        'propertyquarry_ingress_admission_operations_total{backend="postgres",'
+        'operation="quota",outcome="unavailable"} 1'
+    ) in metrics
+
+
 def test_trusted_proxy_resolution_ignores_spoofed_headers_from_untrusted_peer() -> None:
     trusted = parse_trusted_proxy_cidrs("127.0.0.0/8,10.0.0.0/8")
 
@@ -214,16 +245,21 @@ def test_trusted_proxy_resolution_ignores_spoofed_headers_from_untrusted_peer() 
 
 def test_quota_key_capacity_fails_closed_without_resetting_live_callers() -> None:
     now = [1.0]
-    quota = FixedWindowQuota(window_seconds=60, clock=lambda: now[0], max_keys=2)
+    quota = MemoryAdmissionBackend(clock=lambda: now[0], max_quota_keys=2)
 
-    assert quota.consume("caller-a", units=1, limit=2)[0] is True
-    assert quota.consume("caller-b", units=1, limit=2)[0] is True
-    assert quota.consume("caller-c", units=1, limit=2)[0] is False
-    assert quota.consume("caller-a", units=1, limit=2)[0] is True
-    assert quota.consume("caller-a", units=1, limit=2)[0] is False
+    def consume(key: str) -> bool:
+        return quota.consume(
+            QuotaCharge(key=key, units=1, limit=2, window_seconds=60)
+        ).allowed
+
+    assert consume("caller-a") is True
+    assert consume("caller-b") is True
+    assert consume("caller-c") is False
+    assert consume("caller-a") is True
+    assert consume("caller-a") is False
 
     now[0] = 61.0
-    assert quota.consume("caller-c", units=1, limit=2)[0] is True
+    assert consume("caller-c") is True
 
 
 def test_account_cost_quota_cannot_be_bypassed_with_principal_header() -> None:
@@ -284,7 +320,7 @@ def test_high_cost_account_concurrency_is_shed() -> None:
     app.add_middleware(
         IngressAbuseMiddleware,
         policy=_policy(high_cost_account_concurrency=1),
-        clock=lambda: 1.0,
+        admission_backend=MemoryAdmissionBackend(clock=lambda: 1.0),
         context_resolver=lambda request: context,
     )
 
@@ -335,6 +371,71 @@ def test_active_property_search_cap_rejects_before_route_dispatch() -> None:
         "active_search_limit": 1,
         "retry_after_seconds": 60,
     }
+
+
+def test_active_search_check_and_dispatch_are_serialized_across_replicas() -> None:
+    shared_admission = MemoryAdmissionBackend(clock=lambda: 1.0)
+    context = RequestContext(
+        principal_id="shared-search-account",
+        authenticated=True,
+        auth_source="test",
+    )
+    entered = threading.Event()
+    release = threading.Event()
+    active_count = [0]
+
+    def build_replica(*, blocking_route: bool) -> FastAPI:
+        app = FastAPI()
+        app.state.runtime_metrics = RuntimeMetrics()
+        app.add_middleware(
+            IngressAbuseMiddleware,
+            policy=_policy(active_search_limit=1),
+            admission_backend=shared_admission,
+            context_resolver=lambda request: context,
+            active_search_counter=lambda request, resolved, limit: active_count[0],
+        )
+
+        @app.post("/app/api/property/search-runs")
+        def start_search() -> dict[str, bool]:
+            if blocking_route:
+                entered.set()
+                release.wait(timeout=3)
+            active_count[0] += 1
+            return {"started": True}
+
+        return app
+
+    first_replica = build_replica(blocking_route=True)
+    second_replica = build_replica(blocking_route=False)
+    first_result: dict[str, object] = {}
+
+    def first_request() -> None:
+        first_result["response"] = TestClient(first_replica).post(
+            "/app/api/property/search-runs",
+            json={},
+        )
+
+    thread = threading.Thread(target=first_request)
+    thread.start()
+    assert entered.wait(timeout=2)
+
+    concurrent = TestClient(second_replica).post(
+        "/app/api/property/search-runs",
+        json={},
+    )
+    release.set()
+    thread.join(timeout=3)
+    after_commit = TestClient(second_replica).post(
+        "/app/api/property/search-runs",
+        json={},
+    )
+
+    assert concurrent.status_code == 429
+    assert concurrent.json()["error"]["code"] == "ingress_concurrency_limit_exceeded"
+    assert first_result["response"].status_code == 200  # type: ignore[union-attr]
+    assert after_commit.status_code == 429
+    assert after_commit.json()["error"]["code"] == "active_search_limit_exceeded"
+    assert active_count == [1]
 
 
 def test_ingress_rejections_keep_correlation_and_browser_security_headers() -> None:

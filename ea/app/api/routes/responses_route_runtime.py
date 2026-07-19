@@ -31,6 +31,9 @@ def payload_with_request_trace_metadata(payload: dict[str, object], *, request: 
     correlation_id = str(getattr(request.state, "correlation_id", "") or "").strip()
     if correlation_id:
         trace_metadata["ea_correlation_id"] = correlation_id
+    traceparent = str(getattr(request.state, "traceparent", "") or "").strip()
+    if traceparent:
+        trace_metadata["ea_traceparent"] = traceparent
     if trace_metadata:
         normalized_payload["metadata"] = trace_metadata
     return normalized_payload

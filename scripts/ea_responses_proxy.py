@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections import deque
+from contextlib import suppress
 from dataclasses import dataclass
 import hmac
 import ipaddress
@@ -12,7 +12,6 @@ import os
 from pathlib import Path
 import sys
 import threading
-import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import urlparse
@@ -24,6 +23,18 @@ if str(EA_RUNTIME_ROOT) not in sys.path:
 from app.api.dependencies import RequestContext  # noqa: E402
 from app.api.routes.responses import _run_response  # noqa: E402
 from app.main import app  # noqa: E402
+from app.observability import (  # noqa: E402
+    bind_runtime_trace_context,
+    bounded_correlation_id,
+    new_server_trace_context,
+)
+from app.services.admission_control import (  # noqa: E402
+    AdmissionBackend,
+    AdmissionBackendUnavailable,
+    ConcurrencyDimension,
+    QuotaCharge,
+    build_admission_backend,
+)
 from app.services.responses_upstream import (  # noqa: E402
     _provider_health_snapshot,
     _provider_row_is_ready,
@@ -154,33 +165,75 @@ def _validate_proxy_config(config: ProxyConfig) -> None:
         raise RuntimeError("ea_responses_proxy_limit_out_of_range")
 
 
-class _SlidingWindowRateLimiter:
-    def __init__(self, *, limit: int, window_seconds: int, max_keys: int = 4_096) -> None:
-        self.limit = max(1, int(limit))
-        self.window_seconds = max(1, int(window_seconds))
-        self.max_keys = max(1, int(max_keys))
-        self._events: dict[str, deque[float]] = {}
-        self._lock = threading.Lock()
+def _proxy_admission_backend(config: ProxyConfig) -> AdmissionBackend:
+    database_url = str(
+        os.environ.get("DATABASE_URL")
+        or getattr(CONTAINER.settings, "database_url", "")
+        or ""
+    ).strip()
+    return build_admission_backend(
+        runtime_mode="dev" if config.dev_mode else "prod",
+        database_url=database_url,
+    )
 
-    def allow(self, key: str, *, now: float | None = None) -> bool:
-        current = time.monotonic() if now is None else float(now)
-        cutoff = current - self.window_seconds
-        normalized_key = str(key or "unknown")
-        with self._lock:
-            if normalized_key not in self._events and len(self._events) >= self.max_keys:
-                stale_keys = [name for name, values in self._events.items() if not values or values[-1] <= cutoff]
-                for name in stale_keys:
-                    self._events.pop(name, None)
-                if len(self._events) >= self.max_keys:
-                    oldest_key = min(self._events, key=lambda name: self._events[name][-1])
-                    self._events.pop(oldest_key, None)
-            events = self._events.setdefault(normalized_key, deque())
-            while events and events[0] <= cutoff:
-                events.popleft()
-            if len(events) >= self.limit:
-                return False
-            events.append(current)
-            return True
+
+def _lease_renew_interval_seconds(lease_seconds: int) -> float:
+    return max(0.25, min(30.0, float(max(1, int(lease_seconds))) / 3.0))
+
+
+class _AdmissionLeaseKeepalive:
+    """Renew one distributed lease until request and stream teardown complete."""
+
+    def __init__(
+        self,
+        backend: AdmissionBackend,
+        lease_id: str,
+        *,
+        lease_seconds: int,
+    ) -> None:
+        self._backend = backend
+        self._lease_id = str(lease_id or "").strip()
+        self._lease_seconds = max(1, int(lease_seconds))
+        self._interval_seconds = _lease_renew_interval_seconds(self._lease_seconds)
+        self._stop = threading.Event()
+        self._lost = threading.Event()
+        self._thread = threading.Thread(
+            target=self._run,
+            name="responses-proxy-admission-lease",
+            daemon=True,
+        )
+
+    @property
+    def healthy(self) -> bool:
+        return not self._lost.is_set()
+
+    def __enter__(self) -> "_AdmissionLeaseKeepalive":
+        if not self._lease_id:
+            self._lost.set()
+            return self
+        self._thread.start()
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> None:  # noqa: ANN001
+        self._stop.set()
+        if self._thread.is_alive():
+            self._thread.join(timeout=5.0)
+
+    def _run(self) -> None:
+        while not self._stop.wait(self._interval_seconds):
+            try:
+                renewed = self._backend.renew(
+                    self._lease_id,
+                    lease_seconds=self._lease_seconds,
+                )
+            except Exception:
+                LOG.exception("responses proxy admission lease renewal failed")
+                self._lost.set()
+                return
+            if not renewed:
+                LOG.error("responses proxy admission lease expired before renewal")
+                self._lost.set()
+                return
 
 
 def _response_cost_violation(payload: dict[str, Any], *, config: ProxyConfig) -> str:
@@ -205,10 +258,21 @@ def _response_cost_violation(payload: dict[str, Any], *, config: ProxyConfig) ->
     return ""
 
 
-def _proxy_readiness(config: ProxyConfig) -> tuple[bool, dict[str, Any]]:
+def _proxy_readiness(
+    config: ProxyConfig,
+    *,
+    admission_backend: AdmissionBackend | None = None,
+) -> tuple[bool, dict[str, Any]]:
     try:
         _validate_proxy_config(config)
+        backend = admission_backend or _proxy_admission_backend(config)
+        backend.probe()
         models = list_response_models()
+    except AdmissionBackendUnavailable:
+        return False, {
+            "status": "not_ready",
+            "reason": "responses_proxy_admission_unavailable",
+        }
     except Exception as exc:
         return False, {
             "status": "not_ready",
@@ -289,17 +353,27 @@ class ResponsesProxyHandler(BaseHTTPRequestHandler):
         return getattr(self.server, "proxy_config")
 
     @property
-    def _rate_limiter(self) -> _SlidingWindowRateLimiter:
-        return getattr(self.server, "rate_limiter")
-
-    @property
-    def _request_slots(self) -> threading.BoundedSemaphore:
-        return getattr(self.server, "request_slots")
+    def _admission_backend(self) -> AdmissionBackend:
+        return getattr(self.server, "admission_backend")
 
     def log_message(self, fmt: str, *args: Any) -> None:
         LOG.info("%s - %s", self.address_string(), fmt % args)
 
+    def _request_observability(self):  # type: ignore[no-untyped-def]
+        trace_context = getattr(self, "_runtime_trace_context", None)
+        if trace_context is None:
+            trace_context = new_server_trace_context(self.headers.get("traceparent"))
+            self._runtime_trace_context = trace_context
+        correlation_id = str(getattr(self, "_runtime_correlation_id", "") or "")
+        if not correlation_id:
+            correlation_id = bounded_correlation_id(
+                self.headers.get("x-correlation-id")
+            )
+            self._runtime_correlation_id = correlation_id
+        return trace_context, correlation_id
+
     def _send_json(self, status_code: int, payload: dict[str, Any]) -> None:
+        trace_context, correlation_id = self._request_observability()
         self.close_connection = True
         body = _json_bytes(payload)
         self.send_response(status_code)
@@ -307,6 +381,8 @@ class ResponsesProxyHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("traceparent", trace_context.traceparent)
+        self.send_header("x-correlation-id", correlation_id)
         self.send_header("Connection", "close")
         self.end_headers()
         self._write_payload(body)
@@ -322,7 +398,28 @@ class ResponsesProxyHandler(BaseHTTPRequestHandler):
 
     def _allow_rate_limited_request(self) -> bool:
         client_key = str(self.client_address[0] if self.client_address else "unknown")
-        if self._rate_limiter.allow(client_key):
+        try:
+            decision = self._admission_backend.consume(
+                QuotaCharge(
+                    key=f"responses_proxy:request:ip:{client_key}",
+                    units=1,
+                    limit=self._config.rate_limit_requests,
+                    window_seconds=self._config.rate_limit_window_seconds,
+                    dimension="ip",
+                )
+            )
+        except AdmissionBackendUnavailable:
+            self._send_json(
+                503,
+                {
+                    "error": {
+                        "code": "admission_unavailable",
+                        "message": "request admission could not be verified",
+                    }
+                },
+            )
+            return False
+        if decision.allowed:
             return True
         self._send_json(
             429,
@@ -424,14 +521,33 @@ class ResponsesProxyHandler(BaseHTTPRequestHandler):
             return None
         return payload
 
-    def _write_starlette_response(self, response: JSONResponse | StreamingResponse) -> None:
+    def _write_starlette_response(
+        self,
+        response: JSONResponse | StreamingResponse,
+        *,
+        lease_keepalive: _AdmissionLeaseKeepalive | None = None,
+    ) -> None:
+        if lease_keepalive is not None and not lease_keepalive.healthy:
+            self._send_json(
+                503,
+                {
+                    "error": {
+                        "code": "admission_lease_lost",
+                        "message": "request concurrency authority expired",
+                    }
+                },
+            )
+            return
+        trace_context, correlation_id = self._request_observability()
         self.close_connection = True
         self.send_response(int(getattr(response, "status_code", 200) or 200))
         for key, value in response.headers.items():
             lowered = str(key).strip().lower()
-            if lowered == "content-length":
+            if lowered in {"content-length", "traceparent", "x-correlation-id"}:
                 continue
             self.send_header(key, value)
+        self.send_header("traceparent", trace_context.traceparent)
+        self.send_header("x-correlation-id", correlation_id)
         self.send_header("Connection", "close")
         body = getattr(response, "body", None)
         if body is not None:
@@ -442,10 +558,48 @@ class ResponsesProxyHandler(BaseHTTPRequestHandler):
             return
 
         async def _stream() -> None:
-            async for chunk in response.body_iterator:
-                payload = chunk.encode("utf-8") if isinstance(chunk, str) else bytes(chunk)
-                if not self._write_payload(payload):
-                    break
+            if lease_keepalive is None:
+                async for chunk in response.body_iterator:
+                    payload = chunk.encode("utf-8") if isinstance(chunk, str) else bytes(chunk)
+                    if not self._write_payload(payload):
+                        break
+                return
+
+            iterator = response.body_iterator.__aiter__()
+            pending: asyncio.Task[object] | None = None
+            try:
+                while lease_keepalive.healthy:
+                    if pending is None:
+                        pending = asyncio.create_task(anext(iterator))
+                    completed, _pending = await asyncio.wait(
+                        {pending},
+                        timeout=0.25,
+                    )
+                    if not lease_keepalive.healthy:
+                        break
+                    if not completed:
+                        continue
+                    try:
+                        chunk = pending.result()
+                    except StopAsyncIteration:
+                        return
+                    pending = None
+                    payload = (
+                        chunk.encode("utf-8")
+                        if isinstance(chunk, str)
+                        else bytes(chunk)
+                    )
+                    if not self._write_payload(payload):
+                        return
+            finally:
+                if pending is not None and not pending.done():
+                    pending.cancel()
+                    with suppress(BaseException):
+                        await pending
+                close_iterator = getattr(iterator, "aclose", None)
+                if callable(close_iterator):
+                    with suppress(BaseException):
+                        await close_iterator()
 
         loop = asyncio.new_event_loop()
         try:
@@ -459,7 +613,10 @@ class ResponsesProxyHandler(BaseHTTPRequestHandler):
             self._send_json(200, {"status": "live", "reason": "responses_proxy_live"})
             return
         if parsed.path == "/health/ready":
-            ready, payload = _proxy_readiness(self._config)
+            ready, payload = _proxy_readiness(
+                self._config,
+                admission_backend=self._admission_backend,
+            )
             self._send_json(200 if ready else 503, payload)
             return
         if parsed.path == "/v1/models":
@@ -484,6 +641,15 @@ class ResponsesProxyHandler(BaseHTTPRequestHandler):
         payload = self._read_payload()
         if payload is None:
             return
+        trace_context, correlation_id = self._request_observability()
+        metadata = (
+            dict(payload.get("metadata") or {})
+            if isinstance(payload.get("metadata"), dict)
+            else {}
+        )
+        metadata["ea_correlation_id"] = correlation_id
+        metadata["ea_traceparent"] = trace_context.traceparent
+        payload["metadata"] = metadata
         cost_violation = _response_cost_violation(payload, config=self._config)
         if cost_violation:
             self._send_json(
@@ -499,7 +665,30 @@ class ResponsesProxyHandler(BaseHTTPRequestHandler):
         profile = _normalize_profile(
             str(self.headers.get("X-EA-Codex-Profile") or self.headers.get("X-CodexEA-Profile") or "")
         )
-        if not self._request_slots.acquire(blocking=False):
+        lease_seconds = self._config.request_timeout_seconds + 30
+        try:
+            concurrency = self._admission_backend.acquire(
+                (
+                    ConcurrencyDimension(
+                        key="responses_proxy:concurrency:global",
+                        limit=self._config.max_concurrency,
+                        dimension="global",
+                    ),
+                ),
+                lease_seconds=lease_seconds,
+            )
+        except AdmissionBackendUnavailable:
+            self._send_json(
+                503,
+                {
+                    "error": {
+                        "code": "admission_unavailable",
+                        "message": "request admission could not be verified",
+                    }
+                },
+            )
+            return
+        if not concurrency.allowed:
             self._send_json(
                 503,
                 {
@@ -511,30 +700,56 @@ class ResponsesProxyHandler(BaseHTTPRequestHandler):
             )
             return
         try:
-            try:
-                response = _run_response(
-                    payload,
-                    context=context,
-                    container=CONTAINER,
-                    codex_profile=profile or None,
-                    preferred_onemin_labels=_preferred_onemin_labels(self.headers),
+            with _AdmissionLeaseKeepalive(
+                self._admission_backend,
+                concurrency.lease_id,
+                lease_seconds=lease_seconds,
+            ) as lease_keepalive:
+                try:
+                    with bind_runtime_trace_context(
+                        trace_context,
+                        correlation_id=correlation_id,
+                    ):
+                        response = _run_response(
+                            payload,
+                            context=context,
+                            container=CONTAINER,
+                            codex_profile=profile or None,
+                            preferred_onemin_labels=_preferred_onemin_labels(self.headers),
+                        )
+                except Exception as exc:
+                    LOG.exception("responses proxy request failed")
+                    if not lease_keepalive.healthy:
+                        self._send_json(
+                            503,
+                            {
+                                "error": {
+                                    "code": "admission_lease_lost",
+                                    "message": "request concurrency authority expired",
+                                }
+                            },
+                        )
+                    else:
+                        self._send_json(
+                            500,
+                            {
+                                "error": {
+                                    "code": "internal_error",
+                                    "message": "internal server error",
+                                    "details": exc.__class__.__name__,
+                                }
+                            },
+                        )
+                    return
+                self._write_starlette_response(
+                    response,
+                    lease_keepalive=lease_keepalive,
                 )
-            except Exception as exc:
-                LOG.exception("responses proxy request failed")
-                self._send_json(
-                    500,
-                    {
-                        "error": {
-                            "code": "internal_error",
-                            "message": "internal server error",
-                            "details": exc.__class__.__name__,
-                        }
-                    },
-                )
-                return
-            self._write_starlette_response(response)
         finally:
-            self._request_slots.release()
+            try:
+                self._admission_backend.release(concurrency.lease_id)
+            except AdmissionBackendUnavailable:
+                LOG.exception("responses proxy admission lease release failed")
 
 
 class ResponsesProxyServer(ThreadingHTTPServer):
@@ -547,14 +762,11 @@ class ResponsesProxyServer(ThreadingHTTPServer):
         handler_class: type[BaseHTTPRequestHandler],
         *,
         config: ProxyConfig,
+        admission_backend: AdmissionBackend | None = None,
     ) -> None:
         _validate_proxy_config(config)
         self.proxy_config = config
-        self.rate_limiter = _SlidingWindowRateLimiter(
-            limit=config.rate_limit_requests,
-            window_seconds=config.rate_limit_window_seconds,
-        )
-        self.request_slots = threading.BoundedSemaphore(config.max_concurrency)
+        self.admission_backend = admission_backend or _proxy_admission_backend(config)
         super().__init__(server_address, handler_class)
 
 

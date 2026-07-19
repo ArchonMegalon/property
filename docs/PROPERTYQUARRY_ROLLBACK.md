@@ -32,8 +32,9 @@ container names, and Cloudflare disabled. Use a disposable restore of the
 production backup for compatibility checks. Do not point the candidate at the
 production database and do not run production migrations from the checkout.
 
-Retain target health, version, authentication, scheduler, SLO, monitoring, and
-Gold evidence. Release control binds those artifacts, the current/target
+Retain target health, version, authentication, durable-worker heartbeat,
+scheduler, SLO, monitoring, and Gold evidence. Release control binds those
+artifacts, the current/target
 identities, server-derived database identity, current schema epoch, route,
 nonce, and expiry into one signed rollback authorization.
 
@@ -66,7 +67,8 @@ before parsing candidate command selectors or importing any candidate
 controller helper. It is not an execution proxy. The independently installed
 controller verifies the signature and complete
 binding, acquires `/var/lock/propertyquarry/deploy-controller.lock`, reconciles
-the external append-only journal, contains ingress and writers, reconciles the
+the external append-only journal, contains ingress and the pinned API, worker,
+scheduler, and migrator writer set, reconciles the
 durable database fence, proves forward-schema compatibility, performs the
 traffic decision, verifies the target, and advances the external monotonic
 seal. Controller rejection has no local fallback.

@@ -212,6 +212,7 @@ RUN printf '%s  %s\n' \
     rm -f /tmp/libglib2.0-0t64_2.84.4-3~deb13u3+pq1_amd64.deb
 
 RUN mkdir -p \
+        /app/ea/app/services \
         /app/scripts \
         /app/vendor \
         /data/public_property_tours \
@@ -223,6 +224,10 @@ COPY scripts/property_tour_runtime_paths.py /app/scripts/property_tour_runtime_p
 COPY scripts/propertyquarry_playwright_runtime.py /app/scripts/propertyquarry_playwright_runtime.py
 COPY scripts/generate_property_reconstruction.py /app/scripts/generate_property_reconstruction.py
 COPY scripts/property_reconstruction_render_bridge.py /app/scripts/property_reconstruction_render_bridge.py
+COPY --chmod=0444 ea/app/__init__.py /app/ea/app/__init__.py
+COPY --chmod=0444 ea/app/observability.py /app/ea/app/observability.py
+COPY --chmod=0444 ea/app/services/__init__.py /app/ea/app/services/__init__.py
+COPY --chmod=0444 ea/app/services/admission_control.py /app/ea/app/services/admission_control.py
 COPY vendor/three /app/vendor/three
 COPY --chmod=0555 ea/property_render_entrypoint.py /usr/local/libexec/property_render_entrypoint.py
 COPY --chmod=0555 ea/property_render_elf_validator.py /usr/local/libexec/property_render_elf_validator.py
@@ -235,7 +240,11 @@ RUN chown -R 10001:10001 /data /home/ea && \
         /app/scripts/generate_property_reconstruction.py \
         /app/scripts/property_reconstruction_render_bridge.py \
         /app/scripts/property_tour_runtime_paths.py \
-        /app/scripts/propertyquarry_playwright_runtime.py && \
+        /app/scripts/propertyquarry_playwright_runtime.py \
+        /app/ea/app/__init__.py \
+        /app/ea/app/observability.py \
+        /app/ea/app/services/__init__.py \
+        /app/ea/app/services/admission_control.py && \
     python -I -S -c 'import os, stat; from pathlib import Path; root=Path("/app/vendor/three"); entries=[Path(directory) / name for directory, directories, files in os.walk(root, followlinks=False) for name in (*directories, *files)]; invalid=[str(path) for path in entries if not (stat.S_ISDIR(path.lstat().st_mode) or stat.S_ISREG(path.lstat().st_mode))]; assert not invalid, invalid' && \
     chmod -R a=rX /app/vendor/three && \
     chmod -R a=rX \

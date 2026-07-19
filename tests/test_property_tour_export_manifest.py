@@ -14,6 +14,10 @@ from scripts.materialize_property_tour_export_manifest import (
     build_export_manifest,
     prepare_export_drop_dirs,
 )
+from scripts.property_tour_3dvista_provenance import (
+    THREE_D_VISTA_TARGET_PROVENANCE_SCHEMA,
+    sha256_text,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -185,14 +189,58 @@ def test_materialize_property_tour_export_manifest_prioritizes_ready_tour_gaps(t
     tour_root = tmp_path / "public_tours"
     incoming_root = tmp_path / "incoming"
     _write_base_tour(tour_root, "blocked-needs-exports")
-    ready_bundle = tour_root / "matterport-ready"
+    slug = "3dvista-ready"
+    provider_url = "https://example.3dvista.com/tours/READY3D/index.html"
+    ready_bundle = tour_root / slug
     ready_bundle.mkdir(parents=True)
     (ready_bundle / "tour.json").write_text(
         json.dumps(
             {
-                "slug": "matterport-ready",
-                "display_title": "Matterport Ready",
-                "matterport_url": "https://my.matterport.com/show/?m=READY123",
+                "slug": slug,
+                "display_title": "3DVista Ready",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (ready_bundle / "tour.private.json").write_text(
+        json.dumps(
+            {
+                "three_d_vista_url": provider_url,
+                "three_d_vista_white_label_proof": {
+                    "source_project": "propertyquarry",
+                    "private_viewer_verified": True,
+                    "non_trial_export_verified": True,
+                    "propertyquarry_tour_metadata": True,
+                    "trial_branding_checked": True,
+                    "trial_branding_present": False,
+                },
+                "three_d_vista_browser_render_proof": {
+                    "provider": "3dvista",
+                    "status": "pass",
+                    "rendered_viewer": True,
+                },
+                "three_d_vista_target_provenance": {
+                    "schema": THREE_D_VISTA_TARGET_PROVENANCE_SCHEMA,
+                    "status": "pass",
+                    "provider": "3dvista",
+                    "target_slug": slug,
+                    "artifact": {
+                        "kind": "hosted_url",
+                        "sha256": sha256_text(provider_url),
+                        "entry_relpath": "",
+                    },
+                    "authorization": {
+                        "status": "approved",
+                        "reference": f"fixture-authorization:{slug}",
+                    },
+                    "review": {
+                        "property_match": "pass",
+                        "visual_match": "pass",
+                        "reviewed_by": "propertyquarry-test-reviewer",
+                        "reviewed_at": "2026-07-14T00:00:00+00:00",
+                    },
+                    "target_subdir": "",
+                },
             }
         ),
         encoding="utf-8",
@@ -202,9 +250,12 @@ def test_materialize_property_tour_export_manifest_prioritizes_ready_tour_gaps(t
 
     assert manifest["status"] == "waiting_for_verified_assets"
     assert manifest["import_count"] == 4
-    assert {row["slug"] for row in manifest["imports"]} == {"matterport-ready"}
-    assert {row["current_control_providers"] for row in manifest["imports"]} == {"matterport"}
-    assert {row["title"] for row in manifest["imports"]} == {"Matterport Ready"}
+    imports = {row["provider"]: row for row in manifest["imports"]}
+    assert imports["3dvista"]["slug"] == "blocked-needs-exports"
+    ready_gap_providers = {"pano2vr", "krpano", "magicfit"}
+    assert {imports[provider]["slug"] for provider in ready_gap_providers} == {slug}
+    assert {imports[provider]["current_control_providers"] for provider in ready_gap_providers} == {"3dvista"}
+    assert {imports[provider]["title"] for provider in ready_gap_providers} == {"3DVista Ready"}
 
 
 def test_materialize_property_tour_export_manifest_prepares_drop_dir_readmes(tmp_path: Path) -> None:
@@ -228,9 +279,10 @@ def test_materialize_property_tour_export_manifest_prepares_drop_dir_readmes(tmp
         assert "Missing now:" in body
         assert "import_property_tour_exports.py" in body
         assert "Single-provider dry import example:" in body
-        assert "Public gold only requires customer-facing modes" in body
-        assert "matterport, 3dvista, and magicfit" in body
-        assert "Pano2VR and krpano stay optional/operator-only panorama lanes" in body
+        assert "Core Gold requires the verified first-party 3DVista customer tour" in body
+        assert "MagicFit is prepared here for the separate Advanced Visual Gold lane" in body
+        assert "exact receipt, playback, quota, privacy, and isolation evidence" in body
+        assert "Pano2VR is an optional/internal export lane" in body
         assert "matterport, 3dvista, krpano, and magicfit" not in body
         assert "matterport, 3dvista, pano2vr, krpano, and magicfit" not in body.lower()
         assert "Pano2VR is an optional/internal export lane" in body

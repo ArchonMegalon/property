@@ -1,16 +1,24 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from contextlib import contextmanager
+from contextvars import ContextVar, copy_context
 from dataclasses import dataclass
 import json
 import math
 import os
 from pathlib import Path
 import re
+import secrets
 import socket
 import threading
 import time
-from typing import Mapping
+from typing import Iterator, Mapping, Sequence
+
+from app.services.admission_control import (
+    ADMISSION_LEASE_ROW_LIMIT,
+    ADMISSION_QUOTA_ROW_LIMIT,
+)
 
 
 _LATENCY_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
@@ -38,6 +46,12 @@ _INGRESS_LABEL_RE = re.compile(r"[^a-z0-9_]+")
 _GIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 _IMAGE_DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _REPLICA_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+_TRACE_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+_SPAN_ID_RE = re.compile(r"^[0-9a-f]{16}$")
+_TRACE_FLAGS_RE = re.compile(r"^[0-9a-f]{2}$")
+_ZERO_TRACE_ID = "0" * 32
+_ZERO_SPAN_ID = "0" * 16
+_CORRELATION_ID_RE = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 
 
 def _label_value(value: str) -> str:
@@ -92,6 +106,186 @@ def runtime_build_identity(
     }
 
 
+@dataclass(frozen=True)
+class RuntimeTraceContext:
+    """A bounded W3C trace context used for logs and service boundaries.
+
+    This is propagation and correlation infrastructure, not proof that a trace
+    backend received a span.  The protected launch gate separately requires a
+    fresh query receipt from the configured observability authority.
+    """
+
+    trace_id: str
+    span_id: str
+    trace_flags: str
+    parent_span_id: str = ""
+    source: str = "generated"
+
+    @property
+    def traceparent(self) -> str:
+        return f"00-{self.trace_id}-{self.span_id}-{self.trace_flags}"
+
+    def as_mapping(self) -> dict[str, str]:
+        return {
+            "traceparent": self.traceparent,
+            "trace_id": self.trace_id,
+            "span_id": self.span_id,
+            "parent_span_id": self.parent_span_id,
+            "trace_flags": self.trace_flags,
+            "source": self.source,
+        }
+
+
+_RUNTIME_TRACE_CONTEXT: ContextVar[RuntimeTraceContext | None] = ContextVar(
+    "propertyquarry_runtime_trace_context",
+    default=None,
+)
+_RUNTIME_CORRELATION_ID: ContextVar[str] = ContextVar(
+    "propertyquarry_runtime_correlation_id",
+    default="",
+)
+
+
+def _random_nonzero_hex(byte_count: int) -> str:
+    for _attempt in range(4):
+        candidate = secrets.token_hex(byte_count)
+        if candidate and set(candidate) != {"0"}:
+            return candidate
+    # A cryptographically secure generator returning all-zero bytes four times
+    # is not a usable tracing runtime. Fail rather than emit an invalid ID.
+    raise RuntimeError("propertyquarry_trace_identifier_generation_failed")
+
+
+def parse_traceparent(value: object) -> tuple[str, str, str] | None:
+    """Parse the supported W3C traceparent v00 shape, or return ``None``.
+
+    Invalid or unsupported caller input is ignored by the middleware and a new
+    local trace is created. It is never reflected or written to logs verbatim.
+    """
+
+    raw = str(value or "").strip()
+    if len(raw) != 55 or raw != raw.lower():
+        return None
+    parts = raw.split("-")
+    if len(parts) != 4 or parts[0] != "00":
+        return None
+    trace_id, parent_span_id, trace_flags = parts[1:]
+    if (
+        not _TRACE_ID_RE.fullmatch(trace_id)
+        or trace_id == _ZERO_TRACE_ID
+        or not _SPAN_ID_RE.fullmatch(parent_span_id)
+        or parent_span_id == _ZERO_SPAN_ID
+        or not _TRACE_FLAGS_RE.fullmatch(trace_flags)
+    ):
+        return None
+    return trace_id, parent_span_id, trace_flags
+
+
+def new_server_trace_context(traceparent: object = "") -> RuntimeTraceContext:
+    parsed = parse_traceparent(traceparent)
+    if parsed is None:
+        return RuntimeTraceContext(
+            trace_id=_random_nonzero_hex(16),
+            span_id=_random_nonzero_hex(8),
+            trace_flags="00",
+            source="generated",
+        )
+    trace_id, parent_span_id, trace_flags = parsed
+    return RuntimeTraceContext(
+        trace_id=trace_id,
+        span_id=_random_nonzero_hex(8),
+        parent_span_id=parent_span_id,
+        trace_flags=trace_flags,
+        source="incoming",
+    )
+
+
+def child_trace_context(parent: RuntimeTraceContext) -> RuntimeTraceContext:
+    return RuntimeTraceContext(
+        trace_id=parent.trace_id,
+        span_id=_random_nonzero_hex(8),
+        parent_span_id=parent.span_id,
+        trace_flags=parent.trace_flags,
+        source="internal",
+    )
+
+
+def runtime_trace_context_from_mapping(value: object) -> RuntimeTraceContext | None:
+    if not isinstance(value, dict):
+        return None
+    parsed = parse_traceparent(value.get("traceparent"))
+    if parsed is None:
+        return None
+    trace_id, span_id, trace_flags = parsed
+    if value.get("trace_id") not in {None, trace_id}:
+        return None
+    if value.get("span_id") not in {None, span_id}:
+        return None
+    return RuntimeTraceContext(
+        trace_id=trace_id,
+        span_id=span_id,
+        trace_flags=trace_flags,
+        parent_span_id=(
+            str(value.get("parent_span_id") or "")
+            if _SPAN_ID_RE.fullmatch(str(value.get("parent_span_id") or ""))
+            else ""
+        ),
+        source="boundary",
+    )
+
+
+@contextmanager
+def bind_runtime_trace_context(
+    trace_context: RuntimeTraceContext | None,
+    *,
+    correlation_id: str = "",
+) -> Iterator[RuntimeTraceContext | None]:
+    trace_token = _RUNTIME_TRACE_CONTEXT.set(trace_context)
+    normalized_correlation = bounded_correlation_id(correlation_id, generate=False)
+    correlation_token = _RUNTIME_CORRELATION_ID.set(normalized_correlation)
+    try:
+        yield trace_context
+    finally:
+        _RUNTIME_CORRELATION_ID.reset(correlation_token)
+        _RUNTIME_TRACE_CONTEXT.reset(trace_token)
+
+
+def current_runtime_trace_context() -> RuntimeTraceContext | None:
+    return _RUNTIME_TRACE_CONTEXT.get()
+
+
+def bounded_correlation_id(value: object, *, generate: bool = True) -> str:
+    normalized = str(value or "").strip()
+    if _CORRELATION_ID_RE.fullmatch(normalized):
+        return normalized
+    return _random_nonzero_hex(16) if generate else ""
+
+
+def outbound_observability_headers(
+    *,
+    correlation_id: str = "",
+    trace_context: RuntimeTraceContext | None = None,
+) -> dict[str, str]:
+    context = trace_context or current_runtime_trace_context()
+    headers: dict[str, str] = {}
+    if context is not None:
+        headers["traceparent"] = context.traceparent
+    normalized_correlation = bounded_correlation_id(
+        correlation_id or _RUNTIME_CORRELATION_ID.get(),
+        generate=False,
+    )
+    if normalized_correlation:
+        headers["x-correlation-id"] = normalized_correlation
+    return headers
+
+
+def submit_with_runtime_context(executor, function, /, *args, **kwargs):  # type: ignore[no-untyped-def]
+    """Submit thread work with an isolated copy of the current trace context."""
+
+    context = copy_context()
+    return executor.submit(context.run, function, *args, **kwargs)
+
+
 class RuntimeMetrics:
     """Small bounded-label Prometheus registry for one API process."""
 
@@ -105,6 +299,7 @@ class RuntimeMetrics:
         self._ingress_rejections: dict[tuple[str, str], int] = defaultdict(int)
         self._ingress_cost: dict[str, int] = defaultdict(int)
         self._ingress_inflight: dict[str, int] = defaultdict(int)
+        self._ingress_admission: dict[tuple[str, str, str], int] = defaultdict(int)
         self._content_ledger_events: dict[str, int] = defaultdict(int)
 
     def record_request(
@@ -149,6 +344,19 @@ class RuntimeMetrics:
             updated = self._ingress_inflight.get(safe_route_class, 0) + int(delta or 0)
             self._ingress_inflight[safe_route_class] = max(0, updated)
 
+    def record_ingress_admission(
+        self,
+        *,
+        backend: str,
+        operation: str,
+        outcome: str,
+    ) -> None:
+        safe_backend = _ingress_label(backend, fallback="unknown")
+        safe_operation = _ingress_label(operation, fallback="unknown")
+        safe_outcome = _ingress_label(outcome, fallback="unknown")
+        with self._lock:
+            self._ingress_admission[(safe_backend, safe_operation, safe_outcome)] += 1
+
     def record_content_ledger_event(self, *, outcome: str) -> None:
         safe_outcome = _ingress_label(outcome, fallback="failed")
         if safe_outcome not in _CONTENT_LEDGER_METRIC_OUTCOMES:
@@ -160,6 +368,9 @@ class RuntimeMetrics:
         self,
         *,
         readiness_ready: bool,
+        admission_backend: str = "unknown",
+        admission_capacity_rows: Sequence[tuple[str, int, int]] = (),
+        admission_capacity_valid: bool = False,
         environ: Mapping[str, str] | None = None,
         now_epoch: float | None = None,
     ) -> str:
@@ -172,6 +383,7 @@ class RuntimeMetrics:
             ingress_rejections = dict(self._ingress_rejections)
             ingress_cost = dict(self._ingress_cost)
             ingress_inflight = dict(self._ingress_inflight)
+            ingress_admission = dict(self._ingress_admission)
             content_ledger_events = dict(self._content_ledger_events)
 
         lines = [
@@ -253,6 +465,99 @@ class RuntimeMetrics:
             lines.append(
                 'propertyquarry_ingress_high_cost_inflight{route_class="%s"} %d'
                 % (_label_value(route_class), count)
+            )
+        lines.extend(
+            [
+                "# HELP propertyquarry_ingress_admission_operations_total Distributed admission backend outcomes.",
+                "# TYPE propertyquarry_ingress_admission_operations_total counter",
+            ]
+        )
+        for (backend, operation, outcome), count in sorted(ingress_admission.items()):
+            lines.append(
+                'propertyquarry_ingress_admission_operations_total{backend="%s",operation="%s",outcome="%s"} %d'
+                % (
+                    _label_value(backend),
+                    _label_value(operation),
+                    _label_value(outcome),
+                    count,
+                )
+            )
+
+        safe_capacity_backend = _ingress_label(
+            admission_backend,
+            fallback="unknown",
+        )
+        capacity_rows: list[tuple[str, int, int]] = []
+        for row in admission_capacity_rows:
+            if len(row) != 3:
+                continue
+            capacity_key, row_count, row_limit = row
+            safe_capacity_key = _ingress_label(
+                capacity_key,
+                fallback="unknown",
+            )
+            if (
+                safe_capacity_key not in {"lease", "quota"}
+                or type(row_count) is not int
+                or type(row_limit) is not int
+                or row_count < 0
+                or row_limit < 1
+                or row_count > row_limit
+            ):
+                continue
+            capacity_rows.append((safe_capacity_key, row_count, row_limit))
+        expected_capacity_limits = {
+            "lease": ADMISSION_LEASE_ROW_LIMIT,
+            "quota": ADMISSION_QUOTA_ROW_LIMIT,
+        }
+        capacity_contract_valid = (
+            admission_capacity_valid
+            and safe_capacity_backend == "postgres"
+            and len(capacity_rows) == 2
+            and {
+                capacity_key: row_limit
+                for capacity_key, _row_count, row_limit in capacity_rows
+            }
+            == expected_capacity_limits
+        )
+        if not capacity_contract_valid:
+            capacity_rows = []
+        lines.extend(
+            [
+                "# HELP propertyquarry_admission_capacity_contract_valid Whether the shared PostgreSQL v17 capacity contract was read and validated.",
+                "# TYPE propertyquarry_admission_capacity_contract_valid gauge",
+                'propertyquarry_admission_capacity_contract_valid{backend="%s"} %d'
+                % (
+                    _label_value(safe_capacity_backend),
+                    1 if capacity_contract_valid else 0,
+                ),
+                "# HELP propertyquarry_admission_capacity_row_count Rows charged to a bounded admission capacity key.",
+                "# TYPE propertyquarry_admission_capacity_row_count gauge",
+            ]
+        )
+        for capacity_key, row_count, _row_limit in sorted(capacity_rows):
+            lines.append(
+                'propertyquarry_admission_capacity_row_count{backend="%s",capacity_key="%s"} %d'
+                % (
+                    _label_value(safe_capacity_backend),
+                    _label_value(capacity_key),
+                    row_count,
+                )
+            )
+        lines.extend(
+            [
+                "# HELP propertyquarry_admission_capacity_limit Hard row limit for a bounded admission capacity key.",
+                "# TYPE propertyquarry_admission_capacity_limit gauge",
+            ]
+        )
+        for capacity_key, _row_count, row_limit in sorted(capacity_rows):
+            lines.append(
+                'propertyquarry_admission_capacity_limit{backend="%s",capacity_key="%s"} %d'
+                % (
+                    _label_value(safe_capacity_backend),
+                    _label_value(capacity_key),
+                    row_limit,
+                )
             )
 
         lines.extend(
@@ -361,6 +666,35 @@ class RuntimeMetrics:
                 'propertyquarry_scheduler_delivery_outbox_events_total{outcome="%s"} %d'
                 % (_label_value(outcome), max(0, int(delivery_totals.get(outcome, 0))))
             )
+        worker_sample = next(sample for sample in samples if sample.role == "worker")
+        lines.extend(
+            [
+                "# HELP propertyquarry_queue_depth Active durable work items in a bounded queue.",
+                "# TYPE propertyquarry_queue_depth gauge",
+                "# HELP propertyquarry_queue_oldest_item_age_seconds Age of the oldest active durable work item.",
+                "# TYPE propertyquarry_queue_oldest_item_age_seconds gauge",
+            ]
+        )
+        if (
+            not worker_sample.stale
+            and worker_sample.property_search_queue_depth is not None
+            and worker_sample.property_search_queue_oldest_item_age_seconds is not None
+        ):
+            lines.extend(
+                [
+                    'propertyquarry_queue_depth{queue="property_search"} %d'
+                    % worker_sample.property_search_queue_depth,
+                    'propertyquarry_queue_oldest_item_age_seconds{queue="property_search"} %s'
+                    % _metric_float(
+                        (
+                            worker_sample.property_search_queue_oldest_item_age_seconds
+                            + worker_sample.age_seconds
+                            if worker_sample.property_search_queue_depth > 0
+                            else 0.0
+                        )
+                    ),
+                ]
+            )
         return "\n".join(lines) + "\n"
 
 
@@ -380,6 +714,8 @@ class HeartbeatSample:
     age_seconds: float
     stale: bool
     delivery_outbox_totals: tuple[tuple[str, int], ...] = ()
+    property_search_queue_depth: int | None = None
+    property_search_queue_oldest_item_age_seconds: float | None = None
 
 
 def _positive_float(raw: str, default: float) -> float:
@@ -440,10 +776,31 @@ def _heartbeat_sample(role: str, environ: Mapping[str, str], now_epoch: float) -
             except (TypeError, ValueError):
                 value = 0
             delivery_totals.append((outcome, value))
+    queue_depth: int | None = None
+    queue_oldest_age: float | None = None
+    raw_queue = payload.get("property_search_work_queue")
+    if (
+        normalized_role == "worker"
+        and isinstance(raw_queue, dict)
+        and raw_queue.get("observed") is True
+    ):
+        raw_depth = raw_queue.get("depth")
+        raw_oldest_age = raw_queue.get("oldest_item_age_seconds")
+        if type(raw_depth) is int and 0 <= raw_depth <= 2**63 - 1:
+            if (
+                isinstance(raw_oldest_age, (int, float))
+                and not isinstance(raw_oldest_age, bool)
+                and math.isfinite(float(raw_oldest_age))
+                and 0 <= float(raw_oldest_age) <= 10 * 365 * 24 * 60 * 60
+            ):
+                queue_depth = raw_depth
+                queue_oldest_age = float(raw_oldest_age)
     return HeartbeatSample(
         normalized_role,
         True,
         age,
         age > max_age,
         tuple(delivery_totals),
+        queue_depth,
+        queue_oldest_age,
     )

@@ -1,10 +1,85 @@
 {
   "product": "propertyquarry",
   "surface": "propertyquarry_flagship_release_control",
-  "version": 1,
+  "version": 2,
   "truth_plane": {
     "source": ".codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md",
     "legacy_history": "MILESTONE.json"
+  },
+  "global_launch_contract": {
+    "schema": "propertyquarry.global_flagship_goal.v1",
+    "claim": "global_grade_with_explicit_market_envelope",
+    "universal_market_claim": false,
+    "terminal_profile": "launch",
+    "terminal_claim_scope": "core",
+    "terminal_command": "/usr/libexec/propertyquarry/propertyquarry-global-launch-terminal --manifest /run/propertyquarry/release-evidence/global-launch-core-manifest.v1.json",
+    "terminal_manifest_schema": "propertyquarry.global_launch_terminal_manifest.v1",
+    "terminal_manifest_path": "/run/propertyquarry/release-evidence/global-launch-core-manifest.v1.json",
+    "terminal_result_schema": "propertyquarry.global_launch_terminal_result.v1",
+    "terminal_installed_bundle_schema": "propertyquarry.global_launch_terminal_bundle.v1",
+    "terminal_requires_signed_invocation_contract": true,
+    "terminal_required_authorities": [
+      "release_preflight",
+      "disaster_recovery",
+      "capacity",
+      "observability_operations",
+      "controller_attestation"
+    ],
+    "terminal_required_governance_receipts": [
+      "global_market_envelope",
+      "incident_support",
+      "global_experience",
+      "jurisdiction_privacy_rights"
+    ],
+    "required_browser_engines": [
+      "chromium",
+      "firefox",
+      "webkit"
+    ],
+    "required_evidence_levels": [
+      "source_contract",
+      "candidate_proof",
+      "production_like_proof",
+      "protected_live_proof"
+    ],
+    "required_domains": [
+      "exact_release_identity_and_provenance",
+      "complete_customer_value_loop",
+      "supported_market_and_locale_envelope",
+      "wcag_2_2_aa_accessibility",
+      "performance_and_network_resilience",
+      "privacy_security_and_regional_controls",
+      "reliability_capacity_and_operations",
+      "protected_live_launch_authority"
+    ],
+    "accessibility_standard": "WCAG 2.2 Level AA",
+    "performance_field_thresholds": {
+      "lcp_p75_ms_max": 2500,
+      "inp_p75_ms_max": 200,
+      "cls_p75_max": 0.1
+    },
+    "market_envelope": {
+      "authority": "_completion/property_global_market_envelope/release-gate.json",
+      "required_status_for_launch": "pass",
+      "only_full_e2e_markets_are_launch_supported": true,
+      "required_dimensions": [
+        "country_code",
+        "ui_locales",
+        "content_languages",
+        "currencies",
+        "measurement_system",
+        "timezone_policy",
+        "address_model",
+        "provider_set",
+        "listing_modes",
+        "privacy_region",
+        "support_window"
+      ]
+    },
+    "core_advanced_visual_separation": {
+      "core_must_not_require_paid_advanced_visuals": true,
+      "advanced_visual_claim_requires_additive_live_binding": true
+    }
   },
   "release_claim": {
     "summary": "The standalone PropertyQuarry surface can only claim flagship-grade release truth when its browser workflow proof and release asset verification agree with this gate seed.",
@@ -13,6 +88,11 @@
       "source-backed browser proof renders the standalone PropertyQuarry search, shortlist, research, and failed-run surfaces",
       "real browser E2E opens ranked PropertyQuarry results and candidate research packets on desktop",
       "real browser E2E proves the standalone PropertyQuarry decision workbench remains usable on mobile",
+      "a versioned market envelope proves every claimed country, locale, currency, timezone, provider set, listing mode, privacy region, and support window end to end",
+      "candidate-bound Chromium, Firefox, and WebKit evidence plus manual assistive-technology review supports WCAG 2.2 Level AA",
+      "candidate and protected live evidence meet the governed performance, privacy, security, reliability, capacity, observability, backup, rollback, incident, and support controls",
+      "Core Gold remains launchable without optional paid advanced visuals, whose claims require a separate additive live binding",
+      "the exact committed SHA and immutable image pass protected launch Gold from raw live evidence",
       "release asset verification knows the EA flagship truth plane, the EA product surface canon, and the gate seed",
       "release checklists cite the EA truth plane and the EA product surface canon instead of using MILESTONE green as the oracle"
     ]

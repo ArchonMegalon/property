@@ -37,13 +37,23 @@ tests:
         values: '1+0x40'
       - series: 'propertyquarry_runtime_heartbeat_stale{role="scheduler"}'
         values: '1+0x40'
+      - series: 'propertyquarry_admission_capacity_contract_valid{backend="postgres",job="propertyquarry",instance="api-a:8090"}'
+        values: '0+0x40'
+      - series: 'propertyquarry_admission_capacity_row_count{backend="postgres",capacity_key="lease"}'
+        values: '85000+0x40'
+      - series: 'propertyquarry_admission_capacity_limit{backend="postgres",capacity_key="lease"}'
+        values: '100000+0x40'
+      - series: 'propertyquarry_admission_capacity_row_count{backend="postgres",capacity_key="quota"}'
+        values: '960000+0x40'
+      - series: 'propertyquarry_admission_capacity_limit{backend="postgres",capacity_key="quota"}'
+        values: '1000000+0x40'
       - series: 'propertyquarry_db_pool_in_use'
         values: '99+0x40'
       - series: 'propertyquarry_db_pool_capacity'
         values: '100+0x40'
-      - series: 'propertyquarry_queue_depth'
+      - series: 'propertyquarry_queue_depth{queue="property_search"}'
         values: '600+0x40'
-      - series: 'propertyquarry_queue_oldest_item_age_seconds'
+      - series: 'propertyquarry_queue_oldest_item_age_seconds{queue="property_search"}'
         values: '1000+0x40'
       - series: 'propertyquarry_http_request_errors_total{route="/providers/quota",status_class="5xx"}'
         values: '0+1x40'
@@ -98,6 +108,18 @@ tests:
           - exp_labels: {role: scheduler, service: propertyquarry, severity: critical, slo: runtime_heartbeat}
           - exp_labels: {role: worker, service: propertyquarry, severity: critical, slo: runtime_heartbeat}
       - eval_time: 35m
+        alertname: PropertyQuarryAdmissionCapacityContractInvalid
+        exp_alerts:
+          - exp_labels: {backend: postgres, instance: "api-a:8090", job: propertyquarry, service: propertyquarry, severity: critical, slo: admission_capacity}
+      - eval_time: 35m
+        alertname: PropertyQuarryAdmissionCapacityWarning
+        exp_alerts:
+          - exp_labels: {capacity_key: lease, service: propertyquarry, severity: warning, slo: admission_capacity}
+      - eval_time: 35m
+        alertname: PropertyQuarryAdmissionCapacityCritical
+        exp_alerts:
+          - exp_labels: {capacity_key: quota, service: propertyquarry, severity: critical, slo: admission_capacity}
+      - eval_time: 35m
         alertname: PropertyQuarryDatabasePoolSaturation
         exp_alerts:
           - exp_labels: {service: propertyquarry, severity: warning, slo: database_saturation}
@@ -108,11 +130,11 @@ tests:
       - eval_time: 35m
         alertname: PropertyQuarryQueueDepthHigh
         exp_alerts:
-          - exp_labels: {service: propertyquarry, severity: warning, slo: queue_backlog}
+          - exp_labels: {queue: property_search, service: propertyquarry, severity: warning, slo: queue_backlog}
       - eval_time: 35m
         alertname: PropertyQuarryQueueOldestItemStale
         exp_alerts:
-          - exp_labels: {service: propertyquarry, severity: critical, slo: queue_backlog}
+          - exp_labels: {queue: property_search, service: propertyquarry, severity: critical, slo: queue_backlog}
       - eval_time: 35m
         alertname: PropertyQuarryProviderOrQuotaFailures
         exp_alerts:
@@ -150,6 +172,26 @@ tests:
         alertname: PropertyQuarryMetricsMissing
         exp_alerts:
           - exp_labels: {service: propertyquarry, severity: critical, slo: telemetry}
+
+  - name: missing-property-search-queue-telemetry-is-injectable
+    interval: 1m
+    input_series: []
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: PropertyQuarryQueueTelemetryMissing
+        exp_alerts:
+          - exp_labels: {queue: property_search, service: propertyquarry, severity: critical, slo: queue_backlog}
+
+  - name: missing-admission-capacity-telemetry-is-injectable
+    interval: 1m
+    input_series:
+      - series: 'up{job="propertyquarry",instance="api-a:8090"}'
+        values: '1+0x10'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: PropertyQuarryAdmissionCapacityTelemetryMissing
+        exp_alerts:
+          - exp_labels: {instance: "api-a:8090", job: propertyquarry, service: propertyquarry, severity: critical, slo: admission_capacity}
 
   - name: invalid-expected-replica-configuration-is-injectable
     interval: 1m

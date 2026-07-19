@@ -39,6 +39,16 @@ required_files=(
   "MILESTONE.json"
   "RELEASE_CHECKLIST.md"
   "docs/PROPERTYQUARRY_IMAGE_PUBLICATION.md"
+  "docs/PROPERTYQUARRY_GLOBAL_FLAGSHIP_GOAL.md"
+  "docs/PROPERTYQUARRY_GLOBAL_LAUNCH_TERMINAL_INSTALL.md"
+  "docs/propertyquarry_global_market_envelope.v1.json"
+  "docs/PROPERTYQUARRY_INCIDENT_AND_SUPPORT_OPERATIONS.md"
+  "config/monitoring/propertyquarry_incident_support.v1.json"
+  "docs/PROPERTYQUARRY_GLOBAL_EXPERIENCE_EVIDENCE.md"
+  "config/monitoring/propertyquarry_global_experience.v1.json"
+  "config/monitoring/propertyquarry_flagship_operations.v1.json"
+  "docs/PROPERTYQUARRY_JURISDICTION_PRIVACY_AND_PROVIDER_RIGHTS.md"
+  "config/compliance/propertyquarry_jurisdiction_privacy_rights.v1.json"
   ".codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md"
   ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json"
   ".codex-design/repo/IMPLEMENTATION_SCOPE.md"
@@ -71,6 +81,15 @@ required_files=(
   "scripts/resolve_onemin_ai_key.sh"
   "scripts/resolve_browseract_key.sh"
   "scripts/materialize_ea_flagship_release_gate.py"
+  "scripts/propertyquarry_global_market_envelope.py"
+  "scripts/propertyquarry_incident_support_gate.py"
+  "scripts/propertyquarry_global_experience_gate.py"
+  "scripts/propertyquarry_jurisdiction_privacy_rights_gate.py"
+  "scripts/build_propertyquarry_global_launch_terminal_bundle.py"
+  "scripts/propertyquarry_global_launch_terminal.py"
+  "scripts/propertyquarry_gold_status.py"
+  "scripts/verify_propertyquarry_global_governance_assets.py"
+  "packaging/propertyquarry-global-launch-terminal/global-launch-terminal-bundle.v1.schema.json"
   "scripts/materialize_ea_browser_workflow_proof.py"
   "scripts/materialize_weekly_product_pulse.py"
   "scripts/verify_generated_release_artifacts_clean.py"
@@ -123,6 +142,13 @@ if [[ -f "${f}" ]]; then
   fi
 done
 
+if python3 scripts/verify_propertyquarry_global_governance_assets.py; then
+  echo "ok: PropertyQuarry global-governance release assets and fail-closed semantics"
+else
+  echo "missing: PropertyQuarry global-governance release assets or fail-closed semantics" >&2
+  missing=1
+fi
+
 if python3 scripts/verify_design_mirror_bundle.py >/tmp/ea_design_mirror_verify.out 2>/tmp/ea_design_mirror_verify.err; then
   echo "ok: bounded design mirror bundle parity"
 else
@@ -148,14 +174,19 @@ from pathlib import Path
 
 from scripts.materialize_ea_flagship_release_gate import browser_receipt_pass_blockers
 from scripts.propertyquarry_release_proof_baseline import (
+    GLOBAL_LAUNCH_MARKET_ENVELOPE_AUTHORITY,
+    GLOBAL_LAUNCH_TERMINAL_COMMAND,
     approved_baseline_binding,
+    approved_global_launch_contract_blockers,
     approved_seed_baseline_blockers,
 )
 
 gate = json.loads(Path(".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json").read_text(encoding="utf-8"))
 assert gate["product"] == "propertyquarry"
 assert gate["surface"] == "propertyquarry_flagship_release_control"
+assert gate["version"] == 2
 assert not approved_seed_baseline_blockers(gate)
+assert not approved_global_launch_contract_blockers(gate["global_launch_contract"])
 evidence_sources = gate["browser_workflow_proof"]["evidence_sources"]
 browser_sources = {entry["file"]: set(entry["cases"]) for entry in evidence_sources}
 assert len(browser_sources) == len(evidence_sources)
@@ -211,7 +242,15 @@ assert flagship_receipt["live_readiness"] == {
     "authority": "_completion/property_gold_status/release-gate.json",
     "required_profile": "launch",
 }
+assert flagship_receipt["global_launch_contract"] == gate["global_launch_contract"]
+assert flagship_receipt["global_launch_readiness"] == {
+    "status": "not_evaluated",
+    "market_envelope_authority": GLOBAL_LAUNCH_MARKET_ENVELOPE_AUTHORITY,
+    "terminal_command": GLOBAL_LAUNCH_TERMINAL_COMMAND,
+    "source_browser_checkpoint_is_sufficient": False,
+}
 assert "final live readiness is not evaluated" in flagship_receipt["operator_summary"].lower()
+assert "does not establish global launch authority" in flagship_receipt["operator_summary"].lower()
 assert flagship_receipt["browser_workflow_proof"]["proof_target"] == gate["browser_workflow_proof"]["proof_target"]
 if flagship_receipt["status"] == "pass":
     assert browser_receipt["status"] == "pass", (

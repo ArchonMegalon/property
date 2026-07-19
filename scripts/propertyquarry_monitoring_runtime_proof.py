@@ -49,6 +49,9 @@ DEFAULT_PROMETHEUS_CONFIG_PATH = MONITORING_ROOT / "propertyquarry_prometheus.v1
 DEFAULT_ALERTMANAGER_CONFIG_PATH = MONITORING_ROOT / "propertyquarry_alertmanager.v1.yml"
 DEFAULT_ALERT_RULES_PATH = MONITORING_ROOT / "propertyquarry_alert_rules.v1.yml"
 DEFAULT_ALERT_RULE_TESTS_PATH = MONITORING_ROOT / "propertyquarry_alert_rule_tests.v1.yml"
+DEFAULT_FLAGSHIP_OPERATIONS_PATH = (
+    MONITORING_ROOT / "propertyquarry_flagship_operations.v1.json"
+)
 TOPOLOGY_SCHEMA = "propertyquarry.monitoring-topology.v1"
 TOOL_SCHEMA = "propertyquarry.monitoring-tools.v1"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -1237,6 +1240,7 @@ class ProofConfig:
     alertmanager_config_path: Path = DEFAULT_ALERTMANAGER_CONFIG_PATH
     alert_rules_path: Path = DEFAULT_ALERT_RULES_PATH
     alert_rule_tests_path: Path = DEFAULT_ALERT_RULE_TESTS_PATH
+    flagship_operations_path: Path = DEFAULT_FLAGSHIP_OPERATIONS_PATH
     command_timeout_seconds: int = 120
     delivery_timeout_seconds: int = 60
     overwrite: bool = False
@@ -1259,6 +1263,7 @@ def _normalize_release(config: ProofConfig) -> tuple[str, str]:
         config.alertmanager_config_path: DEFAULT_ALERTMANAGER_CONFIG_PATH,
         config.alert_rules_path: DEFAULT_ALERT_RULES_PATH,
         config.alert_rule_tests_path: DEFAULT_ALERT_RULE_TESTS_PATH,
+        config.flagship_operations_path: DEFAULT_FLAGSHIP_OPERATIONS_PATH,
     }
     if any(
         selected.resolve() != canonical.resolve()
@@ -1386,6 +1391,9 @@ def run_monitoring_proof(
         "alertmanager_config_sha256": sha256_file(config.alertmanager_config_path),
         "alert_rules_sha256": sha256_file(config.alert_rules_path),
         "alert_rule_tests_sha256": sha256_file(config.alert_rule_tests_path),
+        "flagship_operations_sha256": sha256_file(
+            config.flagship_operations_path
+        ),
     }
     if runtime_policy_hashes != dict(challenge.policy_hashes):
         raise MonitoringProofError(

@@ -81,6 +81,7 @@ CANONICAL_POLICY_PATHS = {
     "alert_rule_tests_sha256": _CONFIG_ROOT / "propertyquarry_alert_rule_tests.v1.yml",
     "prometheus_config_sha256": _CONFIG_ROOT / "propertyquarry_prometheus.v1.yml",
     "alertmanager_config_sha256": _CONFIG_ROOT / "propertyquarry_alertmanager.v1.yml",
+    "flagship_operations_sha256": _CONFIG_ROOT / "propertyquarry_flagship_operations.v1.json",
 }
 MAX_SECURE_ARTIFACT_BYTES = 64 * 1024
 MAX_CHALLENGE_LIFETIME_SECONDS = 900

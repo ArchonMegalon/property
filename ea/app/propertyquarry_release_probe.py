@@ -10,6 +10,9 @@ from collections.abc import Iterable
 PROPERTYQUARRY_RELEASE_PROBE_TIMESTAMP_HEADER = "x-propertyquarry-release-probe-timestamp"
 PROPERTYQUARRY_RELEASE_PROBE_NONCE_HEADER = "x-propertyquarry-release-probe-nonce"
 PROPERTYQUARRY_RELEASE_PROBE_SIGNATURE_HEADER = "x-propertyquarry-release-probe-signature"
+PROPERTYQUARRY_RELEASE_PROBE_NONCE_SHA256_RESPONSE_HEADER = (
+    "x-propertyquarry-release-probe-nonce-sha256"
+)
 PROPERTYQUARRY_RELEASE_PROBE_AUDIENCE = "propertyquarry-release-probe-v1"
 
 PROPERTYQUARRY_RELEASE_PROBE_STATIC_PATHS = frozenset(

@@ -13,6 +13,8 @@ SMOKE_WORKFLOW_PATH = ROOT / ".github/workflows/smoke-runtime.yml"
 BOOTSTRAP_PATH = ROOT / "scripts/propertyquarry_security_runner_bootstrap.sh"
 PREFLIGHT_PATH = ROOT / "scripts/propertyquarry_security_runner_preflight.sh"
 RUNNER_LOCK_PATH = ROOT / "config/propertyquarry_security_runner_requirements.lock"
+README_PATH = ROOT / "README.md"
+RELEASE_CHECKLIST_PATH = ROOT / "RELEASE_CHECKLIST.md"
 
 
 def _sha256(path: Path) -> str:
@@ -87,8 +89,19 @@ def test_bootstrap_validates_exact_queued_job_before_any_repo_source_runs() -> N
         'index("propertyquarry-security")',
         "index($runner_label)",
         "^pqsec-[0-9a-f]{32}$",
+        '[[ "${SECURITY_RUNNER_LABEL}" == "${APPROVED_SECURITY_RUNNER_LABEL}" ]]',
     ):
         assert expected in validation
+
+    assert steps[0]["env"]["APPROVED_SECURITY_RUNNER_LABEL"] == (
+        "${{ vars.PROPERTYQUARRY_SECURITY_RUNNER_LABEL }}"
+    )
+    assert '--arg runner_label "${APPROVED_SECURITY_RUNNER_LABEL}"' in validation
+    assert (
+        'write_command_scalar "${GITHUB_ENV}" PQ_SECURITY_RUNNER_LABEL '
+        '"${APPROVED_SECURITY_RUNNER_LABEL}"'
+        in validation
+    )
 
     workflow_text = WORKFLOW_PATH.read_text(encoding="utf-8")
     assert "actions/checkout@" not in workflow_text
@@ -113,7 +126,7 @@ def test_registration_token_must_be_operator_minted_just_in_time() -> None:
 
 def test_downloaded_sources_are_bound_to_reviewed_hashes() -> None:
     workflow_text = WORKFLOW_PATH.read_text(encoding="utf-8")
-    assert _sha256(BOOTSTRAP_PATH) == "d408ec27b3f554775aa68a3b83c3c8584866d99d52ec92d1811fb20ee7582a8e"
+    assert _sha256(BOOTSTRAP_PATH) == "4ff51b7a86e5cef1007a46d9383e5233abd697fb2890e28aae933cd8e38452ea"
     assert _sha256(PREFLIGHT_PATH) == "1450cd2506ed02edd5445861678aa80da92f5535161cdfa569d34622311796e3"
     assert _sha256(RUNNER_LOCK_PATH) == "e968dda8c1dee309698cf05e42932f786397e954ac034c4f90a0be0db32844fd"
     for identity in (_sha256(BOOTSTRAP_PATH), _sha256(PREFLIGHT_PATH), _sha256(RUNNER_LOCK_PATH)):
@@ -317,10 +330,16 @@ def test_runner_lock_hashes_every_exact_dependency() -> None:
 def test_existing_flagship_security_job_remains_fixed_and_offline() -> None:
     smoke = SMOKE_WORKFLOW_PATH.read_text(encoding="utf-8")
     start = smoke.index("  propertyquarry-flagship-security:")
-    end = smoke.index("\n  smoke-runtime-api:", start)
+    end = smoke.index("\n  propertyquarry-security-bootstrap-attestation:", start)
     job = smoke[start:end]
-    assert 'runs-on: [self-hosted, propertyquarry-security, "${{ inputs.security_runner_label }}"]' in job
-    assert "PROPERTYQUARRY_SECURITY_RUNNER_LABEL: ${{ inputs.security_runner_label }}" in job
+    validated_label = (
+        "${{ needs['propertyquarry-protected-dispatch-inputs'].outputs."
+        "security_runner_label }}"
+    )
+    assert f'runs-on: [self-hosted, propertyquarry-security, "{validated_label}"]' in job
+    assert f"PROPERTYQUARRY_SECURITY_RUNNER_LABEL: {validated_label}" in job
+    assert 'runs-on: [self-hosted, propertyquarry-security, "${{ inputs.security_runner_label }}"]' not in job
+    assert "PROPERTYQUARRY_SECURITY_RUNNER_LABEL: ${{ inputs.security_runner_label }}" not in job
     assert "startsWith(inputs.security_runner_label, 'pqsec-')" in job
     assert "contents: read" in job
     assert "persist-credentials: false" in job
@@ -328,6 +347,52 @@ def test_existing_flagship_security_job_remains_fixed_and_offline() -> None:
     assert "pip install" not in job
     assert "docker pull" not in job
     assert "download-db-only" not in job
+
+
+def test_hosted_preflight_is_the_only_self_hosted_runner_label_authority() -> None:
+    payload = yaml.load(
+        SMOKE_WORKFLOW_PATH.read_text(encoding="utf-8"), Loader=yaml.BaseLoader
+    )
+    preflight = payload["jobs"]["propertyquarry-protected-dispatch-inputs"]
+    flagship = payload["jobs"]["propertyquarry-flagship-security"]
+    validated_label = (
+        "${{ needs['propertyquarry-protected-dispatch-inputs'].outputs."
+        "security_runner_label }}"
+    )
+
+    assert preflight["environment"] == {"name": "propertyquarry-production"}
+    assert preflight["outputs"] == {
+        "security_runner_label": "${{ steps.validate.outputs.security_runner_label }}",
+        "security_runner_token_expires_at": (
+            "${{ steps.validate.outputs.security_runner_token_expires_at }}"
+        ),
+    }
+    assert preflight["env"]["PROPERTYQUARRY_APPROVED_SECURITY_RUNNER_LABEL"] == (
+        "${{ vars.PROPERTYQUARRY_SECURITY_RUNNER_LABEL }}"
+    )
+    assert flagship["runs-on"] == [
+        "self-hosted",
+        "propertyquarry-security",
+        validated_label,
+    ]
+    assert flagship["env"]["PROPERTYQUARRY_SECURITY_RUNNER_LABEL"] == validated_label
+    assert "startsWith(inputs.security_runner_label, 'pqsec-')" in flagship["if"]
+
+
+def test_bootstrap_consumption_is_required_by_the_active_release_graph() -> None:
+    smoke = yaml.load(
+        SMOKE_WORKFLOW_PATH.read_text(encoding="utf-8"), Loader=yaml.BaseLoader
+    )
+    attestation = smoke["jobs"]["propertyquarry-security-bootstrap-attestation"]
+    release = smoke["jobs"]["propertyquarry-release-v2"]
+
+    assert attestation["runs-on"] == "ubuntu-24.04"
+    assert "propertyquarry-flagship-security" in attestation["needs"]
+    assert "propertyquarry-security-bootstrap-attestation" in release["needs"]
+    assert (
+        "needs['propertyquarry-security-bootstrap-attestation'].result == 'success'"
+        in release["if"]
+    )
 
 
 def test_evidence_upload_and_exact_consumption_check_are_mandatory() -> None:

@@ -66,6 +66,7 @@ from app.api.routes.product_api_contracts import (
 from app.api.routes.landing_property_research import _property_candidate_ref
 from app.api.routes.landing_view_models import _property_customer_candidate_summary
 from app.container import AppContainer
+from app.observability import runtime_trace_context_from_mapping
 from app.product.property_surface_state import (
     normalize_property_search_run_snapshot,
     property_run_customer_safe_status_detail,
@@ -821,7 +822,11 @@ def _start_property_search_run_payload(
     start_kwargs: dict[str, object] = {
         "principal_id": context.principal_id,
         "actor": actor,
-        "selected_platforms": sanitized_platforms,
+        # Preserve the explicit request for the service trust boundary. The
+        # route has already rejected unknown providers and uses the sanitized
+        # set for entitlement checks, while the service must see cross-country
+        # removals itself so its durable run receipt can record them honestly.
+        "selected_platforms": tuple(body.selected_platforms) or sanitized_platforms,
         "property_search_preferences": merged_preferences,
         "force_refresh": bool(body.force_refresh),
         "max_results_per_source": None,
@@ -835,6 +840,19 @@ def _start_property_search_run_payload(
     requested_idempotency_key = str(request.headers.get("Idempotency-Key") or "").strip()
     if requested_idempotency_key:
         start_kwargs["idempotency_key"] = requested_idempotency_key[:240]
+    request_trace = runtime_trace_context_from_mapping(
+        {
+            "traceparent": str(getattr(request.state, "traceparent", "") or ""),
+            "trace_id": str(getattr(request.state, "trace_id", "") or ""),
+            "span_id": str(getattr(request.state, "span_id", "") or ""),
+            "parent_span_id": str(getattr(request.state, "parent_span_id", "") or ""),
+        }
+    )
+    if request_trace is not None:
+        start_kwargs["trace_context"] = {
+            **request_trace.as_mapping(),
+            "correlation_id": str(getattr(request.state, "correlation_id", "") or ""),
+        }
     return service.start_property_search_run(
         **start_kwargs,
     )

@@ -89,6 +89,9 @@ from app.api.routes.landing_property_research import (
     _property_hosted_tour_disabled_fallback,
     _property_investment_research_rows,
     _property_lookup_candidate,
+    _property_market_currency_display,
+    _property_market_decimal_display,
+    _property_market_display_context,
     _property_missing_fact_items,
     _property_packet_decision_rows,
     _property_packet_everyday_fit_rows,
@@ -244,6 +247,55 @@ def _property_first_paint_value(loader: Callable[[], Any], fallback: Any) -> Any
 
 router = APIRouter(tags=["landing"])
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[2] / "templates"))
+
+_PROPERTYQUARRY_DEFAULT_UI_LOCALE = "en"
+_PROPERTYQUARRY_SUPPORTED_UI_LOCALES = (_PROPERTYQUARRY_DEFAULT_UI_LOCALE,)
+_PROPERTYQUARRY_RTL_UI_LOCALES: frozenset[str] = frozenset()
+
+
+def _propertyquarry_normalize_ui_locale(value: object) -> str:
+    normalized = str(value or "").strip().replace("_", "-").lower()
+    if not normalized or len(normalized) > 35:
+        return ""
+    if not re.fullmatch(r"[a-z]{2,3}(?:-[a-z0-9]{2,8})*", normalized):
+        return ""
+    return normalized
+
+
+def _propertyquarry_accept_language_tags(request: Request) -> list[str]:
+    tags: list[str] = []
+    for item in str(request.headers.get("accept-language") or "").split(","):
+        tag = _propertyquarry_normalize_ui_locale(item.split(";", 1)[0])
+        if tag and tag not in tags:
+            tags.append(tag)
+    return tags
+
+
+def _propertyquarry_ui_locale_context(request: Request) -> dict[str, object]:
+    """Resolve only locales whose complete UI copy is actually supported.
+
+    Market/content language is deliberately not treated as UI translation. Until
+    another locale is fully translated and added to the governed supported list,
+    the English interface remains labelled English even for DE/AT/CR searches.
+    """
+
+    explicit = _propertyquarry_normalize_ui_locale(request.query_params.get("ui_locale"))
+    cookie = _propertyquarry_normalize_ui_locale(request.cookies.get("propertyquarry_ui_locale"))
+    accepted = _propertyquarry_accept_language_tags(request)
+    requested = explicit or cookie or (accepted[0] if accepted else "")
+    candidates = [explicit] if explicit else ([cookie] if cookie else accepted)
+    selected = next(
+        (candidate for candidate in candidates if candidate in _PROPERTYQUARRY_SUPPORTED_UI_LOCALES),
+        _PROPERTYQUARRY_DEFAULT_UI_LOCALE,
+    )
+    return {
+        "ui_locale": selected,
+        "ui_locale_requested": requested,
+        "ui_locale_fallback": bool(requested and requested != selected),
+        "supported_ui_locales": list(_PROPERTYQUARRY_SUPPORTED_UI_LOCALES),
+        "document_language": selected,
+        "document_direction": "rtl" if selected in _PROPERTYQUARRY_RTL_UI_LOCALES else "ltr",
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -2964,6 +3016,63 @@ def _property_lookup_candidate_across_runs(
     normalized_candidate_ref = str(candidate_ref or "").strip()
     if not normalized_candidate_ref:
         return None, ""
+    indexed_clean_miss = False
+    indexed_lookup_failed = False
+    indexed_coverage_complete = False
+    indexed_lookup = getattr(product, "get_property_research_packet_link", None)
+    if callable(indexed_lookup):
+        indexed_link: object = None
+        try:
+            indexed_link = indexed_lookup(
+                principal_id=principal_id,
+                candidate_ref=normalized_candidate_ref,
+                account_email=access_email,
+            )
+        except TypeError:
+            try:
+                indexed_link = indexed_lookup(
+                    principal_id=principal_id,
+                    candidate_ref=normalized_candidate_ref,
+                )
+            except Exception:
+                indexed_lookup_failed = True
+        except Exception:
+            indexed_lookup_failed = True
+        if isinstance(indexed_link, dict):
+            indexed_candidate = indexed_link.get("candidate") or indexed_link.get("packet_json")
+            if isinstance(indexed_candidate, dict) and (
+                str(_property_candidate_ref(indexed_candidate) or "").strip()
+                == normalized_candidate_ref
+            ):
+                matched_run_id = str(
+                    indexed_link.get("last_run_id")
+                    or indexed_candidate.get("packet_source_run_id")
+                    or normalized_run_id
+                    or ""
+                ).strip()
+                packet_source_run_id = str(
+                    indexed_candidate.get("packet_source_run_id") or matched_run_id
+                ).strip()
+                if not normalized_run_id or packet_source_run_id == normalized_run_id:
+                    return dict(indexed_candidate), matched_run_id
+                indexed_lookup_failed = True
+            else:
+                indexed_lookup_failed = True
+        elif indexed_link is None and not indexed_lookup_failed:
+            indexed_clean_miss = True
+            coverage_lookup = getattr(
+                product,
+                "property_research_packet_index_coverage_complete",
+                None,
+            )
+            if callable(coverage_lookup):
+                try:
+                    indexed_coverage_complete = coverage_lookup() is True
+                except Exception:
+                    indexed_lookup_failed = True
+                    indexed_coverage_complete = False
+        else:
+            indexed_lookup_failed = True
     run_ids: list[str] = []
     listed_runs: list[dict[str, object]] = []
     compact_listing_supported = False
@@ -3066,6 +3175,14 @@ def _property_lookup_candidate_across_runs(
                 complete_compact_run_ids.add(compact_run_id)
             elif compact_run_id and compact_run_id not in incomplete_compact_run_ids:
                 incomplete_compact_run_ids.append(compact_run_id)
+
+        if (
+            not normalized_run_id
+            and indexed_clean_miss
+            and indexed_coverage_complete
+            and not indexed_lookup_failed
+        ):
+            return None, ""
 
     hydration_limit = min(max(int(max_runs or 0), 1), 3)
     fallback_run_ids: list[str] = []
@@ -3600,20 +3717,20 @@ def _property_missing_packet_response(
         run_id=normalized_run_id,
         candidate_ref=normalized_candidate_ref,
     )
-    repair_task_ref = (
-        _property_queue_missing_research_packet_repair(
-            container=container,
-            principal_id=principal_id,
-            run_id=normalized_run_id,
-            candidate_ref=normalized_candidate_ref,
-            recovery_url=target,
-        )
-        if allow_repair
-        else ""
-    )
     accept_header = str(request.headers.get("accept") or "").lower()
     requested_with = str(request.headers.get("x-requested-with") or "").lower()
     if "application/json" in accept_header or requested_with == "xmlhttprequest":
+        repair_task_ref = (
+            _property_queue_missing_research_packet_repair(
+                container=container,
+                principal_id=principal_id,
+                run_id=normalized_run_id,
+                candidate_ref=normalized_candidate_ref,
+                recovery_url=target,
+            )
+            if allow_repair
+            else ""
+        )
         return JSONResponse(
             {
                 "status": "recovery_available",
@@ -3628,7 +3745,21 @@ def _property_missing_packet_response(
             },
             status_code=202,
         )
-    return RedirectResponse(url=target, status_code=307)
+    from starlette.background import BackgroundTask
+
+    background = (
+        BackgroundTask(
+            _property_queue_missing_research_packet_repair,
+            container=container,
+            principal_id=principal_id,
+            run_id=normalized_run_id,
+            candidate_ref=normalized_candidate_ref,
+            recovery_url=target,
+        )
+        if allow_repair
+        else None
+    )
+    return RedirectResponse(url=target, status_code=307, background=background)
 
 
 def _property_queue_missing_research_packet_repair(
@@ -4060,6 +4191,7 @@ def _public_context(
     preview = dict(status.get("brief_preview") or {})
     selected_channels = [str(row) for row in (status.get("selected_channels") or []) if str(row).strip()]
     context: dict[str, object] = {
+        **_propertyquarry_ui_locale_context(request),
         "page_title": page_title,
         "meta_description": meta_description,
         "canonical_url": canonical_url,
@@ -4216,6 +4348,7 @@ def _console_shell_context(
 ) -> dict[str, object]:
     brand = request_brand(request)
     return {
+        **_propertyquarry_ui_locale_context(request),
         "page_title": page_title,
         "brand": brand,
         "current_nav": current_nav,
@@ -4237,8 +4370,10 @@ def _console_shell_context(
 def _render_public_template(request: Request, template_name: str, **context: Any) -> HTMLResponse:
     context.setdefault("request", request)
     context.setdefault("brand", request_brand(request))
+    context.update(_propertyquarry_ui_locale_context(request))
     response = templates.TemplateResponse(request, template_name, context)
     response.headers["X-Robots-Tag"] = str(context.get("robots_directive") or "index, follow, max-image-preview:large")
+    response.headers["Content-Language"] = str(context["document_language"])
     return response
 
 
@@ -7150,6 +7285,10 @@ def property_research_packet(
     facts = _property_enriched_candidate_facts(
         candidate=candidate,
         preferences=preferences,
+        # Market formatting follows the candidate's exact run, not mutable
+        # workspace defaults. An absent run market therefore fails closed
+        # unless the listing facts themselves carry an explicit country.
+        market_preferences=run_preferences_payload,
         force_source_research_for_selected_distances=bool(recent_run_distance_overlay),
     )
     commercial = dict(property_context.get("commercial") or {})
@@ -7389,19 +7528,75 @@ def property_research_packet(
             }
         ]
     detail_sections = _candidate_detail_sections(facts)
+    research_run_payload = dict(property_context.get("run") or {}) if isinstance(property_context.get("run"), dict) else {}
+    market_display = _property_market_display_context(
+        facts=facts,
+        observed_at=(
+            research_run_payload.get("updated_at")
+            or research_run_payload.get("generated_at")
+            or research_run_payload.get("created_at")
+            or status.get("updated_at")
+            or status.get("generated_at")
+            or candidate.get("updated_at")
+            or candidate.get("generated_at")
+            or ""
+        ),
+    )
+    market_currency_code = str(market_display.get("currency_code") or facts.get("currency_code") or "EUR").strip()
+    localized_price_summary = ""
+    for market_price_value in (
+        facts.get("price_eur"),
+        facts.get("warm_rent_eur"),
+        facts.get("cold_rent_eur"),
+    ):
+        if market_price_value in (None, "", []):
+            continue
+        localized_price_summary = _property_market_currency_display(
+            market_price_value,
+            facts=facts,
+            currency_code=market_currency_code,
+        )
+        if localized_price_summary:
+            break
     price_summary = str(
-        facts.get("price_display")
+        localized_price_summary
+        or facts.get("price_display")
         or facts.get("rent_display")
         or facts.get("price")
-        or _property_research_money_display(facts.get("price_eur"))
+        or _property_research_money_display(facts.get("price_eur"), currency_code=market_currency_code)
         or ""
     ).strip()
     if not price_summary or price_summary.lower() == "n/a":
         price_summary = _property_title_price_fallback(title)
-    area_summary = str(facts.get("area_m2") or facts.get("living_area_m2") or "").strip()
-    rooms_summary = _property_research_compact_fact(
-        facts.get("rooms_label") or facts.get("rooms") or facts.get("room_count") or ""
+    area_value = facts.get("area_m2") or facts.get("living_area_m2") or ""
+    area_summary = _property_market_decimal_display(area_value, facts=facts) or str(area_value).strip()
+    rooms_value = facts.get("rooms") or facts.get("room_count") or ""
+    rooms_summary = _property_market_decimal_display(rooms_value, facts=facts) or _property_research_compact_fact(
+        facts.get("rooms_label") or rooms_value
     )
+    localized_object_values = {
+        "Living area": f"{area_summary} m²" if area_summary else "",
+        "Rooms": rooms_summary,
+    }
+    detail_sections = {
+        **detail_sections,
+        "object_rows": [
+            {
+                **dict(row),
+                "value": localized_object_values.get(str(row.get("label") or ""), str(row.get("value") or "")),
+            }
+            for row in list(detail_sections.get("object_rows") or [])
+            if isinstance(row, dict)
+        ],
+        "cost_rows": [
+            {
+                **dict(row),
+                "value": price_summary if str(row.get("label") or "") == "Rent / price" else str(row.get("value") or ""),
+            }
+            for row in list(detail_sections.get("cost_rows") or [])
+            if isinstance(row, dict)
+        ],
+    }
     location_summary = str(
         candidate.get("location_label")
         or facts.get("district")
@@ -7855,6 +8050,7 @@ def property_research_packet(
             "research_selected_distance_rows": selected_distance_rows,
             "research_selected_distance_copy": selected_distance_copy,
             "research_route_recovery": research_route_recovery,
+            "research_market": market_display,
             "research_visual_style_catalog": [dict(row) for row in PROPERTY_FURNITURE_STYLE_CATALOG],
             "research_default_visual_style": research_visual_default_style,
             "research_visual_priority_queue_active": research_visual_priority_queue_active,

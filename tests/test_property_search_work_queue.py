@@ -159,3 +159,31 @@ def test_idempotency_keys_are_tenant_scoped() -> None:
 
     assert first != second
     assert "same-client-key" not in first
+
+
+def test_observability_snapshot_reports_only_identity_free_active_work() -> None:
+    clock = _Clock()
+    repository = InMemoryPropertySearchWorkQueue(now=clock)
+
+    empty = repository.observability_snapshot()
+    assert empty.depth == 0
+    assert empty.oldest_item_age_seconds == 0.0
+
+    queued = repository.enqueue_run(
+        run_record=_record(),
+        payload_json={"private": "never-exported"},
+        idempotency_key="queue-observability",
+    ).job
+    clock.advance(12)
+
+    active = repository.observability_snapshot()
+    assert active.depth == 1
+    assert active.oldest_item_age_seconds == 12.0
+    claimed = repository.claim(lease_owner="worker-a", lease_seconds=30)
+    assert claimed is not None
+    assert repository.observability_snapshot() == active
+
+    assert repository.complete(job_id=queued.job_id, lease_owner="worker-a") is not None
+    completed = repository.observability_snapshot()
+    assert completed.depth == 0
+    assert completed.oldest_item_age_seconds == 0.0

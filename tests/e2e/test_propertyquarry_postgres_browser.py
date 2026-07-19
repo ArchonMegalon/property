@@ -8,6 +8,11 @@ from pathlib import Path
 import httpx
 import pytest
 
+from scripts.smoke_property_postgres_isolated import (
+    CHROMIUM_EXECUTABLE_ENV,
+    POSTGRES_CHROMIUM_ARGS,
+)
+
 
 _POSTGRES_BROWSER_E2E = os.environ.get("PROPERTYQUARRY_POSTGRES_BROWSER_E2E") == "1"
 
@@ -43,6 +48,7 @@ def test_propertyquarry_postgres_storage_public_boundary_and_internally_provisio
     api_token = _required_environment("EA_API_TOKEN")
     expected_ready_reason = _required_environment("PROPERTYQUARRY_POSTGRES_BROWSER_EXPECTED_READY_REASON")
     session_path = Path(_required_environment("PROPERTYQUARRY_POSTGRES_BROWSER_SESSION_FILE"))
+    chromium_headless_shell = _required_environment(CHROMIUM_EXECUTABLE_ENV)
     assert stat.S_IMODE(session_path.stat().st_mode) == 0o600
     session_receipt = json.loads(session_path.read_text(encoding="utf-8"))
     assert session_receipt.get("contract_name") == "propertyquarry.postgres_browser_internal_session"
@@ -115,13 +121,9 @@ def test_propertyquarry_postgres_storage_public_boundary_and_internally_provisio
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(
+            executable_path=chromium_headless_shell,
             headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--no-proxy-server",
-            ],
+            args=list(POSTGRES_CHROMIUM_ARGS),
         )
         try:
             public_context = browser.new_context(viewport={"width": 1440, "height": 900})

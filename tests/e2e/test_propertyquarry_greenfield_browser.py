@@ -12,6 +12,7 @@ import time
 import urllib.parse
 import urllib.request
 from collections.abc import Iterator
+from contextlib import ExitStack
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -31,10 +32,32 @@ from app.api.routes import landing as landing_routes
 from app.product import property_evidence_overlays as evidence_overlays
 from app.product.models import HandoffNote
 from app.product.service import ProductService
+from scripts.property_tour_3dvista_provenance import (
+    THREE_D_VISTA_TARGET_PROVENANCE_SCHEMA,
+    export_tree_sha256,
+)
 from scripts.propertyquarry_playwright_runtime import (
     normalize_playwright_engine,
     playwright_engine_launch_browser,
 )
+
+
+_PROPERTYQUARRY_CORE_BROWSER_ENGINE_ENV = "PROPERTYQUARRY_CORE_BROWSER_ENGINE"
+_PROPERTYQUARRY_CHROMIUM_LAUNCH_ARGS = (
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+    "--disable-software-rasterizer",
+    "--no-proxy-server",
+    "--autoplay-policy=no-user-gesture-required",
+)
+
+
+def _configured_propertyquarry_browser_engine() -> str:
+    return normalize_playwright_engine(
+        os.environ.get(_PROPERTYQUARRY_CORE_BROWSER_ENGINE_ENV)
+    )
 
 
 def _free_port() -> int:
@@ -55,6 +78,15 @@ def _wait_for_http(base_url: str, *, timeout_seconds: float = 30.0) -> None:
         except Exception:
             time.sleep(0.1)
     raise AssertionError(f"server at {base_url} did not become ready in time")
+
+
+def _stop_uvicorn_server(*, server: Server, thread: threading.Thread, label: str) -> None:
+    server.should_exit = True
+    thread.join(timeout=10.0)
+    if thread.is_alive():
+        server.force_exit = True
+        thread.join(timeout=5.0)
+    assert not thread.is_alive(), f"{label} uvicorn thread did not stop"
 
 
 def _write_floorplan_png(path: Path) -> None:
@@ -441,9 +473,15 @@ def _settled_checked_provider_values(
 
 
 @pytest.fixture()
-def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[dict[str, object]]:
+def propertyquarry_browser_server(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    request: pytest.FixtureRequest,
+) -> Iterator[dict[str, object]]:
     from tests.product_test_helpers import build_product_client, start_workspace
 
+    cleanup = ExitStack()
+    request.addfinalizer(cleanup.close)
     monkeypatch.setenv("PROPERTYQUARRY_LEGACY_PDF_RENDERER_ALLOW", "1")
     monkeypatch.setenv("PAYPAL_CLIENT_ID", "paypal-client")
     monkeypatch.setenv("PAYPAL_SECRET", "paypal-secret")
@@ -472,6 +510,37 @@ def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
     (three_d_vista_dir / "index.htm").write_text(
         "<!doctype html><html><body><div id='tour-viewer'>3D tour ready</div>"
         "<script>window.TDVPlayer = { ready: true };</script></body></html>",
+        encoding="utf-8",
+    )
+    (bundle_dir / "tour.private.json").write_text(
+        json.dumps(
+            {
+                "three_d_vista_target_provenance": {
+                    "schema": THREE_D_VISTA_TARGET_PROVENANCE_SCHEMA,
+                    "status": "pass",
+                    "provider": "3dvista",
+                    "target_slug": slug,
+                    "target_subdir": "3dvista",
+                    "artifact": {
+                        "kind": "local_export",
+                        "sha256": export_tree_sha256(three_d_vista_dir),
+                        "entry_relpath": "index.htm",
+                    },
+                    "authorization": {
+                        "status": "approved",
+                        "reference": "pytest:propertyquarry-browser-fixture",
+                    },
+                    "review": {
+                        "property_match": "pass",
+                        "visual_match": "pass",
+                        "reviewed_by": "propertyquarry-e2e-fixture",
+                        "reviewed_at": "2026-07-08T07:00:00Z",
+                    },
+                }
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
         encoding="utf-8",
     )
     (bundle_dir / "tour.json").write_text(
@@ -529,6 +598,7 @@ def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
     monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://propertyquarry.com")
     monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
     client = build_product_client(principal_id="pq-greenfield-browser")
+    cleanup.callback(client.close)
     start_workspace(client, mode="personal", workspace_name="Property Office")
     stored = client.post(
         "/v1/onboarding/property-search/preferences",
@@ -773,6 +843,7 @@ def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
 
     app = create_app()
     test_client = TestClient(app, base_url="https://propertyquarry.com")
+    cleanup.callback(test_client.close)
     test_client.headers.update({"X-EA-Principal-ID": "pq-greenfield-browser", "host": "propertyquarry.com"})
 
     port = _free_port()
@@ -781,32 +852,29 @@ def propertyquarry_browser_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
     server.install_signal_handlers = lambda: None  # type: ignore[method-assign]
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
+    cleanup.callback(
+        _stop_uvicorn_server,
+        server=server,
+        thread=thread,
+        label="propertyquarry browser fixture",
+    )
     local_base_url = f"http://127.0.0.1:{port}"
     browser_base_url = f"http://propertyquarry.localhost:{port}"
     monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", browser_base_url)
     _wait_for_http(local_base_url)
-    try:
-        yield {"base_url": browser_base_url, "client": test_client, "bundle_root": bundle_root}
-    finally:
-        server.should_exit = True
-        thread.join(timeout=10.0)
+    yield {"base_url": browser_base_url, "client": test_client, "bundle_root": bundle_root}
 
 
 @pytest.fixture()
 def browser() -> Iterator[Browser]:
     with sync_playwright() as playwright:
-        engine = normalize_playwright_engine(os.environ.get("PROPERTYQUARRY_CORE_BROWSER_ENGINE", "chromium"))
-        browser_args = [
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-            "--disable-dev-shm-usage",
-            "--disable-gpu",
-            "--disable-software-rasterizer",
-            "--no-proxy-server",
-            "--autoplay-policy=no-user-gesture-required",
-        ]
+        engine = _configured_propertyquarry_browser_engine()
         try:
-            browser = playwright_engine_launch_browser(playwright, engine=engine, args=browser_args)
+            browser = playwright_engine_launch_browser(
+                playwright,
+                engine=engine,
+                args=list(_PROPERTYQUARRY_CHROMIUM_LAUNCH_ARGS),
+            )
         except Exception as exc:
             raise RuntimeError(f"playwright_browser_engine_unavailable:{engine}:{type(exc).__name__}: {exc}") from exc
         try:
@@ -915,6 +983,152 @@ def _assert_propertyquarry_billing_redirect_lands_on_account(page: Page) -> None
     assert "Billing history" not in body_text
     assert "Cancellation and refunds" not in body_text
     assert "When to upgrade" not in body_text
+
+
+def test_propertyquarry_research_market_formats_are_visible_in_declared_locales(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = propertyquarry_browser_server["client"]
+    assert isinstance(client, TestClient)
+    base_url = str(propertyquarry_browser_server["base_url"])
+    cases = (
+        {
+            "country_code": "AT",
+            "language_code": "de",
+            "locale": "de-AT",
+            "locale_label": "Deutsch (Österreich)",
+            "timezone": "Europe/Vienna",
+            "currency_code": "EUR",
+            "platform": "willhaben",
+            "location": "1070 Vienna",
+            "price": "€ 1.234.567",
+            "updated": "19.07.2026, 14:00",
+            "updated_label": "Recherche aktualisiert",
+        },
+        {
+            "country_code": "DE",
+            "language_code": "de",
+            "locale": "de-DE",
+            "locale_label": "Deutsch (Deutschland)",
+            "timezone": "Europe/Berlin",
+            "currency_code": "EUR",
+            "platform": "immoscout_de",
+            "location": "10115 Berlin",
+            "price": "1.234.567 €",
+            "updated": "19.07.2026, 14:00",
+            "updated_label": "Recherche aktualisiert",
+        },
+        {
+            "country_code": "CR",
+            "language_code": "es",
+            "locale": "es-CR",
+            "locale_label": "Español (Costa Rica)",
+            "timezone": "America/Costa_Rica",
+            "currency_code": "CRC",
+            "platform": "encuentra24_cr",
+            "location": "10101 San José",
+            "price": "₡1 234 567",
+            "updated": "19/07/2026, 06:00 a. m.",
+            "updated_label": "Investigación actualizada",
+        },
+    )
+    cases_by_run_id = {f"run-market-{str(case['country_code']).lower()}": case for case in cases}
+
+    def _market_run_status(self, *, principal_id: str, run_id: str):
+        assert principal_id == "pq-greenfield-browser"
+        case = cases_by_run_id[run_id]
+        candidate_ref = f"market-{str(case['country_code']).lower()}"
+        candidate = {
+            "candidate_ref": candidate_ref,
+            "title": f"{case['country_code']} locale home",
+            "property_url": f"https://example.test/{candidate_ref}",
+            "fit_score": 91,
+            "match_reasons": ["Explicit market-locale fixture."],
+            "property_facts": {
+                "price_eur": 1234567,
+                "currency_code": case["currency_code"],
+                "area_m2": 78.5,
+                "rooms": 3.5,
+                "postal_name": case["location"],
+            },
+        }
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "Property scouting run completed.",
+            # Prove market presentation follows the candidate's immutable run
+            # identity even when the account has since changed its saved brief.
+            "brief_preferences_stale": True,
+            "generated_at": "2026-07-19T11:58:00Z",
+            "updated_at": "2026-07-19T12:00:00Z",
+            "property_search_preferences": {
+                "country_code": case["country_code"],
+                "language_code": case["language_code"],
+                "listing_mode": "buy",
+                "search_goal": "home",
+                "location_query": case["location"],
+                "selected_platforms": [case["platform"]],
+            },
+            "summary": {
+                "status": "processed",
+                "ranked_candidates": [candidate],
+                "sources": [
+                    {
+                        "source_label": f"{case['country_code']} locale fixture",
+                        "top_candidates": [candidate],
+                    }
+                ],
+            },
+            "events": [{"step": "completed", "message": "Property scouting run completed.", "status": "processed"}],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _market_run_status)
+    context = _new_context(browser, mobile=False, width=1280, height=900)
+    page = context.new_page()
+    try:
+        _issue_browser_workspace_session(client=client, context=context, base_url=base_url)
+        for index, case in enumerate(cases):
+            workspace_case = cases[(index + 1) % len(cases)]
+            stored = client.post(
+                "/v1/onboarding/property-search/preferences",
+                json={
+                    "country_code": workspace_case["country_code"],
+                    "language_code": workspace_case["language_code"],
+                    "listing_mode": "buy",
+                    "search_goal": "home",
+                    "location_query": workspace_case["location"],
+                    "selected_platforms": [workspace_case["platform"]],
+                },
+            )
+            assert stored.status_code == 200, stored.text
+            market_key = str(case["country_code"]).lower()
+            response = page.goto(
+                f"{base_url}/app/research/market-{market_key}?run_id=run-market-{market_key}&lang={case['locale']}",
+                wait_until="networkidle",
+            )
+            assert response is not None and response.ok
+            assert page.locator("html").get_attribute("lang") == case["locale"]
+            market_context = page.locator("[data-property-market-context]")
+            expect(market_context).to_be_visible()
+            assert market_context.get_attribute("data-property-market-country") == case["country_code"]
+            assert market_context.get_attribute("data-property-market-locale") == case["locale"]
+            assert market_context.get_attribute("data-property-market-currency") == case["currency_code"]
+            assert market_context.get_attribute("data-property-market-timezone") == case["timezone"]
+            expect(page.locator("[data-property-market-locale-label]")).to_have_text(str(case["locale_label"]))
+            expect(page.locator("[data-property-market-updated]")).to_have_text(str(case["updated"]))
+            expect(market_context).to_contain_text(str(case["updated_label"]))
+            assert page.locator(".prd-price").inner_text().replace("\u00a0", " ") == case["price"]
+            hero_facts = page.locator(".prd-headline-panel .prd-facts").inner_text().replace("\u00a0", " ")
+            assert "78,5 m²" in hero_facts
+            assert "3,5" in hero_facts
+            assert "1,234,567" not in page.locator("[data-property-research-detail]").inner_text()
+    finally:
+        context.close()
 
 
 def test_propertyquarry_public_home_and_sign_in_capture_polish_screenshots(
@@ -4610,6 +4824,98 @@ def test_propertyquarry_mobile_what_matters_select_changes_keep_current_group_st
         context.close()
 
 
+def test_propertyquarry_mobile_stale_what_matters_restore_does_not_override_new_scroll(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=True, width=390, height=844)
+    page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/search", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        page.locator('[data-console-form-variant="property_search"]').wait_for(state="visible")
+        page.locator('[data-property-step-trigger="children"]').click()
+        page.wait_for_function(
+            "() => document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'children'"
+        )
+
+        playground_row = page.locator('[data-keyword-priority-row][data-keyword-value="playground nearby"]')
+        playground_row.evaluate(
+            """
+            (node) => {
+              const group = node?.closest?.('details[data-what-matters-group]');
+              if (group instanceof HTMLDetailsElement) group.open = true;
+              node?.scrollIntoView?.({ block: 'center', inline: 'nearest' });
+            }
+            """
+        )
+        playground_row.locator("[data-keyword-preference-select]").select_option("nice_to_have")
+        page.wait_for_function(
+            """
+            () => document.querySelector('[data-keyword-priority-row][data-keyword-value="playground nearby"]')
+              ?.getAttribute('data-keyword-distance-enabled') === 'true'
+            """
+        )
+        page.wait_for_timeout(120)
+
+        state = page.evaluate(
+            """
+            () => new Promise((resolve) => {
+              const form = document.querySelector('[data-console-form-variant="property_search"]');
+              const playground = document.querySelector('[data-keyword-priority-row][data-keyword-value="playground nearby"]');
+              const distance = playground?.querySelector('[data-keyword-distance-select]');
+              const kindergarten = document.querySelector('[data-school-priority-row][data-school-value="kindergarten"]');
+              const group = kindergarten?.closest?.('details[data-what-matters-group]');
+              const panel = kindergarten?.closest?.('[data-property-what-matters-panel]');
+              const owner = panel?.querySelector?.('.pqx-advanced-panel-grid');
+              if (
+                !(form instanceof HTMLFormElement)
+                || !(distance instanceof HTMLSelectElement)
+                || !(kindergarten instanceof HTMLElement)
+                || !(group instanceof HTMLDetailsElement)
+                || !(owner instanceof HTMLElement)
+              ) {
+                resolve({ error: 'missing_test_target' });
+                return;
+              }
+              const capture = () => {
+                const rect = kindergarten.getBoundingClientRect();
+                return {
+                  activeStep: String(form.dataset.propertyActiveStep || ''),
+                  groupOpen: group.open,
+                  rowTop: Number(rect.top || 0),
+                  windowScrollY: Number(window.scrollY || window.pageYOffset || 0),
+                  ownerScrollTop: Number(owner.scrollTop || 0),
+                };
+              };
+              group.open = true;
+              distance.value = '2000';
+              distance.dispatchEvent(new Event('change', { bubbles: true }));
+              const restoreBaseline = capture();
+              kindergarten.scrollIntoView({ block: 'center', inline: 'nearest' });
+              const before = capture();
+              window.setTimeout(() => resolve({ restoreBaseline, before, after: capture() }), 180);
+            })
+            """
+        )
+        assert state.get("error") is None, state
+        restore_baseline = state["restoreBaseline"]
+        before = state["before"]
+        after = state["after"]
+        assert (
+            abs(float(before["windowScrollY"]) - float(restore_baseline["windowScrollY"])) > 20.0
+            or abs(float(before["ownerScrollTop"]) - float(restore_baseline["ownerScrollTop"])) > 20.0
+        ), state
+        assert after["activeStep"] == "children", state
+        assert after["groupOpen"] is True, state
+        assert abs(float(after["rowTop"]) - float(before["rowTop"])) <= 2.0, state
+        assert abs(float(after["windowScrollY"]) - float(before["windowScrollY"])) <= 2.0, state
+        assert abs(float(after["ownerScrollTop"]) - float(before["ownerScrollTop"])) <= 2.0, state
+    finally:
+        context.close()
+
+
 def test_propertyquarry_mobile_repeated_what_matters_combo_changes_keep_one_stable_group(
     browser: Browser,
     propertyquarry_browser_server: dict[str, object],
@@ -7741,6 +8047,119 @@ def test_propertyquarry_search_launch_preserves_checked_provider_set(
         assert preferences.get("selected_platforms") == effective_expected
         assert run.get("selected_platforms") == effective_expected
         assert run.get("property_preferences", {}).get("selected_platforms") == effective_expected
+    finally:
+        context.close()
+
+
+def test_propertyquarry_search_launch_reuses_idempotency_key_after_lost_response(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False, width=1440, height=900)
+    page: Page = context.new_page()
+    observed_keys: list[str] = []
+    try:
+        def _save_preferences(route):
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps({"status": "saved"}),
+            )
+
+        def _start_run(route):
+            observed_keys.append(str(route.request.headers.get("idempotency-key") or ""))
+            if len(observed_keys) == 1:
+                route.abort("connectionreset")
+                return
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps({"run_id": "run-idempotent-retry"}),
+            )
+
+        page.route("**/v1/onboarding/property-search/preferences", _save_preferences)
+        page.route("**/app/api/property/search-runs**", _start_run)
+        response = page.goto(f"{base_url}/app/search", wait_until="networkidle")
+        assert response is not None and response.ok
+
+        launch = page.locator("[data-property-start-top]")
+        launch.click()
+        expect(page.locator("[data-property-inline-error]").first).to_contain_text(
+            "connection dropped",
+            timeout=10000,
+        )
+        expect(launch).to_be_enabled()
+        launch.click()
+        expect(page).to_have_url(re.compile("run-idempotent-retry"), timeout=10000)
+
+        assert len(observed_keys) == 2
+        assert observed_keys[0]
+        assert observed_keys[0] == observed_keys[1]
+        assert len(observed_keys[0]) <= 240
+    finally:
+        context.close()
+
+
+def test_propertyquarry_search_launch_turns_quota_rejection_into_retryable_calm_state(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False, width=1440, height=900)
+    page: Page = context.new_page()
+    observed_keys: list[str] = []
+    try:
+        page.route(
+            "**/v1/onboarding/property-search/preferences",
+            lambda route: route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps({"status": "saved"}),
+            ),
+        )
+
+        def _start_run(route):
+            observed_keys.append(str(route.request.headers.get("idempotency-key") or ""))
+            if len(observed_keys) == 1:
+                route.fulfill(
+                    status=429,
+                    content_type="application/json",
+                    headers={"retry-after": "1"},
+                    body=json.dumps(
+                        {
+                            "error": {
+                                "code": "ingress_cost_quota_exceeded",
+                                "message": "account request cost quota exceeded",
+                                "details": {"retry_after_seconds": 1},
+                                "correlation_id": "quota-browser-receipt",
+                            }
+                        }
+                    ),
+                )
+                return
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps({"run_id": "run-quota-retry"}),
+            )
+
+        page.route("**/app/api/property/search-runs**", _start_run)
+        response = page.goto(f"{base_url}/app/search", wait_until="networkidle")
+        assert response is not None and response.ok
+
+        page.locator("[data-property-start-top]").click()
+        marker = page.locator('[data-pq-failure-state="quota_blocked"]:visible').first
+        expect(marker).to_contain_text("temporary request limit", timeout=10000)
+        expect(marker).to_contain_text("saved search is unchanged")
+        retry = marker.locator("[data-pq-next-action]")
+        expect(retry).to_be_enabled()
+        retry.click()
+        expect(page).to_have_url(re.compile("run-quota-retry"), timeout=10000)
+
+        assert len(observed_keys) == 2
+        assert observed_keys[0]
+        assert observed_keys[0] == observed_keys[1]
     finally:
         context.close()
 

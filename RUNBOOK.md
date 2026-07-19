@@ -297,7 +297,7 @@ Use `--help` (or `-h`) on key scripts to print usage contracts quickly:
 | `scripts/test_postgres_contracts.sh` | `bash scripts/test_postgres_contracts.sh --help` | Run isolated Postgres-backed repository contract tests |
 | `scripts/hard_exit_gates.sh` | `bash scripts/hard_exit_gates.sh --help` | Run the full flagship hard-exit bundle |
 | `scripts/runtime_hard_exit_gates.sh` | `bash scripts/runtime_hard_exit_gates.sh --help` | Run the deploy-safe runtime hard-exit bundle |
-| `scripts/property_release_gates.sh` | `bash scripts/property_release_gates.sh --help` | Run the focused PropertyQuarry release bundle |
+| `scripts/property_release_gates.sh` | `./scripts/property_release_gates.sh --help` | Run the focused PropertyQuarry release bundle |
 | `scripts/verify_ltd_critical_entries.py` | `python3 scripts/verify_ltd_critical_entries.py --help` | Fail closed on runtime-critical LTD drift |
 | `scripts/verify_ltd_flagship_subset.py` | `python3 scripts/verify_ltd_flagship_subset.py --help` | Fail closed on the named flagship LTD subset |
 | `scripts/list_endpoints.sh` | `bash scripts/list_endpoints.sh --help` | Print live endpoint inventory from OpenAPI |

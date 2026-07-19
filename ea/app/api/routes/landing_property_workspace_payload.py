@@ -4814,6 +4814,31 @@ def property_workspace_payload(
     last_payment_status = str(commercial_state.get("last_payment_status") or "").strip().replace("_", " ")
     last_billing_event_type = str(commercial_state.get("last_billing_event_type") or "").strip().replace("_", " ")
     last_payment_amount = str(commercial_state.get("last_payment_amount_eur") or "").strip()
+    payment_failure_statuses = {
+        "declined",
+        "denied",
+        "failed",
+        "payment failed",
+        "subscription payment failed",
+    }
+    billing_payment_failed = (
+        commercial_status in {"payment_failed", "payment failed"}
+        or last_payment_status.lower() in payment_failure_statuses
+        or last_billing_event_type.lower() in payment_failure_statuses
+    )
+    billing_failure_state = (
+        {
+            "state": "payment_failed",
+            "title": "Payment needs attention",
+            "detail": (
+                "The latest payment did not complete. Your existing account access and saved work are unchanged."
+            ),
+            "action_href": signed_in_billing_href if billing_handoff_available else "/support",
+            "action_label": "Review billing" if billing_handoff_available else "Get billing help",
+        }
+        if billing_payment_failed
+        else {}
+    )
     if pending_plan_key and pending_order_id:
         billing_rows.append(
             row_item(
@@ -5377,6 +5402,7 @@ def property_workspace_payload(
         },
         "billing": {
             "title": "Billing",
+            "failure_state": billing_failure_state,
             "summary": "Plan, payments, and invoices.",
             "hero_kicker": "Billing",
             "hero_title": "Plan and payments.",
@@ -5430,6 +5456,7 @@ def property_workspace_payload(
         },
         "account": {
             "title": "Account",
+            "failure_state": billing_failure_state,
             "summary": "Search, notifications, plan, and access.",
             "hero_kicker": "Account",
             "hero_title": "Account.",
@@ -5816,6 +5843,7 @@ def property_workspace_payload(
         ),
         packet_recovery=packet_recovery,
         route_recovery=route_recovery,
+        failure_state=dict(payload.get("failure_state") or {}),
         show_brief_default=not (run_in_progress or (run_status_value in {"processed", "completed"} and bool(shortlist_snapshot.get("has_results")))),
     )
     payload["billing_handoff"] = billing_handoff

@@ -41,23 +41,52 @@ AWS_CLI_RELEASE_PIN_UNCONFIGURED = "UNCONFIGURED"
 AWS_CLI_MINIMUM_VERSION = (2, 0, 0)
 AWS_CLI_MINIMAL_PATH = "/usr/bin:/bin"
 SNAPSHOT_CONTRACT_NAME = "propertyquarry.postgres_exported_snapshot"
-SNAPSHOT_CONTRACT_VERSION = 1
+SNAPSHOT_CONTRACT_VERSION = 2
 CRITICAL_DATA_CONTRACT_NAME = "propertyquarry.postgres_critical_data"
-CRITICAL_DATA_CONTRACT_VERSION = 2
-CRITICAL_DATA_EVIDENCE_VERSION = 2
+CRITICAL_DATA_CONTRACT_VERSION = 3
+CRITICAL_DATA_EVIDENCE_VERSION = 3
 CRITICAL_DATA_FINGERPRINT_ALGORITHM = "postgresql_sha256_bounded_chunk_merkle_v2"
 CRITICAL_DATA_SCHEMA = "public"
 CRITICAL_DATA_CHUNK_SIZE = 1_024
 CRITICAL_DATA_MAX_ROW_BYTES = 4 * 1_024 * 1_024
 CRITICAL_DATA_MAX_CHUNKS = 65_536
 CRITICAL_DATA_MAX_SUPPORTED_ROWS = CRITICAL_DATA_CHUNK_SIZE * CRITICAL_DATA_MAX_CHUNKS
-CRITICAL_DATA_TABLES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
+CRITICAL_DATA_PRIVACY_SCHEMA_VERSION = 15
+CRITICAL_DATA_ADMISSION_CAPACITY_SCHEMA_VERSION = 17
+CRITICAL_DATA_PRE_PRIVACY_TABLE_SET_VERSION = 1
+CRITICAL_DATA_PRIVACY_TABLE_SET_VERSION = 2
+CRITICAL_DATA_ADMISSION_CAPACITY_TABLE_SET_VERSION = 3
+CRITICAL_DATA_ADMISSION_QUOTA_MAX_ROWS = 1_000_000
+CRITICAL_DATA_ADMISSION_LEASE_MAX_ROWS = 100_000
+CRITICAL_DATA_ADMISSION_CAPACITY_LIMITS = {
+    "lease": CRITICAL_DATA_ADMISSION_LEASE_MAX_ROWS,
+    "quota": CRITICAL_DATA_ADMISSION_QUOTA_MAX_ROWS,
+}
+CRITICAL_DATA_PRE_PRIVACY_TABLES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
     ("property_search_runs", ("principal_id", "run_id"), True),
     ("property_search_work_jobs", ("job_id",), False),
     ("delivery_outbox", ("delivery_id",), False),
     ("property_content_jobs", ("packet_id",), False),
     ("property_content_job_events", ("event_sequence",), False),
     ("property_content_webhook_events", ("provider", "provider_event_id"), False),
+)
+CRITICAL_DATA_PRIVACY_TABLES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
+    *CRITICAL_DATA_PRE_PRIVACY_TABLES,
+    (
+        "property_account_privacy_requests",
+        ("principal_key", "request_id"),
+        False,
+    ),
+)
+CRITICAL_DATA_TABLES: tuple[tuple[str, tuple[str, ...], bool], ...] = (
+    *CRITICAL_DATA_PRIVACY_TABLES,
+    ("propertyquarry_admission_quota_buckets", ("bucket_key",), False),
+    (
+        "propertyquarry_admission_leases",
+        ("lease_id", "dimension_key"),
+        False,
+    ),
+    ("propertyquarry_admission_capacity_state", ("capacity_key",), True),
 )
 _CRITICAL_DATA_TEXT_IDENTITIES = {
     (table, column)
@@ -852,7 +881,9 @@ def _snapshot_evidence(
     exported: Mapping[str, object],
     *,
     pg_dump_plaintext_sha256: str,
+    governing_schema_version: int | None = None,
 ) -> dict[str, object]:
+    critical_data_contract = _critical_data_contract(governing_schema_version)
     payload: dict[str, object] = {
         "contract_name": SNAPSHOT_CONTRACT_NAME,
         "contract_version": SNAPSHOT_CONTRACT_VERSION,
@@ -865,7 +896,16 @@ def _snapshot_evidence(
         "pg_dump_snapshot_bound": True,
         "schema_ledger_snapshot_bound": True,
         "critical_data_snapshot_bound": True,
-        "critical_data_query_count": len(CRITICAL_DATA_TABLES),
+        "critical_data_query_count": len(critical_data_contract["tables"]),
+        "critical_data_governing_schema_version": critical_data_contract[
+            "governing_schema_version"
+        ],
+        "critical_data_table_set_version": critical_data_contract[
+            "table_set_version"
+        ],
+        "critical_data_contract_fingerprint_sha256": critical_data_contract[
+            "contract_fingerprint_sha256"
+        ],
         "snapshot_exporter_held_open": True,
         "pg_dump_plaintext_sha256": pg_dump_plaintext_sha256,
     }
@@ -880,12 +920,14 @@ def _validated_snapshot_evidence(
     *,
     label: str,
     pg_dump_plaintext_sha256: str | None = None,
+    governing_schema_version: int | None = None,
 ) -> dict[str, object]:
     if not isinstance(payload, Mapping):
         raise DisasterRecoveryError(
             "snapshot_evidence_missing",
             f"{label} exported-snapshot evidence is missing.",
         )
+    critical_data_contract = _critical_data_contract(governing_schema_version)
     normalized = {
         "contract_name": str(payload.get("contract_name") or ""),
         "contract_version": payload.get("contract_version"),
@@ -899,6 +941,15 @@ def _validated_snapshot_evidence(
         "schema_ledger_snapshot_bound": payload.get("schema_ledger_snapshot_bound"),
         "critical_data_snapshot_bound": payload.get("critical_data_snapshot_bound"),
         "critical_data_query_count": payload.get("critical_data_query_count"),
+        "critical_data_governing_schema_version": payload.get(
+            "critical_data_governing_schema_version"
+        ),
+        "critical_data_table_set_version": payload.get(
+            "critical_data_table_set_version"
+        ),
+        "critical_data_contract_fingerprint_sha256": str(
+            payload.get("critical_data_contract_fingerprint_sha256") or ""
+        ).lower(),
         "snapshot_exporter_held_open": payload.get("snapshot_exporter_held_open"),
         "pg_dump_plaintext_sha256": str(
             payload.get("pg_dump_plaintext_sha256") or ""
@@ -920,7 +971,14 @@ def _validated_snapshot_evidence(
         or normalized["pg_dump_snapshot_bound"] is not True
         or normalized["schema_ledger_snapshot_bound"] is not True
         or normalized["critical_data_snapshot_bound"] is not True
-        or normalized["critical_data_query_count"] != len(CRITICAL_DATA_TABLES)
+        or normalized["critical_data_query_count"]
+        != len(critical_data_contract["tables"])
+        or normalized["critical_data_governing_schema_version"]
+        != critical_data_contract["governing_schema_version"]
+        or normalized["critical_data_table_set_version"]
+        != critical_data_contract["table_set_version"]
+        or normalized["critical_data_contract_fingerprint_sha256"]
+        != critical_data_contract["contract_fingerprint_sha256"]
         or normalized["snapshot_exporter_held_open"] is not True
         or not _SHA256_RE.fullmatch(str(normalized["snapshot_id_sha256"]))
         or not _SHA256_RE.fullmatch(str(normalized["transaction_snapshot_sha256"]))
@@ -1207,7 +1265,49 @@ def _validated_schema_ledger(
     return normalized
 
 
-def _critical_data_contract() -> dict[str, object]:
+def _critical_data_tables_for_schema_version(
+    governing_schema_version: int | None = None,
+) -> tuple[tuple[str, tuple[str, ...], bool], ...]:
+    latest_version = int(_expected_schema_ledger()["current_version"])
+    resolved_version = (
+        latest_version
+        if governing_schema_version is None
+        else governing_schema_version
+    )
+    if (
+        isinstance(resolved_version, bool)
+        or not isinstance(resolved_version, int)
+        or resolved_version < 0
+        or resolved_version > latest_version
+    ):
+        raise DisasterRecoveryError(
+            "critical_data_schema_version_invalid",
+            "Critical-data evidence must be governed by a valid release schema version.",
+        )
+    if resolved_version < CRITICAL_DATA_PRIVACY_SCHEMA_VERSION:
+        return CRITICAL_DATA_PRE_PRIVACY_TABLES
+    if resolved_version < CRITICAL_DATA_ADMISSION_CAPACITY_SCHEMA_VERSION:
+        return CRITICAL_DATA_PRIVACY_TABLES
+    return CRITICAL_DATA_TABLES
+
+
+def _critical_data_contract(
+    governing_schema_version: int | None = None,
+) -> dict[str, object]:
+    tables_for_schema = _critical_data_tables_for_schema_version(
+        governing_schema_version
+    )
+    resolved_version = (
+        int(_expected_schema_ledger()["current_version"])
+        if governing_schema_version is None
+        else governing_schema_version
+    )
+    privacy_lifecycle_required = (
+        resolved_version >= CRITICAL_DATA_PRIVACY_SCHEMA_VERSION
+    )
+    admission_capacity_required = (
+        resolved_version >= CRITICAL_DATA_ADMISSION_CAPACITY_SCHEMA_VERSION
+    )
     tables = [
         {
             "schema": CRITICAL_DATA_SCHEMA,
@@ -1215,7 +1315,7 @@ def _critical_data_contract() -> dict[str, object]:
             "identity_columns": list(identity_columns),
             "data_required": data_required,
         }
-        for table, identity_columns, data_required in CRITICAL_DATA_TABLES
+        for table, identity_columns, data_required in tables_for_schema
     ]
     identity = {
         "contract_name": CRITICAL_DATA_CONTRACT_NAME,
@@ -1226,6 +1326,23 @@ def _critical_data_contract() -> dict[str, object]:
         "max_row_bytes": CRITICAL_DATA_MAX_ROW_BYTES,
         "max_chunks": CRITICAL_DATA_MAX_CHUNKS,
         "max_supported_rows": CRITICAL_DATA_MAX_SUPPORTED_ROWS,
+        "governing_schema_version": resolved_version,
+        "table_set_version": (
+            CRITICAL_DATA_ADMISSION_CAPACITY_TABLE_SET_VERSION
+            if admission_capacity_required
+            else (
+                CRITICAL_DATA_PRIVACY_TABLE_SET_VERSION
+                if privacy_lifecycle_required
+                else CRITICAL_DATA_PRE_PRIVACY_TABLE_SET_VERSION
+            )
+        ),
+        "privacy_lifecycle_required": privacy_lifecycle_required,
+        "admission_capacity_required": admission_capacity_required,
+        "admission_capacity_limits": (
+            dict(CRITICAL_DATA_ADMISSION_CAPACITY_LIMITS)
+            if admission_capacity_required
+            else {}
+        ),
         "tables": tables,
     }
     identity["contract_fingerprint_sha256"] = hashlib.sha256(
@@ -1274,13 +1391,74 @@ def _strict_nonnegative_int(value: object, *, code: str, message: str) -> int:
     return value
 
 
-def _validated_critical_data_evidence(payload: object, *, label: str) -> dict[str, object]:
+def _validated_admission_capacity_state(
+    payload: object,
+    *,
+    label: str,
+) -> list[dict[str, int | str]]:
+    if not isinstance(payload, list) or len(payload) != 2:
+        raise DisasterRecoveryError(
+            "critical_data_admission_capacity_state_invalid",
+            f"{label} admission capacity state must contain exactly two canonical rows.",
+        )
+    normalized: list[dict[str, int | str]] = []
+    for expected_key, row in zip(
+        sorted(CRITICAL_DATA_ADMISSION_CAPACITY_LIMITS),
+        payload,
+        strict=True,
+    ):
+        if not isinstance(row, Mapping) or set(row) != {
+            "capacity_key",
+            "row_count",
+            "row_limit",
+        }:
+            raise DisasterRecoveryError(
+                "critical_data_admission_capacity_state_invalid",
+                f"{label} admission capacity state row is invalid.",
+            )
+        capacity_key = str(row.get("capacity_key") or "")
+        row_count = _strict_nonnegative_int(
+            row.get("row_count"),
+            code="critical_data_admission_capacity_state_invalid",
+            message=f"{label} admission capacity count is invalid for {expected_key}.",
+        )
+        row_limit = _strict_nonnegative_int(
+            row.get("row_limit"),
+            code="critical_data_admission_capacity_state_invalid",
+            message=f"{label} admission capacity limit is invalid for {expected_key}.",
+        )
+        expected_limit = CRITICAL_DATA_ADMISSION_CAPACITY_LIMITS[expected_key]
+        if (
+            capacity_key != expected_key
+            or row_limit != expected_limit
+            or row_count > row_limit
+        ):
+            raise DisasterRecoveryError(
+                "critical_data_admission_capacity_state_invalid",
+                f"{label} admission capacity state does not match the v17 hard limits.",
+            )
+        normalized.append(
+            {
+                "capacity_key": capacity_key,
+                "row_count": row_count,
+                "row_limit": row_limit,
+            }
+        )
+    return normalized
+
+
+def _validated_critical_data_evidence(
+    payload: object,
+    *,
+    label: str,
+    governing_schema_version: int | None = None,
+) -> dict[str, object]:
     if not isinstance(payload, Mapping):
         raise DisasterRecoveryError(
             "critical_data_evidence_missing",
             f"{label} critical-data evidence is missing.",
         )
-    expected = _critical_data_contract()
+    expected = _critical_data_contract(governing_schema_version)
     for key in (
         "contract_name",
         "contract_version",
@@ -1291,6 +1469,11 @@ def _validated_critical_data_evidence(payload: object, *, label: str) -> dict[st
         "max_row_bytes",
         "max_chunks",
         "max_supported_rows",
+        "governing_schema_version",
+        "table_set_version",
+        "privacy_lifecycle_required",
+        "admission_capacity_required",
+        "admission_capacity_limits",
     ):
         if payload.get(key) != expected[key]:
             raise DisasterRecoveryError(
@@ -1298,13 +1481,20 @@ def _validated_critical_data_evidence(payload: object, *, label: str) -> dict[st
                 f"{label} critical-data evidence does not match the release-controlled contract.",
             )
     rows = payload.get("tables")
-    if not isinstance(rows, list) or len(rows) != len(CRITICAL_DATA_TABLES):
+    expected_tables = _critical_data_tables_for_schema_version(
+        int(expected["governing_schema_version"])
+    )
+    if not isinstance(rows, list) or len(rows) != len(expected_tables):
         raise DisasterRecoveryError(
             "critical_data_evidence_invalid",
             f"{label} critical-data table evidence is incomplete.",
         )
     normalized_rows: list[dict[str, object]] = []
-    for row, (table, identity_columns, data_required) in zip(rows, CRITICAL_DATA_TABLES, strict=True):
+    for row, (table, identity_columns, data_required) in zip(
+        rows,
+        expected_tables,
+        strict=True,
+    ):
         if not isinstance(row, Mapping):
             raise DisasterRecoveryError(
                 "critical_data_evidence_invalid",
@@ -1325,6 +1515,41 @@ def _validated_critical_data_evidence(payload: object, *, label: str) -> dict[st
             code="critical_data_count_invalid",
             message=f"{label} row count is invalid for {table}.",
         )
+        if (
+            table == "propertyquarry_admission_quota_buckets"
+            and row_count > CRITICAL_DATA_ADMISSION_QUOTA_MAX_ROWS
+        ):
+            raise DisasterRecoveryError(
+                "critical_data_admission_capacity_exceeded",
+                f"{label} quota admission state exceeds the schema-v17 hard limit.",
+            )
+        if (
+            table == "propertyquarry_admission_leases"
+            and row_count > CRITICAL_DATA_ADMISSION_LEASE_MAX_ROWS
+        ):
+            raise DisasterRecoveryError(
+                "critical_data_admission_capacity_exceeded",
+                f"{label} lease admission state exceeds the schema-v17 hard limit.",
+            )
+        if (
+            table == "propertyquarry_admission_capacity_state"
+            and row_count != 2
+        ):
+            raise DisasterRecoveryError(
+                "critical_data_admission_capacity_state_invalid",
+                f"{label} admission capacity state must contain exactly two rows.",
+            )
+        capacity_state: list[dict[str, int | str]] | None = None
+        if table == "propertyquarry_admission_capacity_state":
+            capacity_state = _validated_admission_capacity_state(
+                row.get("capacity_state"),
+                label=label,
+            )
+        elif "capacity_state" in row:
+            raise DisasterRecoveryError(
+                "critical_data_contract_mismatch",
+                f"{label} capacity-state evidence is attached to the wrong table.",
+            )
         chunk_count = _strict_nonnegative_int(
             row.get("chunk_count"),
             code="critical_data_chunk_count_invalid",
@@ -1425,24 +1650,58 @@ def _validated_critical_data_evidence(payload: object, *, label: str) -> dict[st
                 "critical_data_required_table_empty",
                 f"{label} release-critical data table is empty: {table}.",
             )
-        normalized_rows.append(
-            {
-                "schema": CRITICAL_DATA_SCHEMA,
-                "table": table,
-                "identity_columns": list(identity_columns),
-                "data_required": data_required,
-                "evidence_version": CRITICAL_DATA_EVIDENCE_VERSION,
-                "chunk_size": CRITICAL_DATA_CHUNK_SIZE,
-                "max_row_bytes": CRITICAL_DATA_MAX_ROW_BYTES,
-                "max_chunks": CRITICAL_DATA_MAX_CHUNKS,
-                "max_supported_rows": CRITICAL_DATA_MAX_SUPPORTED_ROWS,
-                "row_count": row_count,
-                "chunk_count": chunk_count,
-                "chunks": normalized_chunks,
-                "merkle_root_sha256": merkle_root,
-                "fingerprint_sha256": fingerprint,
-            }
-        )
+        normalized_row: dict[str, object] = {
+            "schema": CRITICAL_DATA_SCHEMA,
+            "table": table,
+            "identity_columns": list(identity_columns),
+            "data_required": data_required,
+            "evidence_version": CRITICAL_DATA_EVIDENCE_VERSION,
+            "chunk_size": CRITICAL_DATA_CHUNK_SIZE,
+            "max_row_bytes": CRITICAL_DATA_MAX_ROW_BYTES,
+            "max_chunks": CRITICAL_DATA_MAX_CHUNKS,
+            "max_supported_rows": CRITICAL_DATA_MAX_SUPPORTED_ROWS,
+            "row_count": row_count,
+            "chunk_count": chunk_count,
+            "chunks": normalized_chunks,
+            "merkle_root_sha256": merkle_root,
+            "fingerprint_sha256": fingerprint,
+        }
+        if capacity_state is not None:
+            normalized_row["capacity_state"] = capacity_state
+        normalized_rows.append(normalized_row)
+    if expected["admission_capacity_required"] is True:
+        normalized_by_table = {
+            str(row["table"]): row for row in normalized_rows
+        }
+        capacity_rows = normalized_by_table[
+            "propertyquarry_admission_capacity_state"
+        ]["capacity_state"]
+        if not isinstance(capacity_rows, list):
+            raise DisasterRecoveryError(
+                "critical_data_admission_capacity_state_invalid",
+                f"{label} admission capacity state is missing after validation.",
+            )
+        capacity_counts = {
+            str(row["capacity_key"]): int(row["row_count"])
+            for row in capacity_rows
+        }
+        actual_counts = {
+            "lease": int(
+                normalized_by_table[
+                    "propertyquarry_admission_leases"
+                ]["row_count"]
+            ),
+            "quota": int(
+                normalized_by_table[
+                    "propertyquarry_admission_quota_buckets"
+                ]["row_count"]
+            ),
+        }
+        if capacity_counts != actual_counts:
+            raise DisasterRecoveryError(
+                "critical_data_admission_capacity_counter_drift",
+                f"{label} admission capacity counters do not match the snapshot-bound table counts.",
+            )
     return {
         "contract_name": expected["contract_name"],
         "contract_version": expected["contract_version"],
@@ -1453,6 +1712,11 @@ def _validated_critical_data_evidence(payload: object, *, label: str) -> dict[st
         "max_row_bytes": expected["max_row_bytes"],
         "max_chunks": expected["max_chunks"],
         "max_supported_rows": expected["max_supported_rows"],
+        "governing_schema_version": expected["governing_schema_version"],
+        "table_set_version": expected["table_set_version"],
+        "privacy_lifecycle_required": expected["privacy_lifecycle_required"],
+        "admission_capacity_required": expected["admission_capacity_required"],
+        "admission_capacity_limits": expected["admission_capacity_limits"],
         "tables": normalized_rows,
     }
 
@@ -1467,10 +1731,14 @@ def _critical_data_evidence_from_database(
     runner: Runner,
     commands: list[dict[str, object]],
     snapshot_id: str | None = None,
+    governing_schema_version: int | None = None,
 ) -> dict[str, object]:
-    contract = _critical_data_contract()
+    contract = _critical_data_contract(governing_schema_version)
+    tables_for_schema = _critical_data_tables_for_schema_version(
+        int(contract["governing_schema_version"])
+    )
     evidence_rows: list[dict[str, object]] = []
-    for table, identity_columns, data_required in CRITICAL_DATA_TABLES:
+    for table, identity_columns, data_required in tables_for_schema:
         if not _SAFE_TABLE_RE.fullmatch(table) or any(
             not _SAFE_TABLE_RE.fullmatch(column) for column in identity_columns
         ):
@@ -1507,6 +1775,25 @@ def _critical_data_evidence_from_database(
                 "critical_data_scale_bound_exceeded",
                 f"{label} critical-data table exceeds the bounded Merkle contract for {table}.",
             )
+        if (
+            table == "propertyquarry_admission_quota_buckets"
+            and preflight_row_count > CRITICAL_DATA_ADMISSION_QUOTA_MAX_ROWS
+        ) or (
+            table == "propertyquarry_admission_leases"
+            and preflight_row_count > CRITICAL_DATA_ADMISSION_LEASE_MAX_ROWS
+        ):
+            raise DisasterRecoveryError(
+                "critical_data_admission_capacity_exceeded",
+                f"{label} admission state exceeds the schema-v17 hard limit for {table}.",
+            )
+        if (
+            table == "propertyquarry_admission_capacity_state"
+            and preflight_row_count != 2
+        ):
+            raise DisasterRecoveryError(
+                "critical_data_admission_capacity_state_invalid",
+                f"{label} admission capacity state must contain exactly two rows.",
+            )
         identity_projection_sql = ", ".join(
             f'source_row."{column}"' for column in identity_columns
         )
@@ -1518,6 +1805,14 @@ def _critical_data_evidence_from_database(
             )
             for column in identity_columns
         )
+        capacity_state_projection = ""
+        if table == "propertyquarry_admission_capacity_state":
+            capacity_state_projection = (
+                ", 'capacity_state', COALESCE((SELECT json_agg(json_build_object("
+                "'capacity_key', capacity_key, 'row_count', row_count, "
+                "'row_limit', row_limit) ORDER BY capacity_key) "
+                "FROM bounded_source), '[]'::json)"
+            )
         sql = (
             "SET TIME ZONE 'UTC'; "
             f"/* propertyquarry_critical_data:{table} */ "
@@ -1563,7 +1858,7 @@ def _critical_data_evidence_from_database(
             "'chunk_index', chunk_index, 'row_count', row_count, "
             "'max_row_bytes_observed', max_row_bytes_observed, "
             "'chunk_sha256', chunk_sha256) ORDER BY chunk_index) FROM bounded_chunks), "
-            "'[]'::json))::text;"
+            f"'[]'::json){capacity_state_projection})::text;"
         )
         raw = _psql_scalar(
             step=f"{step}_{table}",
@@ -1624,27 +1919,29 @@ def _critical_data_evidence_from_database(
                 "critical_data_query_invalid",
                 f"{label} chunk query returned incomplete evidence for {table}.",
             ) from exc
-        evidence_rows.append(
-            {
-                "schema": CRITICAL_DATA_SCHEMA,
-                "table": table,
-                "identity_columns": list(identity_columns),
-                "data_required": data_required,
-                "evidence_version": observed.get("evidence_version"),
-                "chunk_size": CRITICAL_DATA_CHUNK_SIZE,
-                "max_row_bytes": CRITICAL_DATA_MAX_ROW_BYTES,
-                "max_chunks": CRITICAL_DATA_MAX_CHUNKS,
-                "max_supported_rows": CRITICAL_DATA_MAX_SUPPORTED_ROWS,
-                "row_count": observed_row_count,
-                "chunk_count": observed.get("chunk_count"),
-                "chunks": normalized_chunks,
-                "merkle_root_sha256": merkle_root,
-                "fingerprint_sha256": merkle_root,
-            }
-        )
+        evidence_row: dict[str, object] = {
+            "schema": CRITICAL_DATA_SCHEMA,
+            "table": table,
+            "identity_columns": list(identity_columns),
+            "data_required": data_required,
+            "evidence_version": observed.get("evidence_version"),
+            "chunk_size": CRITICAL_DATA_CHUNK_SIZE,
+            "max_row_bytes": CRITICAL_DATA_MAX_ROW_BYTES,
+            "max_chunks": CRITICAL_DATA_MAX_CHUNKS,
+            "max_supported_rows": CRITICAL_DATA_MAX_SUPPORTED_ROWS,
+            "row_count": observed_row_count,
+            "chunk_count": observed.get("chunk_count"),
+            "chunks": normalized_chunks,
+            "merkle_root_sha256": merkle_root,
+            "fingerprint_sha256": merkle_root,
+        }
+        if table == "propertyquarry_admission_capacity_state":
+            evidence_row["capacity_state"] = observed.get("capacity_state")
+        evidence_rows.append(evidence_row)
     return _validated_critical_data_evidence(
         {**contract, "tables": evidence_rows},
         label=label,
+        governing_schema_version=int(contract["governing_schema_version"]),
     )
 
 
@@ -1865,6 +2162,7 @@ def execute_backup(
                 require_current=False,
                 snapshot_id=snapshot_id,
             )
+            source_schema_version = int(source_schema["current_version"])
             source_critical_data = _critical_data_evidence_from_database(
                 label="Source",
                 step="source_critical_data",
@@ -1874,10 +2172,12 @@ def execute_backup(
                 runner=runner,
                 commands=commands,
                 snapshot_id=snapshot_id,
+                governing_schema_version=source_schema_version,
             )
             source_snapshot = _snapshot_evidence(
                 exported_snapshot,
                 pg_dump_plaintext_sha256=plaintext_sha256,
+                governing_schema_version=source_schema_version,
             )
         _run_checked(
             step="pg_restore_list",
@@ -1951,6 +2251,7 @@ def execute_backup(
                     "source_schema_contract_valid": True,
                     "source_snapshot_contract_valid": True,
                     "source_critical_data_contract_valid": True,
+                    "source_critical_data_table_set_bound": True,
                     "off_host_object_verified": bool(off_host_object),
                 },
                 "commands": commands,
@@ -2897,14 +3198,17 @@ def execute_restore_drill(
         label="Backup source",
         require_current=False,
     )
+    source_schema_version = int(source_schema["current_version"])
     source_snapshot = _validated_snapshot_evidence(
         backup_receipt.get("source_snapshot"),
         label="Backup source",
         pg_dump_plaintext_sha256=str(artifact_info.get("plaintext_sha256") or "").lower(),
+        governing_schema_version=source_schema_version,
     )
     source_critical_data = _validated_critical_data_evidence(
         backup_receipt.get("source_critical_data"),
         label="Backup source",
+        governing_schema_version=source_schema_version,
     )
     artifact = artifact_path.expanduser().absolute()
     encrypted = bool(artifact_info.get("encrypted"))
@@ -3059,6 +3363,7 @@ def execute_restore_drill(
             env=env,
             runner=runner,
             commands=commands,
+            governing_schema_version=source_schema_version,
         )
         if restored_critical_data != source_critical_data:
             raise DisasterRecoveryError(
@@ -3078,6 +3383,7 @@ def execute_restore_drill(
         )
         verification["schema_ledger_matches_source"] = restored_schema == source_schema
         verification["critical_data_contract_valid"] = True
+        verification["critical_data_table_set_exact"] = True
         verification["critical_data_exact_match"] = True
         required_tables, non_empty_tables = _table_contract(env)
         required_table_evidence: dict[str, dict[str, object]] = {}
@@ -3357,15 +3663,18 @@ def verify_release_dr_evidence(
             "release_schema_mismatch",
             "Backup and restore receipts do not identify the same source migration ledger.",
         )
+    source_schema_version = int(source_schema["current_version"])
     source_snapshot = _validated_snapshot_evidence(
         backup.get("source_snapshot"),
         label="Backup source",
         pg_dump_plaintext_sha256=str(backup_artifact.get("plaintext_sha256") or "").lower(),
+        governing_schema_version=source_schema_version,
     )
     restore_source_snapshot = _validated_snapshot_evidence(
         restore.get("source_snapshot"),
         label="Restore source",
         pg_dump_plaintext_sha256=str(backup_artifact.get("plaintext_sha256") or "").lower(),
+        governing_schema_version=source_schema_version,
     )
     if source_snapshot != restore_source_snapshot:
         raise DisasterRecoveryError(
@@ -3375,14 +3684,17 @@ def verify_release_dr_evidence(
     source_critical_data = _validated_critical_data_evidence(
         backup.get("source_critical_data"),
         label="Backup source",
+        governing_schema_version=source_schema_version,
     )
     restore_source_critical_data = _validated_critical_data_evidence(
         restore.get("source_critical_data"),
         label="Restore source",
+        governing_schema_version=source_schema_version,
     )
     restored_critical_data = _validated_critical_data_evidence(
         restore.get("restored_critical_data"),
         label="Restored",
+        governing_schema_version=source_schema_version,
     )
     if (
         source_critical_data != restore_source_critical_data
@@ -3506,6 +3818,7 @@ def verify_release_dr_evidence(
         "off_host_retrieval_verified",
         "aws_cli_attested",
         "critical_data_contract_valid",
+        "critical_data_table_set_exact",
         "critical_data_exact_match",
     )
     missing_verification = [key for key in required_verification if verification.get(key) is not True]
@@ -3571,6 +3884,16 @@ def verify_release_dr_evidence(
                     "max_row_bytes": source_critical_data["max_row_bytes"],
                     "max_chunks": source_critical_data["max_chunks"],
                     "max_supported_rows": source_critical_data["max_supported_rows"],
+                    "governing_schema_version": source_critical_data[
+                        "governing_schema_version"
+                    ],
+                    "table_set_version": source_critical_data["table_set_version"],
+                    "privacy_lifecycle_required": source_critical_data[
+                        "privacy_lifecycle_required"
+                    ],
+                    "governed_table_names": [
+                        row["table"] for row in source_critical_data["tables"]
+                    ],
                 },
                 "critical_data_tables": [
                     {
@@ -3600,6 +3923,7 @@ def verify_release_dr_evidence(
                 "verification_hook_passed": True,
                 "readiness_hook_passed": True,
                 "critical_data_contract_valid": True,
+                "critical_data_table_set_exact": True,
                 "critical_data_exact_match": True,
                 "evidence_fresh": True,
             },

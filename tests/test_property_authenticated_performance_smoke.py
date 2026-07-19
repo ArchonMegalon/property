@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import json
+import os
 import subprocess
 import sys
-import os
-import json
+from pathlib import Path
+
+import yaml
 
 from scripts.propertyquarry_authenticated_performance_smoke import (
+    AUTHENTICATED_PERFORMANCE_SCHEMA,
     PERFORMANCE_SMOKE_MAX_PRICE_EUR,
     build_authenticated_performance_receipt,
     _synthetic_candidate,
@@ -15,6 +19,25 @@ from scripts.propertyquarry_authenticated_performance_smoke import (
 
 
 SMOKE_SUBPROCESS_TIMEOUT_SECONDS = 120
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def _performance_subprocess_environment() -> dict[str, str]:
+    env = dict(os.environ)
+    for name in (
+        "PYTHONPATH",
+        "PROPERTYQUARRY_EXPECTED_PERFORMANCE_CHROMIUM_EXECUTABLE_PATH",
+        "PROPERTYQUARRY_EXPECTED_PERFORMANCE_CHROMIUM_EXECUTABLE_SHA256",
+        "PROPERTYQUARRY_EXPECTED_RELEASE_COMMIT_SHA",
+        "PROPERTYQUARRY_EXPECTED_RELEASE_DEPLOYMENT_ID",
+        "PROPERTYQUARRY_EXPECTED_RELEASE_IMAGE_DIGEST",
+        "PROPERTYQUARRY_LIVE_PROBE_SECRET",
+        "PROPERTYQUARRY_PERFORMANCE_AUTH_BOOTSTRAP_URL",
+        "PROPERTYQUARRY_PERFORMANCE_RELEASE_PROBE_SECRET",
+        "PROPERTYQUARRY_PERFORMANCE_TARGET_URL",
+    ):
+        env.pop(name, None)
+    return env
 
 
 def test_property_authenticated_performance_seeded_preferences_include_budget() -> None:
@@ -66,6 +89,15 @@ def test_property_authenticated_performance_smoke_receipt_passes() -> None:
 
     assert receipt["status"] == "pass"
     assert receipt["failed_count"] == 0
+    assert receipt["schema"] == AUTHENTICATED_PERFORMANCE_SCHEMA
+    assert receipt["flagship_status"] == "blocked"
+    assert receipt["flagship_blockers"] == [
+        "constrained_authenticated_browser_evidence_missing_or_blocked",
+        "signed_release_probe_authentication_missing_or_blocked",
+        "exact_live_release_identity_missing_or_mismatched",
+    ]
+    assert receipt["server_request_evidence"]["status"] == "pass"
+    assert receipt["constrained_client_evidence"]["status"] == "not_run"
     routes = {str(row["path"]).split("?", 1)[0]: row for row in receipt["routes"]}
     expected_mobile_surfaces = {
         "/sign-in",
@@ -87,6 +119,12 @@ def test_property_authenticated_performance_smoke_receipt_passes() -> None:
         "/app/settings/invitations",
     }
     assert expected_mobile_surfaces.issubset(routes)
+    assert all(tuple(row["measurements"]) == ("cold", "warm") for row in routes.values())
+    assert all(
+        row["first_duration_ms"] == row["measurements"]["cold"]["duration_ms"]
+        and row["duration_ms"] == row["measurements"]["warm"]["duration_ms"]
+        for row in routes.values()
+    )
     assert routes["/app/agents"]["duration_ms"] <= routes["/app/agents"]["budget_ms"]
     assert routes["/app/research/perf-candidate-1020"]["duration_ms"] <= routes["/app/research/perf-candidate-1020"]["budget_ms"]
     content_first_mobile_surfaces = {
@@ -168,8 +206,7 @@ def test_property_authenticated_performance_smoke_receipt_passes() -> None:
 
 
 def test_property_authenticated_performance_smoke_script_emits_receipt() -> None:
-    env = dict(os.environ)
-    env.pop("PYTHONPATH", None)
+    env = _performance_subprocess_environment()
     result = subprocess.run(
         [sys.executable, "scripts/propertyquarry_authenticated_performance_smoke.py"],
         check=False,
@@ -181,6 +218,12 @@ def test_property_authenticated_performance_smoke_script_emits_receipt() -> None
 
     assert result.returncode == 0, result.stderr
     assert '"status": "pass"' in result.stdout
+    assert '"flagship_status": "blocked"' in result.stdout
+    assert '"cold"' in result.stdout
+    assert '"warm"' in result.stdout
+    assert '"constrained_client_evidence"' in result.stdout
+    assert '"field_core_web_vitals": false' in result.stdout
+    assert '"physical_device_performance": false' in result.stdout
     assert '"/sign-in"' in result.stdout
     assert '"/app/agents"' in result.stdout
     assert '"/app/alerts' in result.stdout
@@ -221,9 +264,174 @@ def test_property_authenticated_performance_smoke_script_emits_receipt() -> None
     assert '"no_visible_internal_proof_copy"' in result.stdout
 
 
+def test_launch_release_gate_requires_secret_safe_constrained_browser_inputs() -> None:
+    release_gate = (
+        ROOT / "scripts" / "property_release_gates.sh"
+    ).read_text(encoding="utf-8")
+    workflow = yaml.safe_load(
+        (ROOT / ".github" / "workflows" / "smoke-runtime.yml").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert "PROPERTYQUARRY_PERFORMANCE_TARGET_URL" in release_gate
+    assert (
+        'expected_release_manifest_sha256="${PROPERTYQUARRY_EXPECTED_RELEASE_MANIFEST_SHA256:-}"'
+        in release_gate
+    )
+    assert (
+        'performance_release_probe_secret="${PROPERTYQUARRY_PERFORMANCE_RELEASE_PROBE_SECRET:-${PROPERTYQUARRY_LIVE_PROBE_SECRET:-}}"'
+        in release_gate
+    )
+    bootstrap_unset = "unset PROPERTYQUARRY_PERFORMANCE_AUTH_BOOTSTRAP_URL"
+    assert bootstrap_unset in release_gate
+    secret_unset = (
+        "unset PROPERTYQUARRY_PERFORMANCE_RELEASE_PROBE_SECRET "
+        "PROPERTYQUARRY_LIVE_PROBE_SECRET"
+    )
+    assert secret_unset in release_gate
+    unset_index = release_gate.index(secret_unset)
+    ea_root_index = release_gate.index('EA_ROOT="$(cd ')
+    assert unset_index < ea_root_index
+    assert release_gate.index(bootstrap_unset) < ea_root_index
+    assert unset_index < release_gate.index("$(")
+    performance_command_index = release_gate.index(
+        "scripts/propertyquarry_authenticated_performance_smoke.py"
+    )
+    assert unset_index < performance_command_index
+    performance_command_end = release_gate.index(
+        "live_mobile_base_url=",
+        performance_command_index,
+    )
+    performance_command_start = release_gate.rfind(
+        "PROPERTYQUARRY_PERFORMANCE_TARGET_URL=",
+        0,
+        performance_command_index,
+    )
+    assert performance_command_start >= 0
+    performance_command = release_gate[
+        performance_command_start:performance_command_end
+    ]
+    assert "PROPERTYQUARRY_PERFORMANCE_RELEASE_PROBE_SECRET=" not in performance_command
+    assert "PROPERTYQUARRY_LIVE_PROBE_SECRET=" not in performance_command
+    assert "PROPERTYQUARRY_PLAYWRIGHT_CHROMIUM_EXECUTABLE=" not in performance_command
+    assert "--release-probe-secret-stdin" in performance_command
+    assert (
+        '--expected-chromium-executable-path "${expected_performance_chromium_path}"'
+        in performance_command
+    )
+    assert (
+        '--expected-chromium-executable-sha256 "${expected_performance_chromium_sha256}"'
+        in performance_command
+    )
+    manifest_binding_flag = (
+        '--expected-release-manifest-sha256 "${expected_release_manifest_sha256}"'
+    )
+    assert manifest_binding_flag in performance_command
+    assert release_gate.count(manifest_binding_flag) == 2
+    assert (
+        '<<<"${performance_release_probe_secret}" >/dev/null'
+        in performance_command
+    )
+    assert 'PROPERTYQUARRY_LIVE_PROBE_SECRET="${performance_release_probe_secret}" \\\n' in release_gate
+    assert "unset performance_release_probe_secret" in release_gate
+    assert "--constrained-client-authentication-bootstrap-url" not in release_gate
+
+    release_gate_steps = [
+        step
+        for job in workflow["jobs"].values()
+        for step in job.get("steps", [])
+        if step.get("run") == "exec ./scripts/property_release_gates.sh"
+    ]
+    assert len(release_gate_steps) == 1
+    assert release_gate_steps[0]["shell"] == (
+        "/bin/bash --noprofile --norc -p -e -u -o pipefail {0}"
+    )
+    release_gate_env = release_gate_steps[0]["env"]
+    assert release_gate_env["PROPERTYQUARRY_LIVE_PROBE_SECRET"] == (
+        "${{ secrets.PROPERTYQUARRY_LIVE_PROBE_SECRET }}"
+    )
+    assert release_gate_env["PROPERTYQUARRY_PERFORMANCE_TARGET_URL"] == (
+        "${{ format('{0}/app/search', vars.PROPERTYQUARRY_LIVE_MOBILE_BASE_URL) }}"
+    )
+    assert release_gate_env[
+        "PROPERTYQUARRY_EXPECTED_PERFORMANCE_CHROMIUM_EXECUTABLE_PATH"
+    ] == "${{ vars.PROPERTYQUARRY_EXPECTED_PERFORMANCE_CHROMIUM_EXECUTABLE_PATH }}"
+    assert release_gate_env[
+        "PROPERTYQUARRY_EXPECTED_PERFORMANCE_CHROMIUM_EXECUTABLE_SHA256"
+    ] == "${{ vars.PROPERTYQUARRY_EXPECTED_PERFORMANCE_CHROMIUM_EXECUTABLE_SHA256 }}"
+    assert release_gate_env[
+        "PROPERTYQUARRY_EXPECTED_RELEASE_MANIFEST_SHA256"
+    ] == "${{ vars.PROPERTYQUARRY_EXPECTED_RELEASE_MANIFEST_SHA256 }}"
+
+
+def test_secret_bearing_workflow_steps_replace_inherited_startup_hooks() -> None:
+    workflow = yaml.safe_load(
+        (ROOT / ".github" / "workflows" / "smoke-runtime.yml").read_text(
+            encoding="utf-8"
+        )
+    )
+    expected_commands = {
+        "exec /bin/bash --noprofile --norc -p "
+        "scripts/propertyquarry_live_release_gates.sh",
+        "exec ./scripts/property_release_gates.sh",
+    }
+    gate_steps = [
+        step
+        for job in workflow["jobs"].values()
+        for step in job.get("steps", [])
+        if step.get("run") in expected_commands
+    ]
+    assert len(gate_steps) == 2
+    assert {step["run"] for step in gate_steps} == expected_commands
+    secret_bearing_steps = [
+        step
+        for job in workflow["jobs"].values()
+        for step in job.get("steps", [])
+        if isinstance(step.get("env"), dict)
+        and step["env"].get("PROPERTYQUARRY_LIVE_PROBE_SECRET")
+        == "${{ secrets.PROPERTYQUARRY_LIVE_PROBE_SECRET }}"
+    ]
+    assert len(secret_bearing_steps) == 2
+    assert {step["run"] for step in secret_bearing_steps} == expected_commands
+
+    hostile_inherited_environment = {
+        "BASH_ENV": "/tmp/hostile-bash-env.sh",
+        "ENV": "/tmp/hostile-posix-env.sh",
+        "LD_PRELOAD": "/tmp/hostile-preload.so",
+        "LD_LIBRARY_PATH": "/tmp/hostile-libraries",
+        "LD_AUDIT": "/tmp/hostile-audit.so",
+        "GCONV_PATH": "/tmp/hostile-gconv",
+    }
+    expected_neutralized_environment = {
+        "BASH_ENV": "/dev/null",
+        "ENV": "/dev/null",
+        "LD_PRELOAD": "",
+        "LD_LIBRARY_PATH": "",
+        "LD_AUDIT": "",
+        "GCONV_PATH": "",
+    }
+    for step in gate_steps:
+        step_environment = step["env"]
+        modeled_process_environment = {
+            **hostile_inherited_environment,
+            **step_environment,
+        }
+        assert {
+            name: modeled_process_environment[name]
+            for name in expected_neutralized_environment
+        } == expected_neutralized_environment
+        assert step_environment["PROPERTYQUARRY_LIVE_PROBE_SECRET"] == (
+            "${{ secrets.PROPERTYQUARRY_LIVE_PROBE_SECRET }}"
+        )
+        assert step["shell"] == (
+            "/bin/bash --noprofile --norc -p -e -u -o pipefail {0}"
+        )
+        assert "secrets." not in step["run"]
+
+
 def test_property_authenticated_performance_smoke_script_writes_receipt(tmp_path) -> None:
-    env = dict(os.environ)
-    env.pop("PYTHONPATH", None)
+    env = _performance_subprocess_environment()
     receipt_path = tmp_path / "property-auth-performance.json"
 
     result = subprocess.run(
@@ -262,9 +470,8 @@ def test_property_authenticated_performance_smoke_budget_override_applies_to_def
     assert _route_budget_for("/app/research/perf-candidate-1020?run_id=abc", route_budget_ms=250) == 250
 
 
-def test_property_authenticated_performance_smoke_script_fails_under_tight_budget() -> None:
-    env = dict(os.environ)
-    env.pop("PYTHONPATH", None)
+def test_property_authenticated_performance_smoke_script_rejects_invalid_tight_budget() -> None:
+    env = _performance_subprocess_environment()
     result = subprocess.run(
         [sys.executable, "scripts/propertyquarry_authenticated_performance_smoke.py", "--route-budget-ms", "1"],
         check=False,
@@ -274,6 +481,6 @@ def test_property_authenticated_performance_smoke_script_fails_under_tight_budge
         timeout=SMOKE_SUBPROCESS_TIMEOUT_SECONDS,
     )
 
-    assert result.returncode == 1
-    assert '"status": "fail"' in result.stdout
-    assert '"under_budget"' in result.stdout
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert "route_budget_ms_out_of_range:50:60000" in result.stderr

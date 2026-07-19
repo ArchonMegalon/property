@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from scripts import propertyquarry_gold_status as gold_status
+from scripts import propertyquarry_advanced_visual_gold_binding as advanced_binding
 from scripts import propertyquarry_continuous_ux_gate as continuous_ux_gate
 from scripts import property_evidence_overlay_read_model as overlay_read_model
 from scripts import propertyquarry_rybbit_evidence as rybbit_evidence
@@ -17,6 +18,53 @@ from scripts.propertyquarry_gold_status import _latest_receipt_path, build_gold_
 
 ROOT = Path(__file__).resolve().parents[1]
 _CONTINUOUS_UX_MISSING = object()
+_PERFORMANCE_RELEASE_COMMIT_SHA = "a" * 40
+_PERFORMANCE_RELEASE_IMAGE_DIGEST = "sha256:" + "b" * 64
+_PERFORMANCE_RELEASE_DEPLOYMENT_ID = "propertyquarry-production"
+_PERFORMANCE_MANIFEST_SHA256 = "c123456789abcdef" * 4
+
+
+def _existing_python_executable_identity() -> dict[str, object]:
+    executable_path = Path(sys.executable).resolve(strict=True)
+    digest = hashlib.sha256()
+    with executable_path.open("rb") as executable:
+        while chunk := executable.read(1024 * 1024):
+            digest.update(chunk)
+    return {
+        "engine": "chromium",
+        "browser_version": "145.0.7632.6",
+        "playwright_version": "1.60.0",
+        "executable_path": str(executable_path),
+        "executable_sha256": digest.hexdigest(),
+        "executable_bytes": executable_path.stat().st_size,
+    }
+
+
+_PYTHON_EXECUTABLE_IDENTITY = _existing_python_executable_identity()
+
+
+def _secure_test_chromium_executable_identity(tmp_path: Path) -> dict[str, object]:
+    chromium_dir = tmp_path / "controller-browser" / "chromium-145"
+    chromium_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    executable_path = chromium_dir / "chrome"
+    prefix = b"\x7fELF\x02\x01\x01\x00"
+    marker = b"PropertyQuarry Chromium controller-bound test executable"
+    executable_bytes = (
+        prefix
+        + b"\x00"
+        * (gold_status.AUTHENTICATED_PERFORMANCE_MIN_EXECUTABLE_BYTES - len(prefix))
+        + marker
+    )
+    executable_path.write_bytes(executable_bytes)
+    executable_path.chmod(0o700)
+    return {
+        "engine": "chromium",
+        "browser_version": "145.0.7632.6",
+        "playwright_version": "1.60.0",
+        "executable_path": str(executable_path),
+        "executable_sha256": hashlib.sha256(executable_bytes).hexdigest(),
+        "executable_bytes": len(executable_bytes),
+    }
 
 
 def test_gold_cli_requires_launch_profile_for_canonical_launch_authority(
@@ -61,8 +109,28 @@ def _write_json(path: Path, payload: dict[str, object]) -> Path:
     return path
 
 
+def _magicfit_playback_payload() -> dict[str, object]:
+    media_identity = "/tours/files/magicfit-proof-tour/walkthrough.mp4"
+    return {
+        "playback_ok": True,
+        "playable_count": 1,
+        "ready_count": 1,
+        "evidence": [
+            {
+                "slug": "magicfit-proof-tour",
+                "provider": "magicfit",
+                "control_path": media_identity,
+                "media_identity": media_identity,
+            }
+        ],
+    }
+
+
 def _minimal_gold_receipt_args(tmp_path: Path, *, generated_at: str) -> dict[str, object]:
-    performance_payload = _performance_payload()
+    executable_identity = _secure_test_chromium_executable_identity(tmp_path)
+    performance_payload = _performance_payload(
+        executable_identity=executable_identity,
+    )
     performance_payload["generated_at"] = generated_at
     provider_matrix_payload = _provider_matrix_payload()
     provider_matrix_payload["generated_at"] = generated_at
@@ -75,6 +143,7 @@ def _minimal_gold_receipt_args(tmp_path: Path, *, generated_at: str) -> dict[str
                 "status": "pass",
                 "ready_provider_modes": ["matterport", "3dvista", "magicfit"],
                 "missing_provider_modes": [],
+                "magicfit_playback": _magicfit_playback_payload(),
             },
         ),
         "export_discovery_receipt_path": _write_json(
@@ -95,7 +164,44 @@ def _minimal_gold_receipt_args(tmp_path: Path, *, generated_at: str) -> dict[str
             tmp_path / "provider-matrix.json",
             provider_matrix_payload,
         ),
+        "expected_performance_chromium_executable_path": executable_identity[
+            "executable_path"
+        ],
+        "expected_performance_chromium_executable_sha256": executable_identity[
+            "executable_sha256"
+        ],
     }
+
+
+def test_gold_status_identifies_schema_and_exact_evaluated_release(tmp_path: Path) -> None:
+    generated_at = "2026-07-19T12:00:00+00:00"
+    release_sha = "a" * 40
+    image_digest = "sha256:" + "b" * 64
+
+    receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(tmp_path, generated_at=generated_at),
+        expected_release_commit_sha=release_sha.upper(),
+        expected_release_image_digest=image_digest.upper(),
+        expected_release_deployment_id=_PERFORMANCE_RELEASE_DEPLOYMENT_ID,
+        now=datetime(2026, 7, 19, 12, 5, tzinfo=timezone.utc),
+    )
+
+    assert receipt["schema"] == "propertyquarry.gold_status.v1"
+    assert receipt["release_identity"] == {
+        "commit_sha": release_sha,
+        "image_digest": image_digest,
+    }
+
+
+def test_gold_status_builder_rejects_nan_receipt_age_policy(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="max_receipt_age_hours_must_be_finite"):
+        build_gold_status_receipt(
+            **_minimal_gold_receipt_args(
+                tmp_path,
+                generated_at="2026-07-19T12:00:00+00:00",
+            ),
+            max_receipt_age_hours=float("nan"),
+        )
 
 
 def _flagship_customer_ux_receipt_args(tmp_path: Path, *, generated_at: str) -> dict[str, object]:
@@ -331,6 +437,8 @@ def _flagship_customer_ux_receipt_args(tmp_path: Path, *, generated_at: str) -> 
     configured_live_routes = (
         *gold_status.REQUIRED_LIVE_MOBILE_ROUTES,
         "/app/research/current-result?run_id=run-flagship",
+        "/app/shortlist/run/run-flagship",
+        "/tours/tour-flagship",
     )
     live_routes = []
     for browser_engine in gold_status.DEFAULT_REQUIRED_FLAGSHIP_BROWSER_ENGINES:
@@ -403,13 +511,15 @@ def _flagship_customer_ux_receipt_args(tmp_path: Path, *, generated_at: str) -> 
         "viewport": {"width": 390, "height": 844},
         "routes": live_routes,
         "coverage_checks": [
-            {"name": "research_detail_route_configured", "ok": True},
-            {"name": "registry_mobile_customer_surfaces_covered", "ok": True},
+            {"name": name, "ok": True}
+            for name in gold_status.REQUIRED_LIVE_MOBILE_COVERAGE_CHECKS
         ],
     }
     accessibility_routes = (
         *gold_status.REQUIRED_FLAGSHIP_ACCESSIBILITY_ROUTES,
         "/app/research/current-result?run_id=run-flagship",
+        "/app/shortlist/run/run-flagship",
+        "/tours/tour-flagship",
     )
     accessibility_rows = [
         {
@@ -424,6 +534,7 @@ def _flagship_customer_ux_receipt_args(tmp_path: Path, *, generated_at: str) -> 
                 "browser_engine": browser_engine,
                 "axe_core_version": gold_status.REQUIRED_AXE_CORE_VERSION,
                 "axe_serious_critical_count": 0,
+                "axe_moderate_or_higher_wcag_count": 0,
             },
         }
         for browser_engine in gold_status.DEFAULT_REQUIRED_FLAGSHIP_BROWSER_ENGINES
@@ -441,7 +552,11 @@ def _flagship_customer_ux_receipt_args(tmp_path: Path, *, generated_at: str) -> 
             {"name": "axe_core_pinned_input", "ok": True},
             {"name": "accessibility_route_engine_matrix_complete", "ok": True},
             {"name": "public_information_route_matrix_configured", "ok": True},
+            {"name": "flagship_static_route_matrix_configured", "ok": True},
+            {"name": "literal_route_placeholders_absent", "ok": True},
             {"name": "research_detail_route_configured", "ok": True},
+            {"name": "shortlist_run_route_configured", "ok": True},
+            {"name": "public_tour_route_configured", "ok": True},
             {"name": "dialog_focus_interaction_sampled", "ok": True},
         ],
         "routes": accessibility_rows,
@@ -451,6 +566,26 @@ def _flagship_customer_ux_receipt_args(tmp_path: Path, *, generated_at: str) -> 
             "state": state,
             "browser_engine": browser_engine,
             "ok": True,
+            "customer_data_preserved": True,
+            "preservation_probe": {
+                "before": {
+                    "ok": True,
+                    "status_code": 200,
+                    "body_bytes": 512,
+                    "canonical_bytes": 480,
+                    "sha256": "a" * 64,
+                    "error": "",
+                },
+                "after": {
+                    "ok": True,
+                    "status_code": 200,
+                    "body_bytes": 512,
+                    "canonical_bytes": 480,
+                    "sha256": "a" * 64,
+                    "error": "",
+                },
+                "same_digest": True,
+            },
             "checks": [
                 {"name": name, "ok": True}
                 for name in gold_status.REQUIRED_FLAGSHIP_FAILURE_STATE_CHECKS
@@ -466,10 +601,12 @@ def _flagship_customer_ux_receipt_args(tmp_path: Path, *, generated_at: str) -> 
         "proof_mode": "playwright_browser_all",
         "required_browser_engines": list(gold_status.DEFAULT_REQUIRED_FLAGSHIP_BROWSER_ENGINES),
         "required_failure_states": list(gold_status.REQUIRED_FLAGSHIP_FAILURE_STATES),
+        "preservation_probe_route": gold_status.REQUIRED_FLAGSHIP_FAILURE_PRESERVATION_ROUTE,
         "checks": [
             {"name": "required_failure_scenarios_configured", "ok": True},
             {"name": "browser_state_engine_matrix_complete", "ok": True},
             {"name": "no_provider_response_mocking", "ok": True},
+            {"name": "customer_data_preservation_matrix_complete", "ok": True},
         ],
         "rows": failure_state_rows,
     }
@@ -672,6 +809,9 @@ def _flagship_customer_ux_receipt_args(tmp_path: Path, *, generated_at: str) -> 
         ),
         "expected_release_commit_sha": release_sha,
         "expected_release_image_digest": image_digest,
+        "expected_release_deployment_id": _PERFORMANCE_RELEASE_DEPLOYMENT_ID,
+        "expected_release_manifest_sha256": _PERFORMANCE_MANIFEST_SHA256,
+        "expected_public_origin": "https://propertyquarry.com",
     }
 
 
@@ -921,6 +1061,125 @@ def _launch_product_data_receipt_args(tmp_path: Path, *, generated_at: str) -> d
         api=api,
         generated_at=datetime.fromisoformat(generated_at),
     )
+    image_digest = "sha256:" + "b" * 64
+    release_identity = {
+        "commit_sha": candidate_sha,
+        "image_digest": image_digest,
+    }
+    launch_markets = list(gold_status.ACTIVE_PROVIDER_MATRIX_COUNTRY_CODES)
+    global_market_envelope_receipt = {
+        "schema": gold_status.GLOBAL_MARKET_ENVELOPE_RECEIPT_SCHEMA,
+        "source_schema": "propertyquarry.global_market_envelope.v1",
+        "source_envelope_id": "propertyquarry-global-market-envelope-test",
+        "source_sha256": "d" * 64,
+        "status": "READY",
+        "generated_at": generated_at,
+        "release_identity": dict(release_identity),
+        "independently_attested": True,
+        "live_receipt_ref": "/governed/global-market/live-attestation.json",
+        "live_receipt_age_seconds": 300.0,
+        "phase_one": {
+            "operating_mode": "launch",
+            "content_language": "en",
+        },
+        "summary": {
+            "launch_supported_markets": launch_markets,
+            "classifications": {
+                "launch_supported": launch_markets,
+                "private_beta": [],
+                "preview": [],
+                "catalog": [],
+                "browser_state_only": [],
+            },
+            "market_count": len(launch_markets),
+            "blocker_count": 0,
+        },
+        "markets": [
+            {
+                "country_code": country_code,
+                "declared_classification": "launch_supported",
+                "computed_classification": "launch_supported",
+                "classification_match": True,
+                "launch_supported": True,
+                "status": "READY",
+                "missing_dimensions": [],
+            }
+            for country_code in launch_markets
+        ],
+        "blockers": [],
+    }
+    incident_support_receipt = {
+        "schema": gold_status.INCIDENT_SUPPORT_GATE_RECEIPT_SCHEMA,
+        "status": "pass",
+        "generated_at": generated_at,
+        "source_contract": {
+            "status": "pass",
+            "sha256": "sha256:" + "c" * 64,
+        },
+        "live_receipt_path": "/governed/incident-support/live-attestation.json",
+        "release_identity": release_identity,
+        "required_markets": launch_markets,
+        "live_receipt_age_seconds": 300.0,
+        "blockers": [],
+    }
+    market_locales = {"AT": "de-AT", "DE": "de-DE", "CR": "es-CR"}
+    global_experience_receipt = {
+        "schema": gold_status.GLOBAL_EXPERIENCE_GATE_RECEIPT_SCHEMA,
+        "status": "pass",
+        "generated_at": generated_at,
+        "service": "propertyquarry",
+        "profile": "launch",
+        "claim_scope": "core",
+        "source_contract_status": "defined_not_live_evidence",
+        "contract_sha256": "e" * 64,
+        "live_receipt_path": "/governed/global-experience/live-attestation.json",
+        "live_receipt_age_seconds": 300.0,
+        "maximum_age_hours": 1.0,
+        "release_identity": release_identity,
+        "required_markets": [
+            {"country_code": country_code, "locale": locale}
+            for country_code, locale in market_locales.items()
+        ],
+        "market_results": [
+            {
+                "country_code": country_code,
+                "locale": locale,
+                "status": "pass",
+                "blockers": [],
+            }
+            for country_code, locale in market_locales.items()
+        ],
+        "independently_attested": True,
+        "blockers": [],
+    }
+    jurisdiction_contract_path = (
+        ROOT / gold_status.JURISDICTION_PRIVACY_RIGHTS_CONTRACT_PATH
+    )
+    jurisdiction_envelope_path = (
+        ROOT / gold_status.JURISDICTION_PRIVACY_RIGHTS_MARKET_ENVELOPE_PATH
+    )
+    jurisdiction_privacy_rights_receipt = {
+        "schema": gold_status.JURISDICTION_PRIVACY_RIGHTS_GATE_RECEIPT_SCHEMA,
+        "status": "pass",
+        "generated_at": generated_at,
+        "source_contract": {
+            "path": gold_status.JURISDICTION_PRIVACY_RIGHTS_CONTRACT_PATH.as_posix(),
+            "sha256": "sha256:"
+            + hashlib.sha256(jurisdiction_contract_path.read_bytes()).hexdigest(),
+            "status": "pass",
+        },
+        "market_envelope": {
+            "path": gold_status.JURISDICTION_PRIVACY_RIGHTS_MARKET_ENVELOPE_PATH.as_posix(),
+            "sha256": "sha256:"
+            + hashlib.sha256(jurisdiction_envelope_path.read_bytes()).hexdigest(),
+            "status": "pass",
+        },
+        "live_receipt_path": "/governed/compliance/jurisdiction-rights-attestation.json",
+        "release_identity": release_identity,
+        "required_markets": launch_markets,
+        "live_receipt_age_seconds": 300.0,
+        "blockers": [],
+    }
     return {
         "evidence_overlay_receipt_path": _write_json(
             tmp_path / "evidence-overlay-read-model.json", overlay_receipt
@@ -928,7 +1187,22 @@ def _launch_product_data_receipt_args(tmp_path: Path, *, generated_at: str) -> d
         "rybbit_evidence_receipt_path": _write_json(
             tmp_path / "rybbit-delivery.json", rybbit_receipt
         ),
-        "expected_public_origin": public_origin,
+        "global_market_envelope_receipt_path": _write_json(
+            tmp_path / "global-market-envelope.json",
+            global_market_envelope_receipt,
+        ),
+        "incident_support_receipt_path": _write_json(
+            tmp_path / "incident-support-gate.json",
+            incident_support_receipt,
+        ),
+        "global_experience_receipt_path": _write_json(
+            tmp_path / "global-experience-gate.json",
+            global_experience_receipt,
+        ),
+        "jurisdiction_privacy_rights_receipt_path": _write_json(
+            tmp_path / "jurisdiction-privacy-rights-gate.json",
+            jurisdiction_privacy_rights_receipt,
+        ),
         "expected_teable_origin": "https://app.teable.io",
         "expected_teable_base_id_sha256": "3" * 64,
         "expected_evidence_overlay_phase": "staged",
@@ -945,7 +1219,11 @@ def test_gold_status_standard_profile_keeps_customer_ux_receipts_optional(tmp_pa
     assert receipt["flagship_customer_ux_evidence"] == {
         "required": False,
         "ready": None,
-        "required_receipts": list(gold_status.FLAGSHIP_CUSTOMER_UX_RECEIPT_AREAS),
+        "required_receipts": [
+            area
+            for area in gold_status.FLAGSHIP_CUSTOMER_UX_RECEIPT_AREAS
+            if area != "walkthrough_quality"
+        ],
         "missing_receipts": [],
         "research_detail_required": False,
         "browser_all_mobile_proof_required": False,
@@ -961,6 +1239,113 @@ def test_gold_status_standard_profile_keeps_customer_ux_receipts_optional(tmp_pa
         "authenticated_billing_available": None,
         "max_receipt_age_hours": None,
     }
+
+
+def test_gold_status_standard_profile_keeps_legacy_performance_compatibility(
+    tmp_path: Path,
+) -> None:
+    generated_at = "2026-07-13T10:00:00+00:00"
+    args = _minimal_gold_receipt_args(tmp_path, generated_at=generated_at)
+    legacy = _performance_payload()
+    for field in (
+        "schema",
+        "flagship_status",
+        "flagship_blockers",
+        "server_request_evidence",
+        "constrained_client_evidence",
+        "claims",
+    ):
+        legacy.pop(field)
+    legacy["generated_at"] = generated_at
+    args["performance_receipt_path"] = _write_json(
+        tmp_path / "legacy-performance.json",
+        legacy,
+    )
+
+    receipt = build_gold_status_receipt(**args)
+
+    assert receipt["status"] == "pass"
+    assert receipt["performance"]["flagship_proof_required"] is False
+    assert receipt["performance"]["flagship_proof_ok"] is None
+    assert "schema_must_be_authenticated_performance_v2" in receipt[
+        "performance"
+    ]["flagship_proof"]["errors"]
+
+
+def test_gold_compatibility_aliases_are_strict_launch_tier_claims(
+    tmp_path: Path,
+) -> None:
+    args = _minimal_gold_receipt_args(
+        tmp_path,
+        generated_at="2026-07-19T06:00:00+00:00",
+    )
+    tour_path = args["tour_control_receipt_path"]
+    assert isinstance(tour_path, Path)
+    _write_json(
+        tour_path,
+        {
+            "generated_at": "2026-07-19T06:00:00+00:00",
+            "status": "blocked_missing_provider_modes",
+            "provider_counts": {"3dvista": 1, "magicfit": 0},
+            "ready_provider_modes": ["3dvista"],
+            "core_required_provider_modes": ["3dvista"],
+            "advanced_visual_required_provider_modes": ["magicfit"],
+            "core_missing_provider_modes": [],
+            "advanced_visual_missing_provider_modes": ["magicfit"],
+            "operator_missing_provider_modes": ["magicfit"],
+            "required_provider_modes": ["3dvista", "magicfit"],
+            "missing_provider_modes": ["magicfit"],
+            "magicfit_playback": {
+                "playback_ok": True,
+                "playable_count": 0,
+                "ready_count": 0,
+            },
+        },
+    )
+
+    core_receipt = build_gold_status_receipt(
+        **args,
+        readiness_profile="core_gold",
+    )
+    advanced_receipt = build_gold_status_receipt(
+        **args,
+        readiness_profile="advanced_visual_gold",
+    )
+
+    assert core_receipt["status"] == "blocked"
+    assert core_receipt["readiness_profile"] == "launch"
+    assert core_receipt["requested_readiness_profile"] == "core_gold"
+    assert core_receipt["evidence_tier"] == "launch"
+    assert core_receipt["claim_scope"] == "core"
+    assert core_receipt["core_gold_status"] == "blocked"
+    assert core_receipt["core_missing_provider_modes"] == []
+    assert core_receipt["advanced_visual_gold_status"] == "unavailable"
+    assert core_receipt["advanced_visual_missing_provider_modes"] == [
+        "magicfit",
+        "magic",
+        "omagic",
+    ]
+    core_blocker_areas = {row["area"] for row in core_receipt["blockers"]}
+    assert "flagship_customer_ux_evidence" in core_blocker_areas
+    assert "evidence_overlay_read_model" in core_blocker_areas
+    assert "rybbit_delivery" in core_blocker_areas
+    assert "advanced_visual_provider_modes" not in core_blocker_areas
+    assert any(
+        row["area"] == "advanced_visual_provider_modes"
+        for row in core_receipt["operator_blockers"]
+    )
+    assert advanced_receipt["status"] == "blocked"
+    assert advanced_receipt["readiness_profile"] == "launch"
+    assert advanced_receipt["requested_readiness_profile"] == (
+        "advanced_visual_gold"
+    )
+    assert advanced_receipt["evidence_tier"] == "launch"
+    assert advanced_receipt["claim_scope"] == "advanced_visual"
+    assert advanced_receipt["advanced_visual_gold"]["status"] == "unavailable"
+    assert any(
+        row["area"] == "advanced_visual_provider_modes"
+        for row in advanced_receipt["blockers"]
+    )
 
 
 def test_gold_status_standard_profile_does_not_gate_on_optional_accessibility_receipt(tmp_path: Path) -> None:
@@ -1111,16 +1496,37 @@ def test_gold_status_launch_profile_blocks_missing_customer_and_product_data_rec
     assert receipt["readiness_profile"] == "launch"
     assert receipt["flagship_customer_ux_evidence"]["ready"] is False
     assert receipt["flagship_customer_ux_evidence"]["missing_receipts"] == list(
-        gold_status.FLAGSHIP_CUSTOMER_UX_RECEIPT_AREAS
+        area
+        for area in gold_status.FLAGSHIP_CUSTOMER_UX_RECEIPT_AREAS
+        if area != "walkthrough_quality"
     )
     assert receipt["flagship_customer_ux_evidence"]["max_receipt_age_hours"] == 24.0
     blocker = next(row for row in receipt["blockers"] if row["area"] == "flagship_customer_ux_evidence")
     assert blocker["status"] == "missing_required_receipts"
-    assert blocker["missing_receipts"] == list(gold_status.FLAGSHIP_CUSTOMER_UX_RECEIPT_AREAS)
+    assert blocker["missing_receipts"] == [
+        area
+        for area in gold_status.FLAGSHIP_CUSTOMER_UX_RECEIPT_AREAS
+        if area != "walkthrough_quality"
+    ]
     assert receipt["launch_product_data_evidence"]["required"] is True
     assert receipt["launch_product_data_evidence"]["ready"] is False
     blocker_areas = {str(row["area"]) for row in receipt["blockers"]}
-    assert {"evidence_overlay_read_model", "rybbit_delivery"}.issubset(blocker_areas)
+    assert {
+        "evidence_overlay_read_model",
+        "rybbit_delivery",
+        "global_market_envelope",
+        "incident_support",
+        "global_experience",
+        "jurisdiction_privacy_rights",
+    }.issubset(blocker_areas)
+    assert receipt["global_market_envelope"]["required"] is True
+    assert receipt["global_market_envelope"]["ready"] is False
+    assert receipt["incident_support"]["required"] is True
+    assert receipt["incident_support"]["ready"] is False
+    assert receipt["global_experience"]["required"] is True
+    assert receipt["global_experience"]["ready"] is False
+    assert receipt["jurisdiction_privacy_rights"]["required"] is True
+    assert receipt["jurisdiction_privacy_rights"]["ready"] is False
 
 
 def test_gold_status_flagship_profile_passes_with_fresh_customer_ux_evidence(tmp_path: Path) -> None:
@@ -1154,10 +1560,69 @@ def test_gold_status_flagship_profile_passes_with_fresh_customer_ux_evidence(tmp
     assert receipt["billing_handoff"]["ready"] is True
     assert receipt["browser_rendered_3d"]["ready"] is True
     assert receipt["map_preview_flagship"]["ready"] is True
-    assert receipt["walkthrough_quality"]["ready"] is True
+    assert receipt["walkthrough_quality"]["ready"] is None
     assert receipt["continuous_ux"]["flagship_proof_ok"] is True
     assert receipt["continuous_ux"]["supplemental_only"] is True
     assert receipt["continuous_ux"]["production_claim"] is False
+    assert receipt["performance"]["flagship_proof_required"] is True
+    assert receipt["performance"]["flagship_proof_ok"] is True
+    assert receipt["performance"]["flagship_proof"]["errors"] == []
+    assert receipt["global_market_envelope"]["required"] is False
+    assert receipt["global_market_envelope"]["ready"] is None
+    assert receipt["incident_support"]["required"] is False
+    assert receipt["incident_support"]["ready"] is None
+    assert receipt["global_experience"]["required"] is False
+    assert receipt["global_experience"]["ready"] is None
+    assert receipt["jurisdiction_privacy_rights"]["required"] is False
+    assert receipt["jurisdiction_privacy_rights"]["ready"] is None
+
+
+def test_gold_status_flagship_rejects_legacy_status_pass_without_v2_proof(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    generated_at = (now - timedelta(minutes=5)).isoformat()
+    args = _minimal_gold_receipt_args(tmp_path, generated_at=generated_at)
+    legacy = _performance_payload()
+    for field in (
+        "schema",
+        "flagship_status",
+        "flagship_blockers",
+        "server_request_evidence",
+        "constrained_client_evidence",
+        "claims",
+    ):
+        legacy.pop(field)
+    legacy["generated_at"] = generated_at
+    args["performance_receipt_path"] = _write_json(
+        tmp_path / "legacy-performance-flagship.json",
+        legacy,
+    )
+
+    receipt = build_gold_status_receipt(
+        **args,
+        **_flagship_customer_ux_receipt_args(
+            tmp_path,
+            generated_at=generated_at,
+        ),
+        readiness_profile="flagship",
+        max_receipt_age_hours=1,
+        now=now,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["performance"]["status"] == "pass"
+    assert receipt["performance"]["flagship_proof_ok"] is False
+    blocker = next(
+        row
+        for row in receipt["blockers"]
+        if row["area"] == "mobile_and_authenticated_surfaces"
+    )
+    assert blocker["status"] == "blocked"
+    assert blocker["receipt_status"] == "pass"
+    assert "schema_must_be_authenticated_performance_v2" in blocker[
+        "flagship_proof"
+    ]["errors"]
 
 
 def test_gold_status_flagship_activation_proof_rejects_another_release_candidate(
@@ -1227,9 +1692,275 @@ def test_gold_status_launch_profile_requires_and_consumes_real_product_data_rece
         == overlay_sha256
     )
     assert receipt["launch_product_data_evidence"]["rybbit_delivery"]["collector_status_code"] == 204
+    assert receipt["global_market_envelope"]["required"] is True
+    assert receipt["global_market_envelope"]["ready"] is True
+    assert receipt["global_market_envelope"]["launch_supported_markets"] == [
+        "AT",
+        "DE",
+        "CR",
+    ]
+    assert receipt["incident_support"]["required"] is True
+    assert receipt["incident_support"]["ready"] is True
+    assert receipt["incident_support"]["required_markets"] == ["AT", "DE", "CR"]
+    assert receipt["global_experience"]["required"] is True
+    assert receipt["global_experience"]["ready"] is True
+    assert {
+        row["country_code"]
+        for row in receipt["global_experience"]["required_markets"]
+    } == {"AT", "DE", "CR"}
+    assert receipt["jurisdiction_privacy_rights"]["required"] is True
+    assert receipt["jurisdiction_privacy_rights"]["ready"] is True
+    assert receipt["jurisdiction_privacy_rights"]["required_markets"] == [
+        "AT",
+        "DE",
+        "CR",
+    ]
     pass_areas = {str(row["area"]): row for row in receipt["pass_areas"]}
-    assert {"evidence_overlay_read_model", "rybbit_delivery"}.issubset(pass_areas)
+    assert {
+        "evidence_overlay_read_model",
+        "rybbit_delivery",
+        "global_market_envelope",
+        "incident_support",
+        "global_experience",
+        "jurisdiction_privacy_rights",
+    }.issubset(pass_areas)
     assert pass_areas["evidence_overlay_read_model"]["receipt_sha256"] == overlay_sha256
+
+
+@pytest.mark.parametrize(
+    ("receipt_key", "identity_field", "invalid_value", "blocker_area"),
+    (
+        (
+            "global_market_envelope_receipt_path",
+            "image_digest",
+            "sha256:" + "f" * 64,
+            "global_market_envelope",
+        ),
+        (
+            "incident_support_receipt_path",
+            "commit_sha",
+            "f" * 40,
+            "incident_support",
+        ),
+        (
+            "global_experience_receipt_path",
+            "image_digest",
+            "sha256:" + "e" * 64,
+            "global_experience",
+        ),
+        (
+            "jurisdiction_privacy_rights_receipt_path",
+            "commit_sha",
+            "e" * 40,
+            "jurisdiction_privacy_rights",
+        ),
+    ),
+)
+def test_gold_status_launch_core_rejects_governance_receipt_for_another_release(
+    tmp_path: Path,
+    receipt_key: str,
+    identity_field: str,
+    invalid_value: str,
+    blocker_area: str,
+) -> None:
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    generated_at = (now - timedelta(minutes=5)).isoformat()
+    launch_args = _launch_product_data_receipt_args(
+        tmp_path,
+        generated_at=generated_at,
+    )
+    receipt_path = Path(launch_args[receipt_key])
+    payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+    payload["release_identity"][identity_field] = invalid_value
+    _write_json(receipt_path, payload)
+
+    receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(tmp_path, generated_at=generated_at),
+        **_flagship_customer_ux_receipt_args(tmp_path, generated_at=generated_at),
+        **launch_args,
+        readiness_profile="launch",
+        max_receipt_age_hours=1,
+        now=now,
+    )
+
+    assert receipt["status"] == "blocked"
+    blocker = next(
+        row for row in receipt["blockers"] if row["area"] == blocker_area
+    )
+    assert any("does not match the Gold release" in error for error in blocker["errors"])
+
+
+@pytest.mark.parametrize(
+    ("section", "expected_error"),
+    (
+        ("source_contract", "current source contract"),
+        ("market_envelope", "current global market envelope"),
+    ),
+)
+def test_gold_status_launch_core_rejects_stale_jurisdiction_authority_digest(
+    tmp_path: Path,
+    section: str,
+    expected_error: str,
+) -> None:
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    generated_at = (now - timedelta(minutes=5)).isoformat()
+    launch_args = _launch_product_data_receipt_args(
+        tmp_path,
+        generated_at=generated_at,
+    )
+    receipt_path = Path(launch_args["jurisdiction_privacy_rights_receipt_path"])
+    payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+    payload[section]["sha256"] = "sha256:" + "f" * 64
+    _write_json(receipt_path, payload)
+
+    receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(tmp_path, generated_at=generated_at),
+        **_flagship_customer_ux_receipt_args(tmp_path, generated_at=generated_at),
+        **launch_args,
+        readiness_profile="launch",
+        max_receipt_age_hours=1,
+        now=now,
+    )
+
+    assert receipt["status"] == "blocked"
+    blocker = next(
+        row
+        for row in receipt["blockers"]
+        if row["area"] == "jurisdiction_privacy_rights"
+    )
+    assert any(expected_error in error for error in blocker["errors"])
+
+
+def test_gold_status_launch_core_rejects_stale_jurisdiction_attestation(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    generated_at = (now - timedelta(minutes=5)).isoformat()
+    launch_args = _launch_product_data_receipt_args(
+        tmp_path,
+        generated_at=generated_at,
+    )
+    receipt_path = Path(launch_args["jurisdiction_privacy_rights_receipt_path"])
+    payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+    payload["live_receipt_age_seconds"] = 3601.0
+    _write_json(receipt_path, payload)
+
+    receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(tmp_path, generated_at=generated_at),
+        **_flagship_customer_ux_receipt_args(tmp_path, generated_at=generated_at),
+        **launch_args,
+        readiness_profile="launch",
+        max_receipt_age_hours=1,
+        now=now,
+    )
+
+    assert receipt["status"] == "blocked"
+    blocker = next(
+        row
+        for row in receipt["blockers"]
+        if row["area"] == "jurisdiction_privacy_rights"
+    )
+    assert any("live attestation is stale" in error for error in blocker["errors"])
+
+
+def test_gold_status_standard_only_surfaces_optional_governance_receipts(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    generated_at = (now - timedelta(minutes=5)).isoformat()
+    invalid_market = _write_json(
+        tmp_path / "invalid-market-envelope.json",
+        {"schema": "wrong", "status": "BLOCKED", "generated_at": generated_at},
+    )
+    invalid_incident = _write_json(
+        tmp_path / "invalid-incident-support.json",
+        {"schema": "wrong", "status": "blocked", "generated_at": generated_at},
+    )
+    invalid_experience = _write_json(
+        tmp_path / "invalid-global-experience.json",
+        {"schema": "wrong", "status": "blocked", "generated_at": generated_at},
+    )
+    invalid_jurisdiction = _write_json(
+        tmp_path / "invalid-jurisdiction-rights.json",
+        {"schema": "wrong", "status": "blocked", "generated_at": generated_at},
+    )
+
+    receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(tmp_path, generated_at=generated_at),
+        global_market_envelope_receipt_path=invalid_market,
+        incident_support_receipt_path=invalid_incident,
+        global_experience_receipt_path=invalid_experience,
+        jurisdiction_privacy_rights_receipt_path=invalid_jurisdiction,
+        readiness_profile="standard",
+        now=now,
+    )
+
+    assert receipt["status"] == "pass"
+    assert receipt["global_market_envelope"]["required"] is False
+    assert receipt["global_market_envelope"]["ready"] is False
+    assert receipt["incident_support"]["required"] is False
+    assert receipt["incident_support"]["ready"] is False
+    assert receipt["global_experience"]["required"] is False
+    assert receipt["global_experience"]["ready"] is False
+    assert receipt["jurisdiction_privacy_rights"]["required"] is False
+    assert receipt["jurisdiction_privacy_rights"]["ready"] is False
+    blocker_areas = {str(row["area"]) for row in receipt["blockers"]}
+    assert "global_market_envelope" not in blocker_areas
+    assert "incident_support" not in blocker_areas
+    assert "global_experience" not in blocker_areas
+    assert "jurisdiction_privacy_rights" not in blocker_areas
+
+
+def test_gold_status_discovers_governance_receipts_only_from_named_patterns(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    market_path = (
+        tmp_path
+        / "state"
+        / "receipts"
+        / "propertyquarry_global_market_envelope_receipt-current.json"
+    )
+    incident_path = (
+        tmp_path
+        / "state"
+        / "receipts"
+        / "propertyquarry_incident_support_gate-current.json"
+    )
+    experience_path = (
+        tmp_path
+        / "state"
+        / "receipts"
+        / "propertyquarry_global_experience_gate-current.json"
+    )
+    jurisdiction_path = (
+        tmp_path
+        / "state"
+        / "receipts"
+        / "propertyquarry_jurisdiction_privacy_rights_gate-current.json"
+    )
+    market_path.parent.mkdir(parents=True)
+    _write_json(market_path, {"schema": gold_status.GLOBAL_MARKET_ENVELOPE_RECEIPT_SCHEMA})
+    _write_json(incident_path, {"schema": gold_status.INCIDENT_SUPPORT_GATE_RECEIPT_SCHEMA})
+    _write_json(experience_path, {"schema": gold_status.GLOBAL_EXPERIENCE_GATE_RECEIPT_SCHEMA})
+    _write_json(
+        jurisdiction_path,
+        {"schema": gold_status.JURISDICTION_PRIVACY_RIGHTS_GATE_RECEIPT_SCHEMA},
+    )
+    monkeypatch.chdir(tmp_path)
+
+    assert gold_status._default_receipt_path_if_exists(
+        "global_market_envelope"
+    ) == market_path.resolve()
+    assert gold_status._default_receipt_path_if_exists(
+        "incident_support"
+    ) == incident_path.resolve()
+    assert gold_status._default_receipt_path_if_exists(
+        "global_experience"
+    ) == experience_path.resolve()
+    assert gold_status._default_receipt_path_if_exists(
+        "jurisdiction_privacy_rights"
+    ) == jurisdiction_path.resolve()
 
 
 def test_flagship_continuous_ux_accepts_zero_non_gated_browser_diagnostics(
@@ -1538,6 +2269,141 @@ def test_gold_status_flagship_rejects_incomplete_accessibility_engine_evidence(t
     assert blocker["proof"]["missing_samples"]
 
 
+@pytest.mark.parametrize("metric_value", [None, "0", False, 1])
+def test_gold_status_flagship_rejects_missing_or_nonzero_moderate_wcag_metric(
+    tmp_path: Path,
+    metric_value: object,
+) -> None:
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    generated_at = (now - timedelta(minutes=5)).isoformat()
+    flagship_args = _flagship_customer_ux_receipt_args(tmp_path, generated_at=generated_at)
+    accessibility_path = Path(flagship_args["accessibility_receipt_path"])
+    accessibility = json.loads(accessibility_path.read_text(encoding="utf-8"))
+    first_row = accessibility["routes"][0]
+    if metric_value is None:
+        first_row["metrics"].pop("axe_moderate_or_higher_wcag_count")
+    else:
+        first_row["metrics"]["axe_moderate_or_higher_wcag_count"] = metric_value
+    _write_json(accessibility_path, accessibility)
+
+    receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(tmp_path, generated_at=generated_at),
+        **flagship_args,
+        readiness_profile="flagship",
+        max_receipt_age_hours=1,
+        now=now,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["accessibility"]["flagship_proof_ok"] is False
+    failed = receipt["accessibility"]["flagship_proof"]["failed_rows"]
+    assert failed
+    expected = 1 if metric_value == 1 and type(metric_value) is int else "missing_or_invalid"
+    assert failed[0]["moderate_or_higher_wcag_count"] == expected
+
+
+@pytest.mark.parametrize(
+    ("concrete_route", "placeholder_route", "expected_family"),
+    (
+        (
+            "/app/research/current-result?run_id=run-flagship",
+            "/app/research/{candidate_id}?run_id={run_id}",
+            "/app/research/[detail]",
+        ),
+        (
+            "/app/shortlist/run/run-flagship",
+            "/app/shortlist/run/{run_id}",
+            "/app/shortlist/run/[run]",
+        ),
+        (
+            "/tours/tour-flagship",
+            "/tours/{slug}",
+            "/tours/[slug]",
+        ),
+    ),
+)
+def test_gold_status_flagship_rejects_literal_accessibility_route_placeholders(
+    tmp_path: Path,
+    concrete_route: str,
+    placeholder_route: str,
+    expected_family: str,
+) -> None:
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    generated_at = (now - timedelta(minutes=5)).isoformat()
+    flagship_args = _flagship_customer_ux_receipt_args(tmp_path, generated_at=generated_at)
+    accessibility_path = Path(flagship_args["accessibility_receipt_path"])
+    accessibility = json.loads(accessibility_path.read_text(encoding="utf-8"))
+    accessibility["configured_routes"] = [
+        placeholder_route if route == concrete_route else route
+        for route in accessibility["configured_routes"]
+    ]
+    for row in accessibility["routes"]:
+        if row["route"] == concrete_route:
+            row["route"] = placeholder_route
+    _write_json(accessibility_path, accessibility)
+
+    receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(tmp_path, generated_at=generated_at),
+        **flagship_args,
+        readiness_profile="flagship",
+        max_receipt_age_hours=1,
+        now=now,
+    )
+
+    proof = receipt["accessibility"]["flagship_proof"]
+    assert receipt["status"] == "blocked"
+    assert proof["literal_placeholder_routes"] == [placeholder_route]
+    assert proof["dynamic_routes"][expected_family] == []
+    assert any(row["route"] == expected_family for row in proof["missing_samples"])
+
+
+@pytest.mark.parametrize(
+    ("route_prefix", "expected_route_key"),
+    [
+        ("/app/billing", "/app/billing"),
+        ("/app/shortlist/run/", "/app/shortlist/run/[run]"),
+        ("/tours/", "/tours/[slug]"),
+    ],
+)
+def test_gold_status_flagship_rejects_missing_core_accessibility_route_family(
+    tmp_path: Path,
+    route_prefix: str,
+    expected_route_key: str,
+) -> None:
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    generated_at = (now - timedelta(minutes=5)).isoformat()
+    flagship_args = _flagship_customer_ux_receipt_args(tmp_path, generated_at=generated_at)
+    accessibility_path = Path(flagship_args["accessibility_receipt_path"])
+    accessibility = json.loads(accessibility_path.read_text(encoding="utf-8"))
+    accessibility["configured_routes"] = [
+        route
+        for route in accessibility["configured_routes"]
+        if not str(route).split("?", 1)[0].startswith(route_prefix)
+    ]
+    accessibility["routes"] = [
+        row
+        for row in accessibility["routes"]
+        if not str(row["route"]).split("?", 1)[0].startswith(route_prefix)
+    ]
+    accessibility["route_count"] = len(accessibility["routes"])
+    _write_json(accessibility_path, accessibility)
+
+    receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(tmp_path, generated_at=generated_at),
+        **flagship_args,
+        readiness_profile="flagship",
+        max_receipt_age_hours=1,
+        now=now,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["flagship_customer_ux_evidence"]["accessibility_proof_ready"] is False
+    assert any(
+        row["route"] == expected_route_key
+        for row in receipt["accessibility"]["flagship_proof"]["missing_samples"]
+    )
+
+
 def test_gold_status_flagship_rejects_stale_accessibility_evidence(tmp_path: Path) -> None:
     now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
     generated_at = (now - timedelta(minutes=5)).isoformat()
@@ -1632,6 +2498,53 @@ def test_gold_status_flagship_rejects_contract_mock_failure_state_evidence(tmp_p
     assert receipt["failure_states"]["flagship_proof_ok"] is False
     assert receipt["failure_states"]["flagship_proof"]["proof_mode"] == "contract_mock"
     assert any(row["area"] == "failure_states" for row in receipt["blockers"])
+
+
+def test_gold_status_flagship_independently_rejects_changed_customer_snapshot(tmp_path: Path) -> None:
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    generated_at = (now - timedelta(minutes=5)).isoformat()
+    flagship_args = _flagship_customer_ux_receipt_args(tmp_path, generated_at=generated_at)
+    failure_path = Path(flagship_args["failure_state_receipt_path"])
+    failure_states = json.loads(failure_path.read_text(encoding="utf-8"))
+    failure_states["rows"][0]["preservation_probe"]["after"]["sha256"] = "b" * 64
+    _write_json(failure_path, failure_states)
+
+    receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(tmp_path, generated_at=generated_at),
+        **flagship_args,
+        readiness_profile="flagship",
+        max_receipt_age_hours=1,
+        now=now,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["failure_states"]["flagship_proof_ok"] is False
+    assert "preservation_probe_receipt" in receipt["failure_states"]["flagship_proof"]["failed_rows"][0]["missing_checks"]
+
+
+def test_gold_status_flagship_rejects_noncanonical_preservation_probe_route(tmp_path: Path) -> None:
+    now = datetime(2026, 7, 13, 12, 0, tzinfo=timezone.utc)
+    generated_at = (now - timedelta(minutes=5)).isoformat()
+    flagship_args = _flagship_customer_ux_receipt_args(tmp_path, generated_at=generated_at)
+    failure_path = Path(flagship_args["failure_state_receipt_path"])
+    failure_states = json.loads(failure_path.read_text(encoding="utf-8"))
+    failure_states["preservation_probe_route"] = "/health"
+    _write_json(failure_path, failure_states)
+
+    receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(tmp_path, generated_at=generated_at),
+        **flagship_args,
+        readiness_profile="flagship",
+        max_receipt_age_hours=1,
+        now=now,
+    )
+
+    assert receipt["status"] == "blocked"
+    proof = receipt["failure_states"]["flagship_proof"]
+    assert proof["preservation_probe_route"] == "/health"
+    assert proof["required_preservation_probe_route"] == (
+        gold_status.REQUIRED_FLAGSHIP_FAILURE_PRESERVATION_ROUTE
+    )
 
 
 def test_gold_status_flagship_rejects_stale_activation_evidence(tmp_path: Path) -> None:
@@ -2154,6 +3067,8 @@ def _performance_payload(
     include_research_checks: bool = True,
     include_search_checks: bool = True,
     include_analytics_checks: bool = True,
+    generated_at: str = "2026-07-13T11:55:00+00:00",
+    executable_identity: dict[str, object] | None = None,
 ) -> dict[str, object]:
     research_checks = [
         {"name": "research_candidate", "ok": True},
@@ -2182,23 +3097,890 @@ def _performance_payload(
     if include_analytics_checks:
         research_checks.extend(analytics_checks)
         search_checks.extend(analytics_checks)
+    route_paths = [
+        "/sign-in",
+        "/app/search",
+        "/app/agents",
+        "/app/properties?run_id=run-gold",
+        "/app/shortlist?run_id=run-gold",
+        "/app/research/perf-candidate-1020?run_id=run-gold",
+        "/app/alerts?run_id=run-gold",
+        "/app/account",
+        "/app/billing",
+        "/app/settings/google",
+        "/app/settings/access",
+        "/app/settings/usage",
+        "/app/settings/support",
+        "/app/settings/trust",
+        "/app/settings/invitations",
+    ]
+    route_rows: list[dict[str, object]] = []
+    for path in route_paths:
+        route_checks: list[dict[str, object]] = [
+            {"name": "route_response_ok", "ok": True}
+        ]
+        if path == "/app/search":
+            route_checks.extend(search_checks if include_search_checks else [])
+        elif path.startswith("/app/research/"):
+            route_checks.extend(
+                research_checks if include_research_checks else research_checks[:4]
+            )
+        route_rows.append(
+            {
+                "path": path,
+                "ok": True,
+                "attempt_count": 2,
+                "attempt_durations_ms": [180, 120],
+                "first_duration_ms": 180,
+                "duration_ms": 120,
+                "budget_ms": 1200,
+                "cold_budget_ms": 2400,
+                "status_code": 200,
+                "checks": route_checks,
+                "measurements": {
+                    "cold": {
+                        "sequence": 1,
+                        "kind": "first_measured_request_after_fixture_setup",
+                        "duration_ms": 180,
+                        "status_code": 200,
+                        "response_bytes": 64_000,
+                        "budget_ms": 2400,
+                        "cache_state": "server_cache_not_explicitly_prewarmed_or_cleared",
+                        "ok": True,
+                    },
+                    "warm": {
+                        "sequence": 2,
+                        "kind": "same_client_immediate_repeat_request",
+                        "duration_ms": 120,
+                        "status_code": 200,
+                        "response_bytes": 64_000,
+                        "budget_ms": 1200,
+                        "cache_state": "same_process_and_client_repeat_eligible",
+                        "ok": True,
+                    },
+                },
+                "cold_to_warm": {
+                    "duration_delta_ms": 60,
+                    "response_bytes_delta": 0,
+                },
+            }
+        )
+
+    def browser_measurement(phase: str) -> dict[str, object]:
+        is_cold = phase == "cold"
+        nonce_sha256 = hashlib.sha256(
+            f"propertyquarry-test-{phase}-verified-probe-nonce".encode("utf-8")
+        ).hexdigest()
+        checks = [
+            {"name": f"{phase}_navigation_under_budget", "ok": True},
+            {"name": f"{phase}_request_observed", "ok": True},
+            {"name": f"{phase}_request_count_under_budget", "ok": True},
+            {"name": f"{phase}_transferred_bytes_under_budget", "ok": True},
+            {"name": f"{phase}_failed_requests_under_budget", "ok": True},
+            {"name": f"{phase}_requests_completed", "ok": True},
+        ]
+        if is_cold:
+            checks.extend(
+                (
+                    {"name": "cold_transferred_bytes_observed", "ok": True},
+                    {
+                        "name": "cold_cdp_document_signing_interception_ok",
+                        "ok": True,
+                    },
+                )
+            )
+        else:
+            checks.extend(
+                (
+                    {
+                        "name": "warm_signed_release_probe_nonces_unique",
+                        "ok": True,
+                    },
+                    {
+                        "name": "warm_cdp_document_signing_interception_ok",
+                        "ok": True,
+                    },
+                    {"name": "warm_http_cache_reuse_observed", "ok": True},
+                )
+            )
+        checks.extend(
+            [
+                {"name": f"{phase}_navigation_status_ok", "ok": True},
+                {"name": f"{phase}_final_target_url_observed", "ok": True},
+                {
+                    "name": f"{phase}_document_release_identity_exact",
+                    "ok": True,
+                },
+                {
+                    "name": f"{phase}_document_cache_control_no_store",
+                    "ok": True,
+                },
+                {
+                    "name": f"{phase}_server_verified_probe_nonce_acknowledged",
+                    "ok": True,
+                },
+                {
+                    "name": f"{phase}_authenticated_app_surface_observed",
+                    "ok": True,
+                },
+            ]
+        )
+        return {
+            "phase": phase,
+            "cache_state": (
+                "cleared_before_navigation"
+                if is_cold
+                else "same_context_repeat_cache_observed"
+            ),
+            "duration_ms": 2400 if is_cold else 1400,
+            "status_code": 200,
+            "final_url": "https://propertyquarry.com/app/search",
+            "document_release_identity": {
+                "commit_sha": _PERFORMANCE_RELEASE_COMMIT_SHA,
+                "image_digest": _PERFORMANCE_RELEASE_IMAGE_DIGEST,
+                "deployment_id": _PERFORMANCE_RELEASE_DEPLOYMENT_ID,
+                "manifest_status": "complete",
+                "manifest_sha256": _PERFORMANCE_MANIFEST_SHA256,
+                "replica_id": f"propertyquarry-production-{phase}-replica",
+            },
+            "document_authentication_binding": {
+                "cache_control": "no-store",
+                "expected_nonce_sha256": nonce_sha256,
+                "acknowledged_nonce_sha256": nonce_sha256,
+            },
+            "request_count": 32 if is_cold else 12,
+            "transferred_bytes": 480_000 if is_cold else 120_000,
+            "failed_request_count": 0,
+            "failed_requests": [],
+            "incomplete_request_count": 0,
+            "cache_hit_count": 0 if is_cold else 8,
+            "subresource_cache_hit_count": 0 if is_cold else 7,
+            "slowest_resources": [
+                {
+                    "url": "https://propertyquarry.com/app/search",
+                    "resource_type": "Document",
+                    "status_code": 200,
+                    "duration_ms": 800 if is_cold else 400,
+                    "transferred_bytes": 120_000 if is_cold else 20_000,
+                    "cache_source": "network",
+                    "failed": False,
+                    "incomplete": False,
+                }
+            ],
+            "navigation_timing": {
+                "responseStartMs": 300,
+                "responseEndMs": 600,
+                "domContentLoadedMs": 900,
+                "loadEventMs": 1100,
+                "transferSize": 120_000,
+                "encodedBodySize": 100_000,
+                "decodedBodySize": 240_000,
+            },
+            "checks": checks,
+            "ok": True,
+        }
+
+    cold = browser_measurement("cold")
+    warm = browser_measurement("warm")
+    release_identity = {
+        "commit_sha": _PERFORMANCE_RELEASE_COMMIT_SHA,
+        "image_digest": _PERFORMANCE_RELEASE_IMAGE_DIGEST,
+        "deployment_id": _PERFORMANCE_RELEASE_DEPLOYMENT_ID,
+        "manifest_sha256": _PERFORMANCE_MANIFEST_SHA256,
+    }
     return {
+        "schema": gold_status.AUTHENTICATED_PERFORMANCE_FLAGSHIP_SCHEMA,
+        "generated_at": generated_at,
         "status": "pass",
+        "status_scope": "legacy_authenticated_route_smoke_plus_any_explicitly_requested_constrained_probe",
+        "flagship_status": "pass",
+        "flagship_blockers": [],
+        "principal_id": "principal-performance-gold",
+        "run_id": "run-performance-gold",
         "failed_count": 0,
         "route_count": 15,
-        "routes": [
-            {
-                "path": "/app/search",
-                "ok": True,
-                "checks": search_checks if include_search_checks else [],
+        "release_identity": release_identity,
+        "thresholds": {
+            "warm_route_budget_ms": 1200,
+            "cold_route_budget_ms": 2400,
+        },
+        "server_request_evidence": {
+            "status": "pass",
+            "cold_definition": "first measured route request after authenticated fixture setup; server caches are neither claimed empty nor explicitly prewarmed",
+            "warm_definition": "immediate same-process and same-client repeat request",
+            "cold_route_count": 15,
+            "warm_route_count": 15,
+        },
+        "routes": route_rows,
+        "constrained_client_evidence": {
+            "status": "pass",
+            "profile": json.loads(
+                json.dumps(gold_status.AUTHENTICATED_PERFORMANCE_FLAGSHIP_PROFILE)
+            ),
+            "target": "https://propertyquarry.com/app/search",
+            "requested_browser_engines": ["chromium"],
+            "release_identity": {
+                "status": "pass",
+                "version_url": "https://propertyquarry.com/version",
+                "status_code": 200,
+                "tls_verified": True,
+                "expected": dict(release_identity),
+                "observed": {
+                    **release_identity,
+                    "manifest_status": "complete",
+                    "manifest_sha256": _PERFORMANCE_MANIFEST_SHA256,
+                    "replica_id": "propertyquarry-production-7d9c8f7cc8-abcde",
+                },
+                "matches_expected": True,
+                "error": "",
+                "credential_persisted": False,
             },
-            {
-                "path": "/app/research/perf-candidate-1020?run_id=run-gold",
-                "ok": True,
-                "checks": research_checks if include_research_checks else research_checks[:4],
-            }
+            "engine_rows": [
+                {
+                    "status": "pass",
+                    "browser_engine": "chromium",
+                    "identity": dict(
+                        executable_identity or _PYTHON_EXECUTABLE_IDENTITY
+                    ),
+                    "launch_binding": {
+                        "mechanism": "playwright_explicit_executable_path",
+                        "executable_path": str(
+                            (executable_identity or _PYTHON_EXECUTABLE_IDENTITY)[
+                                "executable_path"
+                            ]
+                        ),
+                        "executable_sha256": str(
+                            (executable_identity or _PYTHON_EXECUTABLE_IDENTITY)[
+                                "executable_sha256"
+                            ]
+                        ),
+                        "prelaunch_bytes": int(
+                            (executable_identity or _PYTHON_EXECUTABLE_IDENTITY)[
+                                "executable_bytes"
+                            ]
+                        ),
+                        "postlaunch_identity_match": True,
+                    },
+                    "profile_support": {
+                        "cpu_throttling": {
+                            "requested_rate": 4,
+                            "applied": True,
+                            "mechanism": "chromium_cdp_Emulation.setCPUThrottlingRate",
+                        },
+                        "network_throttling": {
+                            "latency_ms": 150,
+                            "download_kbps": 1600,
+                            "upload_kbps": 750,
+                            "applied": True,
+                            "mechanism": "chromium_cdp_Network.emulateNetworkConditions",
+                        },
+                        "viewport_emulation": {
+                            "applied": True,
+                            "mechanism": "playwright_context",
+                        },
+                    },
+                    "authentication": {
+                        "method": "signed_release_probe_per_navigation",
+                        "navigation_signing_mechanism": (
+                            "chromium_cdp_Fetch.requestPaused_document_only"
+                        ),
+                        "playwright_routing_used": False,
+                        "subresource_http_cache_preserved": True,
+                        "signed_navigation_count": 2,
+                        "distinct_nonce_count": 2,
+                        "target_surface_observed": True,
+                        "release_probe_secret_persisted": False,
+                    },
+                    "measurements": {"cold": cold, "warm": warm},
+                    "cold_to_warm": {
+                        "duration_delta_ms": 1000,
+                        "request_count_delta": 20,
+                        "transferred_bytes_delta": 360_000,
+                    },
+                    "limitations": [
+                        "Lab navigation evidence only; no field Core Web Vitals or physical-device performance is claimed."
+                    ],
+                    "field_core_web_vitals_claimed": False,
+                    "physical_device_claimed": False,
+                }
+            ],
+            "limitations_by_engine": {},
+            "field_core_web_vitals_claimed": False,
+            "physical_device_claimed": False,
+        },
+        "claims": {
+            "cold_and_warm_server_request_lab_evidence": True,
+            "constrained_browser_lab_evidence": True,
+            "signed_release_probe_authentication": True,
+            "exact_live_release_identity_observed": True,
+            "field_core_web_vitals": False,
+            "physical_device_performance": False,
+        },
+        "notes": [
+            "Synthetic unit-test fixture for the independently verified authenticated performance contract."
         ],
     }
+
+
+def _flagship_performance_test_payload(
+    tmp_path: Path,
+) -> tuple[dict[str, object], dict[str, object]]:
+    executable_identity = _secure_test_chromium_executable_identity(tmp_path)
+    return (
+        _performance_payload(executable_identity=executable_identity),
+        executable_identity,
+    )
+
+
+def _evaluate_flagship_performance_payload(
+    payload: dict[str, object],
+    executable_identity: dict[str, object],
+    *,
+    expected_public_origin: str = "https://propertyquarry.com",
+) -> tuple[bool, dict[str, object]]:
+    return gold_status._flagship_authenticated_performance_proof(
+        payload,
+        expected_public_origin=expected_public_origin,
+        expected_release_commit_sha=_PERFORMANCE_RELEASE_COMMIT_SHA,
+        expected_release_image_digest=_PERFORMANCE_RELEASE_IMAGE_DIGEST,
+        expected_release_deployment_id=_PERFORMANCE_RELEASE_DEPLOYMENT_ID,
+        expected_release_manifest_sha256=_PERFORMANCE_MANIFEST_SHA256,
+        expected_chromium_executable_path=str(
+            executable_identity["executable_path"]
+        ),
+        expected_chromium_executable_sha256=str(
+            executable_identity["executable_sha256"]
+        ),
+    )
+
+
+def test_flagship_performance_proof_independently_validates_exact_v2_evidence(
+    tmp_path: Path,
+) -> None:
+    payload, executable_identity = _flagship_performance_test_payload(tmp_path)
+
+    ready, proof = _evaluate_flagship_performance_payload(
+        payload,
+        executable_identity,
+    )
+
+    assert ready is True
+    assert proof["errors"] == []
+    assert proof["target_origin_matches_expected"] is True
+    assert proof["field_core_web_vitals_claimed"] is False
+    assert proof["physical_device_claimed"] is False
+
+
+def test_flagship_performance_proof_rejects_unbound_browser_launch(
+    tmp_path: Path,
+) -> None:
+    payload, executable_identity = _flagship_performance_test_payload(tmp_path)
+    payload["constrained_client_evidence"]["engine_rows"][0][  # type: ignore[index]
+        "launch_binding"
+    ]["mechanism"] = "playwright_default_discovery"
+
+    ready, proof = _evaluate_flagship_performance_payload(
+        payload,
+        executable_identity,
+    )
+
+    assert ready is False
+    assert "chromium_explicit_launch_binding_invalid" in proof["errors"]
+
+
+def test_flagship_performance_proof_rejects_tiny_chromium_marker_file(
+    tmp_path: Path,
+) -> None:
+    chromium_dir = tmp_path / "controller-browser" / "chromium-tiny"
+    chromium_dir.mkdir(mode=0o700, parents=True)
+    executable_path = chromium_dir / "chrome"
+    executable_bytes = b"\x7fELF" + b"Chromium"
+    executable_path.write_bytes(executable_bytes)
+    executable_path.chmod(0o700)
+    executable_identity = {
+        "engine": "chromium",
+        "browser_version": "145.0.7632.6",
+        "playwright_version": "1.60.0",
+        "executable_path": str(executable_path),
+        "executable_sha256": hashlib.sha256(executable_bytes).hexdigest(),
+        "executable_bytes": len(executable_bytes),
+    }
+    payload = _performance_payload(executable_identity=executable_identity)
+
+    ready, proof = _evaluate_flagship_performance_payload(
+        payload,
+        executable_identity,
+    )
+
+    assert ready is False
+    assert "browser_executable_size_out_of_range" in proof["errors"]
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_error"),
+    (
+        (
+            lambda payload: payload.pop("schema"),
+            "schema_must_be_authenticated_performance_v2",
+        ),
+        (
+            lambda payload: payload.__setitem__("flagship_status", "pass")
+            or payload.__setitem__("constrained_client_evidence", {"status": "pass"}),
+            "constrained_client_profile_not_exact",
+        ),
+        (
+            lambda payload: payload["claims"].__setitem__(  # type: ignore[index, union-attr]
+                "field_core_web_vitals", True
+            ),
+            "performance_claims_not_exact_or_overclaimed",
+        ),
+        (
+            lambda payload: payload["constrained_client_evidence"][  # type: ignore[index]
+                "engine_rows"
+            ][0]["identity"].__setitem__("executable_sha256", "claimed-pass"),
+            "chromium_identity_invalid",
+        ),
+        (
+            lambda payload: payload["constrained_client_evidence"][  # type: ignore[index]
+                "engine_rows"
+            ][0]["profile_support"]["network_throttling"].__setitem__(
+                "applied", False
+            ),
+            "chromium_profile_controls_not_exactly_applied",
+        ),
+        (
+            lambda payload: payload["constrained_client_evidence"][  # type: ignore[index]
+                "engine_rows"
+            ][0]["measurements"].pop("warm"),
+            "chromium_cold_warm_measurements_missing",
+        ),
+    ),
+)
+def test_flagship_performance_proof_rejects_status_only_and_malformed_claims(
+    tmp_path: Path,
+    mutation: object,
+    expected_error: str,
+) -> None:
+    payload, executable_identity = _flagship_performance_test_payload(tmp_path)
+    assert callable(mutation)
+    mutation(payload)
+
+    ready, proof = _evaluate_flagship_performance_payload(
+        payload,
+        executable_identity,
+    )
+
+    assert ready is False
+    assert expected_error in proof["errors"]
+
+
+def test_flagship_performance_proof_rejects_bool_impersonating_integer(
+    tmp_path: Path,
+) -> None:
+    payload, executable_identity = _flagship_performance_test_payload(tmp_path)
+    payload["routes"][0]["attempt_count"] = True  # type: ignore[index]
+
+    ready, proof = _evaluate_flagship_performance_payload(
+        payload,
+        executable_identity,
+    )
+
+    assert ready is False
+    assert "server_route_0_cold_warm_status_invalid" in proof["errors"]
+
+
+def test_flagship_performance_proof_rejects_self_declared_sixty_second_budgets(
+    tmp_path: Path,
+) -> None:
+    payload, executable_identity = _flagship_performance_test_payload(tmp_path)
+    payload["thresholds"] = {
+        "warm_route_budget_ms": 60_000,
+        "cold_route_budget_ms": 60_000,
+    }
+    for route in payload["routes"]:  # type: ignore[union-attr]
+        route["budget_ms"] = 60_000
+        route["cold_budget_ms"] = 60_000
+        route["measurements"]["cold"]["budget_ms"] = 60_000
+        route["measurements"]["warm"]["budget_ms"] = 60_000
+
+    ready, proof = _evaluate_flagship_performance_payload(
+        payload,
+        executable_identity,
+    )
+
+    assert ready is False
+    assert "flagship_server_thresholds_not_fixed" in proof["errors"]
+    assert "server_route_0_cold_warm_status_invalid" in proof["errors"]
+
+
+def test_flagship_performance_proof_rehashes_browser_executable(
+    tmp_path: Path,
+) -> None:
+    payload, executable_identity = _flagship_performance_test_payload(tmp_path)
+    identity = payload["constrained_client_evidence"]["engine_rows"][0][  # type: ignore[index]
+        "identity"
+    ]
+    reported_digest = str(identity["executable_sha256"])
+    identity["executable_sha256"] = (
+        ("0" if reported_digest[0] != "0" else "1") + reported_digest[1:]
+    )
+
+    ready, proof = _evaluate_flagship_performance_payload(
+        payload,
+        executable_identity,
+    )
+
+    assert ready is False
+    assert "chromium_executable_identity_mismatch" in proof["errors"]
+
+
+def test_flagship_performance_proof_rejects_observed_release_identity_mismatch(
+    tmp_path: Path,
+) -> None:
+    payload, executable_identity = _flagship_performance_test_payload(tmp_path)
+    payload["constrained_client_evidence"]["release_identity"]["observed"][  # type: ignore[index]
+        "deployment_id"
+    ] = "propertyquarry-other-production"
+
+    ready, proof = _evaluate_flagship_performance_payload(
+        payload,
+        executable_identity,
+    )
+
+    assert ready is False
+    assert "constrained_release_identity_not_exact" in proof["errors"]
+
+
+def test_flagship_performance_proof_rejects_stale_cold_replica_release(
+    tmp_path: Path,
+) -> None:
+    payload, executable_identity = _flagship_performance_test_payload(tmp_path)
+    cold_identity = payload["constrained_client_evidence"]["engine_rows"][0][  # type: ignore[index]
+        "measurements"
+    ]["cold"]["document_release_identity"]
+    cold_identity["commit_sha"] = "d" * 40
+
+    ready, proof = _evaluate_flagship_performance_payload(
+        payload,
+        executable_identity,
+    )
+
+    assert ready is False
+    assert "chromium_cold_document_release_identity_invalid" in proof["errors"]
+
+
+def test_flagship_performance_proof_rejects_wrong_warm_document_deployment(
+    tmp_path: Path,
+) -> None:
+    payload, executable_identity = _flagship_performance_test_payload(tmp_path)
+    warm_identity = payload["constrained_client_evidence"]["engine_rows"][0][  # type: ignore[index]
+        "measurements"
+    ]["warm"]["document_release_identity"]
+    warm_identity["deployment_id"] = "propertyquarry-stale-deployment"
+
+    ready, proof = _evaluate_flagship_performance_payload(
+        payload,
+        executable_identity,
+    )
+
+    assert ready is False
+    assert "chromium_warm_document_release_identity_invalid" in proof["errors"]
+
+
+def test_flagship_performance_proof_rejects_bool_document_replica_id(
+    tmp_path: Path,
+) -> None:
+    payload, executable_identity = _flagship_performance_test_payload(tmp_path)
+    cold_identity = payload["constrained_client_evidence"]["engine_rows"][0][  # type: ignore[index]
+        "measurements"
+    ]["cold"]["document_release_identity"]
+    cold_identity["replica_id"] = True
+
+    ready, proof = _evaluate_flagship_performance_payload(
+        payload,
+        executable_identity,
+    )
+
+    assert ready is False
+    assert "chromium_cold_document_release_identity_invalid" in proof["errors"]
+
+
+def test_flagship_performance_proof_rejects_document_version_manifest_mismatch(
+    tmp_path: Path,
+) -> None:
+    payload, executable_identity = _flagship_performance_test_payload(tmp_path)
+    warm_identity = payload["constrained_client_evidence"]["engine_rows"][0][  # type: ignore[index]
+        "measurements"
+    ]["warm"]["document_release_identity"]
+    warm_identity["manifest_sha256"] = "d" * 64
+
+    ready, proof = _evaluate_flagship_performance_payload(
+        payload,
+        executable_identity,
+    )
+
+    assert ready is False
+    assert "chromium_warm_document_release_identity_invalid" in proof["errors"]
+
+
+def test_flagship_performance_proof_rejects_mutually_consistent_unattested_manifest(
+    tmp_path: Path,
+) -> None:
+    payload, executable_identity = _flagship_performance_test_payload(tmp_path)
+    constrained = payload["constrained_client_evidence"]
+    constrained["release_identity"]["observed"]["manifest_sha256"] = "d" * 64
+    for phase in ("cold", "warm"):
+        constrained["engine_rows"][0]["measurements"][phase][
+            "document_release_identity"
+        ]["manifest_sha256"] = "d" * 64
+
+    ready, proof = _evaluate_flagship_performance_payload(
+        payload,
+        executable_identity,
+    )
+
+    assert ready is False
+    assert "constrained_release_identity_not_exact" in proof["errors"]
+    assert proof["expected_release_identity"]["manifest_sha256"] == (
+        _PERFORMANCE_MANIFEST_SHA256
+    )
+    assert proof["observed_release_identity"]["manifest_sha256"] == "d" * 64
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("cache_control", "public, max-age=300"),
+        ("acknowledged_nonce_sha256", "d123456789abcdef" * 4),
+        ("expected_nonce_sha256", True),
+    ),
+)
+def test_flagship_performance_proof_rejects_forged_document_auth_binding(
+    tmp_path: Path,
+    field: str,
+    value: object,
+) -> None:
+    payload, executable_identity = _flagship_performance_test_payload(tmp_path)
+    binding = payload["constrained_client_evidence"]["engine_rows"][0][  # type: ignore[index]
+        "measurements"
+    ]["cold"]["document_authentication_binding"]
+    binding[field] = value
+
+    ready, proof = _evaluate_flagship_performance_payload(
+        payload,
+        executable_identity,
+    )
+
+    assert ready is False
+    assert (
+        "chromium_cold_document_authentication_binding_invalid"
+        in proof["errors"]
+    )
+
+
+def test_flagship_performance_proof_rejects_replayed_nonce_ack_between_phases(
+    tmp_path: Path,
+) -> None:
+    payload, executable_identity = _flagship_performance_test_payload(tmp_path)
+    measurements = payload["constrained_client_evidence"]["engine_rows"][0][  # type: ignore[index]
+        "measurements"
+    ]
+    cold_hash = measurements["cold"]["document_authentication_binding"][
+        "acknowledged_nonce_sha256"
+    ]
+    measurements["warm"]["document_authentication_binding"] = {
+        "cache_control": "no-store",
+        "expected_nonce_sha256": cold_hash,
+        "acknowledged_nonce_sha256": cold_hash,
+    }
+
+    ready, proof = _evaluate_flagship_performance_payload(
+        payload,
+        executable_identity,
+    )
+
+    assert ready is False
+    assert "chromium_probe_nonce_bindings_not_distinct" in proof["errors"]
+
+
+def test_flagship_performance_proof_requires_observed_warm_http_cache_reuse(
+    tmp_path: Path,
+) -> None:
+    payload, executable_identity = _flagship_performance_test_payload(tmp_path)
+    measurements = payload["constrained_client_evidence"]["engine_rows"][0][  # type: ignore[index]
+        "measurements"
+    ]
+    measurements["warm"]["subresource_cache_hit_count"] = 0
+
+    ready, proof = _evaluate_flagship_performance_payload(
+        payload,
+        executable_identity,
+    )
+
+    assert ready is False
+    assert "chromium_warm_http_cache_reuse_not_observed" in proof["errors"]
+
+
+def test_flagship_performance_proof_requires_warm_transfer_reduction(
+    tmp_path: Path,
+) -> None:
+    payload, executable_identity = _flagship_performance_test_payload(tmp_path)
+    measurements = payload["constrained_client_evidence"]["engine_rows"][0][  # type: ignore[index]
+        "measurements"
+    ]
+    measurements["warm"]["transferred_bytes"] = measurements["cold"][
+        "transferred_bytes"
+    ]
+
+    ready, proof = _evaluate_flagship_performance_payload(
+        payload,
+        executable_identity,
+    )
+
+    assert ready is False
+    assert "chromium_warm_http_cache_reuse_not_observed" in proof["errors"]
+
+
+def test_flagship_performance_proof_rejects_redirect_away_from_exact_target(
+    tmp_path: Path,
+) -> None:
+    payload, executable_identity = _flagship_performance_test_payload(tmp_path)
+    cold = payload["constrained_client_evidence"]["engine_rows"][0][  # type: ignore[index]
+        "measurements"
+    ]["cold"]
+    cold["status_code"] = 302
+    cold["final_url"] = "https://propertyquarry.com/sign-in"
+
+    ready, proof = _evaluate_flagship_performance_payload(
+        payload,
+        executable_identity,
+    )
+
+    assert ready is False
+    assert "chromium_cold_measurement_thresholds_invalid" in proof["errors"]
+
+
+def test_flagship_performance_proof_rejects_python_binary_as_chromium() -> None:
+    executable_identity = dict(_PYTHON_EXECUTABLE_IDENTITY)
+    payload = _performance_payload(executable_identity=executable_identity)
+
+    ready, proof = _evaluate_flagship_performance_payload(
+        payload,
+        executable_identity,
+    )
+
+    assert ready is False
+    assert "browser_executable_path_not_chromium" in proof["errors"]
+
+
+@pytest.mark.parametrize(
+    ("field", "invalid_value"),
+    (
+        ("resource_type", "ServiceWorker"),
+        ("cache_source", "service_worker"),
+    ),
+)
+def test_flagship_performance_proof_rejects_unsafe_waterfall_classification(
+    tmp_path: Path,
+    field: str,
+    invalid_value: str,
+) -> None:
+    payload, executable_identity = _flagship_performance_test_payload(tmp_path)
+    resource = payload["constrained_client_evidence"]["engine_rows"][0][  # type: ignore[index]
+        "measurements"
+    ]["cold"]["slowest_resources"][0]
+    resource[field] = invalid_value
+
+    ready, proof = _evaluate_flagship_performance_payload(
+        payload,
+        executable_identity,
+    )
+
+    assert ready is False
+    assert "chromium_cold_waterfall_resource_invalid" in proof["errors"]
+
+
+def test_flagship_performance_proof_rejects_loopback_as_public_origin(
+    tmp_path: Path,
+) -> None:
+    payload, executable_identity = _flagship_performance_test_payload(tmp_path)
+    loopback_origin = "https://127.0.0.1"
+    constrained = payload["constrained_client_evidence"]  # type: ignore[assignment]
+    constrained["target"] = f"{loopback_origin}/app/search"
+    constrained["release_identity"]["version_url"] = f"{loopback_origin}/version"
+    for measurement in constrained["engine_rows"][0]["measurements"].values():
+        measurement["final_url"] = f"{loopback_origin}/app/search"
+        measurement["slowest_resources"][0]["url"] = (
+            f"{loopback_origin}/app/search"
+        )
+
+    ready, proof = _evaluate_flagship_performance_payload(
+        payload,
+        executable_identity,
+        expected_public_origin=loopback_origin,
+    )
+
+    assert ready is False
+    assert "constrained_client_target_origin_mismatch" in proof["errors"]
+
+
+@pytest.mark.parametrize(
+    "invalid_origin",
+    (
+        "https://propertyquarry.com/",
+        "https://propertyquarry.com/ignored?x=1",
+        "https://propertyquarry.com?x=1",
+        "https://propertyquarry.com#fragment",
+        "https://user@propertyquarry.com",
+        "https://propertyquarry.com:443",
+        "https://PropertyQuarry.com",
+        "https://127.0.0.2",
+        "https://10.0.0.1",
+        "https://169.254.1.1",
+        "https://[::1]",
+        "https://foo.localhost",
+        "https://propertyquarry.local",
+        "https://propertyquarry.example.com",
+        "https://service.internal",
+        "https://flagship.onion",
+        "https://release.corp",
+        "https://a.b",
+        "https://service.notarealtld",
+        "https://co.uk",
+        "https://propertyquarry.co",
+        "https://propertyquarry.com.evil",
+        "https://evilpropertyquarry.com",
+        "https://propertyquarry-com.com",
+    ),
+)
+def test_performance_public_origin_requires_exact_bare_public_dns_origin(
+    invalid_origin: str,
+) -> None:
+    assert gold_status._exact_public_https_origin(invalid_origin) is None
+
+
+def test_performance_public_origin_accepts_exact_bare_public_dns_origin() -> None:
+    assert gold_status._exact_public_https_origin(
+        "https://propertyquarry.com"
+    ) == ("https", "propertyquarry.com", 443)
+    assert gold_status._exact_public_https_origin(
+        "https://eu.propertyquarry.com"
+    ) == ("https", "eu.propertyquarry.com", 443)
+
+
+def test_flagship_performance_proof_rejects_ignored_expected_origin_path(
+    tmp_path: Path,
+) -> None:
+    payload, executable_identity = _flagship_performance_test_payload(tmp_path)
+
+    ready, proof = _evaluate_flagship_performance_payload(
+        payload,
+        executable_identity,
+        expected_public_origin="https://propertyquarry.com/ignored?x=1",
+    )
+
+    assert ready is False
+    assert "constrained_client_target_origin_mismatch" in proof["errors"]
 
 
 def _billing_payload(*, host_resolves: bool = True, status: str = "disabled") -> dict[str, object]:
@@ -2317,6 +4099,7 @@ def _security_posture_payload(*, status: str = "pass") -> dict[str, object]:
     failures = [] if status == "pass" else ["ea/Dockerfile.property must run as USER ea"]
     return {
         "schema": "propertyquarry.security_posture_receipt.v1",
+        "generated_at": "2026-06-29T10:09:00Z",
         "status": status,
         "required_checks": ["non_root_pinned_runtime_image"],
         "failure_count": len(failures),
@@ -2613,6 +4396,7 @@ def test_gold_status_blocks_walkthrough_quality_digest_mismatch(
         provider_matrix_receipt_path=_write_json(tmp_path / "provider-matrix.json", {}),
         walkthrough_quality_receipt_path=quality,
         walkthrough_provider_proof_receipt_path=provider,
+        claim_scope="advanced_visual",
     )
 
     blocker = next(
@@ -2858,9 +4642,39 @@ def _scene_video_runtime_status_payload(*, blocked: bool = False) -> dict[str, o
         },
         "providers": [
             {"provider": "mootion", "provider_key": "mootion", "status": "ready", "ready": True},
-            {"provider": "magicfit", "provider_key": "magicfit", "status": "ready", "ready": True},
-            {"provider": "magic", "provider_key": "magic", "status": "ready", "ready": True},
-            {"provider": "omagic", "provider_key": "omagic", "status": "ready", "ready": True},
+            {
+                "provider": "magicfit",
+                "provider_key": "magicfit",
+                "status": "ready",
+                "ready": True,
+                "attention_required": False,
+                "runtime_account_count": 1,
+                "expected_account_count": 1,
+                "visible_account_gap": 0,
+                "credit_state": "funded",
+            },
+            {
+                "provider": "magic",
+                "provider_key": "magic",
+                "status": "ready",
+                "ready": True,
+                "attention_required": False,
+                "runtime_account_count": 1,
+                "expected_account_count": 1,
+                "visible_account_gap": 0,
+                "credit_state": "funded",
+            },
+            {
+                "provider": "omagic",
+                "provider_key": "omagic",
+                "status": "ready",
+                "ready": True,
+                "attention_required": False,
+                "runtime_account_count": 1,
+                "expected_account_count": 1,
+                "visible_account_gap": 0,
+                "credit_state": "funded",
+            },
             {"provider": "onemin_i2v", "provider_key": "onemin_i2v", "status": "ready", "ready": True},
         ],
         "delivery": {"transport": "telegram", "status": "ready", "configured": True, "blockers": []},
@@ -2888,6 +4702,182 @@ def _scene_video_provider_refresh_packet_verifier_payload(*, status: str = "pass
     }
 
 
+def _advanced_visual_binding_fixture(
+    tmp_path: Path,
+    *,
+    walkthrough_quality: Path,
+    walkthrough_provider_proof: Path,
+    scene_video_readiness: Path,
+    scene_video_readiness_verifier: Path,
+    scene_video_runtime_status: Path,
+    scene_video_provider_refresh_packet: Path,
+    scene_video_provider_refresh_packet_verifier: Path,
+    privacy: Path,
+) -> tuple[Path, datetime, str, str]:
+    observed_at = datetime(2026, 6, 29, 11, 0, tzinfo=timezone.utc)
+    release_commit_sha = "1" * 40
+    release_image_digest = "sha256:" + "2" * 64
+    source_schema_fields = {
+        walkthrough_quality: (
+            "contract_name",
+            "propertyquarry.walkthrough_quality_gate.v1",
+        ),
+        walkthrough_provider_proof: (
+            "contract_name",
+            "propertyquarry.walkthrough_provider_proof_gate.v1",
+        ),
+        scene_video_readiness: (
+            "contract_name",
+            "propertyquarry.scene_video_readiness.v1",
+        ),
+        scene_video_readiness_verifier: (
+            "contract_name",
+            "propertyquarry.scene_video_readiness_verifier.v1",
+        ),
+        scene_video_runtime_status: (
+            "contract_name",
+            "propertyquarry.scene_video_runtime_status.v1",
+        ),
+        scene_video_provider_refresh_packet: (
+            "contract_name",
+            "propertyquarry.scene_video_provider_refresh_packet.v1",
+        ),
+        scene_video_provider_refresh_packet_verifier: (
+            "contract_name",
+            "propertyquarry.scene_video_provider_refresh_packet_verifier.v1",
+        ),
+        privacy: ("schema", "propertyquarry.security_posture_receipt.v1"),
+    }
+    source_payloads: dict[Path, dict[str, object]] = {}
+    for source_path, (schema_field, schema_value) in source_schema_fields.items():
+        source_payload = json.loads(source_path.read_text(encoding="utf-8"))
+        source_payload[schema_field] = schema_value
+        source_payload["release_commit_sha"] = release_commit_sha
+        source_payload["image_digest"] = release_image_digest
+        source_payloads[source_path] = source_payload
+    for source_path in (
+        walkthrough_provider_proof,
+        scene_video_readiness,
+        privacy,
+    ):
+        _write_json(source_path, source_payloads[source_path])
+    source_payloads[walkthrough_quality]["provider_proof_receipt_sha256"] = (
+        hashlib.sha256(walkthrough_provider_proof.read_bytes()).hexdigest()
+    )
+    _write_json(walkthrough_quality, source_payloads[walkthrough_quality])
+    readiness_sha = hashlib.sha256(scene_video_readiness.read_bytes()).hexdigest()
+    for derived_path in (
+        scene_video_readiness_verifier,
+        scene_video_runtime_status,
+        scene_video_provider_refresh_packet,
+    ):
+        source_payloads[derived_path]["source_receipt_sha256"] = readiness_sha
+        _write_json(derived_path, source_payloads[derived_path])
+    source_payloads[scene_video_provider_refresh_packet_verifier][
+        "source_packet_sha256"
+    ] = hashlib.sha256(scene_video_provider_refresh_packet.read_bytes()).hexdigest()
+    _write_json(
+        scene_video_provider_refresh_packet_verifier,
+        source_payloads[scene_video_provider_refresh_packet_verifier],
+    )
+    source_paths = {
+        "walkthrough_quality": walkthrough_quality,
+        "walkthrough_provider_proof": walkthrough_provider_proof,
+        "scene_video_readiness": scene_video_readiness,
+        "scene_video_readiness_verifier": scene_video_readiness_verifier,
+        "scene_video_runtime_status": scene_video_runtime_status,
+        "scene_video_provider_refresh_packet": (
+            scene_video_provider_refresh_packet
+        ),
+        "scene_video_provider_refresh_packet_verifier": (
+            scene_video_provider_refresh_packet_verifier
+        ),
+        "privacy": privacy,
+    }
+    payload = advanced_binding.build_advanced_visual_binding_receipt(
+        release_commit_sha=release_commit_sha,
+        release_image_digest=release_image_digest,
+        source_receipt_paths=source_paths,
+        max_age_hours=2,
+        now=observed_at,
+    )
+    assert payload["status"] == "pass", payload["errors"]
+    path = _write_json(tmp_path / "advanced-visual-binding.json", payload)
+    return path, observed_at, release_commit_sha, release_image_digest
+
+
+def test_core_gold_does_not_load_mixed_or_advanced_receipts(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    core_paths = {
+        name: tmp_path / f"core-{name}.json"
+        for name in ("performance", "tour", "repair", "provider")
+    }
+    advanced_paths = {
+        name: tmp_path / f"MAGICFIT-OMAGIC-SENTINEL-{name}.json"
+        for name in (
+            "export_discovery",
+            "import_manifest",
+            "vendor_tooling",
+            "walkthrough_quality",
+            "walkthrough_provider_proof",
+            "scene_video_readiness",
+            "scene_video_readiness_verifier",
+            "scene_video_runtime_status",
+            "scene_video_provider_refresh_packet",
+            "scene_video_provider_refresh_packet_verifier",
+            "advanced_visual_binding",
+        )
+    }
+    loaded_paths: list[Path] = []
+
+    def _recording_loader(path: Path) -> dict[str, object]:
+        loaded_paths.append(Path(path))
+        return {}
+
+    monkeypatch.setattr(gold_status, "_load_json", _recording_loader)
+    receipt = build_gold_status_receipt(
+        performance_receipt_path=core_paths["performance"],
+        tour_control_receipt_path=core_paths["tour"],
+        export_discovery_receipt_path=advanced_paths["export_discovery"],
+        import_manifest_receipt_path=advanced_paths["import_manifest"],
+        repair_canary_receipt_path=core_paths["repair"],
+        provider_matrix_receipt_path=core_paths["provider"],
+        vendor_tooling_receipt_path=advanced_paths["vendor_tooling"],
+        walkthrough_quality_receipt_path=advanced_paths["walkthrough_quality"],
+        walkthrough_provider_proof_receipt_path=advanced_paths[
+            "walkthrough_provider_proof"
+        ],
+        scene_video_readiness_receipt_path=advanced_paths[
+            "scene_video_readiness"
+        ],
+        scene_video_readiness_verifier_receipt_path=advanced_paths[
+            "scene_video_readiness_verifier"
+        ],
+        scene_video_runtime_status_receipt_path=advanced_paths[
+            "scene_video_runtime_status"
+        ],
+        scene_video_provider_refresh_packet_path=advanced_paths[
+            "scene_video_provider_refresh_packet"
+        ],
+        scene_video_provider_refresh_packet_verifier_receipt_path=(
+            advanced_paths["scene_video_provider_refresh_packet_verifier"]
+        ),
+        advanced_visual_binding_receipt_path=advanced_paths[
+            "advanced_visual_binding"
+        ],
+        claim_scope="core",
+    )
+
+    assert receipt["claim_scope"] == "core"
+    assert set(loaded_paths) == set(core_paths.values())
+    assert not set(loaded_paths).intersection(advanced_paths.values())
+    assert receipt["advanced_visual_gold"]["candidate_binding"][
+        "receipt_path"
+    ] == ""
+
+
 def _live_mobile_payload(*, routes: list[str] | None = None, status: str = "pass", failed_count: int = 0) -> dict[str, object]:
     route_list = routes or [
         "/app/properties",
@@ -2903,9 +4893,15 @@ def _live_mobile_payload(*, routes: list[str] | None = None, status: str = "pass
         "/app/settings/support",
         "/app/settings/trust",
         "/app/settings/invitations",
+        "/app/settings/outcomes",
+        "/app/settings/plan",
         "/app/research",
         "/app/research/perf-candidate-1020?run_id=run-gold",
         "/app/properties/packets",
+        "/app/properties/notifications/preview",
+        "/app/support",
+        "/app/shortlist/run/run-gold",
+        "/tours/tour-gold",
     ]
     return {
         "status": status,
@@ -2920,9 +4916,25 @@ def _live_mobile_payload(*, routes: list[str] | None = None, status: str = "pass
                 "reason": "Gold mobile smoke must exercise a current live research detail page, not only /app/research.",
             },
             {
+                "name": "shortlist_run_route_configured",
+                "ok": any(str(route).split("?", 1)[0].startswith("/app/shortlist/run/") for route in route_list),
+                "required_route_prefix": "/app/shortlist/run/",
+                "reason": "Gold mobile smoke must exercise a concrete ranked shortlist run.",
+            },
+            {
+                "name": "public_tour_route_configured",
+                "ok": any(
+                    str(route).split("?", 1)[0].startswith("/tours/")
+                    and str(route).split("?", 1)[0].count("/") == 2
+                    for route in route_list
+                ),
+                "required_route_prefix": "/tours/",
+                "reason": "Gold mobile smoke must exercise a concrete first-party tour shell.",
+            },
+            {
                 "name": "registry_mobile_customer_surfaces_covered",
                 "ok": True,
-                "covered_surface_count": 18,
+                "covered_surface_count": 22,
                 "missing_surface_keys": [],
                 "reason": "Live mobile smoke routes must cover every customer-visible /app surface declared in the PropertyQuarry surface registry.",
             },
@@ -3153,6 +5165,7 @@ def test_gold_status_blocks_when_required_tour_provider_modes_are_missing(tmp_pa
         import_manifest_receipt_path=import_manifest,
         repair_canary_receipt_path=repair_canary,
         provider_matrix_receipt_path=provider_matrix,
+        claim_scope="advanced_visual",
     )
 
     assert receipt["status"] == "blocked"
@@ -3283,7 +5296,8 @@ def test_gold_status_missing_tour_action_excludes_already_verified_modes(tmp_pat
     assert "krpano" not in blocker["action"]
     aggregate_action = receipt["next_required_actions"][-1]
     assert aggregate_action["provider"] == "3dvista"
-    assert {row["provider"] for row in aggregate_action["rejected_sample"]} == {"3dvista"}
+    assert "rejected_sample" not in aggregate_action
+    assert aggregate_action["action"] == "import a verified 3DVista export"
     assert receipt["notes"][0] == "Gold remains blocked until every failing gate below is repaired."
     missing_note = receipt["notes"][-1]
     assert "MagicFit" not in missing_note
@@ -3299,7 +5313,12 @@ def test_gold_status_blocks_when_magicfit_ready_lacks_playback_proof(tmp_path: P
         {
             "status": "pass",
             "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
-            "magicfit_playback": {"playback_ok": False, "playable_count": 0, "ready_count": 1},
+            "magicfit_playback": {
+                "playback_ok": True,
+                "playable_count": 0,
+                "ready_count": 1,
+                "evidence": [],
+            },
             "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
             "missing_provider_modes": [],
         },
@@ -3363,6 +5382,8 @@ def test_gold_status_blocks_when_magicfit_ready_lacks_playback_proof(tmp_path: P
 
     blocker = next(row for row in receipt["blockers"] if row["area"] == "magicfit_walkthrough_playback")
     assert receipt["status"] == "blocked"
+    assert receipt["core_missing_provider_modes"] == []
+    assert receipt["advanced_visual_gold_status"] in {"blocked", "unavailable"}
     assert receipt["tour_controls"]["magicfit_playback_ok"] is False
     assert blocker["playable_count"] == 0
     assert blocker["ready_count"] == 1
@@ -3404,6 +5425,7 @@ def test_gold_status_blocks_when_browser_3d_gate_fails_even_if_tour_controls_pas
         provider_matrix_receipt_path=provider_matrix,
         browser_3d_gate_receipt_path=browser_3d_gate,
         walkthrough_quality_receipt_path=walkthrough_quality,
+        claim_scope="advanced_visual",
     )
 
     blocker = next(row for row in receipt["blockers"] if row["area"] == "browser_rendered_3d")
@@ -3452,6 +5474,7 @@ def test_gold_status_blocks_when_walkthrough_quality_gate_fails_even_if_video_ex
         provider_matrix_receipt_path=provider_matrix,
         browser_3d_gate_receipt_path=browser_3d_gate,
         walkthrough_quality_receipt_path=walkthrough_quality,
+        claim_scope="advanced_visual",
     )
 
     blocker = next(row for row in receipt["blockers"] if row["area"] == "walkthrough_quality")
@@ -3990,9 +6013,10 @@ def test_gold_status_surfaces_magicfit_renderer_configuration_when_magicfit_mode
         provider_matrix_receipt_path=provider_matrix,
         tour_provider_ownership_receipt_path=ownership,
         vendor_tooling_receipt_path=vendor_tooling,
+        claim_scope="advanced_visual",
     )
 
-    blocker = next(row for row in receipt["blockers"] if row["area"] == "verified_tour_provider_modes")
+    blocker = next(row for row in receipt["blockers"] if row["area"] == "advanced_visual_provider_modes")
     magicfit_action = next(
         row
         for row in receipt["next_required_actions"]
@@ -4021,6 +6045,19 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
             "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
             "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
             "missing_provider_modes": [],
+            "magicfit_playback": {
+                "playback_ok": True,
+                "playable_count": 1,
+                "ready_count": 1,
+                "evidence": [
+                    {
+                        "slug": "magicfit-proof-tour",
+                        "provider": "magicfit",
+                        "control_path": "/tours/magicfit-proof-tour/walkthrough",
+                        "media_identity": "/tours/magicfit-proof-tour/walkthrough",
+                    }
+                ],
+            },
         },
     )
     discovery = _write_json(
@@ -4105,6 +6142,24 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
         tmp_path / "scene-video-provider-refresh-packet-verifier.json",
         _scene_video_provider_refresh_packet_verifier_payload(),
     )
+    (
+        advanced_visual_binding,
+        advanced_visual_now,
+        advanced_visual_release_sha,
+        advanced_visual_image_digest,
+    ) = _advanced_visual_binding_fixture(
+        tmp_path,
+        walkthrough_quality=walkthrough_quality,
+        walkthrough_provider_proof=walkthrough_provider_proof,
+        scene_video_readiness=scene_video,
+        scene_video_readiness_verifier=scene_video_verifier,
+        scene_video_runtime_status=scene_video_runtime_status,
+        scene_video_provider_refresh_packet=scene_video_provider_refresh_packet,
+        scene_video_provider_refresh_packet_verifier=(
+            scene_video_provider_refresh_packet_verifier
+        ),
+        privacy=security_posture,
+    )
 
     receipt = build_gold_status_receipt(
         performance_receipt_path=performance,
@@ -4129,6 +6184,11 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
         scene_video_runtime_status_receipt_path=scene_video_runtime_status,
         scene_video_provider_refresh_packet_path=scene_video_provider_refresh_packet,
         scene_video_provider_refresh_packet_verifier_receipt_path=scene_video_provider_refresh_packet_verifier,
+        advanced_visual_binding_receipt_path=advanced_visual_binding,
+        expected_release_commit_sha=advanced_visual_release_sha,
+        expected_release_image_digest=advanced_visual_image_digest,
+        now=advanced_visual_now,
+        claim_scope="advanced_visual",
     )
 
     assert receipt["status"] == "pass"
@@ -4172,6 +6232,7 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
         "walkthrough_provider_proof",
         "scene_video_readiness",
         "scene_video_provider_refresh_packet",
+        "advanced_visual_candidate_binding",
         "receipt_freshness",
     }.issubset(pass_areas)
     assert receipt["bts_methodology"]["source_section_count"] == 5
@@ -4232,6 +6293,7 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
         scene_video_runtime_status_receipt_path=scene_video_runtime_status,
         scene_video_provider_refresh_packet_path=scene_video_provider_refresh_packet,
         scene_video_provider_refresh_packet_verifier_receipt_path=scene_video_provider_refresh_packet_verifier,
+        claim_scope="advanced_visual",
     )
     walkthrough_proof_blocker = next(
         row for row in unproven_provider_receipt["blockers"] if row["area"] == "walkthrough_provider_proof"
@@ -4283,6 +6345,7 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
         scene_video_runtime_status_receipt_path=missing_magic_runtime_status,
         scene_video_provider_refresh_packet_path=scene_video_provider_refresh_packet,
         scene_video_provider_refresh_packet_verifier_receipt_path=scene_video_provider_refresh_packet_verifier,
+        claim_scope="advanced_visual",
     )
     missing_magic_blocker = next(
         row
@@ -4335,6 +6398,7 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
         scene_video_readiness_verifier_receipt_path=scene_video_verifier,
         scene_video_provider_refresh_packet_path=scene_video_provider_refresh_packet,
         scene_video_provider_refresh_packet_verifier_receipt_path=scene_video_provider_refresh_packet_verifier,
+        claim_scope="advanced_visual",
     )
     omagic_deploy_blocker = next(
         row
@@ -4373,6 +6437,7 @@ def test_gold_status_passes_only_when_all_required_evidence_is_present(tmp_path:
         scene_video_readiness_verifier_receipt_path=scene_video_verifier,
         scene_video_provider_refresh_packet_path=scene_video_provider_refresh_packet,
         scene_video_provider_refresh_packet_verifier_receipt_path=scene_video_provider_refresh_packet_verifier,
+        claim_scope="advanced_visual",
     )
     provider_runtime_blocker = next(
         row for row in provider_runtime_blocked_receipt["blockers"] if row["area"] == "scene_video_provider_runtime"
@@ -4469,6 +6534,7 @@ def test_gold_status_prefers_scene_video_runtime_status_receipt_for_provider_run
         scene_video_runtime_status_receipt_path=scene_video_runtime_status,
         scene_video_provider_refresh_packet_path=scene_video_provider_refresh_packet,
         scene_video_provider_refresh_packet_verifier_receipt_path=scene_video_provider_refresh_packet_verifier,
+        claim_scope="advanced_visual",
     )
 
     provider_runtime_blocker = next(row for row in receipt["blockers"] if row["area"] == "scene_video_provider_runtime")
@@ -4516,6 +6582,7 @@ def test_gold_status_prefers_scene_video_runtime_status_receipt_for_provider_run
         scene_video_readiness_verifier_receipt_path=scene_video_verifier,
         scene_video_provider_refresh_packet_path=scene_video_provider_refresh_packet,
         scene_video_provider_refresh_packet_verifier_receipt_path=failing_scene_video_provider_refresh_packet_verifier,
+        claim_scope="advanced_visual",
     )
     refresh_blocker = next(row for row in blocked_receipt["blockers"] if row["area"] == "scene_video_provider_refresh_packet")
     assert blocked_receipt["status"] == "blocked"
@@ -4772,7 +6839,7 @@ def test_gold_status_blocks_when_tour_delivery_contract_fails(tmp_path: Path) ->
     assert receipt["status"] == "blocked"
     assert receipt["tour_delivery_contract_shape"]["status"] == "fail"
     assert blocker["matterport_ready_count"] == 0
-    assert "first-class Matterport readiness" in blocker["action"]
+    assert "first-party 3DVista readiness" in blocker["action"]
 
 
 def test_gold_status_blocks_when_public_sign_in_account_creation_smoke_is_missing(tmp_path: Path) -> None:
@@ -4916,8 +6983,9 @@ def test_gold_status_accepts_signed_billing_bridge_when_vendor_account_lane_need
         {
             "status": "pass",
             "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
-            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
-            "missing_provider_modes": [],
+                "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+                "missing_provider_modes": [],
+                "magicfit_playback": _magicfit_playback_payload(),
         },
     )
     discovery = _write_json(tmp_path / "discovery.json", {"status": "ready", "import_count": 2, "rejected_count": 0})
@@ -4970,8 +7038,9 @@ def test_gold_status_accepts_member_token_handoff_when_sso_bridge_still_needs_lo
         {
             "status": "pass",
             "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
-            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
-            "missing_provider_modes": [],
+                "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+                "missing_provider_modes": [],
+                "magicfit_playback": _magicfit_playback_payload(),
         },
     )
     discovery = _write_json(tmp_path / "discovery.json", {"status": "ready", "import_count": 2, "rejected_count": 0})
@@ -5353,6 +7422,30 @@ def test_gold_status_blocks_when_receipts_are_stale_even_if_checks_pass(tmp_path
     ]
 
 
+def test_gold_status_blocks_future_dated_receipts(tmp_path: Path) -> None:
+    now = datetime(2026, 7, 19, 12, 0, tzinfo=timezone.utc)
+    future_generated_at = (now + timedelta(minutes=5)).isoformat()
+
+    receipt = build_gold_status_receipt(
+        **_minimal_gold_receipt_args(
+            tmp_path,
+            generated_at=future_generated_at,
+        ),
+        max_receipt_age_hours=1,
+        now=now,
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["receipt_freshness"]["status"] == "fail"
+    assert any(
+        row["area"] == "performance"
+        and row["status"] == "future_dated"
+        and row["future_seconds"] == 300.0
+        and row["maximum_future_skew_seconds"] == 30
+        for row in receipt["receipt_freshness"]["stale_receipts"]
+    )
+
+
 def test_gold_status_accepts_repair_summary_timestamp_for_freshness(tmp_path: Path) -> None:
     now = datetime(2026, 6, 25, 12, 0, tzinfo=timezone.utc)
     fresh_generated_at = (now - timedelta(minutes=10)).isoformat()
@@ -5367,8 +7460,9 @@ def test_gold_status_accepts_repair_summary_timestamp_for_freshness(tmp_path: Pa
             "generated_at": fresh_generated_at,
             "status": "pass",
             "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
-            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
-            "missing_provider_modes": [],
+                "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+                "missing_provider_modes": [],
+                "magicfit_playback": _magicfit_playback_payload(),
         },
     )
     discovery = _write_json(
@@ -5494,8 +7588,9 @@ def test_gold_status_reports_catalog_smoke_separately_from_provider_e2e(tmp_path
         {
             "status": "pass",
             "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
-            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
-            "missing_provider_modes": [],
+                "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+                "missing_provider_modes": [],
+                "magicfit_playback": _magicfit_playback_payload(),
         },
     )
     discovery = _write_json(tmp_path / "discovery.json", {"status": "ready", "import_count": 2, "rejected_count": 0})
@@ -5770,12 +7865,20 @@ def test_gold_status_blocks_when_live_mobile_surface_coverage_is_old_or_narrow(t
     )
 
     assert receipt["status"] == "blocked"
-    assert receipt["live_mobile_surfaces"]["required_route_count"] == 15
+    assert receipt["live_mobile_surfaces"]["required_route_count"] == 19
     assert "/app/settings/access" in receipt["live_mobile_surfaces"]["missing_routes"]
-    assert receipt["live_mobile_surfaces"]["missing_detail_routes"] == ["/app/research/"]
+    assert receipt["live_mobile_surfaces"]["missing_detail_routes"] == [
+        "/app/research/",
+        "/app/shortlist/run/",
+        "/tours/",
+    ]
     blocker = next(row for row in receipt["blockers"] if row["area"] == "live_mobile_surfaces")
     assert "/app/settings/invitations" in blocker["missing_routes"]
-    assert blocker["missing_detail_routes"] == ["/app/research/"]
+    assert blocker["missing_detail_routes"] == [
+        "/app/research/",
+        "/app/shortlist/run/",
+        "/tours/",
+    ]
 
 
 def test_gold_status_blocks_when_live_mobile_research_surface_is_missing(tmp_path: Path) -> None:
@@ -5847,11 +7950,17 @@ def test_gold_status_requires_live_mobile_research_detail_not_index_only(tmp_pat
                 "/app/settings/access",
                 "/app/settings/usage",
                 "/app/settings/support",
-                "/app/settings/trust",
-                "/app/settings/invitations",
-                "/app/research",
-                "/app/properties/packets",
-            ]
+                    "/app/settings/trust",
+                    "/app/settings/invitations",
+                    "/app/settings/outcomes",
+                    "/app/settings/plan",
+                    "/app/research",
+                    "/app/properties/packets",
+                    "/app/properties/notifications/preview",
+                    "/app/support",
+                    "/app/shortlist/run/run-gold",
+                    "/tours/tour-gold",
+                ]
         ),
     )
     tour_controls = _write_json(
@@ -5939,6 +8048,16 @@ def test_gold_status_blocks_when_live_mobile_coverage_check_fails(tmp_path: Path
             "name": "research_detail_route_configured",
             "required_route_prefix": "/app/research/",
             "reason": "Gold mobile smoke must exercise a current live research detail page, not only /app/research.",
+        },
+        {
+            "name": "shortlist_run_route_configured",
+            "required_route_prefix": "/app/shortlist/run/",
+            "reason": "Live mobile receipt predates the required all-surface coverage contract.",
+        },
+        {
+            "name": "public_tour_route_configured",
+            "required_route_prefix": "/tours/",
+            "reason": "Live mobile receipt predates the required all-surface coverage contract.",
         },
         {
             "name": "registry_mobile_customer_surfaces_covered",
@@ -6367,6 +8486,7 @@ def test_gold_status_blocks_when_operator_drop_readmes_are_stale(tmp_path: Path)
         import_manifest_receipt_path=import_manifest,
         repair_canary_receipt_path=repair_canary,
         provider_matrix_receipt_path=provider_matrix,
+        claim_scope="advanced_visual",
     )
 
     assert receipt["status"] == "blocked"
@@ -6419,6 +8539,7 @@ def test_gold_status_blocks_when_operator_import_manifest_is_missing(tmp_path: P
         import_manifest_receipt_path=tmp_path / "missing-import-manifest.json",
         repair_canary_receipt_path=repair_canary,
         provider_matrix_receipt_path=provider_matrix,
+        claim_scope="advanced_visual",
     )
 
     assert receipt["status"] == "blocked"
@@ -6468,6 +8589,7 @@ def test_gold_status_does_not_require_operator_drop_prep_when_all_tour_modes_are
         import_manifest_receipt_path=import_manifest,
         repair_canary_receipt_path=repair_canary,
         provider_matrix_receipt_path=provider_matrix,
+        claim_scope="advanced_visual",
     )
 
     assert receipt["operator_import_manifest"]["ready_for_exports"] is True
@@ -6483,8 +8605,9 @@ def test_gold_status_treats_blocked_export_discovery_as_ok_when_no_imports_are_n
         {
             "status": "pass",
             "provider_counts": {"matterport": 1, "3dvista": 1, "pano2vr": 1, "krpano": 1, "magicfit": 1},
-            "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
-            "missing_provider_modes": [],
+                "ready_provider_modes": ["matterport", "3dvista", "pano2vr", "krpano", "magicfit"],
+                "missing_provider_modes": [],
+                "magicfit_playback": _magicfit_playback_payload(),
         },
     )
     discovery = _write_json(
@@ -6524,7 +8647,7 @@ def test_gold_status_treats_blocked_export_discovery_as_ok_when_no_imports_are_n
 
     assert receipt["status"] == "pass"
     assert receipt["operator_import_manifest"]["ready_for_exports"] is True
-    assert receipt["export_discovery"]["status"] == "blocked_no_verified_exports"
+    assert receipt["export_discovery"]["status"] is None
     assert receipt["next_required_actions"] == []
     assert not any(row["area"] == "tour_operator_import_manifest" for row in receipt["blockers"])
     assert not any(row["area"] == "export_discovery" for row in receipt["blockers"])
@@ -6537,8 +8660,9 @@ def test_gold_status_treats_incomplete_import_manifest_as_ok_when_live_provider_
         {
             "status": "pass",
             "provider_counts": {"matterport": 29, "3dvista": 3, "pano2vr": 2, "krpano": 3, "magicfit": 4},
-            "ready_provider_modes": ["3dvista", "krpano", "magicfit", "matterport", "pano2vr"],
-            "missing_provider_modes": [],
+                "ready_provider_modes": ["3dvista", "krpano", "magicfit", "matterport", "pano2vr"],
+                "missing_provider_modes": [],
+                "magicfit_playback": _magicfit_playback_payload(),
         },
     )
     discovery = _write_json(
@@ -6593,7 +8717,7 @@ def test_gold_status_accepts_optional_fail_closed_id_austria(tmp_path: Path) -> 
             "required_provider_modes": ["matterport", "3dvista", "magicfit"],
             "optional_provider_modes": ["pano2vr", "krpano"],
             "missing_provider_modes": [],
-            "magicfit_playback": {"playback_ok": True, "playable_count": 1, "ready_count": 1},
+            "magicfit_playback": _magicfit_playback_payload(),
             "delivery_contracts": {},
             "next_required_actions": [],
         },
@@ -6762,13 +8886,20 @@ Copy magicfit-walkthrough.mp4 and magicfit-receipt.json into this directory.
         import_manifest_receipt_path=import_manifest,
         repair_canary_receipt_path=repair_canary,
         provider_matrix_receipt_path=provider_matrix,
+        claim_scope="advanced_visual",
     )
 
     assert receipt["status"] == "blocked"
     assert receipt["operator_import_manifest"]["ready_for_exports"] is True
     assert receipt["operator_import_manifest"]["missing_prepared_providers"] == []
     assert receipt["operator_import_manifest"]["hardened_readmes_ok"] is True
-    assert [row["area"] for row in receipt["blockers"]] == ["verified_tour_provider_modes"]
+    assert {row["area"] for row in receipt["blockers"]} == {
+        "advanced_visual_provider_modes",
+        "advanced_visual_candidate_binding",
+        "magicfit_walkthrough_playback",
+        "walkthrough_quality",
+        "walkthrough_provider_proof",
+    }
 
 
 def test_gold_status_flagship_rejects_embedded_visual_receipt_digest_tampering(

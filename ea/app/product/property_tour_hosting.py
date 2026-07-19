@@ -21,14 +21,18 @@ from uuid import uuid4
 import fcntl
 
 from app.product.projections import compact_text
+from app.product.property_search_storage import property_account_publication_authority
 
 _PROPERTY_SCOUT_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0 Safari/537.36"
 _PROPERTY_SCOUT_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp")
 _PROPERTY_SCOUT_FLOORPLAN_ASSET_EXTENSIONS = (*_PROPERTY_SCOUT_IMAGE_EXTENSIONS, ".pdf")
+_PROPERTY_PUBLIC_TOUR_MANIFEST = "tour.json"
 _PROPERTY_PUBLIC_TOUR_PRIVATE_MANIFEST = "tour.private.json"
+_HOSTED_PROPERTY_TOUR_PUBLICATION_LOCK_STATE = threading.local()
 _PROPERTY_PUBLIC_TOUR_PRIVATE_RECEIPT_MERGE_KEYS = frozenset(
     {
         "principal_id",
+        "search_run_id",
         "listing_url",
         "property_url",
         "source_ref",
@@ -38,12 +42,14 @@ _PROPERTY_PUBLIC_TOUR_PRIVATE_RECEIPT_MERGE_KEYS = frozenset(
         "source_virtual_tour_url",
         "source_virtual_tour_origin",
         "panorama_source",
+        "pano2vr_spatial_provenance",
         "three_d_vista_import",
         "three_d_vista_white_label_proof",
         "three_d_vista_browser_render_proof",
         "three_d_vista_entry_relpath",
         "three_d_vista_url",
         "matterport_url",
+        "private_exact_location",
     }
 )
 _3DVISTA_EXPORT_MARKERS = ("tdvplayer", "tdvplayerapi", "tourviewer")
@@ -225,6 +231,424 @@ def _public_tour_private_receipt(payload: dict[str, object]) -> dict[str, object
     return PrivateTourReceipt.from_payload(payload).as_dict()
 
 
+class HostedPropertyTourManifestError(RuntimeError):
+    """A public/private tour manifest failed a fail-closed filesystem check."""
+
+
+class HostedPropertyTourManifestMissing(HostedPropertyTourManifestError):
+    """The requested manifest or its containing directory does not exist."""
+
+
+_HOSTED_PROPERTY_TOUR_TARGET_UNSET = object()
+
+
+def _hosted_property_tour_manifest_max_bytes() -> int:
+    raw_value = str(os.getenv("PROPERTYQUARRY_TOUR_MANIFEST_MAX_BYTES") or "").strip()
+    try:
+        parsed = int(raw_value) if raw_value else 2 * 1024 * 1024
+    except (TypeError, ValueError):
+        parsed = 2 * 1024 * 1024
+    return max(1_024, min(parsed, 16 * 1024 * 1024))
+
+
+def _hosted_property_tour_manifest_name(value: object) -> str:
+    normalized = str(value or "").strip()
+    if (
+        not normalized
+        or normalized in {".", ".."}
+        or "/" in normalized
+        or "\\" in normalized
+        or "\x00" in normalized
+    ):
+        raise HostedPropertyTourManifestError("hosted_property_tour_manifest_name_invalid")
+    return normalized
+
+
+def _open_hosted_property_tour_directory(bundle_dir: Path) -> int:
+    if not hasattr(os, "O_DIRECTORY") or not hasattr(os, "O_NOFOLLOW"):
+        raise HostedPropertyTourManifestError("hosted_property_tour_manifest_nofollow_unavailable")
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+    try:
+        descriptor = os.open(bundle_dir, flags)
+    except FileNotFoundError as exc:
+        raise HostedPropertyTourManifestMissing("hosted_property_tour_bundle_missing") from exc
+    except OSError as exc:
+        raise HostedPropertyTourManifestError("hosted_property_tour_bundle_invalid") from exc
+    try:
+        details = os.fstat(descriptor)
+        if not stat.S_ISDIR(details.st_mode):
+            raise HostedPropertyTourManifestError("hosted_property_tour_bundle_invalid")
+    except Exception:
+        os.close(descriptor)
+        raise
+    return descriptor
+
+
+def _read_hosted_property_tour_regular_file_at(
+    directory_fd: int,
+    name: str,
+    *,
+    missing_ok: bool = False,
+) -> tuple[bytes, os.stat_result] | None:
+    normalized_name = _hosted_property_tour_manifest_name(name)
+    flags = (
+        os.O_RDONLY
+        | os.O_NOFOLLOW
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NONBLOCK", 0)
+    )
+    descriptor = -1
+    try:
+        descriptor = os.open(normalized_name, flags, dir_fd=directory_fd)
+    except FileNotFoundError as exc:
+        if missing_ok:
+            return None
+        raise HostedPropertyTourManifestMissing("hosted_property_tour_manifest_missing") from exc
+    except OSError as exc:
+        raise HostedPropertyTourManifestError("hosted_property_tour_manifest_open_failed") from exc
+    try:
+        before = os.fstat(descriptor)
+        maximum_bytes = _hosted_property_tour_manifest_max_bytes()
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_size <= 0
+            or before.st_size > maximum_bytes
+        ):
+            raise HostedPropertyTourManifestError("hosted_property_tour_manifest_invalid")
+        chunks: list[bytes] = []
+        remaining = int(before.st_size)
+        while remaining:
+            chunk = os.read(descriptor, min(remaining, 65_536))
+            if not chunk:
+                raise HostedPropertyTourManifestError("hosted_property_tour_manifest_short_read")
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        if os.read(descriptor, 1):
+            raise HostedPropertyTourManifestError("hosted_property_tour_manifest_changed")
+        after = os.fstat(descriptor)
+        if (
+            before.st_dev != after.st_dev
+            or before.st_ino != after.st_ino
+            or before.st_mode != after.st_mode
+            or before.st_size != after.st_size
+            or before.st_mtime_ns != after.st_mtime_ns
+            or before.st_ctime_ns != after.st_ctime_ns
+        ):
+            raise HostedPropertyTourManifestError("hosted_property_tour_manifest_changed")
+        return b"".join(chunks), before
+    except HostedPropertyTourManifestError:
+        raise
+    except OSError as exc:
+        raise HostedPropertyTourManifestError("hosted_property_tour_manifest_read_failed") from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+def _read_hosted_property_tour_json_file_with_stat(
+    bundle_dir: Path,
+    name: str,
+    *,
+    missing_ok: bool = False,
+) -> tuple[dict[str, object], os.stat_result] | None:
+    directory_fd = _open_hosted_property_tour_directory(bundle_dir)
+    try:
+        result = _read_hosted_property_tour_regular_file_at(
+            directory_fd,
+            name,
+            missing_ok=missing_ok,
+        )
+    finally:
+        os.close(directory_fd)
+    if result is None:
+        return None
+    raw, details = result
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeError, ValueError) as exc:
+        raise HostedPropertyTourManifestError("hosted_property_tour_manifest_json_invalid") from exc
+    if not isinstance(payload, dict):
+        raise HostedPropertyTourManifestError("hosted_property_tour_manifest_json_invalid")
+    return dict(payload), details
+
+
+def _read_hosted_property_tour_json_file(
+    bundle_dir: Path,
+    name: str,
+    *,
+    missing_ok: bool = False,
+) -> dict[str, object]:
+    result = _read_hosted_property_tour_json_file_with_stat(
+        bundle_dir,
+        name,
+        missing_ok=missing_ok,
+    )
+    return dict(result[0]) if result is not None else {}
+
+
+def _write_hosted_property_tour_stage_at(
+    directory_fd: int,
+    *,
+    final_name: str,
+    encoded: bytes,
+    mode: int,
+    purpose: str,
+) -> tuple[str, os.stat_result]:
+    if not encoded or len(encoded) > _hosted_property_tour_manifest_max_bytes():
+        raise HostedPropertyTourManifestError("hosted_property_tour_manifest_too_large")
+    normalized_final_name = _hosted_property_tour_manifest_name(final_name)
+    temporary_name = f".{normalized_final_name}.{purpose}.{uuid4().hex}.tmp"
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+    descriptor = -1
+    created = False
+    completed = False
+    try:
+        descriptor = os.open(temporary_name, flags, mode, dir_fd=directory_fd)
+        created = True
+        os.fchmod(descriptor, mode)
+        remaining = memoryview(encoded)
+        while remaining:
+            written = os.write(descriptor, remaining)
+            if written <= 0:
+                raise OSError("hosted_property_tour_manifest_short_write")
+            remaining = remaining[written:]
+        os.fsync(descriptor)
+        details = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(details.st_mode)
+            or details.st_size != len(encoded)
+            or stat.S_IMODE(details.st_mode) != mode
+        ):
+            raise HostedPropertyTourManifestError("hosted_property_tour_manifest_stage_invalid")
+        completed = True
+        return temporary_name, details
+    except HostedPropertyTourManifestError:
+        raise
+    except OSError as exc:
+        raise HostedPropertyTourManifestError("hosted_property_tour_manifest_stage_failed") from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        if created and not completed:
+            try:
+                os.unlink(temporary_name, dir_fd=directory_fd)
+            except OSError:
+                pass
+
+
+def _hosted_property_tour_stat_unchanged(
+    expected: os.stat_result,
+    observed: os.stat_result,
+) -> bool:
+    return (
+        stat.S_ISREG(observed.st_mode)
+        and not stat.S_ISLNK(observed.st_mode)
+        and observed.st_dev == expected.st_dev
+        and observed.st_ino == expected.st_ino
+        and observed.st_mode == expected.st_mode
+        and observed.st_size == expected.st_size
+        and observed.st_mtime_ns == expected.st_mtime_ns
+        and observed.st_ctime_ns == expected.st_ctime_ns
+    )
+
+
+def _hosted_property_tour_target_unchanged(
+    directory_fd: int,
+    name: str,
+    expected: os.stat_result | None,
+) -> None:
+    try:
+        observed = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        if expected is None:
+            return
+        raise HostedPropertyTourManifestError("hosted_property_tour_manifest_target_changed")
+    except OSError as exc:
+        raise HostedPropertyTourManifestError("hosted_property_tour_manifest_target_invalid") from exc
+    if expected is None:
+        raise HostedPropertyTourManifestError("hosted_property_tour_manifest_target_changed")
+    if not _hosted_property_tour_stat_unchanged(expected, observed):
+        raise HostedPropertyTourManifestError("hosted_property_tour_manifest_target_changed")
+
+
+def _write_hosted_property_tour_manifests_atomic(
+    bundle_dir: Path,
+    *,
+    public_payload: dict[str, object],
+    private_payload: dict[str, object],
+) -> None:
+    public_encoded = json.dumps(public_payload, ensure_ascii=False, indent=2).encode("utf-8")
+    private_encoded = json.dumps(private_payload, ensure_ascii=False, indent=2).encode("utf-8")
+    maximum_bytes = _hosted_property_tour_manifest_max_bytes()
+    if (
+        not public_encoded
+        or not private_encoded
+        or len(public_encoded) > maximum_bytes
+        or len(private_encoded) > maximum_bytes
+    ):
+        raise HostedPropertyTourManifestError("hosted_property_tour_manifest_too_large")
+
+    directory_fd = _open_hosted_property_tour_directory(bundle_dir)
+    temporary_names: set[str] = set()
+    committed: list[tuple[str, str | None, os.stat_result]] = []
+    try:
+        public_existing = _read_hosted_property_tour_regular_file_at(
+            directory_fd,
+            _PROPERTY_PUBLIC_TOUR_MANIFEST,
+            missing_ok=True,
+        )
+        private_existing = _read_hosted_property_tour_regular_file_at(
+            directory_fd,
+            _PROPERTY_PUBLIC_TOUR_PRIVATE_MANIFEST,
+            missing_ok=True,
+        )
+        public_old_bytes, public_old_stat = public_existing or (None, None)
+        private_old_bytes, private_old_stat = private_existing or (None, None)
+
+        public_stage, public_stage_stat = _write_hosted_property_tour_stage_at(
+            directory_fd,
+            final_name=_PROPERTY_PUBLIC_TOUR_MANIFEST,
+            encoded=public_encoded,
+            mode=0o644,
+            purpose="stage",
+        )
+        temporary_names.add(public_stage)
+        private_stage, private_stage_stat = _write_hosted_property_tour_stage_at(
+            directory_fd,
+            final_name=_PROPERTY_PUBLIC_TOUR_PRIVATE_MANIFEST,
+            encoded=private_encoded,
+            mode=0o600,
+            purpose="stage",
+        )
+        temporary_names.add(private_stage)
+
+        public_backup: str | None = None
+        if public_old_bytes is not None and public_old_stat is not None:
+            public_backup, _ = _write_hosted_property_tour_stage_at(
+                directory_fd,
+                final_name=_PROPERTY_PUBLIC_TOUR_MANIFEST,
+                encoded=public_old_bytes,
+                mode=stat.S_IMODE(public_old_stat.st_mode),
+                purpose="rollback",
+            )
+            temporary_names.add(public_backup)
+        private_backup: str | None = None
+        if private_old_bytes is not None and private_old_stat is not None:
+            private_backup, _ = _write_hosted_property_tour_stage_at(
+                directory_fd,
+                final_name=_PROPERTY_PUBLIC_TOUR_PRIVATE_MANIFEST,
+                encoded=private_old_bytes,
+                mode=stat.S_IMODE(private_old_stat.st_mode),
+                purpose="rollback",
+            )
+            temporary_names.add(private_backup)
+
+        _hosted_property_tour_target_unchanged(
+            directory_fd,
+            _PROPERTY_PUBLIC_TOUR_MANIFEST,
+            public_old_stat,
+        )
+        _hosted_property_tour_target_unchanged(
+            directory_fd,
+            _PROPERTY_PUBLIC_TOUR_PRIVATE_MANIFEST,
+            private_old_stat,
+        )
+        os.fsync(directory_fd)
+
+        try:
+            os.replace(
+                public_stage,
+                _PROPERTY_PUBLIC_TOUR_MANIFEST,
+                src_dir_fd=directory_fd,
+                dst_dir_fd=directory_fd,
+            )
+            temporary_names.discard(public_stage)
+            committed.append((_PROPERTY_PUBLIC_TOUR_MANIFEST, public_backup, public_stage_stat))
+            _hosted_property_tour_target_unchanged(
+                directory_fd,
+                _PROPERTY_PUBLIC_TOUR_PRIVATE_MANIFEST,
+                private_old_stat,
+            )
+            os.replace(
+                private_stage,
+                _PROPERTY_PUBLIC_TOUR_PRIVATE_MANIFEST,
+                src_dir_fd=directory_fd,
+                dst_dir_fd=directory_fd,
+            )
+            temporary_names.discard(private_stage)
+            committed.append((_PROPERTY_PUBLIC_TOUR_PRIVATE_MANIFEST, private_backup, private_stage_stat))
+
+            public_written = _read_hosted_property_tour_regular_file_at(
+                directory_fd,
+                _PROPERTY_PUBLIC_TOUR_MANIFEST,
+            )
+            private_written = _read_hosted_property_tour_regular_file_at(
+                directory_fd,
+                _PROPERTY_PUBLIC_TOUR_PRIVATE_MANIFEST,
+            )
+            if (
+                public_written is None
+                or private_written is None
+                or public_written[0] != public_encoded
+                or private_written[0] != private_encoded
+                or stat.S_IMODE(public_written[1].st_mode) != 0o644
+                or stat.S_IMODE(private_written[1].st_mode) != 0o600
+            ):
+                raise HostedPropertyTourManifestError("hosted_property_tour_manifest_verification_failed")
+            os.fsync(directory_fd)
+            for backup_name in (public_backup, private_backup):
+                if not backup_name:
+                    continue
+                try:
+                    os.unlink(backup_name, dir_fd=directory_fd)
+                    temporary_names.discard(backup_name)
+                except OSError:
+                    pass
+        except Exception as exc:
+            rollback_failed = False
+            for final_name, backup_name, committed_stat in reversed(committed):
+                try:
+                    observed = os.stat(final_name, dir_fd=directory_fd, follow_symlinks=False)
+                    if (
+                        not stat.S_ISREG(observed.st_mode)
+                        or observed.st_dev != committed_stat.st_dev
+                        or observed.st_ino != committed_stat.st_ino
+                    ):
+                        raise OSError("committed_manifest_changed")
+                    if backup_name:
+                        os.replace(
+                            backup_name,
+                            final_name,
+                            src_dir_fd=directory_fd,
+                            dst_dir_fd=directory_fd,
+                        )
+                        temporary_names.discard(backup_name)
+                    else:
+                        os.unlink(final_name, dir_fd=directory_fd)
+                except OSError:
+                    rollback_failed = True
+            try:
+                os.fsync(directory_fd)
+            except OSError:
+                rollback_failed = True
+            if rollback_failed:
+                raise HostedPropertyTourManifestError(
+                    "hosted_property_tour_manifest_rollback_failed"
+                ) from exc
+            if isinstance(exc, HostedPropertyTourManifestError):
+                raise
+            raise HostedPropertyTourManifestError(
+                "hosted_property_tour_manifest_write_failed"
+            ) from exc
+    finally:
+        for temporary_name in tuple(temporary_names):
+            try:
+                os.unlink(temporary_name, dir_fd=directory_fd)
+            except OSError:
+                pass
+        os.close(directory_fd)
+
+
 def _validate_hosted_property_tour_private_receipt_target(private_manifest_path: Path) -> None:
     try:
         target_stat = private_manifest_path.stat(follow_symlinks=False)
@@ -239,8 +663,13 @@ def _validate_hosted_property_tour_private_receipt_target(private_manifest_path:
 def _write_hosted_property_tour_private_receipt_atomic(
     bundle_dir: Path,
     private_payload: dict[str, object],
+    *,
+    expected_target: os.stat_result | None | object = _HOSTED_PROPERTY_TOUR_TARGET_UNSET,
 ) -> None:
     private_name = _PROPERTY_PUBLIC_TOUR_PRIVATE_MANIFEST
+    encoded = json.dumps(private_payload, ensure_ascii=False, indent=2).encode("utf-8")
+    if not encoded or len(encoded) > _hosted_property_tour_manifest_max_bytes():
+        raise RuntimeError("hosted_property_tour_private_receipt_too_large")
     temporary_name = f".{private_name}.{uuid4().hex}.tmp"
     directory_fd = -1
     temporary_fd = -1
@@ -255,8 +684,22 @@ def _write_hosted_property_tour_private_receipt_atomic(
             existing_stat = os.stat(private_name, dir_fd=directory_fd, follow_symlinks=False)
         except FileNotFoundError:
             existing_stat = None
+        if expected_target is not _HOSTED_PROPERTY_TOUR_TARGET_UNSET:
+            if (
+                expected_target is None
+                or existing_stat is None
+                or not isinstance(expected_target, os.stat_result)
+                or not _hosted_property_tour_stat_unchanged(
+                    expected_target,
+                    existing_stat,
+                )
+            ):
+                raise RuntimeError("hosted_property_tour_private_receipt_target_changed")
         if existing_stat is not None and (
-            stat.S_ISLNK(existing_stat.st_mode) or not stat.S_ISREG(existing_stat.st_mode)
+            stat.S_ISLNK(existing_stat.st_mode)
+            or not stat.S_ISREG(existing_stat.st_mode)
+            or existing_stat.st_size <= 0
+            or existing_stat.st_size > _hosted_property_tour_manifest_max_bytes()
         ):
             raise RuntimeError("hosted_property_tour_private_receipt_invalid")
 
@@ -265,7 +708,6 @@ def _write_hosted_property_tour_private_receipt_atomic(
         temporary_fd = os.open(temporary_name, temporary_flags, 0o600, dir_fd=directory_fd)
         temporary_created = True
         os.fchmod(temporary_fd, 0o600)
-        encoded = json.dumps(private_payload, ensure_ascii=False, indent=2).encode("utf-8")
         remaining = memoryview(encoded)
         while remaining:
             written = os.write(temporary_fd, remaining)
@@ -279,8 +721,20 @@ def _write_hosted_property_tour_private_receipt_atomic(
             replacement_stat = os.stat(private_name, dir_fd=directory_fd, follow_symlinks=False)
         except FileNotFoundError:
             replacement_stat = None
+        if (existing_stat is None) != (replacement_stat is None) or (
+            existing_stat is not None
+            and replacement_stat is not None
+            and not _hosted_property_tour_stat_unchanged(
+                existing_stat,
+                replacement_stat,
+            )
+        ):
+            raise RuntimeError("hosted_property_tour_private_receipt_target_changed")
         if replacement_stat is not None and (
-            stat.S_ISLNK(replacement_stat.st_mode) or not stat.S_ISREG(replacement_stat.st_mode)
+            stat.S_ISLNK(replacement_stat.st_mode)
+            or not stat.S_ISREG(replacement_stat.st_mode)
+            or replacement_stat.st_size <= 0
+            or replacement_stat.st_size > _hosted_property_tour_manifest_max_bytes()
         ):
             raise RuntimeError("hosted_property_tour_private_receipt_invalid")
         os.replace(
@@ -290,13 +744,19 @@ def _write_hosted_property_tour_private_receipt_atomic(
             dst_dir_fd=directory_fd,
         )
         replaced = True
-        final_flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        final_flags = (
+            os.O_RDONLY
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_NONBLOCK", 0)
+        )
         final_fd = os.open(private_name, final_flags, dir_fd=directory_fd)
         final_stat = os.fstat(final_fd)
         if (
             not stat.S_ISREG(final_stat.st_mode)
             or final_stat.st_dev != temporary_stat.st_dev
             or final_stat.st_ino != temporary_stat.st_ino
+            or final_stat.st_size != len(encoded)
             or stat.S_IMODE(final_stat.st_mode) != 0o600
         ):
             raise RuntimeError("hosted_property_tour_private_receipt_verification_failed")
@@ -359,49 +819,105 @@ def _normalize_generated_reconstruction_bundle_permissions(bundle_dir: Path) -> 
         raise RuntimeError("property_reconstruction_permissions_failed") from exc
 
 
-def _write_hosted_property_tour_payload(bundle_dir: Path, payload: dict[str, object]) -> None:
+def _write_hosted_property_tour_payload_with_slug_lock_held(
+    bundle_dir: Path,
+    payload: dict[str, object],
+) -> None:
     incoming_owner = str(payload.get("principal_id") or "").strip()
-    private_manifest_path = _public_tour_private_manifest_path(bundle_dir)
-    _validate_hosted_property_tour_private_receipt_target(private_manifest_path)
-    if (bundle_dir / "tour.json").exists() or _public_tour_private_manifest_path(bundle_dir).exists():
-        existing_private = _load_hosted_property_tour_private_receipt(bundle_dir)
+    search_run_id = str(payload.get("search_run_id") or "").strip()
+    existing_any = False
+    existing_private: dict[str, object] = {}
+    try:
+        directory_fd = _open_hosted_property_tour_directory(bundle_dir)
+    except HostedPropertyTourManifestMissing:
+        directory_fd = -1
+    except HostedPropertyTourManifestError as exc:
+        raise RuntimeError("hosted_property_tour_bundle_invalid") from exc
+    if directory_fd >= 0:
+        try:
+            existing_public_result = _read_hosted_property_tour_regular_file_at(
+                directory_fd,
+                _PROPERTY_PUBLIC_TOUR_MANIFEST,
+                missing_ok=True,
+            )
+        except HostedPropertyTourManifestError as exc:
+            raise RuntimeError("hosted_property_tour_manifest_invalid") from exc
+        try:
+            existing_private_result = _read_hosted_property_tour_regular_file_at(
+                directory_fd,
+                _PROPERTY_PUBLIC_TOUR_PRIVATE_MANIFEST,
+                missing_ok=True,
+            )
+        except HostedPropertyTourManifestError as exc:
+            raise RuntimeError("hosted_property_tour_private_receipt_invalid") from exc
+        try:
+            existing_any = existing_public_result is not None or existing_private_result is not None
+            if existing_private_result is not None:
+                try:
+                    loaded_private = json.loads(existing_private_result[0].decode("utf-8"))
+                except (UnicodeError, ValueError) as exc:
+                    raise HostedPropertyTourManifestError(
+                        "hosted_property_tour_private_receipt_invalid"
+                    ) from exc
+                if not isinstance(loaded_private, dict):
+                    raise HostedPropertyTourManifestError(
+                        "hosted_property_tour_private_receipt_invalid"
+                    )
+                existing_private = dict(loaded_private)
+        except HostedPropertyTourManifestError as exc:
+            raise RuntimeError("hosted_property_tour_private_receipt_invalid") from exc
+        finally:
+            os.close(directory_fd)
+    if existing_any:
         existing_owner = str(existing_private.get("principal_id") or "").strip()
         if existing_owner:
             if not incoming_owner or not hmac.compare_digest(existing_owner, incoming_owner):
                 raise RuntimeError("hosted_property_tour_owner_mismatch")
         elif incoming_owner:
             raise RuntimeError("hosted_property_tour_legacy_owner_missing")
-    bundle_dir.mkdir(parents=True, exist_ok=True)
     public_payload = _public_tour_public_payload(payload)
     private_payload = _public_tour_private_receipt(payload)
-    _write_hosted_property_tour_private_receipt_atomic(bundle_dir, private_payload)
-    (bundle_dir / "tour.json").write_text(json.dumps(public_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def _commit_payload() -> None:
+        bundle_dir.mkdir(parents=True, exist_ok=True)
+        _write_hosted_property_tour_manifests_atomic(
+            bundle_dir,
+            public_payload=public_payload,
+            private_payload=private_payload,
+        )
+
+    if incoming_owner:
+        with property_account_publication_authority(
+            incoming_owner,
+            run_id=search_run_id,
+        ):
+            _commit_payload()
+    else:
+        _commit_payload()
+
+
+def _write_hosted_property_tour_payload(
+    bundle_dir: Path,
+    payload: dict[str, object],
+) -> None:
+    with _hosted_property_tour_publication_lock(
+        public_dir=bundle_dir.parent,
+        slug=bundle_dir.name,
+    ):
+        _write_hosted_property_tour_payload_with_slug_lock_held(
+            bundle_dir,
+            payload,
+        )
 
 
 def _load_hosted_property_tour_private_receipt(bundle_dir: Path) -> dict[str, object]:
-    private_manifest_path = _public_tour_private_manifest_path(bundle_dir)
-    descriptor = -1
     try:
-        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
-        descriptor = os.open(private_manifest_path, flags)
-        descriptor_stat = os.fstat(descriptor)
-        if not stat.S_ISREG(descriptor_stat.st_mode) or descriptor_stat.st_size > 1_048_576:
-            return {}
-        chunks: list[bytes] = []
-        remaining = int(descriptor_stat.st_size)
-        while remaining > 0:
-            chunk = os.read(descriptor, min(remaining, 65_536))
-            if not chunk:
-                return {}
-            chunks.append(chunk)
-            remaining -= len(chunk)
-        private_payload = json.loads(b"".join(chunks).decode("utf-8"))
-    except Exception:
-        return {}
-    finally:
-        if descriptor >= 0:
-            os.close(descriptor)
-    if not isinstance(private_payload, dict):
+        private_payload = _read_hosted_property_tour_json_file(
+            bundle_dir,
+            _PROPERTY_PUBLIC_TOUR_PRIVATE_MANIFEST,
+            missing_ok=True,
+        )
+    except HostedPropertyTourManifestError:
         return {}
     return {
         str(key): value
@@ -421,13 +937,17 @@ def _owned_hosted_property_tour_private_receipt(bundle_dir: Path, *, principal_i
     return private_payload
 
 
-def _load_hosted_property_tour_payload(bundle_dir: Path, *, principal_id: str = "") -> dict[str, object]:
-    manifest_path = bundle_dir / "tour.json"
+def _load_hosted_property_tour_payload_with_slug_lock_held(
+    bundle_dir: Path,
+    *,
+    principal_id: str,
+) -> dict[str, object]:
     try:
-        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    if not isinstance(payload, dict):
+        payload = _read_hosted_property_tour_json_file(
+            bundle_dir,
+            _PROPERTY_PUBLIC_TOUR_MANIFEST,
+        )
+    except HostedPropertyTourManifestError:
         return {}
     requested_principal = str(principal_id or "").strip()
     if requested_principal:
@@ -438,6 +958,23 @@ def _load_hosted_property_tour_payload(bundle_dir: Path, *, principal_id: str = 
         if private_payload:
             payload = {**dict(payload), **private_payload}
     return payload
+
+
+def _load_hosted_property_tour_payload(bundle_dir: Path, *, principal_id: str = "") -> dict[str, object]:
+    requested_principal = str(principal_id or "").strip()
+    if not requested_principal:
+        return _load_hosted_property_tour_payload_with_slug_lock_held(
+            bundle_dir,
+            principal_id="",
+        )
+    with _hosted_property_tour_publication_lock(
+        public_dir=bundle_dir.parent,
+        slug=bundle_dir.name,
+    ):
+        return _load_hosted_property_tour_payload_with_slug_lock_held(
+            bundle_dir,
+            principal_id=requested_principal,
+        )
 
 
 def _public_hosted_property_tour_live_source_url(bundle_dir: Path) -> str:
@@ -484,24 +1021,56 @@ def persist_hosted_property_tour_browser_render_proof(
             continue
         seen_roots.add(root_key)
         bundle_dir = root / normalized_slug
-        manifest_path = bundle_dir / "tour.json"
-        if not manifest_path.is_file():
-            continue
-        private_manifest_path = _public_tour_private_manifest_path(bundle_dir)
-        private_payload: dict[str, object] = {}
-        if private_manifest_path.is_file():
+        with _hosted_property_tour_publication_lock(
+            public_dir=root,
+            slug=normalized_slug,
+        ):
             try:
-                loaded_private = json.loads(private_manifest_path.read_text(encoding="utf-8"))
-            except Exception:
-                loaded_private = {}
-            if isinstance(loaded_private, dict):
-                private_payload = dict(loaded_private)
-        private_payload["three_d_vista_browser_render_proof"] = proof_payload
-        private_manifest_path.write_text(
-            json.dumps(private_payload, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        updated_private_manifests.append(str(private_manifest_path))
+                _read_hosted_property_tour_json_file(
+                    bundle_dir,
+                    _PROPERTY_PUBLIC_TOUR_MANIFEST,
+                )
+                private_result = _read_hosted_property_tour_json_file_with_stat(
+                    bundle_dir,
+                    _PROPERTY_PUBLIC_TOUR_PRIVATE_MANIFEST,
+                    missing_ok=True,
+                )
+            except HostedPropertyTourManifestError:
+                continue
+            if private_result is None:
+                continue
+            private_payload, private_stat = private_result
+            owner_principal = str(private_payload.get("principal_id") or "").strip()
+            search_run_id = str(private_payload.get("search_run_id") or "").strip()
+            private_manifest_path = _public_tour_private_manifest_path(bundle_dir)
+            private_payload["three_d_vista_browser_render_proof"] = proof_payload
+
+            def _commit_current_private_receipt() -> bool:
+                try:
+                    _write_hosted_property_tour_private_receipt_atomic(
+                        bundle_dir,
+                        private_payload,
+                        expected_target=private_stat,
+                    )
+                except RuntimeError:
+                    return False
+                return True
+
+            if owner_principal:
+                with property_account_publication_authority(
+                    owner_principal,
+                    run_id=search_run_id,
+                ):
+                    updated = _commit_current_private_receipt()
+            else:
+                # Legacy imported exports predate owner receipts.  Keep their
+                # browser proof lane compatible, but only as an inode-bound CAS
+                # while holding the shared slug lock; it cannot overwrite a
+                # newer private manifest or cross a paired publication.
+                updated = _commit_current_private_receipt()
+            if not updated:
+                continue
+            updated_private_manifests.append(str(private_manifest_path))
     if not updated_private_manifests:
         return {"status": "tour_bundle_not_found", "slug": normalized_slug, "provider": normalized_provider}
     return {
@@ -622,11 +1191,71 @@ def list_hosted_property_tours_for_principal(*, principal_id: str) -> tuple[dict
     return tuple(rows)
 
 
-def revoke_hosted_property_tour_bundle(*, slug: str, principal_id: str = "", actor: str = "") -> dict[str, object]:
+@contextmanager
+def _hosted_property_tour_publication_lock(
+    *,
+    public_dir: Path,
+    slug: str,
+) -> Iterator[None]:
+    """Join the generated publisher's exact per-slug filesystem lock.
+
+    Generated publication already owns this lock while it calls the shared
+    hosted writer and private-aware loader.  Track ownership per thread so
+    those internal calls are reentrant without reopening and self-deadlocking
+    the same flock.  Every outermost path still uses the single service-owned
+    lock inode.
+    """
+
+    try:
+        normalized_public_dir = str(Path(public_dir).expanduser().resolve())
+    except (OSError, RuntimeError, ValueError):
+        normalized_public_dir = os.path.abspath(os.fspath(Path(public_dir).expanduser()))
     normalized_slug = str(slug or "").strip()
-    if not normalized_slug or "/" in normalized_slug or ".." in normalized_slug:
-        return {"status": "not_found", "slug": normalized_slug}
-    requested_principal = str(principal_id or "").strip()
+    lock_key = (normalized_public_dir, normalized_slug)
+    held_keys = getattr(
+        _HOSTED_PROPERTY_TOUR_PUBLICATION_LOCK_STATE,
+        "held_keys",
+        None,
+    )
+    if held_keys is None:
+        held_keys = set()
+        _HOSTED_PROPERTY_TOUR_PUBLICATION_LOCK_STATE.held_keys = held_keys
+    if lock_key in held_keys:
+        yield
+        return
+
+    # service owns the dependency-neutral lock implementation today and also
+    # imports this hosting module. Import lazily so both paths share one lock
+    # derivation and inode without creating a module-import cycle.
+    from app.product.service import _property_reconstruction_publication_lock
+
+    with _property_reconstruction_publication_lock(
+        public_dir=Path(normalized_public_dir),
+        slug=normalized_slug,
+    ):
+        held_keys.add(lock_key)
+        try:
+            yield
+        finally:
+            held_keys.discard(lock_key)
+
+
+def _remove_revoked_hosted_property_tour_bundle(bundle_dir: Path) -> None:
+    if bundle_dir.is_symlink() or bundle_dir.is_file():
+        bundle_dir.unlink(missing_ok=True)
+    elif bundle_dir.exists():
+        shutil.rmtree(bundle_dir)
+    if bundle_dir.exists() or bundle_dir.is_symlink():
+        raise RuntimeError("hosted_property_tour_revocation_removal_failed")
+
+
+def _revoke_hosted_property_tour_bundle_with_lock_held(
+    *,
+    normalized_slug: str,
+    requested_principal: str,
+    actor: str,
+    public_dir: Path,
+) -> dict[str, object]:
     existing_revocation = hosted_property_tour_revocation_receipt(normalized_slug)
     requested_digest = hashlib.sha256(requested_principal.encode("utf-8")).hexdigest() if requested_principal else ""
     if (
@@ -634,6 +1263,7 @@ def revoke_hosted_property_tour_bundle(*, slug: str, principal_id: str = "", act
         and requested_digest
         and hmac.compare_digest(str(existing_revocation.get("principal_id_sha256") or ""), requested_digest)
     ):
+        _remove_revoked_hosted_property_tour_bundle(public_dir / normalized_slug)
         return {
             "status": "revoked",
             "slug": normalized_slug,
@@ -642,9 +1272,11 @@ def revoke_hosted_property_tour_bundle(*, slug: str, principal_id: str = "", act
             "already_revoked": True,
             "cdn_purge": dict(existing_revocation.get("cdn_purge") or {}),
         }
-    public_dir = _public_tour_dir()
     root = public_dir.resolve()
-    bundle_dir = (public_dir / normalized_slug).resolve()
+    canonical_bundle_dir = public_dir / normalized_slug
+    if canonical_bundle_dir.is_symlink():
+        return {"status": "not_found", "slug": normalized_slug}
+    bundle_dir = canonical_bundle_dir.resolve()
     if bundle_dir == root or root not in bundle_dir.parents or not bundle_dir.exists() or not bundle_dir.is_dir():
         return {"status": "not_found", "slug": normalized_slug}
     manifest_path = bundle_dir / "tour.json"
@@ -681,7 +1313,7 @@ def revoke_hosted_property_tour_bundle(*, slug: str, principal_id: str = "", act
         ),
         encoding="utf-8",
     )
-    shutil.rmtree(bundle_dir, ignore_errors=True)
+    _remove_revoked_hosted_property_tour_bundle(canonical_bundle_dir)
     return {
         "status": "revoked",
         "slug": normalized_slug,
@@ -690,6 +1322,24 @@ def revoke_hosted_property_tour_bundle(*, slug: str, principal_id: str = "", act
         "already_revoked": False,
         "cdn_purge": cdn_purge,
     }
+
+
+def revoke_hosted_property_tour_bundle(*, slug: str, principal_id: str = "", actor: str = "") -> dict[str, object]:
+    normalized_slug = str(slug or "").strip()
+    if not normalized_slug or "/" in normalized_slug or ".." in normalized_slug:
+        return {"status": "not_found", "slug": normalized_slug}
+    requested_principal = str(principal_id or "").strip()
+    public_dir = _public_tour_dir()
+    with _hosted_property_tour_publication_lock(
+        public_dir=public_dir,
+        slug=normalized_slug,
+    ):
+        return _revoke_hosted_property_tour_bundle_with_lock_held(
+            normalized_slug=normalized_slug,
+            requested_principal=requested_principal,
+            actor=actor,
+            public_dir=public_dir,
+        )
 
 
 def _configured_public_tour_hosts() -> tuple[str, ...]:
@@ -1294,6 +1944,8 @@ def _hosted_property_tour_generated_reconstruction_contract(
     bundle_dir: Path,
     payload: dict[str, object],
 ) -> dict[str, object]:
+    if "publication_status" in payload and payload.get("publication_status") != "ready":
+        return {"ready": False}
     generated_reconstruction = payload.get("generated_reconstruction")
     if not isinstance(generated_reconstruction, dict):
         return {"ready": False}
@@ -2108,6 +2760,7 @@ def _write_hosted_floorplan_property_tour_bundle(
     property_facts_json: dict[str, object],
     source_host: str,
     source_ref: str = "",
+    search_run_id: str = "",
     external_id: str = "",
     recipient_email: str = "",
 ) -> dict[str, object]:
@@ -2198,6 +2851,7 @@ def _write_hosted_floorplan_property_tour_bundle(
             "hosted_url": f"{base_url}/{slug}",
             "public_url": f"{base_url}/{slug}",
             "principal_id": normalized_principal,
+            "search_run_id": str(search_run_id or "").strip(),
             "listing_url": property_url,
             "property_url": property_url,
             "source_ref": str(source_ref or "").strip(),
@@ -2245,6 +2899,7 @@ def _write_hosted_photo_gallery_property_tour_bundle(
     property_facts_json: dict[str, object],
     source_host: str,
     source_ref: str = "",
+    search_run_id: str = "",
     external_id: str = "",
     recipient_email: str = "",
 ) -> dict[str, object]:
@@ -2335,6 +2990,7 @@ def _write_hosted_photo_gallery_property_tour_bundle(
             "hosted_url": f"{base_url}/{slug}",
             "public_url": f"{base_url}/{slug}",
             "principal_id": normalized_principal,
+            "search_run_id": str(search_run_id or "").strip(),
             "listing_url": property_url,
             "property_url": property_url,
             "source_ref": str(source_ref or "").strip(),
@@ -2383,6 +3039,7 @@ def _write_hosted_feelestate_pure_360_property_tour_bundle(
     property_facts_json: dict[str, object],
     source_host: str,
     source_ref: str = "",
+    search_run_id: str = "",
     external_id: str = "",
     recipient_email: str = "",
 ) -> dict[str, object]:

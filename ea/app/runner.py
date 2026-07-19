@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import logging
+import math
 import os
 from pathlib import Path
 import queue
@@ -23,7 +24,16 @@ from app.api.routes.channels import (
     _telegram_async_assistant_reply_worker,
 )
 from app.container import build_container
-from app.logging_utils import configure_logging
+from app.logging_utils import configure_logging, log_event
+from app.observability import (
+    bind_runtime_trace_context,
+    child_trace_context,
+    runtime_build_identity,
+    runtime_trace_context_from_mapping,
+)
+from app.product.property_research_packet_fleet_proof import (
+    PROPERTY_RESEARCH_PACKET_WRITER_READY_STATUSES,
+)
 from app.settings import get_settings
 
 _IDLE_BACKOFF_START_SECONDS = 1.0
@@ -43,7 +53,8 @@ _SCHEDULER_MORNING_MEMO_MAX_ATTEMPTS = 3
 _SCHEDULER_GOOGLE_SIGNAL_SYNC_FORBIDDEN_COOLDOWNS: dict[str, float] = {}
 _SCHEDULER_STEP_LOCK = threading.Lock()
 _SCHEDULER_STEP_THREADS: dict[str, dict[str, object]] = {}
-_EXECUTION_INSTANCE_ID = uuid4().hex
+_EXECUTION_INSTANCE_ID = str(os.environ.get("EA_EXECUTION_INSTANCE_ID") or uuid4().hex).strip()
+_EXECUTION_STARTED_AT_EPOCH = time.time()
 _SCHEDULER_DELIVERY_METRICS_LOCK = threading.Lock()
 _SCHEDULER_PROPERTY_MAINTENANCE_ROTATION_LOCK = threading.Lock()
 _SCHEDULER_PROPERTY_MAINTENANCE_ROTATION = 0
@@ -59,6 +70,71 @@ _SCHEDULER_DELIVERY_METRICS = {
         "failed",
     )
 }
+_PROPERTY_SEARCH_QUEUE_METRICS_LOCK = threading.Lock()
+_PROPERTY_SEARCH_QUEUE_METRICS: dict[str, object] = {"observed": False}
+
+
+def _record_property_search_queue_metrics(snapshot: object | None) -> bool:
+    observed = False
+    next_snapshot: dict[str, object] = {"observed": False}
+    if snapshot is not None:
+        try:
+            raw_depth = getattr(snapshot, "depth")
+            raw_oldest_age = getattr(snapshot, "oldest_item_age_seconds")
+            if type(raw_depth) is not int or isinstance(raw_oldest_age, bool):
+                raise ValueError("property_search_queue_snapshot_invalid")
+            depth = raw_depth
+            oldest_age = float(raw_oldest_age)
+            if (
+                depth < 0
+                or depth > 2**63 - 1
+                or not math.isfinite(oldest_age)
+                or oldest_age < 0
+                or oldest_age > 10 * 365 * 24 * 60 * 60
+            ):
+                raise ValueError("property_search_queue_snapshot_invalid")
+            next_snapshot = {
+                "observed": True,
+                "depth": depth,
+                "oldest_item_age_seconds": oldest_age,
+            }
+            observed = True
+        except (AttributeError, TypeError, ValueError, OverflowError):
+            pass
+    with _PROPERTY_SEARCH_QUEUE_METRICS_LOCK:
+        _PROPERTY_SEARCH_QUEUE_METRICS.clear()
+        _PROPERTY_SEARCH_QUEUE_METRICS.update(next_snapshot)
+    return observed
+
+
+def _property_search_queue_metrics_snapshot() -> dict[str, object]:
+    with _PROPERTY_SEARCH_QUEUE_METRICS_LOCK:
+        return dict(_PROPERTY_SEARCH_QUEUE_METRICS)
+
+
+def _refresh_property_search_queue_metrics(repository: object) -> bool:
+    try:
+        snapshot = repository.observability_snapshot()  # type: ignore[attr-defined]
+    except Exception:
+        snapshot = None
+    return _record_property_search_queue_metrics(snapshot)
+
+
+def _property_search_writer_contract() -> dict[str, int]:
+    """Version receipt shared by workers so mixed deployments are observable."""
+    from app.product.property_research_packet_links import (
+        PROPERTY_RESEARCH_PACKET_SCHEMA_VERSION,
+        PROPERTY_RESEARCH_PACKET_WRITER_CONTRACT_VERSION,
+    )
+    from app.product.property_search_schema import LATEST_PROPERTY_SEARCH_SCHEMA_VERSION
+    from app.product.property_search_storage import _PROPERTY_SEARCH_RUN_COMPACT_SCHEMA_VERSION
+
+    return {
+        "compact_schema_version": _PROPERTY_SEARCH_RUN_COMPACT_SCHEMA_VERSION,
+        "research_packet_schema_version": PROPERTY_RESEARCH_PACKET_SCHEMA_VERSION,
+        "writer_contract_version": PROPERTY_RESEARCH_PACKET_WRITER_CONTRACT_VERSION,
+        "property_search_schema_version": LATEST_PROPERTY_SEARCH_SCHEMA_VERSION,
+    }
 
 
 def _scheduler_log_ref(value: object) -> str:
@@ -91,17 +167,36 @@ def _scheduler_heartbeat_path() -> Path:
     )
 
 
-def _execution_role_heartbeat_path(role: str) -> Path | None:
-    normalized_role = str(role or "").strip().lower()
-    if normalized_role == "scheduler":
+def _writer_heartbeat_path(*, role: str) -> Path:
+    instance_digest = hashlib.sha256(_EXECUTION_INSTANCE_ID.encode("utf-8")).hexdigest()[:20]
+    filename = f"{role}-{instance_digest}.json"
+    root = Path(
+        str(
+            os.environ.get("EA_PROPERTY_SEARCH_WRITER_HEARTBEAT_DIR")
+            or "/data/artifacts/propertyquarry-writer-heartbeats"
+        ).strip()
+    )
+    return root / filename
+
+
+def _role_healthcheck_heartbeat_path(role: str) -> Path | None:
+    if role == "scheduler":
         return _scheduler_heartbeat_path()
-    if normalized_role == "worker":
+    if role == "worker":
         return Path(
             str(
                 os.environ.get("EA_WORKER_HEARTBEAT_PATH")
                 or "/data/artifacts/propertyquarry-worker-heartbeat.json"
             ).strip()
         )
+    configured_api_path = str(os.environ.get("EA_API_HEARTBEAT_PATH") or "").strip()
+    return Path(configured_api_path) if role == "api" and configured_api_path else None
+
+
+def _execution_role_heartbeat_path(role: str) -> Path | None:
+    normalized_role = str(role or "").strip().lower()
+    if normalized_role in {"api", "worker", "scheduler"}:
+        return _writer_heartbeat_path(role=normalized_role)
     return None
 
 
@@ -111,21 +206,51 @@ def _write_scheduler_heartbeat(*, role: str, status: str) -> None:
     if path is None:
         return
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
         now = time.time()
+        normalized_status = str(status or "loop").strip().lower() or "loop"
+        writer_ready = normalized_status in (
+            PROPERTY_RESEARCH_PACKET_WRITER_READY_STATUSES.get(
+                normalized_role,
+                frozenset(),
+            )
+        )
         payload = {
+            "instance_id": _EXECUTION_INSTANCE_ID,
+            "started_at_epoch": _EXECUTION_STARTED_AT_EPOCH,
             "role": normalized_role,
-            "status": str(status or "loop").strip() or "loop",
+            "status": normalized_status,
+            "writer_ready": writer_ready,
             "epoch": now,
             "observed_at": datetime.fromtimestamp(now, timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
             "pid": os.getpid(),
             "profile": _propertyquarry_scheduler_profile() if normalized_role == "scheduler" else "",
+            "property_search_writer_contract": _property_search_writer_contract(),
         }
         if normalized_role == "scheduler":
             payload["delivery_outbox"] = _scheduler_delivery_metrics_snapshot()
-        tmp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-        tmp_path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
-        tmp_path.replace(path)
+        if normalized_role == "worker":
+            payload["property_search_work_queue"] = _property_search_queue_metrics_snapshot()
+        healthcheck_path = _role_healthcheck_heartbeat_path(normalized_role)
+        paths = (
+            [healthcheck_path, path]
+            if healthcheck_path is not None and healthcheck_path != path
+            else [path]
+        )
+        serialized = json.dumps(payload, sort_keys=True)
+        for receipt_path in paths:
+            try:
+                receipt_path.parent.mkdir(parents=True, exist_ok=True)
+                tmp_path = receipt_path.with_name(
+                    f".{receipt_path.name}.{os.getpid()}.{uuid4().hex}.tmp"
+                )
+                tmp_path.write_text(serialized, encoding="utf-8")
+                tmp_path.replace(receipt_path)
+            except Exception:
+                logging.getLogger("ea.runner").debug(
+                    "execution role heartbeat receipt write failed role=%s",
+                    normalized_role,
+                    exc_info=True,
+                )
     except Exception:
         logging.getLogger("ea.runner").debug(
             "execution role heartbeat write failed role=%s",
@@ -143,6 +268,7 @@ def _run_scheduler_step_with_heartbeat(
     log: logging.Logger,
     fn,  # type: ignore[no-untyped-def]
     heartbeat_interval_seconds: float = 15.0,
+    stop_event: threading.Event | None = None,
 ) -> dict[str, object]:
     normalized_step = re.sub(r"[^a-zA-Z0-9_]+", "_", str(step_name or "scheduler_step").strip().lower()).strip("_")
     if not normalized_step:
@@ -156,6 +282,27 @@ def _run_scheduler_step_with_heartbeat(
         payload["running"] = running
         payload["step"] = normalized_step
         return payload
+
+    def shutdown_payload(*, running: bool = True) -> dict[str, object]:
+        payload = dict(timeout_result)
+        payload["timeout"] = False
+        payload["shutdown"] = True
+        payload["running"] = running
+        payload["step"] = normalized_step
+        return payload
+
+    def saturated_payload(*, active_steps: tuple[str, ...]) -> dict[str, object]:
+        payload = dict(timeout_result)
+        payload["timeout"] = False
+        payload["deferred"] = True
+        payload["running"] = False
+        payload["step"] = normalized_step
+        payload["active_steps"] = active_steps
+        payload["concurrency_limit"] = _scheduler_step_concurrency_limit()
+        return payload
+
+    if stop_event is not None and stop_event.is_set():
+        return shutdown_payload(running=False)
 
     def finish_state(state: dict[str, object]) -> dict[str, object]:
         result_queue = state.get("queue")
@@ -193,6 +340,23 @@ def _run_scheduler_step_with_heartbeat(
                 if state:
                     return finish_state(state)
         else:
+            active_steps = tuple(
+                sorted(
+                    name
+                    for name, active_state in _SCHEDULER_STEP_THREADS.items()
+                    if isinstance(active_state.get("thread"), threading.Thread)
+                    and active_state["thread"].is_alive()
+                )
+            )
+            if len(active_steps) >= _scheduler_step_concurrency_limit():
+                log.warning(
+                    "role=%s scheduler step deferred step=%s active=%s limit=%s",
+                    role,
+                    normalized_step,
+                    ",".join(active_steps),
+                    _scheduler_step_concurrency_limit(),
+                )
+                return saturated_payload(active_steps=active_steps)
             result_queue: queue.Queue = queue.Queue(maxsize=1)
 
             def _target() -> None:
@@ -218,12 +382,22 @@ def _run_scheduler_step_with_heartbeat(
 
     deadline = time.monotonic() + timeout
     while True:
+        if stop_event is not None and stop_event.is_set():
+            return shutdown_payload(running=thread.is_alive())
         _write_scheduler_heartbeat(role=role, status=f"{normalized_step}_running")
         thread = state.get("thread") if isinstance(state, dict) else None
         if not isinstance(thread, threading.Thread):
             return timeout_payload(running=False)
         remaining = deadline - time.monotonic()
-        thread.join(max(0.01, min(heartbeat_interval, remaining if remaining > 0 else heartbeat_interval)))
+        join_seconds = max(
+            0.01,
+            min(
+                heartbeat_interval,
+                0.25 if stop_event is not None else heartbeat_interval,
+                remaining if remaining > 0 else heartbeat_interval,
+            ),
+        )
+        thread.join(join_seconds)
         if not thread.is_alive():
             with _SCHEDULER_STEP_LOCK:
                 _SCHEDULER_STEP_THREADS.pop(normalized_step, None)
@@ -269,6 +443,10 @@ def _env_bool(name: str, default: bool) -> bool:
     if raw in {"0", "false", "no", "off"}:
         return False
     return default
+
+
+def _scheduler_step_concurrency_limit() -> int:
+    return max(1, min(_env_int("EA_SCHEDULER_STEP_CONCURRENCY_LIMIT", 1), 4))
 
 
 def _scheduler_onemin_refresh_interval_seconds() -> float:
@@ -2002,17 +2180,35 @@ def _run_scheduler_telegram_async_recovery(container, log: logging.Logger) -> di
     }
 
 
+def _run_role_heartbeat_loop(*, role: str, stop_event: threading.Event) -> None:
+    while not stop_event.wait(30.0):
+        _write_scheduler_heartbeat(role=role, status="serving")
+
+
 def _run_api() -> None:
     s = get_settings()
-    uvicorn.run(
-        "app.main:app",
-        host=s.host,
-        port=s.port,
-        log_level=s.log_level.lower(),
-        log_config=None,
-        ws_ping_interval=None,
-        ws_ping_timeout=None,
+    stop_event = threading.Event()
+    _write_scheduler_heartbeat(role="api", status="startup")
+    heartbeat_thread = threading.Thread(
+        target=_run_role_heartbeat_loop,
+        kwargs={"role": "api", "stop_event": stop_event},
+        name="property-search-api-writer-heartbeat",
+        daemon=True,
     )
+    heartbeat_thread.start()
+    try:
+        uvicorn.run(
+            "app.main:app",
+            host=s.host,
+            port=s.port,
+            log_level=s.log_level.lower(),
+            log_config=None,
+            ws_ping_interval=None,
+            ws_ping_timeout=None,
+        )
+    finally:
+        stop_event.set()
+        _write_scheduler_heartbeat(role="api", status="stopped")
 
 
 def _run_openvoice() -> None:
@@ -2035,8 +2231,10 @@ def _run_openvoice() -> None:
 
 
 def _run_property_search_work_once(container, *, role: str, log: logging.Logger) -> dict[str, object]:  # type: ignore[no-untyped-def]
+    _record_property_search_queue_metrics(None)
     database_url = str(os.environ.get("DATABASE_URL") or "").strip()
     if not database_url:
+        _write_scheduler_heartbeat(role=role, status="loop")
         return {"claimed": False, "reason": "database_url_missing"}
 
     from app.product.property_search_work_queue import (
@@ -2046,7 +2244,13 @@ def _run_property_search_work_once(container, *, role: str, log: logging.Logger)
     )
     from app.product.service import build_product_service
 
-    repository = PostgresPropertySearchWorkQueue(database_url)
+    try:
+        repository = PostgresPropertySearchWorkQueue(database_url)
+    except Exception:
+        _write_scheduler_heartbeat(role=role, status="loop")
+        raise
+    _refresh_property_search_queue_metrics(repository)
+    _write_scheduler_heartbeat(role=role, status="loop")
     lease_seconds = property_search_work_lease_seconds()
     instance_host = str(os.environ.get("HOSTNAME") or "local").strip() or "local"
     lease_owner = (
@@ -2055,6 +2259,39 @@ def _run_property_search_work_once(container, *, role: str, log: logging.Logger)
     job = repository.claim(lease_owner=lease_owner, lease_seconds=lease_seconds)
     if job is None:
         return {"claimed": False}
+
+    parent_trace = runtime_trace_context_from_mapping(job.payload_json.get("trace_context"))
+    worker_trace = child_trace_context(parent_trace) if parent_trace is not None else None
+    trace_fields = (
+        {
+            "trace_id": worker_trace.trace_id,
+            "span_id": worker_trace.span_id,
+            "parent_span_id": worker_trace.parent_span_id,
+            "trace_flags": worker_trace.trace_flags,
+            "trace_source": worker_trace.source,
+        }
+        if worker_trace is not None
+        else {}
+    )
+    build_identity = runtime_build_identity()
+    trace_fields.update(build_identity)
+    correlation_id = str(
+        dict(job.payload_json.get("trace_context") or {}).get("correlation_id")
+        if isinstance(job.payload_json.get("trace_context"), dict)
+        else ""
+    ).strip()
+    log_event(
+        log,
+        logging.INFO,
+        "property_search_work_started",
+        correlation_id=correlation_id,
+        component="property_search_worker",
+        operation="execute",
+        outcome="started",
+        job_id=job.job_id,
+        run_id=job.run_id,
+        **trace_fields,
+    )
 
     stop_heartbeat = threading.Event()
     lease_lost = threading.Event()
@@ -2070,7 +2307,11 @@ def _run_property_search_work_once(container, *, role: str, log: logging.Logger)
                 ):
                     lease_lost.set()
                     return
+                _refresh_property_search_queue_metrics(repository)
+                _write_scheduler_heartbeat(role=role, status="loop")
             except Exception:
+                _record_property_search_queue_metrics(None)
+                _write_scheduler_heartbeat(role=role, status="loop")
                 log.exception("role=%s property search work heartbeat failed job=%s", role, job.job_id)
 
     heartbeat_thread = threading.Thread(
@@ -2081,7 +2322,11 @@ def _run_property_search_work_once(container, *, role: str, log: logging.Logger)
     heartbeat_thread.start()
     try:
         service = build_product_service(container)
-        result = service.execute_property_search_work_job(job)
+        with bind_runtime_trace_context(
+            worker_trace,
+            correlation_id=correlation_id,
+        ):
+            result = service.execute_property_search_work_job(job)
     except Exception as exc:
         stop_heartbeat.set()
         heartbeat_thread.join(timeout=max(1.0, float(property_search_work_heartbeat_seconds()) + 1.0))
@@ -2090,6 +2335,8 @@ def _run_property_search_work_once(container, *, role: str, log: logging.Logger)
             lease_owner=lease_owner,
             error=str(exc or "property search work failed"),
         )
+        _refresh_property_search_queue_metrics(repository)
+        _write_scheduler_heartbeat(role=role, status="loop")
         log.exception(
             "role=%s property search work failed job=%s run=%s attempt=%s terminal=%s",
             role,
@@ -2097,6 +2344,19 @@ def _run_property_search_work_once(container, *, role: str, log: logging.Logger)
             job.run_id,
             job.attempt_count,
             bool(failed and failed.status == "failed"),
+        )
+        log_event(
+            log,
+            logging.ERROR,
+            "property_search_work_failed",
+            correlation_id=correlation_id,
+            component="property_search_worker",
+            operation="execute",
+            outcome="failed",
+            job_id=job.job_id,
+            run_id=job.run_id,
+            error_type=exc.__class__.__name__,
+            **trace_fields,
         )
         return {
             "claimed": True,
@@ -2109,8 +2369,22 @@ def _run_property_search_work_once(container, *, role: str, log: logging.Logger)
     stop_heartbeat.set()
     heartbeat_thread.join(timeout=max(1.0, float(property_search_work_heartbeat_seconds()) + 1.0))
     completed = None if lease_lost.is_set() else repository.complete(job_id=job.job_id, lease_owner=lease_owner)
+    _refresh_property_search_queue_metrics(repository)
+    _write_scheduler_heartbeat(role=role, status="loop")
     if completed is None:
         log.error("role=%s property search work completion lost lease job=%s run=%s", role, job.job_id, job.run_id)
+        log_event(
+            log,
+            logging.ERROR,
+            "property_search_work_lease_lost",
+            correlation_id=correlation_id,
+            component="property_search_worker",
+            operation="execute",
+            outcome="lease_lost",
+            job_id=job.job_id,
+            run_id=job.run_id,
+            **trace_fields,
+        )
         return {
             "claimed": True,
             "completed": False,
@@ -2119,6 +2393,18 @@ def _run_property_search_work_once(container, *, role: str, log: logging.Logger)
             "status": "lease_lost",
             "attempt_count": job.attempt_count,
         }
+    log_event(
+        log,
+        logging.INFO,
+        "property_search_work_completed",
+        correlation_id=correlation_id,
+        component="property_search_worker",
+        operation="execute",
+        outcome="completed",
+        job_id=job.job_id,
+        run_id=job.run_id,
+        **trace_fields,
+    )
     return {
         "claimed": True,
         "completed": True,
@@ -2130,17 +2416,39 @@ def _run_property_search_work_once(container, *, role: str, log: logging.Logger)
     }
 
 
+def _require_property_search_writer_readiness(container: object, *, role: str) -> None:
+    normalized_role = str(role or "").strip().lower()
+    if normalized_role not in {"worker", "scheduler"}:
+        return
+    readiness = getattr(container, "readiness", None)
+    probe = getattr(readiness, "_probe_database", None)
+    if not callable(probe):
+        raise RuntimeError("property_search_writer_not_ready:readiness_probe_missing")
+    ready, reason = probe()
+    if ready:
+        return
+    bounded_reason = re.sub(
+        r"[^a-zA-Z0-9_.:-]+",
+        "_",
+        str(reason or "not_ready").strip(),
+    )[:240]
+    raise RuntimeError(
+        f"property_search_writer_not_ready:{bounded_reason or 'not_ready'}"
+    )
+
+
 def _run_execution_worker(role: str) -> None:
-    stop = {"flag": False}
+    stop_event = threading.Event()
 
     def _handle_stop(signum, frame):  # type: ignore[no-untyped-def]
-        stop["flag"] = True
+        stop_event.set()
 
     signal.signal(signal.SIGTERM, _handle_stop)
     signal.signal(signal.SIGINT, _handle_stop)
 
     log = logging.getLogger("ea.runner")
     container = build_container()
+    _require_property_search_writer_readiness(container, role=role)
     idle_backoff_seconds = _IDLE_BACKOFF_START_SECONDS
     last_horizon_scan_at = 0.0
     last_onemin_refresh_at = 0.0
@@ -2156,7 +2464,7 @@ def _run_execution_worker(role: str) -> None:
     property_only_worker = role == "worker" and _worker_property_only_profile_enabled()
     log.info("role=%s started worker loop", role)
     _write_scheduler_heartbeat(role=role, status="started")
-    while not stop["flag"]:
+    while not stop_event.is_set():
         _write_scheduler_heartbeat(role=role, status="loop")
         if role == "scheduler":
             now = time.time()
@@ -2176,7 +2484,10 @@ def _run_execution_worker(role: str) -> None:
                         },
                         log=log,
                         fn=lambda: _run_scheduler_property_search_recovery(container, log),
+                        stop_event=stop_event,
                     )
+                    if stop_event.is_set():
+                        break
                     last_property_search_recovery_at = now
                     if (
                         int(recovery_summary.get("stale_total") or 0) > 0
@@ -2282,7 +2593,10 @@ def _run_execution_worker(role: str) -> None:
                         },
                         log=log,
                         fn=lambda: _run_scheduler_property_scout(container, log),
+                        stop_event=stop_event,
                     )
+                    if stop_event.is_set():
+                        break
                     last_property_scout_at = now
                     log.info(
                         "role=%s scheduler property scout attempted=%s synced=%s launched=%s due=%s skipped_active=%s skipped_not_due=%s errors=%s principal_count=%s timeout=%s",
@@ -2318,7 +2632,10 @@ def _run_execution_worker(role: str) -> None:
                         },
                         log=log,
                         fn=lambda: _run_scheduler_property_results_finalize(container, log),
+                        stop_event=stop_event,
                     )
+                    if stop_event.is_set():
+                        break
                     last_property_results_finalize_at = now
                     if (
                         int(finalize_summary.get("attempted") or 0) > 0
@@ -2401,15 +2718,17 @@ def _run_execution_worker(role: str) -> None:
             if property_only_scheduler:
                 log.debug("role=%s property-only scheduler idle; sleeping %.1fs", role, idle_backoff_seconds)
                 _write_scheduler_heartbeat(role=role, status="idle")
-                time.sleep(idle_backoff_seconds)
+                stop_event.wait(idle_backoff_seconds)
                 idle_backoff_seconds = min(idle_backoff_seconds * 2.0, _IDLE_BACKOFF_MAX_SECONDS)
                 continue
         if role == "worker":
             try:
                 property_work = _run_property_search_work_once(container, role=role, log=log)
             except Exception:
+                _record_property_search_queue_metrics(None)
+                _write_scheduler_heartbeat(role=role, status="loop")
                 log.exception("role=%s property search work queue failed; retrying in %.1fs", role, _ERROR_BACKOFF_SECONDS)
-                time.sleep(_ERROR_BACKOFF_SECONDS)
+                stop_event.wait(_ERROR_BACKOFF_SECONDS)
                 continue
             if bool(property_work.get("claimed")):
                 idle_backoff_seconds = _IDLE_BACKOFF_START_SECONDS
@@ -2424,18 +2743,18 @@ def _run_execution_worker(role: str) -> None:
                 continue
         if property_only_worker:
             log.debug("role=%s property-only worker skips inherited generic queue; sleeping %.1fs", role, idle_backoff_seconds)
-            time.sleep(idle_backoff_seconds)
+            stop_event.wait(idle_backoff_seconds)
             idle_backoff_seconds = min(idle_backoff_seconds * 2.0, _IDLE_BACKOFF_MAX_SECONDS)
             continue
         try:
             artifact = container.orchestrator.run_next_queue_item(lease_owner=role)
         except Exception:
             log.exception("role=%s queue execution failed; retrying in %.1fs", role, _ERROR_BACKOFF_SECONDS)
-            time.sleep(_ERROR_BACKOFF_SECONDS)
+            stop_event.wait(_ERROR_BACKOFF_SECONDS)
             continue
         if artifact is None:
             log.debug("role=%s idle; sleeping %.1fs before next lease attempt", role, idle_backoff_seconds)
-            time.sleep(idle_backoff_seconds)
+            stop_event.wait(idle_backoff_seconds)
             idle_backoff_seconds = min(idle_backoff_seconds * 2.0, _IDLE_BACKOFF_MAX_SECONDS)
             continue
         idle_backoff_seconds = _IDLE_BACKOFF_START_SECONDS

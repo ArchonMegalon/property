@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -30,33 +31,46 @@ REQUIRED_FAILURE_STATES = (
     "internal_error",
     "offline",
     "expired_session",
+    "delayed",
+    "quota_blocked",
+    "payment_failed",
     "empty",
     "partial",
     "provider_blocked",
     "stale",
     "missing_packet",
+    "missing_media",
 )
+DEFAULT_PRESERVATION_PROBE_ROUTE = "/v1/onboarding/property-search/preferences"
 DEFAULT_SCENARIO_ROUTES = {
     "not_found": "/__propertyquarry_flagship_page_not_found__",
     "internal_error": "",
     "offline": "/app/search",
     "expired_session": "/app/search",
+    "delayed": "",
+    "quota_blocked": "",
+    "payment_failed": "",
     "empty": "",
     "partial": "",
     "provider_blocked": "",
     "stale": "/app/shortlist?run_id=pq-flagship-missing-run",
     "missing_packet": "/app/research/pq-flagship-missing-home",
+    "missing_media": "",
 }
 CALM_COPY_TOKENS = {
     "not_found": ("couldn\u2019t find", "couldn't find", "page not found"),
     "internal_error": ("something went wrong", "temporary interruption"),
     "offline": ("offline", "reconnect"),
     "expired_session": ("session ended", "sign in again"),
+    "delayed": ("still running", "taking longer", "updates paused"),
+    "quota_blocked": ("limit", "try again", "search is unchanged"),
+    "payment_failed": ("payment", "billing", "access is unchanged"),
     "empty": ("nothing matched", "no matches", "change one thing"),
     "partial": ("partial results", "review the homes already found"),
     "provider_blocked": ("site changed", "could not finish", "retrying", "search is saved"),
     "stale": ("saved link was stale", "current workspace", "current search"),
     "missing_packet": ("not available right now", "being rebuilt", "shortlist"),
+    "missing_media": ("media", "preview not available", "listing"),
 }
 FORBIDDEN_RAW_DIAGNOSTICS = (
     "traceback (most recent call last)",
@@ -76,6 +90,7 @@ REQUIRED_ROW_CHECKS = (
     "semantic_status_contract",
     "raw_diagnostics_hidden",
     "scenario_transition_proven",
+    "customer_data_preserved",
 )
 SENSITIVE_ROUTE_QUERY_KEYS = {
     "access_token",
@@ -143,6 +158,58 @@ def _origin(value: str) -> str:
     return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, "", "", "")).rstrip("/")
 
 
+def _preservation_snapshot(
+    context: Any,
+    *,
+    base_url: str,
+    route: str,
+    headers: dict[str, str],
+    timeout_ms: int,
+) -> dict[str, Any]:
+    """Return non-sensitive proof of a substantive, canonical JSON snapshot."""
+
+    try:
+        response = context.request.get(
+            str(base_url or "").rstrip("/") + "/" + str(route or "").lstrip("/"),
+            headers={**headers, "Accept": "application/json"},
+            fail_on_status_code=False,
+            timeout=timeout_ms,
+        )
+        status_code = int(response.status)
+        raw_body = bytes(response.body())
+        payload = response.json()
+        canonical = json.dumps(
+            payload,
+            allow_nan=False,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        substantive = (
+            (isinstance(payload, dict) and bool(payload))
+            or (isinstance(payload, list) and bool(payload))
+            or (isinstance(payload, str) and bool(payload.strip()))
+            or (isinstance(payload, (int, float)) and not isinstance(payload, bool))
+        )
+        return {
+            "ok": status_code == 200 and substantive,
+            "status_code": status_code,
+            "body_bytes": len(raw_body),
+            "canonical_bytes": len(canonical),
+            "sha256": hashlib.sha256(canonical).hexdigest(),
+            "error": "" if substantive else "preservation_payload_not_substantive",
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "status_code": 0,
+            "body_bytes": 0,
+            "canonical_bytes": 0,
+            "sha256": "",
+            "error": type(exc).__name__,
+        }
+
+
 def _continue_with_auth_state(
     route: Any,
     *,
@@ -173,9 +240,11 @@ def _marker_observation(page: Any, *, state: str) -> dict[str, Any]:
     action = marker.locator('[data-pq-next-action]:visible, a[href]:visible, button:not([disabled]):visible').first
     action_text = ""
     action_href = ""
+    action_kind = ""
     if action.count() > 0:
         action_text = " ".join(str(action.inner_text() or "").split())[:180]
         action_href = str(action.get_attribute("href") or "")[:400]
+        action_kind = str(action.evaluate("node => String(node.tagName || '').toLowerCase()") or "")
     semantics = dict(
         marker.evaluate(
             """
@@ -198,6 +267,7 @@ def _marker_observation(page: Any, *, state: str) -> dict[str, Any]:
         "copy": copy,
         "action_text": action_text,
         "action_href": action_href,
+        "action_kind": action_kind,
         "semantic_status": semantic_status,
     }
 
@@ -208,6 +278,7 @@ def collect_failure_state_browser_rows(
     scenario_routes: dict[str, str],
     browser_engine: str,
     headers: dict[str, str],
+    preservation_probe_route: str,
     timeout_ms: int,
 ) -> list[dict[str, Any]]:
     from playwright.sync_api import sync_playwright
@@ -249,6 +320,13 @@ def collect_failure_state_browser_rows(
                     status_code = 0
                     transition_proven = True
                     error = ""
+                    preservation_before = _preservation_snapshot(
+                        context,
+                        base_url=normalized_base,
+                        route=preservation_probe_route,
+                        headers=headers,
+                        timeout_ms=timeout_ms,
+                    )
                     try:
                         auth_enabled["value"] = True
                         response = page.goto(requested_url, wait_until="domcontentloaded", timeout=timeout_ms)
@@ -280,6 +358,19 @@ def collect_failure_state_browser_rows(
                         if state == "offline":
                             context.set_offline(False)
                         auth_enabled["value"] = True
+                    preservation_after = _preservation_snapshot(
+                        context,
+                        base_url=normalized_base,
+                        route=preservation_probe_route,
+                        headers=headers,
+                        timeout_ms=timeout_ms,
+                    )
+                    preservation_same = (
+                        preservation_before.get("ok") is True
+                        and preservation_after.get("ok") is True
+                        and bool(preservation_before.get("sha256"))
+                        and preservation_before.get("sha256") == preservation_after.get("sha256")
+                    )
                     observation.update(
                         {
                             "state": state,
@@ -289,6 +380,12 @@ def collect_failure_state_browser_rows(
                             "status_code": status_code,
                             "browser_engine": engine,
                             "transition_proven": transition_proven,
+                            "customer_data_preserved": preservation_same,
+                            "preservation_probe": {
+                                "before": preservation_before,
+                                "after": preservation_after,
+                                "same_digest": preservation_same,
+                            },
                             "error": error,
                         }
                     )
@@ -328,7 +425,7 @@ def evaluate_failure_state_observation(observation: dict[str, Any]) -> list[dict
             "ok": bool(str(observation.get("action_text") or "").strip())
             and (
                 bool(str(observation.get("action_href") or "").strip())
-                or state == "offline"
+                or str(observation.get("action_kind") or "").strip().lower() == "button"
             ),
         },
         {"name": "semantic_status_contract", "ok": observation.get("semantic_status") is True},
@@ -337,6 +434,10 @@ def evaluate_failure_state_observation(observation: dict[str, Any]) -> list[dict
             "ok": not any(marker in lowered for marker in FORBIDDEN_RAW_DIAGNOSTICS),
         },
         {"name": "scenario_transition_proven", "ok": transition_proven},
+        {
+            "name": "customer_data_preserved",
+            "ok": observation.get("customer_data_preserved") is True,
+        },
     ]
 
 
@@ -347,6 +448,7 @@ def build_failure_state_receipt(
     browser_engines: tuple[str, ...] = SUPPORTED_PLAYWRIGHT_ENGINES,
     api_token: str = "",
     principal_id: str = "pq-failure-state-gate",
+    preservation_probe_route: str = DEFAULT_PRESERVATION_PROBE_ROUTE,
     timeout_ms: int = 30_000,
     collect_rows: Callable[..., list[dict[str, Any]]] = collect_failure_state_browser_rows,
 ) -> dict[str, Any]:
@@ -359,6 +461,12 @@ def build_failure_state_receipt(
         for state, route in routes.items()
         if route and (error := _scenario_route_error(route))
     }
+    normalized_preservation_route = str(preservation_probe_route or "").strip()
+    preservation_route_error = (
+        "required"
+        if not normalized_preservation_route
+        else _scenario_route_error(normalized_preservation_route)
+    )
     headers = {"X-EA-Principal-ID": principal_id, "Accept": "text/html,application/xhtml+xml"}
     if api_token:
         headers.update(
@@ -369,7 +477,7 @@ def build_failure_state_receipt(
             }
         )
     proof_mode = "playwright_browser_all" if collect_rows is collect_failure_state_browser_rows else "contract_mock"
-    if missing_routes or invalid_routes:
+    if missing_routes or invalid_routes or preservation_route_error:
         return {
             "status": "blocked",
             "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -378,6 +486,9 @@ def build_failure_state_receipt(
             "required_browser_engines": list(engines),
             "required_failure_states": list(REQUIRED_FAILURE_STATES),
             "scenario_routes": receipt_routes,
+            "preservation_probe_route": _receipt_scenario_routes(
+                {"preservation": normalized_preservation_route}
+            )["preservation"],
             "expected_sample_count": 0,
             "observed_sample_count": 0,
             "failed_count": 1,
@@ -387,6 +498,7 @@ def build_failure_state_receipt(
                     "ok": False,
                     "missing_states": missing_routes,
                     "invalid_routes": invalid_routes,
+                    "preservation_probe_route_error": preservation_route_error,
                 }
             ],
             "rows": [],
@@ -406,6 +518,7 @@ def build_failure_state_receipt(
                     scenario_routes=routes,
                     browser_engine=engine,
                     headers=headers,
+                    preservation_probe_route=normalized_preservation_route,
                     timeout_ms=timeout_ms,
                 )
             )
@@ -429,6 +542,12 @@ def build_failure_state_receipt(
         for row in rows
     }
     missing_samples = sorted(expected_samples - observed_samples)
+    preserved_samples = {
+        (str(row.get("browser_engine") or ""), str(row.get("state") or ""))
+        for row in rows
+        if row.get("customer_data_preserved") is True
+    }
+    missing_preservation_samples = sorted(expected_samples - preserved_samples)
     checks = [
         {
             "name": "required_failure_scenarios_configured",
@@ -449,6 +568,14 @@ def build_failure_state_receipt(
             "ok": proof_mode == "playwright_browser_all",
             "applicable_to_flagship": True,
         },
+        {
+            "name": "customer_data_preservation_matrix_complete",
+            "ok": not missing_preservation_samples,
+            "missing_samples": [
+                {"browser_engine": engine, "state": state}
+                for engine, state in missing_preservation_samples
+            ],
+        },
     ]
     failed_rows = [row for row in rows if row.get("ok") is not True]
     failed_checks = [check for check in checks[:2] if check.get("ok") is not True]
@@ -463,6 +590,9 @@ def build_failure_state_receipt(
         "required_browser_engines": list(engines),
         "required_failure_states": list(REQUIRED_FAILURE_STATES),
         "scenario_routes": receipt_routes,
+        "preservation_probe_route": _receipt_scenario_routes(
+            {"preservation": normalized_preservation_route}
+        )["preservation"],
         "expected_sample_count": len(expected_samples),
         "observed_sample_count": len(observed_samples),
         "failed_count": len(failed_rows) + len(failed_checks),
@@ -471,7 +601,8 @@ def build_failure_state_receipt(
         "engine_failures": engine_failures,
         "notes": [
             "The gate is read-only and never creates runs or mocks provider responses.",
-            "Internal-error, empty, partial, and provider-blocked routes must point to pre-provisioned safe canaries.",
+            "Internal-error, delayed, quota, payment, empty, partial, provider-blocked, and missing-media routes must point to pre-provisioned safe canaries.",
+            "Each sample proves the authenticated preference snapshot is substantive and has the same canonical SHA-256 before and after; receipt bodies are never emitted.",
             "Injected collectors are marked contract_mock and cannot satisfy flagship proof.",
         ],
     }
@@ -500,6 +631,13 @@ def main() -> int:
     )
     parser.add_argument("--api-token", default=os.environ.get("PROPERTYQUARRY_FAILURE_API_TOKEN") or os.environ.get("EA_API_TOKEN", ""))
     parser.add_argument("--principal-id", default=os.environ.get("PROPERTYQUARRY_FAILURE_PRINCIPAL_ID", "pq-failure-state-gate"))
+    parser.add_argument(
+        "--preservation-probe-route",
+        default=os.environ.get(
+            "PROPERTYQUARRY_FAILURE_PRESERVATION_PROBE_ROUTE",
+            DEFAULT_PRESERVATION_PROBE_ROUTE,
+        ),
+    )
     parser.add_argument("--timeout-ms", type=int, default=30_000)
     parser.add_argument("--write", default="_completion/smoke/property-live-failure-states-latest.json")
     for state in REQUIRED_FAILURE_STATES:
@@ -522,6 +660,7 @@ def main() -> int:
         browser_engines=engines,
         api_token=str(args.api_token or "").strip(),
         principal_id=str(args.principal_id or "").strip() or "pq-failure-state-gate",
+        preservation_probe_route=str(args.preservation_probe_route or "").strip(),
         timeout_ms=max(1_000, int(args.timeout_ms)),
     )
     output = json.dumps(receipt, indent=2, sort_keys=True)

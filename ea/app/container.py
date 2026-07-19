@@ -39,6 +39,11 @@ from app.services.policy import PolicyDecisionService
 from app.services.preference_profile_service import PreferenceProfileService, build_preference_profile_service
 from app.services.proactive_horizon import ProactiveHorizonService
 from app.services.provider_registry import ProviderRegistryService
+from app.services.admission_control import (
+    AdmissionBackendUnavailable,
+    probe_admission_cursor,
+    resolve_api_admission_database_url,
+)
 from app.services.skills import SkillCatalogService
 from app.services.task_contracts import TaskContractService, build_task_contract_service
 from app.services.tool_execution import ToolExecutionService
@@ -124,6 +129,18 @@ class ReadinessService:
             import psycopg
         except Exception:
             return False, "psycopg_missing"
+        admission_database_url = ""
+        if (
+            str(self._settings.runtime_mode or "").strip().lower() == "prod"
+            and str(self._settings.role or "api").strip().lower() == "api"
+        ):
+            try:
+                admission_database_url = resolve_api_admission_database_url(
+                    runtime_mode=self._settings.runtime_mode,
+                    primary_database_url=_database_url(self._settings),
+                )
+            except RuntimeError as exc:
+                return False, f"propertyquarry_admission_not_ready:{exc}"
         try:
             with psycopg.connect(_database_url(self._settings), autocommit=True) as conn:
                 with conn.cursor() as cur:
@@ -150,6 +167,55 @@ class ReadinessService:
                                 False,
                                 f"property_search_schema_not_ready:{schema_status.reason}",
                             )
+                        from app.product.property_search_storage import (
+                            _property_search_erasure_key_id,
+                        )
+
+                        try:
+                            expected_erasure_key_id = (
+                                _property_search_erasure_key_id()
+                            )
+                        except RuntimeError as exc:
+                            return False, f"property_search_erasure_key_not_ready:{exc}"
+                        cur.execute(
+                            """
+                            SELECT key_id
+                            FROM property_search_erasure_key_state
+                            WHERE singleton = TRUE
+                            """
+                        )
+                        erasure_key_row = cur.fetchone()
+                        if not erasure_key_row:
+                            return False, "property_search_erasure_key_not_ready:key_state_missing"
+                        if str(erasure_key_row[0] or "").strip() != expected_erasure_key_id:
+                            return False, "property_search_erasure_key_not_ready:key_id_mismatch"
+                        if (
+                            str(self._settings.runtime_mode or "").strip().lower()
+                            == "prod"
+                            and str(self._settings.role or "api").strip().lower()
+                            == "api"
+                        ):
+                            try:
+                                with psycopg.connect(
+                                    admission_database_url,
+                                    autocommit=True,
+                                    connect_timeout=5,
+                                    application_name=(
+                                        "propertyquarry-api-admission-readiness"
+                                    ),
+                                ) as admission_connection:
+                                    with (
+                                        admission_connection.cursor()
+                                    ) as admission_cursor:
+                                        probe_admission_cursor(admission_cursor)
+                            except AdmissionBackendUnavailable as exc:
+                                return False, f"propertyquarry_admission_not_ready:{exc}"
+                            except Exception as exc:
+                                return (
+                                    False,
+                                    "propertyquarry_admission_not_ready:"
+                                    f"{exc.__class__.__name__}",
+                                )
                         return (
                             True,
                             f"postgres_ready:property_search_schema_v{schema_status.current_version}",

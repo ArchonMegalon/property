@@ -12,6 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Iterator
+from contextlib import ExitStack
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -21,14 +22,45 @@ from PIL import Image, ImageDraw
 
 uvicorn = pytest.importorskip("uvicorn")
 pytest.importorskip("playwright.sync_api")
-from playwright.sync_api import Browser, BrowserContext, sync_playwright
+from playwright.sync_api import Browser, BrowserContext, expect, sync_playwright
 
 Config = uvicorn.Config
 Server = uvicorn.Server
 
 from app.api.app import create_app
 from scripts import generate_property_reconstruction as reconstruction_script
-from scripts.propertyquarry_playwright_runtime import playwright_engine_launch_browser
+from scripts.property_tour_3dvista_provenance import (
+    THREE_D_VISTA_TARGET_PROVENANCE_SCHEMA,
+    export_tree_sha256,
+)
+from scripts.property_tour_panorama_provenance import (
+    PANORAMA_SPATIAL_PROVENANCE_SCHEMA,
+    PANO2VR_SPATIAL_PROVENANCE_KEY,
+    export_tree_sha256 as panorama_export_tree_sha256,
+    pano2vr_export_topology,
+)
+from scripts.propertyquarry_playwright_runtime import (
+    FIREFOX_CI_REDUCED_CONTENT_PROCESS_PROFILE_NAME,
+    normalize_playwright_engine,
+    playwright_engine_launch_browser,
+)
+
+
+_FIREFOX_HEADFUL_WEBGL_ENV = "PROPERTYQUARRY_PUBLIC_TOUR_FIREFOX_HEADFUL_WEBGL"
+
+
+def _public_tour_browser_headless(engine: str) -> bool:
+    normalized_engine = normalize_playwright_engine(engine)
+    raw = str(os.environ.get(_FIREFOX_HEADFUL_WEBGL_ENV) or "").strip().lower()
+    if raw in {"", "0", "false", "no", "off"}:
+        return True
+    if raw not in {"1", "true", "yes", "on"}:
+        raise ValueError(f"{_FIREFOX_HEADFUL_WEBGL_ENV}_invalid")
+    if normalized_engine != "firefox":
+        raise RuntimeError(f"{_FIREFOX_HEADFUL_WEBGL_ENV}_firefox_only")
+    if not str(os.environ.get("DISPLAY") or "").strip():
+        raise RuntimeError(f"{_FIREFOX_HEADFUL_WEBGL_ENV}_display_required")
+    return False
 
 
 def _free_port() -> int:
@@ -61,6 +93,51 @@ def _wait_for_url(url: str, *, timeout_seconds: float = 15.0) -> None:
         except Exception:
             time.sleep(0.1)
     raise AssertionError(f"url {url} did not become ready in time")
+
+
+def _stop_uvicorn_server(*, server: Server, thread: threading.Thread, label: str) -> None:
+    server.should_exit = True
+    thread.join(timeout=10.0)
+    if thread.is_alive():
+        server.force_exit = True
+        thread.join(timeout=5.0)
+    assert not thread.is_alive(), f"{label} uvicorn thread did not stop"
+
+
+def _stop_http_server(
+    *,
+    server: ThreadingHTTPServer,
+    thread: threading.Thread,
+    label: str,
+) -> None:
+    shutdown_errors: list[str] = []
+
+    def _shutdown() -> None:
+        try:
+            server.shutdown()
+        except BaseException as exc:  # pragma: no cover - defensive teardown receipt
+            shutdown_errors.append(f"shutdown raised {type(exc).__name__}: {exc}")
+
+    shutdown_thread = threading.Thread(
+        target=_shutdown,
+        name=f"{label} shutdown",
+        daemon=True,
+    )
+    shutdown_thread.start()
+    shutdown_thread.join(timeout=5.0)
+    try:
+        server.server_close()
+    except BaseException as exc:  # pragma: no cover - defensive teardown receipt
+        shutdown_errors.append(f"server_close raised {type(exc).__name__}: {exc}")
+    thread.join(timeout=10.0)
+    shutdown_thread.join(timeout=1.0)
+    shutdown_alive = shutdown_thread.is_alive()
+    issues = list(shutdown_errors)
+    if shutdown_alive:
+        issues.append("shutdown call did not finish during bounded teardown")
+    if thread.is_alive():
+        issues.append("HTTP serving thread did not stop within 10 seconds")
+    assert not issues, f"{label} HTTP teardown failed: {'; '.join(issues)}"
 
 
 def _play_tour_video_without_waiting(page) -> bool:
@@ -138,11 +215,30 @@ def _write_photo_panel(path: Path, *, label: str, fill: tuple[int, int, int]) ->
     image.save(path, format="JPEG", quality=92)
 
 
+def _write_equirectangular_panel(
+    path: Path,
+    *,
+    label: str,
+    fill: tuple[int, int, int],
+) -> None:
+    image = Image.new("RGB", (1600, 800), fill)
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((40, 40, 1560, 760), outline=(248, 245, 240), width=12)
+    draw.rectangle((120, 170, 700, 690), fill=(232, 226, 218))
+    draw.rectangle((780, 170, 1480, 690), fill=(190, 160, 120))
+    draw.text((84, 86), "PropertyQuarry 360", fill=(255, 255, 255))
+    draw.text((84, 126), label, fill=(250, 247, 242))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    image.save(path, format="JPEG", quality=92)
+
+
 def _write_h264_flythrough(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     command = [
         "ffmpeg",
         "-y",
+        "-filter_threads",
+        "1",
         "-f",
         "lavfi",
         "-i",
@@ -163,11 +259,45 @@ def _write_h264_flythrough(path: Path) -> None:
         "libx264",
         "-pix_fmt",
         "yuv420p",
+        "-threads",
+        "1",
         "-movflags",
         "+faststart",
         str(path),
     ]
     subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def test_flythrough_fixture_ffmpeg_is_explicitly_single_threaded(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, object] = {}
+
+    def _capture_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        observed["command"] = list(command)
+        observed["kwargs"] = dict(kwargs)
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(subprocess, "run", _capture_run)
+    target = tmp_path / "flythrough.mp4"
+
+    _write_h264_flythrough(target)
+
+    command = list(observed["command"])
+    filter_index = command.index("-filter_threads")
+    input_index = command.index("-i")
+    encoder_index = command.index("-threads")
+    assert command[filter_index : filter_index + 2] == ["-filter_threads", "1"]
+    assert filter_index < input_index
+    assert command[encoder_index : encoder_index + 2] == ["-threads", "1"]
+    assert input_index < encoder_index < len(command) - 1
+    assert command[-1] == str(target)
+    assert observed["kwargs"] == {
+        "check": True,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+    }
 
 
 def _reconstruction_generation_timeout_seconds(*, skip_video: bool) -> int:
@@ -337,6 +467,9 @@ def _assert_generated_reconstruction_public_launch_shell(
 
 
 def _embedded_layout_viewer_frame(page, *, timeout_seconds: float = 15.0):
+    layout_viewer = page.locator("#layout-viewer-frame")
+    if layout_viewer.count():
+        layout_viewer.scroll_into_view_if_needed(timeout=max(1000, int(timeout_seconds * 1000)))
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
         for frame in page.frames:
@@ -420,14 +553,28 @@ def _video_playback_profile(page) -> dict[str, list[float]]:
                 };
                 if (Number(video.duration || 0) > 0.8) {
                     try {
+                        video.pause();
+                        if (
+                            video.ended
+                            || Number(video.currentTime || 0) >= Number(video.duration || 0) - 0.05
+                        ) {
+                            video.load();
+                            for (let index = 0; index < 20 && video.readyState < 2; index += 1) {
+                                await wait(100);
+                            }
+                        }
+                        video.pause();
+                        const seeked = new Promise((resolve) => {
+                            video.addEventListener('seeked', resolve, { once: true });
+                        });
                         video.currentTime = 0.2;
-                        await wait(120);
+                        await Promise.race([seeked, wait(1200)]);
                     } catch (_error) {
                         /* keep going if headless seek behaves differently */
                     }
                 }
-                await video.play().catch(() => null);
                 const captures = [sample()];
+                await video.play().catch(() => null);
                 for (let index = 0; index < 4; index += 1) {
                     await wait(320);
                     captures.push(sample());
@@ -600,6 +747,11 @@ import time
 
 from playwright.sync_api import sync_playwright
 
+from scripts.propertyquarry_playwright_runtime import (
+    normalize_playwright_engine,
+    playwright_engine_launch_browser,
+)
+
 
 def _debug_metrics(page):
     metrics = page.evaluate(
@@ -704,11 +856,22 @@ def _viewer_dom_click(page, selector):
 
 
 with sync_playwright() as playwright:
-    launch_kwargs = {"headless": True}
-    chromium_executable = os.environ.get("PROPERTYQUARRY_PLAYWRIGHT_CHROMIUM_EXECUTABLE", "").strip()
-    if chromium_executable:
-        launch_kwargs["executable_path"] = chromium_executable
-    browser = playwright.chromium.launch(**launch_kwargs)
+    engine = normalize_playwright_engine(
+        os.environ.get("PROPERTYQUARRY_CORE_BROWSER_ENGINE", "chromium")
+    )
+    browser = playwright_engine_launch_browser(
+        playwright,
+        engine=engine,
+        headless=os.environ.get("PROPERTYQUARRY_VIEWER_HEADLESS", "1") == "1",
+        args=[
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+            "--renderer-process-limit=2",
+            "--no-proxy-server",
+        ],
+    )
     page = browser.new_page(viewport={"width": 1440, "height": 960})
     console_errors = []
     page_errors = []
@@ -789,6 +952,8 @@ with sync_playwright() as playwright:
     )
 
 payload = {
+    "browser_engine": browser.browser_type.name,
+    "browser_headless": os.environ.get("PROPERTYQUARRY_VIEWER_HEADLESS", "1") == "1",
     "initial_dom": initial_dom,
     "overview_metrics": _normalized_metrics(overview_raw_metrics),
     "dollhouse_metrics": _normalized_metrics(dollhouse_raw_metrics),
@@ -820,7 +985,19 @@ os._exit(0)
         capture_output=True,
         check=False,
         cwd=str(repo_root),
-        env={**os.environ, "PROPERTYQUARRY_VIEWER_URL": str(viewer_url)},
+        env={
+            **os.environ,
+            "PROPERTYQUARRY_VIEWER_URL": str(viewer_url),
+            "PROPERTYQUARRY_VIEWER_HEADLESS": (
+                "1"
+                if _public_tour_browser_headless(
+                    normalize_playwright_engine(
+                        os.environ.get("PROPERTYQUARRY_CORE_BROWSER_ENGINE", "chromium")
+                    )
+                )
+                else "0"
+            ),
+        },
         text=True,
         timeout=300,
     )
@@ -838,7 +1015,15 @@ os._exit(0)
 
 
 @pytest.fixture()
-def public_tour_browser_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[dict[str, str]]:
+def public_tour_browser_server(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    request: pytest.FixtureRequest,
+) -> Iterator[dict[str, str]]:
+    cleanup = ExitStack()
+    request.addfinalizer(cleanup.close)
+    port = _free_port()
+    browser_base_url = f"http://propertyquarry.localhost:{port}"
     bundle_root = tmp_path / "public_tours"
     slug = "real-browser-floorplan-tour"
     bundle_dir = bundle_root / slug
@@ -904,6 +1089,16 @@ def public_tour_browser_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
             "public_url": f"https://propertyquarry.com/tours/{provider_slug}",
             "three_d_vista_entry_relpath": "3dvista/index.htm",
             "three_d_vista_import": {"source_project": "propertyquarry"},
+        }
+    )
+    (provider_bundle_dir / "tour.json").write_text(
+        json.dumps(provider_manifest, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    (provider_bundle_dir / "tour.private.json").write_text(
+        json.dumps(
+            {
+                "slug": provider_slug,
             "three_d_vista_white_label_proof": {
                 "source_project": "propertyquarry",
                 "private_viewer_verified": True,
@@ -917,10 +1112,221 @@ def public_tour_browser_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
                 "status": "pass",
                 "rendered_viewer": True,
             },
-        }
+                "three_d_vista_target_provenance": {
+                    "schema": THREE_D_VISTA_TARGET_PROVENANCE_SCHEMA,
+                    "status": "pass",
+                    "provider": "3dvista",
+                    "target_slug": provider_slug,
+                    "artifact": {
+                        "kind": "local_export",
+                        "sha256": export_tree_sha256(three_d_vista_dir),
+                        "entry_relpath": "index.htm",
+                    },
+                    "authorization": {
+                        "status": "approved",
+                        "reference": f"fixture-authorization:{provider_slug}",
+                    },
+                    "review": {
+                        "property_match": "pass",
+                        "visual_match": "pass",
+                        "reviewed_by": "propertyquarry-browser-test-reviewer",
+                        "reviewed_at": "2026-07-18T00:00:00+00:00",
+                    },
+                    "target_subdir": "3dvista",
+                },
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
     )
-    (provider_bundle_dir / "tour.json").write_text(
-        json.dumps(provider_manifest, ensure_ascii=False, indent=2),
+    pano2vr_slug = "real-browser-pano2vr-tour"
+    pano2vr_bundle_dir = bundle_root / pano2vr_slug
+    pano2vr_export_dir = pano2vr_bundle_dir / "pano2vr"
+    pano2vr_export_dir.mkdir(parents=True)
+    _write_equirectangular_panel(
+        pano2vr_export_dir / "entry-hall.jpg",
+        label="Entry hall",
+        fill=(92, 98, 112),
+    )
+    _write_equirectangular_panel(
+        pano2vr_export_dir / "living-room.jpg",
+        label="Living room",
+        fill=(126, 92, 72),
+    )
+    (pano2vr_export_dir / "index.html").write_text(
+        """<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Apartment 3D Tour</title>
+    <link rel="stylesheet" href="skin.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#tour-main">Skip to tour</a>
+    <main id="tour-main" tabindex="-1">
+      <p class="eyebrow">3D Tour</p>
+      <h1>Walk through the apartment</h1>
+      <section class="viewer" role="group" aria-label="Room navigation">
+        <img id="panorama" src="entry-hall.jpg" alt="360-degree view of Entry hall">
+        <div class="tour-controls">
+          <button id="previous-room" type="button" aria-label="Previous room">Previous</button>
+          <p id="room-status" role="status" aria-live="polite" aria-atomic="true">
+            <span id="room-name">Entry hall</span>
+            <span id="room-position">1 of 2</span>
+          </p>
+          <button id="next-room" type="button" aria-label="Next room">Next</button>
+        </div>
+      </section>
+    </main>
+    <script src="tour.js" defer></script>
+  </body>
+</html>
+""",
+        encoding="utf-8",
+    )
+    (pano2vr_export_dir / "skin.css").write_text(
+        """* { box-sizing: border-box; }
+body { margin: 0; background: #f4f1ec; color: #1f2328; font: 16px/1.45 ui-sans-serif, sans-serif; }
+.skip-link { position: fixed; left: 12px; top: 12px; z-index: 2; transform: translateY(-180%); }
+.skip-link:focus { transform: none; background: #fff; color: #111; padding: 10px 14px; outline: 3px solid #315c8a; }
+main { width: min(100%, 1040px); margin: 0 auto; padding: 20px; }
+.eyebrow { margin: 0 0 4px; color: #5e5144; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+h1 { margin: 0 0 16px; font-size: clamp(1.6rem, 5vw, 2.6rem); }
+.viewer { overflow: hidden; border: 1px solid #c7beb3; border-radius: 18px; background: #fff; box-shadow: 0 12px 30px rgb(50 40 30 / 12%); }
+#panorama { display: block; width: 100%; aspect-ratio: 2 / 1; object-fit: cover; }
+.tour-controls { display: grid; grid-template-columns: minmax(96px, auto) 1fr minmax(96px, auto); align-items: center; gap: 12px; padding: 14px; }
+button { min-height: 48px; border: 1px solid #75563d; border-radius: 999px; background: #fff; color: #31271f; font: inherit; font-weight: 700; cursor: pointer; }
+button:focus-visible { outline: 3px solid #315c8a; outline-offset: 3px; }
+#room-status { display: grid; margin: 0; text-align: center; }
+#room-name { font-weight: 800; }
+#room-position { color: #665d55; font-size: .875rem; }
+@media (max-width: 520px) { main { padding: 14px; } .tour-controls { grid-template-columns: 1fr 1fr; } #room-status { grid-column: 1 / -1; grid-row: 1; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }
+""",
+        encoding="utf-8",
+    )
+    (pano2vr_export_dir / "tour.js").write_text(
+        """(() => {
+  const rooms = [
+    { name: 'Entry hall', image: 'entry-hall.jpg' },
+    { name: 'Living room', image: 'living-room.jpg' },
+  ];
+  let activeIndex = 0;
+  const image = document.getElementById('panorama');
+  const name = document.getElementById('room-name');
+  const position = document.getElementById('room-position');
+  const render = () => {
+    const room = rooms[activeIndex];
+    image.src = room.image;
+    image.alt = `360-degree view of ${room.name}`;
+    name.textContent = room.name;
+    position.textContent = `${activeIndex + 1} of ${rooms.length}`;
+    document.documentElement.dataset.roomIndex = String(activeIndex);
+  };
+  const move = (offset) => {
+    activeIndex = (activeIndex + offset + rooms.length) % rooms.length;
+    render();
+  };
+  document.getElementById('previous-room').addEventListener('click', () => move(-1));
+  document.getElementById('next-room').addEventListener('click', () => move(1));
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowLeft') move(-1);
+    if (event.key === 'ArrowRight') move(1);
+  });
+  window.GGSKIN = { ready: true };
+  render();
+})();
+""",
+        encoding="utf-8",
+    )
+    (pano2vr_export_dir / "tour.ggpkg").write_bytes(b"PROPERTYQUARRY-PANO2VR-BROWSER-FIXTURE")
+    (pano2vr_export_dir / "skin.ggskin").write_text(
+        "<skin><element id='room-navigation' /></skin>",
+        encoding="utf-8",
+    )
+    (pano2vr_export_dir / "pano.xml").write_text(
+        """<tour>
+  <panorama id="entry-hall"><hotspot id="to-living" target="living-room" /></panorama>
+  <panorama id="living-room"><hotspot id="to-entry" target="entry-hall" /></panorama>
+</tour>
+""",
+        encoding="utf-8",
+    )
+    (pano2vr_bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": pano2vr_slug,
+                "title": "Apartment 3D Tour",
+                "display_title": "Apartment 3D Tour",
+                "hosted_url": f"https://propertyquarry.com/tours/{pano2vr_slug}",
+                "public_url": f"https://propertyquarry.com/tours/{pano2vr_slug}",
+                "control_mode": "pano2vr",
+                "scene_strategy": "walkable_panorama",
+                "creation_mode": "hosted_walkable_360",
+                "pano2vr_entry_relpath": "pano2vr/index.html",
+                "scene_count": 2,
+                "scenes": [
+                    {
+                        "scene_id": "entry-hall",
+                        "name": "Entry hall",
+                        "role": "photo",
+                        "asset_relpath": "pano2vr/entry-hall.jpg",
+                        "image_url": "pano2vr/entry-hall.jpg",
+                        "mime_type": "image/jpeg",
+                    },
+                    {
+                        "scene_id": "living-room",
+                        "name": "Living room",
+                        "role": "photo",
+                        "asset_relpath": "pano2vr/living-room.jpg",
+                        "image_url": "pano2vr/living-room.jpg",
+                        "mime_type": "image/jpeg",
+                    },
+                ],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    pano2vr_topology = pano2vr_export_topology(pano2vr_export_dir)
+    (pano2vr_bundle_dir / "tour.private.json").write_text(
+        json.dumps(
+            {
+                PANO2VR_SPATIAL_PROVENANCE_KEY: {
+                    "schema": PANORAMA_SPATIAL_PROVENANCE_SCHEMA,
+                    "status": "pass",
+                    "provider": "pano2vr",
+                    "target_slug": pano2vr_slug,
+                    "artifact": {
+                        "kind": "local_export",
+                        "sha256": panorama_export_tree_sha256(pano2vr_export_dir),
+                        "entry_relpath": "index.html",
+                    },
+                    "capture": {
+                        "source_kind": "camera_equirectangular",
+                        "projection": "equirectangular",
+                        **pano2vr_topology,
+                    },
+                    "authorization": {
+                        "status": "approved",
+                        "reference": f"fixture-authorization:{pano2vr_slug}",
+                    },
+                    "review": {
+                        "property_match": "pass",
+                        "visual_match": "pass",
+                        "spatial_capture_match": "pass",
+                        "flat_composite_absent": True,
+                        "reviewed_by": "propertyquarry-browser-test-reviewer",
+                        "reviewed_at": "2026-07-18T12:00:00+00:00",
+                    },
+                }
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
         encoding="utf-8",
     )
     video_slug = "real-browser-video-tour"
@@ -969,53 +1375,66 @@ def public_tour_browser_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(bundle_root))
     monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://propertyquarry.com")
     monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+    monkeypatch.setenv(
+        "PROPERTYQUARRY_PUBLIC_360_ALLOWED_HOSTS",
+        "propertyquarry.com,*.propertyquarry.com,propertyquarry.localhost",
+    )
     monkeypatch.setenv("EA_STORAGE_BACKEND", "memory")
     monkeypatch.delenv("EA_API_TOKEN", raising=False)
     _disable_public_tour_fixture_startup_prewarm(monkeypatch)
 
     app = create_app()
-    port = _free_port()
     config = Config(app=app, host="127.0.0.1", port=port, log_level="warning")
     server = Server(config)
     server.install_signal_handlers = lambda: None  # type: ignore[method-assign]
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
+    cleanup.callback(
+        _stop_uvicorn_server,
+        server=server,
+        thread=thread,
+        label="public tour browser fixture",
+    )
     local_base_url = f"http://127.0.0.1:{port}"
-    browser_base_url = f"http://propertyquarry.com:{port}"
     _wait_for_http(local_base_url)
     raw_port = _free_port()
     static_server = ThreadingHTTPServer(
         ("127.0.0.1", raw_port),
         partial(_SilentStaticHandler, directory=str(bundle_root)),
     )
+    static_server.daemon_threads = True
+    static_server.block_on_close = False
     static_thread = threading.Thread(target=static_server.serve_forever, daemon=True)
     static_thread.start()
+    cleanup.callback(
+        _stop_http_server,
+        server=static_server,
+        thread=static_thread,
+        label="public tour static fixture",
+    )
     generated_reconstruction_viewer_url = (
         f"http://127.0.0.1:{raw_port}/{generated_reconstruction_slug}/generated-reconstruction/viewer.html"
     )
     _wait_for_url(generated_reconstruction_viewer_url)
-    try:
-        yield {
-            "base_url": browser_base_url,
-            "slug": slug,
-            "provider_slug": provider_slug,
-            "video_slug": video_slug,
-            "generated_reconstruction_slug": generated_reconstruction_slug,
-            "generated_reconstruction_viewer_url": generated_reconstruction_viewer_url,
-        }
-    finally:
-        static_server.shutdown()
-        static_server.server_close()
-        static_thread.join(timeout=10.0)
-        server.should_exit = True
-        thread.join(timeout=10.0)
+    yield {
+        "base_url": browser_base_url,
+        "slug": slug,
+        "provider_slug": provider_slug,
+        "pano2vr_slug": pano2vr_slug,
+        "video_slug": video_slug,
+        "generated_reconstruction_slug": generated_reconstruction_slug,
+        "generated_reconstruction_viewer_url": generated_reconstruction_viewer_url,
+    }
 
 
 @pytest.fixture()
 def generated_reconstruction_walkthrough_server(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    request: pytest.FixtureRequest,
 ) -> Iterator[dict[str, str]]:
+    cleanup = ExitStack()
+    request.addfinalizer(cleanup.close)
     bundle_root = tmp_path / "public_tours"
     slug = "generated-reconstruction-walkthrough-browser-tour"
     _generate_reconstruction_bundle(bundle_root=bundle_root, slug=slug, skip_video=False)
@@ -1033,17 +1452,19 @@ def generated_reconstruction_walkthrough_server(
     server.install_signal_handlers = lambda: None  # type: ignore[method-assign]
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
+    cleanup.callback(
+        _stop_uvicorn_server,
+        server=server,
+        thread=thread,
+        label="generated reconstruction browser fixture",
+    )
     local_base_url = f"http://127.0.0.1:{port}"
-    browser_base_url = f"http://propertyquarry.com:{port}"
+    browser_base_url = f"http://propertyquarry.localhost:{port}"
     _wait_for_http(local_base_url)
-    try:
-        yield {
-            "base_url": browser_base_url,
-            "slug": slug,
-        }
-    finally:
-        server.should_exit = True
-        thread.join(timeout=10.0)
+    yield {
+        "base_url": browser_base_url,
+        "slug": slug,
+    }
 
 
 def _write_generated_reconstruction_public_shell_bundle(
@@ -1247,7 +1668,10 @@ def _write_generated_reconstruction_public_shell_bundle(
 @pytest.fixture()
 def generated_reconstruction_viewer_server(
     tmp_path: Path,
+    request: pytest.FixtureRequest,
 ) -> Iterator[dict[str, str]]:
+    cleanup = ExitStack()
+    request.addfinalizer(cleanup.close)
     bundle_root = tmp_path / "public_tours"
     slug = "generated-reconstruction-viewer-browser-tour"
     bundle_dir = bundle_root / slug
@@ -1342,26 +1766,32 @@ def generated_reconstruction_viewer_server(
         ("127.0.0.1", raw_port),
         partial(_SilentStaticHandler, directory=str(bundle_root)),
     )
+    static_server.daemon_threads = True
+    static_server.block_on_close = False
     static_thread = threading.Thread(target=static_server.serve_forever, daemon=True)
     static_thread.start()
+    cleanup.callback(
+        _stop_http_server,
+        server=static_server,
+        thread=static_thread,
+        label="generated reconstruction viewer fixture",
+    )
     viewer_url = f"http://127.0.0.1:{raw_port}/{slug}/generated-reconstruction/viewer.html"
     _wait_for_url(viewer_url)
-    try:
-        yield {
-            "slug": slug,
-            "viewer_url": viewer_url,
-        }
-    finally:
-        static_server.shutdown()
-        static_server.server_close()
-        static_thread.join(timeout=10.0)
+    yield {
+        "slug": slug,
+        "viewer_url": viewer_url,
+    }
 
 
 @pytest.fixture()
 def generated_reconstruction_shell_server(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    request: pytest.FixtureRequest,
 ) -> Iterator[dict[str, str]]:
+    cleanup = ExitStack()
+    request.addfinalizer(cleanup.close)
     bundle_root = tmp_path / "public_tours"
     slug = "generated-reconstruction-shell-browser-tour"
     bundle_dir = bundle_root / slug
@@ -1643,26 +2073,31 @@ def generated_reconstruction_shell_server(
     server.install_signal_handlers = lambda: None  # type: ignore[method-assign]
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
+    cleanup.callback(
+        _stop_uvicorn_server,
+        server=server,
+        thread=thread,
+        label="generated reconstruction browser fixture",
+    )
     local_base_url = f"http://127.0.0.1:{port}"
-    browser_base_url = f"http://propertyquarry.com:{port}"
+    browser_base_url = f"http://propertyquarry.localhost:{port}"
     _wait_for_http(local_base_url)
-    try:
-        yield {
-            "base_url": browser_base_url,
-            "bundle_root": str(bundle_root),
-            "local_base_url": local_base_url,
-            "slug": slug,
-        }
-    finally:
-        server.should_exit = True
-        thread.join(timeout=10.0)
+    yield {
+        "base_url": browser_base_url,
+        "bundle_root": str(bundle_root),
+        "local_base_url": local_base_url,
+        "slug": slug,
+    }
 
 
 @pytest.fixture()
 def generated_reconstruction_matterport_server(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    request: pytest.FixtureRequest,
 ) -> Iterator[dict[str, str]]:
+    cleanup = ExitStack()
+    request.addfinalizer(cleanup.close)
     bundle_root = tmp_path / "public_tours"
     slug = "generated-reconstruction-matterport-browser-tour"
     _generate_reconstruction_bundle(bundle_root=bundle_root, slug=slug, skip_video=True)
@@ -1684,24 +2119,29 @@ def generated_reconstruction_matterport_server(
     server.install_signal_handlers = lambda: None  # type: ignore[method-assign]
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
+    cleanup.callback(
+        _stop_uvicorn_server,
+        server=server,
+        thread=thread,
+        label="generated reconstruction browser fixture",
+    )
     local_base_url = f"http://127.0.0.1:{port}"
-    browser_base_url = f"http://propertyquarry.com:{port}"
+    browser_base_url = f"http://propertyquarry.localhost:{port}"
     _wait_for_http(local_base_url)
-    try:
-        yield {
-            "base_url": browser_base_url,
-            "slug": slug,
-        }
-    finally:
-        server.should_exit = True
-        thread.join(timeout=10.0)
+    yield {
+        "base_url": browser_base_url,
+        "slug": slug,
+    }
 
 
 @pytest.fixture()
 def generated_reconstruction_expanded_walkthrough_server(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    request: pytest.FixtureRequest,
 ) -> Iterator[dict[str, str]]:
+    cleanup = ExitStack()
+    request.addfinalizer(cleanup.close)
     bundle_root = tmp_path / "public_tours"
     slug = "generated-reconstruction-expanded-walkthrough-browser-tour"
     route_labels = ["entry/hall", "living room", "bedroom", "balcony"]
@@ -1818,34 +2258,44 @@ def generated_reconstruction_expanded_walkthrough_server(
     server.install_signal_handlers = lambda: None  # type: ignore[method-assign]
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
+    cleanup.callback(
+        _stop_uvicorn_server,
+        server=server,
+        thread=thread,
+        label="generated reconstruction browser fixture",
+    )
     local_base_url = f"http://127.0.0.1:{port}"
-    browser_base_url = f"http://propertyquarry.com:{port}"
+    browser_base_url = f"http://propertyquarry.localhost:{port}"
     _wait_for_http(local_base_url)
-    try:
-        yield {
-            "base_url": browser_base_url,
-            "slug": slug,
-        }
-    finally:
-        server.should_exit = True
-        thread.join(timeout=10.0)
+    yield {
+        "base_url": browser_base_url,
+        "slug": slug,
+    }
 
 
 @pytest.fixture()
 def browser() -> Iterator[Browser]:
     with sync_playwright() as playwright:
-        browser = playwright_engine_launch_browser(
-            playwright,
-            args=[
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-gpu",
-                "--host-resolver-rules=MAP propertyquarry.com 127.0.0.1",
-                "--no-proxy-server",
-                "--autoplay-policy=no-user-gesture-required",
-            ],
-        )
+        engine = normalize_playwright_engine(os.environ.get("PROPERTYQUARRY_CORE_BROWSER_ENGINE", "chromium"))
+        browser_args = [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+            "--renderer-process-limit=2",
+            "--no-proxy-server",
+            "--autoplay-policy=no-user-gesture-required",
+        ]
+        try:
+            expected_headless = _public_tour_browser_headless(engine)
+            browser = playwright_engine_launch_browser(
+                playwright,
+                engine=engine,
+                args=browser_args,
+                headless=expected_headless,
+            )
+        except Exception as exc:
+            raise RuntimeError(f"playwright_browser_engine_unavailable:{engine}:{type(exc).__name__}: {exc}") from exc
         try:
             yield browser
         finally:
@@ -2179,9 +2629,19 @@ def test_public_tour_provider_control_is_mobile_safe_and_opens_verified_3dvista_
     assert response is not None
     assert response.status == 200
     csp = response.headers.get("content-security-policy", "")
+    csp_report_only = response.headers.get("content-security-policy-report-only", "")
     assert "frame-src 'self' https://3dvista.com https://*.3dvista.com;" in csp
     assert "matterport" not in csp.lower()
     page.locator("h1").wait_for()
+    inline_nonces = page.locator("script[nonce], style[nonce]").evaluate_all(
+        "(nodes) => nodes.map((node) => node.nonce).filter(Boolean)"
+    )
+    assert inline_nonces
+    assert len(set(inline_nonces)) == 1
+    for policy in (csp, csp_report_only):
+        assert f"'nonce-{inline_nonces[0]}'" in policy
+        assert "'sha256-" in policy
+        assert "'unsafe-inline'" not in policy
     assert "Property Tour" not in page.locator("body").inner_text()
     assert page.locator(".badge").inner_text().lower() == "3dvista control"
     assert "MagicFit" not in page.locator("body").inner_text()
@@ -2323,6 +2783,158 @@ def test_public_tour_provider_control_accessibility_and_recovery_journey(
     )
     assert recovery.is_hidden()
     assert page.locator(".provider-frame-wrap").get_attribute("aria-busy") == "false"
+    context.close()
+
+
+def test_public_pano2vr_walkthrough_uses_governed_first_party_route_and_accessible_controls(
+    public_tour_browser_server: dict[str, str],
+    browser: Browser,
+    request: pytest.FixtureRequest,
+) -> None:
+    expected_engine = normalize_playwright_engine(
+        os.environ.get("PROPERTYQUARRY_CORE_BROWSER_ENGINE", "chromium")
+    )
+    assert browser.browser_type.name == expected_engine
+    request.node.user_properties.append(("browser_engine", browser.browser_type.name))
+    if expected_engine == "firefox":
+        request.node.user_properties.append(
+            (
+                "firefox_process_profile",
+                FIREFOX_CI_REDUCED_CONTENT_PROCESS_PROFILE_NAME,
+            )
+        )
+
+    context_options: dict[str, object] = {
+        "viewport": {"width": 390, "height": 844},
+        "reduced_motion": "reduce",
+    }
+    if expected_engine != "firefox":
+        context_options.update({"is_mobile": True, "has_touch": True})
+    context = browser.new_context(**context_options)
+    console_errors: list[str] = []
+    page_errors: list[str] = []
+    failed_requests: list[str] = []
+    browser_requests: list[str] = []
+    external_requests: list[str] = []
+    context.on("request", lambda browser_request: browser_requests.append(browser_request.url))
+    context.on(
+        "request",
+        lambda browser_request: external_requests.append(browser_request.url)
+        if str(urllib.parse.urlparse(browser_request.url).hostname or "").lower()
+        not in {"propertyquarry.com", "propertyquarry.localhost"}
+        else None,
+    )
+
+    def _serve_canonical_first_party(route) -> None:
+        parsed = urllib.parse.urlparse(route.request.url)
+        local_url = f"{public_tour_browser_server['base_url']}{parsed.path}"
+        if parsed.query:
+            local_url = f"{local_url}?{parsed.query}"
+        local_response = route.fetch(url=local_url)
+        route.fulfill(response=local_response)
+
+    context.route("https://propertyquarry.com/**", _serve_canonical_first_party)
+    page = context.new_page()
+    page.on("console", lambda message: console_errors.append(message.text) if message.type == "error" else None)
+    page.on("pageerror", lambda error: page_errors.append(str(error)))
+    page.on("requestfailed", lambda browser_request: failed_requests.append(browser_request.url))
+    slug = public_tour_browser_server["pano2vr_slug"]
+    entry_path = f"/tours/pano2vr/{slug}/pano2vr/index.html"
+    entry_url = f"https://propertyquarry.com{entry_path}"
+    public_url = f"https://propertyquarry.com/tours/{slug}"
+
+    response = page.goto(public_url, wait_until="networkidle")
+    assert response is not None
+    assert response.status == 200
+    assert urllib.parse.urlparse(page.url).hostname == "propertyquarry.com"
+    assert page.locator("html").get_attribute("lang") == "en"
+    assert page.locator(".shell").count() == 1
+    customer_cta = page.get_by_role("link", name="Open 3D tour").first
+    assert customer_cta.is_visible()
+    assert customer_cta.get_attribute("href") == "#live-360"
+    customer_cta_box = customer_cta.bounding_box()
+    assert customer_cta_box is not None
+    assert customer_cta_box["width"] >= 44
+    assert customer_cta_box["height"] >= 44
+    customer_cta.focus()
+    page.keyboard.press("Enter")
+    page.wait_for_url(f"{public_url}#live-360")
+    live_shell = page.locator("#live-360")
+    assert live_shell.is_visible()
+    assert live_shell.get_by_role("heading", name="Interactive tour").is_visible()
+    live_shell_text = live_shell.inner_text().casefold()
+    assert live_shell.locator(".kv").count() == 0
+    assert "brand" not in live_shell_text
+    assert "link" not in live_shell_text
+    assert "propertyquarry.localhost" not in live_shell_text
+    viewer_frame = live_shell.locator("iframe.live-frame")
+    viewer_src = viewer_frame.get_attribute("src")
+    assert viewer_src == entry_path
+    resolved_viewer_url = urllib.parse.urlparse(urllib.parse.urljoin(page.url, viewer_src))
+    assert resolved_viewer_url.scheme == "https"
+    assert resolved_viewer_url.hostname == "propertyquarry.com"
+    assert resolved_viewer_url.path == entry_path
+    frame = page.frame_locator("#live-360 iframe.live-frame")
+    assert frame.get_by_role("heading", name="Walk through the apartment").is_visible()
+    assert frame.get_by_role("group", name="Room navigation").is_visible()
+    room_status = frame.get_by_role("status")
+    assert room_status.get_attribute("aria-live") == "polite"
+    assert room_status.inner_text().splitlines() == ["Entry hall", "1 of 2"]
+    panorama = frame.locator("#panorama")
+    assert panorama.get_attribute("alt") == "360-degree view of Entry hall"
+    # The deferred fixture script sets this only after attaching room controls.
+    expect(frame.locator("html")).to_have_attribute(
+        "data-room-index",
+        "0",
+        timeout=5_000,
+    )
+
+    next_room = frame.get_by_role("button", name="Next room")
+    previous_room = frame.get_by_role("button", name="Previous room")
+    for control in (previous_room, next_room):
+        control_box = control.bounding_box()
+        assert control_box is not None
+        assert control_box["width"] >= 44
+        assert control_box["height"] >= 44
+    next_room.focus()
+    next_room.press("Enter")
+    expect(room_status).to_have_text("Living room\n2 of 2", timeout=5_000)
+    expect(panorama).to_have_attribute(
+        "alt",
+        "360-degree view of Living room",
+        timeout=5_000,
+    )
+    next_room.press("ArrowLeft")
+    expect(room_status).to_have_text("Entry hall\n1 of 2", timeout=5_000)
+    expect(panorama).to_have_attribute(
+        "alt",
+        "360-degree view of Entry hall",
+        timeout=5_000,
+    )
+    assert page.evaluate("() => matchMedia('(prefers-reduced-motion: reduce)').matches") is True
+    _assert_no_horizontal_overflow(page)
+
+    local_entry_url = (
+        f"{public_tour_browser_server['base_url']}/tours/pano2vr/{slug}/pano2vr/index.html"
+    )
+    direct_response = context.request.get(local_entry_url)
+    assert direct_response.status == 200
+    assert "Walk through the apartment" in direct_response.text()
+    exposed_text = f"{page.content()}\n{direct_response.text()}"
+    assert "pano2vr_spatial_provenance" not in exposed_text
+    assert f"fixture-authorization:{slug}" not in exposed_text
+    assert "propertyquarry-browser-test-reviewer" not in exposed_text
+    assert "Pano2VR" not in page.locator("body").inner_text()
+    assert "Pano2VR" not in frame.locator("body").inner_text()
+    private_receipt = context.request.get(
+        f"{public_tour_browser_server['base_url']}/tours/pano2vr/{slug}/tour.private.json"
+    )
+    assert private_receipt.status == 404
+    assert entry_url in browser_requests
+    assert external_requests == []
+    assert failed_requests == []
+    assert page_errors == []
+    assert _unexpected_console_errors(console_errors) == []
     context.close()
 
 
@@ -2674,9 +3286,19 @@ def test_generated_reconstruction_expanded_walkthrough_public_shell_is_interacti
 
 def test_generated_reconstruction_viewer_renders_routeable_layout_in_real_browser(
     generated_reconstruction_viewer_server: dict[str, str],
+    request: pytest.FixtureRequest,
 ) -> None:
     probe = _run_generated_reconstruction_viewer_browser_probe(
         str(generated_reconstruction_viewer_server["viewer_url"])
+    )
+    expected_engine = normalize_playwright_engine(
+        os.environ.get("PROPERTYQUARRY_CORE_BROWSER_ENGINE", "chromium")
+    )
+    assert probe["browser_engine"] == expected_engine
+    assert probe["browser_headless"] is _public_tour_browser_headless(expected_engine)
+    request.node.user_properties.append(("browser_engine", str(probe["browser_engine"])))
+    request.node.user_properties.append(
+        ("browser_headless", bool(probe["browser_headless"]))
     )
     initial_dom = dict(probe["initial_dom"])
     assert initial_dom["title"] == "Layout preview | PropertyQuarry"
@@ -2798,7 +3420,8 @@ def test_generated_reconstruction_ready_viewer_route_renders_in_real_browser(
     page.on(
         "request",
         lambda request: external_requests.append(request.url)
-        if str(urllib.parse.urlparse(request.url).hostname or "").lower() != "propertyquarry.com"
+        if str(urllib.parse.urlparse(request.url).hostname or "").lower()
+        not in {"propertyquarry.com", "propertyquarry.localhost"}
         else None,
     )
     slug = str(generated_reconstruction_shell_server["slug"])
@@ -2952,7 +3575,8 @@ def test_generated_reconstruction_viewer_serves_honest_approximate_layout_previe
     page.on(
         "request",
         lambda request: external_requests.append(request.url)
-        if str(urllib.parse.urlparse(request.url).hostname or "").lower() != "propertyquarry.com"
+        if str(urllib.parse.urlparse(request.url).hostname or "").lower()
+        not in {"propertyquarry.com", "propertyquarry.localhost"}
         else None,
     )
 

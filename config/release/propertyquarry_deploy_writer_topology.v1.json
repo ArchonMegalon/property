@@ -9,6 +9,11 @@
       "container": "propertyquarry-api",
       "database_writer": true
     },
+    "worker": {
+      "service": "propertyquarry-worker",
+      "container": "propertyquarry-worker",
+      "database_writer": true
+    },
     "scheduler": {
       "service": "propertyquarry-scheduler",
       "container": "propertyquarry-scheduler",
@@ -17,7 +22,7 @@
     "render": {
       "service": "propertyquarry-render-tools",
       "container": "propertyquarry-render-tools",
-      "database_writer": false
+      "database_writer": true
     },
     "migration": {
       "service": "propertyquarry-migrate",

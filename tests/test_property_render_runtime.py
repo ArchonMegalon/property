@@ -362,12 +362,14 @@ def test_render_elf_audit_checks_wheel_private_library_with_its_own_rpath_contex
     private_library = tmp_path / "package.libs" / "libprivate.so"
     private_library.parent.mkdir()
     private_library.write_bytes(b"\x7fELFpayload")
-    audited: list[Path] = []
+    audited: list[tuple[Path, dict[str, str]]] = []
 
     def resolved(
-        argv: list[str], **_kwargs: object
+        argv: list[str], **kwargs: object
     ) -> subprocess.CompletedProcess[str]:
-        audited.append(Path(argv[-1]))
+        environment = kwargs.get("env")
+        assert isinstance(environment, dict)
+        audited.append((Path(argv[-1]), environment))
         return subprocess.CompletedProcess(
             argv,
             returncode=0,
@@ -379,7 +381,12 @@ def test_render_elf_audit_checks_wheel_private_library_with_its_own_rpath_contex
 
     assert checked == 2
     assert failures == []
-    assert audited == [extension, private_library]
+    assert audited[0] == (extension, elf_audit._SAFE_ENV)
+    assert audited[1][0] == private_library
+    assert audited[1][1] == {
+        **elf_audit._SAFE_ENV,
+        "LD_LIBRARY_PATH": str(private_library.parent.resolve()),
+    }
 
 
 def test_render_elf_audit_fails_when_required_root_is_missing(

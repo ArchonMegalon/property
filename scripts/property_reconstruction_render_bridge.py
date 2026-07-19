@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-from collections import deque
 from contextlib import contextmanager
 from dataclasses import dataclass
 import hashlib
@@ -21,6 +20,25 @@ import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
+
+
+EA_RUNTIME_ROOT = Path(__file__).resolve().parents[1] / "ea"
+if str(EA_RUNTIME_ROOT) not in sys.path:
+    sys.path.insert(0, str(EA_RUNTIME_ROOT))
+
+from app.services.admission_control import (  # noqa: E402
+    AdmissionBackend,
+    AdmissionBackendUnavailable,
+    ConcurrencyDimension,
+    QuotaCharge,
+    build_admission_backend,
+)
+from app.observability import (  # noqa: E402
+    bind_runtime_trace_context,
+    bounded_correlation_id,
+    new_server_trace_context,
+    outbound_observability_headers,
+)
 
 
 DEFAULT_HOST = "127.0.0.1"
@@ -115,6 +133,13 @@ def _stable_validation_reason(value: object) -> str:
 
 def _generator_environment(*, transaction_id: str) -> dict[str, str]:
     environment = dict(os.environ)
+    observability_headers = outbound_observability_headers()
+    if observability_headers.get("traceparent"):
+        environment["PROPERTYQUARRY_TRACEPARENT"] = observability_headers["traceparent"]
+    if observability_headers.get("x-correlation-id"):
+        environment["PROPERTYQUARRY_CORRELATION_ID"] = observability_headers[
+            "x-correlation-id"
+        ]
     for variable in tuple(environment):
         if (
             variable.startswith("LD_")
@@ -419,33 +444,11 @@ def _validate_bridge_config(config: BridgeConfig) -> None:
         raise RuntimeError("property_reconstruction_render_container_stop_grace_insufficient")
 
 
-class _SlidingWindowRateLimiter:
-    def __init__(self, *, limit: int, window_seconds: int, max_keys: int = 4_096) -> None:
-        self.limit = max(1, int(limit))
-        self.window_seconds = max(1, int(window_seconds))
-        self.max_keys = max(1, int(max_keys))
-        self._events: dict[str, deque[float]] = {}
-        self._lock = threading.Lock()
-
-    def allow(self, key: str, *, now: float | None = None) -> bool:
-        current = time.monotonic() if now is None else float(now)
-        cutoff = current - self.window_seconds
-        normalized_key = str(key or "unknown")
-        with self._lock:
-            if normalized_key not in self._events and len(self._events) >= self.max_keys:
-                stale_keys = [name for name, values in self._events.items() if not values or values[-1] <= cutoff]
-                for name in stale_keys:
-                    self._events.pop(name, None)
-                if len(self._events) >= self.max_keys:
-                    oldest_key = min(self._events, key=lambda name: self._events[name][-1])
-                    self._events.pop(oldest_key, None)
-            events = self._events.setdefault(normalized_key, deque())
-            while events and events[0] <= cutoff:
-                events.popleft()
-            if len(events) >= self.limit:
-                return False
-            events.append(current)
-            return True
+def _bridge_admission_backend(config: BridgeConfig) -> AdmissionBackend:
+    return build_admission_backend(
+        runtime_mode="dev" if config.dev_mode else "prod",
+        database_url=str(os.getenv("DATABASE_URL") or "").strip(),
+    )
 
 
 def _public_tour_dir() -> Path:
@@ -1058,9 +1061,24 @@ def _validate_generation_cost(payload: dict[str, object], *, config: BridgeConfi
             raise ValueError("source_bytes_exceed_limit")
 
 
-def _bridge_readiness(config: BridgeConfig, *, draining: bool = False) -> tuple[bool, dict[str, object]]:
+def _bridge_readiness(
+    config: BridgeConfig,
+    *,
+    draining: bool = False,
+    admission_backend: AdmissionBackend | None = None,
+) -> tuple[bool, dict[str, object]]:
     try:
         _validate_bridge_config(config)
+        backend = admission_backend or _bridge_admission_backend(config)
+        backend.probe()
+    except AdmissionBackendUnavailable:
+        return False, {
+            "status": "not_ready",
+            "reason": "admission_backend_unavailable",
+            "bridge": "property_reconstruction_render_bridge",
+            "accepting_requests": False,
+            "provider_readiness_claimed": False,
+        }
     except Exception as exc:
         return False, {
             "status": "not_ready",
@@ -1384,12 +1402,8 @@ class _Handler(BaseHTTPRequestHandler):
         return getattr(self.server, "bridge_config")
 
     @property
-    def _rate_limiter(self) -> _SlidingWindowRateLimiter:
-        return getattr(self.server, "rate_limiter")
-
-    @property
-    def _generation_slots(self) -> threading.BoundedSemaphore:
-        return getattr(self.server, "generation_slots")
+    def _admission_backend(self) -> AdmissionBackend:
+        return getattr(self.server, "admission_backend")
 
     @property
     def _bridge_server(self) -> "ReconstructionRenderBridgeServer":
@@ -1398,7 +1412,21 @@ class _Handler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: object) -> None:  # noqa: A003
         return
 
+    def _request_observability(self):  # type: ignore[no-untyped-def]
+        trace_context = getattr(self, "_runtime_trace_context", None)
+        if trace_context is None:
+            trace_context = new_server_trace_context(self.headers.get("traceparent"))
+            self._runtime_trace_context = trace_context
+        correlation_id = str(getattr(self, "_runtime_correlation_id", "") or "")
+        if not correlation_id:
+            correlation_id = bounded_correlation_id(
+                self.headers.get("x-correlation-id")
+            )
+            self._runtime_correlation_id = correlation_id
+        return trace_context, correlation_id
+
     def _write_json(self, status_code: int, payload: dict[str, object]) -> None:
+        trace_context, correlation_id = self._request_observability()
         self.close_connection = True
         encoded = (json.dumps(payload, sort_keys=True) + "\n").encode("utf-8")
         self.send_response(status_code)
@@ -1406,6 +1434,8 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(encoded)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("traceparent", trace_context.traceparent)
+        self.send_header("x-correlation-id", correlation_id)
         self.send_header("Connection", "close")
         self.end_headers()
         try:
@@ -1416,7 +1446,23 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _allow_rate_limited_request(self) -> bool:
         client_key = str(self.client_address[0] if self.client_address else "unknown")
-        if self._rate_limiter.allow(client_key):
+        try:
+            decision = self._admission_backend.consume(
+                QuotaCharge(
+                    key=f"reconstruction_render:request:ip:{client_key}",
+                    units=1,
+                    limit=self._config.rate_limit_requests,
+                    window_seconds=self._config.rate_limit_window_seconds,
+                    dimension="ip",
+                )
+            )
+        except AdmissionBackendUnavailable:
+            self._write_json(
+                503,
+                {"status": "unavailable", "reason": "admission_backend_unavailable"},
+            )
+            return False
+        if decision.allowed:
             return True
         self._write_json(429, {"status": "rejected", "reason": "request_rate_limit_exceeded"})
         return False
@@ -1485,6 +1531,7 @@ class _Handler(BaseHTTPRequestHandler):
         ready, payload = _bridge_readiness(
             self._config,
             draining=self._bridge_server.is_draining(),
+            admission_backend=self._admission_backend,
         )
         self._write_json(200 if ready else 503, payload)
 
@@ -1514,12 +1561,38 @@ class _Handler(BaseHTTPRequestHandler):
                 },
             )
             return
-        if not self._generation_slots.acquire(blocking=False):
+        try:
+            concurrency = self._admission_backend.acquire(
+                (
+                    ConcurrencyDimension(
+                        key="reconstruction_render:concurrency:global",
+                        limit=self._config.max_concurrency,
+                        dimension="global",
+                    ),
+                ),
+                lease_seconds=(
+                    self._config.max_generation_seconds
+                    + self._config.request_timeout_seconds
+                    + PROCESS_CLOSE_MARGIN_SECONDS
+                ),
+            )
+        except AdmissionBackendUnavailable:
+            self._write_json(
+                503,
+                {"status": "unavailable", "reason": "admission_backend_unavailable"},
+            )
+            return
+        if not concurrency.allowed:
             self._write_json(503, {"status": "busy", "reason": "generation_concurrency_limit"})
             return
         try:
             try:
-                result = run_generation_request(payload, config=self._config)
+                trace_context, correlation_id = self._request_observability()
+                with bind_runtime_trace_context(
+                    trace_context,
+                    correlation_id=correlation_id,
+                ):
+                    result = run_generation_request(payload, config=self._config)
             except ValueError as exc:
                 self._write_json(
                     422,
@@ -1540,7 +1613,12 @@ class _Handler(BaseHTTPRequestHandler):
                 )
                 return
         finally:
-            self._generation_slots.release()
+            try:
+                self._admission_backend.release(concurrency.lease_id)
+            except AdmissionBackendUnavailable:
+                # The bounded lease expires even when the authoritative store
+                # cannot confirm release during a partition.
+                pass
         status = str(result.get("status") or "").strip()
         self._write_json(200 if status == "generated" else 502, result)
 
@@ -1555,14 +1633,11 @@ class ReconstructionRenderBridgeServer(ThreadingHTTPServer):
         handler_class: type[BaseHTTPRequestHandler],
         *,
         config: BridgeConfig,
+        admission_backend: AdmissionBackend | None = None,
     ) -> None:
         _validate_bridge_config(config)
         self.bridge_config = config
-        self.rate_limiter = _SlidingWindowRateLimiter(
-            limit=config.rate_limit_requests,
-            window_seconds=config.rate_limit_window_seconds,
-        )
-        self.generation_slots = threading.BoundedSemaphore(config.max_concurrency)
+        self.admission_backend = admission_backend or _bridge_admission_backend(config)
         self.bridge_server = self
         self._drain_condition = threading.Condition()
         self._draining = False

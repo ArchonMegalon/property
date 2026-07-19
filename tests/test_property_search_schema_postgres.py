@@ -15,24 +15,96 @@ def _database_url() -> str:
     return value
 
 
-def test_postgres_legacy_run_upgrade_queue_install_and_idempotency() -> None:
+def test_postgres_legacy_run_upgrade_queue_install_and_idempotency(
+    monkeypatch: pytest.MonkeyPatch,
+    request: pytest.FixtureRequest,
+) -> None:
     database_url = _database_url()
     import psycopg
     from psycopg import sql
 
     namespace = f"property_search_migration_{uuid4().hex}"
+    fallback_namespace = f"property_search_fallback_{uuid4().hex}"
+    capacity_owner_role = f"pq_schema_capacity_{uuid4().hex[:12]}"
+    monkeypatch.setenv(
+        "PROPERTYQUARRY_ADMISSION_CAPACITY_OWNER_ROLE",
+        capacity_owner_role,
+    )
 
     def isolated_connect(_database_url: str, *, autocommit: bool):
         conn = psycopg.connect(database_url, autocommit=autocommit, connect_timeout=5)
         with conn.cursor() as cur:
             cur.execute(
-                sql.SQL("SET search_path TO {}, public").format(sql.Identifier(namespace))
+                sql.SQL("SET search_path TO {}, {}, public").format(
+                    sql.Identifier(namespace),
+                    sql.Identifier(fallback_namespace),
+                )
             )
         return conn
 
     with psycopg.connect(database_url, autocommit=True, connect_timeout=5) as admin:
         with admin.cursor() as cur:
+            cur.execute(
+                sql.SQL(
+                    "CREATE ROLE {} NOLOGIN NOSUPERUSER NOCREATEDB "
+                    "NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS"
+                ).format(sql.Identifier(capacity_owner_role))
+            )
+
+            def drop_capacity_owner_role() -> None:
+                with psycopg.connect(
+                    database_url,
+                    autocommit=True,
+                    connect_timeout=5,
+                ) as cleanup_admin:
+                    with cleanup_admin.cursor() as cleanup_cursor:
+                        cleanup_cursor.execute(
+                            sql.SQL("DROP ROLE IF EXISTS {}").format(
+                                sql.Identifier(capacity_owner_role)
+                            )
+                        )
+
+            request.addfinalizer(drop_capacity_owner_role)
             cur.execute(sql.SQL("CREATE SCHEMA {}").format(sql.Identifier(namespace)))
+            cur.execute(
+                sql.SQL("CREATE SCHEMA {}").format(
+                    sql.Identifier(fallback_namespace)
+                )
+            )
+            cur.execute(
+                sql.SQL(
+                    """
+                    CREATE TABLE {}.property_account_privacy_requests (
+                        principal_key TEXT NOT NULL,
+                        request_id TEXT NOT NULL,
+                        idempotency_key_hash TEXT NOT NULL DEFAULT '',
+                        status TEXT NOT NULL DEFAULT 'awaiting_confirmation',
+                        payload_json JSONB NOT NULL,
+                        created_at TIMESTAMPTZ NOT NULL,
+                        updated_at TIMESTAMPTZ NOT NULL,
+                        PRIMARY KEY (principal_key, request_id)
+                    )
+                    """
+                ).format(sql.Identifier(fallback_namespace))
+            )
+            cur.execute(
+                sql.SQL(
+                    """
+                    CREATE UNIQUE INDEX idx_property_privacy_request_idempotency
+                    ON {}.property_account_privacy_requests(
+                        principal_key, idempotency_key_hash
+                    ) WHERE idempotency_key_hash <> ''
+                    """
+                ).format(sql.Identifier(fallback_namespace))
+            )
+            cur.execute(
+                sql.SQL(
+                    """
+                    CREATE INDEX idx_property_privacy_request_status_updated
+                    ON {}.property_account_privacy_requests(status, updated_at DESC)
+                    """
+                ).format(sql.Identifier(fallback_namespace))
+            )
     try:
         with isolated_connect(database_url, autocommit=False) as conn:
             with conn.cursor() as cur:
@@ -110,9 +182,58 @@ def test_postgres_legacy_run_upgrade_queue_install_and_idempotency() -> None:
             connect=isolated_connect,
         )
 
-        assert first.applied_versions == (1, 2, 3, 4, 5)
+        assert first.applied_versions == tuple(
+            range(1, schema.LATEST_PROPERTY_SEARCH_SCHEMA_VERSION + 1)
+        )
         assert second.applied_versions == ()
         assert status.ready is True
+
+        with psycopg.connect(
+            database_url,
+            autocommit=True,
+            connect_timeout=5,
+        ) as admin:
+            with admin.cursor() as cur:
+                cur.execute(
+                    "SELECT to_regclass(%s), to_regclass(%s)",
+                    (
+                        f"{fallback_namespace}.idx_property_privacy_request_idempotency",
+                        f"{fallback_namespace}.idx_property_privacy_request_status_updated",
+                    ),
+                )
+                assert cur.fetchone() == (
+                    f"{fallback_namespace}.idx_property_privacy_request_idempotency",
+                    f"{fallback_namespace}.idx_property_privacy_request_status_updated",
+                )
+
+        with isolated_connect(database_url, autocommit=True) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    ALTER TABLE property_search_work_jobs
+                    ENABLE REPLICA TRIGGER property_search_work_jobs_erasure_fence_guard
+                    """
+                )
+        replica_only = schema.inspect_property_search_schema(
+            database_url,
+            connect=isolated_connect,
+        )
+        assert replica_only.ready is False
+        assert replica_only.reason == (
+            "required_trigger_missing:property_search_work_jobs_erasure_fence_guard"
+        )
+        with isolated_connect(database_url, autocommit=True) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    ALTER TABLE property_search_work_jobs
+                    ENABLE ALWAYS TRIGGER property_search_work_jobs_erasure_fence_guard
+                    """
+                )
+        assert schema.inspect_property_search_schema(
+            database_url,
+            connect=isolated_connect,
+        ).ready is True
 
         with isolated_connect(database_url, autocommit=True) as conn:
             with conn.cursor() as cur:
@@ -137,14 +258,63 @@ def test_postgres_legacy_run_upgrade_queue_install_and_idempotency() -> None:
                     """
                     SELECT to_regclass('property_content_jobs'),
                            to_regclass('property_content_job_events'),
-                           to_regclass('property_content_webhook_events')
+                           to_regclass('property_content_webhook_events'),
+                           to_regclass('property_account_privacy_requests'),
+                           to_regclass('idx_property_privacy_request_idempotency'),
+                           to_regclass('idx_property_privacy_request_status_updated')
                     """
                 )
                 assert cur.fetchone() == (
                     "property_content_jobs",
                     "property_content_job_events",
                     "property_content_webhook_events",
+                    "property_account_privacy_requests",
+                    "idx_property_privacy_request_idempotency",
+                    "idx_property_privacy_request_status_updated",
                 )
+                cur.execute(
+                    """
+                    SELECT to_regclass('property_search_erasure_fences'),
+                           EXISTS (
+                               SELECT 1 FROM pg_trigger
+                               WHERE tgrelid = 'property_search_runs'::regclass
+                                 AND tgname = 'property_search_runs_writer_contract_guard'
+                                 AND NOT tgisinternal
+                           ),
+                           EXISTS (
+                               SELECT 1 FROM pg_trigger
+                               WHERE tgrelid = 'property_search_work_jobs'::regclass
+                                 AND tgname = 'property_search_work_jobs_erasure_fence_guard'
+                                 AND NOT tgisinternal
+                           )
+                    """
+                )
+                assert cur.fetchone() == (
+                    "property_search_erasure_fences",
+                    True,
+                    True,
+                )
+                from app.product.property_search_storage import (
+                    _property_search_erasure_key_id,
+                )
+
+                cur.execute(
+                    "SELECT key_id FROM property_search_erasure_key_state WHERE singleton = TRUE"
+                )
+                assert cur.fetchone() == (_property_search_erasure_key_id(),)
+                with pytest.raises(psycopg.Error) as immutable_key_state:
+                    cur.execute(
+                        "UPDATE property_search_erasure_key_state SET key_id = %s WHERE singleton = TRUE",
+                        ("0" * 64,),
+                    )
+                assert immutable_key_state.value.sqlstate == "23514"
+                assert "property_search_erasure_key_state_immutable" in str(
+                    immutable_key_state.value
+                )
+                cur.execute(
+                    "SELECT key_id FROM property_search_erasure_key_state WHERE singleton = TRUE"
+                )
+                assert cur.fetchone() == (_property_search_erasure_key_id(),)
                 cur.execute(
                     """
                     SELECT version, checksum_sha256
@@ -163,5 +333,10 @@ def test_postgres_legacy_run_upgrade_queue_install_and_idempotency() -> None:
                 cur.execute(
                     sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(
                         sql.Identifier(namespace)
+                    )
+                )
+                cur.execute(
+                    sql.SQL("DROP SCHEMA IF EXISTS {} CASCADE").format(
+                        sql.Identifier(fallback_namespace)
                     )
                 )

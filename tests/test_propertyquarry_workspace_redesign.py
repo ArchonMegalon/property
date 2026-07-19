@@ -10804,6 +10804,94 @@ def test_property_map_preview_backdrop_softens_tile_noise_without_erasing_map_de
     assert landing_view_models._PROPERTY_MAP_PREVIEW_STYLE_VERSION.startswith("flagship_map_v")
 
 
+def test_property_local_map_overview_renders_focus_pin_without_external_tiles(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    focus_labels: list[object] = []
+    original_focus_card = landing_view_models._draw_flagship_preview_focus_card
+
+    def _record_focus_card(draw, *, pin, label, width, height) -> None:
+        focus_labels.append(label)
+        original_focus_card(draw, pin=pin, label=label, width=width, height=height)
+
+    monkeypatch.setattr(landing_view_models, "_draw_flagship_preview_focus_card", _record_focus_card)
+    base_path = landing_view_models._cached_local_map_overview_png_path(
+        tmp_path / "local-map-overview-base.png",
+    )
+    preview_path = landing_view_models._cached_local_map_overview_png_path(
+        tmp_path / "local-map-overview.png",
+        pin=(320.0, 184.0),
+        focus_label="Trieben, AT",
+    )
+
+    base_image = Image.open(base_path).convert("RGB")
+    assert preview_path.exists()
+    image = Image.open(preview_path).convert("RGB")
+    assert image.size == (640, 368)
+    assert image.tobytes() != base_image.tobytes()
+    assert focus_labels == ["Trieben, AT"]
+
+
+def test_property_map_tile_fetch_fails_closed_before_urlopen_when_network_is_disabled(monkeypatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_MAP_TILE_NETWORK_ENABLED", "0")
+
+    def _unexpected_urlopen(*_args, **_kwargs):
+        raise AssertionError("urlopen must not be called while map tile networking is disabled")
+
+    monkeypatch.setattr(landing_view_models.urllib.request, "urlopen", _unexpected_urlopen)
+
+    with pytest.raises(landing_view_models.urllib.error.URLError, match="property_map_tile_network_disabled"):
+        landing_view_models._fetch_property_map_tile(
+            "https://tile.openstreetmap.org/10/1/1.png",
+            timeout_seconds=0.1,
+        )
+
+
+def test_property_map_preview_cache_separates_offline_and_network_tile_modes(monkeypatch) -> None:
+    cache_key = {"kind": "tile-mode-cache-isolation", "query": "Trieben, AT"}
+    monkeypatch.setenv("PROPERTYQUARRY_MAP_TILE_NETWORK_ENABLED", "0")
+    offline_path = landing_view_models._map_preview_cache_path_for_key(cache_key)
+    monkeypatch.setenv("PROPERTYQUARRY_MAP_TILE_NETWORK_ENABLED", "1")
+    network_path = landing_view_models._map_preview_cache_path_for_key(cache_key)
+
+    assert offline_path != network_path
+
+
+def test_property_map_tile_fetch_sets_user_agent_timeout_and_returns_response_bytes(monkeypatch) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_MAP_TILE_NETWORK_ENABLED", "1")
+    observed: dict[str, object] = {}
+
+    class _TileResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return b"synthetic-tile-bytes"
+
+    def _open_tile(request, *, timeout):
+        observed["url"] = request.full_url
+        observed["user_agent"] = request.get_header("User-agent")
+        observed["timeout"] = timeout
+        return _TileResponse()
+
+    payload = landing_view_models._fetch_property_map_tile(
+        "https://tile.openstreetmap.org/10/1/1.png",
+        timeout_seconds=2.5,
+        opener=_open_tile,
+    )
+
+    assert payload == b"synthetic-tile-bytes"
+    assert observed == {
+        "url": "https://tile.openstreetmap.org/10/1/1.png",
+        "user_agent": "PropertyQuarry/1.0",
+        "timeout": 2.5,
+    }
+
+
 def test_property_map_preview_selected_overlay_keeps_real_map_detail_visible(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("EA_ARTIFACTS_DIR", str(tmp_path))
 
@@ -10819,23 +10907,10 @@ def test_property_map_preview_selected_overlay_keeps_real_map_detail_visible(mon
     tile_bytes = io.BytesIO()
     tile.save(tile_bytes, format="PNG")
 
-    class _TileResponse:
-        def __init__(self, payload: bytes) -> None:
-            self._payload = payload
-
-        def __enter__(self) -> "_TileResponse":
-            return self
-
-        def __exit__(self, exc_type, exc, tb) -> None:
-            return None
-
-        def read(self) -> bytes:
-            return self._payload
-
     monkeypatch.setattr(
-        landing_view_models.urllib.request,
-        "urlopen",
-        lambda request, timeout=6.0: _TileResponse(tile_bytes.getvalue()),
+        landing_view_models,
+        "_fetch_property_map_tile",
+        lambda _url, *, timeout_seconds=6.0: tile_bytes.getvalue(),
     )
 
     base_path = landing_view_models._cached_preview_png_path(
@@ -10897,23 +10972,10 @@ def test_property_map_preview_point_focus_card_meets_flagship_gate(monkeypatch, 
     tile_bytes = io.BytesIO()
     tile.save(tile_bytes, format="PNG")
 
-    class _TileResponse:
-        def __init__(self, payload: bytes) -> None:
-            self._payload = payload
-
-        def __enter__(self) -> "_TileResponse":
-            return self
-
-        def __exit__(self, exc_type, exc, tb) -> None:
-            return None
-
-        def read(self) -> bytes:
-            return self._payload
-
     monkeypatch.setattr(
-        landing_view_models.urllib.request,
-        "urlopen",
-        lambda request, timeout=6.0: _TileResponse(tile_bytes.getvalue()),
+        landing_view_models,
+        "_fetch_property_map_tile",
+        lambda _url, *, timeout_seconds=6.0: tile_bytes.getvalue(),
     )
 
     preview_url = landing_view_models._cached_preview_image_url(
@@ -21711,6 +21773,84 @@ def test_property_lookup_candidate_across_runs_legacy_link_hydrates_truncated_pr
     assert full_status_calls == ["run-truncated-legacy"]
 
 
+def test_property_lookup_candidate_across_runs_proven_index_miss_skips_full_status() -> None:
+    full_status_calls: list[str] = []
+
+    class _CompactProduct:
+        def get_property_research_packet_link(self, **_kwargs):
+            return None
+
+        def property_research_packet_index_coverage_complete(self) -> bool:
+            return True
+
+        def list_property_search_runs(self, **_kwargs):
+            return [
+                {
+                    "run_id": "run-compact-miss",
+                    "status": "processed",
+                    "summary": {
+                        "ranked_candidates": [
+                            {
+                                "candidate_ref": "different-candidate",
+                                "title": "Different candidate",
+                                "property_url": "https://example.test/different-candidate",
+                            }
+                        ]
+                    },
+                }
+            ]
+
+        def get_property_search_run_status(self, *, run_id: str, **_kwargs):
+            full_status_calls.append(run_id)
+            raise AssertionError("proven index miss must not hydrate full run status")
+
+    resolved, matched_run_id = landing_routes._property_lookup_candidate_across_runs(
+        _CompactProduct(),
+        principal_id="pq-research-compact-miss",
+        candidate_ref="missing-compact-candidate",
+        max_runs=3,
+    )
+
+    assert resolved is None
+    assert matched_run_id == ""
+    assert full_status_calls == []
+
+
+def test_property_lookup_candidate_across_runs_incomplete_index_miss_hydrates_full_status() -> None:
+    class _IncompleteIndexProduct:
+        def get_property_research_packet_link(self, **_kwargs):
+            return None
+
+        def property_research_packet_index_coverage_complete(self) -> bool:
+            return False
+
+        def list_property_search_runs(self, **_kwargs):
+            return [{"run_id": "run-full-fallback", "summary": {"ranked_candidates": []}}]
+
+        def get_property_search_run_status(self, **_kwargs):
+            return {
+                "run_id": "run-full-fallback",
+                "summary": {
+                    "ranked_candidates": [
+                        {
+                            "candidate_ref": "candidate-only-in-full-run",
+                            "title": "Full fallback candidate",
+                        }
+                    ]
+                },
+            }
+
+    resolved, matched_run_id = landing_routes._property_lookup_candidate_across_runs(
+        _IncompleteIndexProduct(),
+        principal_id="pq-incomplete-index",
+        candidate_ref="candidate-only-in-full-run",
+        max_runs=3,
+    )
+
+    assert resolved and resolved["title"] == "Full fallback candidate"
+    assert matched_run_id == "run-full-fallback"
+
+
 def test_property_lookup_candidate_across_runs_hydrates_explicit_run_when_compact_projection_is_truncated() -> None:
     full_status_calls: list[str] = []
     compact_candidates = [
@@ -24165,6 +24305,97 @@ def test_propertyquarry_results_selected_review_keeps_blocked_tour_retry_state_o
     assert 'data-pw-visual-state="blocked"' in rendered_html
     assert "Tour not available yet." in visible_text
     assert 'disabled aria-disabled="true"' not in rendered_html
+
+
+def test_propertyquarry_results_selected_review_missing_media_keeps_listing_and_preferences(monkeypatch) -> None:
+    principal_id = "pq-results-selected-review-missing-media"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "language_code": "de",
+            "listing_mode": "rent",
+            "search_goal": "home",
+            "location_query": "1070 Vienna",
+            "selected_platforms": ["willhaben"],
+        },
+    )
+    assert stored.status_code == 200, stored.text
+    preferences_before = client.get("/v1/onboarding/property-search/preferences")
+    assert preferences_before.status_code == 200, preferences_before.text
+
+    candidate = {
+        "candidate_ref": "missing-media-selected-review-loft",
+        "title": "Saved loft without preview media",
+        "property_url": "https://example.test/missing-media-selected-review-loft",
+        "source_url": "https://example.test/missing-media-selected-review-loft",
+        "source_ref": "example:missing-media-selected-review-loft",
+        "fit_score": 82,
+        "location_label": "1070 Wien",
+        "packet_url": "/app/research/missing-media-selected-review-loft?run_id=run-selected-review-missing-media",
+        "tour": {},
+        "flythrough": {},
+        "property_facts": {
+            "rent_eur": 1890.0,
+            "area_m2": 73,
+            "postal_name": "1070 Wien",
+            "rooms": 3,
+        },
+    }
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        assert principal_id == "pq-results-selected-review-missing-media"
+        assert run_id == "run-selected-review-missing-media"
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "Property scouting run completed.",
+            "property_search_preferences": {
+                "country_code": "AT",
+                "language_code": "de",
+                "listing_mode": "rent",
+                "search_goal": "home",
+                "location_query": "1070 Vienna",
+                "selected_platforms": ["willhaben"],
+            },
+            "summary": {
+                "status": "processed",
+                "ranked_candidates": [candidate],
+                "sources": [
+                    {
+                        "source_label": "Willhaben | Austria | Rent | Vienna",
+                        "top_candidates": [candidate],
+                    }
+                ],
+            },
+            "events": [{"step": "completed", "message": "Property scouting run completed.", "status": "processed"}],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+
+    response = client.get(
+        "/app/search",
+        params={"run_id": "run-selected-review-missing-media"},
+        headers={"host": "propertyquarry.com"},
+    )
+    preferences_after = client.get("/v1/onboarding/property-search/preferences")
+
+    assert response.status_code == 200
+    assert preferences_after.status_code == 200, preferences_after.text
+    assert preferences_after.content == preferences_before.content
+    assert "Saved loft without preview media" in response.text
+    assert 'data-pq-failure-state="missing_media"' in response.text
+    assert "Media preview not available." in response.text
+    assert "your saved property details are unchanged" in response.text
+    assert 'data-pq-next-action href="https://example.test/missing-media-selected-review-loft"' in response.text
+    assert 'data-pw-visual-request="tour"' not in response.text
+    assert 'data-pw-visual-request="flythrough"' not in response.text
 
 
 def test_propertyquarry_results_selected_review_opens_nested_ready_tour_on_first_paint(monkeypatch) -> None:

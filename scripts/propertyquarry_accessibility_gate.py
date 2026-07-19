@@ -20,6 +20,10 @@ if str(EA_ROOT) not in sys.path:
 from scripts.propertyquarry_live_mobile_surface_smoke import DEFAULT_ROUTES, route_is_research_detail
 from scripts.propertyquarry_live_http_security import normalized_origin, redact_secret_values
 from scripts.propertyquarry_live_probe_auth import live_probe_request_headers
+from scripts.propertyquarry_live_probe_secret_scope import (
+    read_release_probe_secret_from_stdin,
+    scrub_release_probe_secret_environment,
+)
 from scripts.propertyquarry_live_public_smoke import PUBLIC_INFORMATION_ROUTES
 from scripts.propertyquarry_playwright_runtime import (
     SUPPORTED_PLAYWRIGHT_ENGINES,
@@ -32,16 +36,35 @@ from scripts.propertyquarry_playwright_runtime import (
 AXE_CORE_VERSION = "4.10.2"
 DEFAULT_AXE_CORE_PATH = Path("node_modules/axe-core/axe.min.js")
 DEFAULT_BROWSER_ENGINE = "chromium"
-DEFAULT_ACCESSIBILITY_ROUTES = (
-    *PUBLIC_INFORMATION_ROUTES,
-    *(route for route in DEFAULT_ROUTES if route != "/app/billing"),
+_GOLD_ACCESSIBILITY_ROUTE_TAIL = (
+    "/app/settings/outcomes",
+    "/app/settings/plan",
+    "/app/research",
+    "/app/properties/packets",
+    "/app/properties/notifications/preview",
+    "/app/support",
+)
+DEFAULT_ACCESSIBILITY_ROUTES = tuple(
+    dict.fromkeys(
+        (
+            *PUBLIC_INFORMATION_ROUTES,
+            *(
+                route
+                for route in DEFAULT_ROUTES
+                if route not in {"/app/research", "/app/properties/packets"}
+            ),
+            *_GOLD_ACCESSIBILITY_ROUTE_TAIL,
+        )
+    )
 )
 REQUIRED_ACCESSIBILITY_CHECKS = (
     "route_document_loaded",
     "axe_core_version_pinned",
-    "axe_no_serious_or_critical_violations",
+    "axe_no_moderate_or_higher_wcag_violations",
     "keyboard_only_navigation",
     "visible_keyboard_focus",
+    "focus_not_obscured",
+    "target_size_24_css_px_or_spacing",
     "dialog_focus_contract",
     "semantic_error_states",
     "semantic_live_progress_states",
@@ -54,7 +77,10 @@ REQUIRED_ACCESSIBILITY_CHECKS = (
 
 def normalize_browser_engines(engines: tuple[str, ...] | list[str] | None) -> tuple[str, ...]:
     normalized: list[str] = []
-    for raw_engine in engines or (DEFAULT_BROWSER_ENGINE,):
+    selected = (DEFAULT_BROWSER_ENGINE,) if engines is None else engines
+    if not selected:
+        raise ValueError("accessibility_browser_engines_required")
+    for raw_engine in selected:
         engine = normalize_playwright_engine(raw_engine)
         if engine not in normalized:
             normalized.append(engine)
@@ -77,6 +103,91 @@ def resolve_axe_core_source(path: Path) -> str:
 
 def _origin(value: str) -> str:
     return normalized_origin(value)
+
+
+def _route_has_literal_placeholder(value: object) -> bool:
+    normalized = urllib.parse.unquote(str(value or "").strip())
+    return any(marker in normalized for marker in ("{", "}", "[", "]", "<", ">"))
+
+
+def _relative_route_parts(value: object) -> tuple[str, str] | None:
+    normalized = str(value or "").strip()
+    if not normalized or _route_has_literal_placeholder(normalized):
+        return None
+    parsed = urllib.parse.urlsplit(normalized)
+    if parsed.scheme or parsed.netloc or parsed.fragment or not str(parsed.path or "").startswith("/"):
+        return None
+    path = str(parsed.path or "/").rstrip("/") or "/"
+    return path, str(parsed.query or "")
+
+
+def _concrete_research_detail_route(value: object) -> bool:
+    parts = _relative_route_parts(value)
+    if parts is None:
+        return False
+    path, _query = parts
+    return route_is_research_detail(path) and path.count("/") == 3
+
+
+def _concrete_shortlist_run_route(value: object) -> bool:
+    parts = _relative_route_parts(value)
+    if parts is None:
+        return False
+    path, query = parts
+    return (
+        not query
+        and path.startswith("/app/shortlist/run/")
+        and path.count("/") == 4
+        and bool(path.rsplit("/", 1)[-1])
+    )
+
+
+def _concrete_public_tour_route(value: object) -> bool:
+    parts = _relative_route_parts(value)
+    if parts is None:
+        return False
+    path, query = parts
+    slug = path.rsplit("/", 1)[-1]
+    return (
+        not query
+        and path.startswith("/tours/")
+        and path.count("/") == 2
+        and bool(slug)
+        and not slug.endswith(".json")
+    )
+
+
+def _navigation_contract(
+    *,
+    requested_url: str,
+    final_url: str,
+    status_code: int,
+) -> tuple[bool, str]:
+    if not 200 <= int(status_code) < 300:
+        return False, "non_success_status"
+    requested = urllib.parse.urlsplit(str(requested_url or ""))
+    final = urllib.parse.urlsplit(str(final_url or ""))
+    if _origin(requested_url) != _origin(final_url):
+        return False, "cross_origin_redirect"
+    requested_path = str(requested.path or "/").rstrip("/") or "/"
+    final_path = str(final.path or "/").rstrip("/") or "/"
+    if requested_path == final_path:
+        return True, "exact_path"
+    if requested_path == "/app/support" and final_path == "/app/settings/support":
+        return True, "canonical_app_support_redirect"
+    if requested_path == "/app/billing" and final_path == "/app/account":
+        final_query = urllib.parse.parse_qs(final.query, keep_blank_values=True)
+        if final_query.get("billing") == ["1"] and final.fragment == "delivery":
+            return True, "canonical_billing_handoff_redirect"
+    if _concrete_public_tour_route(requested_path) and final_path.startswith(
+        f"{requested_path}/control"
+    ):
+        suffix = final_path[len(requested_path) :]
+        if suffix == "/control" or (
+            suffix.startswith("/control/") and suffix.count("/") == 2
+        ):
+            return True, "canonical_public_tour_control_redirect"
+    return False, "unexpected_final_path"
 
 
 def _release_probe_configured_routes(routes: tuple[str, ...]) -> tuple[str, ...]:
@@ -151,6 +262,7 @@ def _focus_metrics(page: Any) -> dict[str, Any]:
     focused = False
     for _ in range(16):
         page.keyboard.press("Tab")
+        page.wait_for_timeout(50)
         metrics = dict(
             page.evaluate(
                 """
@@ -164,9 +276,30 @@ def _focus_metrics(page: Any) -> dict[str, Any]:
                   const outlineWidth = Number.parseFloat(style.outlineWidth || '0') || 0;
                   const focusVisible = (style.outlineStyle !== 'none' && outlineWidth > 0)
                     || (style.boxShadow && style.boxShadow !== 'none');
+                  const left = Math.max(0, rect.left);
+                  const right = Math.min(window.innerWidth, rect.right);
+                  const top = Math.max(0, rect.top);
+                  const bottom = Math.min(window.innerHeight, rect.bottom);
+                  const samplePoints = [];
+                  if (right > left && bottom > top) {
+                    const xs = [left + 1, (left + right) / 2, right - 1];
+                    const ys = [top + 1, (top + bottom) / 2, bottom - 1];
+                    for (const x of xs) {
+                      for (const y of ys) samplePoints.push([x, y]);
+                    }
+                  }
+                  const unobscured = samplePoints.some(([x, y]) => {
+                    const topmost = document.elementFromPoint(x, y);
+                    return Boolean(topmost && (topmost === node || node.contains(topmost)));
+                  });
                   return {
                     focused: rect.width > 0 && rect.height > 0,
                     visible_focus: Boolean(focusVisible),
+                    focus_unobscured: unobscured,
+                    focus_rect_left: Math.round(rect.left * 100) / 100,
+                    focus_rect_top: Math.round(rect.top * 100) / 100,
+                    focus_rect_right: Math.round(rect.right * 100) / 100,
+                    focus_rect_bottom: Math.round(rect.bottom * 100) / 100,
                     tag: String(node.tagName || '').toLowerCase(),
                     role: String(node.getAttribute('role') || ''),
                   };
@@ -178,7 +311,133 @@ def _focus_metrics(page: Any) -> dict[str, Any]:
         if metrics.get("focused"):
             focused = True
             return metrics
-    return {"focused": focused, "visible_focus": False, "tag": "", "role": ""}
+    return {
+        "focused": focused,
+        "visible_focus": False,
+        "focus_unobscured": False,
+        "focus_rect_left": None,
+        "focus_rect_top": None,
+        "focus_rect_right": None,
+        "focus_rect_bottom": None,
+        "tag": "",
+        "role": "",
+    }
+
+
+def _target_size_metrics(page: Any) -> dict[str, Any]:
+    return dict(
+        page.evaluate(
+            """
+            () => {
+              const minimum = 24;
+              const visible = (node) => {
+                if (node.closest('[hidden], [aria-hidden="true"], details:not([open])')) return false;
+                const style = getComputedStyle(node);
+                const rect = node.getBoundingClientRect();
+                return style.display !== 'none' && style.visibility !== 'hidden'
+                  && rect.width > 0 && rect.height > 0 && !node.disabled;
+              };
+              const inlineTextLink = (node) => {
+                if (!node.matches('a[href]') || getComputedStyle(node).display !== 'inline') return false;
+                const parent = node.parentElement;
+                return Boolean(parent && parent.textContent.trim().length > node.textContent.trim().length);
+              };
+              const normalizedRect = (rect) => ({
+                left: rect.left,
+                right: rect.right,
+                top: rect.top,
+                bottom: rect.bottom,
+                width: rect.width,
+                height: rect.height,
+              });
+              const bestRect = (rects) => normalizedRect(
+                [...rects].sort((left, right) => {
+                  const leftFloor = Math.min(left.width, left.height);
+                  const rightFloor = Math.min(right.width, right.height);
+                  return rightFloor - leftFloor
+                    || (right.width * right.height) - (left.width * left.height);
+                })[0]
+              );
+              const effectiveRect = (node) => {
+                const rects = [node.getBoundingClientRect()];
+                if ('labels' in node && node.labels) {
+                  for (const label of Array.from(node.labels)) {
+                    if (visible(label)) rects.push(label.getBoundingClientRect());
+                  }
+                }
+                const wrappingLabel = node.closest('label');
+                if (wrappingLabel && visible(wrappingLabel)) {
+                  rects.push(wrappingLabel.getBoundingClientRect());
+                }
+                return bestRect(rects);
+              };
+              const targets = Array.from(document.querySelectorAll(
+                'a[href], button, input:not([type="hidden"]), select, textarea, summary, '
+                + '[role="button"], [role="link"], [role="checkbox"], [role="radio"], '
+                + '[role="switch"], [tabindex]:not([tabindex="-1"])'
+              )).filter(visible);
+              const descriptors = targets.map((node) => {
+                const rect = effectiveRect(node);
+                return {
+                  node,
+                  rect,
+                  centerX: rect.left + rect.width / 2,
+                  centerY: rect.top + rect.height / 2,
+                  undersized: rect.width + 0.01 < minimum || rect.height + 0.01 < minimum,
+                };
+              });
+              const circleIntersectsRect = (target, other) => {
+                const nearestX = Math.max(
+                  other.rect.left,
+                  Math.min(target.centerX, other.rect.right)
+                );
+                const nearestY = Math.max(
+                  other.rect.top,
+                  Math.min(target.centerY, other.rect.bottom)
+                );
+                return Math.hypot(target.centerX - nearestX, target.centerY - nearestY) < 12 - 0.01;
+              };
+              const spacingExceptionApplies = (target) => descriptors.every((other) => {
+                if (other.node === target.node) return true;
+                if (other.undersized) {
+                  return Math.hypot(
+                    target.centerX - other.centerX,
+                    target.centerY - other.centerY
+                  ) >= minimum - 0.01;
+                }
+                return !circleIntersectsRect(target, other);
+              });
+              const failures = [];
+              let spacingExceptionCount = 0;
+              for (const target of descriptors) {
+                const node = target.node;
+                if (inlineTextLink(node)) continue;
+                const rect = target.rect;
+                if (!target.undersized) continue;
+                if (spacingExceptionApplies(target)) {
+                  spacingExceptionCount += 1;
+                  continue;
+                }
+                failures.push({
+                  tag: String(node.tagName || '').toLowerCase(),
+                  role: String(node.getAttribute('role') || ''),
+                  type: String(node.getAttribute('type') || ''),
+                  width: Math.round(rect.width * 100) / 100,
+                  height: Math.round(rect.height * 100) / 100,
+                });
+              }
+              return {
+                target_size_minimum_css_px: minimum,
+                target_count: targets.length,
+                target_size_spacing_exception_count: spacingExceptionCount,
+                undersized_target_count: failures.length,
+                undersized_targets: failures.slice(0, 25),
+              };
+            }
+            """
+        )
+        or {}
+    )
 
 
 def _dialog_focus_metrics(page: Any) -> dict[str, Any]:
@@ -307,6 +566,25 @@ def _page_semantic_metrics(page: Any) -> dict[str, Any]:
     )
 
 
+def _axe_row_is_wcag_tagged(row: dict[str, Any]) -> bool:
+    return any(
+        str(tag or "").strip().lower().startswith("wcag")
+        for tag in list(row.get("tags") or [])
+    )
+
+
+def _axe_moderate_or_higher_wcag_violations(
+    violations: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    return [
+        row
+        for row in violations
+        if str(row.get("impact") or "").strip().lower()
+        in {"moderate", "serious", "critical"}
+        and _axe_row_is_wcag_tagged(row)
+    ]
+
+
 def _axe_metrics(page: Any, *, axe_source: str) -> dict[str, Any]:
     page.add_script_tag(content=axe_source)
     axe_version = str(page.evaluate("() => window.axe && window.axe.version || ''") or "")
@@ -328,6 +606,7 @@ def _axe_metrics(page: Any, *, axe_source: str) -> dict[str, Any]:
     )
     violations = [dict(row) for row in list(result.get("violations") or []) if isinstance(row, dict)]
     serious = [row for row in violations if str(row.get("impact") or "") in {"serious", "critical"}]
+    moderate_or_higher_wcag = _axe_moderate_or_higher_wcag_violations(violations)
     contrast_violations = [row for row in violations if str(row.get("id") or "") == "color-contrast"]
     contrast_incomplete = [
         dict(row)
@@ -338,6 +617,21 @@ def _axe_metrics(page: Any, *, axe_source: str) -> dict[str, Any]:
         "axe_core_version": axe_version,
         "axe_violation_count": len(violations),
         "axe_serious_critical_count": len(serious),
+        "axe_moderate_or_higher_wcag_count": len(moderate_or_higher_wcag),
+        "axe_moderate_or_higher_wcag_violations": [
+            {
+                "id": str(row.get("id") or ""),
+                "impact": str(row.get("impact") or ""),
+                "help": str(row.get("help") or ""),
+                "node_count": len(list(row.get("nodes") or [])),
+                "wcag_tags": sorted(
+                    str(tag)
+                    for tag in list(row.get("tags") or [])
+                    if str(tag or "").strip().lower().startswith("wcag")
+                ),
+            }
+            for row in moderate_or_higher_wcag
+        ],
         "axe_serious_critical_violations": [
             {
                 "id": str(row.get("id") or ""),
@@ -363,6 +657,10 @@ def collect_accessibility_engine_rows(
     release_probe_secret: str = "",
     configured_routes: tuple[str, ...] = (),
 ) -> list[dict[str, Any]]:
+    # Playwright starts a driver process before the named browser.  Remove both
+    # probe credential environment names first; request signing continues from
+    # the explicit in-memory value passed to this function.
+    scrub_release_probe_secret_environment()
     from playwright.sync_api import sync_playwright
 
     engine = normalize_playwright_engine(browser_engine)
@@ -410,18 +708,23 @@ def collect_accessibility_engine_rows(
                         page.wait_for_timeout(250)
                         final_url = str(page.url or "")
                         status_code = int(response.status) if response is not None else 0
-                        expected_path = urllib.parse.urlparse(url).path.rstrip("/") or "/"
-                        final_path = urllib.parse.urlparse(final_url).path.rstrip("/") or "/"
+                        navigation_ok, navigation_contract = _navigation_contract(
+                            requested_url=url,
+                            final_url=final_url,
+                            status_code=status_code,
+                        )
                         metrics: dict[str, Any] = {
                             "browser_engine": engine,
                             "status_code": status_code,
                             "navigation_committed": response is not None,
                             "requested_url": url,
                             "final_url": final_url,
-                            "route_document_loaded": expected_path == final_path and 200 <= status_code < 300,
+                            "route_document_loaded": navigation_ok,
+                            "navigation_contract": navigation_contract,
                         }
                         metrics.update(_axe_metrics(page, axe_source=axe_source))
                         metrics.update(_focus_metrics(page))
+                        metrics.update(_target_size_metrics(page))
                         metrics.update(_dialog_focus_metrics(page))
                         metrics.update(_page_semantic_metrics(page))
                         page.set_viewport_size({"width": 640, "height": 900})
@@ -533,16 +836,29 @@ def evaluate_accessibility_metrics(metrics: dict[str, Any]) -> list[dict[str, An
         zoom_400_viewport_width = 0
         zoom_400_scroll_width = 0
         zoom_400_clipped_interactive_count = -1
+    moderate_or_higher_wcag_count = metrics.get("axe_moderate_or_higher_wcag_count")
+    target_size_minimum = metrics.get("target_size_minimum_css_px")
+    undersized_target_count = metrics.get("undersized_target_count")
     return [
         {"name": "route_document_loaded", "ok": metrics.get("route_document_loaded") is True},
         {"name": "axe_core_version_pinned", "ok": metrics.get("axe_core_version") == AXE_CORE_VERSION},
         {
-            "name": "axe_no_serious_or_critical_violations",
-            "ok": int(metrics.get("axe_serious_critical_count") or 0) == 0
+            "name": "axe_no_moderate_or_higher_wcag_violations",
+            "ok": type(moderate_or_higher_wcag_count) is int
+            and moderate_or_higher_wcag_count == 0
             and metrics.get("axe_core_version") == AXE_CORE_VERSION,
         },
         {"name": "keyboard_only_navigation", "ok": metrics.get("focused") is True},
         {"name": "visible_keyboard_focus", "ok": metrics.get("visible_focus") is True},
+        {"name": "focus_not_obscured", "ok": metrics.get("focus_unobscured") is True},
+        {
+            "name": "target_size_24_css_px_or_spacing",
+            "ok": type(target_size_minimum) in {int, float}
+            and not isinstance(target_size_minimum, bool)
+            and float(target_size_minimum) >= 24.0
+            and type(undersized_target_count) is int
+            and undersized_target_count == 0,
+        },
         {"name": "dialog_focus_contract", "ok": dialog_ok, "applicable": bool(metrics.get("dialog_applicable"))},
         {"name": "semantic_error_states", "ok": metrics.get("error_semantics_valid") is True},
         {"name": "semantic_live_progress_states", "ok": metrics.get("live_progress_semantics_valid") is True},
@@ -610,7 +926,7 @@ def build_accessibility_receipt(
                     {
                         "name": "authenticated_app_probe_auth_configured",
                         "ok": False,
-                        "reason": "Authenticated accessibility app routes require PROPERTYQUARRY_LIVE_PROBE_SECRET or legacy API/principal auth.",
+                        "reason": "Authenticated accessibility app routes require --release-probe-secret-stdin or legacy API/principal auth.",
                     }
                 ],
                 "routes": [],
@@ -679,13 +995,27 @@ def build_accessibility_receipt(
         for row in rows
         if isinstance(row.get("metrics"), dict) and row["metrics"].get("dialog_applicable") is True
     )
-    detail_configured = any(route_is_research_detail(route) for route in routes)
+    literal_placeholder_routes = [
+        str(route or "") for route in routes if _route_has_literal_placeholder(route)
+    ]
+    research_detail_routes = [
+        str(route or "") for route in routes if _concrete_research_detail_route(route)
+    ]
+    shortlist_run_routes = [
+        str(route or "") for route in routes if _concrete_shortlist_run_route(route)
+    ]
+    public_tour_routes = [
+        str(route or "") for route in routes if _concrete_public_tour_route(route)
+    ]
     configured_route_paths = {
         str(route or "").split("?", 1)[0].rstrip("/") or "/"
         for route in routes
     }
     missing_public_information_routes = [
         route for route in PUBLIC_INFORMATION_ROUTES if route not in configured_route_paths
+    ]
+    missing_flagship_static_routes = [
+        route for route in DEFAULT_ACCESSIBILITY_ROUTES if route not in configured_route_paths
     ]
     checks = [
         {"name": "axe_core_pinned_input", "ok": True, "version": AXE_CORE_VERSION},
@@ -705,9 +1035,33 @@ def build_accessibility_receipt(
             "missing_routes": missing_public_information_routes,
         },
         {
+            "name": "flagship_static_route_matrix_configured",
+            "ok": not missing_flagship_static_routes,
+            "required_routes": list(DEFAULT_ACCESSIBILITY_ROUTES),
+            "missing_routes": missing_flagship_static_routes,
+        },
+        {
+            "name": "literal_route_placeholders_absent",
+            "ok": not literal_placeholder_routes,
+            "placeholder_routes": literal_placeholder_routes,
+        },
+        {
             "name": "research_detail_route_configured",
-            "ok": detail_configured,
+            "ok": bool(research_detail_routes),
             "required_route_prefix": "/app/research/",
+            "matched_routes": research_detail_routes,
+        },
+        {
+            "name": "shortlist_run_route_configured",
+            "ok": bool(shortlist_run_routes),
+            "required_route_prefix": "/app/shortlist/run/",
+            "matched_routes": shortlist_run_routes,
+        },
+        {
+            "name": "public_tour_route_configured",
+            "ok": bool(public_tour_routes),
+            "required_route_prefix": "/tours/",
+            "matched_routes": public_tour_routes,
         },
         {
             "name": "dialog_focus_interaction_sampled",
@@ -724,6 +1078,13 @@ def build_accessibility_receipt(
         "axe_core_version": AXE_CORE_VERSION,
         "axe_core_path": str(axe_core_path.expanduser().resolve()),
         "required_browser_engines": list(engines),
+        "observed_browser_engines": sorted(
+            {
+                str(row.get("browser_engine") or "").strip()
+                for row in rows
+                if str(row.get("browser_engine") or "").strip()
+            }
+        ),
         "configured_routes": list(routes),
         "expected_sample_count": len(expected_samples),
         "observed_sample_count": len(observed_samples),
@@ -733,11 +1094,18 @@ def build_accessibility_receipt(
         "checks": checks,
         "routes": rows,
         "engine_failures": engine_failures,
+        "manual_assistive_technology_evidence": {
+            "status": "external_evidence_required",
+            "required_for_launch": True,
+            "satisfied_by_this_receipt": False,
+        },
         "notes": [
             "Axe is injected only from the pinned local input; this gate never downloads scripts or uses a CDN.",
             "The 200% reflow check uses a 640 CSS-pixel viewport as the cross-engine equivalent of zooming a 1280-pixel layout to 200%.",
             "The 400% reflow check uses a 320 CSS-pixel viewport and rejects horizontal document overflow or unreachable clipped controls while allowing controls inside an explicit horizontal scroll rail.",
-            "The route matrix preserves every authenticated app route while also requiring every public sitemap, legal, support, docs, integrations, guide, market, registration, and sign-in page.",
+            "Navigation must remain on the configured origin and exact path; only the named billing, app-support, and same-slug public-tour control redirects are accepted and receipted.",
+            "The route matrix preserves every Gold static customer route and requires concrete research-detail, shortlist-run, and first-party public-tour samples.",
+            "This automated structural receipt does not replace manual screen-reader, voice-control, keyboard, cognitive, or physical-device review; independently attested manual assistive-technology evidence remains a launch blocker.",
         ],
     }
     receipt = _redact_receipt_value(receipt, secrets=receipt_secrets)
@@ -750,8 +1118,18 @@ def build_accessibility_receipt(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run the strict PropertyQuarry accessibility route/engine gate.")
     parser.add_argument("--base-url", default=os.environ.get("PROPERTYQUARRY_ACCESSIBILITY_BASE_URL", "http://127.0.0.1:8097"))
-    configured_detail = str(os.environ.get("PROPERTYQUARRY_ACCESSIBILITY_RESEARCH_DETAIL_ROUTE") or "").strip()
-    default_routes = (*DEFAULT_ACCESSIBILITY_ROUTES, configured_detail) if configured_detail else DEFAULT_ACCESSIBILITY_ROUTES
+    configured_dynamic_routes = tuple(
+        str(os.environ.get(name) or "").strip()
+        for name in (
+            "PROPERTYQUARRY_ACCESSIBILITY_RESEARCH_DETAIL_ROUTE",
+            "PROPERTYQUARRY_ACCESSIBILITY_SHORTLIST_RUN_ROUTE",
+            "PROPERTYQUARRY_ACCESSIBILITY_PUBLIC_TOUR_ROUTE",
+        )
+        if str(os.environ.get(name) or "").strip()
+    )
+    default_routes = tuple(
+        dict.fromkeys((*DEFAULT_ACCESSIBILITY_ROUTES, *configured_dynamic_routes))
+    )
     parser.add_argument("--routes", default=",".join(default_routes))
     parser.add_argument(
         "--browser-engines",
@@ -761,12 +1139,18 @@ def main() -> int:
     parser.add_argument("--api-token", default=os.environ.get("PROPERTYQUARRY_ACCESSIBILITY_API_TOKEN") or os.environ.get("EA_API_TOKEN", ""))
     parser.add_argument("--principal-id", default=os.environ.get("PROPERTYQUARRY_ACCESSIBILITY_PRINCIPAL_ID", "pq-accessibility-gate"))
     parser.add_argument(
-        "--release-probe-secret",
-        default=os.environ.get("PROPERTYQUARRY_LIVE_PROBE_SECRET", ""),
+        "--release-probe-secret-stdin",
+        action="store_true",
+        help="Read the protected release-probe credential once from bounded stdin.",
     )
     parser.add_argument("--timeout-ms", type=int, default=30_000)
     parser.add_argument("--write", default="_completion/smoke/property-live-accessibility-latest.json")
     args = parser.parse_args()
+    release_probe_secret = read_release_probe_secret_from_stdin(
+        parser,
+        enabled=bool(args.release_probe_secret_stdin),
+    )
+    scrub_release_probe_secret_environment()
     try:
         engines = normalize_browser_engines(
             tuple(engine.strip() for engine in str(args.browser_engines or "").split(",") if engine.strip())
@@ -780,7 +1164,7 @@ def main() -> int:
         browser_engines=engines,
         api_token=str(args.api_token or "").strip(),
         principal_id=str(args.principal_id or "").strip() or "pq-accessibility-gate",
-        release_probe_secret=str(args.release_probe_secret or "").strip(),
+        release_probe_secret=release_probe_secret,
         axe_core_path=Path(args.axe_core_path),
         timeout_ms=max(1_000, int(args.timeout_ms)),
     )

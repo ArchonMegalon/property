@@ -31,6 +31,18 @@ _SAFE_ENV = {
 _NON_DYNAMIC_MARKERS = ("not a dynamic executable", "statically linked")
 
 
+def _audit_environment(path: Path) -> dict[str, str]:
+    environment = dict(_SAFE_ENV)
+    if any(part.endswith(".libs") for part in path.parts):
+        # Audit every wheel-private object, including libraries that are only
+        # normally loaded through an extension module whose RPATH names this
+        # sibling directory.  An explicit, single-directory loader scope gives
+        # standalone ldd the same closed dependency set without inheriting any
+        # host-controlled LD_* values.
+        environment["LD_LIBRARY_PATH"] = str(path.parent.resolve(strict=True))
+    return environment
+
+
 def iter_elf_paths(roots: Iterable[Path]) -> Iterable[Path]:
     seen: set[tuple[int, int]] = set()
     for root in roots:
@@ -79,9 +91,9 @@ def iter_elf_paths(roots: Iterable[Path]) -> Iterable[Path]:
                     finally:
                         os.close(descriptor)
                     if magic == _ELF_MAGIC:
-                        # Wheel-private .libs objects are deliberately included. Running
-                        # ldd on each object preserves its own $ORIGIN/RPATH semantics and
-                        # proves that no orphan private object has an unresolved dependency.
+                        # Wheel-private .libs objects are deliberately included.  The
+                        # audit supplies their closed sibling directory as the loader
+                        # scope so standalone ldd can validate transitive wheel members.
                         yield path
                 except OSError as error:
                     raise RuntimeError(f"cannot inspect retained path {path}: {error}") from error
@@ -100,7 +112,7 @@ def audit_elf_closure(
             ["/usr/bin/ldd", str(path)],
             check=False,
             capture_output=True,
-            env=_SAFE_ENV,
+            env=_audit_environment(path),
             stdin=subprocess.DEVNULL,
             text=True,
             timeout=30,

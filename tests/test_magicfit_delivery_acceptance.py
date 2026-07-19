@@ -30,6 +30,9 @@ def _run(
 ) -> subprocess.CompletedProcess[str]:
     env = dict(os.environ)
     env["EA_PUBLIC_TOUR_DIR"] = str(tour_root)
+    # Fixture materialization is independent of the host's production disk
+    # floor; fail-closed low-disk behavior has dedicated importer coverage.
+    env["PROPERTYQUARRY_TOUR_MIN_FREE_BYTES"] = "0"
     env.update(extra_env or {})
     return subprocess.run(
         [sys.executable, str(ROOT / "scripts" / script), *args],

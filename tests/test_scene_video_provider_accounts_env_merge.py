@@ -156,6 +156,8 @@ def test_scene_video_provider_accounts_env_merge_writes_file_env_targets(tmp_pat
 
 def test_scene_video_provider_accounts_env_merge_default_file_env_targets_bridge_runtime_mount(tmp_path: Path, monkeypatch) -> None:
     module = _load_script()
+    monkeypatch.delenv("PROPERTYQUARRY_TOUR_EXPORT_INCOMING_DIR", raising=False)
+    monkeypatch.delenv("PROPERTYQUARRY_TOUR_EXPORT_DROP_DIR", raising=False)
     env_file = tmp_path / ".env"
     env_file.write_text("ONEMIN_AI_API_KEY='keep-this'\n", encoding="utf-8")
     (tmp_path / "docker-compose.property.yml").write_text("services: {}\n", encoding="utf-8")

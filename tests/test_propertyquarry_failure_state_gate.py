@@ -28,6 +28,12 @@ def _passing_observation(*, state: str, engine: str) -> dict[str, object]:
         "action_href": "/app/search",
         "semantic_status": True,
         "transition_proven": True,
+        "customer_data_preserved": True,
+        "preservation_probe": {
+            "before": {"ok": True, "status_code": 200, "sha256": "a" * 64},
+            "after": {"ok": True, "status_code": 200, "sha256": "a" * 64},
+            "same_digest": True,
+        },
         "status_code": status_code,
         "browser_engine": engine,
         "route": f"/canary/{state}",
@@ -81,9 +87,13 @@ def test_failure_state_gate_fails_closed_before_browser_when_canary_routes_are_m
     assert receipt["rows"] == []
     assert set(receipt["checks"][0]["missing_states"]) == {
         "internal_error",
+        "delayed",
+        "quota_blocked",
+        "payment_failed",
         "empty",
         "partial",
         "provider_blocked",
+        "missing_media",
     }
 
 
@@ -110,6 +120,67 @@ def test_failure_state_gate_rejects_raw_browser_diagnostics() -> None:
 
     assert checks["raw_diagnostics_hidden"] is False
     assert checks["calm_customer_copy"] is False
+
+
+def test_failure_state_gate_fails_row_when_customer_snapshot_changes() -> None:
+    observation = _passing_observation(state="delayed", engine="webkit")
+    observation["customer_data_preserved"] = False
+    observation["preservation_probe"] = {
+        "before": {"ok": True, "status_code": 200, "sha256": "a" * 64},
+        "after": {"ok": True, "status_code": 200, "sha256": "b" * 64},
+        "same_digest": False,
+    }
+
+    checks = {row["name"]: row["ok"] for row in gate.evaluate_failure_state_observation(observation)}
+
+    assert checks["customer_data_preserved"] is False
+
+
+def test_preservation_snapshot_emits_only_canonical_digest_and_sizes() -> None:
+    secret_value = "private-customer-preference"
+
+    class FakeResponse:
+        status = 200
+
+        def body(self) -> bytes:
+            return b'{"saved":{"country":"AT"}}'
+
+        def json(self) -> dict[str, object]:
+            return {"saved": {"note": secret_value, "country": "AT"}}
+
+    class FakeRequest:
+        def get(self, *_args, **_kwargs) -> FakeResponse:
+            return FakeResponse()
+
+    class FakeContext:
+        request = FakeRequest()
+
+    snapshot = gate._preservation_snapshot(
+        FakeContext(),
+        base_url="https://propertyquarry.com",
+        route=gate.DEFAULT_PRESERVATION_PROBE_ROUTE,
+        headers={"X-EA-Principal-ID": "flagship"},
+        timeout_ms=1_000,
+    )
+
+    assert snapshot["ok"] is True
+    assert len(str(snapshot["sha256"])) == 64
+    assert snapshot["body_bytes"] > 0
+    assert snapshot["canonical_bytes"] > 0
+    assert secret_value not in str(snapshot)
+
+
+def test_failure_state_gate_rejects_secret_bearing_preservation_route() -> None:
+    receipt = gate.build_failure_state_receipt(
+        base_url="https://propertyquarry.com",
+        scenario_routes=_configured_routes(),
+        preservation_probe_route="/v1/onboarding/property-search/preferences?token=private-value",
+        collect_rows=lambda **_kwargs: [],
+    )
+
+    assert receipt["status"] == "blocked"
+    assert receipt["checks"][0]["preservation_probe_route_error"] == "sensitive_query_forbidden:token"
+    assert "private-value" not in str(receipt)
 
 
 def _error_app() -> FastAPI:
@@ -245,12 +316,55 @@ def test_expired_session_sign_in_state_keeps_saved_work_and_next_action_visible(
     assert "data-pq-next-action" in response.text
 
 
+def test_payment_failure_state_is_rendered_from_durable_billing_truth() -> None:
+    from tests.product_test_helpers import build_property_client, start_workspace
+
+    client = build_property_client(principal_id="pq-payment-failure-state")
+    start_workspace(client, mode="personal", workspace_name="Payment Failure State")
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "property_search_enabled": True,
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "property_commercial": {
+                "active_plan_key": "plus",
+                "status": "payment_failed",
+                "last_payment_status": "failed",
+                "last_billing_event_type": "subscription.payment_failed",
+            },
+        },
+    )
+    assert stored.status_code == 200, stored.text
+
+    response = client.get("/app/account?billing=1")
+
+    assert response.status_code == 200
+    assert 'data-pq-failure-state="payment_failed"' in response.text
+    assert "The latest payment did not complete." in response.text
+    assert "existing account access and saved work are unchanged" in response.text
+    assert "data-pq-next-action" in response.text
+
+
 def test_workbench_failure_states_expose_semantic_markers_and_calm_network_recovery() -> None:
     template = (ROOT / "ea/app/templates/app/property_decision_workbench.html").read_text(encoding="utf-8")
     script = (ROOT / "ea/app/templates/app/_property_workbench_script.html").read_text(encoding="utf-8")
+    selected_review = (ROOT / "ea/app/templates/app/_property_selected_review_panel.html").read_text(encoding="utf-8")
+    bundle = "\n".join((template, script, selected_review))
 
-    for state in ("offline", "partial", "provider_blocked", "empty", "stale", "missing_packet"):
-        assert state in template
+    for state in (
+        "offline",
+        "delayed",
+        "quota_blocked",
+        "partial",
+        "provider_blocked",
+        "empty",
+        "stale",
+        "missing_packet",
+        "missing_media",
+    ):
+        assert state in bundle
+    assert "payment_failed" in bundle
     assert 'data-pq-failure-state="offline" role="status"' in template
     assert 'data-pq-failure-state="stale" role="status"' in template
     assert 'data-pq-failure-state="missing_packet" role="status"' in template

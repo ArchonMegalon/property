@@ -31,7 +31,10 @@
   {% set selected_orientation_preview = selected.get('orientation_preview') or {} %}
   {% set selected_diorama_scene = selected.get('diorama_scene') or {} %}
   {% set selected_diorama_preview_url = selected.get('diorama_preview_url') or selected_diorama_scene.get('image_url') or selected_diorama_scene.get('preview_image_url') or '' %}
-  {% set selected_preview_url = selected_diorama_preview_url or selected.get('preview_image_url') or selected_orientation_preview.get('image_url') or selected_orientation_preview.get('thumb_image_url') or '' %}
+  {% set selected_orientation_preview_url = selected_orientation_preview.get('image_url') or selected_orientation_preview.get('thumb_image_url') or '' %}
+  {% set selected_candidate_preview_url = selected.get('preview_image_url') or '' %}
+  {% set selected_listing_preview_url = selected_diorama_preview_url or (selected_candidate_preview_url if selected_candidate_preview_url and selected_candidate_preview_url != selected_orientation_preview.get('image_url') and selected_candidate_preview_url != selected_orientation_preview.get('thumb_image_url') else '') %}
+  {% set selected_preview_url = selected_diorama_preview_url or selected_candidate_preview_url or selected_orientation_preview_url %}
   <div class="pqx-theater no-media" data-pq-theater>
     <div class="pqx-theater-frame is-unavailable" data-pw-tour hidden></div>
     <div class="pqx-dossier">
@@ -115,6 +118,13 @@
         </details>
         {% endif %}
       </div>
+      {% if selected_visual_property_url and not selected_listing_preview_url and not selected_visual_media_ready and not selected_tour_url and not selected_flythrough.get('url') %}
+      <div class="pqx-decision-status" data-pq-failure-state="missing_media" role="status" aria-live="polite" aria-atomic="true">
+        <strong>Media preview not available.</strong>
+        <span>The listing is still available, and your saved property details are unchanged.</span>
+        <a class="pqx-link-button subtle" data-pq-next-action href="{{ selected_visual_property_url }}" target="_blank" rel="noreferrer">Open listing</a>
+      </div>
+      {% endif %}
       <div class="pqx-decision-status" data-pw-visual-request-status{% if not selected_visual_status %} hidden{% endif %}>{{ selected_visual_status }}</div>
     </div>
   </div>

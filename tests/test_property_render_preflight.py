@@ -721,6 +721,11 @@ def test_build_preflight_receipt_requires_every_runtime_plane(
         "_check_media_functions",
         lambda: observed.append("functions") or {"chromium": "pass"},
     )
+    monkeypatch.setattr(
+        preflight,
+        "_check_admission_runtime",
+        lambda: observed.append("admission") or {"distributed_admission": "pass"},
+    )
 
     receipt = preflight.build_preflight_receipt(
         provenance_path=provenance_path,
@@ -735,9 +740,31 @@ def test_build_preflight_receipt_requires_every_runtime_plane(
         "commands",
         "glib",
         "functions",
+        "admission",
     ]
     assert receipt["status"] == "pass"
     assert receipt["build_receipt_sha256"] == {"apk": "digest"}
+    assert receipt["distributed_admission_runtime"] is True
+
+
+def test_render_admission_runtime_is_exactly_pinned_to_the_bounded_app_tree(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_version = preflight.importlib.metadata.version
+
+    def pinned_version(name: str) -> str:
+        if name in {"psycopg", "psycopg-binary"}:
+            return "3.3.4"
+        return original_version(name)
+
+    monkeypatch.setattr(preflight.importlib.metadata, "version", pinned_version)
+
+    assert preflight._check_admission_runtime(
+        app_root=Path(preflight.__file__).resolve().parents[1]
+    ) == {
+        "distributed_admission": "pass",
+        "w3c_trace_context": "pass",
+    }
 
 
 def test_prohibited_command_check_fails_closed(

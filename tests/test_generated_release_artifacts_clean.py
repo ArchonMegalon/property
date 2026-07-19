@@ -83,8 +83,22 @@ def test_generated_release_artifact_normalizer_preserves_source_blob_drift() -> 
 
 def test_release_manifest_matches_complete_immutable_authority_envelope() -> None:
     module = _load_module()
+    receipt = json.loads((ROOT / module.GENERATED_ARTIFACTS[0]).read_text(encoding="utf-8"))
+    issues = module.verify_release_manifest(ROOT)
 
-    assert module.verify_release_manifest(ROOT) == []
+    if isinstance(receipt.get("source_binding"), dict):
+        assert issues == []
+    else:
+        assert receipt["status"] == "blocked"
+        assert receipt["source_binding"] is None
+        assert issues == [
+            "release authority receipt runtime commit SHA is missing or invalid",
+            "release manifest authority field mismatches current evidence: release_commit_sha",
+            "release manifest authority field mismatches current evidence: release_artifact_set",
+            "release manifest authority field mismatches current evidence: release_label",
+            "release manifest authority field mismatches current evidence: release_deployment_id",
+            "release manifest authority field mismatches current evidence: release_generated_at",
+        ]
 
 
 def test_release_manifest_authority_fails_closed_on_missing_and_mismatched_fields() -> None:

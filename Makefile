@@ -1,4 +1,4 @@
-.PHONY: deploy deploy-legacy-ea-stack deploy-memory deploy-bootstrap bootstrap db-status db-size db-retention smoke-api smoke-api-tibor smoke-postgres smoke-postgres-legacy smoke-help release-smoke release-preflight propertyquarry-release-preflight propertyquarry-release-protocol-contracts release-docs test-api test-all test-postgres-contracts test-telegram-bot openapi-export openapi-diff openapi-prune endpoints version-info operator-summary operator-help provider-readiness overlay-vision-check overlay-vision-pull support-bundle tasks-archive tasks-archive-prune tasks-archive-dry-run materialize-release-assets verify-generated-release-artifacts-clean ci-local ci-gates ci-gates-postgres ci-gates-postgres-legacy hard-exit-gates runtime-hard-exit-gates property-release-gates property-security-posture ltd-release-gates verify-release-assets verify-flagship-release-readiness verify-pocket-audio-archive verify-ltd-critical-entries verify-ltd-flagship-subset verify-design-mirror-bundle verify-design-full-mirror-parity repair-design-mirror-bundle docs-verify all-local
+.PHONY: deploy deploy-legacy-ea-stack deploy-memory deploy-bootstrap bootstrap db-status db-size db-retention smoke-api smoke-api-tibor smoke-postgres smoke-postgres-legacy smoke-help release-smoke release-preflight propertyquarry-release-preflight propertyquarry-release-protocol-contracts release-docs test-api test-all propertyquarry-target-recovery-canary test-postgres-contracts test-telegram-bot openapi-export openapi-diff openapi-prune endpoints version-info operator-summary operator-help provider-readiness overlay-vision-check overlay-vision-pull support-bundle tasks-archive tasks-archive-prune tasks-archive-dry-run materialize-release-assets verify-generated-release-artifacts-clean ci-local ci-gates ci-gates-postgres ci-gates-postgres-legacy hard-exit-gates runtime-hard-exit-gates property-release-gates property-security-posture ltd-release-gates verify-release-assets verify-flagship-release-readiness verify-pocket-audio-archive verify-ltd-critical-entries verify-ltd-flagship-subset verify-design-mirror-bundle verify-design-full-mirror-parity repair-design-mirror-bundle docs-verify all-local
 
 PYTHON_BIN ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 PYTEST_PYTHON_BIN ?= $(shell if [ -x .venv/bin/python ] && .venv/bin/python -c 'import pytest' >/dev/null 2>&1; then printf '%s' .venv/bin/python; elif command -v python3 >/dev/null 2>&1 && python3 -c 'import pytest' >/dev/null 2>&1; then command -v python3; else printf '%s' python3; fi)
@@ -16,7 +16,8 @@ TEST_API_PYTEST_DESELECT ?= \
 	--deselect=tests/test_responses_api_contracts.py::test_tool_shim_direct_nested_telemetry_first_command_skips_equivalent_var_lib_telemetry_after_prompt_read \
 	--deselect=tests/test_responses_api_contracts.py::test_tool_shim_direct_nested_telemetry_first_command_ignores_non_fleet_task_logs_and_repo_worklists \
 	--deselect=tests/test_responses_api_contracts.py::test_tool_shim_build_staged_repo_diff_command_groups_existing_paths \
-	--deselect=tests/test_responses_api_contracts.py::test_local_fleet_runtime_helpers_cover_output_token_and_command_selection
+	--deselect=tests/test_responses_api_contracts.py::test_local_fleet_runtime_helpers_cover_output_token_and_command_selection \
+	--deselect=tests/e2e/test_propertyquarry_target_recovery_canary.py::test_property_target_recovery_canary_under_tibor
 
 deploy:
 	./scripts/deploy_propertyquarry.sh
@@ -84,6 +85,11 @@ test-api:
 
 test-all:
 	PYTHONPATH=ea $(PYTEST_PYTHON_BIN) -m pytest -q
+
+# This canary observes live provider and Fleet repair state. Keep it fail-visible,
+# but outside deterministic ci-gates so external volatility cannot mask regressions.
+propertyquarry-target-recovery-canary:
+	PYTHONPATH=ea $(PYTEST_PYTHON_BIN) -m pytest -q tests/e2e/test_propertyquarry_target_recovery_canary.py::test_property_target_recovery_canary_under_tibor
 
 test-postgres-contracts:
 	bash scripts/test_postgres_contracts.sh
@@ -159,7 +165,7 @@ ci-local:
 ci-gates:
 	$(MAKE) smoke-help
 	$(MAKE) ci-local
-	$(MAKE) test-api
+	PROPERTYQUARRY_REQUIRE_REAL_CHROMIUM_INTEGRATION=1 $(MAKE) test-api
 	$(MAKE) verify-release-assets
 	$(MAKE) verify-flagship-release-readiness
 	$(MAKE) verify-generated-release-artifacts-clean
@@ -179,7 +185,7 @@ runtime-hard-exit-gates:
 	bash scripts/runtime_hard_exit_gates.sh
 
 property-release-gates:
-	bash scripts/property_release_gates.sh
+	./scripts/property_release_gates.sh
 
 property-security-posture:
 	$(PYTHON_BIN) scripts/check_property_security_posture.py

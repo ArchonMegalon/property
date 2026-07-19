@@ -165,7 +165,8 @@ def _drop_readme_body(*, row: dict[str, Any], provider: str, slug: str, drop_sta
             "",
             f"After exports are copied, run: {manifest.get('next_command')}",
             "Then rerun: python /app/scripts/verify_property_tour_controls.py --tour-root /data/public_property_tours --require-all-provider-modes --summary-only",
-            "Public gold only requires customer-facing modes: matterport, 3dvista, and magicfit. Pano2VR and krpano stay optional/operator-only panorama lanes.",
+            "Core Gold requires the verified first-party 3DVista customer tour. MagicFit is prepared here for the separate Advanced Visual Gold lane; Magic and OMagic remain governed scene-video providers outside this import folder.",
+            "Advanced Visual Gold must stay unavailable until every claimed provider has exact receipt, playback, quota, privacy, and isolation evidence.",
             "Pano2VR is an optional/internal export lane and must stay hidden unless a clean verified export is deliberately enabled.",
             "",
         ]
@@ -454,6 +455,17 @@ def build_export_manifest(
         "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "tour_root": str(resolved_tour_root),
         "incoming_root": str(resolved_incoming_root),
+        "core_required_provider_modes": list(receipt.get("core_required_provider_modes") or []),
+        "advanced_visual_required_provider_modes": list(
+            receipt.get("advanced_visual_required_provider_modes") or []
+        ),
+        "core_missing_provider_modes": list(receipt.get("core_missing_provider_modes") or []),
+        "advanced_visual_missing_provider_modes": list(
+            receipt.get("advanced_visual_missing_provider_modes") or []
+        ),
+        "operator_missing_provider_modes": list(
+            receipt.get("operator_missing_provider_modes") or missing_modes
+        ),
         "missing_provider_modes": sorted(missing_modes),
         "providers": sorted(selected_providers),
         "import_count": len(imports),
@@ -464,7 +476,7 @@ def build_export_manifest(
         "notes": [
             "Copy each real provider export or asset into its export_dir before running the import command.",
             "Do not place placeholder HTML, flat photos, generated cube fallbacks, or fake videos in these directories; the hardened importers reject unverified entries.",
-            "After import, run verify_property_tour_controls.py with --require-all-provider-modes.",
+            "After import, run verify_property_tour_controls.py with --require-all-provider-modes for the combined operator envelope; Core Gold and Advanced Visual Gold status remain separately reported.",
         ],
     }
 

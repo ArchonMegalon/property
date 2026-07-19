@@ -2,12 +2,20 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from app.product.privacy_lifecycle import privacy_export_has_secret_markers, redact_privacy_export
+from app.product import privacy_lifecycle
+from app.product.privacy_lifecycle import (
+    PrivacyCursorError,
+    build_property_account_export_page,
+    privacy_export_has_secret_markers,
+    redact_privacy_export,
+)
 from app.product.privacy_lifecycle_storage import clear_privacy_lifecycle_memory_for_tests
 from app.product.service import build_product_service
+from app.services.property_content_job_ledger import PropertyContentJobLedger
 from tests.product_test_helpers import build_property_client, start_workspace
 
 
@@ -25,8 +33,75 @@ def _started_client(principal_id: str):
     return client
 
 
-def test_dsar_export_is_cursor_paginated_complete_and_secret_redacted() -> None:
+def _seed_private_content(
+    *,
+    principal_id: str,
+    packet_id: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[PropertyContentJobLedger, Path]:
+    ledger_path = tmp_path / "content-ledger.json"
+    completion_dir = tmp_path / "content-receipts"
+    monkeypatch.setenv("PROPERTYQUARRY_CONTENT_JOB_LEDGER", str(ledger_path))
+    monkeypatch.setenv("PROPERTYQUARRY_SUBSCRIBR_COMPLETION_DIR", str(completion_dir))
+    ledger = PropertyContentJobLedger(path=ledger_path)
+    ownership = {
+        "principal_id": principal_id,
+        "ownership_scope": "search_run",
+        "search_run_id": f"run-{packet_id}",
+    }
+    packet = {
+        "packet_id": packet_id,
+        "content_mode": "PROPERTY_DOSSIER",
+        "source_url": "https://listing.example/private?token=content-source-secret",
+        "access_token": "content-packet-secret",
+    }
+    receipt_path = ledger.write_receipt(
+        packet=packet,
+        receipt={
+            "status": "review_required",
+            "provider": "subscribr",
+            "client_secret": "content-receipt-secret",
+        },
+        **ownership,
+        status="HUMAN_REVIEW_REQUIRED",
+    )
+    payload = {
+        "id": f"event-{packet_id}",
+        "type": "script.generated",
+        "packet_id": packet_id,
+        "raw_provider_token": "content-webhook-secret",
+    }
+    claim = ledger.claim_webhook_event(
+        event_id=str(payload["id"]),
+        payload=payload,
+        packet_id=packet_id,
+        **ownership,
+        extra={"signature_status": "verified"},
+        claim_owner="privacy-test-worker",
+        lease_seconds=60,
+    )
+    assert claim["claimed"] is True
+    ledger.complete_webhook_event(
+        event_id=str(payload["id"]),
+        **ownership,
+        claim_owner="privacy-test-worker",
+        status="review_required",
+    )
+    return ledger, receipt_path
+
+
+def test_dsar_export_is_fingerprint_guarded_bounded_and_secret_redacted(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     principal_id = "pq-privacy-export"
+    _ledger, receipt_path = _seed_private_content(
+        principal_id=principal_id,
+        packet_id="privacy-export-packet",
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+    )
     client = _started_client(principal_id)
     container = client.app.state.container
     for index in range(5):
@@ -62,10 +137,22 @@ def test_dsar_export_is_cursor_paginated_complete_and_secret_redacted() -> None:
     else:  # pragma: no cover - loop guard
         raise AssertionError("DSAR cursor did not terminate")
 
-    assert pages[-1]["pagination"]["complete"] is True
+    assert pages[-1]["pagination"]["complete"] is False
+    assert pages[-1]["pagination"]["page_sequence_exhausted"] is True
+    assert all(page["completeness"]["complete"] is False for page in pages)
+    assert all(
+        page["completeness"]["status"] == "bounded_incomplete" for page in pages
+    )
+    assert len(
+        {
+            page["completeness"]["snapshot_consistency"]["snapshot_fingerprint"]
+            for page in pages
+        }
+    ) == 1
     assert len(record_ids) == len(set(record_ids))
     assert len(record_ids) == int(pages[0]["pagination"]["total_records"])
     assert pages[0]["collections"]["events"] >= 5
+    assert pages[0]["collections"]["property_content_studio"] >= 4
     assert "tours_and_private_receipts" in pages[0]["collections"]
     encoded = json.dumps(pages, sort_keys=True)
     assert "telegram-secret-token" not in encoded
@@ -73,6 +160,27 @@ def test_dsar_export_is_cursor_paginated_complete_and_secret_redacted() -> None:
     assert "/workspace-access/eyJ" not in encoded
     assert "[REDACTED]" in encoded
     assert "kept-0" in encoded
+    assert "privacy-export-packet" in encoded
+    assert receipt_path.name in encoded
+    assert "content-packet-secret" not in encoded
+    assert "content-source-secret" not in encoded
+    assert "content-receipt-secret" not in encoded
+    assert "content-webhook-secret" not in encoded
+    content_items = [
+        item
+        for page in pages
+        for item in page["items"]
+        if item["collection"] == "property_content_studio"
+    ]
+    assert {item["data"]["record_type"] for item in content_items} == {
+        "job",
+        "job_event",
+        "webhook_event",
+    }
+    webhook_item = next(
+        item for item in content_items if item["data"]["record_type"] == "webhook_event"
+    )
+    assert "payload_json" not in webhook_item["data"]
     assert not privacy_export_has_secret_markers(pages)
 
     wrong_tenant = _started_client("pq-privacy-export-other")
@@ -84,15 +192,18 @@ def test_dsar_export_is_cursor_paginated_complete_and_secret_redacted() -> None:
     assert wrong.json()["error"]["code"] == "privacy_export_cursor_wrong_account"
 
 
-def test_dsar_download_reports_complete_and_account_ui_links_it() -> None:
+def test_dsar_download_reports_bounded_incomplete_and_account_ui_links_it() -> None:
     client = _started_client("pq-privacy-download")
 
     export = client.get("/app/api/property/account/export", params={"download": 1})
     assert export.status_code == 200
     payload = export.json()
     assert payload["export_type"] == "propertyquarry_account_data"
-    assert payload["export_version"] == "2.0"
-    assert payload["pagination"]["complete"] is True
+    assert payload["export_version"] == "2.1"
+    assert payload["pagination"]["complete"] is False
+    assert payload["pagination"]["page_sequence_exhausted"] is True
+    assert payload["completeness"]["status"] == "bounded_incomplete"
+    assert payload["completeness"]["truncation"]["possible"] is True
     assert payload["redaction_contract"]["private_tour_receipts_included_for_owner"] is True
     assert "attachment;" in export.headers["content-disposition"]
     assert export.headers["cache-control"] == "no-store"
@@ -109,6 +220,54 @@ def test_dsar_download_reports_complete_and_account_ui_links_it() -> None:
     assert "Type DELETE" in deletion.text
     assert "Retry pending work" in deletion.text
     assert "digest-only erasure tombstone" in deletion.text
+
+
+def test_dsar_cursor_fails_closed_when_requeried_snapshot_changes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rows = [{"event_id": "event-1", "value": "before"}, {"event_id": "event-2"}]
+    collections = {name: [] for name in privacy_lifecycle._COLLECTION_ORDER}
+    collections["events"] = rows
+    legacy = {
+        "principal_id": "privacy-fingerprint",
+        "workspace": {},
+        "selected_channels": [],
+        "privacy": {},
+        "delivery_preferences": {},
+        "property_search_preferences": {},
+        "recent_property_search_runs": [],
+        "workspace_access_sessions": [],
+    }
+    monkeypatch.setattr(
+        privacy_lifecycle,
+        "_export_collections",
+        lambda **_kwargs: (collections, legacy),
+    )
+    container = SimpleNamespace(
+        settings=SimpleNamespace(
+            api_token="privacy-fingerprint-secret",
+            database_url="",
+            runtime_mode="test",
+            storage_backend="memory",
+        )
+    )
+
+    first = build_property_account_export_page(
+        container=container,
+        principal_id="privacy-fingerprint",
+        limit=1,
+    )
+    cursor = str(first["pagination"]["next_cursor"])
+    assert cursor
+    rows[0]["value"] = "after"
+
+    with pytest.raises(PrivacyCursorError, match="privacy_export_snapshot_changed"):
+        build_property_account_export_page(
+            container=container,
+            principal_id="privacy-fingerprint",
+            cursor=cursor,
+            limit=1,
+        )
 
 
 def test_erasure_request_is_idempotent_owner_scoped_and_cancelable() -> None:
@@ -155,6 +314,13 @@ def test_erasure_confirmation_revokes_sessions_tours_and_queues_provider_receipt
     principal_id = "pq-privacy-confirm"
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     monkeypatch.setenv("EA_ENABLE_PUBLIC_TOURS", "1")
+    content_ledger, content_receipt_path = _seed_private_content(
+        principal_id=principal_id,
+        packet_id="privacy-erasure-packet",
+        tmp_path=tmp_path,
+        monkeypatch=monkeypatch,
+    )
+    assert content_receipt_path.exists()
     client = _started_client(principal_id)
     container = client.app.state.container
     service = build_product_service(container)
@@ -218,6 +384,13 @@ def test_erasure_confirmation_revokes_sessions_tours_and_queues_provider_receipt
     assert lifecycle["recovery_state"] == "retry_available"
     assert lifecycle["provider_deletion_receipts"][0]["provider_invoked"] is False
     assert lifecycle["provider_deletion_receipts"][0]["local_binding_deleted"] is True
+    content_receipt = lifecycle["local_deletion_receipts"]["property_content_studio"]
+    assert content_receipt["jobs_deleted"] == 1
+    assert content_receipt["job_events_deleted"] >= 3
+    assert content_receipt["webhook_events_deleted"] == 1
+    assert content_receipt["receipt_files_deleted"] == 1
+    assert not content_receipt_path.exists()
+    assert content_ledger.export_principal_data(principal_id=principal_id)["jobs"] == []
     assert container.provider_registry.get_persisted_binding_record(
         binding_id=binding.binding_id,
         principal_id=principal_id,

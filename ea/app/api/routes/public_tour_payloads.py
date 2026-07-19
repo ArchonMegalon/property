@@ -22,6 +22,7 @@ class PublicTourManifest:
 @dataclass(frozen=True)
 class PrivateTourReceipt:
     principal_id: str = ""
+    search_run_id: str = ""
     listing_url: str = ""
     property_url: str = ""
     source_ref: str = ""
@@ -31,18 +32,21 @@ class PrivateTourReceipt:
     source_virtual_tour_url: str = ""
     source_virtual_tour_origin: str = ""
     panorama_source: str = ""
+    pano2vr_spatial_provenance: dict[str, object] = field(default_factory=dict)
     three_d_vista_import: dict[str, object] = field(default_factory=dict)
     three_d_vista_white_label_proof: dict[str, object] = field(default_factory=dict)
     three_d_vista_browser_render_proof: dict[str, object] = field(default_factory=dict)
     three_d_vista_entry_relpath: str = ""
     three_d_vista_url: str = ""
     matterport_url: str = ""
+    private_exact_location: dict[str, object] = field(default_factory=dict)
 
     @classmethod
     def from_payload(cls, payload: dict[str, object]) -> "PrivateTourReceipt":
         source = dict(payload or {})
         return cls(
             principal_id=str(source.get("principal_id") or "").strip(),
+            search_run_id=str(source.get("search_run_id") or "").strip(),
             listing_url=str(source.get("listing_url") or "").strip(),
             property_url=str(source.get("property_url") or "").strip(),
             source_ref=str(source.get("source_ref") or "").strip(),
@@ -52,6 +56,9 @@ class PrivateTourReceipt:
             source_virtual_tour_url=str(source.get("source_virtual_tour_url") or "").strip(),
             source_virtual_tour_origin=str(source.get("source_virtual_tour_origin") or "").strip(),
             panorama_source=str(source.get("panorama_source") or "").strip(),
+            pano2vr_spatial_provenance=dict(source.get("pano2vr_spatial_provenance") or {})
+            if isinstance(source.get("pano2vr_spatial_provenance"), dict)
+            else {},
             three_d_vista_import=dict(source.get("three_d_vista_import") or {})
             if isinstance(source.get("three_d_vista_import"), dict)
             else {},
@@ -69,11 +76,13 @@ class PrivateTourReceipt:
             ).strip(),
             three_d_vista_url=str(source.get("three_d_vista_url") or "").strip(),
             matterport_url=str(source.get("matterport_url") or "").strip(),
+            private_exact_location=private_tour_exact_location_snapshot(source),
         )
 
     def as_dict(self) -> dict[str, object]:
         return {
             "principal_id": self.principal_id,
+            "search_run_id": self.search_run_id,
             "listing_url": self.listing_url,
             "property_url": self.property_url,
             "source_ref": self.source_ref,
@@ -83,12 +92,14 @@ class PrivateTourReceipt:
             "source_virtual_tour_url": self.source_virtual_tour_url,
             "source_virtual_tour_origin": self.source_virtual_tour_origin,
             "panorama_source": self.panorama_source,
+            "pano2vr_spatial_provenance": self.pano2vr_spatial_provenance,
             "three_d_vista_import": self.three_d_vista_import,
             "three_d_vista_white_label_proof": self.three_d_vista_white_label_proof,
             "three_d_vista_browser_render_proof": self.three_d_vista_browser_render_proof,
             "three_d_vista_entry_relpath": self.three_d_vista_entry_relpath,
             "three_d_vista_url": self.three_d_vista_url,
             "matterport_url": self.matterport_url,
+            "private_exact_location": self.private_exact_location,
         }
 
 _PUBLIC_TOUR_PRIVATE_KEYS = frozenset(
@@ -123,6 +134,7 @@ _PUBLIC_TOUR_PRIVATE_KEYS = frozenset(
         "recipient_phone",
         "refresh_token",
         "runtime_inputs_json",
+        "search_run_id",
         "secret",
         "session",
         "shortlist",
@@ -279,6 +291,27 @@ _PUBLIC_TOUR_EXACT_LOCATION_FACT_KEYS = frozenset(
         "street_name",
     }
 )
+_PUBLIC_TOUR_EXACT_LOCATION_COMPACT_KEYS = frozenset(
+    re.sub(r"[^a-z0-9]+", "", key.lower())
+    for key in _PUBLIC_TOUR_EXACT_LOCATION_FACT_KEYS
+)
+_PUBLIC_TOUR_EXACT_LOCATION_FINGERPRINT_KEYS = frozenset(
+    re.sub(r"[^a-z0-9]+", "", key.lower())
+    for key in {
+        "address",
+        "address_line",
+        "address_lines",
+        "exact_address",
+        "formatted_address",
+        "geocoded_address",
+        "reverse_geocode",
+        "street",
+        "street_address",
+        "street_name",
+    }
+)
+_PUBLIC_TOUR_EXACT_LOCATION_FINGERPRINT_LIMIT = 64
+_PUBLIC_TOUR_EXACT_LOCATION_FINGERPRINT_MAX_CHARS = 512
 _PUBLIC_TOUR_ANONYMOUS_FACT_KEYS = frozenset(
     {
         "area_sqm",
@@ -321,6 +354,15 @@ _PUBLIC_TOUR_ANONYMOUS_FACT_KEYS = frozenset(
         "total_rent_eur",
         "building_units",
         "year_built",
+    }
+)
+_PUBLIC_TOUR_COARSE_LOCATION_FACT_KEYS = frozenset(
+    {
+        "city",
+        "district",
+        "district_name",
+        "municipality",
+        "postal_name",
     }
 )
 _PUBLIC_TOUR_PUBLIC_ASSESSMENT_KEYS = frozenset(
@@ -406,6 +448,223 @@ def public_tour_key_is_private(key: object) -> bool:
     return any(marker in normalized for marker in _PUBLIC_TOUR_PRIVATE_KEY_MARKERS)
 
 
+def public_tour_key_is_exact_location(key: object) -> bool:
+    compact = re.sub(r"[^a-z0-9]+", "", str(key or "").strip().lower())
+    return bool(compact) and compact in _PUBLIC_TOUR_EXACT_LOCATION_COMPACT_KEYS
+
+
+def private_tour_exact_location_snapshot(payload: dict[str, object]) -> dict[str, object]:
+    """Retain exact location only in the private, owner-controlled receipt."""
+
+    def _select(value: object) -> tuple[bool, object]:
+        if isinstance(value, dict):
+            selected: dict[str, object] = {}
+            for key, child in value.items():
+                normalized_key = str(key)
+                if public_tour_key_is_exact_location(key):
+                    selected[normalized_key] = child
+                    continue
+                found, nested = _select(child)
+                if found:
+                    selected[normalized_key] = nested
+            return bool(selected), selected
+        if isinstance(value, (list, tuple)):
+            selected_items: list[object] = []
+            found_any = False
+            for child in value:
+                found, nested = _select(child)
+                selected_items.append(nested if found else None)
+                found_any = found_any or found
+            return found_any, selected_items
+        return False, None
+
+    found, selected = _select(dict(payload or {}))
+    return dict(selected) if found and isinstance(selected, dict) else {}
+
+
+def public_tour_exact_location_string_fingerprints(
+    payload: dict[str, object],
+) -> tuple[str, ...]:
+    """Return bounded exact-location strings that must never enter public JSON.
+
+    Exact-address fields often get copied into otherwise public presentation
+    strings (titles, scene labels, summaries).  Key filtering cannot catch that
+    second-order leak.  Only address/street-sized values become fingerprints;
+    coordinates, postcodes, and lone house numbers are deliberately excluded so
+    a small scalar cannot erase unrelated public copy globally.
+    """
+
+    fingerprints: set[str] = set()
+    facts = payload.get("facts")
+    coarse_location_values = {
+        re.sub(r"\s+", " ", value).strip().casefold()
+        for key, value in (facts.items() if isinstance(facts, dict) else ())
+        if str(key or "").strip().lower() in _PUBLIC_TOUR_COARSE_LOCATION_FACT_KEYS
+        and isinstance(value, str)
+        and re.sub(r"\s+", " ", value).strip()
+    }
+
+    def _add(value: object) -> None:
+        if len(fingerprints) >= _PUBLIC_TOUR_EXACT_LOCATION_FINGERPRINT_LIMIT:
+            return
+        if isinstance(value, (list, tuple)):
+            for child in value:
+                _add(child)
+                if len(fingerprints) >= _PUBLIC_TOUR_EXACT_LOCATION_FINGERPRINT_LIMIT:
+                    break
+            return
+        if not isinstance(value, str):
+            return
+        candidate = re.sub(r"\s+", " ", value).strip()
+        candidate = candidate[
+            :_PUBLIC_TOUR_EXACT_LOCATION_FINGERPRINT_MAX_CHARS
+        ].rstrip()
+        # Coarse location labels are an explicit part of the anonymous public
+        # facts contract. Address-line arrays commonly repeat them, but that
+        # must not turn an allowlisted district or postal label into a global
+        # exact-address fingerprint.
+        if candidate.casefold() in coarse_location_values:
+            return
+        if len(candidate) < 8 or not any(character.isalpha() for character in candidate):
+            return
+        words = re.findall(r"[^\W_]+", candidate, flags=re.UNICODE)
+        if len(words) < 2 and len(candidate) < 12:
+            return
+        fingerprints.add(candidate)
+
+    def _collect(value: object) -> None:
+        if len(fingerprints) >= _PUBLIC_TOUR_EXACT_LOCATION_FINGERPRINT_LIMIT:
+            return
+        if isinstance(value, dict):
+            for key, child in value.items():
+                compact_key = re.sub(
+                    r"[^a-z0-9]+",
+                    "",
+                    str(key or "").strip().lower(),
+                )
+                if compact_key in _PUBLIC_TOUR_EXACT_LOCATION_FINGERPRINT_KEYS:
+                    _add(child)
+                _collect(child)
+                if len(fingerprints) >= _PUBLIC_TOUR_EXACT_LOCATION_FINGERPRINT_LIMIT:
+                    break
+        elif isinstance(value, (list, tuple)):
+            for child in value:
+                _collect(child)
+                if len(fingerprints) >= _PUBLIC_TOUR_EXACT_LOCATION_FINGERPRINT_LIMIT:
+                    break
+
+    _collect(private_tour_exact_location_snapshot(payload))
+    return tuple(
+        sorted(fingerprints, key=lambda item: (-len(item), item.casefold()))[
+            :_PUBLIC_TOUR_EXACT_LOCATION_FINGERPRINT_LIMIT
+        ]
+    )
+
+
+def _public_tour_exact_location_pattern(fingerprint: str) -> re.Pattern[str]:
+    normalized = str(fingerprint or "").strip()[
+        :_PUBLIC_TOUR_EXACT_LOCATION_FINGERPRINT_MAX_CHARS
+    ]
+    tokens = re.findall(r"[^\W_]+", normalized, flags=re.UNICODE)
+    if not tokens:
+        return re.compile(re.escape(normalized), flags=re.IGNORECASE)
+    token_pattern = r"[^\w]+".join(re.escape(token) for token in tokens)
+    return re.compile(
+        rf"(?<!\w){token_pattern}(?!\w)",
+        flags=re.IGNORECASE,
+    )
+
+
+def _public_tour_exact_location_key_is_pathlike(key: object) -> bool:
+    normalized_key = str(key or "").strip().lower().replace("-", "_")
+    return any(marker in normalized_key for marker in ("path", "relpath", "url"))
+
+
+def _public_tour_exact_location_string_fallback(*, key: object, value: str) -> str:
+    normalized_key = str(key or "").strip().lower().replace("-", "_")
+    if normalized_key in {"title", "tour_title", "display_title"}:
+        return "Property tour"
+    if normalized_key.endswith("_id") or normalized_key in {
+        "id",
+        "location_id",
+        "scene_id",
+    }:
+        digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
+        return f"public-location-{digest}"
+    if _public_tour_exact_location_key_is_pathlike(normalized_key):
+        return ""
+    if normalized_key in {"name", "label", "scene"}:
+        return "Property view"
+    if normalized_key == "role":
+        return "detail"
+    return "Property detail"
+
+
+def scrub_public_tour_exact_location_strings(
+    value: object,
+    *,
+    fingerprints: tuple[str, ...],
+    key: object = "",
+) -> object:
+    """Recursively remove exact-address fingerprints from public string values."""
+
+    if isinstance(value, dict):
+        return {
+            str(child_key): scrub_public_tour_exact_location_strings(
+                child,
+                fingerprints=fingerprints,
+                key=child_key,
+            )
+            for child_key, child in value.items()
+        }
+    if isinstance(value, list):
+        return [
+            scrub_public_tour_exact_location_strings(
+                child,
+                fingerprints=fingerprints,
+                key=key,
+            )
+            for child in value
+        ]
+    if isinstance(value, tuple):
+        return [
+            scrub_public_tour_exact_location_strings(
+                child,
+                fingerprints=fingerprints,
+                key=key,
+            )
+            for child in value
+        ]
+    if not isinstance(value, str) or not fingerprints:
+        return value
+
+    cleaned = value
+    matched = False
+    for fingerprint in fingerprints:
+        pattern = _public_tour_exact_location_pattern(fingerprint)
+        if pattern.search(cleaned):
+            matched = True
+            if _public_tour_exact_location_key_is_pathlike(key):
+                return ""
+            cleaned = pattern.sub(" ", cleaned)
+    if not matched:
+        return value
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" \t\r\n-\u2013\u2014,:;|/()[]")
+    if (
+        len(cleaned) >= 3
+        and any(character.isalpha() for character in cleaned)
+        and not any(
+            _public_tour_exact_location_pattern(fingerprint).search(cleaned)
+            for fingerprint in fingerprints
+        )
+    ):
+        return cleaned
+    return _public_tour_exact_location_string_fallback(
+        key=key,
+        value=value,
+    )
+
+
 def public_tour_safe_asset_relpath(value: object) -> str:
     raw = str(value or "").strip().replace("\\", "/")
     if not raw or "\x00" in raw or "://" in raw or raw.startswith("/"):
@@ -467,7 +726,6 @@ def require_public_tour_viewable(payload: dict[str, object]) -> None:
         )
         if normalized_proof_status in _PUBLIC_TOUR_PENDING_MAGICFIT_PROOF_STATUSES:
             raise HTTPException(status_code=404, detail="tour_not_found")
-
     if public_tour_privacy_mode(payload) == "owner_private":
         raise HTTPException(status_code=404, detail="tour_not_found")
     require_governed_spatial_public_tour_viewable(payload)
@@ -900,7 +1158,7 @@ def redact_public_tour_value(value: object) -> object:
     if isinstance(value, dict):
         redacted: dict[str, object] = {}
         for key, item in value.items():
-            if public_tour_key_is_private(key):
+            if public_tour_key_is_private(key) or public_tour_key_is_exact_location(key):
                 continue
             redacted[str(key)] = redact_public_tour_value(item)
         return redacted
@@ -919,10 +1177,8 @@ def redacted_public_tour_facts(
 ) -> dict[str, object]:
     redacted_value = redact_public_tour_value(facts if isinstance(facts, dict) else {})
     redacted = dict(redacted_value) if isinstance(redacted_value, dict) else {}
-    exact_address_allowed = public_tour_exact_address_allowed(payload, privacy_mode=privacy_mode)
     for key in list(redacted.keys()):
-        normalized_key = str(key or "").strip().lower()
-        if normalized_key in _PUBLIC_TOUR_EXACT_LOCATION_FACT_KEYS and not exact_address_allowed:
+        if public_tour_key_is_exact_location(key):
             redacted.pop(key, None)
     if privacy_mode != "anonymous_public":
         return redacted
@@ -1091,7 +1347,12 @@ def redacted_public_tour_payload(
                 bundle_dir_resolver=bundle_dir_resolver,
             ).values()
         )
-    return rendered
+    fingerprints = public_tour_exact_location_string_fingerprints(payload)
+    scrubbed = scrub_public_tour_exact_location_strings(
+        rendered,
+        fingerprints=fingerprints,
+    )
+    return dict(scrubbed) if isinstance(scrubbed, dict) else {}
 
 
 def build_public_tour_manifest(

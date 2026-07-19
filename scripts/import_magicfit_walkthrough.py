@@ -15,6 +15,27 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
+try:
+    from property_tour_host_safety import (
+        TourHostSafetyError,
+        bounded_env_int,
+        bounded_lane_lock,
+        require_bounded_file,
+        require_free_disk,
+        tour_asset_max_bytes,
+        tour_manifest_max_bytes,
+    )
+except ModuleNotFoundError:
+    from scripts.property_tour_host_safety import (
+        TourHostSafetyError,
+        bounded_env_int,
+        bounded_lane_lock,
+        require_bounded_file,
+        require_free_disk,
+        tour_asset_max_bytes,
+        tour_manifest_max_bytes,
+    )
+
 
 PUBLIC_VIDEO_EXTENSIONS = {".mp4", ".m4v", ".mov", ".webm"}
 MAGICFIT_HOSTED_VIDEO_RE = re.compile(
@@ -197,7 +218,8 @@ def _video_is_playable(path: Path) -> bool:
     if suffix not in PUBLIC_VIDEO_EXTENSIONS:
         return False
     try:
-        header = path.read_bytes()[:64]
+        with path.open("rb") as handle:
+            header = handle.read(64)
     except OSError:
         return False
     if len(header) < 12:
@@ -285,12 +307,24 @@ def _load_magicfit_receipt(
     if not receipt_path.is_file():
         raise SystemExit("magicfit_receipt_missing")
     try:
+        require_bounded_file(
+            receipt_path,
+            reason_prefix="magicfit_receipt",
+            maximum_bytes=bounded_env_int(
+                "PROPERTYQUARRY_MAGICFIT_RECEIPT_MAX_BYTES",
+                default=1024 * 1024,
+                minimum=1_024,
+                maximum=8 * 1024 * 1024,
+            ),
+        )
         receipt_bytes = receipt_path.read_bytes()
         payload = json.loads(
             receipt_bytes.decode("utf-8"),
             object_pairs_hook=_strict_json_object,
             parse_constant=_reject_nonfinite_json,
         )
+    except TourHostSafetyError as exc:
+        raise SystemExit(str(exc)) from exc
     except Exception as exc:
         raise SystemExit(f"magicfit_receipt_invalid:{type(exc).__name__}") from exc
     if not isinstance(payload, dict):
@@ -351,7 +385,7 @@ def _coverage_proof_from_receipt(payload: dict[str, object]) -> dict[str, object
     return {}
 
 
-def main() -> int:
+def _main_unlocked() -> int:
     parser = argparse.ArgumentParser(description="Import a verified MagicFit walkthrough video into a public tour bundle.")
     parser.add_argument("--slug", required=True, help="Existing PropertyQuarry public tour slug.")
     parser.add_argument("--video-path", required=True, help="Playable MagicFit MP4/M4V/MOV/WebM render.")
@@ -370,6 +404,14 @@ def main() -> int:
     source = Path(args.video_path).expanduser().resolve()
     if not source.is_file():
         raise SystemExit("magicfit_video_missing")
+    try:
+        require_bounded_file(
+            source,
+            reason_prefix="magicfit_video",
+            maximum_bytes=tour_asset_max_bytes(),
+        )
+    except TourHostSafetyError as exc:
+        raise SystemExit(str(exc)) from exc
     if not _video_is_playable(source):
         raise SystemExit("magicfit_video_unverified")
     receipt_payload, _receipt_path, source_receipt_sha256 = _load_magicfit_receipt(
@@ -394,6 +436,14 @@ def main() -> int:
     manifest_path = bundle_dir / "tour.json"
     if not manifest_path.is_file():
         raise SystemExit("tour_manifest_missing")
+    try:
+        require_bounded_file(
+            manifest_path,
+            reason_prefix="tour_manifest",
+            maximum_bytes=tour_manifest_max_bytes(),
+        )
+    except TourHostSafetyError as exc:
+        raise SystemExit(str(exc)) from exc
 
     if args.target_relpath:
         target_relpath = _safe_relpath(args.target_relpath)
@@ -441,6 +491,14 @@ def main() -> int:
         stage_dir = _private_stage_directory(bundle_dir, stage_dir_relpath)
         staged_video_relpath = f"{stage_dir_relpath}/video{source.suffix.lower()}"
         staged_video_path = bundle_dir / staged_video_relpath
+        try:
+            require_free_disk(
+                stage_dir,
+                reason_prefix="magicfit_import",
+                expected_write_bytes=int(source.stat(follow_symlinks=False).st_size),
+            )
+        except TourHostSafetyError as exc:
+            raise SystemExit(str(exc)) from exc
         _stage_video(source, staged_video_path, expected_sha256=video_sha256)
 
         accepted_sidecar_relpath = (
@@ -508,7 +566,6 @@ def main() -> int:
             _json_bytes(pending_delivery),
             mode=0o600,
         )
-
     print(
         json.dumps(
             {
@@ -527,6 +584,14 @@ def main() -> int:
         )
     )
     return 0
+
+
+def main() -> int:
+    try:
+        with bounded_lane_lock("magicfit-import"):
+            return _main_unlocked()
+    except TourHostSafetyError as exc:
+        raise SystemExit(str(exc)) from exc
 
 
 if __name__ == "__main__":

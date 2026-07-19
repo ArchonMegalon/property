@@ -88,17 +88,37 @@ propertyquarry_readiness 1
 # TYPE propertyquarry_expected_api_replicas gauge
 propertyquarry_expected_api_replicas 1
 # TYPE propertyquarry_runtime_heartbeat_required gauge
-propertyquarry_runtime_heartbeat_required{{role="worker"}} 0
+propertyquarry_runtime_heartbeat_required{{role="worker"}} 1
 propertyquarry_runtime_heartbeat_required{{role="scheduler"}} 1
 # TYPE propertyquarry_runtime_heartbeat_age_seconds gauge
-propertyquarry_runtime_heartbeat_age_seconds{{role="worker"}} 0
+propertyquarry_runtime_heartbeat_age_seconds{{role="worker"}} 5
 propertyquarry_runtime_heartbeat_age_seconds{{role="scheduler"}} 5
 # TYPE propertyquarry_runtime_heartbeat_present gauge
-propertyquarry_runtime_heartbeat_present{{role="worker"}} 0
+propertyquarry_runtime_heartbeat_present{{role="worker"}} 1
 propertyquarry_runtime_heartbeat_present{{role="scheduler"}} 1
 # TYPE propertyquarry_runtime_heartbeat_stale gauge
-propertyquarry_runtime_heartbeat_stale{{role="worker"}} 1
+propertyquarry_runtime_heartbeat_stale{{role="worker"}} 0
 propertyquarry_runtime_heartbeat_stale{{role="scheduler"}} 0
+# TYPE propertyquarry_ingress_rejections_total counter
+propertyquarry_ingress_rejections_total{{reason="none",dimension="none"}} 0
+# TYPE propertyquarry_ingress_cost_units_total counter
+propertyquarry_ingress_cost_units_total{{route_class="property_search_start"}} 0
+# TYPE propertyquarry_ingress_high_cost_inflight gauge
+propertyquarry_ingress_high_cost_inflight{{route_class="property_search_start"}} 0
+# TYPE propertyquarry_ingress_admission_operations_total counter
+propertyquarry_ingress_admission_operations_total{{backend="postgres",operation="quota",outcome="allowed"}} 0
+# TYPE propertyquarry_admission_capacity_contract_valid gauge
+propertyquarry_admission_capacity_contract_valid{{backend="postgres"}} 1
+# TYPE propertyquarry_admission_capacity_row_count gauge
+propertyquarry_admission_capacity_row_count{{backend="postgres",capacity_key="lease"}} 12
+propertyquarry_admission_capacity_row_count{{backend="postgres",capacity_key="quota"}} 345
+# TYPE propertyquarry_admission_capacity_limit gauge
+propertyquarry_admission_capacity_limit{{backend="postgres",capacity_key="lease"}} 100000
+propertyquarry_admission_capacity_limit{{backend="postgres",capacity_key="quota"}} 1000000
+# TYPE propertyquarry_queue_depth gauge
+propertyquarry_queue_depth{{queue="property_search"}} 0
+# TYPE propertyquarry_queue_oldest_item_age_seconds gauge
+propertyquarry_queue_oldest_item_age_seconds{{queue="property_search"}} 0
 # TYPE propertyquarry_scheduler_delivery_outbox_events_total counter
 propertyquarry_scheduler_delivery_outbox_events_total{{outcome="dead_lettered"}} 0
 propertyquarry_scheduler_delivery_outbox_events_total{{outcome="failed"}} 0
@@ -572,6 +592,81 @@ def test_nonpassing_end_state_fails_before_tools(
     assert exit_code == 2
     assert message in receipt["error"]["message"]
     assert runner.calls == []
+
+
+def test_flagship_metrics_require_live_worker_and_property_search_queue_samples() -> None:
+    slo = evidence.validate_slo_document(
+        json.loads(evidence.DEFAULT_SLO_PATH.read_text(encoding="utf-8"))
+    )
+    families, samples = evidence.parse_metrics_snapshot(BASE_END_METRICS)
+
+    without_queue = [
+        sample
+        for sample in samples
+        if sample.name
+        not in {
+            "propertyquarry_queue_depth",
+            "propertyquarry_queue_oldest_item_age_seconds",
+        }
+    ]
+    with pytest.raises(evidence.SloValidationError, match="queue_backlog has no finite samples"):
+        evidence.validate_metrics(families=families, samples=without_queue, slo=slo)
+
+    worker_optional = [
+        evidence.MetricSample(sample.name, sample.labels, 0.0)
+        if sample.name == "propertyquarry_runtime_heartbeat_required"
+        and sample.labels.get("role") == "worker"
+        else sample
+        for sample in samples
+    ]
+    with pytest.raises(evidence.SloValidationError, match="worker heartbeat must remain required"):
+        evidence.validate_metrics(families=families, samples=worker_optional, slo=slo)
+
+
+@pytest.mark.parametrize(
+    ("metrics", "message"),
+    (
+        (
+            BASE_END_METRICS.replace(
+                'propertyquarry_admission_capacity_contract_valid{backend="postgres"} 1',
+                'propertyquarry_admission_capacity_contract_valid{backend="postgres"} 0',
+            ),
+            "capacity contract",
+        ),
+        (
+            BASE_END_METRICS.replace(
+                'propertyquarry_admission_capacity_limit{backend="postgres",capacity_key="quota"} 1000000',
+                'propertyquarry_admission_capacity_limit{backend="postgres",capacity_key="quota"} 999999',
+            ),
+            "fixed hard limits",
+        ),
+        (
+            BASE_END_METRICS.replace(
+                'propertyquarry_admission_capacity_row_count{backend="postgres",capacity_key="quota"} 345',
+                'propertyquarry_admission_capacity_row_count{backend="postgres",capacity_key="quota"} 1000001',
+            ),
+            "out of bounds",
+        ),
+        (
+            BASE_END_METRICS.replace(
+                'propertyquarry_admission_capacity_row_count{backend="postgres",capacity_key="quota"} 345',
+                'propertyquarry_admission_capacity_row_count{backend="postgres",capacity_key="quota"} 800001',
+            ),
+            "launch warning threshold",
+        ),
+    ),
+)
+def test_flagship_metrics_reject_invalid_admission_capacity_contract(
+    metrics: str,
+    message: str,
+) -> None:
+    slo = evidence.validate_slo_document(
+        json.loads(evidence.DEFAULT_SLO_PATH.read_text(encoding="utf-8"))
+    )
+    families, samples = evidence.parse_metrics_snapshot(metrics)
+
+    with pytest.raises(evidence.SloValidationError, match=message):
+        evidence.validate_metrics(families=families, samples=samples, slo=slo)
 
 
 def test_counter_reset_is_rejected(tmp_path: Path) -> None:

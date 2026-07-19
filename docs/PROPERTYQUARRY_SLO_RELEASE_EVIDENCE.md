@@ -70,7 +70,7 @@ consolidated gold-status gate.
 ```bash
 export PROPERTYQUARRY_SLO_METRICS_SNAPSHOT='_completion/propertyquarry_slo_evidence/metrics-current.prom'
 export PROPERTYQUARRY_SLO_METRICS_PROBE_RECEIPT='_completion/propertyquarry_slo_evidence/metrics-probe-current.json'
-bash scripts/property_release_gates.sh
+./scripts/property_release_gates.sh
 ```
 
 ## Production deploy boundary

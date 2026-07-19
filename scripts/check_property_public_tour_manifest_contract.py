@@ -103,15 +103,28 @@ def main() -> int:
         failures.append("raw public tour JSON route must expose manifest assets, not raw relpaths")
 
     writer_source = inspect.getsource(property_tour_hosting._write_hosted_property_tour_payload)
+    delegated_writer_source = inspect.getsource(
+        property_tour_hosting._write_hosted_property_tour_payload_with_slug_lock_held
+    )
+    atomic_writer_source = inspect.getsource(
+        property_tour_hosting._write_hosted_property_tour_manifests_atomic
+    )
     public_builder_source = inspect.getsource(property_tour_hosting._public_tour_public_payload)
     private_receipt_source = inspect.getsource(property_tour_hosting._public_tour_private_receipt)
-    if "_public_tour_public_payload(payload)" not in writer_source:
+    if "_write_hosted_property_tour_payload_with_slug_lock_held" not in writer_source:
+        failures.append("hosted public tour writer must delegate while holding the slug publication lock")
+    if "_public_tour_public_payload(payload)" not in delegated_writer_source:
         failures.append("hosted public tour writer must construct tour.json through the public manifest builder")
     if "build_public_tour_manifest" not in public_builder_source:
         failures.append("hosted public tour writer must use the explicit PublicTourManifest builder")
     if "PrivateTourReceipt" not in private_receipt_source:
         failures.append("hosted public tour writer must use the explicit PrivateTourReceipt contract")
-    if "tour.private.json" not in writer_source and "_public_tour_private_manifest_path" not in writer_source:
+    if "_public_tour_private_receipt(payload)" not in delegated_writer_source:
+        failures.append("hosted public tour writer must construct the private receipt separately")
+    if (
+        "_write_hosted_property_tour_manifests_atomic" not in delegated_writer_source
+        or "_PROPERTY_PUBLIC_TOUR_PRIVATE_MANIFEST" not in atomic_writer_source
+    ):
         failures.append("hosted public tour writer must keep private receipt data outside raw tour.json")
 
     landing_source = inspect.getsource(__import__("app.api.routes.landing", fromlist=["_propertyquarry_example_media_targets"])._propertyquarry_example_media_targets)

@@ -1,0 +1,363 @@
+{
+  "schema": "propertyquarry.global_market_envelope.v1",
+  "version": 1,
+  "envelope_id": "propertyquarry-global-market-envelope-2026-07-19",
+  "audit_basis": {
+    "candidate_head": "fa7d2194d561d6bff6a957d02219e96cff8ecf3d",
+    "candidate_tree": "02c611f7845eb7b07c056e5131ab7fda60bad475",
+    "candidate_staged_diff_sha256_before_global_envelope": "2290f58ae884b3d18dacab164d45dea36df96c0f813c32f94e18015e7807c571",
+    "audited_at": "2026-07-19",
+    "scope": "AT, DE, and CR customer-facing market readiness"
+  },
+  "phase_one": {
+    "name": "English-only invite-only cross-border buyer and renter decision-support private beta",
+    "operating_mode": "invite_only_private_beta",
+    "content_language": "en",
+    "supported_workflows": [
+      "buyer_decision_support",
+      "renter_discovery"
+    ],
+    "excluded_claims": [
+      "fully_localized_global_product",
+      "live_provider_availability_guarantee",
+      "renter_application_or_lease",
+      "seller_listing_supply_or_leads",
+      "purchase_transaction_or_closing",
+      "wcag_22_aa_certified",
+      "full_firefox_or_safari_app_support"
+    ]
+  },
+  "evidence_catalog": {
+    "market_catalog_75": {
+      "kind": "pytest_receipt",
+      "ref": "tests/test_property_market_catalog.py; 75 passed; /var/tmp/pq-global-cx-market-fa7.G1kBrz/property-market-catalog.junit.xml",
+      "sha256": "f241ab049dd53ce3124ae168f0cdad767d8dfef3e83f8c76cce4f30b72651fec",
+      "scope": "AT/DE/CR catalog, provider selection, region defaults, and source specification contracts"
+    },
+    "chromium_flagship_100": {
+      "kind": "browser_receipt",
+      "ref": "/var/tmp/pq-final-flagship-02c611f7.oK0Qbh/receipts/FINAL.txt; /tmp/pq-public-tour-fa7-recert-roots/2e0fa4ce.nGsaNK/receipts/harness/chromium-all-100.nodes",
+      "sha256": "2191f4ebfdab5f46f90671e0d0263e6a37cf0b3cb5fe3fc0b3547418f158ad80",
+      "scope": "100 deterministic Chromium product and public-tour browser tests; no live provider fetch"
+    },
+    "webkit_public_tour_22": {
+      "kind": "browser_receipt",
+      "ref": "/var/tmp/pq-webkit-22-60d.Z74MbF/receipts/FINAL.json; /tmp/pq-public-tour-fa7-recert-roots/2e0fa4ce.nGsaNK/receipts/harness/webkit-all-22.nodes",
+      "scope": "22 WebKit public-tour and reconstruction tests; not the authenticated app"
+    },
+    "at_fixture_flow": {
+      "kind": "deterministic_browser_test",
+      "ref": "tests/e2e/test_propertyquarry_flagship_flow.py::test_propertyquarry_flagship_flow",
+      "scope": "AT/Vienna buyer search through shortlist, research, tour, and follow-up with monkeypatched provider scout"
+    },
+    "de_fixture_flow": {
+      "kind": "deterministic_browser_test",
+      "ref": "tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_greenfield_workspace_in_real_browser",
+      "scope": "DE/Berlin workbench fixture with seeded and monkeypatched provider results"
+    },
+    "cr_browser_state": {
+      "kind": "deterministic_browser_test",
+      "ref": "tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_stale_terminal_zero_first_paint_reconciles_to_authoritative_live_run",
+      "scope": "CR/es and ten-provider browser state reconciliation with fake run status and zero results"
+    },
+    "critical_ui_localization": {
+      "kind": "source_and_contract_tests",
+      "ref": "ea/app/api/propertyquarry_localization.py; ea/app/static/propertyquarry-localization.css; tests/test_propertyquarry_localization.py; tests/e2e/test_propertyquarry_localization_browser.py",
+      "scope": "de-AT, de-DE, and es-CR critical search, shortlist, and research shell localization with explicit English fallback and unreviewed-copy disclosures; unit coverage for all three locales and mobile Chromium coverage for de-DE plus pseudo-localized expansion; public, auth, account, billing, legal, provider, and dynamic content remain untranslated"
+    },
+    "market_semantics": {
+      "kind": "source_and_contract_tests",
+      "ref": "ea/app/services/property_market_catalog.py:84; tests/test_property_market_catalog.py:996",
+      "scope": "country language, currency, timezone, regions, and location option contracts"
+    },
+    "renter_discovery_contract": {
+      "kind": "source_and_browser_contract_tests",
+      "ref": "tests/test_property_market_catalog.py::test_austria_default_platforms_follow_listing_mode; tests/test_property_market_catalog.py::test_generated_source_specs_skip_buy_only_sources_for_rent_without_distress_signal; tests/test_product_api_contracts.py::test_property_search_preferences_force_investment_research_off_for_rent_and_parse_new_controls; tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_country_switch_replaces_out_of_market_provider_selection; tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_search_goal_toggle_keeps_underwriting_controls_hidden_until_enabled_in_browser",
+      "scope": "supporting rent-mode selection, provider isolation, price semantics, and conditional-control behavior; the complete deterministic value-loop receipt is catalogued separately"
+    },
+    "renter_value_loop_chromium": {
+      "kind": "deterministic_browser_receipt",
+      "ref": "tests/e2e/test_propertyquarry_flagship_flow.py::test_propertyquarry_renter_value_loop_survives_logout_and_relogin; 2 passed; /var/tmp/pq-renter-value-loop-fa7/chromium.junit.xml",
+      "sha256": "e407552133e1182e7fb23f0d1f8b2e9de0d82bff8673b3a01e719a5385b143ab",
+      "scope": "AT and DE fixture-backed Chromium renter journeys: explicit home/rent selection, eligible market-provider dispatch, ordered monthly-rental results, shortlist and research packet, AT honest on-request walkthrough state, DE same-origin fixture-authorized 3DVista tour, saved feedback, exact-run browser notification, email-template preview, workspace-session logout/reissue, and durable preference-learning revisit; no live provider, live identity-provider, external email delivery, provider-rights, or legal evidence"
+    },
+    "market_locale_formatting": {
+      "kind": "source_and_contract_tests",
+      "ref": "ea/app/services/property_locale.py; ea/app/api/routes/landing_property_research.py; tests/test_propertyquarry_market_locale.py",
+      "scope": "deterministic de-AT, de-DE, and es-CR currency, decimal, timezone, address, and postal contracts; explicit search-market research facts render localized currency and number grouping without guessing an unknown market"
+    },
+    "timezone_contract": {
+      "kind": "source_and_contract_tests",
+      "ref": "ea/app/api/routes/landing_actions.py:419; ea/app/api/routes/onboarding.py:483; tests/test_propertyquarry_workspace_redesign.py:14532",
+      "scope": "workspace timezone is stored and displayed; no customer-facing locale/DST formatting receipt"
+    },
+    "accessibility_gate_contract": {
+      "kind": "gate_implementation",
+      "ref": "scripts/propertyquarry_accessibility_gate.py:32; tests/test_propertyquarry_accessibility_gate.py:48",
+      "scope": "WCAG 2.2 AA axe and keyboard gate contract; tri-engine test collection is fake and no manual assistive-technology receipt exists"
+    },
+    "responsive_chromium": {
+      "kind": "browser_test",
+      "ref": "tests/e2e/test_propertyquarry_greenfield_browser.py:2467; tests/e2e/test_propertyquarry_greenfield_browser.py:5504",
+      "scope": "390x844 usability, 44x44 targets, English overflow, and deterministic Chromium visuals"
+    },
+    "seo_shell": {
+      "kind": "source_audit",
+      "ref": "ea/app/templates/base_public.html:16; ea/app/api/routes/landing.py:2695; ea/app/api/routes/landing.py:2853",
+      "scope": "English metadata, FAQ schema, robots, and English/global sitemap; no localized routes or hreflang"
+    },
+    "local_performance": {
+      "kind": "local_test",
+      "ref": "tests/e2e/test_propertyquarry_greenfield_browser.py:5637; tests/test_propertyquarry_workspace_redesign.py:29623",
+      "scope": "local deterministic route timing and response-size budgets; no production p75 Core Web Vitals"
+    },
+    "offline_banner": {
+      "kind": "browser_test",
+      "ref": "ea/app/templates/app/_property_workbench_script.html:15; tests/e2e/test_propertyquarry_greenfield_browser.py:10996",
+      "scope": "offline banner and retry affordance; no offline persistence, idempotent replay, or throttled-network matrix"
+    },
+    "provider_governance_defaults": {
+      "kind": "source_and_contract_tests",
+      "ref": "ea/app/services/property_market_catalog.py:44; tests/test_property_market_catalog.py:91",
+      "scope": "provider market_readiness defaults private_beta; terms/robots need review; cache, republication, and public packet are false"
+    }
+  },
+  "markets": [
+    {
+      "country_code": "AT",
+      "market_language": "de-AT",
+      "currency_code": "EUR",
+      "default_timezone": "Europe/Vienna",
+      "market_contract": {
+        "accepted_content_languages": {
+          "listing_content": ["de-AT", "de", "en"],
+          "customer_ui": ["en"],
+          "fallback": "en"
+        },
+        "measurement_system": {
+          "system": "metric",
+          "area_unit": "m2",
+          "distance_units": ["m", "km"]
+        },
+        "timezone_policy": {
+          "storage_timezone": "UTC",
+          "display_timezone": "Europe/Vienna",
+          "rules_source": "iana_tzdb"
+        },
+        "address_model": {
+          "administrative_levels": ["country", "federal_state", "district_or_municipality", "postal_code", "street", "unit"],
+          "entry_fields": ["country_code", "region_code", "location_query"],
+          "postal_code_pattern": "^[0-9]{4}$",
+          "freeform_fallback": true
+        },
+        "provider_set": {
+          "policy": "search_ready_allowlist",
+          "providers": [
+            {"provider_id": "willhaben", "listing_modes": ["rent", "buy"]},
+            {"provider_id": "immoscout_at", "listing_modes": ["rent", "buy"]},
+            {"provider_id": "derstandard_at", "listing_modes": ["rent", "buy"]},
+            {"provider_id": "wiener_wohnen", "listing_modes": ["rent"]},
+            {"provider_id": "justiz_edikte_at", "listing_modes": ["buy"]}
+          ]
+        },
+        "listing_modes": ["rent", "buy"],
+        "privacy_region": {
+          "jurisdiction_code": "AT",
+          "region_code": "EU_EEA",
+          "verification_status": "external_unverified"
+        },
+        "support_window": {
+          "coverage_status": "not_committed",
+          "timezone": "Europe/Vienna",
+          "weekly_windows": [],
+          "channels": []
+        }
+      },
+      "declared_classification": "private_beta",
+      "workflow_claims": {
+        "buyer_decision_support": true,
+        "renter_discovery": true,
+        "seller_supply": false
+      },
+      "dimensions": {
+        "market_catalog": {"status": "proven", "evidence": ["market_catalog_75"], "missing_evidence": []},
+        "content_locale": {"status": "implemented_unproven", "evidence": ["critical_ui_localization"], "missing_evidence": ["Qualified native de-AT review plus exact-candidate coverage of every public, auth, account, billing, legal, provider, dynamic-content, and critical-state route"]},
+        "address_region": {"status": "implemented_unproven", "evidence": ["market_semantics"], "missing_evidence": ["Live AT address-entry, district, postal, diacritic, and validation matrix"]},
+        "currency_number": {"status": "implemented_unproven", "evidence": ["market_locale_formatting"], "missing_evidence": ["Exact-candidate de-AT browser receipt covering visible EUR values and localized customer input"]},
+        "date_timezone": {"status": "implemented_unproven", "evidence": ["timezone_contract"], "missing_evidence": ["Europe/Vienna DST-boundary and localized date/time browser receipt"]},
+        "rtl_layout": {"status": "not_applicable", "evidence": [], "missing_evidence": [], "reason": "de-AT is left-to-right; global RTL support is outside this market envelope"},
+        "text_expansion": {"status": "implemented_unproven", "evidence": ["critical_ui_localization"], "missing_evidence": ["Exact-candidate de-AT physical-device and desktop long-copy overflow receipt across every required customer route"]},
+        "wcag_22_aa": {"status": "implemented_unproven", "evidence": ["accessibility_gate_contract", "chromium_flagship_100"], "missing_evidence": ["Live AT full-route WCAG 2.2 AA receipt on supported browser matrix"]},
+        "manual_assistive_technology": {"status": "missing", "evidence": ["accessibility_gate_contract"], "missing_evidence": ["Documented NVDA, JAWS, VoiceOver, and TalkBack task receipts for the AT journey"]},
+        "responsive_devices": {"status": "implemented_unproven", "evidence": ["responsive_chromium", "at_fixture_flow"], "missing_evidence": ["AT journey receipt across supported physical mobile and desktop device classes"]},
+        "browser_matrix": {"status": "implemented_unproven", "evidence": ["chromium_flagship_100", "webkit_public_tour_22"], "missing_evidence": ["Authenticated AT app receipts on declared Firefox and Safari versions"]},
+        "seo_discoverability": {"status": "implemented_unproven", "evidence": ["seo_shell"], "missing_evidence": ["Localized de-AT routes, hreflang, canonical, sitemap, and search-engine validation"]},
+        "performance": {"status": "implemented_unproven", "evidence": ["local_performance"], "missing_evidence": ["Production AT p75 Core Web Vitals and representative-device performance receipt"]},
+        "degraded_network": {"status": "implemented_unproven", "evidence": ["offline_banner"], "missing_evidence": ["AT slow, lossy, reconnect, persistence, and idempotent retry journey receipt"]},
+        "provider_rights": {"status": "external_blocked", "evidence": ["provider_governance_defaults"], "missing_evidence": ["Current provider terms, robots, caching, republication, and public-packet approvals"]},
+        "live_provider_e2e": {"status": "external_blocked", "evidence": ["at_fixture_flow", "provider_governance_defaults"], "missing_evidence": ["Live AT provider fetch, normalization, ranking, freshness, detail, and failure-recovery receipt"]},
+        "market_browser_journey": {"status": "proven", "evidence": ["at_fixture_flow", "chromium_flagship_100"], "missing_evidence": []},
+        "buyer_journey": {"status": "proven", "evidence": ["at_fixture_flow"], "missing_evidence": []},
+        "renter_journey": {"status": "proven", "evidence": ["renter_discovery_contract", "renter_value_loop_chromium"], "missing_evidence": []},
+        "seller_journey": {"status": "not_applicable", "evidence": [], "missing_evidence": [], "reason": "Phase one does not claim seller listing supply, leads, or closing"}
+      }
+    },
+    {
+      "country_code": "DE",
+      "market_language": "de-DE",
+      "currency_code": "EUR",
+      "default_timezone": "Europe/Berlin",
+      "market_contract": {
+        "accepted_content_languages": {
+          "listing_content": ["de-DE", "de", "en"],
+          "customer_ui": ["en"],
+          "fallback": "en"
+        },
+        "measurement_system": {
+          "system": "metric",
+          "area_unit": "m2",
+          "distance_units": ["m", "km"]
+        },
+        "timezone_policy": {
+          "storage_timezone": "UTC",
+          "display_timezone": "Europe/Berlin",
+          "rules_source": "iana_tzdb"
+        },
+        "address_model": {
+          "administrative_levels": ["country", "federal_state_or_city", "locality_or_district", "postal_code", "street", "unit"],
+          "entry_fields": ["country_code", "region_code", "location_query"],
+          "postal_code_pattern": "^[0-9]{5}$",
+          "freeform_fallback": true
+        },
+        "provider_set": {
+          "policy": "search_ready_allowlist",
+          "providers": [
+            {"provider_id": "immoscout_de", "listing_modes": ["rent", "buy"]},
+            {"provider_id": "immowelt", "listing_modes": ["rent", "buy"]},
+            {"provider_id": "immonet", "listing_modes": ["rent", "buy"]},
+            {"provider_id": "wg_gesucht_de", "listing_modes": ["rent"]},
+            {"provider_id": "zvg_de", "listing_modes": ["buy"]}
+          ]
+        },
+        "listing_modes": ["rent", "buy"],
+        "privacy_region": {
+          "jurisdiction_code": "DE",
+          "region_code": "EU_EEA",
+          "verification_status": "external_unverified"
+        },
+        "support_window": {
+          "coverage_status": "not_committed",
+          "timezone": "Europe/Berlin",
+          "weekly_windows": [],
+          "channels": []
+        }
+      },
+      "declared_classification": "private_beta",
+      "workflow_claims": {
+        "buyer_decision_support": true,
+        "renter_discovery": true,
+        "seller_supply": false
+      },
+      "dimensions": {
+        "market_catalog": {"status": "proven", "evidence": ["market_catalog_75"], "missing_evidence": []},
+        "content_locale": {"status": "implemented_unproven", "evidence": ["critical_ui_localization"], "missing_evidence": ["Qualified native de-DE review plus exact-candidate coverage of every public, auth, account, billing, legal, provider, dynamic-content, and critical-state route"]},
+        "address_region": {"status": "implemented_unproven", "evidence": ["market_semantics"], "missing_evidence": ["Live DE address-entry, Land, postal, diacritic, and validation matrix"]},
+        "currency_number": {"status": "implemented_unproven", "evidence": ["market_locale_formatting"], "missing_evidence": ["Exact-candidate de-DE browser receipt covering visible EUR values and localized customer input"]},
+        "date_timezone": {"status": "implemented_unproven", "evidence": ["timezone_contract"], "missing_evidence": ["Europe/Berlin DST-boundary and localized date/time browser receipt"]},
+        "rtl_layout": {"status": "not_applicable", "evidence": [], "missing_evidence": [], "reason": "de-DE is left-to-right; global RTL support is outside this market envelope"},
+        "text_expansion": {"status": "implemented_unproven", "evidence": ["critical_ui_localization"], "missing_evidence": ["Exact-candidate de-DE physical-device and desktop long-copy overflow receipt across every required customer route"]},
+        "wcag_22_aa": {"status": "implemented_unproven", "evidence": ["accessibility_gate_contract", "chromium_flagship_100"], "missing_evidence": ["Live DE full-route WCAG 2.2 AA receipt on supported browser matrix"]},
+        "manual_assistive_technology": {"status": "missing", "evidence": ["accessibility_gate_contract"], "missing_evidence": ["Documented NVDA, JAWS, VoiceOver, and TalkBack task receipts for the DE journey"]},
+        "responsive_devices": {"status": "proven", "evidence": ["responsive_chromium", "de_fixture_flow", "chromium_flagship_100"], "missing_evidence": []},
+        "browser_matrix": {"status": "implemented_unproven", "evidence": ["chromium_flagship_100", "webkit_public_tour_22"], "missing_evidence": ["Authenticated DE app receipts on declared Firefox and Safari versions"]},
+        "seo_discoverability": {"status": "implemented_unproven", "evidence": ["seo_shell"], "missing_evidence": ["Localized de-DE routes, hreflang, canonical, sitemap, and search-engine validation"]},
+        "performance": {"status": "implemented_unproven", "evidence": ["local_performance"], "missing_evidence": ["Production DE p75 Core Web Vitals and representative-device performance receipt"]},
+        "degraded_network": {"status": "implemented_unproven", "evidence": ["offline_banner"], "missing_evidence": ["DE slow, lossy, reconnect, persistence, and idempotent retry journey receipt"]},
+        "provider_rights": {"status": "external_blocked", "evidence": ["provider_governance_defaults"], "missing_evidence": ["Current provider terms, robots, caching, republication, and public-packet approvals"]},
+        "live_provider_e2e": {"status": "external_blocked", "evidence": ["de_fixture_flow", "provider_governance_defaults"], "missing_evidence": ["Live DE provider fetch, normalization, ranking, freshness, detail, and failure-recovery receipt"]},
+        "market_browser_journey": {"status": "proven", "evidence": ["de_fixture_flow", "chromium_flagship_100"], "missing_evidence": []},
+        "buyer_journey": {"status": "proven", "evidence": ["de_fixture_flow"], "missing_evidence": []},
+        "renter_journey": {"status": "proven", "evidence": ["renter_discovery_contract", "renter_value_loop_chromium"], "missing_evidence": []},
+        "seller_journey": {"status": "not_applicable", "evidence": [], "missing_evidence": [], "reason": "Phase one does not claim seller listing supply, leads, or closing"}
+      }
+    },
+    {
+      "country_code": "CR",
+      "market_language": "es-CR",
+      "currency_code": "CRC",
+      "default_timezone": "America/Costa_Rica",
+      "market_contract": {
+        "accepted_content_languages": {
+          "listing_content": ["es-CR", "es", "en"],
+          "customer_ui": ["en"],
+          "fallback": "en"
+        },
+        "measurement_system": {
+          "system": "metric",
+          "area_unit": "m2",
+          "distance_units": ["m", "km"]
+        },
+        "timezone_policy": {
+          "storage_timezone": "UTC",
+          "display_timezone": "America/Costa_Rica",
+          "rules_source": "iana_tzdb"
+        },
+        "address_model": {
+          "administrative_levels": ["country", "province", "canton", "district", "postal_code", "street_or_landmark", "unit"],
+          "entry_fields": ["country_code", "region_code", "location_query"],
+          "postal_code_pattern": "^[0-9]{5}$",
+          "freeform_fallback": true
+        },
+        "provider_set": {
+          "policy": "search_ready_allowlist",
+          "providers": [
+            {"provider_id": "encuentra24_cr", "listing_modes": ["rent", "buy"]},
+            {"provider_id": "re_cr_mls", "listing_modes": ["rent", "buy"]},
+            {"provider_id": "properstar_cr", "listing_modes": ["rent", "buy"]},
+            {"provider_id": "realtor_cr", "listing_modes": ["buy"]}
+          ]
+        },
+        "listing_modes": ["rent", "buy"],
+        "privacy_region": {
+          "jurisdiction_code": "CR",
+          "region_code": "CR",
+          "verification_status": "external_unverified"
+        },
+        "support_window": {
+          "coverage_status": "not_committed",
+          "timezone": "America/Costa_Rica",
+          "weekly_windows": [],
+          "channels": []
+        }
+      },
+      "declared_classification": "browser_state_only",
+      "workflow_claims": {
+        "buyer_decision_support": true,
+        "renter_discovery": true,
+        "seller_supply": false
+      },
+      "dimensions": {
+        "market_catalog": {"status": "proven", "evidence": ["market_catalog_75"], "missing_evidence": []},
+        "content_locale": {"status": "implemented_unproven", "evidence": ["critical_ui_localization"], "missing_evidence": ["Qualified native es-CR review plus exact-candidate coverage of every public, auth, account, billing, legal, provider, dynamic-content, and critical-state route"]},
+        "address_region": {"status": "implemented_unproven", "evidence": ["market_semantics"], "missing_evidence": ["Live CR province, canton, district, postal, diacritic, and validation matrix"]},
+        "currency_number": {"status": "implemented_unproven", "evidence": ["market_locale_formatting", "market_semantics"], "missing_evidence": ["Exact-candidate es-CR browser receipt covering visible CRC values and localized customer input"]},
+        "date_timezone": {"status": "implemented_unproven", "evidence": ["timezone_contract", "market_semantics"], "missing_evidence": ["America/Costa_Rica localized date/time browser receipt"]},
+        "rtl_layout": {"status": "not_applicable", "evidence": [], "missing_evidence": [], "reason": "es-CR is left-to-right; global RTL support is outside this market envelope"},
+        "text_expansion": {"status": "implemented_unproven", "evidence": ["critical_ui_localization"], "missing_evidence": ["Exact-candidate es-CR physical-device and desktop long-copy overflow receipt across every required customer route"]},
+        "wcag_22_aa": {"status": "implemented_unproven", "evidence": ["accessibility_gate_contract"], "missing_evidence": ["Live CR full-route WCAG 2.2 AA receipt on supported browser matrix"]},
+        "manual_assistive_technology": {"status": "missing", "evidence": ["accessibility_gate_contract"], "missing_evidence": ["Documented NVDA, JAWS, VoiceOver, and TalkBack task receipts for the CR journey"]},
+        "responsive_devices": {"status": "implemented_unproven", "evidence": ["cr_browser_state"], "missing_evidence": ["CR journey receipt across supported physical mobile and desktop device classes"]},
+        "browser_matrix": {"status": "missing", "evidence": ["cr_browser_state"], "missing_evidence": ["CR authenticated app receipts on every declared browser and version"]},
+        "seo_discoverability": {"status": "implemented_unproven", "evidence": ["seo_shell"], "missing_evidence": ["Localized es-CR routes, hreflang, canonical, sitemap, and search-engine validation"]},
+        "performance": {"status": "implemented_unproven", "evidence": ["local_performance"], "missing_evidence": ["Production CR p75 Core Web Vitals and representative-device performance receipt"]},
+        "degraded_network": {"status": "implemented_unproven", "evidence": ["offline_banner"], "missing_evidence": ["CR slow, lossy, reconnect, persistence, and idempotent retry journey receipt"]},
+        "provider_rights": {"status": "external_blocked", "evidence": ["provider_governance_defaults"], "missing_evidence": ["Current CR provider terms, robots, caching, republication, and public-packet approvals"]},
+        "live_provider_e2e": {"status": "external_blocked", "evidence": ["cr_browser_state", "provider_governance_defaults"], "missing_evidence": ["Live CR provider fetch, normalization, CRC display, Spanish detail, ranking, freshness, and failure-recovery receipt"]},
+        "market_browser_journey": {"status": "implemented_unproven", "evidence": ["cr_browser_state", "chromium_flagship_100"], "missing_evidence": ["Non-fixture CR browser journey with live results beyond run-state reconciliation"]},
+        "buyer_journey": {"status": "implemented_unproven", "evidence": ["cr_browser_state"], "missing_evidence": ["CR buyer search, rank, shortlist, research, tour, packet, and follow-up browser receipt"]},
+        "renter_journey": {"status": "implemented_unproven", "evidence": ["renter_discovery_contract"], "missing_evidence": ["CR renter search, provider dispatch, CRC ranking, shortlist, Spanish research packet, first-party tour or honest unavailability, feedback, notification, logout, relogin, and durable revisit receipt"]},
+        "seller_journey": {"status": "not_applicable", "evidence": [], "missing_evidence": [], "reason": "Phase one does not claim seller listing supply, leads, or closing"}
+      }
+    }
+  ]
+}

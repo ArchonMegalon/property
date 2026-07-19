@@ -55,6 +55,127 @@
       }
       return detail || fallback;
     };
+    const FETCH_TIMEOUT_MS = 15000;
+    const RUN_POLL_WINDOW_MS = 15 * 60 * 1000;
+    const RUN_POLL_MAX_FAILURES = 8;
+    const VISUAL_POLL_WINDOW_MS = 10 * 60 * 1000;
+    const VISUAL_POLL_MAX_FAILURES = 6;
+    const REPAIR_POLL_WINDOW_MS = 15 * 60 * 1000;
+    const REPAIR_POLL_MAX_FAILURES = 8;
+    const SEARCH_LAUNCH_IDEMPOTENCY_STORAGE_KEY = 'propertyquarry.searchLaunch.pending.v1';
+    const activeRequestControllers = new Set();
+    const inMemorySearchLaunchKeys = new Map();
+    let pageRequestLifecycleEnded = false;
+    window.addEventListener('pagehide', () => {
+      pageRequestLifecycleEnded = true;
+      activeRequestControllers.forEach((controller) => controller.abort());
+      activeRequestControllers.clear();
+    });
+    window.addEventListener('pageshow', (event) => {
+      if (event.persisted && pageRequestLifecycleEnded) {
+        window.location.reload();
+        return;
+      }
+      pageRequestLifecycleEnded = false;
+    });
+    const fetchWithTimeout = async (resource, options = {}, timeoutMs = FETCH_TIMEOUT_MS) => {
+      if (pageRequestLifecycleEnded) throw new Error('Request cancelled because this page closed.');
+      const controller = new AbortController();
+      const boundedTimeoutMs = Math.max(1000, Math.min(60000, Number(timeoutMs || FETCH_TIMEOUT_MS)));
+      let timedOut = false;
+      const timeoutId = window.setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, boundedTimeoutMs);
+      activeRequestControllers.add(controller);
+      try {
+        return await fetch(resource, { ...options, signal: controller.signal });
+      } catch (error) {
+        if (timedOut) {
+          throw new Error('The request took too long. Try again; accepted work is unchanged.');
+        }
+        throw error;
+      } finally {
+        window.clearTimeout(timeoutId);
+        activeRequestControllers.delete(controller);
+      }
+    };
+    const boundedDelay = (milliseconds, deadline = Number.POSITIVE_INFINITY) => new Promise((resolve) => {
+      const remaining = Number.isFinite(deadline) ? Math.max(0, deadline - Date.now()) : Number(milliseconds || 0);
+      window.setTimeout(resolve, Math.max(0, Math.min(Number(milliseconds || 0), remaining)));
+    });
+    const sha256Text = async (value) => {
+      if (!window.crypto?.subtle || typeof TextEncoder !== 'function') return '';
+      const digest = await window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(value || '')));
+      return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+    };
+    const newSearchLaunchIdempotencyKey = () => {
+      if (typeof window.crypto?.randomUUID === 'function') {
+        return `pq-web-${window.crypto.randomUUID()}`;
+      }
+      let suffix = '';
+      if (typeof window.crypto?.getRandomValues === 'function') {
+        const randomBytes = new Uint8Array(16);
+        window.crypto.getRandomValues(randomBytes);
+        suffix = [...randomBytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+      }
+      if (!suffix) suffix = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+      return `pq-web-${suffix}`;
+    };
+    const stableSearchLaunchIdempotencyKey = async (bodyText) => {
+      const normalizedBody = String(bodyText || '');
+      const inMemoryKey = inMemorySearchLaunchKeys.get(normalizedBody);
+      if (inMemoryKey) return inMemoryKey;
+      let digest = '';
+      try {
+        digest = await sha256Text(normalizedBody);
+        const stored = JSON.parse(window.sessionStorage.getItem(SEARCH_LAUNCH_IDEMPOTENCY_STORAGE_KEY) || '{}');
+        const ageMs = Date.now() - Number(stored?.created_at_ms || 0);
+        if (digest && stored?.payload_sha256 === digest && typeof stored?.key === 'string' && ageMs >= 0 && ageMs <= 24 * 60 * 60 * 1000) {
+          inMemorySearchLaunchKeys.set(normalizedBody, stored.key);
+          return stored.key;
+        }
+      } catch (_error) {
+        digest = '';
+      }
+      const key = newSearchLaunchIdempotencyKey();
+      inMemorySearchLaunchKeys.set(normalizedBody, key);
+      if (digest) {
+        try {
+          window.sessionStorage.setItem(SEARCH_LAUNCH_IDEMPOTENCY_STORAGE_KEY, JSON.stringify({
+            payload_sha256: digest,
+            key,
+            created_at_ms: Date.now(),
+          }));
+        } catch (_error) {
+          // In-memory reuse still protects retries while this page is open.
+        }
+      }
+      return key;
+    };
+    const clearSearchLaunchIdempotencyKey = (bodyText, key) => {
+      inMemorySearchLaunchKeys.delete(String(bodyText || ''));
+      try {
+        const stored = JSON.parse(window.sessionStorage.getItem(SEARCH_LAUNCH_IDEMPOTENCY_STORAGE_KEY) || '{}');
+        if (stored?.key === key) window.sessionStorage.removeItem(SEARCH_LAUNCH_IDEMPOTENCY_STORAGE_KEY);
+      } catch (_error) {
+        // Storage is an optimization; the acknowledged response is authoritative.
+      }
+    };
+    const postSearchLaunch = async (endpoint, payload) => {
+      const bodyText = JSON.stringify(payload);
+      const idempotencyKey = await stableSearchLaunchIdempotencyKey(bodyText);
+      const response = await fetchWithTimeout(endpoint, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'content-type': 'application/json',
+          'Idempotency-Key': idempotencyKey,
+        },
+        body: bodyText,
+      });
+      return { response, bodyText, idempotencyKey };
+    };
     let candidates = Array.isArray(data.results) ? data.results.slice() : [];
     const terminalStates = new Set(['processed', 'completed_partial', 'failed', 'noop', 'cancelled', 'completed']);
     const themeStorageKey = 'propertyquarry.theme';
@@ -1155,7 +1276,7 @@
       if (!endpoint) throw new Error('Brief endpoint missing.');
       const basePreferences = (data.brief_preferences && typeof data.brief_preferences === 'object') ? { ...data.brief_preferences } : {};
       const nextPreferences = { ...basePreferences, ...(adjustments && typeof adjustments === 'object' ? adjustments : {}) };
-      const response = await fetch(endpoint, {
+      const response = await fetchWithTimeout(endpoint, {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'content-type': 'application/json' },
@@ -1218,16 +1339,14 @@
         force_refresh: false,
         max_results_per_source: hasUnlimitedProviderResults() ? null : (Number(nextPreferences?.max_results_per_source || 0) || null),
       };
-      const runResponse = await fetch(startEndpoint, {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+      const launch = await postSearchLaunch(startEndpoint, payload);
+      const runResponse = launch.response;
+      if (recoverExpiredSession(runResponse)) throw new Error('Your session ended. Sign in again to continue.');
       const runBody = await runResponse.json().catch(() => ({}));
       if (!runResponse.ok) {
         throw new Error(readableErrorDetail(runBody.detail || runBody.error || runBody.message || runBody, counterfactualRestartErrorLabel(adjustments)));
       }
+      clearSearchLaunchIdempotencyKey(launch.bodyText, launch.idempotencyKey);
       if (statusNode) statusNode.textContent = counterfactualRestartLabel(adjustments);
       if (runBody.run_id) {
         window.location.href = `/app/properties?run_id=${encodeURIComponent(runBody.run_id)}`;
@@ -1619,6 +1738,24 @@
       }
       if (nextDetail) setVisualRequestStatus(nextDetail);
     };
+    const pauseVisualStatusPolling = (button) => {
+      if (!button || !button.isConnected) return;
+      if (button._pqxVisualPollTimer) {
+        window.clearTimeout(button._pqxVisualPollTimer);
+        button._pqxVisualPollTimer = 0;
+      }
+      const requestKind = String(button.getAttribute('data-pw-visual-request') || '').trim().toLowerCase();
+      button.setAttribute('data-pw-visual-poll-paused', 'true');
+      button.disabled = false;
+      button.removeAttribute('aria-disabled');
+      button.classList.remove('is-processing');
+      button.textContent = requestKind === 'flythrough' ? 'Check walkthrough status' : 'Check 3D status';
+      const message = requestKind === 'flythrough'
+        ? 'The walkthrough is still processing. You can leave this page; select Check walkthrough status when you return.'
+        : 'The 3D tour is still processing. You can leave this page; select Check 3D status when you return.';
+      button.setAttribute('title', message);
+      setVisualRequestStatus(message);
+    };
     const updateVisualButtonFromStatus = async (button, options = {}) => {
       if (!button) return;
       const requestKind = String(button.getAttribute('data-pw-visual-request') || '').trim().toLowerCase();
@@ -1635,12 +1772,29 @@
       const firstPollDelaySeconds = requestedFirstPollDelaySeconds > 0
         ? requestedFirstPollDelaySeconds
         : Math.max(0.5, Math.min(pollSeconds, 1));
+      if (options.resetDeadline || !Number(button._pqxVisualPollDeadline || 0)) {
+        button._pqxVisualPollDeadline = Date.now() + VISUAL_POLL_WINDOW_MS;
+        button._pqxVisualPollFailures = 0;
+      }
+      button.removeAttribute('data-pw-visual-poll-paused');
       if (button._pqxVisualPollTimer) {
         window.clearTimeout(button._pqxVisualPollTimer);
       }
       const runRequest = async () => {
+        if (pageRequestLifecycleEnded || !button.isConnected) return;
+        if (Date.now() >= Number(button._pqxVisualPollDeadline || 0)) {
+          pauseVisualStatusPolling(button);
+          return;
+        }
+        if (document.hidden || navigator.onLine === false) {
+          button._pqxVisualPollTimer = window.setTimeout(
+            runRequest,
+            Math.min(2000, Math.max(0, Number(button._pqxVisualPollDeadline || 0) - Date.now())),
+          );
+          return;
+        }
         try {
-          const response = await fetch(
+          const response = await fetchWithTimeout(
             `/app/api/signals/property/visual-status?${new URLSearchParams({
               run_id: runId,
               request_kind: requestKind,
@@ -1653,18 +1807,33 @@
               credentials: 'same-origin',
             },
           );
+          if (recoverExpiredSession(response)) return;
           if (!response.ok) throw new Error('visual_status_unavailable');
           const payload = await response.json().catch(() => ({}));
           const next = visualStateFromPayload(requestKind, payload, button.textContent);
           syncVisualButtonState(button, next);
+          button._pqxVisualPollFailures = 0;
           const shouldContinue = visualPendingStates.includes(String(next.state || ''));
           if (shouldContinue) {
-            button._pqxVisualPollTimer = window.setTimeout(runRequest, Math.max((Number(next.pollSeconds || pollSeconds) || 10), 2) * 1000);
+            const delayMs = Math.max((Number(next.pollSeconds || pollSeconds) || 10), 2) * 1000;
+            button._pqxVisualPollTimer = window.setTimeout(runRequest, Math.min(delayMs, Math.max(0, Number(button._pqxVisualPollDeadline || 0) - Date.now())));
+          } else {
+            button._pqxVisualPollDeadline = 0;
+            button.removeAttribute('data-pw-visual-poll-paused');
           }
         } catch (_error) {
-          if (!button.isConnected) return;
+          if (!button.isConnected || pageRequestLifecycleEnded) return;
+          button._pqxVisualPollFailures = Number(button._pqxVisualPollFailures || 0) + 1;
+          if (
+            button._pqxVisualPollFailures >= VISUAL_POLL_MAX_FAILURES
+            || Date.now() >= Number(button._pqxVisualPollDeadline || 0)
+          ) {
+            pauseVisualStatusPolling(button);
+            return;
+          }
           if (visualPendingStates.includes(String(button.getAttribute('data-pw-visual-state') || '').trim().toLowerCase())) {
-            button._pqxVisualPollTimer = window.setTimeout(runRequest, pollSeconds ? pollSeconds * 1000 : 10000);
+            const delayMs = pollSeconds ? pollSeconds * 1000 : 10000;
+            button._pqxVisualPollTimer = window.setTimeout(runRequest, Math.min(delayMs, Math.max(0, Number(button._pqxVisualPollDeadline || 0) - Date.now())));
           }
         }
       };
@@ -1719,7 +1888,7 @@
       let requestSucceeded = false;
       let keepButtonDisabled = false;
       try {
-        const response = await fetch('/app/api/signals/willhaben/property-tour', {
+        const response = await fetchWithTimeout('/app/api/signals/willhaben/property-tour', {
           method: 'POST',
           credentials: 'same-origin',
           headers: { 'content-type': 'application/json' },
@@ -1875,7 +2044,7 @@
             keepButtonDisabled = true;
             button.classList.add('is-processing');
             button.setAttribute('aria-disabled', 'true');
-            updateVisualButtonFromStatus(button, { firstPollDelaySeconds: 1 });
+            updateVisualButtonFromStatus(button, { firstPollDelaySeconds: 1, resetDeadline: true });
           }
         }
         if (selectedFeedbackCandidateRef === String(candidate.candidate_ref || '').trim()) {
@@ -3674,18 +3843,57 @@
         return normalized.includes('?') ? `${normalized}&lightweight=1` : `${normalized}?lightweight=1`;
       }
     };
+    const clearPollingResumeAction = () => {
+      root.querySelectorAll('[data-pqx-poll-resume]').forEach((button) => button.remove());
+      root.querySelectorAll('[data-pq-polling-delay-state]').forEach((node) => {
+        node.removeAttribute('data-pq-polling-delay-state');
+        node.removeAttribute('data-pq-failure-state');
+        node.removeAttribute('role');
+        node.removeAttribute('aria-live');
+        node.removeAttribute('aria-atomic');
+      });
+    };
+    const showPollingResumeAction = ({ message, label, resume }) => {
+      const messageNode = root.querySelector('[data-pqx-run-message]');
+      if (messageNode) messageNode.textContent = String(message || 'Live updates paused.');
+      clearPollingResumeAction();
+      const host = messageNode || root.querySelector('[data-pqx-progress-board]')?.parentElement;
+      if (!host || typeof resume !== 'function') return;
+      host.setAttribute('data-pq-polling-delay-state', '');
+      host.setAttribute('data-pq-failure-state', 'delayed');
+      host.setAttribute('role', 'status');
+      host.setAttribute('aria-live', 'polite');
+      host.setAttribute('aria-atomic', 'true');
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'pqx-button subtle';
+      button.setAttribute('data-pqx-poll-resume', '');
+      button.setAttribute('data-pq-next-action', '');
+      button.textContent = String(label || 'Check again');
+      button.addEventListener('click', () => {
+        button.remove();
+        resume();
+      }, { once: true });
+      host.appendChild(button);
+    };
     let runPollActive = false;
     const pollRun = async (statusUrl) => {
       const pollStatusUrl = compactRunStatusUrl(statusUrl);
       if (!pollStatusUrl || runPollActive) return;
       runPollActive = true;
       let failedPolls = 0;
+      const deadline = Date.now() + RUN_POLL_WINDOW_MS;
+      clearPollingResumeAction();
       try {
-        while (true) {
+        while (!pageRequestLifecycleEnded && Date.now() < deadline) {
+          if (document.hidden || navigator.onLine === false) {
+            await boundedDelay(1000, deadline);
+            continue;
+          }
           let response;
           let body = {};
           try {
-            response = await fetch(pollStatusUrl, { credentials: 'same-origin', cache: 'no-store' });
+            response = await fetchWithTimeout(pollStatusUrl, { credentials: 'same-origin', cache: 'no-store' });
             if (recoverExpiredSession(response)) return;
             body = await response.json().catch(() => ({}));
             if (!response.ok) throw new Error(String(body.detail || 'Search status is still updating.'));
@@ -3699,7 +3907,16 @@
               message,
               events: pollRetryEvents(),
             });
-            await new Promise((resolve) => window.setTimeout(resolve, failedPolls >= 3 ? 5000 : 1800));
+            if (pageRequestLifecycleEnded) return;
+            if (failedPolls >= RUN_POLL_MAX_FAILURES) {
+              showPollingResumeAction({
+                message: 'Live updates paused after repeated connection errors. Your accepted search is unchanged.',
+                label: 'Check search status',
+                resume: () => pollRun(pollStatusUrl),
+              });
+              return;
+            }
+            await boundedDelay(failedPolls >= 3 ? 5000 : 1800, deadline);
             continue;
           }
           renderRun(body);
@@ -3711,7 +3928,14 @@
             window.location.href = `${nextSurface}?run_id=${completedRunId}`;
             return;
           }
-          await new Promise((resolve) => window.setTimeout(resolve, 1400));
+          await boundedDelay(1400, deadline);
+        }
+        if (!pageRequestLifecycleEnded) {
+          showPollingResumeAction({
+            message: 'The search is still running. You can leave this page; your accepted search is unchanged.',
+            label: 'Check search status',
+            resume: () => pollRun(pollStatusUrl),
+          });
         }
       } finally {
         runPollActive = false;
@@ -3730,20 +3954,44 @@
       ].join('|');
       let inFlight = false;
       let intervalId = 0;
+      let initialTimerId = 0;
+      let failedPolls = 0;
+      const deadline = Date.now() + REPAIR_POLL_WINDOW_MS;
       const stopPolling = () => {
+        if (initialTimerId) {
+          window.clearTimeout(initialTimerId);
+          initialTimerId = 0;
+        }
         if (intervalId) {
           window.clearInterval(intervalId);
           intervalId = 0;
         }
       };
+      const pauseRepairPolling = (message) => {
+        stopPolling();
+        showPollingResumeAction({
+          message,
+          label: 'Check repair status',
+          resume: () => startQuietFailedRepairPolling(normalizedUrl),
+        });
+      };
       const check = async () => {
-        if (inFlight || document.hidden) return;
+        if (pageRequestLifecycleEnded) {
+          stopPolling();
+          return;
+        }
+        if (Date.now() >= deadline) {
+          pauseRepairPolling('Repair updates are paused. The accepted repair remains queued; check again when you are ready.');
+          return;
+        }
+        if (inFlight || document.hidden || navigator.onLine === false) return;
         inFlight = true;
         try {
-          const response = await fetch(normalizedUrl, { credentials: 'same-origin', cache: 'no-store' });
+          const response = await fetchWithTimeout(normalizedUrl, { credentials: 'same-origin', cache: 'no-store' });
           if (recoverExpiredSession(response)) return;
           const payload = await response.json().catch(() => null);
-          if (!response.ok || !payload || typeof payload !== 'object') return;
+          if (!response.ok || !payload || typeof payload !== 'object') throw new Error('repair_status_unavailable');
+          failedPolls = 0;
           const status = String(payload.status || payload.summary?.status || '').trim().toLowerCase();
           const runId = encodeURIComponent(String(payload.run_id || data.run?.run_id || '').trim());
           const rankedTotal = rankedTotalFromSummary(payload.summary);
@@ -3779,12 +4027,16 @@
             return;
           }
         } catch (_error) {
-          // Keep the repair card stable; the next interval can try again.
+          if (pageRequestLifecycleEnded) return;
+          failedPolls += 1;
+          if (failedPolls >= REPAIR_POLL_MAX_FAILURES) {
+            pauseRepairPolling('Repair updates paused after repeated connection errors. The accepted repair is unchanged.');
+          }
         } finally {
           inFlight = false;
         }
       };
-      window.setTimeout(check, 900);
+      initialTimerId = window.setTimeout(check, 900);
       intervalId = window.setInterval(check, 3000);
     };
     const form = root.querySelector('[data-console-form-variant="property_search"]');
@@ -4923,6 +5175,30 @@
         const group = target?.closest?.('details[data-what-matters-group]');
         return group instanceof HTMLDetailsElement ? group : null;
       };
+      const currentWhatMattersWindowScrollY = () => Number(
+        window.scrollY
+        || window.pageYOffset
+        || document.documentElement.scrollTop
+        || document.body.scrollTop
+        || 0
+      );
+      const captureWhatMattersScrollOwners = (row) => {
+        const owners = [];
+        let node = row instanceof HTMLElement ? row.parentElement : null;
+        while (node instanceof HTMLElement && node !== document.body && node !== document.documentElement) {
+          const style = window.getComputedStyle(node);
+          const overflowY = String(style.overflowY || '').toLowerCase();
+          if (/(auto|scroll|overlay)/.test(overflowY) && node.scrollHeight > node.clientHeight + 1) {
+            owners.push({
+              node,
+              scrollTop: Number(node.scrollTop || 0),
+              scrollLeft: Number(node.scrollLeft || 0),
+            });
+          }
+          node = node.parentElement;
+        }
+        return owners;
+      };
       const captureWhatMattersInteractionSnapshot = (target, { restoreFocus = true, preserveScroll = true } = {}) => {
         const row = target?.closest?.('[data-keyword-priority-row], [data-school-priority-row]');
         const group = resolveWhatMattersGroup(target);
@@ -4940,7 +5216,8 @@
           row,
           group,
           rowTop: Number(rect.top || 0),
-          scrollY: Number(window.scrollY || window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0),
+          scrollY: currentWhatMattersWindowScrollY(),
+          scrollOwners: captureWhatMattersScrollOwners(row),
           target: target instanceof HTMLElement ? target : null,
           restoreFocus: restoreFocus !== false,
           preserveScroll: preserveScroll !== false,
@@ -5000,11 +5277,21 @@
         }
         if (snapshot.preserveScroll === true) {
           const nextRect = snapshot.row.getBoundingClientRect();
-          const delta = Number(nextRect.top || 0) - Number(snapshot.rowTop || 0);
+          let delta = Number(nextRect.top || 0) - Number(snapshot.rowTop || 0);
+          const scrollOwners = Array.isArray(snapshot.scrollOwners) ? snapshot.scrollOwners : [];
           if (Number.isFinite(delta) && Math.abs(delta) > 1 && Math.abs(delta) < Math.max(window.innerHeight || 0, 320)) {
-            window.scrollBy({ top: delta, left: 0, behavior: 'auto' });
+            for (const entry of scrollOwners) {
+              if (!(entry?.node instanceof HTMLElement) || !entry.node.isConnected) continue;
+              if (entry.node.scrollHeight <= entry.node.clientHeight + 1) continue;
+              entry.node.scrollTop = Number(entry.node.scrollTop || 0) + delta;
+              delta = Number(snapshot.row.getBoundingClientRect().top || 0) - Number(snapshot.rowTop || 0);
+              if (!Number.isFinite(delta) || Math.abs(delta) <= 1) break;
+            }
+            if (Number.isFinite(delta) && Math.abs(delta) > 1) {
+              window.scrollBy({ top: delta, left: 0, behavior: 'auto' });
+            }
           } else {
-            const currentY = Number(window.scrollY || window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0);
+            const currentY = currentWhatMattersWindowScrollY();
             if (Math.abs(currentY - Number(snapshot.scrollY || 0)) > 96) {
               window.scrollTo(0, Number(snapshot.scrollY || 0));
             }
@@ -5024,6 +5311,7 @@
       let whatMattersInteractionRestoreFollowupFrame = 0;
       let whatMattersInteractionRestoreTimeout = 0;
       let whatMattersInteractionRestoreLateTimeout = 0;
+      let whatMattersInteractionRestoreGeneration = 0;
       let suppressWhatMattersInteractionStabilization = false;
       let lastWhatMattersInteractionSnapshot = null;
       const refreshLastWhatMattersInteractionSnapshot = (snapshot) => {
@@ -5034,6 +5322,7 @@
         });
       };
       const cancelPendingWhatMattersInteractionRestore = () => {
+        whatMattersInteractionRestoreGeneration += 1;
         if (whatMattersInteractionRestoreFrame) {
           window.cancelAnimationFrame(whatMattersInteractionRestoreFrame);
           whatMattersInteractionRestoreFrame = 0;
@@ -5051,35 +5340,68 @@
           whatMattersInteractionRestoreLateTimeout = 0;
         }
       };
-      const applyWhatMattersInteractionRestore = (snapshot) => {
+      const captureWhatMattersAppliedViewport = (snapshot) => ({
+        scrollY: currentWhatMattersWindowScrollY(),
+        scrollOwners: (Array.isArray(snapshot?.scrollOwners) ? snapshot.scrollOwners : [])
+          .filter((entry) => entry?.node instanceof HTMLElement && entry.node.isConnected)
+          .map((entry) => ({
+            node: entry.node,
+            scrollTop: Number(entry.node.scrollTop || 0),
+            scrollLeft: Number(entry.node.scrollLeft || 0),
+          })),
+      });
+      const whatMattersAppliedViewportIsCurrent = (snapshot) => {
+        const expected = snapshot?.lastAppliedViewport;
+        if (!expected) return true;
+        const tolerance = 2;
+        if (Math.abs(currentWhatMattersWindowScrollY() - Number(expected.scrollY || 0)) > tolerance) return false;
+        const expectedOwners = Array.isArray(expected.scrollOwners) ? expected.scrollOwners : [];
+        return expectedOwners.every((entry) => (
+          entry?.node instanceof HTMLElement
+          && entry.node.isConnected
+          && Math.abs(Number(entry.node.scrollTop || 0) - Number(entry.scrollTop || 0)) <= tolerance
+          && Math.abs(Number(entry.node.scrollLeft || 0) - Number(entry.scrollLeft || 0)) <= tolerance
+        ));
+      };
+      const applyWhatMattersInteractionRestore = (
+        snapshot,
+        { generation = whatMattersInteractionRestoreGeneration, guardViewport = false } = {},
+      ) => {
+        if (generation !== whatMattersInteractionRestoreGeneration) return false;
+        if (guardViewport && !whatMattersAppliedViewportIsCurrent(snapshot)) {
+          cancelPendingWhatMattersInteractionRestore();
+          return false;
+        }
         if (!restoreWhatMattersInteractionSnapshot(snapshot)) {
           cancelPendingWhatMattersInteractionRestore();
           return false;
         }
+        snapshot.lastAppliedViewport = captureWhatMattersAppliedViewport(snapshot);
         refreshLastWhatMattersInteractionSnapshot(snapshot);
         return true;
       };
       const stabilizeWhatMattersInteraction = (target, callback, { restoreFocus = true, snapshotOverride = null, preserveScroll = true } = {}) => {
         cancelPendingWhatMattersInteractionRestore();
+        const restoreGeneration = whatMattersInteractionRestoreGeneration;
         const snapshot = snapshotOverride
           ? { ...snapshotOverride, restoreFocus: restoreFocus !== false, preserveScroll: preserveScroll !== false }
           : captureWhatMattersInteractionSnapshot(target, { restoreFocus, preserveScroll });
         callback();
         if (!snapshot) return;
-        if (!applyWhatMattersInteractionRestore(snapshot)) return;
+        if (!applyWhatMattersInteractionRestore(snapshot, { generation: restoreGeneration })) return;
         whatMattersInteractionRestoreFrame = window.requestAnimationFrame(() => {
           whatMattersInteractionRestoreFrame = 0;
-          if (!applyWhatMattersInteractionRestore(snapshot)) return;
+          if (!applyWhatMattersInteractionRestore(snapshot, { generation: restoreGeneration, guardViewport: true })) return;
           whatMattersInteractionRestoreFollowupFrame = window.requestAnimationFrame(() => {
             whatMattersInteractionRestoreFollowupFrame = 0;
-            if (!applyWhatMattersInteractionRestore(snapshot)) return;
+            if (!applyWhatMattersInteractionRestore(snapshot, { generation: restoreGeneration, guardViewport: true })) return;
             whatMattersInteractionRestoreTimeout = window.setTimeout(() => {
               whatMattersInteractionRestoreTimeout = 0;
-              if (!applyWhatMattersInteractionRestore(snapshot)) return;
+              if (!applyWhatMattersInteractionRestore(snapshot, { generation: restoreGeneration, guardViewport: true })) return;
             }, 0);
             whatMattersInteractionRestoreLateTimeout = window.setTimeout(() => {
               whatMattersInteractionRestoreLateTimeout = 0;
-              if (!applyWhatMattersInteractionRestore(snapshot)) return;
+              if (!applyWhatMattersInteractionRestore(snapshot, { generation: restoreGeneration, guardViewport: true })) return;
             }, 64);
           });
         });
@@ -6261,22 +6583,51 @@
     const setPropertyInlineError = (message) => {
       const nodes = [...root.querySelectorAll('[data-property-inline-error]')];
       nodes.forEach((node) => {
+        node.removeAttribute('data-pq-failure-state');
         node.textContent = String(message || '');
       });
+    };
+    const setPropertyInlineFailureState = ({ state, message, actionLabel, action }) => {
+      const nodes = [...root.querySelectorAll('[data-property-inline-error]')];
+      nodes.forEach((node) => {
+        node.textContent = '';
+        node.setAttribute('data-pq-failure-state', String(state || ''));
+        const copy = document.createElement('span');
+        copy.textContent = String(message || 'The request could not continue. Your saved work is unchanged.');
+        node.appendChild(copy);
+        if (typeof action === 'function') {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'pqx-button subtle';
+          button.setAttribute('data-pq-next-action', '');
+          button.textContent = String(actionLabel || 'Try again');
+          button.addEventListener('click', action, { once: true });
+          node.appendChild(button);
+        }
+      });
+    };
+    const quotaBlockedError = (message) => {
+      const error = new Error(String(message || 'This search hit a temporary request limit. Try again after the wait; your saved search is unchanged.'));
+      error.propertyFailureState = 'quota_blocked';
+      return error;
     };
     const savePreferences = async () => {
       if (!form) return;
       setPropertyInlineStatus('Saving...');
       setPropertyInlineError('');
       const body = collectPayload(form);
-      const response = await fetch(String(meta.preferences_endpoint || data.endpoints?.preferences || ''), {
+      const response = await fetchWithTimeout(String(meta.preferences_endpoint || data.endpoints?.preferences || ''), {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body.property_preferences),
       });
       if (recoverExpiredSession(response)) throw new Error('Your session ended. Sign in again to continue.');
-      if (!response.ok) throw new Error(await responseErrorMessage(response, 'Could not save the search.'));
+      if (!response.ok) {
+        const message = await responseErrorMessage(response, 'Could not save the search.');
+        if (Number(response.status || 0) === 429) throw quotaBlockedError(message);
+        throw new Error(message);
+      }
       setPropertyInlineStatus('Saved.');
       return body;
     };
@@ -6308,15 +6659,16 @@
         setPropertyInlineError('');
         const body = await savePreferences();
         setPropertyInlineStatus('Launching search...');
-        const runResponse = await fetch(String(meta.start_endpoint || data.endpoints?.start || ''), {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(body),
-        });
+        const launch = await postSearchLaunch(String(meta.start_endpoint || data.endpoints?.start || ''), body);
+        const runResponse = launch.response;
         if (recoverExpiredSession(runResponse)) throw new Error('Your session ended. Sign in again to continue.');
         const runBody = await runResponse.json().catch(() => ({}));
-        if (!runResponse.ok) throw new Error(readableErrorDetail(runBody.detail || runBody.error || runBody.message || runBody, 'Could not start property search.'));
+        if (!runResponse.ok) {
+          const errorDetail = readableErrorDetail(runBody.detail || runBody.error || runBody.message || runBody, 'Could not start property search.');
+          if (Number(runResponse.status || 0) === 429) throw quotaBlockedError(errorDetail);
+          throw new Error(errorDetail);
+        }
+        clearSearchLaunchIdempotencyKey(launch.bodyText, launch.idempotencyKey);
         trackRybbitEvent('property_search_start', {
           search_goal: String(body?.property_preferences?.search_goal || '').trim(),
           investment_strategy: String(body?.property_preferences?.investment_strategy || '').trim(),
@@ -6338,7 +6690,16 @@
         }
         pollRun(String(runBody.status_url || ''));
       } catch (err) {
-        setPropertyInlineError(calmNetworkError(err, 'Could not start property search.'));
+        if (err?.propertyFailureState === 'quota_blocked') {
+          setPropertyInlineFailureState({
+            state: 'quota_blocked',
+            message: 'This search hit a temporary request limit. Try again after the wait; your saved search is unchanged.',
+            actionLabel: 'Try again',
+            action: () => startSearch(),
+          });
+        } else {
+          setPropertyInlineError(calmNetworkError(err, 'Could not start property search.'));
+        }
         setPropertyInlineStatus('');
         searchLaunchInFlight = false;
         setSearchLaunchBusy(false);
@@ -7449,8 +7810,9 @@
       if (!pollStatusUrl) return;
       const currentTotal = Array.isArray(data.results) ? data.results.length : 0;
       const expectedTotal = rankedTotalFromSummary(data.run?.summary || {});
+      if (document.hidden || navigator.onLine === false) return;
       try {
-        const response = await fetch(pollStatusUrl, { credentials: 'same-origin', cache: 'no-store' });
+        const response = await fetchWithTimeout(pollStatusUrl, { credentials: 'same-origin', cache: 'no-store' });
         if (recoverExpiredSession(response)) return;
         const body = await response.json().catch(() => ({}));
         if (!response.ok || !body || typeof body !== 'object') return;

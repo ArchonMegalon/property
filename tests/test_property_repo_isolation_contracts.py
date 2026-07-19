@@ -128,12 +128,15 @@ def test_property_release_workflow_runs_the_gold_gate_bundle() -> None:
         "test_propertyquarry_flagship_operating_loop_in_browser",
         "propertyquarry-live-release-gates:",
         "PROPERTYQUARRY_LIVE_MOBILE_REQUIRED_BROWSER_ENGINES: chromium,firefox,webkit",
-        "bash scripts/propertyquarry_live_release_gates.sh",
+        "exec /bin/bash --noprofile --norc -p scripts/propertyquarry_live_release_gates.sh",
         "smoke-runtime-api:",
         "smoke-runtime-postgres:",
         "postgres-runtime-contracts:",
     ):
         assert required in workflow
+    assert workflow.count(
+        "shell: /bin/bash --noprofile --norc -p -e -u -o pipefail {0}"
+    ) == 2
     for required in (
         "tests/test_dossier_writer.py",
         "tests/test_dadan_video_request_workflow.py",

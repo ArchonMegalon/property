@@ -1276,6 +1276,14 @@
         window.location.href = readyUrl;
         return;
       }
+      if (button.getAttribute('data-pw-visual-poll-paused') === 'true') {
+        button.disabled = true;
+        button.setAttribute('aria-disabled', 'true');
+        button.textContent = 'Checking status...';
+        setVisualRequestStatus('Checking the accepted visual request.');
+        updateVisualButtonFromStatus(button, { firstPollDelaySeconds: 0.1, resetDeadline: true });
+        return;
+      }
       const kind = String(button.getAttribute('data-pw-visual-request') || 'tour').trim().toLowerCase();
       const propertyUrl = String(button.getAttribute('data-property-url') || '').trim();
       const candidate = candidates.find((row) => String(row.property_url || row.source_url || row.listing_url || '').trim() === propertyUrl)

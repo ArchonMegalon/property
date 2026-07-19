@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse
 from app.observability import get_runtime_metrics
 from app.propertyquarry_release_probe import (
     PROPERTYQUARRY_RELEASE_PROBE_NONCE_HEADER,
+    PROPERTYQUARRY_RELEASE_PROBE_NONCE_SHA256_RESPONSE_HEADER,
     PROPERTYQUARRY_RELEASE_PROBE_SIGNATURE_HEADER,
     PROPERTYQUARRY_RELEASE_PROBE_TIMESTAMP_HEADER,
     normalized_propertyquarry_release_probe_origin,
@@ -567,12 +568,21 @@ class PrincipalIdentityMiddleware:
             state["identity_headers_stripped"] = stripped
             async def _send_release_probe_response(message: dict[str, Any]) -> None:
                 if message.get("type") == "http.response.start":
+                    nonce_ack_header = (
+                        PROPERTYQUARRY_RELEASE_PROBE_NONCE_SHA256_RESPONSE_HEADER.encode(
+                            "ascii"
+                        )
+                    )
                     response_headers = [
                         (name, value)
                         for name, value in list(message.get("headers") or [])
-                        if bytes(name).lower() != b"cache-control"
+                        if bytes(name).lower()
+                        not in {b"cache-control", nonce_ack_header}
                     ]
                     response_headers.append((b"cache-control", b"no-store"))
+                    response_headers.append(
+                        (nonce_ack_header, nonce_hash.encode("ascii"))
+                    )
                     message["headers"] = response_headers
                 await send(message)
 

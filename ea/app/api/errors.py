@@ -15,7 +15,13 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.logging_utils import exception_log_fields, log_event
-from app.observability import get_runtime_metrics, route_template
+from app.observability import (
+    bind_runtime_trace_context,
+    get_runtime_metrics,
+    new_server_trace_context,
+    route_template,
+    runtime_build_identity,
+)
 
 try:
     from psycopg import InterfaceError as PsycopgInterfaceError
@@ -343,53 +349,73 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.middleware("http")
     async def correlation_middleware(request: Request, call_next):  # type: ignore[no-untyped-def]
         request.state.correlation_id = _request_correlation_id(request)
+        trace_context = new_server_trace_context(request.headers.get("traceparent"))
+        request.state.trace_id = trace_context.trace_id
+        request.state.span_id = trace_context.span_id
+        request.state.parent_span_id = trace_context.parent_span_id
+        request.state.trace_flags = trace_context.trace_flags
+        request.state.traceparent = trace_context.traceparent
+        build_identity = runtime_build_identity()
         started_at = time.perf_counter()
         response = None
         status_code = 500
-        try:
-            if _propertyquarry_raw_api_docs_request(request):
-                response = _error_payload(
-                    request=request,
-                    status_code=404,
-                    code="propertyquarry_api_schema_not_public",
-                    message="raw runtime API schema is not public on the PropertyQuarry customer surface",
-                    details="Use the public docs and support pages for customer-facing product information.",
+        with bind_runtime_trace_context(
+            trace_context,
+            correlation_id=_correlation_id(request),
+        ):
+            try:
+                if _propertyquarry_raw_api_docs_request(request):
+                    response = _error_payload(
+                        request=request,
+                        status_code=404,
+                        code="propertyquarry_api_schema_not_public",
+                        message="raw runtime API schema is not public on the PropertyQuarry customer surface",
+                        details="Use the public docs and support pages for customer-facing product information.",
+                    )
+                    response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
+                elif _browser_mutation_request_is_cross_site(request):
+                    response = _error_payload(
+                        request=request,
+                        status_code=403,
+                        code="cross_site_browser_mutation",
+                        message="cross-site browser mutation blocked",
+                        details="unsafe browser requests must originate from the same site",
+                    )
+                else:
+                    response = await call_next(request)
+                status_code = int(response.status_code)
+                response.headers["x-correlation-id"] = _correlation_id(request)
+                response.headers["traceparent"] = trace_context.traceparent
+                _apply_default_browser_security_headers(request, response)
+                return response
+            finally:
+                duration_seconds = max(0.0, time.perf_counter() - started_at)
+                route = route_template(request)
+                get_runtime_metrics(request.app).record_request(
+                    method=request.method,
+                    route=route,
+                    status_code=status_code,
+                    duration_seconds=duration_seconds,
                 )
-                response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
-            elif _browser_mutation_request_is_cross_site(request):
-                response = _error_payload(
-                    request=request,
-                    status_code=403,
-                    code="cross_site_browser_mutation",
-                    message="cross-site browser mutation blocked",
-                    details="unsafe browser requests must originate from the same site",
+                log_event(
+                    _LOG,
+                    logging.INFO,
+                    "http_request_completed",
+                    correlation_id=_correlation_id(request),
+                    trace_id=trace_context.trace_id,
+                    span_id=trace_context.span_id,
+                    parent_span_id=trace_context.parent_span_id,
+                    trace_flags=trace_context.trace_flags,
+                    trace_source=trace_context.source,
+                    release_commit_sha=build_identity["release_commit_sha"],
+                    release_image_digest=build_identity["release_image_digest"],
+                    replica_id=build_identity["replica_id"],
+                    method=request.method,
+                    route=route,
+                    status_code=status_code,
+                    status_class=f"{status_code // 100}xx",
+                    duration_seconds=round(duration_seconds, 6),
                 )
-            else:
-                response = await call_next(request)
-            status_code = int(response.status_code)
-            response.headers["x-correlation-id"] = _correlation_id(request)
-            _apply_default_browser_security_headers(request, response)
-            return response
-        finally:
-            duration_seconds = max(0.0, time.perf_counter() - started_at)
-            route = route_template(request)
-            get_runtime_metrics(request.app).record_request(
-                method=request.method,
-                route=route,
-                status_code=status_code,
-                duration_seconds=duration_seconds,
-            )
-            log_event(
-                _LOG,
-                logging.INFO,
-                "http_request_completed",
-                correlation_id=_correlation_id(request),
-                method=request.method,
-                route=route,
-                status_code=status_code,
-                status_class=f"{status_code // 100}xx",
-                duration_seconds=round(duration_seconds, 6),
-            )
 
     @app.exception_handler(StarletteHTTPException)
     async def http_exception_handler(request: Request, exc: StarletteHTTPException):  # type: ignore[no-untyped-def]

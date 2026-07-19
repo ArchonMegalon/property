@@ -27,6 +27,7 @@ from app.product.property_tour_hosting import (
 )
 from app.product.service import build_product_service
 from app.services.fliplink import build_fliplink_packet_service
+from app.services.property_content_job_ledger import PropertyContentJobLedger
 from app.settings import resolve_signing_secret
 
 if TYPE_CHECKING:
@@ -39,6 +40,8 @@ _COLLECTION_ORDER = (
     "saved_shortlist",
     "preference_profile",
     "searches",
+    "research_packets",
+    "property_content_studio",
     "workspace_sessions",
     "tours_and_private_receipts",
     "artifacts",
@@ -49,6 +52,15 @@ _COLLECTION_ORDER = (
     "events",
     "privacy_requests",
 )
+_EXPORT_SOURCE_LIMITS = {
+    "searches": 50_000,
+    "property_content_studio": 250,
+    "workspace_sessions": 50_000,
+    "provider_bindings": 50_000,
+    "delivery_logs": 50_000,
+    "events": 50_000,
+    "privacy_requests": 100,
+}
 _BLOCKED_KEYS = frozenset(
     {
         "access_token",
@@ -148,6 +160,18 @@ def _privacy_secret(container: "AppContainer") -> str:
 
 def _database_url(container: "AppContainer") -> str:
     return str(getattr(getattr(container, "settings", None), "database_url", "") or "").strip()
+
+
+def _storage_backend(container: "AppContainer") -> str:
+    return str(
+        getattr(getattr(container, "settings", None), "storage_backend", "") or ""
+    ).strip().lower()
+
+
+def _runtime_mode(container: "AppContainer") -> str:
+    return str(
+        getattr(getattr(container, "settings", None), "runtime_mode", "") or "dev"
+    ).strip().lower()
 
 
 def _digest(value: object) -> str:
@@ -253,7 +277,7 @@ def _decode_cursor(*, secret: str, cursor: str) -> dict[str, object]:
         payload = json.loads(base64.urlsafe_b64decode(encoded + padding).decode("utf-8"))
     except Exception as exc:
         raise PrivacyCursorError("privacy_export_cursor_invalid") from exc
-    if not isinstance(payload, dict) or int(payload.get("v") or 0) != 1:
+    if not isinstance(payload, dict) or int(payload.get("v") or 0) != 2:
         raise PrivacyCursorError("privacy_export_cursor_invalid")
     return dict(payload)
 
@@ -367,6 +391,34 @@ def _export_collections(
     except TypeError:
         search_rows = product.list_property_search_runs(principal_id=principal_id, limit=50_000)
     searches = [_row(item) for item in search_rows]
+    research_packets = [
+        _row(item)
+        for item in product.export_property_research_packet_data(
+            principal_id=principal_id,
+            account_email=str(account_email or "").strip(),
+        )
+    ]
+    content_export = PropertyContentJobLedger(
+        database_url=_database_url(container),
+    ).export_principal_data(
+        principal_id=principal_id,
+        limit=250,
+    )
+    property_content_studio = [
+        {"record_type": "job", **_row(item)}
+        for item in list(content_export.get("jobs") or [])
+        if isinstance(item, dict)
+    ]
+    property_content_studio.extend(
+        {"record_type": "job_event", **_row(item)}
+        for item in list(content_export.get("job_events") or [])
+        if isinstance(item, dict)
+    )
+    property_content_studio.extend(
+        {"record_type": "webhook_event", **_row(item)}
+        for item in list(content_export.get("webhook_events") or [])
+        if isinstance(item, dict)
+    )
     sessions = [
         _workspace_session_export(_row(item))
         for item in product.list_workspace_access_sessions(principal_id=principal_id, status="", limit=50_000)
@@ -409,6 +461,8 @@ def _export_collections(
             principal_key=principal_key,
             limit=100,
             database_url=_database_url(container),
+            storage_backend=_storage_backend(container),
+            runtime_mode=_runtime_mode(container),
         )
     ]
     collections = {
@@ -431,6 +485,8 @@ def _export_collections(
         "saved_shortlist": shortlist,
         "preference_profile": preference_profile,
         "searches": searches,
+        "research_packets": research_packets,
+        "property_content_studio": property_content_studio,
         "workspace_sessions": sessions,
         "tours_and_private_receipts": tours,
         "artifacts": artifacts,
@@ -473,6 +529,7 @@ def build_property_account_export_page(
     subject_key = privacy_subject_key(normalized_principal, secret=secret)
     offset = 0
     snapshot_at = _now()
+    expected_snapshot_fingerprint = ""
     if str(cursor or "").strip():
         cursor_payload = _decode_cursor(secret=secret, cursor=cursor)
         if not hmac.compare_digest(str(cursor_payload.get("subject") or ""), subject_key):
@@ -482,6 +539,11 @@ def build_property_account_export_page(
         if parsed_snapshot is None:
             raise PrivacyCursorError("privacy_export_cursor_invalid")
         snapshot_at = parsed_snapshot
+        expected_snapshot_fingerprint = str(
+            cursor_payload.get("snapshot_fingerprint") or ""
+        ).strip().lower()
+        if not re.fullmatch(r"[0-9a-f]{64}", expected_snapshot_fingerprint):
+            raise PrivacyCursorError("privacy_export_cursor_invalid")
     collections, legacy = _export_collections(
         container=container,
         principal_id=normalized_principal,
@@ -509,6 +571,20 @@ def build_property_account_export_page(
         rendered_rows.sort(key=lambda row: str(row.get("record_id") or ""))
         collection_counts[collection] = len(rendered_rows)
         items.extend(rendered_rows)
+    snapshot_fingerprint = hashlib.sha256(
+        json.dumps(
+            items,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+            default=str,
+        ).encode("utf-8")
+    ).hexdigest()
+    if expected_snapshot_fingerprint and not hmac.compare_digest(
+        expected_snapshot_fingerprint,
+        snapshot_fingerprint,
+    ):
+        raise PrivacyCursorError("privacy_export_snapshot_changed")
     bounded_limit = max(1, min(int(limit or 100), 50_000))
     page_items = items[offset : offset + bounded_limit]
     next_offset = offset + len(page_items)
@@ -517,10 +593,11 @@ def build_property_account_export_page(
         next_cursor = _encode_cursor(
             secret=secret,
             payload={
-                "v": 1,
+                "v": 2,
                 "subject": subject_key,
                 "offset": next_offset,
                 "snapshot_at": _iso(snapshot_at),
+                "snapshot_fingerprint": snapshot_fingerprint,
             },
         )
     export_id = hmac.new(
@@ -530,7 +607,7 @@ def build_property_account_export_page(
     ).hexdigest()[:32]
     bundle: dict[str, object] = {
         "export_type": "propertyquarry_account_data",
-        "export_version": "2.0",
+        "export_version": "2.1",
         "export_id": f"dsar_{export_id}",
         "generated_at": _iso(snapshot_at),
         "snapshot_at": _iso(snapshot_at),
@@ -542,13 +619,44 @@ def build_property_account_export_page(
             "returned": len(page_items),
             "total_records": len(items),
             "next_cursor": next_cursor,
-            "complete": not bool(next_cursor),
+            "complete": False,
+            "page_sequence_exhausted": not bool(next_cursor),
+        },
+        "completeness": {
+            "complete": False,
+            "status": "bounded_incomplete",
+            "reasons": [
+                "source_collection_limits_apply",
+                "cross_collection_transaction_snapshot_unavailable",
+            ],
+            "snapshot_consistency": {
+                "mode": "signed_fingerprint_guarded_requery",
+                "mutation_behavior": "fail_closed_privacy_export_snapshot_changed",
+                "durable_materialized_snapshot": False,
+                "snapshot_fingerprint": snapshot_fingerprint,
+            },
+            "truncation": {
+                "possible": True,
+                "source_limits": dict(_EXPORT_SOURCE_LIMITS),
+                "collections_at_or_above_limit": [
+                    collection
+                    for collection, source_limit in _EXPORT_SOURCE_LIMITS.items()
+                    if int(collection_counts.get(collection) or 0) >= source_limit
+                ],
+                "behavior": (
+                    "Records beyond a source limit are not included; this export "
+                    "never claims complete coverage."
+                ),
+            },
         },
         "redaction_contract": {
             "secrets_removed": True,
             "signed_link_tokens_removed": True,
             "provider_credentials_removed": True,
             "private_tour_receipts_included_for_owner": True,
+            "research_packet_memberships_included_for_owner": True,
+            "property_content_source_and_receipt_metadata_included_for_owner": True,
+            "raw_property_content_webhook_payloads_removed": True,
         },
         **legacy,
     }
@@ -588,6 +696,8 @@ class PropertyAccountPrivacyLifecycle:
     def __init__(self, container: "AppContainer") -> None:
         self._container = container
         self._database_url = _database_url(container)
+        self._storage_backend = _storage_backend(container)
+        self._runtime_mode = _runtime_mode(container)
         self._secret = _privacy_secret(container)
 
     def _principal_key(self, principal_id: str) -> str:
@@ -596,13 +706,20 @@ class PropertyAccountPrivacyLifecycle:
     def _save(self, record: dict[str, object]) -> dict[str, object]:
         record = copy.deepcopy(record)
         record["updated_at"] = _iso(_now())
-        return put_privacy_request_record(record, database_url=self._database_url)
+        return put_privacy_request_record(
+            record,
+            database_url=self._database_url,
+            storage_backend=self._storage_backend,
+            runtime_mode=self._runtime_mode,
+        )
 
     def _load(self, *, principal_id: str, request_id: str) -> dict[str, object] | None:
         return get_privacy_request_record(
             principal_key=self._principal_key(principal_id),
             request_id=request_id,
             database_url=self._database_url,
+            storage_backend=self._storage_backend,
+            runtime_mode=self._runtime_mode,
         )
 
     @staticmethod
@@ -661,6 +778,8 @@ class PropertyAccountPrivacyLifecycle:
             principal_key=self._principal_key(principal_id),
             limit=1,
             database_url=self._database_url,
+            storage_backend=self._storage_backend,
+            runtime_mode=self._runtime_mode,
         )
         return self.public_record(dict(rows[0])) if rows else self.public_record(None)
 
@@ -683,6 +802,8 @@ class PropertyAccountPrivacyLifecycle:
             principal_key=principal_key,
             idempotency_key_hash=normalized_idempotency,
             database_url=self._database_url,
+            storage_backend=self._storage_backend,
+            runtime_mode=self._runtime_mode,
         )
         if existing:
             return self.public_record(existing)
@@ -704,9 +825,10 @@ class PropertyAccountPrivacyLifecycle:
             "phases": [
                 _phase("confirmation", state="waiting", detail="Type DELETE to begin irreversible removal."),
                 _phase("session_revocation"),
+                _phase("searches_shortlists_and_preferences"),
+                _phase("property_content_jobs_and_receipts"),
                 _phase("tour_revocation_and_cache_purge"),
                 _phase("provider_binding_closeout"),
-                _phase("searches_shortlists_and_preferences"),
                 _phase("artifacts_events_and_delivery_logs"),
                 _phase("retention_tombstone"),
             ],
@@ -807,6 +929,79 @@ class PropertyAccountPrivacyLifecycle:
                 self._set_phase(record, "session_revocation", state="completed", detail=f"Revoked {len(revoked_sessions)} active access sessions.")
                 record = self._save(record)
 
+            # Establish the durable account-erasure fence before enumerating and
+            # revoking published tours. Publication paths use this authority to
+            # reject work that was already in flight when erasure was confirmed.
+            # Reassert it on retries even when an earlier phase receipt exists;
+            # the storage operation is idempotent and also removes any late rows.
+            search_counts = product.erase_property_search_account_data(
+                principal_id=principal_id,
+                account_email=str(account_email or "").strip(),
+            )
+            content_counts = PropertyContentJobLedger(
+                database_url=self._database_url,
+            ).erase_principal_data(
+                principal_id=principal_id,
+            )
+            if not receipts.get("property_content_studio"):
+                receipts["property_content_studio"] = {
+                    "jobs_deleted": int(content_counts.get("jobs_deleted") or 0),
+                    "job_events_deleted": int(
+                        content_counts.get("job_events_deleted") or 0
+                    ),
+                    "webhook_events_deleted": int(
+                        content_counts.get("webhook_events_deleted") or 0
+                    ),
+                    "receipt_files_deleted": int(
+                        content_counts.get("receipt_files_deleted") or 0
+                    ),
+                }
+                record["local_deletion_receipts"] = receipts
+                self._set_phase(
+                    record,
+                    "property_content_jobs_and_receipts",
+                    state="completed",
+                    detail=(
+                        "Removed governed content jobs, nonpublic script receipts, "
+                        "and redacted provider-event ledger rows."
+                    ),
+                )
+                record = self._save(record)
+            if not receipts.get("search_and_preferences"):
+                legal_hold_retained = int(
+                    search_counts.get("packet_links_legal_hold_retained") or 0
+                )
+                preference_counts = self._container.preference_profiles.erase_principal(principal_id)
+                onboarding_deleted = self._container.onboarding.erase_principal(principal_id)
+                receipts["search_and_preferences"] = {
+                    "search_runs_deleted": int(search_counts.get("runs_deleted") or 0),
+                    "search_work_jobs_deleted": int(
+                        search_counts.get("work_jobs_deleted") or 0
+                    ),
+                    "research_packet_links_deleted": int(search_counts.get("packet_links_deleted") or 0),
+                    "research_packet_links_legal_hold_retained": legal_hold_retained,
+                    "search_principals_erased": int(search_counts.get("principal_count") or 0),
+                    "preference_records_deleted": preference_counts,
+                    "onboarding_and_shortlist_deleted": bool(onboarding_deleted),
+                }
+                record["local_deletion_receipts"] = receipts
+                self._set_phase(
+                    record,
+                    "searches_shortlists_and_preferences",
+                    state="completed",
+                    detail=(
+                        "Removed searches, non-held research packets, saved shortlist state, "
+                        "onboarding data, and learned preference records. "
+                        + (
+                            f"Retained {legal_hold_retained} research packet link(s) "
+                            "exclusively as explicit legal-hold evidence."
+                            if legal_hold_retained
+                            else "No research packet evidence was retained under legal hold."
+                        )
+                    ),
+                )
+                record = self._save(record)
+
             if not receipts.get("tour_revocation"):
                 tour_receipts: list[dict[str, object]] = []
                 for tour in list_hosted_property_tours_for_principal(principal_id=principal_id):
@@ -863,34 +1058,6 @@ class PropertyAccountPrivacyLifecycle:
                         if provider_receipts
                         else "No connected-provider bindings required deletion."
                     ),
-                )
-                record = self._save(record)
-
-            if not receipts.get("search_and_preferences"):
-                deleted_runs: list[str] = []
-                for _iteration in range(1000):
-                    result = product.clear_property_search_runs(
-                        principal_id=principal_id,
-                        limit=1000,
-                        account_email=str(account_email or "").strip(),
-                    )
-                    batch = [str(value) for value in list(result.get("run_ids") or []) if str(value).strip()]
-                    deleted_runs.extend(batch)
-                    if len(batch) < 1000:
-                        break
-                preference_counts = self._container.preference_profiles.erase_principal(principal_id)
-                onboarding_deleted = self._container.onboarding.erase_principal(principal_id)
-                receipts["search_and_preferences"] = {
-                    "search_runs_deleted": len(set(deleted_runs)),
-                    "preference_records_deleted": preference_counts,
-                    "onboarding_and_shortlist_deleted": bool(onboarding_deleted),
-                }
-                record["local_deletion_receipts"] = receipts
-                self._set_phase(
-                    record,
-                    "searches_shortlists_and_preferences",
-                    state="completed",
-                    detail="Removed searches, saved shortlist state, onboarding data, and learned preference records.",
                 )
                 record = self._save(record)
 

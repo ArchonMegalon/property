@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from functools import lru_cache
 
 from app.product.projections import compact_text
+from app.observability import outbound_observability_headers
 
 _PROPERTY_LOCATION_RESEARCH_USER_AGENT = (
     "PropertyQuarry/2026-07 location-research (+https://propertyquarry.com; contact property@propertyquarry.com)"
@@ -40,6 +41,7 @@ def _property_location_research_headers() -> dict[str, str]:
         "User-Agent": _PROPERTY_LOCATION_RESEARCH_USER_AGENT,
         "Referer": _PROPERTY_LOCATION_RESEARCH_REFERER,
         "Accept": "*/*",
+        **outbound_observability_headers(),
     }
 
 def _property_research_distance_m(lat_a: float, lon_a: float, lat_b: float, lon_b: float) -> int:
@@ -312,7 +314,10 @@ def _property_schoolatlas_wfs_json(
         response = requests.get(
             f"{base_url}/ATLAS_SCHULE_WFS/ows",
             params=params,
-            headers={"User-Agent": _PROPERTY_SCOUT_USER_AGENT},
+            headers={
+                **_property_location_research_headers(),
+                "User-Agent": _PROPERTY_SCOUT_USER_AGENT,
+            },
             timeout=12.0,
         )
         response.raise_for_status()

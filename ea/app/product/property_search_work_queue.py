@@ -128,6 +128,14 @@ class PropertySearchWorkEnqueueResult:
     created: bool
 
 
+@dataclass(frozen=True)
+class PropertySearchWorkQueueSnapshot:
+    """Bounded, identity-free queue telemetry for runtime health reporting."""
+
+    depth: int
+    oldest_item_age_seconds: float
+
+
 class InMemoryPropertySearchWorkQueue:
     """Deterministic development/test implementation of the lease state machine."""
 
@@ -302,8 +310,34 @@ class InMemoryPropertySearchWorkQueue:
         with self._lock:
             return tuple(self._jobs.values())
 
+    def observability_snapshot(self) -> PropertySearchWorkQueueSnapshot:
+        observed_at = _aware_utc(self._now()) or _utc_now()
+        with self._lock:
+            active = tuple(
+                job for job in self._jobs.values() if job.status in {"queued", "leased"}
+            )
+            oldest_created_at = min(
+                (
+                    _aware_utc(job.created_at)
+                    or _aware_utc(job.available_at)
+                    or observed_at
+                    for job in active
+                ),
+                default=None,
+            )
+        oldest_age = (
+            max(0.0, (observed_at - oldest_created_at).total_seconds())
+            if oldest_created_at is not None
+            else 0.0
+        )
+        return PropertySearchWorkQueueSnapshot(
+            depth=len(active),
+            oldest_item_age_seconds=oldest_age,
+        )
+
 
 class PostgresPropertySearchWorkQueue:
+    _CLAIM_CANDIDATE_SCAN_LIMIT = 32
     _RETURNING_COLUMNS = """
         job_id, principal_id, run_id, idempotency_key, payload_json, status,
         attempt_count, max_attempts, available_at, lease_owner, lease_expires_at,
@@ -333,6 +367,67 @@ class PostgresPropertySearchWorkQueue:
         import psycopg
 
         return psycopg.connect(self._database_url, autocommit=False, connect_timeout=5)
+
+    @staticmethod
+    def _set_writer_contract(cursor: object) -> None:
+        from app.product.property_search_storage import _set_property_search_writer_contract
+
+        _set_property_search_writer_contract(cursor)
+
+    @staticmethod
+    def _acquire_principal_write_authority(
+        cursor: object,
+        *,
+        principal_id: str,
+        run_id: str,
+    ) -> None:
+        cursor.execute(  # type: ignore[attr-defined]
+            "SELECT property_search_assert_principal_write_allowed(%s, %s)",
+            (
+                str(principal_id or "").strip(),
+                str(run_id or "").strip(),
+            ),
+        )
+        cursor.fetchone()  # type: ignore[attr-defined]
+
+    @staticmethod
+    def _acquire_write_authority(
+        cursor: object,
+        *,
+        principal_key: str,
+        run_id: str,
+    ) -> None:
+        cursor.execute(  # type: ignore[attr-defined]
+            "SELECT property_search_assert_write_allowed(%s, %s)",
+            (
+                str(principal_key or "").strip(),
+                str(run_id or "").strip(),
+            ),
+        )
+        cursor.fetchone()  # type: ignore[attr-defined]
+
+    @staticmethod
+    def _nonlocking_job_identity(
+        cursor: object,
+        *,
+        job_id: str,
+    ) -> tuple[str, str] | None:
+        cursor.execute(  # type: ignore[attr-defined]
+            """
+            SELECT principal_id, run_id
+            FROM property_search_work_jobs
+            WHERE job_id = %s
+            """,
+            (str(job_id or ""),),
+        )
+        row = cursor.fetchone()  # type: ignore[attr-defined]
+        if row is None:
+            return None
+        principal_id = str(row[0] or "").strip()
+        run_id = str(row[1] or "").strip()
+        if not principal_id or not run_id:
+            raise RuntimeError("property_search_work_identity_invalid")
+        return principal_id, run_id
 
     @staticmethod
     def _from_row(row) -> PropertySearchWorkJob:  # type: ignore[no-untyped-def]
@@ -367,7 +462,14 @@ class PostgresPropertySearchWorkQueue:
 
         from app.product.property_search_storage import (
             _compact_property_search_run_record,
+            _property_search_principal_key,
             _property_search_run_canonicalize_record,
+        )
+        from app.product.property_research_packet_links import (
+            project_property_research_packet_links,
+            refresh_property_research_packet_links_for_refs,
+            sync_property_research_packet_run_memberships,
+            upsert_property_research_packet_links,
         )
 
         normalized = _property_search_run_canonicalize_record(dict(run_record or {}))
@@ -376,21 +478,33 @@ class PostgresPropertySearchWorkQueue:
         key = str(idempotency_key or "").strip()
         if not principal_id or not run_id or not key:
             raise ValueError("property_search_work_identity_required")
+        principal_key = _property_search_principal_key(principal_id)
+        if not principal_key:
+            raise ValueError("property_search_principal_key_required")
         compact = _compact_property_search_run_record(normalized)
+        packet_links = tuple(project_property_research_packet_links(normalized))
         inserted_run = False
         with self._connect() as conn:
             with conn.cursor() as cur:
+                self._set_writer_contract(cur)
+                self._acquire_write_authority(
+                    cur,
+                    principal_key=principal_key,
+                    run_id=run_id,
+                )
                 cur.execute(
                     """
                     INSERT INTO property_search_runs
-                        (principal_id, run_id, payload_json, status, compact_json, created_at, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        (principal_id, run_id, principal_key, payload_json, status,
+                         compact_json, created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT DO NOTHING
                     RETURNING run_id
                     """,
                     (
                         principal_id,
                         run_id,
+                        principal_key,
                         Json(normalized),
                         str(compact.get("status") or "").strip() or None,
                         Json(compact),
@@ -399,12 +513,21 @@ class PostgresPropertySearchWorkQueue:
                     ),
                 )
                 inserted_run = cur.fetchone() is not None
+                if inserted_run:
+                    upsert_property_research_packet_links(cur, packet_links)
+                    sync_property_research_packet_run_memberships(
+                        cur,
+                        principal_id=principal_id,
+                        run_id=run_id,
+                        links=packet_links,
+                    )
                 cur.execute(
                     f"""
                     INSERT INTO property_search_work_jobs
-                        (job_id, principal_id, run_id, idempotency_key, payload_json, status,
-                         attempt_count, max_attempts, available_at, created_at, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, 'queued', 0, %s, NOW(), NOW(), NOW())
+                        (job_id, principal_id, run_id, principal_key, idempotency_key,
+                         payload_json, status, attempt_count, max_attempts, available_at,
+                         created_at, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, 'queued', 0, %s, NOW(), NOW(), NOW())
                     ON CONFLICT DO NOTHING
                     RETURNING {self._RETURNING_COLUMNS}
                     """,
@@ -412,6 +535,7 @@ class PostgresPropertySearchWorkQueue:
                         uuid4().hex,
                         principal_id,
                         run_id,
+                        principal_key,
                         key,
                         Json(dict(payload_json or {})),
                         max(1, int(max_attempts or 1)),
@@ -434,6 +558,9 @@ class PostgresPropertySearchWorkQueue:
                     if row is None:
                         raise RuntimeError("property_search_work_enqueue_conflict_unresolved")
                     if inserted_run and str(row[2] or "") != run_id:
+                        affected_refs = tuple(
+                            str(link["candidate_ref"]) for link in packet_links
+                        )
                         cur.execute(
                             """
                             DELETE FROM property_search_runs AS runs
@@ -445,66 +572,202 @@ class PostgresPropertySearchWorkQueue:
                             """,
                             (principal_id, run_id),
                         )
+                        if bool(cur.rowcount) and affected_refs:
+                            refresh_property_research_packet_links_for_refs(
+                                cur,
+                                principal_id=principal_id,
+                                candidate_refs=affected_refs,
+                            )
                 conn.commit()
         return PropertySearchWorkEnqueueResult(job=self._from_row(row), created=created)
 
+    @classmethod
+    def _nonlocking_claim_candidate_job_ids(
+        cls,
+        cursor: object,
+        *,
+        exhausted: bool,
+    ) -> tuple[str, ...]:
+        if exhausted:
+            cursor.execute(  # type: ignore[attr-defined]
+                """
+                SELECT job_id
+                FROM property_search_work_jobs
+                WHERE status = 'leased'
+                  AND lease_expires_at <= NOW()
+                  AND attempt_count >= max_attempts
+                ORDER BY lease_expires_at ASC, created_at ASC, job_id ASC
+                LIMIT %s
+                """,
+                (cls._CLAIM_CANDIDATE_SCAN_LIMIT,),
+            )
+        else:
+            cursor.execute(  # type: ignore[attr-defined]
+                """
+                SELECT job_id
+                FROM property_search_work_jobs
+                WHERE (
+                    (status = 'queued' AND available_at <= NOW())
+                    OR (
+                        status = 'leased'
+                        AND lease_expires_at <= NOW()
+                        AND attempt_count < max_attempts
+                    )
+                )
+                ORDER BY available_at ASC, created_at ASC, job_id ASC
+                LIMIT %s
+                """,
+                (cls._CLAIM_CANDIDATE_SCAN_LIMIT,),
+            )
+        return tuple(
+            str(row[0] or "").strip()
+            for row in tuple(cursor.fetchall() or ())  # type: ignore[attr-defined]
+            if str(row[0] or "").strip()
+        )
+
     def claim(self, *, lease_owner: str, lease_seconds: int) -> PropertySearchWorkJob | None:
+        from psycopg.errors import LockNotAvailable
+
         owner = str(lease_owner or "").strip()
         if not owner:
             raise ValueError("property_search_work_lease_owner_required")
+        lease_duration = max(1, int(lease_seconds or 1))
         with self._connect() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    UPDATE property_search_work_jobs
-                    SET status = 'failed',
-                        lease_owner = NULL,
-                        lease_expires_at = NULL,
-                        last_error = COALESCE(NULLIF(last_error, ''), 'lease_expired_after_max_attempts'),
-                        completed_at = NOW(),
-                        updated_at = NOW()
-                    WHERE status = 'leased'
-                      AND lease_expires_at <= NOW()
-                      AND attempt_count >= max_attempts
-                    """
+                exhausted_job_ids = self._nonlocking_claim_candidate_job_ids(
+                    cur,
+                    exhausted=True,
                 )
-                cur.execute(
-                    f"""
-                    WITH candidate AS (
-                        SELECT job_id
-                        FROM property_search_work_jobs
-                        WHERE (
-                            (status = 'queued' AND available_at <= NOW())
-                            OR (
-                                status = 'leased'
-                                AND lease_expires_at <= NOW()
-                                AND attempt_count < max_attempts
-                            )
+            conn.commit()
+
+            for candidate_job_id in exhausted_job_ids:
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "SELECT set_config('lock_timeout', '100ms', TRUE)"
                         )
-                        ORDER BY available_at ASC, created_at ASC, job_id ASC
-                        FOR UPDATE SKIP LOCKED
-                        LIMIT 1
-                    )
-                    UPDATE property_search_work_jobs AS jobs
-                    SET status = 'leased',
-                        attempt_count = jobs.attempt_count + 1,
-                        lease_owner = %s,
-                        lease_expires_at = NOW() + (%s * INTERVAL '1 second'),
-                        heartbeat_at = NOW(),
-                        updated_at = NOW()
-                    FROM candidate
-                    WHERE jobs.job_id = candidate.job_id
-                    RETURNING {self._RETURNING_JOB_COLUMNS}
-                    """,
-                    (owner, max(1, int(lease_seconds or 1))),
+                        self._set_writer_contract(cur)
+                        identity = self._nonlocking_job_identity(
+                            cur,
+                            job_id=candidate_job_id,
+                        )
+                        if identity is not None:
+                            principal_id, run_id = identity
+                            self._acquire_principal_write_authority(
+                                cur,
+                                principal_id=principal_id,
+                                run_id=run_id,
+                            )
+                            cur.execute(
+                                """
+                                UPDATE property_search_work_jobs
+                                SET status = 'failed',
+                                    lease_owner = NULL,
+                                    lease_expires_at = NULL,
+                                    last_error = COALESCE(
+                                        NULLIF(last_error, ''),
+                                        'lease_expired_after_max_attempts'
+                                    ),
+                                    completed_at = NOW(),
+                                    updated_at = NOW()
+                                WHERE job_id = %s
+                                  AND principal_id = %s
+                                  AND run_id = %s
+                                  AND status = 'leased'
+                                  AND lease_expires_at <= NOW()
+                                  AND attempt_count >= max_attempts
+                                """,
+                                (candidate_job_id, principal_id, run_id),
+                            )
+                    conn.commit()
+                except LockNotAvailable:
+                    conn.rollback()
+                    continue
+
+            with conn.cursor() as cur:
+                candidate_job_ids = self._nonlocking_claim_candidate_job_ids(
+                    cur,
+                    exhausted=False,
                 )
-                row = cur.fetchone()
-                conn.commit()
-        return self._from_row(row) if row is not None else None
+            conn.commit()
+
+            for candidate_job_id in candidate_job_ids:
+                row = None
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "SELECT set_config('lock_timeout', '100ms', TRUE)"
+                        )
+                        self._set_writer_contract(cur)
+                        identity = self._nonlocking_job_identity(
+                            cur,
+                            job_id=candidate_job_id,
+                        )
+                        if identity is not None:
+                            principal_id, run_id = identity
+                            self._acquire_principal_write_authority(
+                                cur,
+                                principal_id=principal_id,
+                                run_id=run_id,
+                            )
+                            cur.execute(
+                                f"""
+                                UPDATE property_search_work_jobs AS jobs
+                                SET status = 'leased',
+                                    attempt_count = jobs.attempt_count + 1,
+                                    lease_owner = %s,
+                                    lease_expires_at = NOW() + (%s * INTERVAL '1 second'),
+                                    heartbeat_at = NOW(),
+                                    updated_at = NOW()
+                                WHERE jobs.job_id = %s
+                                  AND jobs.principal_id = %s
+                                  AND jobs.run_id = %s
+                                  AND (
+                                      (jobs.status = 'queued' AND jobs.available_at <= NOW())
+                                      OR (
+                                          jobs.status = 'leased'
+                                          AND jobs.lease_expires_at <= NOW()
+                                          AND jobs.attempt_count < jobs.max_attempts
+                                      )
+                                  )
+                                RETURNING {self._RETURNING_JOB_COLUMNS}
+                                """,
+                                (
+                                    owner,
+                                    lease_duration,
+                                    candidate_job_id,
+                                    principal_id,
+                                    run_id,
+                                ),
+                            )
+                            row = cur.fetchone()
+                    conn.commit()
+                except LockNotAvailable:
+                    conn.rollback()
+                    continue
+                if row is not None:
+                    return self._from_row(row)
+        return None
 
     def heartbeat(self, *, job_id: str, lease_owner: str, lease_seconds: int) -> bool:
+        normalized_job_id = str(job_id or "")
+        owner = str(lease_owner or "").strip()
         with self._connect() as conn:
             with conn.cursor() as cur:
+                self._set_writer_contract(cur)
+                identity = self._nonlocking_job_identity(
+                    cur,
+                    job_id=normalized_job_id,
+                )
+                if identity is None:
+                    conn.commit()
+                    return False
+                principal_id, run_id = identity
+                self._acquire_principal_write_authority(
+                    cur,
+                    principal_id=principal_id,
+                    run_id=run_id,
+                )
                 cur.execute(
                     """
                     UPDATE property_search_work_jobs
@@ -512,19 +775,43 @@ class PostgresPropertySearchWorkQueue:
                         lease_expires_at = NOW() + (%s * INTERVAL '1 second'),
                         updated_at = NOW()
                     WHERE job_id = %s
+                      AND principal_id = %s
+                      AND run_id = %s
                       AND status = 'leased'
                       AND lease_owner = %s
                       AND lease_expires_at > NOW()
                     """,
-                    (max(1, int(lease_seconds or 1)), str(job_id or ""), str(lease_owner or "").strip()),
+                    (
+                        max(1, int(lease_seconds or 1)),
+                        normalized_job_id,
+                        principal_id,
+                        run_id,
+                        owner,
+                    ),
                 )
                 changed = cur.rowcount == 1
                 conn.commit()
         return changed
 
     def complete(self, *, job_id: str, lease_owner: str) -> PropertySearchWorkJob | None:
+        normalized_job_id = str(job_id or "")
+        owner = str(lease_owner or "").strip()
         with self._connect() as conn:
             with conn.cursor() as cur:
+                self._set_writer_contract(cur)
+                identity = self._nonlocking_job_identity(
+                    cur,
+                    job_id=normalized_job_id,
+                )
+                if identity is None:
+                    conn.commit()
+                    return None
+                principal_id, run_id = identity
+                self._acquire_principal_write_authority(
+                    cur,
+                    principal_id=principal_id,
+                    run_id=run_id,
+                )
                 cur.execute(
                     f"""
                     UPDATE property_search_work_jobs
@@ -534,33 +821,48 @@ class PostgresPropertySearchWorkQueue:
                         heartbeat_at = NOW(),
                         completed_at = NOW(),
                         updated_at = NOW()
-                    WHERE job_id = %s AND status = 'leased' AND lease_owner = %s
+                    WHERE job_id = %s
+                      AND principal_id = %s
+                      AND run_id = %s
+                      AND status = 'leased'
+                      AND lease_owner = %s
                     RETURNING {self._RETURNING_COLUMNS}
                     """,
-                    (str(job_id or ""), str(lease_owner or "").strip()),
+                    (normalized_job_id, principal_id, run_id, owner),
                 )
                 row = cur.fetchone()
                 conn.commit()
         return self._from_row(row) if row is not None else None
 
     def fail(self, *, job_id: str, lease_owner: str, error: str) -> PropertySearchWorkJob | None:
+        normalized_job_id = str(job_id or "")
+        owner = str(lease_owner or "").strip()
         with self._connect() as conn:
             with conn.cursor() as cur:
+                self._set_writer_contract(cur)
                 cur.execute(
                     """
-                    SELECT attempt_count, max_attempts
+                    SELECT principal_id, run_id, attempt_count, max_attempts
                     FROM property_search_work_jobs
-                    WHERE job_id = %s AND status = 'leased' AND lease_owner = %s
-                    FOR UPDATE
+                    WHERE job_id = %s
                     """,
-                    (str(job_id or ""), str(lease_owner or "").strip()),
+                    (normalized_job_id,),
                 )
                 attempts_row = cur.fetchone()
                 if attempts_row is None:
                     conn.commit()
                     return None
-                attempt_count = int(attempts_row[0] or 0)
-                max_attempts = int(attempts_row[1] or 1)
+                principal_id = str(attempts_row[0] or "").strip()
+                run_id = str(attempts_row[1] or "").strip()
+                if not principal_id or not run_id:
+                    raise RuntimeError("property_search_work_identity_invalid")
+                self._acquire_principal_write_authority(
+                    cur,
+                    principal_id=principal_id,
+                    run_id=run_id,
+                )
+                attempt_count = int(attempts_row[2] or 0)
+                max_attempts = int(attempts_row[3] or 1)
                 terminal = attempt_count >= max_attempts
                 delay_seconds = 0 if terminal else max(0, int(self._backoff_seconds(attempt_count)))
                 cur.execute(
@@ -573,7 +875,13 @@ class PostgresPropertySearchWorkQueue:
                         last_error = %s,
                         completed_at = CASE WHEN %s THEN NOW() ELSE NULL END,
                         updated_at = NOW()
-                    WHERE job_id = %s AND status = 'leased' AND lease_owner = %s
+                    WHERE job_id = %s
+                      AND principal_id = %s
+                      AND run_id = %s
+                      AND status = 'leased'
+                      AND lease_owner = %s
+                      AND attempt_count = %s
+                      AND max_attempts = %s
                     RETURNING {self._RETURNING_COLUMNS}
                     """,
                     (
@@ -581,8 +889,12 @@ class PostgresPropertySearchWorkQueue:
                         delay_seconds,
                         str(error or "property search work failed")[:2000],
                         terminal,
-                        str(job_id or ""),
-                        str(lease_owner or "").strip(),
+                        normalized_job_id,
+                        principal_id,
+                        run_id,
+                        owner,
+                        attempt_count,
+                        max_attempts,
                     ),
                 )
                 row = cur.fetchone()
@@ -598,3 +910,29 @@ class PostgresPropertySearchWorkQueue:
                 )
                 row = cur.fetchone()
         return self._from_row(row) if row is not None else None
+
+    def observability_snapshot(self) -> PropertySearchWorkQueueSnapshot:
+        with self._connect() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        COUNT(*)::bigint,
+                        COALESCE(
+                            GREATEST(
+                                EXTRACT(EPOCH FROM (clock_timestamp() - MIN(created_at))),
+                                0
+                            ),
+                            0
+                        )::double precision
+                    FROM property_search_work_jobs
+                    WHERE status IN ('queued', 'leased')
+                    """
+                )
+                row = cur.fetchone()
+        if row is None:
+            raise RuntimeError("property_search_work_queue_snapshot_missing")
+        return PropertySearchWorkQueueSnapshot(
+            depth=max(0, int(row[0] or 0)),
+            oldest_item_age_seconds=max(0.0, float(row[1] or 0.0)),
+        )

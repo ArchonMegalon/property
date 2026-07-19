@@ -43,6 +43,16 @@ _RFC3339_UTC_SECONDS = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 _RELEASE_ARTIFACT_SET = re.compile(
     r"propertyquarry-generated-release-artifacts-v1@sha256:[0-9a-f]{64}"
 )
+_RELEASE_DEPLOYMENT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
+_REPLICA_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
+RELEASE_IDENTITY_RESPONSE_HEADERS = (
+    ("release_commit_sha", "X-PropertyQuarry-Release-Commit"),
+    ("release_image_digest", "X-PropertyQuarry-Release-Image"),
+    ("release_deployment_id", "X-PropertyQuarry-Release-Deployment"),
+    ("release_manifest_status", "X-PropertyQuarry-Release-Manifest-Status"),
+    ("release_manifest_sha256", "X-PropertyQuarry-Release-Manifest-SHA256"),
+    ("replica_id", "X-PropertyQuarry-Replica-ID"),
+)
 
 
 def _env_value(name: str) -> str:
@@ -191,6 +201,61 @@ def _release_manifest_sha256(values: dict[str, str]) -> str:
     return hashlib.sha256(canonical).hexdigest()
 
 
+def release_runtime_identity() -> dict[str, str]:
+    """Return the bounded, non-secret identity of this exact runtime replica.
+
+    The same envelope is exposed by ``/version`` and attached to measured
+    PropertyQuarry document responses. Invalid runtime or manifest values fail
+    closed to an empty field instead of being reflected into an HTTP header.
+    """
+
+    runtime = runtime_build_identity()
+    manifest = _release_manifest()
+    commit_sha = manifest.get("release_commit_sha", "")
+    image_digest = runtime.get("release_image_digest", "")
+    deployment_id = manifest.get("release_deployment_id", "")
+    manifest_status = manifest.get("release_manifest_status", "")
+    manifest_sha256 = manifest.get("release_manifest_sha256", "")
+    replica_id = runtime.get("replica_id", "")
+    return {
+        "release_commit_sha": (
+            commit_sha
+            if type(commit_sha) is str
+            and _FULL_GIT_SHA.fullmatch(commit_sha) is not None
+            else ""
+        ),
+        "release_image_digest": (
+            image_digest
+            if type(image_digest) is str
+            and re.fullmatch(r"sha256:[0-9a-f]{64}", image_digest) is not None
+            else ""
+        ),
+        "release_deployment_id": (
+            deployment_id
+            if type(deployment_id) is str
+            and _RELEASE_DEPLOYMENT_ID.fullmatch(deployment_id) is not None
+            else ""
+        ),
+        "release_manifest_status": (
+            manifest_status
+            if manifest_status in {"complete", "invalid", "mismatch"}
+            else "invalid"
+        ),
+        "release_manifest_sha256": (
+            manifest_sha256
+            if type(manifest_sha256) is str
+            and re.fullmatch(r"[0-9a-f]{64}", manifest_sha256) is not None
+            else ""
+        ),
+        "replica_id": (
+            replica_id
+            if type(replica_id) is str
+            and _REPLICA_ID.fullmatch(replica_id) is not None
+            else ""
+        ),
+    }
+
+
 @router.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -234,4 +299,7 @@ async def version(container: AppContainer = Depends(get_container)) -> dict[str,
     # Apply immutable manifest authority last so no runtime helper can silently
     # overwrite a field after completeness and digest validation.
     payload.update(_release_manifest())
+    # Reapply the bounded shared envelope last. This keeps /version and the
+    # measured document-response headers on one exact identity contract.
+    payload.update(release_runtime_identity())
     return payload

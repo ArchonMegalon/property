@@ -719,6 +719,33 @@ runuser -u "${PQ_USER}" -- env -i \
 [[ "${LISTENER_EXIT_CODE}" == "2" ]] \
   || fail "pinned runner exited outside the immutable local-config cleanup boundary"
 
+# Export only the named preflight receipt from the untrusted runner-owned
+# evidence directory. The outer bootstrap validates every binding before
+# copying it into the root-governed artifact bundle; no directory copy or
+# wildcard is allowed across this boundary.
+preflight_receipt_name="preflight-${PQ_SECURITY_RUN_ID}-${PQ_SECURITY_RUN_ATTEMPT}.json"
+preflight_receipt="${INSTALL_ROOT}/evidence/${preflight_receipt_name}"
+[[ -f "${preflight_receipt}" && ! -L "${preflight_receipt}" ]] \
+  || fail "exact preflight receipt is missing or unsafe"
+[[ "$(stat -c '%U:%G:%a' "${preflight_receipt}")" == "${PQ_USER}:${PQ_USER}:600" ]] \
+  || fail "preflight receipt ownership or mode changed"
+jq -e \
+  --arg repository "${PQ_REPOSITORY}" \
+  --arg run_id "${PQ_SECURITY_RUN_ID}" \
+  --arg run_attempt "${PQ_SECURITY_RUN_ATTEMPT}" \
+  --arg head_sha "${PQ_EXPECTED_HEAD_SHA}" \
+  --arg runner_name "${RUNNER_NAME_VALUE}" '
+    .schema == "propertyquarry.security_runner_preflight.v1" and
+    .status == "pass" and
+    .repository == $repository and
+    .run_id == $run_id and
+    .run_attempt == $run_attempt and
+    .head_sha == $head_sha and
+    .runner_name == $runner_name
+  ' "${preflight_receipt}" >/dev/null \
+  || fail "preflight receipt binding changed"
+install -m 0600 "${preflight_receipt}" "${EVIDENCE_ROOT}/${preflight_receipt_name}"
+
 verify_post_job_file() {
   local path="$1"
   local expected_sha="$2"

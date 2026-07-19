@@ -124,11 +124,14 @@ def _critical_data_evidence(
     *,
     row_counts: dict[str, int] | None = None,
     fingerprint_salt: str = "release",
+    schema_version: int | None = None,
 ) -> dict[str, object]:
-    counts = {table: 0 for table, _identity, _required in dr.CRITICAL_DATA_TABLES}
+    contract = dr._critical_data_contract(schema_version)
+    counts = {str(row["table"]): 0 for row in contract["tables"]}
     counts["property_search_runs"] = 3
+    if "propertyquarry_admission_capacity_state" in counts:
+        counts["propertyquarry_admission_capacity_state"] = 2
     counts.update(row_counts or {})
-    contract = dr._critical_data_contract()
     tables: list[dict[str, object]] = []
     for table_contract in contract["tables"]:
         table = str(table_contract["table"])
@@ -151,55 +154,83 @@ def _critical_data_evidence(
             remaining -= chunk_rows
             chunk_index += 1
         merkle_root = dr._critical_merkle_root(table, chunks)
-        tables.append(
-            {
-                **table_contract,
-                "evidence_version": dr.CRITICAL_DATA_EVIDENCE_VERSION,
-                "chunk_size": dr.CRITICAL_DATA_CHUNK_SIZE,
-                "max_row_bytes": dr.CRITICAL_DATA_MAX_ROW_BYTES,
-                "max_chunks": dr.CRITICAL_DATA_MAX_CHUNKS,
-                "max_supported_rows": dr.CRITICAL_DATA_MAX_SUPPORTED_ROWS,
-                "row_count": row_count,
-                "chunk_count": len(chunks),
-                "chunks": chunks,
-                "merkle_root_sha256": merkle_root,
-                "fingerprint_sha256": merkle_root,
-            }
-        )
+        table_evidence: dict[str, object] = {
+            **table_contract,
+            "evidence_version": dr.CRITICAL_DATA_EVIDENCE_VERSION,
+            "chunk_size": dr.CRITICAL_DATA_CHUNK_SIZE,
+            "max_row_bytes": dr.CRITICAL_DATA_MAX_ROW_BYTES,
+            "max_chunks": dr.CRITICAL_DATA_MAX_CHUNKS,
+            "max_supported_rows": dr.CRITICAL_DATA_MAX_SUPPORTED_ROWS,
+            "row_count": row_count,
+            "chunk_count": len(chunks),
+            "chunks": chunks,
+            "merkle_root_sha256": merkle_root,
+            "fingerprint_sha256": merkle_root,
+        }
+        if table == "propertyquarry_admission_capacity_state":
+            table_evidence["capacity_state"] = [
+                {
+                    "capacity_key": "lease",
+                    "row_count": 0,
+                    "row_limit": 100_000,
+                },
+                {
+                    "capacity_key": "quota",
+                    "row_count": 0,
+                    "row_limit": 1_000_000,
+                },
+            ]
+        tables.append(table_evidence)
     return {
         **contract,
         "tables": tables,
     }
 
 
-def _critical_query_result(sql: str, *, fingerprint_salt: str = "release") -> str:
+def _critical_query_result(
+    sql: str,
+    *,
+    fingerprint_salt: str = "release",
+    schema_version: int | None = None,
+) -> str:
     table = next(
         table
-        for table, _identity, _required in dr.CRITICAL_DATA_TABLES
+        for table, _identity, _required in dr._critical_data_tables_for_schema_version(
+            schema_version
+        )
         if f"propertyquarry_critical_data:{table}" in sql
     )
-    evidence = _critical_data_evidence(fingerprint_salt=fingerprint_salt)
+    evidence = _critical_data_evidence(
+        fingerprint_salt=fingerprint_salt,
+        schema_version=schema_version,
+    )
     row = next(item for item in evidence["tables"] if item["table"] == table)
     if f"propertyquarry_critical_data:{table}:row_bound_preflight" in sql:
         return f'{row["row_count"]}\n'
-    return json.dumps(
-        {
-            "evidence_version": row["evidence_version"],
-            "row_count": row["row_count"],
-            "oversized_row_count": 0,
-            "chunk_count": row["chunk_count"],
-            "chunks": row["chunks"],
-        }
-    ) + "\n"
+    query_result = {
+        "evidence_version": row["evidence_version"],
+        "row_count": row["row_count"],
+        "oversized_row_count": 0,
+        "chunk_count": row["chunk_count"],
+        "chunks": row["chunks"],
+    }
+    if table == "propertyquarry_admission_capacity_state":
+        query_result["capacity_state"] = row["capacity_state"]
+    return json.dumps(query_result) + "\n"
 
 
-def _source_snapshot_evidence(*, plaintext_sha256: str) -> dict[str, object]:
+def _source_snapshot_evidence(
+    *,
+    plaintext_sha256: str,
+    schema_version: int | None = None,
+) -> dict[str, object]:
     return dr._snapshot_evidence(
         {
             "snapshot_id_sha256": hashlib.sha256(b"00000003-0000001B-1").hexdigest(),
             "transaction_snapshot_sha256": hashlib.sha256(b"100:200:150").hexdigest(),
         },
         pg_dump_plaintext_sha256=plaintext_sha256,
+        governing_schema_version=schema_version,
     )
 
 
@@ -333,8 +364,14 @@ def _backup_receipt_payload(
     completed_at: str = "2026-07-13T10:00:00Z",
     encrypted: bool = True,
     include_off_host: bool = True,
+    source_schema_version: int | None = None,
 ) -> dict[str, object]:
     sha256 = hashlib.sha256(artifact.read_bytes()).hexdigest()
+    source_schema = (
+        _schema_ledger()
+        if source_schema_version is None
+        else _schema_ledger_prefix(source_schema_version)
+    )
     payload: dict[str, object] = {
         "schema": dr.RECEIPT_SCHEMA,
         "status": "pass",
@@ -342,9 +379,14 @@ def _backup_receipt_payload(
         "completed_at": completed_at,
         "release": _release_receipt(),
         "source": {"host": "source-db", "port": 5432, "database": "propertyquarry"},
-        "source_snapshot": _source_snapshot_evidence(plaintext_sha256=sha256),
-        "source_schema": _schema_ledger(),
-        "source_critical_data": _critical_data_evidence(),
+        "source_snapshot": _source_snapshot_evidence(
+            plaintext_sha256=sha256,
+            schema_version=source_schema_version,
+        ),
+        "source_schema": source_schema,
+        "source_critical_data": _critical_data_evidence(
+            schema_version=source_schema_version
+        ),
         "artifact": {
             "sha256": sha256,
             "plaintext_sha256": sha256,
@@ -363,8 +405,14 @@ def _restore_receipt_payload(
     artifact: Path,
     backup_completed_at: str = "2026-07-13T10:00:00Z",
     restore_completed_at: str = "2026-07-13T10:00:20Z",
+    source_schema_version: int | None = None,
 ) -> dict[str, object]:
-    schema = _schema_ledger()
+    source_schema = (
+        _schema_ledger()
+        if source_schema_version is None
+        else _schema_ledger_prefix(source_schema_version)
+    )
+    restored_schema = _schema_ledger()
     plaintext_sha256 = hashlib.sha256(artifact.read_bytes()).hexdigest()
     return {
         "schema": dr.RECEIPT_SCHEMA,
@@ -378,11 +426,18 @@ def _restore_receipt_payload(
             "port": 5432,
             "database": "propertyquarry_restore_drill_release",
         },
-        "source_schema": schema,
-        "source_snapshot": _source_snapshot_evidence(plaintext_sha256=plaintext_sha256),
-        "restored_schema": schema,
-        "source_critical_data": _critical_data_evidence(),
-        "restored_critical_data": _critical_data_evidence(),
+        "source_schema": source_schema,
+        "source_snapshot": _source_snapshot_evidence(
+            plaintext_sha256=plaintext_sha256,
+            schema_version=source_schema_version,
+        ),
+        "restored_schema": restored_schema,
+        "source_critical_data": _critical_data_evidence(
+            schema_version=source_schema_version
+        ),
+        "restored_critical_data": _critical_data_evidence(
+            schema_version=source_schema_version
+        ),
         "artifact": {
             "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(),
             "size_bytes": artifact.stat().st_size,
@@ -412,8 +467,9 @@ def _restore_receipt_payload(
             "source_schema_contract_valid": True,
             "source_snapshot_contract_valid": True,
             "restored_schema_contract_valid": True,
-            "schema_ledger_matches_source": True,
+            "schema_ledger_matches_source": source_schema == restored_schema,
             "critical_data_contract_valid": True,
+            "critical_data_table_set_exact": True,
             "critical_data_exact_match": True,
             "migration_hook_passed": True,
             "schema_migration_forward_verified": True,
@@ -577,11 +633,26 @@ def test_hook_environment_requires_explicit_secret_key_references() -> None:
     assert exc.value.code == "hook_env_key_forbidden"
 
 
-def test_backup_encrypts_validated_dump_and_emits_redacted_checksum_receipt(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "source_schema_version",
+    [
+        dr.CRITICAL_DATA_PRIVACY_SCHEMA_VERSION - 1,
+        dr.CRITICAL_DATA_PRIVACY_SCHEMA_VERSION,
+    ],
+    ids=["pre_privacy_v14", "privacy_v15"],
+)
+def test_backup_encrypts_validated_dump_and_emits_redacted_checksum_receipt(
+    tmp_path: Path,
+    source_schema_version: int,
+) -> None:
     artifact = tmp_path / "propertyquarry.dump.gpg"
     verify_off_host = _trusted_executable(tmp_path, "verify-off-host")
     commands: list[list[str]] = []
     snapshot = _SnapshotConnector()
+    expected_schema = _schema_ledger_prefix(source_schema_version)
+    expected_tables = dr._critical_data_tables_for_schema_version(
+        source_schema_version
+    )
 
     def runner(command, **kwargs):
         command = list(command)
@@ -608,10 +679,15 @@ def test_backup_encrypts_validated_dump_and_emits_redacted_checksum_receipt(tmp_
                 "SET TRANSACTION SNAPSHOT '00000003-0000001B-1'; "
             )
             if "propertyquarry_critical_data:" in sql:
-                return _result(stdout=_critical_query_result(sql))
+                return _result(
+                    stdout=_critical_query_result(
+                        sql,
+                        schema_version=source_schema_version,
+                    )
+                )
             if "to_regclass" in sql:
                 return _result(stdout="t\n")
-            return _result(stdout=json.dumps(_schema_ledger()["migrations"]) + "\n")
+            return _result(stdout=json.dumps(expected_schema["migrations"]) + "\n")
         elif executable == "verify-off-host":
             hook_env = dict(kwargs["env"])
             assert "DATABASE_URL" not in hook_env
@@ -662,16 +738,20 @@ def test_backup_encrypts_validated_dump_and_emits_redacted_checksum_receipt(tmp_
 
     assert receipt["status"] == "pass"
     assert receipt["release"] == _release_receipt()
-    assert receipt["source_schema"] == _schema_ledger()
+    assert receipt["source_schema"] == expected_schema
     assert receipt["source_snapshot"] == _source_snapshot_evidence(
-        plaintext_sha256=hashlib.sha256(b"propertyquarry-custom-dump").hexdigest()
+        plaintext_sha256=hashlib.sha256(b"propertyquarry-custom-dump").hexdigest(),
+        schema_version=source_schema_version,
     )
-    assert receipt["source_critical_data"] == _critical_data_evidence()
+    assert receipt["source_critical_data"] == _critical_data_evidence(
+        schema_version=source_schema_version
+    )
     assert receipt["verification"] == {
         "custom_format_list_valid": True,
         "source_schema_contract_valid": True,
         "source_snapshot_contract_valid": True,
         "source_critical_data_contract_valid": True,
+        "source_critical_data_table_set_bound": True,
         "off_host_object_verified": True,
     }
     artifact_receipt = dict(receipt["artifact"])
@@ -686,11 +766,23 @@ def test_backup_encrypts_validated_dump_and_emits_redacted_checksum_receipt(tmp_
         "pg_dump",
         "psql",
         "psql",
-        *("psql" for _query in range(2 * len(dr.CRITICAL_DATA_TABLES))),
+        *("psql" for _query in range(2 * len(expected_tables))),
         "pg_restore",
         "gpg",
         "verify-off-host",
     ]
+    critical_sql = [
+        command[command.index("--command") + 1]
+        for command in commands
+        if Path(command[0]).name == "psql"
+        and "propertyquarry_critical_data:" in command[command.index("--command") + 1]
+    ]
+    privacy_queried = any(
+        "property_account_privacy_requests" in sql for sql in critical_sql
+    )
+    assert privacy_queried is (
+        source_schema_version >= dr.CRITICAL_DATA_PRIVACY_SCHEMA_VERSION
+    )
     assert snapshot.connection.closed is True
     assert snapshot.events.index(("snapshot_rollback", "")) < snapshot.events.index(
         ("command", "pg_restore")
@@ -833,6 +925,106 @@ def test_env_defined_tables_and_select_one_cannot_replace_canonical_backup_evide
     assert commands == []
 
 
+def test_schema_v17_dr_contract_binds_admission_tables_and_hard_limits() -> None:
+    pre_capacity = dr._critical_data_contract(16)
+    current = dr._critical_data_contract(17)
+
+    assert pre_capacity["table_set_version"] == 2
+    assert pre_capacity["admission_capacity_required"] is False
+    assert current["table_set_version"] == 3
+    assert current["admission_capacity_required"] is True
+    assert current["admission_capacity_limits"] == {
+        "lease": 100_000,
+        "quota": 1_000_000,
+    }
+    assert [row["table"] for row in current["tables"]][-3:] == [
+        "propertyquarry_admission_quota_buckets",
+        "propertyquarry_admission_leases",
+        "propertyquarry_admission_capacity_state",
+    ]
+
+    valid = _critical_data_evidence(schema_version=17)
+    validated = dr._validated_critical_data_evidence(
+        valid,
+        label="Schema v17",
+        governing_schema_version=17,
+    )
+    capacity = next(
+        row
+        for row in validated["tables"]
+        if row["table"] == "propertyquarry_admission_capacity_state"
+    )
+    assert capacity["row_count"] == 2
+    assert capacity["capacity_state"] == [
+        {"capacity_key": "lease", "row_count": 0, "row_limit": 100_000},
+        {"capacity_key": "quota", "row_count": 0, "row_limit": 1_000_000},
+    ]
+
+    hostile_two_row_state = json.loads(json.dumps(valid))
+    hostile_capacity = next(
+        row
+        for row in hostile_two_row_state["tables"]
+        if row["table"] == "propertyquarry_admission_capacity_state"
+    )
+    hostile_capacity["capacity_state"][1]["row_limit"] = 1_000_001
+    with pytest.raises(dr.DisasterRecoveryError) as invalid_state:
+        dr._validated_critical_data_evidence(
+            hostile_two_row_state,
+            label="Schema v17",
+            governing_schema_version=17,
+        )
+    assert (
+        invalid_state.value.code
+        == "critical_data_admission_capacity_state_invalid"
+    )
+
+    drifted_counter = _critical_data_evidence(
+        schema_version=17,
+        row_counts={"propertyquarry_admission_quota_buckets": 1},
+    )
+    with pytest.raises(dr.DisasterRecoveryError) as counter_drift:
+        dr._validated_critical_data_evidence(
+            drifted_counter,
+            label="Schema v17",
+            governing_schema_version=17,
+        )
+    assert (
+        counter_drift.value.code
+        == "critical_data_admission_capacity_counter_drift"
+    )
+
+    missing_capacity_row = json.loads(json.dumps(valid))
+    next(
+        row
+        for row in missing_capacity_row["tables"]
+        if row["table"] == "propertyquarry_admission_capacity_state"
+    )["row_count"] = 1
+    with pytest.raises(dr.DisasterRecoveryError) as invalid_capacity:
+        dr._validated_critical_data_evidence(
+            missing_capacity_row,
+            label="Schema v17",
+            governing_schema_version=17,
+        )
+    assert (
+        invalid_capacity.value.code
+        == "critical_data_admission_capacity_state_invalid"
+    )
+
+    oversized_quota = json.loads(json.dumps(valid))
+    next(
+        row
+        for row in oversized_quota["tables"]
+        if row["table"] == "propertyquarry_admission_quota_buckets"
+    )["row_count"] = 1_000_001
+    with pytest.raises(dr.DisasterRecoveryError) as invalid_quota:
+        dr._validated_critical_data_evidence(
+            oversized_quota,
+            label="Schema v17",
+            governing_schema_version=17,
+        )
+    assert invalid_quota.value.code == "critical_data_admission_capacity_exceeded"
+
+
 @pytest.mark.parametrize(
     ("override", "expected_code"),
     [
@@ -880,9 +1072,18 @@ def test_restore_forbids_arbitrary_retrieval_hooks_and_provider_binary_overrides
     assert commands == []
 
 
+@pytest.mark.parametrize(
+    "source_schema_version",
+    [
+        dr.CRITICAL_DATA_PRIVACY_SCHEMA_VERSION - 1,
+        dr.CRITICAL_DATA_PRIVACY_SCHEMA_VERSION,
+    ],
+    ids=["pre_privacy_v14", "privacy_v15"],
+)
 def test_disposable_restore_drill_verifies_rpo_rto_schema_tables_and_hooks(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    source_schema_version: int,
 ) -> None:
     remote_artifact = tmp_path / "remote-backup.dump"
     remote_artifact.write_bytes(b"verified-custom-dump")
@@ -896,6 +1097,7 @@ def test_disposable_restore_drill_verifies_rpo_rto_schema_tables_and_hooks(
     backup_payload = _backup_receipt_payload(
         artifact=remote_artifact,
         completed_at=dr._utc_iso(started - 10),
+        source_schema_version=source_schema_version,
     )
     backup_payload["off_host_object"] = _off_host_object(
         artifact=remote_artifact,
@@ -969,7 +1171,12 @@ def test_disposable_restore_drill_verifies_rpo_rto_schema_tables_and_hooks(
         if executable == "psql":
             sql = command[command.index("--command") + 1]
             if "propertyquarry_critical_data:" in sql:
-                return _result(stdout=_critical_query_result(sql))
+                return _result(
+                    stdout=_critical_query_result(
+                        sql,
+                        schema_version=source_schema_version,
+                    )
+                )
             if "current_database" in sql:
                 return _result(stdout="propertyquarry_restore_drill_ci\n")
             if "COUNT(*)" in sql:
@@ -1035,7 +1242,9 @@ def test_disposable_restore_drill_verifies_rpo_rto_schema_tables_and_hooks(
     }
     verification = dict(receipt["verification"])
     assert verification["schema_table_count"] == 23
-    assert verification["schema_ledger_matches_source"] is True
+    assert verification["schema_ledger_matches_source"] is (
+        source_schema_version == int(_schema_ledger()["current_version"])
+    )
     assert verification["migration_hook_passed"] is True
     assert verification["schema_migration_forward_verified"] is True
     assert verification["required_tables"] == ["execution_sessions", "artifacts"]
@@ -1056,10 +1265,14 @@ def test_disposable_restore_drill_verifies_rpo_rto_schema_tables_and_hooks(
     assert "target-secret" not in serialized
     assert "<redacted-database-url>" in serialized
     assert receipt["release"] == _release_receipt()
-    assert receipt["source_schema"] == receipt["restored_schema"] == _schema_ledger()
+    assert receipt["source_schema"] == _schema_ledger_prefix(source_schema_version)
+    assert receipt["restored_schema"] == _schema_ledger()
     assert receipt["source_critical_data"] == receipt["restored_critical_data"]
-    assert receipt["source_critical_data"] == _critical_data_evidence()
+    assert receipt["source_critical_data"] == _critical_data_evidence(
+        schema_version=source_schema_version
+    )
     assert verification["critical_data_contract_valid"] is True
+    assert verification["critical_data_table_set_exact"] is True
     assert verification["critical_data_exact_match"] is True
     assert receipt["off_host_object"]["version_id"] == "3LgX-release-object-version"
     assert receipt["off_host_retrieval"]["version_id"] == "3LgX-release-object-version"
@@ -1088,6 +1301,18 @@ def test_disposable_restore_drill_verifies_rpo_rto_schema_tables_and_hooks(
         [readiness_hook],
     ]
     assert [Path(command[0]).name for command, _env in observed].count("pg_restore") == 2
+    critical_sql = [
+        command[command.index("--command") + 1]
+        for command, _env in observed
+        if Path(command[0]).name == "psql"
+        and "propertyquarry_critical_data:" in command[command.index("--command") + 1]
+    ]
+    privacy_queried = any(
+        "property_account_privacy_requests" in sql for sql in critical_sql
+    )
+    assert privacy_queried is (
+        source_schema_version >= dr.CRITICAL_DATA_PRIVACY_SCHEMA_VERSION
+    )
 
 
 def test_retrieved_byte_mismatch_stops_before_target_access(
@@ -1757,18 +1982,32 @@ def test_cli_validation_failure_writes_a_redacted_failure_receipt(
     assert not artifact.exists()
 
 
+@pytest.mark.parametrize(
+    "source_schema_version",
+    [4, dr.CRITICAL_DATA_PRIVACY_SCHEMA_VERSION],
+    ids=["preserved_prefix_v4", "privacy_v15"],
+)
 def test_release_gate_binds_recent_encrypted_off_host_restore_to_exact_release_and_schema(
     tmp_path: Path,
+    source_schema_version: int,
 ) -> None:
     artifact = tmp_path / "propertyquarry.dump.gpg"
     artifact.write_bytes(b"encrypted-release-backup")
     backup_path = tmp_path / "backup.json"
     restore_path = tmp_path / "restore.json"
-    source_schema = _schema_ledger_prefix(4)
-    backup = _backup_receipt_payload(artifact=artifact)
-    backup["source_schema"] = source_schema
-    restore = _restore_receipt_payload(artifact=artifact)
-    restore["source_schema"] = source_schema
+    source_schema = _schema_ledger_prefix(source_schema_version)
+    critical_contract = dr._critical_data_contract(source_schema_version)
+    critical_evidence = _critical_data_evidence(
+        schema_version=source_schema_version
+    )
+    backup = _backup_receipt_payload(
+        artifact=artifact,
+        source_schema_version=source_schema_version,
+    )
+    restore = _restore_receipt_payload(
+        artifact=artifact,
+        source_schema_version=source_schema_version,
+    )
     backup_path.write_text(json.dumps(backup), encoding="utf-8")
     restore_path.write_text(json.dumps(restore), encoding="utf-8")
     now = datetime(2026, 7, 13, 10, 0, 30, tzinfo=timezone.utc).timestamp()
@@ -1787,7 +2026,8 @@ def test_release_gate_binds_recent_encrypted_off_host_restore_to_exact_release_a
     assert receipt["release"] == _release_receipt()
     assert receipt["source_schema"] == source_schema
     assert receipt["source_snapshot"] == _source_snapshot_evidence(
-        plaintext_sha256=hashlib.sha256(artifact.read_bytes()).hexdigest()
+        plaintext_sha256=hashlib.sha256(artifact.read_bytes()).hexdigest(),
+        schema_version=source_schema_version,
     )
     assert receipt["restored_schema"] == _schema_ledger()
     assert receipt["off_host_object"]["version_id"] == "3LgX-release-object-version"
@@ -1799,7 +2039,7 @@ def test_release_gate_binds_recent_encrypted_off_host_restore_to_exact_release_a
         "contract_name": dr.CRITICAL_DATA_CONTRACT_NAME,
         "contract_version": dr.CRITICAL_DATA_CONTRACT_VERSION,
         "evidence_version": dr.CRITICAL_DATA_EVIDENCE_VERSION,
-        "contract_fingerprint_sha256": _critical_data_evidence()[
+        "contract_fingerprint_sha256": critical_evidence[
             "contract_fingerprint_sha256"
         ],
         "fingerprint_algorithm": dr.CRITICAL_DATA_FINGERPRINT_ALGORITHM,
@@ -1807,6 +2047,12 @@ def test_release_gate_binds_recent_encrypted_off_host_restore_to_exact_release_a
         "max_row_bytes": dr.CRITICAL_DATA_MAX_ROW_BYTES,
         "max_chunks": dr.CRITICAL_DATA_MAX_CHUNKS,
         "max_supported_rows": dr.CRITICAL_DATA_MAX_SUPPORTED_ROWS,
+        "governing_schema_version": source_schema_version,
+        "table_set_version": critical_contract["table_set_version"],
+        "privacy_lifecycle_required": critical_contract["privacy_lifecycle_required"],
+        "governed_table_names": [
+            str(row["table"]) for row in critical_contract["tables"]
+        ],
     }
     assert receipt["evidence"]["critical_data_tables"] == [
         {
@@ -1817,7 +2063,7 @@ def test_release_gate_binds_recent_encrypted_off_host_restore_to_exact_release_a
             "merkle_root_sha256": row["merkle_root_sha256"],
             "fingerprint_sha256": row["fingerprint_sha256"],
         }
-        for row in _critical_data_evidence()["tables"]
+        for row in critical_evidence["tables"]
     ]
     assert all(receipt["verification"].values())
 
@@ -2066,6 +2312,143 @@ def test_receipt_path_must_not_overwrite_an_input(tmp_path: Path) -> None:
         dr._validate_receipt_destination(artifact, [artifact])
 
     assert exc.value.code == "receipt_path_conflict"
+
+
+def test_critical_data_contract_switches_exact_table_set_at_privacy_migration() -> None:
+    pre_privacy_version = dr.CRITICAL_DATA_PRIVACY_SCHEMA_VERSION - 1
+    privacy_version = dr.CRITICAL_DATA_PRIVACY_SCHEMA_VERSION
+    pre_privacy = dr._critical_data_contract(pre_privacy_version)
+    privacy = dr._critical_data_contract(privacy_version)
+
+    assert pre_privacy["governing_schema_version"] == pre_privacy_version
+    assert (
+        pre_privacy["table_set_version"]
+        == dr.CRITICAL_DATA_PRE_PRIVACY_TABLE_SET_VERSION
+    )
+    assert pre_privacy["privacy_lifecycle_required"] is False
+    assert [row["table"] for row in pre_privacy["tables"]] == [
+        table for table, _identity, _required in dr.CRITICAL_DATA_PRE_PRIVACY_TABLES
+    ]
+    assert privacy["governing_schema_version"] == privacy_version
+    assert privacy["table_set_version"] == dr.CRITICAL_DATA_PRIVACY_TABLE_SET_VERSION
+    assert privacy["privacy_lifecycle_required"] is True
+    assert [row["table"] for row in privacy["tables"]] == [
+        table for table, _identity, _required in dr.CRITICAL_DATA_PRIVACY_TABLES
+    ]
+    assert privacy["tables"][-1] == {
+        "schema": "public",
+        "table": "property_account_privacy_requests",
+        "identity_columns": ["principal_key", "request_id"],
+        "data_required": False,
+    }
+    assert pre_privacy["contract_fingerprint_sha256"] != privacy[
+        "contract_fingerprint_sha256"
+    ]
+
+
+def test_critical_data_table_set_evidence_fails_closed_across_privacy_boundary() -> None:
+    pre_privacy_version = dr.CRITICAL_DATA_PRIVACY_SCHEMA_VERSION - 1
+    privacy_version = dr.CRITICAL_DATA_PRIVACY_SCHEMA_VERSION
+
+    missing_privacy = _critical_data_evidence(schema_version=privacy_version)
+    missing_privacy["tables"] = list(missing_privacy["tables"])[:-1]
+    with pytest.raises(dr.DisasterRecoveryError) as missing_exc:
+        dr._validated_critical_data_evidence(
+            missing_privacy,
+            label="v15 source",
+            governing_schema_version=privacy_version,
+        )
+    assert missing_exc.value.code == "critical_data_evidence_invalid"
+
+    injected_privacy = _critical_data_evidence(schema_version=pre_privacy_version)
+    injected_privacy["tables"] = [
+        *list(injected_privacy["tables"]),
+        _critical_data_evidence(schema_version=privacy_version)["tables"][-1],
+    ]
+    with pytest.raises(dr.DisasterRecoveryError) as injected_exc:
+        dr._validated_critical_data_evidence(
+            injected_privacy,
+            label="v14 source",
+            governing_schema_version=pre_privacy_version,
+        )
+    assert injected_exc.value.code == "critical_data_evidence_invalid"
+
+    with pytest.raises(dr.DisasterRecoveryError) as cross_version_exc:
+        dr._validated_critical_data_evidence(
+            _critical_data_evidence(schema_version=privacy_version),
+            label="mislabelled source",
+            governing_schema_version=pre_privacy_version,
+        )
+    assert cross_version_exc.value.code == "critical_data_contract_mismatch"
+
+
+def test_snapshot_binding_rejects_changed_schema_governed_table_set() -> None:
+    plaintext_sha256 = "d" * 64
+    pre_privacy_version = dr.CRITICAL_DATA_PRIVACY_SCHEMA_VERSION - 1
+    privacy_version = dr.CRITICAL_DATA_PRIVACY_SCHEMA_VERSION
+    snapshot = _source_snapshot_evidence(
+        plaintext_sha256=plaintext_sha256,
+        schema_version=pre_privacy_version,
+    )
+
+    with pytest.raises(dr.DisasterRecoveryError) as exc:
+        dr._validated_snapshot_evidence(
+            snapshot,
+            label="v15 source",
+            pg_dump_plaintext_sha256=plaintext_sha256,
+            governing_schema_version=privacy_version,
+        )
+
+    assert exc.value.code == "snapshot_evidence_invalid"
+
+
+def test_v15_database_evidence_fails_when_privacy_relation_is_absent() -> None:
+    privacy_version = dr.CRITICAL_DATA_PRIVACY_SCHEMA_VERSION
+    commands: list[dict[str, object]] = []
+
+    def runner(command, **_kwargs):
+        sql = list(command)[list(command).index("--command") + 1]
+        if "property_account_privacy_requests" in sql:
+            return _result(
+                stderr='relation "public.property_account_privacy_requests" does not exist',
+                returncode=1,
+            )
+        return _result(
+            stdout=_critical_query_result(sql, schema_version=privacy_version)
+        )
+
+    with pytest.raises(dr.DisasterRecoveryError) as exc:
+        dr._critical_data_evidence_from_database(
+            label="v15 source",
+            step="source_critical_data",
+            psql="/mock/bin/psql",
+            database_url="postgresql://owner@db.example/propertyquarry",
+            env={},
+            runner=runner,
+            commands=commands,
+            governing_schema_version=privacy_version,
+        )
+
+    assert exc.value.code == "command_failed"
+    assert exc.value.details == {
+        "failed_step": (
+            "source_critical_data_property_account_privacy_requests_row_bound_preflight"
+        ),
+        "stderr_tail": (
+            'relation "public.property_account_privacy_requests" does not exist'
+        ),
+    }
+    queried_tables = [
+        table
+        for table, _identity, _required in dr.CRITICAL_DATA_PRIVACY_TABLES
+        if any(
+            f"propertyquarry_critical_data:{table}" in str(row["command"][-1])
+            for row in commands
+        )
+    ]
+    assert queried_tables == [
+        table for table, _identity, _required in dr.CRITICAL_DATA_PRIVACY_TABLES
+    ]
 
 
 def test_canonical_queries_are_snapshot_bound_public_quoted_and_chunk_bounded() -> None:

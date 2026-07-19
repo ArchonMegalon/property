@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 import urllib.parse
@@ -39,6 +40,17 @@ from app.product.service import ProductService
 from app.services import google_oauth as google_oauth_service
 from app.services.fliplink import build_fliplink_packet_service
 from app.services.heyy_whatsapp_service import redact_phone_number
+from scripts.property_tour_3dvista_provenance import (
+    THREE_D_VISTA_TARGET_PROVENANCE_SCHEMA,
+    export_tree_sha256,
+    sha256_text,
+)
+from scripts.property_tour_panorama_provenance import (
+    PANORAMA_SPATIAL_PROVENANCE_SCHEMA,
+    PANO2VR_SPATIAL_PROVENANCE_KEY,
+    export_tree_sha256 as panorama_export_tree_sha256,
+    pano2vr_export_topology,
+)
 from starlette.requests import Request
 from tests.product_test_helpers import build_operator_product_client, build_product_client, build_property_client, seed_product_state, start_workspace
 
@@ -113,26 +125,44 @@ def test_generated_reconstruction_publication_status_fails_closed() -> None:
     )
 
 
-@pytest.mark.parametrize("dockerfile_name", ("Dockerfile.property", "Dockerfile.property-web"))
-def test_property_runtime_images_package_tour_verifier_dependencies(dockerfile_name: str) -> None:
-    dockerfile = (Path(__file__).resolve().parents[1] / "ea" / dockerfile_name).read_text(encoding="utf-8")
-
-    assert "COPY scripts/verify_property_tour_controls.py /app/scripts/verify_property_tour_controls.py" in dockerfile
-    assert (
-        "COPY scripts/property_tour_3dvista_provenance.py "
-        "/app/scripts/property_tour_3dvista_provenance.py"
-    ) in dockerfile
-    assert "COPY scripts/property_tour_runtime_paths.py /app/scripts/property_tour_runtime_paths.py" in dockerfile
-
-
-def test_property_render_image_packages_magicfit_acceptance_cli_only() -> None:
+def test_property_runtime_images_package_tour_verifier_dependencies() -> None:
     dockerfile_root = Path(__file__).resolve().parents[1] / "ea"
     render_dockerfile = (dockerfile_root / "Dockerfile.property").read_text(encoding="utf-8")
     web_dockerfile = (dockerfile_root / "Dockerfile.property-web").read_text(encoding="utf-8")
+    verifier_copy = (
+        "COPY scripts/verify_property_tour_controls.py "
+        "/app/scripts/verify_property_tour_controls.py"
+    )
+
+    assert verifier_copy in web_dockerfile
+    assert verifier_copy not in render_dockerfile
+    assert (
+        "COPY scripts/property_tour_3dvista_provenance.py "
+        "/app/scripts/property_tour_3dvista_provenance.py"
+    ) in web_dockerfile
+    assert (
+        "COPY scripts/property_tour_panorama_provenance.py "
+        "/app/scripts/property_tour_panorama_provenance.py"
+    ) in web_dockerfile
+    assert (
+        "COPY scripts/property_tour_host_safety.py "
+        "/app/scripts/property_tour_host_safety.py"
+    ) in web_dockerfile
+    assert (
+        "COPY scripts/property_tour_runtime_paths.py "
+        "/app/scripts/property_tour_runtime_paths.py"
+    ) in web_dockerfile
+
+
+def test_property_render_image_packages_magicfit_acceptance_cli_only() -> None:
+    repository_root = Path(__file__).resolve().parents[1]
+    dockerfile_root = repository_root / "ea"
+    render_dockerfile = (dockerfile_root / "Dockerfile.property").read_text(encoding="utf-8")
+    acceptance_cli = repository_root / "scripts" / "accept_magicfit_delivery.py"
     acceptance_copy = "COPY scripts/accept_magicfit_delivery.py /app/scripts/accept_magicfit_delivery.py"
 
-    assert acceptance_copy in render_dockerfile
-    assert acceptance_copy not in web_dockerfile
+    assert acceptance_cli.is_file()
+    assert acceptance_copy not in render_dockerfile
 
 
 def test_generated_reconstruction_transaction_removes_failed_new_bundle(
@@ -627,6 +657,67 @@ def _clean_3dvista_proof() -> dict[str, object]:
     }
 
 
+def _clean_3dvista_target_provenance(
+    slug: str,
+    *,
+    sha256: str,
+    kind: str,
+    entry_relpath: str = "",
+    target_subdir: str = "",
+) -> dict[str, object]:
+    return {
+        "schema": THREE_D_VISTA_TARGET_PROVENANCE_SCHEMA,
+        "status": "pass",
+        "provider": "3dvista",
+        "target_slug": slug,
+        "artifact": {
+            "kind": kind,
+            "sha256": sha256,
+            "entry_relpath": entry_relpath,
+        },
+        "authorization": {
+            "status": "approved",
+            "reference": f"fixture-authorization:{slug}",
+        },
+        "review": {
+            "property_match": "pass",
+            "visual_match": "pass",
+            "reviewed_by": "propertyquarry-test-reviewer",
+            "reviewed_at": "2026-07-18T00:00:00+00:00",
+        },
+        "target_subdir": target_subdir,
+    }
+
+
+def _clean_3dvista_hosted_proof(slug: str, provider_url: str) -> dict[str, object]:
+    return {
+        **_clean_3dvista_proof(),
+        "three_d_vista_target_provenance": _clean_3dvista_target_provenance(
+            slug,
+            sha256=sha256_text(provider_url),
+            kind="hosted_url",
+        ),
+    }
+
+
+def _clean_3dvista_local_proof(
+    slug: str,
+    export_dir: Path,
+    *,
+    entry_relpath: str = "index.htm",
+) -> dict[str, object]:
+    return {
+        **_clean_3dvista_proof(),
+        "three_d_vista_target_provenance": _clean_3dvista_target_provenance(
+            slug,
+            sha256=export_tree_sha256(export_dir),
+            kind="local_export",
+            entry_relpath=entry_relpath,
+            target_subdir=export_dir.name,
+        ),
+    }
+
+
 def _write_clean_3dvista_export(bundle_dir: Path) -> dict[str, object]:
     export_dir = bundle_dir / "3dvista"
     export_dir.mkdir(parents=True, exist_ok=True)
@@ -638,7 +729,7 @@ def _write_clean_3dvista_export(bundle_dir: Path) -> dict[str, object]:
     return {
         "three_d_vista_entry_relpath": "3dvista/index.htm",
         "three_d_vista_import": {"source_project": "propertyquarry"},
-        **_clean_3dvista_proof(),
+        **_clean_3dvista_local_proof(bundle_dir.name, export_dir),
     }
 
 
@@ -23543,7 +23634,10 @@ def test_pocket_recording_deliver_telegram_route_falls_back_to_local_upload_when
     assert body["telegram_message_ids"] == ["tg-audio-2"]
     assert seen[0] == "https://audio.example/rec-telegram-fallback.mp3"
     assert len(seen) == 2
-    assert seen[1].startswith("/tmp/")
+    local_audio_path = Path(seen[1])
+    assert local_audio_path.parent == Path(tempfile.gettempdir()).resolve()
+    assert local_audio_path.name.startswith("ea-pocket")
+    assert local_audio_path.suffix == ".mp3"
 
 
 def test_approving_signal_reply_draft_promotes_linked_commitment_candidate() -> None:
@@ -30294,18 +30388,41 @@ def test_public_tour_control_3dvista_requires_real_export() -> None:
 def test_public_tour_control_embeds_external_3dvista_url() -> None:
     from app.api.routes import public_tours
 
-    html = public_tours._tour_control_html(
-        {
-            "slug": "3dvista-external",
-            "display_title": "3DVista External",
-            "control_mode": "3dvista",
-            "three_d_vista_url": "https://example.3dvista.com/tours/top22/index.html",
-            **_clean_3dvista_proof(),
-        }
-    )
+    slug = "3dvista-external"
+    provider_url = "https://example.3dvista.com/tours/top22/index.html"
+    payload = {
+        "slug": slug,
+        "display_title": "3DVista External",
+        "control_mode": "3dvista",
+        "three_d_vista_url": provider_url,
+        **_clean_3dvista_hosted_proof(slug, provider_url),
+    }
+    html = public_tours._tour_control_html(payload)
 
+    assert public_tours._public_tour_primary_control_path(payload) == (
+        "/tours/3dvista-external/control/3dvista"
+    )
     assert "3DVista Control" in html
     assert 'src="https://example.3dvista.com/tours/top22/index.html"' in html
+
+
+def test_public_tour_3dvista_legacy_booleans_cannot_select_or_serve_control() -> None:
+    from app.api.routes import public_tours
+
+    payload = {
+        "slug": "3dvista-legacy-proof-only",
+        "display_title": "Legacy proof only",
+        "control_mode": "3dvista",
+        "three_d_vista_url": "https://example.3dvista.com/tours/legacy/index.html",
+        **_clean_3dvista_proof(),
+    }
+
+    assert public_tours._public_tour_primary_control_path(payload) == ""
+    with pytest.raises(public_tours.HTTPException) as exc_info:
+        public_tours._tour_control_html(payload)
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "tour_control_3d_export_hidden"
 
 
 def test_public_tour_control_rejects_3dvista_lookalike_domain() -> None:
@@ -30323,7 +30440,7 @@ def test_public_tour_control_rejects_3dvista_lookalike_domain() -> None:
         )
 
     assert exc_info.value.status_code == 404
-    assert exc_info.value.detail == "tour_control_3dvista_export_missing"
+    assert exc_info.value.detail == "tour_control_3d_export_hidden"
 
 
 def test_public_tour_control_embeds_external_matterport_url() -> None:
@@ -30346,12 +30463,14 @@ def test_public_tour_control_embeds_external_matterport_url() -> None:
 def test_public_tour_control_links_walkthrough_without_embedding_provider_video() -> None:
     from app.api.routes import public_tours
 
+    slug = "3dvista-with-walkthrough"
+    provider_url = "https://3dvista.com/share/TEST123"
     html = public_tours._tour_control_html(
         {
-            "slug": "3dvista-with-walkthrough",
+            "slug": slug,
             "display_title": "3DVista With Walkthrough",
-            "three_d_vista_url": "https://3dvista.com/share/TEST123",
-            **_clean_3dvista_proof(),
+            "three_d_vista_url": provider_url,
+            **_clean_3dvista_hosted_proof(slug, provider_url),
             "video_relpath": "tour-rendered-123.mp4",
             "video_provider": "magicfit",
             "scenes": [
@@ -30454,12 +30573,14 @@ def test_public_tour_control_switches_between_provider_backed_matterport_layers(
 def test_public_tour_control_ignores_unverified_provider_layer_url() -> None:
     from app.api.routes import public_tours
 
+    slug = "3dvista-layered-bad"
+    provider_url = "https://3dvista.com/share/SOURCE123"
     html = public_tours._tour_control_html(
         {
-            "slug": "3dvista-layered-bad",
+            "slug": slug,
             "display_title": "Layered 3DVista Bad",
-            "three_d_vista_url": "https://3dvista.com/share/SOURCE123",
-            **_clean_3dvista_proof(),
+            "three_d_vista_url": provider_url,
+            **_clean_3dvista_hosted_proof(slug, provider_url),
             "tour_layers": [
                 {
                     "id": "fake_lived_in",
@@ -30480,14 +30601,16 @@ def test_public_tour_control_ignores_unverified_provider_layer_url() -> None:
 def test_public_tour_control_supports_3dvista_same_tour_layer_state() -> None:
     from app.api.routes import public_tours
 
+    slug = "3dvista-same-tour-layer"
+    provider_url = "https://client.3dvista.com/tours/top22/index.html"
     html = public_tours._tour_control_html(
         {
-            "slug": "3dvista-same-tour-layer",
+            "slug": slug,
             "display_title": "3DVista Same Tour Layer",
             "control_mode": "3dvista",
-            "three_d_vista_url": "https://client.3dvista.com/tours/top22/index.html",
+            "three_d_vista_url": provider_url,
             "three_d_vista_browser_render_proof": {"status": "pass", "rendered_viewer": True},
-            **_clean_3dvista_proof(),
+            **_clean_3dvista_hosted_proof(slug, provider_url),
             "tour_layers": [
                 {
                     "id": "lived_in",
@@ -31328,6 +31451,10 @@ def test_public_tour_control_pano2vr_route_serves_only_declared_export(monkeypat
     (export_dir / "tour.js").write_text("window.GGSKIN = true;", encoding="utf-8")
     (export_dir / "tour.ggpkg").write_bytes(b"PANO2VR-GGPKG")
     (export_dir / "skin.ggskin").write_text("<skin>Pano2VR</skin>", encoding="utf-8")
+    (export_dir / "pano.xml").write_text(
+        "<panorama id='node1'><hotspots /></panorama>",
+        encoding="utf-8",
+    )
     (bundle_dir / "other").mkdir()
     (bundle_dir / "other" / "index.html").write_text("<!doctype html><title>Other</title>", encoding="utf-8")
     (bundle_dir / "tour.json").write_text(
@@ -31337,6 +31464,42 @@ def test_public_tour_control_pano2vr_route_serves_only_declared_export(monkeypat
                 "display_title": "Pano2VR Route Export",
                 "control_mode": "pano2vr",
                 "pano2vr_entry_relpath": "pano2vr/index.html",
+            }
+        ),
+        encoding="utf-8",
+    )
+    topology = pano2vr_export_topology(export_dir)
+    (bundle_dir / "tour.private.json").write_text(
+        json.dumps(
+            {
+                PANO2VR_SPATIAL_PROVENANCE_KEY: {
+                    "schema": PANORAMA_SPATIAL_PROVENANCE_SCHEMA,
+                    "status": "pass",
+                    "provider": "pano2vr",
+                    "target_slug": slug,
+                    "artifact": {
+                        "kind": "local_export",
+                        "sha256": panorama_export_tree_sha256(export_dir),
+                        "entry_relpath": "index.html",
+                    },
+                    "capture": {
+                        "source_kind": "camera_equirectangular",
+                        "projection": "equirectangular",
+                        **topology,
+                    },
+                    "authorization": {
+                        "status": "approved",
+                        "reference": f"fixture-authorization:{slug}",
+                    },
+                    "review": {
+                        "property_match": "pass",
+                        "visual_match": "pass",
+                        "spatial_capture_match": "pass",
+                        "flat_composite_absent": True,
+                        "reviewed_by": "propertyquarry-test-reviewer",
+                        "reviewed_at": "2026-07-18T12:00:00+00:00",
+                    },
+                }
             }
         ),
         encoding="utf-8",
@@ -31424,6 +31587,8 @@ def test_public_tour_control_3dvista_route_serves_only_declared_export(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    from app.api.routes import public_tours
+
     slug = "3dvista-route-export"
     bundle_dir = tmp_path / slug
     export_dir = bundle_dir / "3dvista"
@@ -31442,9 +31607,13 @@ def test_public_tour_control_3dvista_route_serves_only_declared_export(
                     "display_title": "3DVista Route Export",
                     "three_d_vista_entry_relpath": "3dvista/index.htm",
                     "three_d_vista_export_root_relpath": "3dvista",
-                    **_clean_3dvista_proof(),
+                    **_clean_3dvista_local_proof(slug, export_dir),
                 }
             ),
+        encoding="utf-8",
+    )
+    (export_dir / "provenance.json").write_text(
+        json.dumps({"private": "receipt fixture"}),
         encoding="utf-8",
     )
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
@@ -31456,6 +31625,7 @@ def test_public_tour_control_3dvista_route_serves_only_declared_export(
     script_response = client.get(f"/tours/3dvista/{slug}/3dvista/tdvplayer.js")
     other_response = client.get(f"/tours/3dvista/{slug}/other/index.htm")
     private_response = client.get(f"/tours/3dvista/{slug}/3dvista/private.json")
+    provenance_response = client.get(f"/tours/3dvista/{slug}/3dvista/provenance.json")
 
     assert control_response.status_code == 200
     assert "3DVista Control" in control_response.text
@@ -31466,6 +31636,24 @@ def test_public_tour_control_3dvista_route_serves_only_declared_export(
     assert "TDVPlayer" in script_response.text
     assert other_response.status_code == 404
     assert private_response.status_code == 404
+    assert provenance_response.status_code == 404
+
+    (export_dir / "tdvplayer.js").write_text(
+        "window.TDVPlayer = 'tampered';",
+        encoding="utf-8",
+    )
+    public_tours._3dvista_target_provenance_errors_cached.cache_clear()
+    tampered_response = client.get(f"/tours/3dvista/{slug}/3dvista/tdvplayer.js")
+    assert tampered_response.status_code == 404
+
+    (export_dir / "tdvplayer.js").write_text(
+        "window.TDVPlayer = true;",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("PROPERTYQUARRY_PUBLIC_3DVISTA_MAX_HASH_FILES", "1")
+    public_tours._3dvista_target_provenance_errors_cached.cache_clear()
+    over_budget_response = client.get(f"/tours/3dvista/{slug}/3dvista/tdvplayer.js")
+    assert over_budget_response.status_code == 404
 
 
 def test_public_tour_control_3dvista_route_rejects_trial_branded_export(
@@ -31489,7 +31677,7 @@ def test_public_tour_control_3dvista_route_rejects_trial_branded_export(
                 "display_title": "3DVista Trial Export",
                 "three_d_vista_entry_relpath": "3dvista/index.htm",
                 "three_d_vista_export_root_relpath": "3dvista",
-                **_clean_3dvista_proof(),
+                **_clean_3dvista_local_proof(slug, export_dir),
             }
         ),
         encoding="utf-8",
@@ -31505,7 +31693,7 @@ def test_public_tour_control_3dvista_route_rejects_trial_branded_export(
     assert entry_response.status_code == 404
 
 
-def test_public_tour_control_3dvista_layer_can_use_second_declared_export(
+def test_public_tour_control_3dvista_rejects_second_export_without_its_own_byte_receipt(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -31534,7 +31722,7 @@ def test_public_tour_control_3dvista_layer_can_use_second_declared_export(
                     "display_title": "3DVista Layer Export",
                     "three_d_vista_entry_relpath": "3dvista/index.htm",
                     "three_d_vista_export_root_relpath": "3dvista",
-                    **_clean_3dvista_proof(),
+                    **_clean_3dvista_local_proof(slug, base_export_dir),
                     "tour_layers": [
                     {
                         "id": "lived_in",
@@ -31564,13 +31752,11 @@ def test_public_tour_control_3dvista_layer_can_use_second_declared_export(
     placeholder_response = client.get(f"/tours/3dvista/{slug}/3dvista-placeholder/index.htm")
 
     assert control_response.status_code == 200
-    assert 'data-provider-layer="lived_in"' in control_response.text
-    assert f"/tours/3dvista/{slug}/3dvista-staged/index.htm" in control_response.text
+    assert 'data-provider-layer="lived_in"' not in control_response.text
+    assert f"/tours/3dvista/{slug}/3dvista-staged/index.htm" not in control_response.text
     assert "bad_placeholder" not in control_response.text
-    assert staged_entry_response.status_code == 200
-    assert "tourviewer lived in" in staged_entry_response.text
-    assert staged_script_response.status_code == 200
-    assert "TDVPlayer" in staged_script_response.text
+    assert staged_entry_response.status_code == 404
+    assert staged_script_response.status_code == 404
     assert placeholder_response.status_code == 404
 
 
@@ -31579,6 +31765,7 @@ def test_public_tour_forced_provider_route_fails_closed_when_provider_missing(
     tmp_path: Path,
 ) -> None:
     slug = "forced-provider-mismatch"
+    provider_url = "https://www.3dvista.com/share/forced-provider-mismatch"
     bundle_dir = tmp_path / slug
     bundle_dir.mkdir(parents=True)
     (bundle_dir / "tour.json").write_text(
@@ -31586,8 +31773,8 @@ def test_public_tour_forced_provider_route_fails_closed_when_provider_missing(
             {
                 "slug": slug,
                 "display_title": "Forced Provider Mismatch",
-                "three_d_vista_url": "https://www.3dvista.com/share/forced-provider-mismatch",
-                **_clean_3dvista_proof(),
+                "three_d_vista_url": provider_url,
+                **_clean_3dvista_hosted_proof(slug, provider_url),
             }
         ),
         encoding="utf-8",
@@ -31648,6 +31835,7 @@ def test_public_tour_3dvista_control_uses_private_receipt_without_public_json_le
     tmp_path: Path,
 ) -> None:
     slug = "private-receipt-3dvista"
+    provider_url = "https://example.3dvista.com/tours/private-receipt/index.html"
     bundle_dir = tmp_path / slug
     bundle_dir.mkdir(parents=True)
     (bundle_dir / "tour.json").write_text(
@@ -31663,8 +31851,11 @@ def test_public_tour_3dvista_control_uses_private_receipt_without_public_json_le
     (bundle_dir / "tour.private.json").write_text(
         json.dumps(
             {
-                "three_d_vista_url": "https://example.3dvista.com/tours/private-receipt/index.html",
-                **_clean_3dvista_proof(),
+                "slug": "private-receipt-slug-override",
+                "scene_strategy": "pure_360_cube",
+                "publication_status": "disabled",
+                "three_d_vista_url": provider_url,
+                **_clean_3dvista_hosted_proof(slug, provider_url),
             }
         ),
         encoding="utf-8",
@@ -31674,14 +31865,66 @@ def test_public_tour_3dvista_control_uses_private_receipt_without_public_json_le
 
     client = build_product_client(principal_id="public-tour-private-receipt-3dvista")
     payload_response = client.get(f"/tours/{slug}.json")
+    page_response = client.get(f"/tours/{slug}", follow_redirects=False)
+    generic_control_response = client.get(f"/tours/{slug}/control")
     control_response = client.get(f"/tours/{slug}/control/3dvista")
 
     assert payload_response.status_code == 200
     assert "three_d_vista_url" not in payload_response.json()
     assert "source_virtual_tour_url" not in payload_response.json()
+    assert page_response.status_code == 302
+    assert page_response.headers["location"] == f"/tours/{slug}/control/3dvista"
+    assert generic_control_response.status_code == 200
+    assert "3DVista Control" in generic_control_response.text
     assert control_response.status_code == 200
     assert "3DVista Control" in control_response.text
     assert 'src="https://example.3dvista.com/tours/private-receipt/index.html"' in control_response.text
+
+
+def test_private_tour_receipt_rejects_symlink_and_oversized_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_tours
+
+    symlink_slug = "private-receipt-symlink"
+    symlink_bundle = tmp_path / symlink_slug
+    symlink_bundle.mkdir(parents=True)
+    (symlink_bundle / "tour.json").write_text(
+        json.dumps({"slug": symlink_slug}),
+        encoding="utf-8",
+    )
+    outside_receipt = tmp_path / "outside-private-receipt.json"
+    outside_receipt.write_text(
+        json.dumps({"three_d_vista_target_provenance": {}}),
+        encoding="utf-8",
+    )
+    (symlink_bundle / "tour.private.json").symlink_to(outside_receipt)
+
+    oversized_slug = "private-receipt-oversized"
+    oversized_bundle = tmp_path / oversized_slug
+    oversized_bundle.mkdir(parents=True)
+    (oversized_bundle / "tour.json").write_text(
+        json.dumps({"slug": oversized_slug}),
+        encoding="utf-8",
+    )
+    (oversized_bundle / "tour.private.json").write_text(
+        json.dumps(
+            {
+                "three_d_vista_target_provenance": {},
+                "padding": "x" * 2_048,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_TOUR_MANIFEST_MAX_BYTES", "1024")
+
+    for slug in (symlink_slug, oversized_slug):
+        with pytest.raises(public_tours.HTTPException) as exc_info:
+            public_tours._load_private_tour_receipt(slug)
+        assert exc_info.value.status_code == 500
+        assert exc_info.value.detail == "tour_payload_invalid"
 
 
 def test_public_tour_landing_blocks_cube_payload_even_when_pano2vr_entry_exists(
@@ -31728,7 +31971,7 @@ def test_property_tour_compare_links_offer_only_real_provider_exports(monkeypatc
                     "slug": slug,
                     "matterport_url": "https://my.matterport.com/show/?m=TEST123",
                     "three_d_vista_entry_relpath": "3dvista/index.htm",
-                    **_clean_3dvista_proof(),
+                    **_clean_3dvista_local_proof(slug, bundle_dir / "3dvista"),
                 }
             ),
         encoding="utf-8",
@@ -32491,7 +32734,6 @@ def test_hosted_property_tour_generated_reconstruction_bundle_ready_requires_vie
             ),
             encoding="utf-8",
         )
-
     ready_slug = "generated-reconstruction-bundle-ready"
     ready_bundle_dir = tmp_path / ready_slug
     ready_bundle_dir.mkdir(parents=True)

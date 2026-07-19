@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 from types import SimpleNamespace
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.testclient import TestClient
 import pytest
 
 from app.propertyquarry_release_probe import (
     PROPERTYQUARRY_RELEASE_PROBE_NONCE_HEADER,
+    PROPERTYQUARRY_RELEASE_PROBE_NONCE_SHA256_RESPONSE_HEADER,
     PROPERTYQUARRY_RELEASE_PROBE_SIGNATURE_HEADER,
     PROPERTYQUARRY_RELEASE_PROBE_TIMESTAMP_HEADER,
     propertyquarry_release_probe_signature,
@@ -126,8 +128,13 @@ def _identity_app(
     @app.get(_RELEASE_PROBE_SHORTLIST_RUN_PATH)
     def who(
         request: Request,
+        response: Response,
         context: RequestContext = Depends(get_request_context),
     ) -> dict[str, object]:
+        response.headers["cache-control"] = "public, max-age=86400"
+        response.headers[
+            PROPERTYQUARRY_RELEASE_PROBE_NONCE_SHA256_RESPONSE_HEADER
+        ] = "f" * 64
         return {
             "principal_id": context.principal_id,
             "auth_source": context.auth_source,
@@ -338,6 +345,11 @@ def test_valid_release_probe_uses_fixed_principal_and_strips_identity_and_probe_
 
     assert response.status_code == 200, response.text
     assert response.headers["cache-control"] == "no-store"
+    assert response.headers[
+        PROPERTYQUARRY_RELEASE_PROBE_NONCE_SHA256_RESPONSE_HEADER
+    ] == hashlib.sha256(
+        b"propertyquarry-release-probe\0release-probe-valid-fixed-principal-0001"
+    ).hexdigest()
     body = response.json()
     assert body["principal_id"] == _RELEASE_PROBE_PRINCIPAL_ID
     assert body["auth_source"] == "propertyquarry_release_probe"

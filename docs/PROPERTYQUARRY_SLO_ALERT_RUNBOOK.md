@@ -57,6 +57,22 @@ the configured maximum age. The standalone PropertyQuarry scheduler is
 required; the legacy worker is conditional and becomes required only when its
 profile is deliberately enabled. Do not fabricate or touch heartbeat files.
 
+## Admission capacity
+
+Treat a missing or zero
+`propertyquarry_admission_capacity_contract_valid{backend="postgres"}` sample
+as a schema, privilege, or database-availability fault and stop promotion. The
+only valid shared state has the keys `quota` and `lease`, hard limits
+`1000000` and `100000`, and counts between zero and their respective limits.
+Compare the row-count and limit gauges with the exact capacity table under the
+dedicated read-only admission runtime role. At 80 percent, identify expired
+quota buckets or leases and confirm normal bounded cleanup; at 95 percent,
+contain new admission demand before the database-enforced cap rejects writes.
+Never update the counter table, disable its triggers, raise a hard limit, or
+grant the runtime role capacity DML as an incident shortcut. Counter drift is
+a data-integrity incident governed by the migration and PostgreSQL recovery
+runbooks.
+
 ## Database saturation
 
 This alert is active only when both pool capacity and in-use series are
@@ -66,10 +82,13 @@ disaster-recovery runbook for integrity or restore concerns.
 
 ## Queue backlog
 
-This alert is active only when both queue depth and oldest-item age are
-exposed. Identify the oldest governed work class, scheduler health, provider
-availability, and retry loops. Stop uncontrolled producers or retries before
-adding consumers. Preserve queued work and idempotency evidence.
+Queue depth and oldest-item age for `queue="property_search"` are mandatory
+flagship telemetry. If either series is absent, confirm the dedicated worker,
+its fresh heartbeat, database read authority, and the API's shared heartbeat
+volume before diagnosing backlog. Identify the oldest governed work class,
+worker health, provider availability, and retry loops. Stop uncontrolled
+producers or retries before adding consumers. Preserve queued work and
+idempotency evidence; never fabricate a heartbeat or queue sample.
 
 ## Provider and quota failures
 

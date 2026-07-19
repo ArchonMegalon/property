@@ -345,6 +345,7 @@ def test_responses_provider_health_and_profiles_routes_use_shared_helpers() -> N
     assert "header_profile = header_codex_profile_from_request(request)" in execution_source
     assert "return await loop.run_in_executor(" in runtime_source
     assert "trace_metadata[\"ea_correlation_id\"] = correlation_id" in runtime_source
+    assert "trace_metadata[\"ea_traceparent\"] = traceparent" in runtime_source
     assert "X-EA-Onemin-Preferred-Accounts" in runtime_source
     assert "upstream_unavailable:tool_shim_planner_timeout" in tool_runtime_source
     assert "tool_choice_type == \"none\"" in tool_runtime_source

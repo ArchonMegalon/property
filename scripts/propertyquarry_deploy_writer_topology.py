@@ -20,8 +20,8 @@ TOPOLOGY_PATH = (
     / "release"
     / "propertyquarry_deploy_writer_topology.v1.json"
 )
-TOPOLOGY_SHA256 = "e7e4b8c21587007f2831f475502a9c3e649aa50edc137409b027ac4d9f3c33e8"
-ROLE_NAMES = ("api", "scheduler", "render", "migration", "ingress")
+TOPOLOGY_SHA256 = "efe2b60c7ca2303a2b275fbb20880b879a030ca9b3a9d8ea3c8039bbd4a0f21f"
+ROLE_NAMES = ("api", "worker", "scheduler", "render", "migration", "ingress")
 IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 CONTAINER_ID_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -90,7 +90,16 @@ def load_topology() -> dict[str, Any]:
     if not isinstance(target, dict):
         raise WriterTopologyError("writer topology target must be an object")
     _exact_keys(target, set(ROLE_NAMES), "writer topology target")
-    expected_database_roles = {"api": True, "scheduler": True, "render": False, "migration": True, "ingress": False}
+    expected_database_roles = {
+        "api": True,
+        "worker": True,
+        "scheduler": True,
+        # The render bridge persists distributed admission quota and lease
+        # state even when optional media generation is otherwise idle.
+        "render": True,
+        "migration": True,
+        "ingress": False,
+    }
     for role in ROLE_NAMES:
         row = target[role]
         if not isinstance(row, dict):
@@ -103,7 +112,7 @@ def load_topology() -> dict[str, Any]:
     external = payload["external_database_writers"]
     if not isinstance(external, list):
         raise WriterTopologyError("external database writers must be an array")
-    seen = {str(target["api"]["container"]), str(target["scheduler"]["container"])}
+    seen = {str(target[role]["container"]) for role in ROLE_NAMES}
     for index, row in enumerate(external):
         if not isinstance(row, dict):
             raise WriterTopologyError(f"external database writer {index} must be an object")
@@ -123,10 +132,14 @@ def topology_digest() -> str:
 def allowed_database_writer_names(payload: Mapping[str, Any]) -> list[str]:
     target = payload["target"]
     assert isinstance(target, Mapping)
-    # The migrator is a pinned database writer too.  In particular, a
-    # controller crash can leave it running; startup containment must be able
-    # to recognize and stop it before evaluating unknown writers.
-    names = [str(target[role]["container"]) for role in ("api", "scheduler", "migration")]
+    # Derive the allowlist from the closed role classifications so adding a
+    # durable consumer cannot silently omit it from containment. The migrator
+    # remains included because a controller crash can leave it active.
+    names = [
+        str(target[role]["container"])
+        for role in ROLE_NAMES
+        if target[role]["database_writer"] is True
+    ]
     names.extend(str(row["container"]) for row in payload["external_database_writers"])
     return names
 

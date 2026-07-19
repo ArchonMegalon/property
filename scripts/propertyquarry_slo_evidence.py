@@ -743,12 +743,22 @@ def validate_metrics(
         "propertyquarry_http_requests_total": "counter",
         "propertyquarry_http_request_errors_total": "counter",
         "propertyquarry_http_request_duration_seconds": "histogram",
+        "propertyquarry_runtime_build_info": "gauge",
         "propertyquarry_readiness": "gauge",
         "propertyquarry_expected_api_replicas": "gauge",
         "propertyquarry_runtime_heartbeat_required": "gauge",
         "propertyquarry_runtime_heartbeat_age_seconds": "gauge",
         "propertyquarry_runtime_heartbeat_present": "gauge",
         "propertyquarry_runtime_heartbeat_stale": "gauge",
+        "propertyquarry_ingress_rejections_total": "counter",
+        "propertyquarry_ingress_cost_units_total": "counter",
+        "propertyquarry_ingress_high_cost_inflight": "gauge",
+        "propertyquarry_ingress_admission_operations_total": "counter",
+        "propertyquarry_admission_capacity_contract_valid": "gauge",
+        "propertyquarry_admission_capacity_row_count": "gauge",
+        "propertyquarry_admission_capacity_limit": "gauge",
+        "propertyquarry_queue_depth": "gauge",
+        "propertyquarry_queue_oldest_item_age_seconds": "gauge",
         "propertyquarry_scheduler_delivery_outbox_events_total": "counter",
         "propertyquarry_content_ledger_events_total": "counter",
     }
@@ -761,6 +771,105 @@ def validate_metrics(
         raise SloValidationError(
             "required metrics have invalid Prometheus types: " + ", ".join(wrong_types)
         )
+
+    capacity_contract = samples_for(
+        samples,
+        "propertyquarry_admission_capacity_contract_valid",
+    )
+    if (
+        len(capacity_contract) != 1
+        or capacity_contract[0].labels != {"backend": "postgres"}
+        or capacity_contract[0].value != 1.0
+    ):
+        raise SloValidationError(
+            "PropertyQuarry admission capacity contract must have exactly one "
+            "passing PostgreSQL sample"
+        )
+    capacity_objective = objective(slo, "admission_capacity")
+    if capacity_objective.get("hard_limits") != {
+        "quota": 1_000_000,
+        "lease": 100_000,
+    }:
+        raise SloValidationError(
+            "PropertyQuarry admission capacity objective must retain fixed hard limits"
+        )
+    if (
+        capacity_objective.get("warning_utilization_ratio") != 0.8
+        or capacity_objective.get("critical_utilization_ratio") != 0.95
+    ):
+        raise SloValidationError(
+            "PropertyQuarry admission capacity objective thresholds are invalid"
+        )
+    expected_capacity_limits = {"lease": 100_000, "quota": 1_000_000}
+    capacity_counts = samples_for(
+        samples,
+        "propertyquarry_admission_capacity_row_count",
+    )
+    capacity_limits = samples_for(
+        samples,
+        "propertyquarry_admission_capacity_limit",
+    )
+    expected_capacity_labels = {
+        ("postgres", capacity_key) for capacity_key in expected_capacity_limits
+    }
+    if (
+        {
+            (row.labels.get("backend", ""), row.labels.get("capacity_key", ""))
+            for row in capacity_counts
+        }
+        != expected_capacity_labels
+        or {
+            (row.labels.get("backend", ""), row.labels.get("capacity_key", ""))
+            for row in capacity_limits
+        }
+        != expected_capacity_labels
+        or len(capacity_counts) != 2
+        or len(capacity_limits) != 2
+        or any(
+            set(row.labels) != {"backend", "capacity_key"}
+            for row in (*capacity_counts, *capacity_limits)
+        )
+    ):
+        raise SloValidationError(
+            "PropertyQuarry admission capacity must expose exactly lease and quota samples"
+        )
+    observed_capacity: dict[str, dict[str, float]] = {}
+    for capacity_key, expected_limit in expected_capacity_limits.items():
+        count_sample = next(
+            row
+            for row in capacity_counts
+            if row.labels.get("capacity_key") == capacity_key
+        )
+        limit_sample = next(
+            row
+            for row in capacity_limits
+            if row.labels.get("capacity_key") == capacity_key
+        )
+        if limit_sample.value != float(expected_limit):
+            raise SloValidationError(
+                "PropertyQuarry admission capacity metrics must retain fixed hard limits"
+            )
+        if (
+            not math.isfinite(count_sample.value)
+            or count_sample.value < 0
+            or count_sample.value > limit_sample.value
+            or not count_sample.value.is_integer()
+        ):
+            raise SloValidationError(
+                f"PropertyQuarry admission capacity {capacity_key} count is out of bounds"
+            )
+        observed_capacity[capacity_key] = {
+            "row_count": count_sample.value,
+            "row_limit": limit_sample.value,
+            "utilization_ratio": count_sample.value / limit_sample.value,
+        }
+        if (
+            observed_capacity[capacity_key]["utilization_ratio"]
+            > float(capacity_objective["warning_utilization_ratio"])
+        ):
+            raise SloValidationError(
+                f"PropertyQuarry admission capacity {capacity_key} exceeds the launch warning threshold"
+            )
 
     readiness = samples_for(samples, "propertyquarry_readiness")
     if len(readiness) != 1 or readiness[0].value != 1.0:
@@ -809,6 +918,14 @@ def validate_metrics(
             )
         integrity[area] = {"status": "pass", "values": values}
 
+    runtime_objective = objective(slo, "runtime_heartbeats")
+    baseline_required_roles = {
+        str(item or "").strip().lower()
+        for item in runtime_objective.get("baseline_required_roles", [])
+        if str(item or "").strip()
+    }
+    if not baseline_required_roles.issubset({"worker", "scheduler"}):
+        raise SloValidationError("runtime heartbeat baseline roles are invalid")
     roles: dict[str, object] = {}
     for role in ("worker", "scheduler"):
         required_sample = single_role_sample(
@@ -819,8 +936,8 @@ def validate_metrics(
         present = single_role_sample(samples, "propertyquarry_runtime_heartbeat_present", role)
         stale = single_role_sample(samples, "propertyquarry_runtime_heartbeat_stale", role)
         age = single_role_sample(samples, "propertyquarry_runtime_heartbeat_age_seconds", role)
-        if role == "scheduler" and required_sample.value != 1.0:
-            raise SloValidationError("scheduler heartbeat must remain required")
+        if role in baseline_required_roles and required_sample.value != 1.0:
+            raise SloValidationError(f"{role} heartbeat must remain required")
         role_required = required_sample.value == 1.0
         if role_required and (
             present.value != 1.0
@@ -865,6 +982,23 @@ def validate_metrics(
                 raise SloValidationError("database pool is saturated at launch evidence capture")
             values["utilization_ratio"] = ratio
         elif capability_name == "queue_backlog":
+            for family in capability_families:
+                property_search_samples = [
+                    item
+                    for item in samples_for(samples, family)
+                    if item.labels.get("queue") == "property_search"
+                ]
+                if (
+                    len(property_search_samples) != 1
+                    or not math.isfinite(property_search_samples[0].value)
+                    or property_search_samples[0].value < 0
+                ):
+                    raise SloValidationError(
+                        f"queue capability must expose one finite non-negative property_search sample for {family}"
+                    )
+                values[family] = property_search_samples[0].value
+            if not values["propertyquarry_queue_depth"].is_integer():
+                raise SloValidationError("property search queue depth must be an integer")
             if values["propertyquarry_queue_depth"] > float(raw_capability["warning_depth"]):
                 raise SloValidationError("queue depth exceeds the launch evidence threshold")
             if values["propertyquarry_queue_oldest_item_age_seconds"] > float(
@@ -877,6 +1011,7 @@ def validate_metrics(
         "expected_api_replicas": int(expected_replicas[0].value),
         "current_slos": current_slos,
         "runtime_roles": roles,
+        "admission_capacity": observed_capacity,
         "integrity": integrity,
         "conditional_capabilities": capabilities,
     }

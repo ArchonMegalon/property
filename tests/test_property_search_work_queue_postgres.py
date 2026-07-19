@@ -50,8 +50,13 @@ def _record(*, principal_id: str, run_id: str) -> dict[str, object]:
 def _cleanup(database_url: str, *, principal_ids: tuple[str, ...]) -> None:
     import psycopg
 
+    from app.product.property_search_storage import (
+        _set_property_search_writer_contract,
+    )
+
     with psycopg.connect(database_url) as conn:
         with conn.cursor() as cur:
+            _set_property_search_writer_contract(cur)
             cur.execute(
                 "DELETE FROM property_search_work_jobs WHERE principal_id = ANY(%s)",
                 (list(principal_ids),),
@@ -211,5 +216,27 @@ def test_postgres_retry_budget_requeues_then_fails_terminally() -> None:
         assert terminal.status == "failed"
         assert terminal.completed_at is not None
         assert repository.claim(lease_owner="worker-c", lease_seconds=60) is None
+    finally:
+        _cleanup(database_url, principal_ids=(principal_id,))
+
+
+def test_postgres_observability_snapshot_counts_active_work_without_identity() -> None:
+    database_url = _db_url()
+    repository = PostgresPropertySearchWorkQueue(database_url)
+    baseline = repository.observability_snapshot()
+    suffix = uuid4().hex
+    principal_id = f"queue-observability-{suffix}"
+    run_id = f"run-{suffix}"
+    try:
+        repository.enqueue_run(
+            run_record=_record(principal_id=principal_id, run_id=run_id),
+            payload_json={"private": "never-exported"},
+            idempotency_key=f"key-{suffix}",
+        )
+
+        observed = repository.observability_snapshot()
+        assert observed.depth >= baseline.depth + 1
+        assert observed.oldest_item_age_seconds >= 0.0
+        assert set(observed.__dict__) == {"depth", "oldest_item_age_seconds"}
     finally:
         _cleanup(database_url, principal_ids=(principal_id,))

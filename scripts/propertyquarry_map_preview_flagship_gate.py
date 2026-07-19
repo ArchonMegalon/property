@@ -41,6 +41,10 @@ from scripts.propertyquarry_live_http_security import (
     validated_live_base_origin,
 )
 from scripts.propertyquarry_live_probe_auth import live_probe_request_headers
+from scripts.propertyquarry_live_probe_secret_scope import (
+    read_release_probe_secret_from_stdin,
+    scrub_release_probe_secret_environment,
+)
 
 CANONICAL_RENDERER_PREVIEWS: tuple[dict[str, object], ...] = (
     {
@@ -589,7 +593,7 @@ def build_map_preview_flagship_receipt(
                         _check(
                             "authenticated_app_probe_auth_configured",
                             False,
-                            reason="Authenticated map-preview discovery requires PROPERTYQUARRY_LIVE_PROBE_SECRET or legacy API/principal auth.",
+                            reason="Authenticated map-preview discovery requires --release-probe-secret-stdin or legacy API/principal auth.",
                         )
                     ],
                     "preview_results": [],
@@ -696,8 +700,9 @@ def main() -> int:
     parser.add_argument("--api-token", default=os.getenv("EA_API_TOKEN", ""))
     parser.add_argument("--principal-id", default=os.getenv("EA_PRINCIPAL_ID", "pq-map-preview-gate"))
     parser.add_argument(
-        "--release-probe-secret",
-        default=os.getenv("PROPERTYQUARRY_LIVE_PROBE_SECRET", ""),
+        "--release-probe-secret-stdin",
+        action="store_true",
+        help="Read the protected release-probe credential once from bounded stdin.",
     )
     parser.add_argument("--image-url", action="append", default=[])
     parser.add_argument("--discover-route", action="append", default=[])
@@ -707,6 +712,11 @@ def main() -> int:
     parser.add_argument("--no-canonical-fallback", action="store_true")
     parser.add_argument("--write", default="_completion/smoke/property-live-map-preview-flagship-latest.json")
     args = parser.parse_args()
+    release_probe_secret = read_release_probe_secret_from_stdin(
+        parser,
+        enabled=bool(args.release_probe_secret_stdin),
+    )
+    scrub_release_probe_secret_environment()
     env_urls = [
         item.strip()
         for item in str(os.getenv("PROPERTYQUARRY_MAP_PREVIEW_GATE_URLS") or "").split(",")
@@ -717,7 +727,7 @@ def main() -> int:
         host_header=args.host_header,
         api_token=args.api_token,
         principal_id=args.principal_id,
-        release_probe_secret=args.release_probe_secret,
+        release_probe_secret=release_probe_secret,
         image_urls=list(args.image_url or []) + env_urls,
         discover_routes=list(args.discover_route or DEFAULT_DISCOVER_ROUTES),
         timeout_seconds=max(1.0, float(args.timeout_seconds or 12.0)),

@@ -12,6 +12,9 @@ PropertyQuarry is a source/browser candidate, not a production launch:
 - Production promotion remains blocked on the independent release-controller artifact, an approved `propertyquarry-security` runner, and distinct digest-pinned web/render images.
 - ID Austria is optional and unconfigured. Another supported sign-in path still needs protected live activation proof.
 - External notification release evidence is Telegram-only. WhatsApp is outside the current launch evidence.
+- Release claims are split. **Core Gold** covers search, shortlist, property detail, first-party 3DVista/public-tour delivery, dossier, decision, and governed delivery evidence. Missing or unconfigured MagicFit, Magic, OMagic, generated scene-video, or other advanced visual lanes do not block Core Gold and must remain unavailable in customer copy.
+- **Advanced Visual Gold** is a separate opt-in claim scope. It fails closed unless every claimed MagicFit/Magic/OMagic lane has exact candidate-bound provider provenance, accepted playback, quota/account state, privacy, isolation, source-receipt hashes, and media-artifact hashes. Adapter configuration or a generated file alone is never Advanced Visual Gold evidence.
+- The current Advanced Visual producer receipts do not yet carry source-side `release_commit_sha` + `image_digest` identities and exact verifier/source packet hashes. Therefore this candidate records Advanced Visual Gold as `unavailable_unbound_producer_receipts`. The aggregate rejects these legacy/current shapes and never relabels them from its own CLI arguments; Core Gold remains independently eligible.
 
 ## Candidate binding
 
@@ -52,7 +55,16 @@ Production stays fail-closed until every item is bound to the exact runtime cand
 5. The governed deployment preserves the canonical public-tour inventory, repairs only journaled legacy ownership, and completes; `/version` reports the approved runtime SHA and complete manifest; `/` remains healthy without generated-bundle permission errors or path disclosure.
 6. A supported sign-in path, lifecycle controls, Telegram delivery, PostgreSQL durability, and the customer search-to-decision journeys pass protected live verification.
 7. Observability, alerting, rollback, disaster recovery, post-promotion smoke, and Cloudflare/public-origin receipts pass.
-8. Billing, provider-media, analytics, and Gold limitations are either resolved with evidence or excluded from the launch claim.
+8. Billing, analytics, and Core Gold limitations are resolved with evidence or excluded from the launch claim. Advanced scene-video/provider-media limitations may be excluded only by selecting Core Gold and keeping every affected customer claim unavailable; an Advanced Visual Gold claim remains blocked.
+
+## Gold evidence tier and claim scope
+
+- Evidence tier (`standard|flagship|launch`) is independent from claim scope (`core|advanced_visual`). Production release always uses `launch`; standard preserves operator-summary semantics and cannot make a release claim.
+- `core_gold` is a strict compatibility alias for `launch` + `core`. It requires the first-party customer operating loop, every Core launch/UX receipt, and verified 3DVista/public-tour evidence. Its provider fields are `core_required_provider_modes` and `core_missing_provider_modes`.
+- `advanced_visual_gold` is a strict compatibility alias for `launch` + `advanced_visual`. It adds governed MagicFit, Magic, and OMagic evidence plus an offline aggregate binding to the exact release SHA/image, current source receipts, provider artifact hashes, quota/account state, privacy, and isolation. Its provider fields are `advanced_visual_required_provider_modes` and `advanced_visual_missing_provider_modes`.
+- Every authoritative Advanced Visual source must carry its expected schema plus source-side `release_commit_sha` and `image_digest`. Every derived verifier/status/packet must also bind the exact upstream receipt or packet SHA-256. Missing or replayed identities yield `unavailable_unbound_producer_receipts`; freshness plus aggregate CLI arguments are not release authority.
+- Legacy `required_provider_modes` / `missing_provider_modes` remain a combined operator envelope. They must not be used to make a Core Gold decision; operator dashboards consume the explicit combined `operator_*` fields.
+- Any customer-facing walkthrough-ready claim is fail-closed even under Core Gold when its exact provider receipt or playback binding is absent, invalid, stale, over quota, privacy-unsafe, or outside the governed render isolation boundary.
 
 ## Whole-project Gold boundary
 

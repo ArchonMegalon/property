@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://propertyquarry.at/schemas/global-launch-terminal-bundle.v1.schema.json",
+  "title": "PropertyQuarry global launch terminal installed bundle",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "version",
+    "install_root",
+    "python",
+    "files",
+    "artifact_set_sha256"
+  ],
+  "properties": {
+    "schema": {
+      "const": "propertyquarry.global_launch_terminal_bundle.v1"
+    },
+    "version": {
+      "type": "integer",
+      "const": 1
+    },
+    "install_root": {
+      "const": "/usr/libexec/propertyquarry"
+    },
+    "python": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {
+          "const": "/usr/bin/python3.12"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        }
+      }
+    },
+    "files": {
+      "type": "object",
+      "minProperties": 5,
+      "propertyNames": {
+        "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._/-]+$"
+      },
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^sha256:[0-9a-f]{64}$"
+      }
+    },
+    "artifact_set_sha256": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  }
+}

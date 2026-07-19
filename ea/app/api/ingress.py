@@ -5,10 +5,9 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 import hashlib
 import ipaddress
+import logging
 import math
 import os
-import threading
-import time
 import uuid
 from typing import Any
 
@@ -18,6 +17,13 @@ from fastapi.responses import JSONResponse
 from app.api.dependencies import RequestContext, get_request_context
 from app.observability import get_runtime_metrics
 from app.product.service import build_product_service
+from app.services.admission_control import (
+    AdmissionBackend,
+    AdmissionBackendUnavailable,
+    AdmissionDecision,
+    ConcurrencyDimension,
+    QuotaCharge,
+)
 
 
 _MUTATION_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
@@ -30,6 +36,7 @@ _BYPASS_PATHS = {
     "/metrics",
 }
 _DEFAULT_TRUSTED_PROXY_CIDRS = ("127.0.0.0/8", "::1/128")
+LOG = logging.getLogger("ea.ingress")
 
 
 class RequestBodyLimitExceeded(RuntimeError):
@@ -197,6 +204,7 @@ class IngressPolicy:
     high_cost_ip_concurrency: int = 8
     high_cost_account_concurrency: int = 2
     active_search_limit: int = 1
+    concurrency_lease_seconds: int = 600
     trusted_proxy_cidrs: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = ()
 
     @classmethod
@@ -208,11 +216,14 @@ class IngressPolicy:
     ) -> IngressPolicy:
         env = environ if environ is not None else os.environ
         production_default = str(runtime_mode or "").strip().lower() == "prod"
+        quotas_enabled = _optional_bool(
+            env.get("PROPERTYQUARRY_INGRESS_QUOTAS_ENABLED"),
+            default=production_default,
+        )
+        if production_default and not quotas_enabled:
+            raise RuntimeError("propertyquarry_ingress_quotas_required_in_prod")
         return cls(
-            quotas_enabled=_optional_bool(
-                env.get("PROPERTYQUARRY_INGRESS_QUOTAS_ENABLED"),
-                default=production_default,
-            ),
+            quotas_enabled=quotas_enabled,
             max_body_bytes=_bounded_env_int(
                 env,
                 "PROPERTYQUARRY_INGRESS_MAX_BODY_BYTES",
@@ -283,6 +294,13 @@ class IngressPolicy:
                 minimum=1,
                 maximum=20,
             ),
+            concurrency_lease_seconds=_bounded_env_int(
+                env,
+                "PROPERTYQUARRY_INGRESS_CONCURRENCY_LEASE_SECONDS",
+                default=600,
+                minimum=30,
+                maximum=7_200,
+            ),
             trusted_proxy_cidrs=parse_trusted_proxy_cidrs(
                 env.get("PROPERTYQUARRY_TRUSTED_PROXY_CIDRS")
             ),
@@ -339,89 +357,6 @@ def resolve_client_ip(
             continue
         return candidate.compressed
     return peer.compressed
-
-
-class FixedWindowQuota:
-    def __init__(
-        self,
-        *,
-        window_seconds: int,
-        clock: Callable[[], float] = time.monotonic,
-        max_keys: int = 8_192,
-    ) -> None:
-        self.window_seconds = max(1, int(window_seconds))
-        self.clock = clock
-        self.max_keys = max(1, int(max_keys))
-        self._buckets: dict[str, tuple[int, int]] = {}
-        self._lock = threading.Lock()
-
-    def consume(self, key: str, *, units: int, limit: int) -> tuple[bool, int]:
-        now = max(0.0, float(self.clock()))
-        window = int(now // self.window_seconds)
-        retry_after = max(1, int(math.ceil(((window + 1) * self.window_seconds) - now)))
-        normalized_key = str(key or "unknown")
-        requested_units = max(1, int(units or 1))
-        with self._lock:
-            if normalized_key not in self._buckets and len(self._buckets) >= self.max_keys:
-                stale = [
-                    name
-                    for name, (bucket_window, _) in self._buckets.items()
-                    if bucket_window != window
-                ]
-                for name in stale:
-                    self._buckets.pop(name, None)
-                if len(self._buckets) >= self.max_keys:
-                    # Never evict a live bucket: key flooding must not reset an
-                    # already-accounted caller's quota. New keys fail closed
-                    # until the fixed window rolls over.
-                    return False, retry_after
-            previous_window, used = self._buckets.get(normalized_key, (window, 0))
-            if previous_window != window:
-                used = 0
-            if used + requested_units > max(1, int(limit)):
-                self._buckets[normalized_key] = (window, used)
-                return False, retry_after
-            self._buckets[normalized_key] = (window, used + requested_units)
-        return True, retry_after
-
-
-class InflightGate:
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
-        self._ip_counts: dict[str, int] = {}
-        self._account_counts: dict[str, int] = {}
-
-    def acquire(
-        self,
-        *,
-        ip_key: str,
-        account_key: str,
-        ip_limit: int,
-        account_limit: int,
-    ) -> tuple[bool, str]:
-        with self._lock:
-            if self._ip_counts.get(ip_key, 0) >= max(1, int(ip_limit)):
-                return False, "ip"
-            if account_key and self._account_counts.get(account_key, 0) >= max(1, int(account_limit)):
-                return False, "account"
-            self._ip_counts[ip_key] = self._ip_counts.get(ip_key, 0) + 1
-            if account_key:
-                self._account_counts[account_key] = self._account_counts.get(account_key, 0) + 1
-            return True, ""
-
-    def release(self, *, ip_key: str, account_key: str) -> None:
-        with self._lock:
-            ip_count = self._ip_counts.get(ip_key, 0) - 1
-            if ip_count > 0:
-                self._ip_counts[ip_key] = ip_count
-            else:
-                self._ip_counts.pop(ip_key, None)
-            if account_key:
-                account_count = self._account_counts.get(account_key, 0) - 1
-                if account_count > 0:
-                    self._account_counts[account_key] = account_count
-                else:
-                    self._account_counts.pop(account_key, None)
 
 
 def _headers_from_scope(scope: dict[str, Any]) -> dict[str, str]:
@@ -510,16 +445,98 @@ class IngressAbuseMiddleware:
         app: Callable[..., Awaitable[None]],
         *,
         policy: IngressPolicy,
-        clock: Callable[[], float] = time.monotonic,
+        admission_backend: AdmissionBackend | None = None,
         context_resolver: Callable[[Request], RequestContext | None] | None = None,
         active_search_counter: Callable[[Request, RequestContext, int], int] | None = None,
     ) -> None:
         self.app = app
         self.policy = policy
-        self._quota = FixedWindowQuota(window_seconds=policy.window_seconds, clock=clock)
-        self._inflight = InflightGate()
+        if policy.quotas_enabled and admission_backend is None:
+            raise RuntimeError("propertyquarry_ingress_admission_backend_required")
+        self._admission_backend = admission_backend
         self._context_resolver = context_resolver or _request_context_sync
         self._active_search_counter = active_search_counter
+
+    def _record_admission(self, scope: dict[str, Any], *, operation: str, outcome: str) -> None:
+        app = scope.get("app")
+        if app is None:
+            return
+        backend_name = str(getattr(self._admission_backend, "backend_name", "missing") or "missing")
+        get_runtime_metrics(app).record_ingress_admission(
+            backend=backend_name,
+            operation=operation,
+            outcome=outcome,
+        )
+
+    async def _consume_quota(
+        self,
+        *,
+        scope: dict[str, Any],
+        receive: Callable[..., Awaitable[dict[str, Any]]],
+        send: Callable[..., Awaitable[None]],
+        charges: tuple[QuotaCharge, ...],
+    ) -> AdmissionDecision | None:
+        backend = self._admission_backend
+        if backend is None:
+            raise RuntimeError("propertyquarry_ingress_admission_backend_required")
+        try:
+            decision = await asyncio.to_thread(backend.consume_many, charges)
+        except AdmissionBackendUnavailable:
+            self._record_admission(scope, operation="quota", outcome="unavailable")
+            await self._send_error(
+                scope=scope,
+                receive=receive,
+                send=send,
+                status_code=503,
+                code="ingress_admission_unavailable",
+                message="request admission could not be verified",
+                dimension="backend",
+                retry_after=5,
+            )
+            return None
+        self._record_admission(
+            scope,
+            operation="quota",
+            outcome="allowed" if decision.allowed else "rejected",
+        )
+        return decision
+
+    async def _acquire_concurrency(
+        self,
+        *,
+        scope: dict[str, Any],
+        receive: Callable[..., Awaitable[dict[str, Any]]],
+        send: Callable[..., Awaitable[None]],
+        dimensions: tuple[ConcurrencyDimension, ...],
+    ) -> AdmissionDecision | None:
+        backend = self._admission_backend
+        if backend is None:
+            raise RuntimeError("propertyquarry_ingress_admission_backend_required")
+        try:
+            decision = await asyncio.to_thread(
+                backend.acquire,
+                dimensions,
+                lease_seconds=self.policy.concurrency_lease_seconds,
+            )
+        except AdmissionBackendUnavailable:
+            self._record_admission(scope, operation="concurrency", outcome="unavailable")
+            await self._send_error(
+                scope=scope,
+                receive=receive,
+                send=send,
+                status_code=503,
+                code="ingress_admission_unavailable",
+                message="request admission could not be verified",
+                dimension="backend",
+                retry_after=5,
+            )
+            return None
+        self._record_admission(
+            scope,
+            operation="concurrency",
+            outcome="allowed" if decision.allowed else "rejected",
+        )
+        return decision
 
     async def _send_error(
         self,
@@ -661,12 +678,23 @@ class IngressAbuseMiddleware:
             trusted_proxy_cidrs=self.policy.trusted_proxy_cidrs,
         )
         scope.setdefault("state", {})["client_ip"] = client_ip
-        allowed, retry_after = self._quota.consume(
-            f"request:ip:{client_ip}",
-            units=1,
-            limit=self.policy.ip_request_limit,
+        quota_decision = await self._consume_quota(
+            scope=scope,
+            receive=receive,
+            send=send,
+            charges=(
+                QuotaCharge(
+                    key=f"ingress:request:ip:{client_ip}",
+                    units=1,
+                    limit=self.policy.ip_request_limit,
+                    window_seconds=self.policy.window_seconds,
+                    dimension="ip",
+                ),
+            ),
         )
-        if not allowed:
+        if quota_decision is None:
+            return
+        if not quota_decision.allowed:
             await self._send_error(
                 scope=scope,
                 receive=receive,
@@ -675,7 +703,7 @@ class IngressAbuseMiddleware:
                 code="ingress_rate_limit_exceeded",
                 message="request rate limit exceeded",
                 dimension="ip",
-                retry_after=retry_after,
+                retry_after=quota_decision.retry_after_seconds,
             )
             return
 
@@ -703,12 +731,23 @@ class IngressAbuseMiddleware:
                 return
             account_key = _hashed_account_key(context)
             if account_key:
-                allowed, retry_after = self._quota.consume(
-                    f"request:account:{account_key}",
-                    units=1,
-                    limit=self.policy.account_request_limit,
+                quota_decision = await self._consume_quota(
+                    scope=scope,
+                    receive=receive,
+                    send=send,
+                    charges=(
+                        QuotaCharge(
+                            key=f"ingress:request:account:{account_key}",
+                            units=1,
+                            limit=self.policy.account_request_limit,
+                            window_seconds=self.policy.window_seconds,
+                            dimension="account",
+                        ),
+                    ),
                 )
-                if not allowed:
+                if quota_decision is None:
+                    return
+                if not quota_decision.allowed:
                     await self._send_error(
                         scope=scope,
                         receive=receive,
@@ -717,7 +756,7 @@ class IngressAbuseMiddleware:
                         code="ingress_rate_limit_exceeded",
                         message="account request rate limit exceeded",
                         dimension="account",
-                        retry_after=retry_after,
+                        retry_after=quota_decision.retry_after_seconds,
                     )
                     return
 
@@ -725,41 +764,50 @@ class IngressAbuseMiddleware:
         if content_length > 0:
             cost_units += max(0, int(math.ceil(content_length / 262_144)) - 1)
         if cost_units > 0:
-            allowed, retry_after = self._quota.consume(
-                f"cost:ip:{client_ip}",
-                units=cost_units,
-                limit=self.policy.ip_cost_limit,
+            cost_charges = [
+                QuotaCharge(
+                    key=f"ingress:cost:ip:{client_ip}",
+                    units=cost_units,
+                    limit=self.policy.ip_cost_limit,
+                    window_seconds=self.policy.window_seconds,
+                    dimension="ip",
+                )
+            ]
+            if account_key:
+                cost_charges.append(
+                    QuotaCharge(
+                        key=f"ingress:cost:account:{account_key}",
+                        units=cost_units,
+                        limit=self.policy.account_cost_limit,
+                        window_seconds=self.policy.window_seconds,
+                        dimension="account",
+                    )
+                )
+            quota_decision = await self._consume_quota(
+                scope=scope,
+                receive=receive,
+                send=send,
+                charges=tuple(cost_charges),
             )
-            if not allowed:
+            if quota_decision is None:
+                return
+            if not quota_decision.allowed:
+                dimension = quota_decision.dimension or "ip"
                 await self._send_error(
                     scope=scope,
                     receive=receive,
                     send=send,
                     status_code=429,
                     code="ingress_cost_quota_exceeded",
-                    message="request cost quota exceeded",
-                    dimension="ip",
-                    retry_after=retry_after,
+                    message=(
+                        "account request cost quota exceeded"
+                        if dimension == "account"
+                        else "request cost quota exceeded"
+                    ),
+                    dimension=dimension,
+                    retry_after=quota_decision.retry_after_seconds,
                 )
                 return
-            if account_key:
-                allowed, retry_after = self._quota.consume(
-                    f"cost:account:{account_key}",
-                    units=cost_units,
-                    limit=self.policy.account_cost_limit,
-                )
-                if not allowed:
-                    await self._send_error(
-                        scope=scope,
-                        receive=receive,
-                        send=send,
-                        status_code=429,
-                        code="ingress_cost_quota_exceeded",
-                        message="account request cost quota exceeded",
-                        dimension="account",
-                        retry_after=retry_after,
-                    )
-                    return
             app = scope.get("app")
             if app is not None:
                 get_runtime_metrics(app).record_ingress_cost(
@@ -767,23 +815,37 @@ class IngressAbuseMiddleware:
                     cost_units=cost_units,
                 )
 
-        acquired = False
+        lease_id = ""
         if rule is not None and rule.high_cost:
             account_concurrency = (
-                min(
-                    self.policy.active_search_limit,
-                    self.policy.high_cost_account_concurrency,
-                )
+                1
                 if rule.active_search
                 else self.policy.high_cost_account_concurrency
             )
-            acquired, dimension = self._inflight.acquire(
-                ip_key=client_ip,
-                account_key=account_key,
-                ip_limit=self.policy.high_cost_ip_concurrency,
-                account_limit=account_concurrency,
+            concurrency_dimensions = [
+                ConcurrencyDimension(
+                    key=f"ingress:concurrency:ip:{client_ip}",
+                    limit=self.policy.high_cost_ip_concurrency,
+                    dimension="ip",
+                )
+            ]
+            if account_key:
+                concurrency_dimensions.append(
+                    ConcurrencyDimension(
+                        key=f"ingress:concurrency:account:{account_key}",
+                        limit=account_concurrency,
+                        dimension="account",
+                    )
+                )
+            concurrency_decision = await self._acquire_concurrency(
+                scope=scope,
+                receive=receive,
+                send=send,
+                dimensions=tuple(concurrency_dimensions),
             )
-            if not acquired:
+            if concurrency_decision is None:
+                return
+            if not concurrency_decision.allowed:
                 await self._send_error(
                     scope=scope,
                     receive=receive,
@@ -791,10 +853,11 @@ class IngressAbuseMiddleware:
                     status_code=429,
                     code="ingress_concurrency_limit_exceeded",
                     message="too many high-cost requests are already active",
-                    dimension=dimension,
+                    dimension=concurrency_decision.dimension or "ip",
                     retry_after=1,
                 )
                 return
+            lease_id = concurrency_decision.lease_id
             app = scope.get("app")
             if app is not None:
                 get_runtime_metrics(app).adjust_ingress_inflight(
@@ -860,8 +923,17 @@ class IngressAbuseMiddleware:
                     details={"max_body_bytes": body_limit},
                 )
         finally:
-            if acquired and rule is not None:
-                self._inflight.release(ip_key=client_ip, account_key=account_key)
+            if lease_id and rule is not None:
+                backend = self._admission_backend
+                try:
+                    if backend is not None:
+                        await asyncio.to_thread(backend.release, lease_id)
+                    self._record_admission(scope, operation="release", outcome="released")
+                except Exception:
+                    # A bounded lease prevents a crashed or partitioned release
+                    # from permanently consuming distributed capacity.
+                    LOG.exception("distributed ingress admission lease release failed")
+                    self._record_admission(scope, operation="release", outcome="unavailable")
                 app = scope.get("app")
                 if app is not None:
                     get_runtime_metrics(app).adjust_ingress_inflight(

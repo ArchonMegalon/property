@@ -16,6 +16,7 @@ from pathlib import Path, PurePosixPath
 import re
 import secrets
 import stat
+import threading
 import time
 import urllib.parse
 from urllib.parse import urlparse
@@ -58,8 +59,12 @@ from app.api.routes.public_tour_payloads import (
     require_public_tour_viewable as _payload_require_public_tour_viewable,
 )
 from app.product.property_tour_hosting import (
+    HostedPropertyTourManifestError,
+    HostedPropertyTourManifestMissing,
     _PROPERTY_GENERATED_RECONSTRUCTION_VIEWER_VERSION,
     _hosted_property_tour_preview_image_url,
+    _hosted_property_tour_publication_lock,
+    _read_hosted_property_tour_json_file,
     hosted_property_tour_revocation_receipt,
 )
 from app.product.service import _property_feedback_reason_map, build_product_service
@@ -68,6 +73,48 @@ from app.services.property_market_catalog import currency_code_for_country, supp
 from app.services.public_tour_release_policy import (
     evaluate_public_tour_generated_viewer_release,
 )
+try:
+    from scripts.property_tour_3dvista_provenance import (
+        THREE_D_VISTA_PROVENANCE_FILENAMES,
+        safe_relpath as _safe_3dvista_provenance_relpath,
+        validate_3dvista_target_provenance,
+    )
+    from scripts.property_tour_panorama_provenance import (
+        PANO2VR_SPATIAL_PROVENANCE_KEY,
+        export_tree_sha256 as _panorama_export_tree_sha256,
+        panorama_walkable_required,
+        pano2vr_export_topology,
+        safe_relpath as _safe_panorama_provenance_relpath,
+        validate_panorama_spatial_provenance,
+    )
+    from scripts.property_tour_host_safety import (
+        TourHostSafetyError,
+        bounded_env_int,
+        require_bounded_file,
+        require_bounded_tree,
+        tour_manifest_max_bytes,
+    )
+except ModuleNotFoundError:
+    from property_tour_3dvista_provenance import (  # type: ignore[no-redef]
+        THREE_D_VISTA_PROVENANCE_FILENAMES,
+        safe_relpath as _safe_3dvista_provenance_relpath,
+        validate_3dvista_target_provenance,
+    )
+    from property_tour_panorama_provenance import (  # type: ignore[no-redef]
+        PANO2VR_SPATIAL_PROVENANCE_KEY,
+        export_tree_sha256 as _panorama_export_tree_sha256,
+        panorama_walkable_required,
+        pano2vr_export_topology,
+        safe_relpath as _safe_panorama_provenance_relpath,
+        validate_panorama_spatial_provenance,
+    )
+    from property_tour_host_safety import (  # type: ignore[no-redef]
+        TourHostSafetyError,
+        bounded_env_int,
+        require_bounded_file,
+        require_bounded_tree,
+        tour_manifest_max_bytes,
+    )
 
 router = APIRouter(tags=["public-tours"])
 
@@ -133,6 +180,37 @@ _3DVISTA_FORBIDDEN_PUBLIC_MARKERS = (
     "created with 3dvista",
     "3dvista virtual tour suite",
     "immocontract",
+)
+_3DVISTA_PROVENANCE_CACHE_SECONDS = 10.0
+_3DVISTA_PROVENANCE_VALIDATION_LOCK = threading.Lock()
+_PANORAMA_PROVENANCE_CACHE_SECONDS = 10.0
+_PANORAMA_PROVENANCE_VALIDATION_LOCK = threading.Lock()
+_PRIVATE_TOUR_RECEIPT_ALLOWED_KEYS = frozenset(
+    {
+        "3dvista_entry_relpath",
+        "3dvista_export_root_relpath",
+        "3dvista_url",
+        "crezlo_public_url",
+        "matterport_url",
+        "krpano_spatial_provenance",
+        "pano2vr_entry_relpath",
+        "pano2vr_export_entry_relpath",
+        "pano2vr_export_root_relpath",
+        "pano2vr_root_relpath",
+        PANO2VR_SPATIAL_PROVENANCE_KEY,
+        "source_virtual_tour_origin",
+        "source_virtual_tour_url",
+        "three_d_vista_browser_render_proof",
+        "three_d_vista_entry_relpath",
+        "three_d_vista_export_root_relpath",
+        "three_d_vista_import",
+        "three_d_vista_target_provenance",
+        "three_d_vista_url",
+        "three_d_vista_white_label_proof",
+        "threedvista_entry_relpath",
+        "threedvista_export_root_relpath",
+        "threedvista_url",
+    }
 )
 _3DVISTA_EXPORT_ALLOWED_EXTENSIONS = frozenset(
     {
@@ -221,19 +299,25 @@ def _tour_path(slug: str) -> Path:
     safe = str(slug or "").strip()
     if not safe or safe.startswith(".") or "/" in safe or ".." in safe:
         raise HTTPException(status_code=404, detail="tour_not_found")
-    try:
-        bundle_dir = _resolved_tour_bundle(slug)
-    except HTTPException as exc:
-        if exc.status_code != 404:
-            raise
-        bundle_dir = None
-    if bundle_dir is not None:
-        bundle_manifest = bundle_dir / "tour.json"
-        if bundle_manifest.exists():
-            return bundle_manifest
+    if hosted_property_tour_revocation_receipt(safe):
+        raise HTTPException(status_code=410, detail="tour_revoked")
     root = _resolved_tour_root()
-    candidate = (root / f"{safe}.json").resolve()
-    if root not in candidate.parents:
+    bundle_entry = root / safe
+    if bundle_entry.is_symlink():
+        raise HTTPException(status_code=404, detail="tour_not_found")
+    if bundle_entry.exists():
+        bundle_dir = _resolved_tour_bundle(slug)
+        bundle_manifest = bundle_dir / "tour.json"
+        try:
+            bundle_manifest.stat(follow_symlinks=False)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            raise HTTPException(status_code=500, detail="tour_payload_invalid") from exc
+        else:
+            return bundle_manifest
+    candidate = root / f"{safe}.json"
+    if candidate.parent != root:
         raise HTTPException(status_code=404, detail="tour_not_found")
     return candidate
 
@@ -247,14 +331,12 @@ def _tour_bundle_dir(slug: str) -> Path | None:
 
 def _load_tour(slug: str) -> dict[str, object]:
     path = _tour_path(slug)
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="tour_not_found")
     try:
-        payload = json.loads(path.read_text())
-    except Exception as exc:
+        payload = _read_hosted_property_tour_json_file(path.parent, path.name)
+    except HostedPropertyTourManifestMissing as exc:
+        raise HTTPException(status_code=404, detail="tour_not_found") from exc
+    except HostedPropertyTourManifestError as exc:
         raise HTTPException(status_code=500, detail="tour_payload_invalid") from exc
-    if not isinstance(payload, dict):
-        raise HTTPException(status_code=500, detail="tour_payload_invalid")
     return payload
 
 
@@ -262,35 +344,36 @@ def _load_private_tour_receipt(slug: str) -> dict[str, object]:
     bundle_dir = _tour_bundle_dir(slug)
     if bundle_dir is None:
         return {}
-    private_manifest_path = bundle_dir / "tour.private.json"
-    if not private_manifest_path.exists():
-        return {}
     try:
-        private_payload = json.loads(private_manifest_path.read_text())
-    except Exception as exc:
+        private_payload = _read_hosted_property_tour_json_file(
+            bundle_dir,
+            "tour.private.json",
+            missing_ok=True,
+        )
+    except HostedPropertyTourManifestError as exc:
         raise HTTPException(status_code=500, detail="tour_payload_invalid") from exc
-    return dict(private_payload) if isinstance(private_payload, dict) else {}
+    return private_payload
 
 
 def _load_tour_with_private_receipt(slug: str) -> dict[str, object]:
-    payload = _load_tour(slug)
-    private_payload = _load_private_tour_receipt(slug)
-    if not private_payload:
-        return payload
-    safe_private_payload = {
-        key: value
-        for key, value in private_payload.items()
-        if key
-        not in {
-            "facts",
-            "scenes",
-            "public_assets",
-            "video_relpath",
-            "video_url",
-            "cube_faces",
+    bundle_dir = _tour_bundle_dir(slug)
+    if bundle_dir is None:
+        # Legacy flat manifests have no paired private receipt.
+        return _load_tour(slug)
+    with _hosted_property_tour_publication_lock(
+        public_dir=bundle_dir.parent,
+        slug=bundle_dir.name,
+    ):
+        payload = _load_tour(slug)
+        private_payload = _load_private_tour_receipt(slug)
+        if not private_payload:
+            return payload
+        safe_private_payload = {
+            key: value
+            for key, value in private_payload.items()
+            if key in _PRIVATE_TOUR_RECEIPT_ALLOWED_KEYS
         }
-    }
-    return {**payload, **safe_private_payload}
+        return {**payload, **safe_private_payload}
 
 
 
@@ -567,7 +650,7 @@ def _redacted_public_tour_payload(
                 "status": "pass",
                 "rendered_viewer": True,
             }
-    if slug and _3dvista_private_viewer_proof_ready(payload):
+    if slug and _3dvista_private_viewer_proof_ready(payload, slug=slug):
         for key in ("three_d_vista_entry_relpath", "threedvista_entry_relpath", "3dvista_entry_relpath"):
             relpath = _public_tour_safe_asset_relpath(str(payload.get(key) or "").strip())
             if relpath and _local_tour_asset_path(slug, relpath) is not None:
@@ -620,7 +703,7 @@ def _asset_file(slug: str, asset_path: str) -> Path:
 
 
 def _pano2vr_export_file(slug: str, asset_path: str) -> Path:
-    payload = _load_tour(slug)
+    payload = _load_tour_with_private_receipt(slug)
     _require_public_tour_viewable(payload)
     if _tour_payload_is_disabled_fallback(payload):
         raise HTTPException(status_code=404, detail="tour_disabled_fallback")
@@ -628,6 +711,8 @@ def _pano2vr_export_file(slug: str, asset_path: str) -> Path:
     safe_relpath = _public_tour_safe_asset_relpath(asset_path)
     bundle_dir = _tour_bundle_dir(slug)
     if not entry_relpath or not safe_relpath or bundle_dir is None:
+        raise HTTPException(status_code=404, detail="tour_pano2vr_file_not_found")
+    if not _pano2vr_spatial_provenance_ready(payload, slug=slug):
         raise HTTPException(status_code=404, detail="tour_pano2vr_file_not_found")
     if not _local_tour_html_asset_has_marker(slug, entry_relpath, markers=_PANO2VR_EXPORT_MARKERS):
         raise HTTPException(status_code=404, detail="tour_pano2vr_file_not_found")
@@ -651,7 +736,7 @@ def _pano2vr_export_file(slug: str, asset_path: str) -> Path:
 
 
 def _3dvista_export_file(slug: str, asset_path: str) -> Path:
-    payload = _load_tour(slug)
+    payload = _load_tour_with_private_receipt(slug)
     _require_public_tour_viewable(payload)
     if _tour_payload_is_disabled_fallback(payload):
         raise HTTPException(status_code=404, detail="tour_disabled_fallback")
@@ -659,6 +744,8 @@ def _3dvista_export_file(slug: str, asset_path: str) -> Path:
     bundle_dir = _tour_bundle_dir(slug)
     entries, _roots = _3dvista_export_allowed_relpaths(payload)
     if not entries or not safe_relpath or bundle_dir is None:
+        raise HTTPException(status_code=404, detail="tour_3dvista_file_not_found")
+    if PurePosixPath(safe_relpath).name in THREE_D_VISTA_PROVENANCE_FILENAMES:
         raise HTTPException(status_code=404, detail="tour_3dvista_file_not_found")
     verified_entries = {
         entry_relpath
@@ -1703,7 +1790,201 @@ def _3dvista_export_allowed_relpaths(payload: dict[str, object]) -> tuple[set[st
     return {entry for entry in entries if entry}, {root.rstrip("/") for root in roots if root}
 
 
-def _3dvista_private_viewer_proof_ready(payload: dict[str, object]) -> bool:
+@lru_cache(maxsize=256)
+def _3dvista_target_provenance_errors_cached(
+    target_slug: str,
+    bundle_dir_value: str,
+    payload_json: str,
+    maximum_files: int,
+    maximum_total_bytes: int,
+    maximum_file_bytes: int,
+    _cache_bucket: int,
+) -> tuple[str, ...]:
+    try:
+        payload = json.loads(payload_json)
+    except (TypeError, ValueError):
+        return ("receipt_invalid",)
+    if not isinstance(payload, dict):
+        return ("receipt_invalid",)
+    raw_provenance = payload.get("three_d_vista_target_provenance")
+    if not isinstance(raw_provenance, dict):
+        return ("receipt_missing",)
+
+    artifact = (
+        dict(raw_provenance.get("artifact") or {})
+        if isinstance(raw_provenance.get("artifact"), dict)
+        else {}
+    )
+    evidence_kind = str(artifact.get("kind") or "").strip().lower()
+    entry_relpath = _3dvista_entry_relpath(payload)
+    provider_url = ""
+    for key in (
+        "three_d_vista_url",
+        "threedvista_url",
+        "3dvista_url",
+        "source_virtual_tour_url",
+        "crezlo_public_url",
+    ):
+        provider_url = _safe_3dvista_external_url(payload.get(key))
+        if provider_url:
+            break
+
+    export_dir: Path | None = None
+    expected_export_entry = ""
+    if evidence_kind == "local_export":
+        if not bundle_dir_value:
+            return ("local_export_missing",)
+        bundle_dir = Path(bundle_dir_value)
+        imported = (
+            dict(payload.get("three_d_vista_import") or {})
+            if isinstance(payload.get("three_d_vista_import"), dict)
+            else {}
+        )
+        entry_parts = PurePosixPath(entry_relpath).parts if entry_relpath else ()
+        target_subdir = _safe_3dvista_provenance_relpath(
+            raw_provenance.get("target_subdir")
+            or imported.get("target_subdir")
+            or (entry_parts[0] if len(entry_parts) > 1 else "")
+        )
+        if not target_subdir:
+            return ("target_subdir_missing",)
+        try:
+            unresolved_export_dir = bundle_dir
+            for part in PurePosixPath(target_subdir).parts:
+                unresolved_export_dir = unresolved_export_dir / part
+                if unresolved_export_dir.is_symlink():
+                    return ("target_subdir_symlink_not_allowed",)
+            bundle_root = bundle_dir.resolve()
+            candidate = unresolved_export_dir.resolve()
+        except (OSError, RuntimeError, ValueError):
+            return ("target_subdir_invalid",)
+        if bundle_root not in candidate.parents or not candidate.is_dir():
+            return ("target_subdir_invalid",)
+        export_dir = candidate
+        prefix = f"{target_subdir}/"
+        if not entry_relpath.startswith(prefix):
+            return ("entry_outside_target_subdir",)
+        expected_export_entry = entry_relpath[len(prefix) :]
+        try:
+            require_bounded_tree(
+                export_dir,
+                reason_prefix="public_3dvista_export",
+                maximum_files=maximum_files,
+                maximum_total_bytes=maximum_total_bytes,
+                maximum_file_bytes=maximum_file_bytes,
+                maximum_depth=24,
+            )
+        except TourHostSafetyError as exc:
+            return (str(exc),)
+
+    _normalized, errors = validate_3dvista_target_provenance(
+        dict(raw_provenance),
+        target_slug=target_slug,
+        export_dir=export_dir,
+        entry_relpath=expected_export_entry,
+        provider_url=provider_url,
+    )
+    return tuple(errors)
+
+
+def _3dvista_target_provenance_errors(
+    payload: dict[str, object],
+    *,
+    slug: object = "",
+    entry_relpath: object = "",
+) -> list[str]:
+    target_slug = str(slug or payload.get("slug") or "").strip()
+    if not target_slug:
+        return ["target_slug_missing"]
+    raw_provenance = payload.get("three_d_vista_target_provenance")
+    if not isinstance(raw_provenance, dict):
+        return ["receipt_missing"]
+    artifact = (
+        dict(raw_provenance.get("artifact") or {})
+        if isinstance(raw_provenance.get("artifact"), dict)
+        else {}
+    )
+    bundle_dir_value = ""
+    if str(artifact.get("kind") or "").strip().lower() == "local_export":
+        bundle_dir = _tour_bundle_dir(target_slug)
+        if bundle_dir is None:
+            return ["local_export_missing"]
+        try:
+            bundle_dir_value = str(bundle_dir.resolve())
+        except (OSError, RuntimeError, ValueError):
+            return ["local_export_missing"]
+    relevant_keys = (
+        "slug",
+        "three_d_vista_target_provenance",
+        "three_d_vista_import",
+        "three_d_vista_entry_relpath",
+        "threedvista_entry_relpath",
+        "3dvista_entry_relpath",
+        "three_d_vista_url",
+        "threedvista_url",
+        "3dvista_url",
+        "source_virtual_tour_url",
+        "crezlo_public_url",
+    )
+    cache_payload = {
+        key: payload.get(key)
+        for key in relevant_keys
+        if key in payload
+    }
+    cache_payload["slug"] = target_slug
+    requested_entry_relpath = _public_tour_safe_asset_relpath(entry_relpath)
+    if requested_entry_relpath:
+        cache_payload["three_d_vista_entry_relpath"] = requested_entry_relpath
+        cache_payload.pop("threedvista_entry_relpath", None)
+        cache_payload.pop("3dvista_entry_relpath", None)
+    try:
+        payload_json = json.dumps(
+            cache_payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+    except (TypeError, ValueError):
+        return ["receipt_invalid"]
+    cache_bucket = int(time.monotonic() // _3DVISTA_PROVENANCE_CACHE_SECONDS)
+    maximum_files = bounded_env_int(
+        "PROPERTYQUARRY_PUBLIC_3DVISTA_MAX_HASH_FILES",
+        default=5_000,
+        minimum=1,
+        maximum=20_000,
+    )
+    maximum_total_bytes = bounded_env_int(
+        "PROPERTYQUARRY_PUBLIC_3DVISTA_MAX_HASH_BYTES",
+        default=512 * 1024 * 1024,
+        minimum=1_024,
+        maximum=2 * 1024 * 1024 * 1024,
+    )
+    maximum_file_bytes = bounded_env_int(
+        "PROPERTYQUARRY_PUBLIC_3DVISTA_MAX_FILE_BYTES",
+        default=256 * 1024 * 1024,
+        minimum=1_024,
+        maximum=512 * 1024 * 1024,
+    )
+    with _3DVISTA_PROVENANCE_VALIDATION_LOCK:
+        return list(
+            _3dvista_target_provenance_errors_cached(
+                target_slug,
+                bundle_dir_value,
+                payload_json,
+                maximum_files,
+                maximum_total_bytes,
+                maximum_file_bytes,
+                cache_bucket,
+            )
+        )
+
+
+def _3dvista_private_viewer_proof_ready(
+    payload: dict[str, object],
+    *,
+    slug: object = "",
+    entry_relpath: object = "",
+) -> bool:
     proof = payload.get("three_d_vista_white_label_proof")
     proof_payload = dict(proof) if isinstance(proof, dict) else {}
     import_payload = payload.get("three_d_vista_import")
@@ -1720,11 +2001,16 @@ def _3dvista_private_viewer_proof_ready(payload: dict[str, object]) -> bool:
         return False
     if _truthy(proof_payload.get("trial_branding_present")):
         return False
-    return (
+    legacy_proof_ready = (
         _truthy(proof_payload.get("private_viewer_verified") or proof_payload.get("private_viewer_delivered"))
         and _truthy(proof_payload.get("non_trial_export_verified") or proof_payload.get("licensed_export_verified"))
         and _truthy(proof_payload.get("propertyquarry_tour_metadata") or proof_payload.get("property_tour_metadata_verified"))
         and _truthy(proof_payload.get("trial_branding_checked"))
+    )
+    return legacy_proof_ready and not _3dvista_target_provenance_errors(
+        payload,
+        slug=slug,
+        entry_relpath=entry_relpath,
     )
 
 
@@ -1762,7 +2048,11 @@ def _3dvista_entry_export_ready(slug: object, payload: dict[str, object], entry_
     relpath = _public_tour_safe_asset_relpath(str(entry_relpath or "").strip())
     if not relpath:
         return False
-    if not _3dvista_private_viewer_proof_ready(payload):
+    if not _3dvista_private_viewer_proof_ready(
+        payload,
+        slug=slug,
+        entry_relpath=relpath,
+    ):
         return False
     if _local_tour_html_asset_has_marker(slug, relpath, markers=_3DVISTA_FORBIDDEN_PUBLIC_MARKERS):
         return False
@@ -1781,8 +2071,187 @@ def _pano2vr_export_root_relpath(payload: dict[str, object]) -> str:
     return "" if parent == "." else parent.rstrip("/")
 
 
+@lru_cache(maxsize=256)
+def _pano2vr_spatial_provenance_errors_cached(
+    target_slug: str,
+    bundle_dir_value: str,
+    payload_json: str,
+    maximum_files: int,
+    maximum_total_bytes: int,
+    maximum_file_bytes: int,
+    _cache_bucket: int,
+) -> tuple[str, ...]:
+    try:
+        payload = json.loads(payload_json)
+    except (TypeError, ValueError):
+        return ("receipt_invalid",)
+    if not isinstance(payload, dict):
+        return ("receipt_invalid",)
+    raw_receipt = payload.get(PANO2VR_SPATIAL_PROVENANCE_KEY)
+    if not isinstance(raw_receipt, dict):
+        return ("receipt_missing",)
+    entry_relpath = _pano2vr_entry_relpath(payload)
+    export_root_relpath = _pano2vr_export_root_relpath(payload)
+    if not entry_relpath or not export_root_relpath or not bundle_dir_value:
+        return ("pano2vr_export_root_missing",)
+    expected_prefix = f"{export_root_relpath}/"
+    if not entry_relpath.startswith(expected_prefix):
+        return ("pano2vr_entry_outside_export_root",)
+    expected_entry = entry_relpath[len(expected_prefix) :]
+    if not _safe_panorama_provenance_relpath(expected_entry):
+        return ("pano2vr_entry_invalid",)
+
+    bundle_dir = Path(bundle_dir_value)
+    try:
+        unresolved_export_dir = bundle_dir
+        for part in PurePosixPath(export_root_relpath).parts:
+            unresolved_export_dir = unresolved_export_dir / part
+            if unresolved_export_dir.is_symlink():
+                return ("pano2vr_export_symlink_not_allowed",)
+        bundle_root = bundle_dir.resolve()
+        export_dir = unresolved_export_dir.resolve()
+    except (OSError, RuntimeError, ValueError):
+        return ("pano2vr_export_root_invalid",)
+    if bundle_root not in export_dir.parents or not export_dir.is_dir():
+        return ("pano2vr_export_root_invalid",)
+    try:
+        require_bounded_tree(
+            export_dir,
+            reason_prefix="public_pano2vr_export",
+            maximum_files=maximum_files,
+            maximum_total_bytes=maximum_total_bytes,
+            maximum_file_bytes=maximum_file_bytes,
+            maximum_depth=24,
+        )
+        artifact_sha256 = _panorama_export_tree_sha256(export_dir)
+        topology = pano2vr_export_topology(export_dir)
+    except (OSError, RuntimeError, ValueError, TourHostSafetyError) as exc:
+        return (str(exc),)
+    _normalized, errors = validate_panorama_spatial_provenance(
+        dict(raw_receipt),
+        provider="pano2vr",
+        target_slug=target_slug,
+        artifact_kind="local_export",
+        artifact_sha256=artifact_sha256,
+        entry_relpath=expected_entry,
+        observed_topology=topology,
+        walkable_required=panorama_walkable_required(payload),
+    )
+    return tuple(errors)
+
+
+def _pano2vr_spatial_provenance_errors(
+    payload: dict[str, object],
+    *,
+    slug: object = "",
+) -> list[str]:
+    target_slug = str(slug or payload.get("slug") or "").strip()
+    if not target_slug:
+        return ["target_slug_missing"]
+    bundle_dir = _tour_bundle_dir(target_slug)
+    if bundle_dir is None:
+        return ["pano2vr_export_missing"]
+    relevant_keys = (
+        "slug",
+        "scene_strategy",
+        "creation_mode",
+        "pano2vr_entry_relpath",
+        "pano2vr_export_entry_relpath",
+        "pano2vr_export_root_relpath",
+        "pano2vr_root_relpath",
+        "pano2vr_import",
+        PANO2VR_SPATIAL_PROVENANCE_KEY,
+    )
+    cache_payload = {
+        key: payload.get(key)
+        for key in relevant_keys
+        if key in payload
+    }
+    cache_payload["slug"] = target_slug
+    try:
+        payload_json = json.dumps(
+            cache_payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        bundle_dir_value = str(bundle_dir.resolve())
+    except (OSError, RuntimeError, TypeError, ValueError):
+        return ["receipt_invalid"]
+    maximum_files = bounded_env_int(
+        "PROPERTYQUARRY_PUBLIC_PANO2VR_MAX_HASH_FILES",
+        default=5_000,
+        minimum=1,
+        maximum=20_000,
+    )
+    maximum_total_bytes = bounded_env_int(
+        "PROPERTYQUARRY_PUBLIC_PANO2VR_MAX_HASH_BYTES",
+        default=512 * 1024 * 1024,
+        minimum=1_024,
+        maximum=2 * 1024 * 1024 * 1024,
+    )
+    maximum_file_bytes = bounded_env_int(
+        "PROPERTYQUARRY_PUBLIC_PANO2VR_MAX_FILE_BYTES",
+        default=256 * 1024 * 1024,
+        minimum=1_024,
+        maximum=512 * 1024 * 1024,
+    )
+    cache_bucket = int(time.monotonic() // _PANORAMA_PROVENANCE_CACHE_SECONDS)
+    with _PANORAMA_PROVENANCE_VALIDATION_LOCK:
+        return list(
+            _pano2vr_spatial_provenance_errors_cached(
+                target_slug,
+                bundle_dir_value,
+                payload_json,
+                maximum_files,
+                maximum_total_bytes,
+                maximum_file_bytes,
+                cache_bucket,
+            )
+        )
+
+
+def _pano2vr_spatial_provenance_ready(
+    payload: dict[str, object],
+    *,
+    slug: object = "",
+) -> bool:
+    return not _pano2vr_spatial_provenance_errors(payload, slug=slug)
+
+
 def _pano2vr_control_url(slug: str, payload: dict[str, object]) -> str:
-    return ""
+    safe_slug = str(slug or "").strip()
+    payload_slug = str(payload.get("slug") or "").strip()
+    entry_relpath = _pano2vr_entry_relpath(payload)
+    if not safe_slug or safe_slug != payload_slug or not entry_relpath:
+        return ""
+    try:
+        private_receipt = _load_private_tour_receipt(safe_slug)
+    except HTTPException:
+        return ""
+    provenance = private_receipt.get(PANO2VR_SPATIAL_PROVENANCE_KEY)
+    if not isinstance(provenance, dict):
+        return ""
+    validation_payload = {
+        "slug": payload_slug,
+        "scene_strategy": payload.get("scene_strategy"),
+        "creation_mode": payload.get("creation_mode"),
+        "pano2vr_entry_relpath": entry_relpath,
+        "pano2vr_export_root_relpath": payload.get("pano2vr_export_root_relpath"),
+        PANO2VR_SPATIAL_PROVENANCE_KEY: provenance,
+    }
+    if not _pano2vr_spatial_provenance_ready(validation_payload, slug=safe_slug):
+        return ""
+    if not _local_tour_html_asset_has_marker(
+        safe_slug,
+        entry_relpath,
+        markers=_PANO2VR_EXPORT_MARKERS,
+    ):
+        return ""
+    return (
+        f"/tours/pano2vr/{urllib.parse.quote(safe_slug, safe='')}/"
+        f"{urllib.parse.quote(entry_relpath, safe='/')}"
+    )
 
 
 def _pano2vr_public_enabled() -> bool:
@@ -1863,6 +2332,29 @@ def _local_tour_cube_face_ready(slug: object, relpath: object) -> bool:
     return 0.9 <= ratio <= 1.1
 
 
+def _krpano_scene_has_real_360_asset(
+    slug: str,
+    scene: dict[str, object],
+    *,
+    default_projection: str = "",
+) -> bool:
+    projection = str(
+        scene.get("projection")
+        or scene.get("type")
+        or default_projection
+        or ""
+    ).strip().lower()
+    if projection and projection not in {"equirectangular", "panorama", "cubemap", "cube"}:
+        return False
+    for key in ("panorama_relpath", "equirect_relpath", "image_relpath", "asset_relpath"):
+        if _local_tour_equirectangular_image_ready(slug, scene.get(key)):
+            return True
+    cube_faces = scene.get("cube_faces")
+    values = list(cube_faces.values()) if isinstance(cube_faces, dict) else list(cube_faces or []) if isinstance(cube_faces, list) else []
+    valid_faces = [value for value in values if _local_tour_cube_face_ready(slug, value)]
+    return len(valid_faces) >= 6
+
+
 def _walkable_scene_has_real_360_asset(payload: dict[str, object]) -> bool:
     slug = str(payload.get("slug") or "").strip()
     if not slug:
@@ -1874,16 +2366,30 @@ def _walkable_scene_has_real_360_asset(payload: dict[str, object]) -> bool:
     walkable_scene = payload.get("walkable_scene")
     if not isinstance(walkable_scene, dict) or not walkable_scene:
         return False
-    projection = str(walkable_scene.get("projection") or walkable_scene.get("type") or "").strip().lower()
-    if projection and projection not in {"equirectangular", "panorama", "cubemap", "cube"}:
-        return False
-    for key in ("panorama_relpath", "equirect_relpath", "image_relpath", "asset_relpath"):
-        if _local_tour_equirectangular_image_ready(slug, walkable_scene.get(key)):
-            return True
-    cube_faces = walkable_scene.get("cube_faces")
-    values = list(cube_faces.values()) if isinstance(cube_faces, dict) else list(cube_faces or []) if isinstance(cube_faces, list) else []
-    valid_faces = [value for value in values if _local_tour_cube_face_ready(slug, value)]
-    return len(valid_faces) >= 6
+    default_projection = str(
+        walkable_scene.get("projection") or walkable_scene.get("type") or ""
+    ).strip().lower()
+    raw_scenes = walkable_scene.get("scenes")
+    if isinstance(raw_scenes, dict):
+        scene_rows = [row for row in raw_scenes.values() if isinstance(row, dict)]
+    elif isinstance(raw_scenes, list):
+        scene_rows = [row for row in raw_scenes if isinstance(row, dict)]
+    else:
+        scene_rows = []
+    if scene_rows:
+        return all(
+            _krpano_scene_has_real_360_asset(
+                slug,
+                scene,
+                default_projection=default_projection,
+            )
+            for scene in scene_rows
+        )
+    return _krpano_scene_has_real_360_asset(
+        slug,
+        walkable_scene,
+        default_projection=default_projection,
+    )
 
 
 def _tour_spatial_review_experience(
@@ -1952,7 +2458,11 @@ def _public_tour_primary_control_path(payload: dict[str, object]) -> str:
         ).strip()
     )
     three_d_vista_browser_ready = _3dvista_browser_render_proof_ready(payload)
-    if three_d_vista_browser_ready:
+    three_d_vista_private_ready = _3dvista_private_viewer_proof_ready(
+        payload,
+        slug=slug,
+    )
+    if three_d_vista_browser_ready and three_d_vista_private_ready:
         for key in ("three_d_vista_url", "threedvista_url", "3dvista_url", "source_virtual_tour_url", "crezlo_public_url"):
             if _safe_3dvista_external_url(payload.get(key)):
                 return f"/tours/{quoted_slug}/control/3dvista"
@@ -2322,7 +2832,14 @@ def _public_tour_request_embeds_walkthrough(request: Request) -> bool:
     return _truthy(request.query_params.get("autoplay"))
 
 
-def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = "", nonce: str = "") -> str:
+def _tour_html(
+    payload: dict[str, object],
+    *,
+    hostname: str = "",
+    path: str = "",
+    nonce: str = "",
+    validated_3dvista_control_path: str = "",
+) -> str:
     nonce_attr = html.escape(_public_tour_normalized_nonce(nonce) or _public_tour_csp_nonce(), quote=True)
     if _public_tour_payload_needs_defensive_redaction(payload):
         rendered_payload = _redacted_public_tour_payload(payload, expose_asset_relpaths=True)
@@ -2342,8 +2859,14 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     matterport_url = ""
     three_d_vista_url = ""
     if slug:
+        expected_3dvista_control_path = f"/tours/{urllib.parse.quote(slug, safe='')}/control/3dvista"
+        if validated_3dvista_control_path == expected_3dvista_control_path:
+            # The raw private receipt was validated before the HTML payload
+            # was redacted. Carry only the same-origin control path, never the
+            # private provenance or provider URL, into the rendered page.
+            three_d_vista_url = expected_3dvista_control_path
         three_d_vista_browser_ready = _3dvista_browser_render_proof_ready(payload)
-        if three_d_vista_browser_ready:
+        if not three_d_vista_url and three_d_vista_browser_ready:
             for key in ("three_d_vista_url", "threedvista_url", "3dvista_url", "source_virtual_tour_url", "crezlo_public_url"):
                 if _safe_3dvista_external_url(payload.get(key)):
                     three_d_vista_url = f"/tours/{html.escape(slug)}/control/3dvista"
@@ -2421,6 +2944,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
       <div class="actions">
         {f'<a href="{matterport_url}">Open 3D tour</a>' if matterport_url else ''}
         {f'<a href="{three_d_vista_url}">Open 3D tour</a>' if three_d_vista_url else ''}
+        {f'<a href="{pano2vr_url}">Open 3D tour</a>' if pano2vr_url else ''}
         {f'<a class="secondary" href="{video_url}">Open walkthrough</a>' if video_url else ''}
       </div>
     </main>
@@ -2440,7 +2964,8 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     display_title = str(payload.get("display_title") or title).strip() or title
     listing_url = _public_tour_safe_navigation_url(payload.get("listing_url"))
     hosted_url = _payload_public_tour_canonical_path(slug)
-    source_virtual_tour_url = _embedded_live_360_url(payload)
+    external_live_360_url = _embedded_live_360_url(payload)
+    live_360_url = pano2vr_url or external_live_360_url
     is_pure_360_cube = str(payload.get("scene_strategy") or "").strip() == "pure_360_cube"
     brand_name = str(payload.get("brand_name") or "Pioche Lecombe").strip() or "Pioche Lecombe"
     hosted_brand_name = _public_tour_host_brand_label(hostname, fallback=brand_name)
@@ -2877,10 +3402,32 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         if provider_actions_html
         else ""
     )
+    live_360_nav_link = '<a class="ghost" href="#live-360">3D Tour</a>' if live_360_url else ""
+    decision_live_shell = (
+        f'''
+          <section id="live-360" class="live-shell">
+            <div class="eyebrow">{brand_html} <span>•</span> 3D tour</div>
+            <h2>Inspect layout, light, and finish quality</h2>
+            <p class="sub">Use the interactive 360 experience after the quick read, not instead of it.</p>
+            {provider_actions_block}
+            <div class="live-frame-wrap">
+              <iframe
+                class="live-frame"
+                src="{html.escape(live_360_url)}"
+                title="{title_html}"
+                allowfullscreen
+                loading="lazy"
+                referrerpolicy="no-referrer"
+              ></iframe>
+            </div>
+          </section>'''
+        if live_360_url
+        else ""
+    )
     if three_d_vista_url:
         primary_cta = "Open 3D tour"
         primary_cta_href = three_d_vista_url
-    elif source_virtual_tour_url:
+    elif live_360_url:
         primary_cta = "Open 3D tour"
         primary_cta_href = "#live-360"
     else:
@@ -2971,7 +3518,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
             research_fragments.append("underground distance")
         if research_fragments:
             completed_research_line = f"Saved details: {', '.join(research_fragments)}."
-    if is_pure_360_cube and source_virtual_tour_url:
+    if is_pure_360_cube and live_360_url:
         fit_score_chip = f'<div class="chip">Fit {fit_score}/100</div>' if fit_score is not None else ""
         recommendation_chip = f'<div class="chip">{recommendation}</div>' if recommendation else ""
         location_chip = f'<div class="chip">Area fit {location_fit}/10</div>' if location_fit is not None else ""
@@ -3656,7 +4203,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
           <a class="ghost" href="#feedback">Feedback</a>
           <a class="ghost" href="#risks">Risks</a>
           <a class="ghost" href="#research">Research</a>
-          <a class="ghost" href="#tour">3D Tour</a>
+          {live_360_nav_link}
         </nav>
       </div>
       <section id="decision" class="hero">
@@ -3731,22 +4278,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
           </section>
           {filters_panel}
           {feedback_panel}
-          <section id="tour" class="live-shell">
-            <div class="eyebrow">{brand_html} <span>•</span> 3D tour</div>
-            <h2>Inspect layout, light, and finish quality</h2>
-            <p class="sub">Use the original interactive 360 experience after the quick read, not instead of it.</p>
-            {provider_actions_block}
-            <div class="live-frame-wrap">
-              <iframe
-                class="live-frame"
-                src="{html.escape(source_virtual_tour_url)}"
-                title="{title_html}"
-                allowfullscreen
-                loading="lazy"
-                referrerpolicy="no-referrer"
-              ></iframe>
-            </div>
-          </section>
+          {decision_live_shell}
         </div>
         <div class="tour-detail-stack">
           <section id="risks" class="panel">
@@ -4878,21 +5410,17 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
     live_shell = (
         f'''
         <section id="live-360" class="live-shell">
-          <div class="live-head">
+          <div class="live-head live-head-single">
             <div>
               <div class="eyebrow">{brand_html} <span>•</span> 3D tour</div>
               <h2>Interactive tour</h2>
               <p class="sub">Open the interactive tour below without leaving this page.</p>
             </div>
-            <div class="stack">
-              <div class="kv"><b>Brand</b>{brand_html}</div>
-              <div class="kv"><b>Link</b>{html.escape(hostname or 'this domain')}</div>
-            </div>
           </div>
           <div class="live-frame-wrap">
             <iframe
               class="live-frame"
-              src="{html.escape(source_virtual_tour_url)}"
+              src="{html.escape(live_360_url)}"
               title="{title_html} live 360 viewer"
               loading="lazy"
               allowfullscreen
@@ -4900,7 +5428,7 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
             ></iframe>
           </div>
         </section>'''
-        if source_virtual_tour_url
+        if live_360_url
         else ""
     )
     provider_access_shell = (
@@ -5126,6 +5654,9 @@ def _tour_html(payload: dict[str, object], *, hostname: str = "", path: str = ""
         grid-template-columns: 1.2fr 0.8fr;
         gap: 18px;
         align-items: start;
+      }}
+      .live-head-single {{
+        grid-template-columns: minmax(0, 1fr);
       }}
       .live-head h2 {{
         margin: 8px 0 10px;
@@ -5639,16 +6170,20 @@ def _public_tour_security_headers(
     )
     report_only_directives = directives
     if normalized_profile == "vendor_export":
-        strict_script_sources = [source for source in script_sources if source not in {"'unsafe-inline'", "'unsafe-eval'", "'wasm-unsafe-eval'"}]
-        strict_style_sources = [source for source in style_sources if source != "'unsafe-inline'"]
+        # Verified vendor exports own their document runtime and legitimately
+        # rely on inline elements and attributes. Reporting those same
+        # allowances as violations creates permanent false alarms (and WebKit
+        # surfaces them as console errors) without tightening enforcement.
+        # Keep the report-only policy useful by probing only the dynamic-code
+        # capabilities that a future hardened export can realistically drop.
+        strict_script_sources = [
+            source
+            for source in script_sources
+            if source not in {"'unsafe-eval'", "'wasm-unsafe-eval'"}
+        ]
         report_only_directives = directives.replace(
             f"script-src {' '.join(dict.fromkeys(script_sources))}",
             f"script-src {' '.join(dict.fromkeys(strict_script_sources))}",
-        ).replace(
-            f"style-src {' '.join(dict.fromkeys(style_sources))}",
-            f"style-src {' '.join(dict.fromkeys(strict_style_sources))}",
-        ).replace("script-src-attr 'unsafe-inline'", "script-src-attr 'none'").replace(
-            "style-src-attr 'unsafe-inline'", "style-src-attr 'none'"
         )
     # frame-ancestors is enforced by the primary policy above. Browsers ignore
     # that directive in report-only policies, and WebKit surfaces the ignored
@@ -5665,6 +6200,17 @@ def _public_tour_security_headers(
         "X-Robots-Tag": "noindex, nofollow, noarchive",
         "Surrogate-Control": "no-store" if cache_control == "no-store" else cache_control,
     }
+
+
+def _public_tour_control_security_headers(*, html_body: str, nonce: str) -> dict[str, str]:
+    """Bind a freshly rendered control document to one strict CSP envelope."""
+
+    return _public_tour_security_headers(
+        nonce=nonce,
+        allow_jsdelivr="https://cdn.jsdelivr.net/" in html_body,
+        script_hashes=_public_tour_inline_csp_hashes(html_body, tag_name="script"),
+        style_hashes=_public_tour_inline_csp_hashes(html_body, tag_name="style"),
+    )
 
 
 def _public_tour_csp_report_location(value: object) -> str:
@@ -8772,7 +9318,7 @@ def _tour_control_3dvista_html(payload: dict[str, object], *, nonce: str = "") -
     title = html.escape(str(payload.get("display_title") or payload.get("title") or "3D tour control").strip())
     raw_slug = str(payload.get("slug") or "").strip()
     slug = html.escape(raw_slug)
-    if not _3dvista_private_viewer_proof_ready(payload):
+    if not _3dvista_private_viewer_proof_ready(payload, slug=raw_slug):
         raise HTTPException(status_code=404, detail="tour_control_3d_export_hidden")
     external_url = ""
     for key in ("three_d_vista_url", "threedvista_url", "3dvista_url", "source_virtual_tour_url", "crezlo_public_url"):
@@ -9076,6 +9622,11 @@ def public_tour_page(
             hostname=hostname,
             path=request_path(request),
             nonce=nonce,
+            validated_3dvista_control_path=(
+                primary_control_path
+                if primary_control_path.endswith("/control/3dvista")
+                else ""
+            ),
         )
         return HTMLResponse(
             html_body,
@@ -9182,20 +9733,35 @@ def public_tour_control(slug: str, request: Request) -> HTMLResponse:
     if _tour_payload_is_disabled_fallback(payload):
         raise HTTPException(status_code=404, detail="tour_disabled_fallback")
     control_mode = str(payload.get("control_mode") or "").strip().lower()
-    rendered_payload = _redacted_public_tour_payload(
-        payload,
-        expose_asset_relpaths=control_mode in {"pano2vr", "pano_2_vr"} or bool(_pano2vr_entry_relpath(payload)),
-    )
+    primary_control_path = _public_tour_primary_control_path(payload)
+    if primary_control_path.endswith("/control/3dvista"):
+        # Match the explicit 3DVista route: retain only the allowlisted private
+        # provider receipt fields long enough to revalidate target provenance.
+        rendered_payload = payload
+    else:
+        rendered_payload = _redacted_public_tour_payload(
+            payload,
+            expose_asset_relpaths=control_mode in {"pano2vr", "pano_2_vr"} or bool(_pano2vr_entry_relpath(payload)),
+        )
     if _public_tour_request_embeds_walkthrough(request):
         rendered_payload["_tour_control_embed_walkthrough"] = True
     fullscreen = str(request.query_params.get("fullscreen") or "").strip().lower() in {"1", "true", "yes", "on"}
     nonce = _public_tour_csp_nonce()
-    html_body = _tour_control_html(rendered_payload, fullscreen=fullscreen, nonce=nonce)
+    html_body = _tour_control_html(
+        rendered_payload,
+        viewer_mode=(
+            "3dvista"
+            if primary_control_path.endswith("/control/3dvista")
+            else ""
+        ),
+        fullscreen=fullscreen,
+        nonce=nonce,
+    )
     return HTMLResponse(
         html_body,
-        headers=_public_tour_security_headers(
+        headers=_public_tour_control_security_headers(
+            html_body=html_body,
             nonce=nonce,
-            allow_jsdelivr="https://cdn.jsdelivr.net/" in html_body,
         ),
     )
 
@@ -9226,9 +9792,9 @@ def public_tour_control_viewer(slug: str, viewer_mode: str, request: Request) ->
         )
         return HTMLResponse(
             html_body,
-            headers=_public_tour_security_headers(
+            headers=_public_tour_control_security_headers(
+                html_body=html_body,
                 nonce=nonce,
-                allow_jsdelivr="https://cdn.jsdelivr.net/" in html_body,
             ),
         )
     rendered_payload = _redacted_public_tour_payload(
@@ -9245,9 +9811,9 @@ def public_tour_control_viewer(slug: str, viewer_mode: str, request: Request) ->
     )
     return HTMLResponse(
         html_body,
-        headers=_public_tour_security_headers(
+        headers=_public_tour_control_security_headers(
+            html_body=html_body,
             nonce=nonce,
-            allow_jsdelivr="https://cdn.jsdelivr.net/" in html_body,
         ),
     )
 

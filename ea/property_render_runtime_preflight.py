@@ -1317,6 +1317,50 @@ try {
     }
 
 
+def _check_admission_runtime(
+    *,
+    app_root: Path = APP_ROOT,
+) -> dict[str, str]:
+    ea_root = (app_root / "ea").resolve()
+    if str(ea_root) not in sys.path:
+        sys.path.insert(0, str(ea_root))
+    try:
+        import psycopg  # noqa: F401
+        from app import observability
+        from app.services import admission_control
+    except Exception:
+        _fail("distributed_admission_import_failed")
+
+    expected_sources = {
+        Path(admission_control.__file__).resolve(): (
+            ea_root / "app/services/admission_control.py"
+        ).resolve(),
+        Path(observability.__file__).resolve(): (
+            ea_root / "app/observability.py"
+        ).resolve(),
+    }
+    _require(
+        all(observed == expected for observed, expected in expected_sources.items()),
+        "distributed_admission_source_mismatch",
+    )
+    _require(
+        importlib.metadata.version("psycopg") == "3.3.4"
+        and importlib.metadata.version("psycopg-binary") == "3.3.4",
+        "distributed_admission_package_version_mismatch",
+    )
+    backend = admission_control.MemoryAdmissionBackend()
+    backend.probe()
+    trace = observability.new_server_trace_context()
+    _require(
+        bool(trace.traceparent) and len(trace.trace_id) == 32,
+        "distributed_admission_observability_failed",
+    )
+    return {
+        "distributed_admission": "pass",
+        "w3c_trace_context": "pass",
+    }
+
+
 def build_preflight_receipt(
     *,
     provenance_path: Path = PROVENANCE_PATH,
@@ -1330,6 +1374,7 @@ def build_preflight_receipt(
     _check_prohibited_commands()
     _check_glib_package()
     functions = _check_media_functions()
+    functions.update(_check_admission_runtime())
     return {
         "schema": "propertyquarry.render_runtime_preflight.v1",
         "status": "pass",
@@ -1337,6 +1382,7 @@ def build_preflight_receipt(
         "direct_glb": True,
         "playwright_chromium": True,
         "glib_without_libmount": True,
+        "distributed_admission_runtime": True,
         "prohibited_commands_absent": True,
         "ffmpeg_sha256": EXPECTED_FFMPEG_SHA256,
         "build_receipt_sha256": receipt_hashes,

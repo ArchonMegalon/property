@@ -7796,6 +7796,9 @@ def test_tool_execution_scene_video_readiness_only_reports_runtime_and_telegram_
     script_dir.mkdir()
     (script_dir / "render_magicfit_property_flythrough.py").write_text("#!/usr/bin/env python3\n", encoding="utf-8")
     monkeypatch.setenv("EA_REPO_ROOT", str(tmp_path))
+    provider_ledger_dir = tmp_path / "provider-ledger"
+    monkeypatch.setenv("EA_RESPONSES_PROVIDER_LEDGER_DIR", str(provider_ledger_dir))
+    monkeypatch.setenv("PROPERTYQUARRY_PROVIDER_LEDGER_DIR", str(provider_ledger_dir))
     monkeypatch.setenv("MAGICFIT_EMAIL", "operator@example.test")
     monkeypatch.setenv("MAGICFIT_PASSWORD", "secret")
     registry = InMemoryToolRegistryRepository()
@@ -7836,6 +7839,7 @@ def test_tool_execution_scene_video_readiness_only_reports_runtime_and_telegram_
     assert result.output_json["provider_key"] == "magicfit"
     assert result.output_json["render_status"] == "ready"
     assert result.output_json["runtime_readiness_json"]["status"] == "ready"
+    assert result.output_json["runtime_readiness_json"]["checks"]["credit_state"] == "unprobed"
     assert result.output_json["telegram_delivery_readiness_json"]["status"] == "ready"
     assert result.receipt_json["runtime_readiness_json"]["checks"]["credentials_configured"] is True
 

@@ -22,11 +22,13 @@ import pytest
 from fastapi import HTTPException
 from PIL import Image, ImageDraw
 
-from app.api.routes import public_tours as public_tours_route
-from app.api.routes.public_tour_payloads import public_tour_allowed_asset_paths
+from app.api.routes import public_tours as public_tour_routes
 from app.api.routes.public_tour_payloads import (
+    public_tour_allowed_asset_paths,
     public_tour_canonical_path,
+    public_tour_exact_location_string_fingerprints,
     public_tour_file_url,
+    public_tour_key_is_exact_location,
     public_tour_safe_slug,
 )
 from app.product import property_tour_hosting
@@ -36,6 +38,60 @@ from scripts.verify_property_tour_controls import build_property_tour_control_re
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.mark.parametrize(
+    ("configured_limit", "expected_limit"),
+    (
+        (None, 1),
+        ("invalid", 1),
+        ("0", 1),
+        ("3", 3),
+        ("99", 4),
+    ),
+)
+def test_reconstruction_ffmpeg_thread_limit_is_strictly_host_bounded(
+    monkeypatch: pytest.MonkeyPatch,
+    configured_limit: str | None,
+    expected_limit: int,
+) -> None:
+    if configured_limit is None:
+        monkeypatch.delenv("PROPERTYQUARRY_RECONSTRUCTION_FFMPEG_THREADS", raising=False)
+    else:
+        monkeypatch.setenv("PROPERTYQUARRY_RECONSTRUCTION_FFMPEG_THREADS", configured_limit)
+
+    assert reconstruction_script._ffmpeg_thread_limit() == expected_limit
+
+
+def test_reconstruction_ffmpeg_thread_options_keep_filter_global_and_encoder_output_scoped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_RECONSTRUCTION_FFMPEG_THREADS", "2")
+
+    filter_options, encoder_options = reconstruction_script._ffmpeg_thread_options()
+    command = [
+        "ffmpeg",
+        "-y",
+        *filter_options,
+        "-i",
+        "frame-%05d.jpg",
+        *encoder_options,
+        "walkthrough.mp4",
+    ]
+
+    assert filter_options == ("-filter_threads", "2")
+    assert encoder_options == ("-threads", "2")
+    assert command == [
+        "ffmpeg",
+        "-y",
+        "-filter_threads",
+        "2",
+        "-i",
+        "frame-%05d.jpg",
+        "-threads",
+        "2",
+        "walkthrough.mp4",
+    ]
 
 
 def _write_base_tour(tmp_path: Path, slug: str) -> Path:
@@ -85,6 +141,822 @@ def _write_valid_candidate_generation(
         ),
         encoding="utf-8",
     )
+
+
+@pytest.mark.parametrize(
+    "privacy_mode",
+    (
+        pytest.param("anonymous_public", id="anonymous"),
+        "viewer_only",
+        "agent_share",
+        "family_review",
+        "owner_private",
+    ),
+)
+def test_hosted_tour_writer_keeps_raw_tour_json_free_of_private_source_and_proof_fields(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    privacy_mode: str,
+) -> None:
+    slug = f"raw-storage-privacy-{privacy_mode.replace('_', '-')}"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    contaminated_asset_relpath = (
+        "Exact-Private-Street-7-1020-Wien-scene-01.jpg"
+    )
+    (bundle_dir / contaminated_asset_relpath).write_bytes(b"public-scene")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    @contextmanager
+    def _publication_authority(*_args: object, **_kwargs: object):
+        yield
+
+    monkeypatch.setattr(
+        property_tour_hosting,
+        "property_account_publication_authority",
+        _publication_authority,
+    )
+    property_tour_hosting._write_hosted_property_tour_payload(
+        bundle_dir,
+        {
+            "slug": slug,
+            "title": "Bright apartment - Exact, Private—Street 7 - 1020 Wien",
+            "display_title": "Bright apartment - Exact Private Street 7; 1020 Wien",
+            "tour_title": "Exact Private Street 7, 1020 Wien",
+            "tour_privacy_mode": privacy_mode,
+            "public_address_allowed": True,
+            "public_exact_location_allowed": True,
+            "share_exact_location": True,
+            "principal_id": "principal-private-storage",
+            "search_run_id": "run-private-storage",
+            "listing_url": "https://listing.private.example/secret",
+            "property_url": "https://property.private.example/secret",
+            "source_ref": "source-ref-private-storage",
+            "external_id": "external-private-storage",
+            "recipient_email": "recipient-private@example.test",
+            "crezlo_public_url": "https://crezlo.private.example/secret",
+            "source_virtual_tour_url": "https://tour.private.example/secret",
+            "source_virtual_tour_origin": "https://origin.private.example/secret",
+            "panorama_source": "panorama-private-source",
+            "three_d_vista_import": {"private_project_path": "/private/project.3dv"},
+            "three_d_vista_white_label_proof": {
+                "reviewer_email": "proof-reviewer-private@example.test",
+                "source_project": "private-proof-project",
+            },
+            "three_d_vista_browser_render_proof": {
+                "artifact_path": "/private/browser-proof.png",
+                "operator_note": "private browser proof note",
+            },
+            "three_d_vista_entry_relpath": "private-export/index.htm",
+            "three_d_vista_url": "https://3dvista.private.example/secret",
+            "matterport_url": "https://matterport.private.example/secret",
+            "facts": {
+                "rooms": 3,
+                "area_sqm": 84,
+                "postal_name": "1020 Wien",
+                "address": "Exact Private Address 7",
+                "address_line": "Exact Private Address Line 7",
+                "address_lines": ["Exact Private Address Lines 7"],
+                "exact_address": "Exact Private Street 7, 1020 Wien",
+                "formatted_address": "Exact Private Formatted Address 7",
+                "house_number": "7-private",
+                "street": "Exact Private Street",
+                "street_address": "Exact Private Street 7",
+                "latitude": 48.22,
+                "longitude": 16.39,
+                "map_lat": 48.22,
+                "map_lng": 16.39,
+                "livability_snapshot": {
+                    "nearest_transit": {
+                        "label": "Nearby stop",
+                        "address": "Nested Exact Transit Address 9",
+                        "lat": 48.221,
+                        "lng": 16.391,
+                    },
+                    "formatted-address": "Nested Exact Formatted Address 9",
+                    "formattedAddress": "Nested Exact Camel Address 9",
+                    "mapLat": 48.222,
+                    "mapLng": 16.392,
+                },
+                "public_preference_snapshot": {"private": "preference-private"},
+            },
+            "brief": {"creative_brief": "Show the exact private address."},
+            "scenes": [
+                {
+                    "name": "Living room - Exact—Private Street 7 - 1020 Wien",
+                    "role": "photo",
+                    "asset_relpath": contaminated_asset_relpath,
+                    "mime_type": "image/jpeg",
+                    "source_url": "https://image.private.example/original.jpg",
+                    "property_url": "https://property.private.example/secret",
+                }
+            ],
+        },
+    )
+
+    public_path = bundle_dir / "tour.json"
+    raw_public = public_path.read_text(encoding="utf-8")
+    public_manifest = json.loads(raw_public)
+    private_manifest = json.loads(
+        (bundle_dir / "tour.private.json").read_text(encoding="utf-8")
+    )
+
+    def _all_keys(value: object) -> set[str]:
+        if isinstance(value, dict):
+            return set(value) | {
+                key
+                for child in value.values()
+                for key in _all_keys(child)
+            }
+        if isinstance(value, list):
+            return {key for child in value for key in _all_keys(child)}
+        return set()
+
+    forbidden_keys = {
+        "principal_id",
+        "search_run_id",
+        "listing_url",
+        "property_url",
+        "source_ref",
+        "external_id",
+        "recipient_email",
+        "crezlo_public_url",
+        "source_virtual_tour_url",
+        "source_virtual_tour_origin",
+        "source_url",
+        "panorama_source",
+        "three_d_vista_import",
+        "three_d_vista_white_label_proof",
+        "three_d_vista_browser_render_proof",
+        "three_d_vista_entry_relpath",
+        "three_d_vista_url",
+        "matterport_url",
+        "address",
+        "address_line",
+        "address_lines",
+        "exact_address",
+        "formatted_address",
+        "house_number",
+        "street",
+        "street_address",
+        "latitude",
+        "lat",
+        "longitude",
+        "lng",
+        "lon",
+        "map_lat",
+        "map_lng",
+        "geojson",
+        "geocode",
+        "geocoded_address",
+        "postcode",
+        "postal_code",
+        "reverse_geocode",
+        "street_name",
+        "public_preference_snapshot",
+        "brief",
+    }
+    assert forbidden_keys.isdisjoint(_all_keys(public_manifest))
+    assert not any(public_tour_key_is_exact_location(key) for key in _all_keys(public_manifest))
+    for private_value in (
+        "principal-private-storage",
+        "run-private-storage",
+        "listing.private.example",
+        "property.private.example",
+        "source-ref-private-storage",
+        "external-private-storage",
+        "recipient-private@example.test",
+        "tour.private.example",
+        "image.private.example",
+        "Exact Private",
+        "Nested Exact",
+        "proof-reviewer-private@example.test",
+        "private browser proof note",
+    ):
+        assert private_value not in raw_public
+
+    assert public_manifest["facts"]["rooms"] == 3
+    assert public_manifest["facts"]["area_sqm"] == 84
+    assert public_manifest["facts"]["postal_name"] == "1020 Wien"
+    assert public_manifest["title"] == "Bright apartment"
+    assert public_manifest["display_title"] == "Bright apartment"
+    assert public_manifest["tour_title"] == "Property tour"
+    assert public_manifest["scenes"][0]["name"] == "Living room"
+    assert public_manifest["scenes"][0]["asset_relpath"] == ""
+    assert "scene-01.jpg" not in raw_public
+    assert public_manifest["tour_privacy_mode"] == privacy_mode
+    assert private_manifest["principal_id"] == "principal-private-storage"
+    assert private_manifest["listing_url"] == "https://listing.private.example/secret"
+    assert private_manifest["property_url"] == "https://property.private.example/secret"
+    assert private_manifest["source_virtual_tour_url"] == "https://tour.private.example/secret"
+    assert private_manifest["three_d_vista_white_label_proof"]["reviewer_email"] == (
+        "proof-reviewer-private@example.test"
+    )
+    assert private_manifest["three_d_vista_browser_render_proof"]["operator_note"] == (
+        "private browser proof note"
+    )
+    assert private_manifest["private_exact_location"]["facts"]["address"] == (
+        "Exact Private Address 7"
+    )
+    assert private_manifest["private_exact_location"]["facts"]["livability_snapshot"][
+        "nearest_transit"
+    ]["address"] == "Nested Exact Transit Address 9"
+    assert private_manifest["private_exact_location"]["facts"]["livability_snapshot"][
+        "formattedAddress"
+    ] == "Nested Exact Camel Address 9"
+    assert (bundle_dir / "tour.json").stat().st_mode & 0o777 == 0o644
+    assert (bundle_dir / "tour.private.json").stat().st_mode & 0o777 == 0o600
+
+
+def test_public_tour_exact_location_fingerprints_are_strictly_bounded() -> None:
+    fingerprints = public_tour_exact_location_string_fingerprints(
+        {
+            "facts": {
+                "address_lines": [
+                    f"Bounded Private Street {index}, 1020 Wien " + ("x" * 700)
+                    for index in range(80)
+                ]
+            }
+        }
+    )
+
+    assert len(fingerprints) == 64
+    assert all(8 <= len(fingerprint) <= 512 for fingerprint in fingerprints)
+
+
+@pytest.mark.parametrize(
+    "target_kind",
+    (
+        "bundle_symlink",
+        "manifest_symlink",
+        "manifest_directory",
+        "manifest_fifo",
+        "manifest_oversize",
+        "incoming_oversize",
+    ),
+)
+def test_hosted_tour_writer_rejects_unsafe_or_oversized_manifest_without_partial_update(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    target_kind: str,
+) -> None:
+    slug = f"writer-guard-{target_kind.replace('_', '-')}"
+    bundle_dir = tmp_path / slug
+    actual_bundle = bundle_dir
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_TOUR_MANIFEST_MAX_BYTES", "1024")
+    old_public = json.dumps({"slug": slug, "title": "old-public"}).encode("utf-8")
+    old_private = json.dumps({"principal_id": "", "source_ref": "old-private"}).encode("utf-8")
+
+    if target_kind == "bundle_symlink":
+        actual_bundle = tmp_path / "real-bundle"
+        actual_bundle.mkdir()
+        (actual_bundle / "tour.json").write_bytes(old_public)
+        (actual_bundle / "tour.private.json").write_bytes(old_private)
+        bundle_dir.symlink_to(actual_bundle, target_is_directory=True)
+    else:
+        bundle_dir.mkdir()
+        (bundle_dir / "tour.private.json").write_bytes(old_private)
+        public_path = bundle_dir / "tour.json"
+        if target_kind == "manifest_symlink":
+            victim = tmp_path / "public-victim.json"
+            victim.write_bytes(old_public)
+            public_path.symlink_to(victim)
+        elif target_kind == "manifest_directory":
+            public_path.mkdir()
+        elif target_kind == "manifest_fifo":
+            os.mkfifo(public_path)
+        elif target_kind == "manifest_oversize":
+            public_path.write_bytes(b"x" * 1025)
+        else:
+            public_path.write_bytes(old_public)
+
+    victim_before = (
+        (tmp_path / "public-victim.json").read_bytes()
+        if target_kind == "manifest_symlink"
+        else b""
+    )
+    private_before = (actual_bundle / "tour.private.json").read_bytes()
+    public_before = (
+        (actual_bundle / "tour.json").read_bytes()
+        if target_kind not in {"manifest_symlink", "manifest_directory", "manifest_fifo"}
+        else b""
+    )
+    incoming_title = "x" * 2048 if target_kind == "incoming_oversize" else "new-public"
+
+    with pytest.raises(RuntimeError):
+        property_tour_hosting._write_hosted_property_tour_payload(
+            bundle_dir,
+            {
+                "slug": slug,
+                "title": incoming_title,
+                "display_title": incoming_title,
+                "facts": {"rooms": 2, "address": "Private Writer Address 11"},
+            },
+        )
+
+    assert (actual_bundle / "tour.private.json").read_bytes() == private_before
+    if target_kind == "manifest_symlink":
+        assert (tmp_path / "public-victim.json").read_bytes() == victim_before
+        assert (actual_bundle / "tour.json").is_symlink()
+    elif target_kind == "manifest_directory":
+        assert (actual_bundle / "tour.json").is_dir()
+    elif target_kind == "manifest_fifo":
+        assert (actual_bundle / "tour.json").stat(follow_symlinks=False).st_mode & 0o170000 == 0o010000
+    else:
+        assert (actual_bundle / "tour.json").read_bytes() == public_before
+    assert not [
+        path.name
+        for path in actual_bundle.iterdir()
+        if path.name.startswith(".tour") and path.name.endswith(".tmp")
+    ]
+
+
+def test_hosted_tour_writer_rolls_back_public_manifest_when_private_commit_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    slug = "writer-paired-rollback"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir()
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    old_public = json.dumps({"slug": slug, "title": "old-public"}).encode("utf-8")
+    old_private = json.dumps({"principal_id": "", "source_ref": "old-private"}).encode("utf-8")
+    (bundle_dir / "tour.json").write_bytes(old_public)
+    (bundle_dir / "tour.private.json").write_bytes(old_private)
+    real_replace = os.replace
+
+    def _fail_private_stage_replace(src: object, dst: object, *args: object, **kwargs: object) -> None:
+        if str(dst) == "tour.private.json" and ".stage." in str(src):
+            raise OSError("injected private commit failure")
+        real_replace(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(property_tour_hosting.os, "replace", _fail_private_stage_replace)
+    with pytest.raises(RuntimeError):
+        property_tour_hosting._write_hosted_property_tour_payload(
+            bundle_dir,
+            {
+                "slug": slug,
+                "title": "new-public",
+                "display_title": "new-public",
+                "facts": {"rooms": 4, "address": "Private Rollback Address 12"},
+                "source_ref": "new-private",
+            },
+        )
+
+    assert (bundle_dir / "tour.json").read_bytes() == old_public
+    assert (bundle_dir / "tour.private.json").read_bytes() == old_private
+    assert not [
+        path.name
+        for path in bundle_dir.iterdir()
+        if path.name.startswith(".tour") and path.name.endswith(".tmp")
+    ]
+
+
+def test_hosted_tour_slug_lock_blocks_cross_owner_first_writer_race(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_dir = tmp_path / "public-tours"
+    public_dir.mkdir()
+    bundle_dir = public_dir / "cross-owner-first-writer"
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(public_dir))
+    between_renames = threading.Event()
+    release_first = threading.Event()
+    second_lock_attempted = threading.Event()
+    second_finished = threading.Event()
+    errors: dict[str, BaseException] = {}
+    real_replace = os.replace
+    real_lock = product_service._property_reconstruction_publication_lock
+
+    @contextmanager
+    def _authority(*_args: object, **_kwargs: object):
+        yield
+
+    @contextmanager
+    def _observed_lock(*args: object, **kwargs: object):
+        if threading.current_thread().name == "tour-writer-two":
+            second_lock_attempted.set()
+        with real_lock(*args, **kwargs):
+            yield
+
+    def _paused_replace(src: object, dst: object, *args: object, **kwargs: object) -> None:
+        if (
+            threading.current_thread().name == "tour-writer-one"
+            and str(dst) == "tour.private.json"
+            and ".stage." in str(src)
+        ):
+            between_renames.set()
+            assert release_first.wait(timeout=5)
+        real_replace(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(
+        property_tour_hosting,
+        "property_account_publication_authority",
+        _authority,
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_reconstruction_publication_lock",
+        _observed_lock,
+    )
+    monkeypatch.setattr(property_tour_hosting.os, "replace", _paused_replace)
+
+    def _write(owner: str, marker: str) -> None:
+        try:
+            property_tour_hosting._write_hosted_property_tour_payload(
+                bundle_dir,
+                {
+                    "slug": bundle_dir.name,
+                    "principal_id": owner,
+                    "title": f"Writer {marker}",
+                    "source_ref": f"private-{marker}",
+                },
+            )
+        except BaseException as exc:  # pragma: no cover - asserted below
+            errors[marker] = exc
+        finally:
+            if marker == "two":
+                second_finished.set()
+
+    first = threading.Thread(
+        target=_write,
+        args=("owner-one", "one"),
+        name="tour-writer-one",
+        daemon=True,
+    )
+    second = threading.Thread(
+        target=_write,
+        args=("owner-two", "two"),
+        name="tour-writer-two",
+        daemon=True,
+    )
+    first.start()
+    assert between_renames.wait(timeout=5)
+    second.start()
+    assert second_lock_attempted.wait(timeout=5)
+    assert not second_finished.is_set()
+    release_first.set()
+    first.join(timeout=5)
+    second.join(timeout=5)
+
+    assert not first.is_alive()
+    assert not second.is_alive()
+    assert "one" not in errors
+    assert isinstance(errors.get("two"), RuntimeError)
+    assert str(errors["two"]) == "hosted_property_tour_owner_mismatch"
+    public_payload = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
+    private_payload = json.loads(
+        (bundle_dir / "tour.private.json").read_text(encoding="utf-8")
+    )
+    assert public_payload["title"] == "Writer one"
+    assert private_payload["principal_id"] == "owner-one"
+    assert private_payload["source_ref"] == "private-one"
+
+
+def test_combined_tour_reader_waits_through_public_private_rename_gap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_dir = tmp_path / "public-tours"
+    bundle_dir = public_dir / "paired-reader"
+    bundle_dir.mkdir(parents=True)
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(public_dir))
+    (bundle_dir / "tour.json").write_text(
+        json.dumps({"slug": bundle_dir.name, "title": "old-public"}),
+        encoding="utf-8",
+    )
+    (bundle_dir / "tour.private.json").write_text(
+        json.dumps(
+            {
+                "principal_id": "paired-owner",
+                "three_d_vista_url": "https://3dvista.com/share/OLDPAIR",
+            }
+        ),
+        encoding="utf-8",
+    )
+    between_renames = threading.Event()
+    release_writer = threading.Event()
+    reader_lock_attempted = threading.Event()
+    reader_finished = threading.Event()
+    writer_errors: list[BaseException] = []
+    reader_errors: list[BaseException] = []
+    reader_payloads: list[dict[str, object]] = []
+    real_replace = os.replace
+    real_lock = product_service._property_reconstruction_publication_lock
+
+    @contextmanager
+    def _authority(*_args: object, **_kwargs: object):
+        yield
+
+    @contextmanager
+    def _observed_lock(*args: object, **kwargs: object):
+        if threading.current_thread().name == "paired-reader-thread":
+            reader_lock_attempted.set()
+        with real_lock(*args, **kwargs):
+            yield
+
+    def _paused_replace(src: object, dst: object, *args: object, **kwargs: object) -> None:
+        if (
+            threading.current_thread().name == "paired-writer-thread"
+            and str(dst) == "tour.private.json"
+            and ".stage." in str(src)
+        ):
+            between_renames.set()
+            assert release_writer.wait(timeout=5)
+        real_replace(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(
+        property_tour_hosting,
+        "property_account_publication_authority",
+        _authority,
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_reconstruction_publication_lock",
+        _observed_lock,
+    )
+    monkeypatch.setattr(property_tour_hosting.os, "replace", _paused_replace)
+
+    def _write() -> None:
+        try:
+            property_tour_hosting._write_hosted_property_tour_payload(
+                bundle_dir,
+                {
+                    "slug": bundle_dir.name,
+                    "principal_id": "paired-owner",
+                    "title": "new-public",
+                    "three_d_vista_url": "https://3dvista.com/share/NEWPAIR",
+                },
+            )
+        except BaseException as exc:  # pragma: no cover - asserted below
+            writer_errors.append(exc)
+
+    def _read() -> None:
+        try:
+            reader_payloads.append(
+                public_tour_routes._load_tour_with_private_receipt(bundle_dir.name)
+            )
+        except BaseException as exc:  # pragma: no cover - asserted below
+            reader_errors.append(exc)
+        finally:
+            reader_finished.set()
+
+    writer = threading.Thread(target=_write, name="paired-writer-thread", daemon=True)
+    reader = threading.Thread(target=_read, name="paired-reader-thread", daemon=True)
+    writer.start()
+    assert between_renames.wait(timeout=5)
+    reader.start()
+    assert reader_lock_attempted.wait(timeout=5)
+    assert not reader_finished.is_set()
+    release_writer.set()
+    writer.join(timeout=5)
+    reader.join(timeout=5)
+
+    assert not writer.is_alive()
+    assert not reader.is_alive()
+    assert writer_errors == []
+    assert reader_errors == []
+    assert len(reader_payloads) == 1
+    assert reader_payloads[0]["slug"] == bundle_dir.name
+    assert reader_payloads[0]["title"] == "new-public"
+    assert reader_payloads[0]["three_d_vista_url"] == (
+        "https://3dvista.com/share/NEWPAIR"
+    )
+
+
+def test_browser_proof_update_waits_for_publish_and_preserves_current_private_receipt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_dir = tmp_path / "public-tours"
+    bundle_dir = public_dir / "proof-publish-race"
+    bundle_dir.mkdir(parents=True)
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(public_dir))
+    (bundle_dir / "tour.json").write_text(
+        json.dumps({"slug": bundle_dir.name, "title": "old-public"}),
+        encoding="utf-8",
+    )
+    (bundle_dir / "tour.private.json").write_text(
+        json.dumps({"principal_id": "proof-owner", "source_ref": "old-private"}),
+        encoding="utf-8",
+    )
+    between_renames = threading.Event()
+    release_writer = threading.Event()
+    proof_lock_attempted = threading.Event()
+    proof_finished = threading.Event()
+    errors: list[BaseException] = []
+    proof_results: list[dict[str, object]] = []
+    real_replace = os.replace
+    real_lock = product_service._property_reconstruction_publication_lock
+
+    @contextmanager
+    def _authority(*_args: object, **_kwargs: object):
+        yield
+
+    @contextmanager
+    def _observed_lock(*args: object, **kwargs: object):
+        if threading.current_thread().name == "browser-proof-writer":
+            proof_lock_attempted.set()
+        with real_lock(*args, **kwargs):
+            yield
+
+    def _paused_replace(src: object, dst: object, *args: object, **kwargs: object) -> None:
+        if (
+            threading.current_thread().name == "proof-publisher"
+            and str(dst) == "tour.private.json"
+            and ".stage." in str(src)
+        ):
+            between_renames.set()
+            assert release_writer.wait(timeout=5)
+        real_replace(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(
+        property_tour_hosting,
+        "property_account_publication_authority",
+        _authority,
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_reconstruction_publication_lock",
+        _observed_lock,
+    )
+    monkeypatch.setattr(property_tour_hosting.os, "replace", _paused_replace)
+
+    def _publish() -> None:
+        try:
+            property_tour_hosting._write_hosted_property_tour_payload(
+                bundle_dir,
+                {
+                    "slug": bundle_dir.name,
+                    "principal_id": "proof-owner",
+                    "search_run_id": "current-run",
+                    "title": "new-public",
+                    "source_ref": "new-private",
+                },
+            )
+        except BaseException as exc:  # pragma: no cover - asserted below
+            errors.append(exc)
+
+    def _persist_proof() -> None:
+        try:
+            proof_results.append(
+                property_tour_hosting.persist_hosted_property_tour_browser_render_proof(
+                    slug=bundle_dir.name,
+                    provider="3dvista",
+                    proof={"status": "pass", "rendered_viewer": True},
+                    public_roots=(public_dir,),
+                )
+            )
+        except BaseException as exc:  # pragma: no cover - asserted below
+            errors.append(exc)
+        finally:
+            proof_finished.set()
+
+    publisher = threading.Thread(target=_publish, name="proof-publisher", daemon=True)
+    proof_writer = threading.Thread(
+        target=_persist_proof,
+        name="browser-proof-writer",
+        daemon=True,
+    )
+    publisher.start()
+    assert between_renames.wait(timeout=5)
+    proof_writer.start()
+    assert proof_lock_attempted.wait(timeout=5)
+    assert not proof_finished.is_set()
+    release_writer.set()
+    publisher.join(timeout=5)
+    proof_writer.join(timeout=5)
+
+    assert not publisher.is_alive()
+    assert not proof_writer.is_alive()
+    assert errors == []
+    assert proof_results[0]["status"] == "updated"
+    private_payload = json.loads(
+        (bundle_dir / "tour.private.json").read_text(encoding="utf-8")
+    )
+    assert private_payload["principal_id"] == "proof-owner"
+    assert private_payload["search_run_id"] == "current-run"
+    assert private_payload["source_ref"] == "new-private"
+    assert private_payload["three_d_vista_browser_render_proof"] == {
+        "status": "pass",
+        "rendered_viewer": True,
+        "provider": "3dvista",
+    }
+
+
+def test_generated_publication_outer_slug_lock_is_reentrant_for_hosted_pair(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    public_dir = tmp_path / "public-tours"
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(public_dir))
+    monkeypatch.setenv(
+        "PROPERTYQUARRY_RECONSTRUCTION_PUBLICATION_LOCK_TIMEOUT_SECONDS",
+        "0.05",
+    )
+
+    @contextmanager
+    def _authority(*_args: object, **_kwargs: object):
+        yield
+
+    monkeypatch.setattr(
+        property_tour_hosting,
+        "property_account_publication_authority",
+        _authority,
+    )
+
+    def _nested_hosted_commit(**kwargs: object) -> dict[str, object]:
+        slug = product_service._make_hosted_property_tour_slug(
+            title=str(kwargs["title"]),
+            listing_id=str(kwargs["listing_id"]),
+            property_url=str(kwargs["property_url"]),
+            variant_key=str(kwargs["variant_key"]),
+            principal_id=str(kwargs["principal_id"]),
+        )
+        bundle_dir = public_dir / slug
+        property_tour_hosting._write_hosted_property_tour_payload(
+            bundle_dir,
+            {
+                "slug": slug,
+                "principal_id": kwargs["principal_id"],
+                "search_run_id": kwargs["search_run_id"],
+                "title": kwargs["title"],
+                "source_ref": "nested-private",
+            },
+        )
+        return property_tour_hosting._load_hosted_property_tour_payload(
+            bundle_dir,
+            principal_id=str(kwargs["principal_id"]),
+        )
+
+    monkeypatch.setattr(
+        product_service,
+        "_write_generated_reconstruction_property_tour_bundle_with_lock_held",
+        _nested_hosted_commit,
+    )
+    result = product_service._write_generated_reconstruction_property_tour_bundle(
+        principal_id="reentrant-owner",
+        search_run_id="reentrant-run",
+        title="Reentrant generated tour",
+        listing_id="reentrant-listing",
+        property_url="https://example.test/reentrant-listing",
+        variant_key="layout_first",
+        media_urls=(),
+        floorplan_urls=(),
+        property_facts_json={},
+        source_host="example.test",
+    )
+
+    assert result["principal_id"] == "reentrant-owner"
+    assert result["search_run_id"] == "reentrant-run"
+    assert result["source_ref"] == "nested-private"
+
+
+def test_public_tour_loader_rejects_bundle_directory_symlink(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    real_bundle = tmp_path / "real-loader-bundle"
+    real_bundle.mkdir()
+    (real_bundle / "tour.json").write_text(
+        json.dumps({"slug": "loader-bundle-symlink", "title": "must not load"}),
+        encoding="utf-8",
+    )
+    (tmp_path / "loader-bundle-symlink").symlink_to(real_bundle, target_is_directory=True)
+
+    with pytest.raises(HTTPException) as raised:
+        public_tour_routes._load_tour("loader-bundle-symlink")
+    assert raised.value.status_code == 404
+
+
+@pytest.mark.parametrize("target_kind", ("symlink", "directory", "fifo", "oversize"))
+def test_public_tour_loader_rejects_unsafe_or_oversized_final_manifest(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    target_kind: str,
+) -> None:
+    slug = f"loader-final-{target_kind}"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir()
+    manifest_path = bundle_dir / "tour.json"
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_TOUR_MANIFEST_MAX_BYTES", "1024")
+    if target_kind == "symlink":
+        victim = tmp_path / "loader-victim.json"
+        victim.write_text(json.dumps({"slug": slug, "title": "victim"}), encoding="utf-8")
+        manifest_path.symlink_to(victim)
+    elif target_kind == "directory":
+        manifest_path.mkdir()
+    elif target_kind == "fifo":
+        os.mkfifo(manifest_path)
+    else:
+        manifest_path.write_bytes(b"x" * 1025)
+
+    with pytest.raises(HTTPException) as raised:
+        public_tour_routes._load_tour(slug)
+    assert raised.value.status_code == 500
 
 
 def _write_floorplan(path: Path) -> None:
@@ -497,7 +1369,7 @@ def test_internal_stage_slug_and_commit_metadata_are_never_public_urls(
         == ""
     )
     with pytest.raises(HTTPException) as observed:
-        public_tours_route._load_tour(stage_slug)
+        public_tour_routes._load_tour(stage_slug)
     assert observed.value.status_code == 404
     assert observed.value.detail == "tour_not_found"
 

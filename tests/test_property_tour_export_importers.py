@@ -19,11 +19,28 @@ from scripts.property_tour_3dvista_provenance import (
     THREE_D_VISTA_TARGET_PROVENANCE_SCHEMA,
     export_tree_sha256,
 )
+from scripts.property_tour_panorama_provenance import (
+    KRPANO_SPATIAL_PROVENANCE_KEY,
+    PANORAMA_SPATIAL_PROVENANCE_SCHEMA,
+    PANO2VR_SPATIAL_PROVENANCE_KEY,
+    asset_set_sha256 as panorama_asset_set_sha256,
+    export_tree_sha256 as panorama_export_tree_sha256,
+    panorama_asset_relpaths,
+    pano2vr_export_topology,
+    walkable_scene_topology,
+)
 from scripts.verify_property_tour_controls import build_property_tour_control_receipt
 from scripts.check_property_tour_delivery_contract import build_tour_delivery_contract_receipt
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture(autouse=True)
+def _bounded_import_test_disk_floor(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Importer disk guards are tested independently with synthetic disk usage;
+    # fixture imports must not depend on the CI host's current free capacity.
+    monkeypatch.setenv("PROPERTYQUARRY_TOUR_MIN_FREE_BYTES", "0")
 
 
 def _run_importer(script_name: str, tmp_path: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -87,6 +104,88 @@ def _write_3dvista_provenance(
         encoding="utf-8",
     )
     return receipt_path
+
+
+def _attach_panorama_spatial_provenance(
+    bundle_dir: Path,
+    *,
+    provider: str,
+) -> None:
+    manifest_path = bundle_dir / "tour.json"
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    private_path = bundle_dir / "tour.private.json"
+    private_payload = (
+        json.loads(private_path.read_text(encoding="utf-8"))
+        if private_path.is_file()
+        else {}
+    )
+    merged = {**payload, **private_payload}
+    slug = str(merged["slug"])
+    if provider == "pano2vr":
+        entry_relpath = str(
+            merged.get("pano2vr_entry_relpath")
+            or merged.get("pano2vr_export_entry_relpath")
+            or ""
+        )
+        export_root = str(
+            merged.get("pano2vr_export_root_relpath")
+            or merged.get("pano2vr_root_relpath")
+            or Path(entry_relpath).parent.as_posix()
+        )
+        topology = pano2vr_export_topology(bundle_dir / export_root)
+        key = PANO2VR_SPATIAL_PROVENANCE_KEY
+        artifact = {
+            "kind": "local_export",
+            "sha256": panorama_export_tree_sha256(bundle_dir / export_root),
+            "entry_relpath": Path(entry_relpath).relative_to(export_root).as_posix(),
+        }
+        projection = "equirectangular"
+        source_kind = "camera_equirectangular"
+    else:
+        topology = walkable_scene_topology(merged)
+        key = KRPANO_SPATIAL_PROVENANCE_KEY
+        artifact = {
+            "kind": "panorama_assets",
+            "sha256": panorama_asset_set_sha256(
+                bundle_dir,
+                panorama_asset_relpaths(merged),
+            ),
+            "entry_relpath": "",
+        }
+        walkable_scene = merged.get("walkable_scene")
+        projection = str(
+            walkable_scene.get("projection")
+            if isinstance(walkable_scene, dict)
+            else "equirectangular"
+        )
+        source_kind = (
+            "camera_cubemap" if projection == "cubemap" else "camera_equirectangular"
+        )
+    private_payload[key] = {
+        "schema": PANORAMA_SPATIAL_PROVENANCE_SCHEMA,
+        "status": "pass",
+        "provider": provider,
+        "target_slug": slug,
+        "artifact": artifact,
+        "capture": {
+            "source_kind": source_kind,
+            "projection": projection,
+            **topology,
+        },
+        "authorization": {
+            "status": "approved",
+            "reference": f"fixture-authorization:{slug}",
+        },
+        "review": {
+            "property_match": "pass",
+            "visual_match": "pass",
+            "spatial_capture_match": "pass",
+            "flat_composite_absent": True,
+            "reviewed_by": "propertyquarry-test-reviewer",
+            "reviewed_at": "2026-07-18T12:00:00+00:00",
+        },
+    }
+    private_path.write_text(json.dumps(private_payload), encoding="utf-8")
 
 
 def _write_playable_mp4(path: Path) -> None:
@@ -708,7 +807,9 @@ def test_3dvista_white_label_contract_requires_review_for_non_propertyquarry_sou
     assert proof_basis["ready_basis"] == []
 
 
-def test_tour_delivery_contract_reports_ready_public_safe_payload(tmp_path: Path) -> None:
+def test_tour_delivery_contract_reports_retired_matterport_public_safe_payload(
+    tmp_path: Path,
+) -> None:
     slug = "matterport-contract"
     bundle_dir = _write_base_tour(tmp_path, slug)
     manifest_path = bundle_dir / "tour.json"
@@ -725,26 +826,19 @@ def test_tour_delivery_contract_reports_ready_public_safe_payload(tmp_path: Path
     matterport_contract = verifier["delivery_contracts"]["matterport"]
     serialized_contract = json.dumps(matterport_contract)
 
-    assert matterport_contract["status"] == "ready"
-    assert matterport_contract["blocked_reason"] == ""
-    assert matterport_contract["required_to_send"] == []
-    assert matterport_contract["white_label_contract"]["status"] == "ready"
-    assert matterport_contract["white_label_contract"]["required_to_white_label"] == []
-    assert matterport_contract["ready_payload"]["ready_count"] == 1
-    assert matterport_contract["ready_payload"]["sample_controls"] == [
-        {
-            "slug": slug,
-            "title": "Matterport Contract",
-            "control_path": f"/tours/{slug}/control/matterport",
-            "evidence": "allowlisted_matterport_url",
-            "route_visibility": "public",
-        }
-    ]
+    assert matterport_contract["status"] == "blocked"
+    assert matterport_contract["blocked_reason"] == "matterport_public_control_retired"
+    assert matterport_contract["required_to_send"]
+    assert "retired" in " ".join(matterport_contract["required_to_send"]).lower()
+    assert matterport_contract["white_label_contract"]["status"] == "blocked"
+    assert matterport_contract["white_label_contract"]["required_to_white_label"]
+    assert matterport_contract["ready_payload"]["ready_count"] == 0
+    assert matterport_contract["ready_payload"]["sample_controls"] == []
     assert "READY123" not in serialized_contract
     assert "my.matterport.com" not in serialized_contract
 
 
-def test_tour_delivery_contract_checker_accepts_matterport_ready_and_3dvista_blocked(
+def test_tour_delivery_contract_checker_accepts_matterport_retired_and_3dvista_blocked(
     tmp_path: Path,
 ) -> None:
     slug = "delivery-contract-checker"
@@ -767,11 +861,13 @@ def test_tour_delivery_contract_checker_accepts_matterport_ready_and_3dvista_blo
     receipt = build_tour_delivery_contract_receipt(tour_control_receipt)
 
     assert receipt["status"] == "pass"
-    assert receipt["matterport_ready_count"] == 1
-    assert "matterport" in receipt["ready_provider_modes"]
-    assert receipt["required_provider_modes"] == ["matterport", "3dvista", "magicfit"]
+    assert receipt["matterport_ready_count"] == 0
+    assert "matterport" not in receipt["ready_provider_modes"]
+    assert receipt["retired_provider_modes"] == ["matterport"]
+    assert receipt["required_provider_modes"] == ["3dvista", "magicfit"]
     assert receipt["optional_provider_modes"] == ["pano2vr", "krpano"]
     assert set(receipt["missing_provider_modes"]) == {"3dvista", "magicfit"}
+    assert receipt["failures"] == []
 
 
 def test_tour_delivery_contract_checker_rejects_matterport_url_leak(tmp_path: Path) -> None:
@@ -1196,12 +1292,13 @@ def test_krpano_importer_requires_real_equirectangular_panorama(tmp_path: Path, 
     manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
     assert manifest["control_mode"] == "krpano"
     assert manifest["viewer_provider"] == "krpano"
-    assert manifest["scene_strategy"] == "walkable_panorama"
-    assert manifest["creation_mode"] == "hosted_walkable_360"
+    assert manifest["scene_strategy"] == "single_panorama"
+    assert manifest["creation_mode"] == "hosted_panorama_360"
     assert manifest["walkable_scene"]["projection"] == "equirectangular"
     assert manifest["walkable_scene"]["panorama_relpath"] == "krpano/panorama.jpg"
     assert manifest["krpano_import"]["license_domain"] == "propertyquarry.com"
     assert "license-key" not in json.dumps(manifest)
+    _attach_panorama_spatial_provenance(bundle_dir, provider="krpano")
     verifier = build_property_tour_control_receipt(tour_root=tmp_path / "public_tours")
     assert verifier["provider_counts"]["krpano"] == 1
     assert verifier["ready_provider_modes"] == ["krpano"]
@@ -1245,12 +1342,13 @@ def test_krpano_importer_accepts_six_real_cube_faces(tmp_path: Path, monkeypatch
 
     assert imported.returncode == 0, imported.stderr
     body = json.loads(imported.stdout)
-    assert body["scene_strategy"] == "walkable_cube"
+    assert body["scene_strategy"] == "single_cubemap"
     assert body["asset_count"] == 6
     manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
     assert manifest["walkable_scene"]["projection"] == "cubemap"
     assert len(manifest["walkable_scene"]["cube_faces"]) == 6
     assert all((bundle_dir / relpath).is_file() for relpath in manifest["walkable_scene"]["cube_faces"].values())
+    _attach_panorama_spatial_provenance(bundle_dir, provider="krpano")
     verifier = build_property_tour_control_receipt(tour_root=tmp_path / "public_tours")
     assert verifier["provider_counts"]["krpano"] == 1
 
@@ -1291,7 +1389,7 @@ def test_krpano_importer_can_materialize_existing_cube_face_scene(tmp_path: Path
 
     assert imported.returncode == 0, imported.stderr
     body = json.loads(imported.stdout)
-    assert body["scene_strategy"] == "walkable_cube"
+    assert body["scene_strategy"] == "single_cubemap"
     assert body["asset_count"] == 6
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert manifest["control_mode"] == "krpano"
@@ -1299,6 +1397,7 @@ def test_krpano_importer_can_materialize_existing_cube_face_scene(tmp_path: Path
     assert manifest["walkable_scene"]["projection"] == "cubemap"
     assert set(manifest["walkable_scene"]["cube_faces"]) == {"f", "b", "l", "r", "u", "d"}
     assert all((bundle_dir / relpath).is_file() for relpath in manifest["walkable_scene"]["cube_faces"].values())
+    _attach_panorama_spatial_provenance(bundle_dir, provider="krpano")
     verifier = build_property_tour_control_receipt(tour_root=tmp_path / "public_tours")
     assert verifier["provider_counts"]["krpano"] == 1
     assert verifier["ready_provider_modes"] == ["krpano"]
@@ -1325,6 +1424,10 @@ def test_batch_tour_export_importer_materializes_verified_3dvista_and_pano2vr_ex
     )
     (pano_export / "assets").mkdir()
     (pano_export / "assets" / "viewer.js").write_text("window.GGSKIN = true;", encoding="utf-8")
+    (pano_export / "pano.xml").write_text(
+        "<panorama id='node1'><hotspots /></panorama>",
+        encoding="utf-8",
+    )
     manifest_path = tmp_path / "tour-imports.json"
     receipt_path = tmp_path / "tour-import-receipt.json"
     manifest_path.write_text(
@@ -1369,6 +1472,10 @@ def test_batch_tour_export_importer_materializes_verified_3dvista_and_pano2vr_ex
     pano_manifest = json.loads((public_root / "batch-pano2vr" / "tour.json").read_text(encoding="utf-8"))
     assert vista_manifest["control_mode"] == "3dvista"
     assert pano_manifest["control_mode"] == "pano2vr"
+    _attach_panorama_spatial_provenance(
+        public_root / "batch-pano2vr",
+        provider="pano2vr",
+    )
     monkeypatch.setattr("scripts.verify_property_tour_controls._probe_url", _successful_provider_probe)
     verifier = build_property_tour_control_receipt(
         tour_root=public_root,
@@ -1399,6 +1506,10 @@ def test_batch_tour_export_importer_accepts_verified_3dvista_and_pano2vr_zips(tm
     )
     (pano_export / "assets").mkdir()
     (pano_export / "assets" / "viewer.js").write_text("window.GGSKIN = true;", encoding="utf-8")
+    (pano_export / "pano.xml").write_text(
+        "<panorama id='node1'><hotspots /></panorama>",
+        encoding="utf-8",
+    )
     vista_provenance = _write_3dvista_provenance(vista_export, "zip-3dvista")
     vista_zip = tmp_path / "vista-export.zip"
     pano_zip = tmp_path / "pano-export.zip"
@@ -1449,6 +1560,10 @@ def test_batch_tour_export_importer_accepts_verified_3dvista_and_pano2vr_zips(tm
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     assert receipt["status"] == "pass"
     assert receipt["imported_count"] == 2
+    _attach_panorama_spatial_provenance(
+        public_root / "zip-pano2vr",
+        provider="pano2vr",
+    )
     monkeypatch.setattr("scripts.verify_property_tour_controls._probe_url", _successful_provider_probe)
     verifier = build_property_tour_control_receipt(
         tour_root=public_root,
@@ -1557,6 +1672,10 @@ def test_batch_tour_export_importer_materializes_krpano_and_magicfit_assets(tmp_
     assert krpano_manifest["walkable_scene"]["panorama_relpath"] == "krpano/panorama.jpg"
     assert "video_provider" not in magicfit_manifest
     assert "video_relpath" not in magicfit_manifest
+    _attach_panorama_spatial_provenance(
+        public_root / "batch-krpano",
+        provider="krpano",
+    )
     verifier = build_property_tour_control_receipt(tour_root=public_root)
     assert verifier["provider_counts"]["krpano"] == 1
     assert verifier["provider_counts"]["magicfit"] == 0
@@ -1867,7 +1986,6 @@ def test_magicfit_importer_materializes_playable_walkthrough_and_rejects_placeho
     assert json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8")) == manifest
     assert not (bundle_dir / pending["video_relpath"]).exists()
 
-
 def test_magicfit_importer_rejects_ambiguous_receipts_and_noncanonical_paths(
     tmp_path: Path,
 ) -> None:
@@ -2019,18 +2137,21 @@ def test_krpano_control_requires_real_walkable_360_asset(tmp_path: Path, monkeyp
 
     manifest.update(
         {
-            "scene_strategy": "walkable_panorama",
-            "creation_mode": "hosted_walkable_360",
+            "scene_strategy": "single_panorama",
+            "creation_mode": "hosted_panorama_360",
             "walkable_scene": {"projection": "equirectangular", "panorama_relpath": "panorama.jpg"},
         }
     )
     _write_equirectangular_image(bundle_dir / "panorama.jpg")
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    _attach_panorama_spatial_provenance(bundle_dir, provider="krpano")
 
     accepted = build_property_tour_control_receipt(tour_root=tmp_path / "public_tours")
     assert accepted["provider_counts"]["krpano"] == 1
     assert accepted["ready_provider_modes"] == ["krpano"]
-    assert accepted["tours"][0]["controls"][0]["evidence"] == "licensed_krpano_walkable_scene"
+    assert accepted["tours"][0]["controls"][0]["evidence"] == (
+        "provenance_bound_licensed_krpano_spatial_scene"
+    )
 
 
 def test_krpano_control_rejects_16_9_stills_as_fake_panorama(tmp_path: Path, monkeypatch) -> None:
@@ -2583,3 +2704,33 @@ def test_tour_export_discovery_ignores_documentation_only_provider_folders_for_n
     assert receipt["repair_count"] == 0
     assert receipt["repair_manifest"] == []
     assert any("readme.propertyquarry-export.txt" in note.lower() for note in receipt["notes"])
+
+
+def test_magicfit_importer_fails_closed_on_low_disk_before_publishing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    slug = "low-disk-magicfit-import"
+    bundle_dir = _write_base_tour(tmp_path, slug)
+    source = tmp_path / "magicfit-low-disk.mp4"
+    _write_playable_mp4(source)
+    monkeypatch.setenv(
+        "PROPERTYQUARRY_TOUR_MIN_FREE_BYTES",
+        str(10 * 1024 * 1024 * 1024 * 1024),
+    )
+
+    rejected = _run_importer(
+        "import_magicfit_walkthrough.py",
+        tmp_path,
+        "--slug",
+        slug,
+        "--video-path",
+        str(source),
+        "--allow-unreceipted-test-asset",
+    )
+
+    assert rejected.returncode != 0
+    assert "magicfit_import_low_disk" in rejected.stderr
+    assert not (bundle_dir / "magicfit-walkthrough.mp4").exists()
+    manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
+    assert "video_relpath" not in manifest

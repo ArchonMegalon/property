@@ -33,6 +33,7 @@ REQUIRED_DOCS = (
     Path("RUNBOOK.md"),
     Path("RELEASE_CHECKLIST.md"),
     Path("PRODUCT_RELEASE_CHECKLIST.md"),
+    Path("docs/PROPERTYQUARRY_GLOBAL_FLAGSHIP_GOAL.md"),
 )
 PYTEST_OUTCOME_KEYS = ("passed", "failed", "skipped", "errors", "xfailed", "xpassed")
 PYTEST_OUTCOME_RE = re.compile(
@@ -622,18 +623,20 @@ def build_receipt(
 
     if status == "pass":
         operator_summary = (
-            f"{proof_label} source/browser flagship proof is published and green; "
-            "final live readiness is not evaluated by this receipt."
+            f"{proof_label} source/browser checkpoint is published and green; this does not establish global "
+            "launch authority, and final live readiness is not evaluated by this receipt."
         )
     elif status == "preview_only":
         operator_summary = (
             f"{proof_label} source/browser flagship proof is materialized, but the current claim is preview_only "
-            "until browser execution proof is published; final live readiness is not evaluated by this receipt."
+            "until browser execution proof is published; this does not establish global launch authority, and "
+            "final live readiness is not evaluated by this receipt."
         )
     else:
         operator_summary = (
             f"{proof_label} source/browser flagship proof is materialized, but the current browser-proof or "
-            "release-doc state still blocks the claim; final live readiness is not evaluated by this receipt."
+            "release-doc state still blocks the claim; this does not establish global launch authority, and "
+            "final live readiness is not evaluated by this receipt."
         )
 
     receipt: dict[str, Any] = {
@@ -651,6 +654,12 @@ def build_receipt(
             "authority": "_completion/property_gold_status/release-gate.json",
             "required_profile": "launch",
         },
+        "global_launch_readiness": {
+            "status": "not_evaluated",
+            "market_envelope_authority": release_proof_baseline.GLOBAL_LAUNCH_MARKET_ENVELOPE_AUTHORITY,
+            "terminal_command": release_proof_baseline.GLOBAL_LAUNCH_TERMINAL_COMMAND,
+            "source_browser_checkpoint_is_sufficient": False,
+        },
         "source_binding": source_binding,
         "browser_receipt_binding": browser_receipt_binding,
         "operator_summary": operator_summary,
@@ -660,6 +669,7 @@ def build_receipt(
             "legacy_history": (seed.get("truth_plane") or {}).get("legacy_history"),
         },
         "release_claim": seed.get("release_claim") or {},
+        "global_launch_contract": seed.get("global_launch_contract") or {},
         "ea_product_canon": product_canon,
         "browser_workflow_proof": {
             "proof_target": proof_target,

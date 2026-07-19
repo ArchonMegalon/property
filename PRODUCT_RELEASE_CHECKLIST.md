@@ -97,3 +97,33 @@ Any unavailable, degraded, preview-only, or operator-dependent capability is
 named in the release manifest and customer experience. PropertyQuarry is live
 only when terminal hosted CI, protected production gates, controller receipts,
 public runtime evidence, and the verified rollback path agree.
+
+Global flagship completion is governed by
+`docs/PROPERTYQUARRY_GLOBAL_FLAGSHIP_GOAL.md`, not by a passing source or browser
+checkpoint alone. The claimed market envelope must report every launch market
+and journey as `launch_supported`; incident/support evidence must be staffed,
+drilled, fresh, independently attested, and bound to the exact Git SHA and
+immutable image digest; the global-experience gate must prove native review,
+WCAG 2.2 AA manual and automated coverage, contracted browsers/devices, field
+CWV cohorts, network recovery, and localized SEO; and the
+jurisdiction/privacy/provider-rights gate must prove current independent legal
+approval, privacy/residency controls, exact provider permissions, technical
+enforcement, and current contract/envelope binding. Core must remain useful
+without optional Advanced Visual providers. The sole terminal command is
+`/usr/libexec/propertyquarry/propertyquarry-global-launch-terminal --manifest
+/run/propertyquarry/release-evidence/global-launch-core-manifest.v1.json`. Its
+private closed manifest must pin the exact SHA/image, every Gold product-data
+origin/hash, every Core receipt including all four global-governance receipts,
+all six raw observability inputs, and fresh preflight, disaster-recovery,
+capacity, and observability-operations authorities. A fresh Ed25519 controller
+attestation must bind the product-data values and every artifact digest;
+observability operations must include correlation-ID log query, W3C trace
+continuity, versioned Core-SLO/queue/provider dashboards, alert delivery, and
+immutable digest-bound runbooks. Any structured blocker is a stop condition
+for deployment, promotion, or a global-launch claim. The checkout script
+`scripts/propertyquarry_global_launch_terminal.py` is non-authoritative; require
+the root-owned installed wrapper/Python/Gold/policy bundle and its
+controller-signed SHA-256 invocation contract. Accept only the
+`propertyquarry.global_launch_terminal_result.v1` wrapper receipt binding the
+controller, full artifact map, invocation contract, and Gold-result digests;
+direct Gold output is not global terminal authority.

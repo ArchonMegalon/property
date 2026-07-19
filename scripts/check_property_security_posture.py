@@ -145,11 +145,30 @@ def build_security_posture_receipt() -> dict[str, object]:
     for env_name in ("EA_API_TOKEN", "EA_SIGNING_SECRET", "EA_CF_ACCESS_TEAM_DOMAIN", "EA_CF_ACCESS_AUD"):
         if not re.search(rf"^{re.escape(env_name)}=", env_example, flags=re.MULTILINE):
             failures.append(f".env.example must list prod auth/signing placeholder {env_name}")
+    for env_name in (
+        "PROPERTYQUARRY_API_DATABASE_URL",
+        "PROPERTYQUARRY_API_ADMISSION_DATABASE_URL",
+        "PROPERTYQUARRY_WORKER_DATABASE_URL",
+        "PROPERTYQUARRY_SCHEDULER_DATABASE_URL",
+        "PROPERTYQUARRY_RENDER_DATABASE_URL",
+        "PROPERTYQUARRY_MIGRATION_DATABASE_URL",
+    ):
+        if not re.search(
+            rf"^{re.escape(env_name)}=$",
+            env_example,
+            flags=re.MULTILINE,
+        ):
+            failures.append(
+                ".env.example must list the blank service-scoped database "
+                f"placeholder {env_name}"
+            )
     expected_service_aliases = {
         "PROPERTYQUARRY_API_SERVICE": "propertyquarry-api",
+        "PROPERTYQUARRY_WORKER_SERVICE": "propertyquarry-worker",
         "PROPERTYQUARRY_SCHEDULER_SERVICE": "propertyquarry-scheduler",
         "PROPERTYQUARRY_DB_SERVICE": "propertyquarry-db",
         "PROPERTYQUARRY_API_CONTAINER_NAME": "propertyquarry-api",
+        "PROPERTYQUARRY_WORKER_CONTAINER_NAME": "propertyquarry-worker",
         "PROPERTYQUARRY_SCHEDULER_CONTAINER_NAME": "propertyquarry-scheduler",
         "PROPERTYQUARRY_DB_CONTAINER_NAME": "propertyquarry-db-live",
         "PROPERTYQUARRY_RENDER_CONTAINER_NAME": "propertyquarry-render-tools",
@@ -172,11 +191,17 @@ def build_security_posture_receipt() -> dict[str, object]:
     for token in forbidden_compose_tokens:
         if token in compose.lower():
             failures.append(f"docker-compose.property.yml contains inherited surface: {token}")
-    for service_name in ("propertyquarry-api", "propertyquarry-scheduler", "propertyquarry-db"):
+    for service_name in (
+        "propertyquarry-api",
+        "propertyquarry-worker",
+        "propertyquarry-scheduler",
+        "propertyquarry-db",
+    ):
         if service_name not in compose:
             failures.append(f"docker-compose.property.yml missing {service_name}")
     expected_container_name_envs = (
         'container_name: "${PROPERTYQUARRY_API_CONTAINER_NAME:-propertyquarry-api}"',
+        'container_name: "${PROPERTYQUARRY_WORKER_CONTAINER_NAME:-propertyquarry-worker}"',
         'container_name: "${PROPERTYQUARRY_SCHEDULER_CONTAINER_NAME:-propertyquarry-scheduler}"',
         'container_name: "${PROPERTYQUARRY_DB_CONTAINER_NAME:-propertyquarry-db-live}"',
         'container_name: "${PROPERTYQUARRY_RENDER_CONTAINER_NAME:-propertyquarry-render-tools}"',
@@ -184,8 +209,157 @@ def build_security_posture_receipt() -> dict[str, object]:
     for expected in expected_container_name_envs:
         if expected not in compose:
             failures.append(f"docker-compose.property.yml must keep recoverable container alias {expected}")
-    if "propertyquarry-worker" in compose or "PROPERTYQUARRY_WORKER_PROFILE" in compose:
-        failures.append("docker-compose.property.yml must not start the inherited idle worker by default")
+    worker_marker = "  propertyquarry-worker:\n"
+    scheduler_marker = "  propertyquarry-scheduler:\n"
+    try:
+        worker_section = compose.split(worker_marker, 1)[1].split(scheduler_marker, 1)[0]
+    except IndexError:
+        worker_section = ""
+    required_worker_contracts = (
+        'image: "${PROPERTYQUARRY_WEB_IMAGE:-propertyquarry-web-runtime:latest}"',
+        'container_name: "${PROPERTYQUARRY_WORKER_CONTAINER_NAME:-propertyquarry-worker}"',
+        "cap_drop:\n      - ALL",
+        'security_opt:\n      - "no-new-privileges:true"',
+        "read_only: true",
+        "EA_ROLE: worker",
+        'EA_STORAGE_BACKEND: "postgres"',
+        'PROPERTYQUARRY_WORKER_PROFILE: "property_only"',
+        'PROPERTYQUARRY_SEARCH_SCHEMA_READINESS_REQUIRED: "1"',
+        "EA_WORKER_HEARTBEAT_PATH: /data/artifacts/propertyquarry-worker-heartbeat.json",
+        'EA_WORKER_HEARTBEAT_MAX_AGE_SECONDS: "${EA_WORKER_HEARTBEAT_MAX_AGE_SECONDS:-120}"',
+        'PROPERTYQUARRY_RELEASE_COMMIT_SHA: "${PROPERTYQUARRY_RELEASE_COMMIT_SHA:-}"',
+        'PROPERTYQUARRY_RELEASE_IMAGE_DIGEST: "${PROPERTYQUARRY_RELEASE_IMAGE_DIGEST:-}"',
+        'PROPERTYQUARRY_RELEASE_DEPLOYMENT_ID: "${PROPERTYQUARRY_RELEASE_DEPLOYMENT_ID:-}"',
+        "./config:/config:ro",
+        "./config:/app/config:ro",
+        "propertyquarry_artifacts:/data/artifacts",
+        "propertyquarry-db:",
+        "propertyquarry-migrate:",
+        "condition: service_completed_successfully",
+        'test: ["CMD", "/usr/local/bin/python", "-m", "app.scheduler_healthcheck"]',
+    )
+    if not worker_section or any(
+        required not in worker_section for required in required_worker_contracts
+    ):
+        failures.append(
+            "docker-compose.property.yml must keep a hardened property-only durable worker"
+        )
+    if any(
+        forbidden in worker_section
+        for forbidden in (
+            "property_scene_video_shared.env",
+            "propertyquarry_render_internal",
+            "PROPERTYQUARRY_MAGICFIT",
+            "PROPERTYQUARRY_RECONSTRUCTION_RENDER",
+        )
+    ):
+        failures.append(
+            "docker-compose.property.yml worker must remain independent of advanced visuals"
+        )
+    try:
+        api_section = compose.split("  propertyquarry-api:\n", 1)[1].split(
+            "  propertyquarry-migrate:\n", 1
+        )[0]
+    except IndexError:
+        api_section = ""
+    for required_api_worker_gate in (
+        'PROPERTYQUARRY_WORKER_HEARTBEAT_REQUIRED: "1"',
+        "EA_WORKER_HEARTBEAT_PATH: /data/artifacts/propertyquarry-worker-heartbeat.json",
+    ):
+        if required_api_worker_gate not in api_section:
+            failures.append(
+                "docker-compose.property.yml API must fail closed on worker heartbeat"
+            )
+    service_section_markers = (
+        ("propertyquarry-api", "propertyquarry-migrate"),
+        ("propertyquarry-migrate", "propertyquarry-worker"),
+        ("propertyquarry-worker", "propertyquarry-scheduler"),
+        ("propertyquarry-scheduler", "propertyquarry-render-tools"),
+        ("propertyquarry-render-tools", "propertyquarry-db"),
+    )
+    service_sections: dict[str, str] = {}
+    for service_name, next_service_name in service_section_markers:
+        try:
+            service_sections[service_name] = compose.split(
+                f"  {service_name}:\n",
+                1,
+            )[1].split(f"  {next_service_name}:\n", 1)[0]
+        except IndexError:
+            service_sections[service_name] = ""
+    expected_database_mappings = {
+        "propertyquarry-api": (
+            'DATABASE_URL: "${PROPERTYQUARRY_API_DATABASE_URL:?'
+        ),
+        "propertyquarry-migrate": (
+            'DATABASE_URL: "${PROPERTYQUARRY_MIGRATION_DATABASE_URL:?'
+        ),
+        "propertyquarry-worker": (
+            'DATABASE_URL: "${PROPERTYQUARRY_WORKER_DATABASE_URL:?'
+        ),
+        "propertyquarry-scheduler": (
+            'DATABASE_URL: "${PROPERTYQUARRY_SCHEDULER_DATABASE_URL:?'
+        ),
+        "propertyquarry-render-tools": (
+            'DATABASE_URL: "${PROPERTYQUARRY_RENDER_DATABASE_URL:?'
+        ),
+    }
+    for service_name, expected_mapping in expected_database_mappings.items():
+        section = service_sections.get(service_name, "")
+        if expected_mapping not in section:
+            failures.append(
+                "docker-compose.property.yml must map the service-scoped DSN "
+                f"for {service_name}"
+            )
+    if (
+        'PROPERTYQUARRY_API_ADMISSION_DATABASE_URL: '
+        '"${PROPERTYQUARRY_API_ADMISSION_DATABASE_URL:?' not in api_section
+        or 'PROPERTYQUARRY_ADMISSION_BACKEND: "postgres"' not in api_section
+    ):
+        failures.append(
+            "docker-compose.property.yml API must require its dedicated "
+            "PostgreSQL admission DSN"
+        )
+    for service_name in (
+        "propertyquarry-api",
+        "propertyquarry-worker",
+        "propertyquarry-scheduler",
+        "propertyquarry-render-tools",
+    ):
+        section = service_sections.get(service_name, "")
+        if re.search(r"^\s+-\s+\.env\s*$", section, flags=re.MULTILINE):
+            failures.append(
+                "docker-compose.property.yml long-lived service must not load "
+                f"the broad .env file: {service_name}"
+            )
+        for forbidden_database_authority in (
+            "${DATABASE_URL",
+            "postgresql://postgres:",
+        ):
+            if forbidden_database_authority in section:
+                failures.append(
+                    "docker-compose.property.yml long-lived service inherits "
+                    "generic or migration database authority: "
+                    f"{service_name} ({forbidden_database_authority})"
+                )
+        for protected_database_secret in (
+            "PROPERTYQUARRY_MIGRATION_DATABASE_URL",
+            "POSTGRES_PASSWORD",
+        ):
+            if (
+                protected_database_secret in section
+                and f'{protected_database_secret}: ""' not in section
+            ):
+                failures.append(
+                    "docker-compose.property.yml long-lived service inherits "
+                    "a migration or bootstrap secret instead of overriding it "
+                    f"to blank: {service_name} ({protected_database_secret})"
+                )
+    migrate_section = service_sections.get("propertyquarry-migrate", "")
+    if "${DATABASE_URL" in migrate_section or "postgresql://postgres:" in migrate_section:
+        failures.append(
+            "docker-compose.property.yml migration must use only its isolated "
+            "service-scoped DSN"
+        )
     if "POSTGRES_HOST_AUTH_METHOD" in compose or ":-trust" in compose:
         failures.append("docker-compose.property.yml must not default Postgres to trust auth")
     if 'POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?' not in compose:
@@ -195,7 +369,7 @@ def build_security_posture_receipt() -> dict[str, object]:
     if 'PROPERTYQUARRY_SCHEDULER_PROFILE: "${PROPERTYQUARRY_SCHEDULER_PROFILE:-property_only}"' not in compose:
         failures.append("docker-compose.property.yml must default the scheduler to property_only")
     if "dockerfile: ea/Dockerfile.property-web" not in compose:
-        failures.append("docker-compose.property.yml must run API/scheduler from the lightweight web runtime")
+        failures.append("docker-compose.property.yml must run API/worker/scheduler from the lightweight web runtime")
     if 'image: "${PROPERTYQUARRY_WEB_IMAGE:-propertyquarry-web-runtime:latest}"' not in compose:
         failures.append("docker-compose.property.yml must name the lightweight web runtime image")
     if "propertyquarry-render-tools:" not in compose or "render-tools" not in compose:
@@ -247,6 +421,38 @@ def build_security_posture_receipt() -> dict[str, object]:
             "ea/requirements.property-render.txt must pin every requirement with a "
             "sha256 hash: "
             + ", ".join(render_requirement_failures)
+        )
+    for required_render_runtime in (
+        "psycopg==3.3.4",
+        "psycopg-binary==3.3.4",
+    ):
+        if required_render_runtime not in _read(
+            "ea/requirements.property-render.txt"
+        ):
+            failures.append(
+                "ea/requirements.property-render.txt must include the pinned "
+                "distributed admission runtime"
+            )
+            break
+    for required_render_copy in (
+        "COPY --chmod=0444 ea/app/observability.py /app/ea/app/observability.py",
+        (
+            "COPY --chmod=0444 ea/app/services/admission_control.py "
+            "/app/ea/app/services/admission_control.py"
+        ),
+    ):
+        if required_render_copy not in render_instructions:
+            failures.append(
+                "ea/Dockerfile.property must copy the bounded render admission runtime"
+            )
+            break
+    if (
+        'PROPERTYQUARRY_RENDER_DATABASE_URL:?Set a least-privilege '
+        'PROPERTYQUARRY_RENDER_DATABASE_URL for admission state'
+        not in compose
+    ):
+        failures.append(
+            "docker-compose.property.yml render bridge must require its dedicated admission DSN"
         )
     if "for script in /tmp/src/scripts/*" in dockerfile or 'cp "$script" /app/scripts/' in dockerfile:
         failures.append("ea/Dockerfile.property must not bulk-copy scripts into the runtime image")
@@ -351,6 +557,7 @@ def build_security_posture_receipt() -> dict[str, object]:
         "property_env_placeholders",
         "property_service_aliases",
         "property_compose_isolation",
+        "service_scoped_database_credentials",
         "non_root_pinned_runtime_image",
         "lightweight_web_runtime_split",
         "web_runtime_browser_payload_isolation",

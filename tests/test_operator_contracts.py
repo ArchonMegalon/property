@@ -739,7 +739,10 @@ def test_db_operator_scripts_support_propertyquarry_service_aliases() -> None:
 
     assert "PROPERTYQUARRY_API_SERVICE=propertyquarry-api" in env_example
     assert "PROPERTYQUARRY_WORKER_SERVICE=" in env_example
-    assert "No standalone worker is started by docker-compose.property.yml." in env_example
+    assert (
+        "docker-compose.property.yml starts this standalone durable search worker."
+        in env_example
+    )
     assert "PROPERTYQUARRY_SCHEDULER_SERVICE=propertyquarry-scheduler" in env_example
     assert "PROPERTYQUARRY_DB_SERVICE=propertyquarry-db" in env_example
 
