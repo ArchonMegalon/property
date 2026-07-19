@@ -220,18 +220,28 @@ No lower level can be relabelled as a higher one.
 
 ## Current baseline on 2026-07-19
 
-- The preserved candidate is detached at `fa7d2194d561d6bff6a957d02219e96cff8ecf3d`
-  with staged tree `02c611f7845eb7b07c056e5131ab7fda60bad475`.
-- Strong local Core evidence exists for Chromium, WebKit public-tour behavior,
-  isolated PostgreSQL, bounded resources, privacy closure, release-control models,
+- The preserved integration tree is frozen in immutable local source commits. The
+  canonical generated release manifest and receipt-only envelope carry the exact
+  runtime SHA; this document deliberately does not self-reference the commit that
+  contains it.
+- Strong local Core evidence now includes real Chromium, Firefox, and WebKit
+  operating-loop/public-tour journeys; an authenticated Chromium cold/warm probe
+  with server-acknowledged nonces and observed subresource HTTP-cache reuse;
+  isolated PostgreSQL; bounded resources; privacy closure; release-control models;
   and the first-party 3D journey.
-- The candidate is not yet a release commit. The standalone PropertyQuarry remote
-  is 86 commits behind the candidate base, protected CI has not tested this staged
-  tree, and no exact-candidate protected live launch evidence exists.
-- The current UI is English and the rendered document declares English. Search and
-  provider code contains multiple country concepts, but full market/locale,
-  currency/timezone, Firefox, manual accessibility, field performance, renter, and
-  protected operations evidence must be completed before widening the claim.
+- The candidate and its release branch remain local. No branch has been pushed,
+  no protected CI or independent controller has authorized this exact runtime,
+  and no exact-candidate protected live launch evidence exists.
+- Critical search, shortlist, and research shells have explicit de-AT, de-DE, and
+  es-CR localization plus deterministic currency, number, timezone, address, and
+  postal contracts. The declared phase-one claim remains English-only because
+  public, authentication, account, billing, legal, provider, and dynamic content
+  are not fully translated or independently reviewed. Manual accessibility,
+  field performance, localized SEO, live provider, and protected operations
+  evidence must still be completed before widening the claim.
+- Bounded local capacity evidence is a lab receipt only. Even when bound to the
+  clean runtime commit it cannot establish production capacity, provider quotas,
+  staffing, or field traffic behavior.
 - The governed market envelope currently computes AT and DE as `private_beta`, CR
   as `browser_state_only`, and zero markets as launch-supported. Those labels are
   release inputs, not marketing copy, and cannot be promoted without the missing
