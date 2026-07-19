@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import re
-import sys
 import argparse
 import json
+import re
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -34,6 +34,105 @@ def _lock_package_names(lock_text: str) -> set[str]:
             continue
         names.add(raw.split("==", 1)[0].strip().lower().replace("_", "-"))
     return names
+
+
+def _logical_instructions(text: str) -> list[str]:
+    instructions: list[str] = []
+    current: list[str] = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line and not current:
+            continue
+        if line.startswith("#") and not current:
+            continue
+        continued = line.endswith("\\")
+        current.append(line[:-1].rstrip() if continued else line)
+        if not continued:
+            instructions.append(" ".join(part for part in current if part))
+            current = []
+    if current:
+        instructions.append(" ".join(part for part in current if part))
+    return instructions
+
+
+def _dockerfile_base_images(dockerfile: str) -> list[str]:
+    images: list[str] = []
+    for instruction in _logical_instructions(dockerfile):
+        tokens = instruction.split()
+        if not tokens or tokens[0].upper() != "FROM":
+            continue
+        image_index = 1
+        while image_index < len(tokens) and tokens[image_index].startswith("--"):
+            image_index += 1
+        if image_index < len(tokens):
+            images.append(tokens[image_index])
+    return images
+
+
+def _unpinned_dockerfile_base_images(dockerfile: str) -> list[str]:
+    return [
+        image
+        for image in _dockerfile_base_images(dockerfile)
+        if image.lower() != "scratch"
+        and re.fullmatch(r"[^@\s]+@sha256:[0-9a-f]{64}", image) is None
+    ]
+
+
+def _dockerfile_final_user(dockerfile: str) -> str:
+    instructions = _logical_instructions(dockerfile)
+    stage_starts = [
+        index
+        for index, instruction in enumerate(instructions)
+        if instruction.split(maxsplit=1)[0].upper() == "FROM"
+    ]
+    if not stage_starts:
+        return ""
+    users = [
+        instruction.split(maxsplit=1)[1].strip()
+        for instruction in instructions[stage_starts[-1] + 1 :]
+        if instruction.split(maxsplit=1)[0].upper() == "USER"
+        and len(instruction.split(maxsplit=1)) == 2
+    ]
+    return users[-1] if users else ""
+
+
+def _hashed_requirement_contract_failures(requirements_text: str) -> list[str]:
+    invalid: list[str] = []
+    rows = _logical_instructions(requirements_text)
+    for row in rows:
+        tokens = row.split()
+        requirement = tokens[0] if tokens else ""
+        hashes = tokens[1:]
+        pinned_requirement = re.fullmatch(
+            r"[A-Za-z0-9][A-Za-z0-9._-]*(?:\[[A-Za-z0-9_,.-]+\])?==[^\s;]+",
+            requirement,
+        )
+        valid_hashes = bool(hashes) and all(
+            re.fullmatch(r"--hash=sha256:[0-9a-f]{64}", value) is not None
+            for value in hashes
+        )
+        if pinned_requirement is None or not valid_hashes:
+            invalid.append(requirement or "<empty>")
+    return invalid or (["<missing>"] if not rows else [])
+
+
+def _append_dockerfile_runtime_failures(
+    failures: list[str],
+    *,
+    path: str,
+    dockerfile: str,
+) -> None:
+    base_images = _dockerfile_base_images(dockerfile)
+    unpinned_images = _unpinned_dockerfile_base_images(dockerfile)
+    if not base_images:
+        failures.append(f"{path} must contain at least one FROM instruction")
+    elif unpinned_images:
+        failures.append(
+            f"{path} must pin every non-scratch FROM image by digest: "
+            + ", ".join(unpinned_images)
+        )
+    if _dockerfile_final_user(dockerfile) != "10001:10001":
+        failures.append(f"{path} must run its final stage as USER 10001:10001")
 
 
 def build_security_posture_receipt() -> dict[str, object]:
@@ -109,25 +208,56 @@ def build_security_posture_receipt() -> dict[str, object]:
         failures.append("docker-compose.property.yml must not grant SYS_NICE to property web services")
 
     dockerfile = _read("ea/Dockerfile.property")
-    if not re.search(r"^FROM\s+\S+@sha256:[0-9a-f]{64}\s*$", dockerfile, flags=re.MULTILINE):
-        failures.append("ea/Dockerfile.property must pin its base image by digest")
+    _append_dockerfile_runtime_failures(
+        failures,
+        path="ea/Dockerfile.property",
+        dockerfile=dockerfile,
+    )
     if " docker.io" in dockerfile or "docker-compose" in dockerfile or "docker-29." in dockerfile:
         failures.append("ea/Dockerfile.property must not install Docker tooling")
-    if not re.search(r"^USER\s+ea\s*$", dockerfile, flags=re.MULTILINE):
-        failures.append("ea/Dockerfile.property must run as USER ea")
-    if "requirements.lock" not in dockerfile or "-c requirements.lock" not in dockerfile:
-        failures.append("ea/Dockerfile.property must install with requirements.lock constraints")
-    if "COPY scripts/willhaben_property_packet.py /app/scripts/willhaben_property_packet.py" not in dockerfile:
-        failures.append("ea/Dockerfile.property must explicitly copy the Willhaben packet helper")
+    render_instructions = _logical_instructions(dockerfile)
+    if (
+        "COPY --chmod=0444 ea/requirements.property-render.txt "
+        "/app/requirements.property-render.txt"
+        not in render_instructions
+    ):
+        failures.append(
+            "ea/Dockerfile.property must copy the dedicated hashed render requirements file"
+        )
+    render_pip_installs = [
+        instruction
+        for instruction in render_instructions
+        if instruction.startswith("RUN ") and "python -m pip install" in instruction
+    ]
+    if not any(
+        "--require-hashes" in instruction
+        and "--only-binary=:all:" in instruction
+        and "-r /app/requirements.property-render.txt" in instruction
+        for instruction in render_pip_installs
+    ):
+        failures.append(
+            "ea/Dockerfile.property must install /app/requirements.property-render.txt "
+            "with --require-hashes and --only-binary=:all:"
+        )
+    render_requirement_failures = _hashed_requirement_contract_failures(
+        _read("ea/requirements.property-render.txt")
+    )
+    if render_requirement_failures:
+        failures.append(
+            "ea/requirements.property-render.txt must pin every requirement with a "
+            "sha256 hash: "
+            + ", ".join(render_requirement_failures)
+        )
     if "for script in /tmp/src/scripts/*" in dockerfile or 'cp "$script" /app/scripts/' in dockerfile:
         failures.append("ea/Dockerfile.property must not bulk-copy scripts into the runtime image")
     web_dockerfile = _read("ea/Dockerfile.property-web")
-    if not re.search(r"^FROM\s+\S+@sha256:[0-9a-f]{64}\s*$", web_dockerfile, flags=re.MULTILINE):
-        failures.append("ea/Dockerfile.property-web must pin its base image by digest")
+    _append_dockerfile_runtime_failures(
+        failures,
+        path="ea/Dockerfile.property-web",
+        dockerfile=web_dockerfile,
+    )
     if " docker.io" in web_dockerfile or "docker-compose" in web_dockerfile or "docker-29." in web_dockerfile:
         failures.append("ea/Dockerfile.property-web must not install Docker tooling")
-    if not re.search(r"^USER\s+ea\s*$", web_dockerfile, flags=re.MULTILINE):
-        failures.append("ea/Dockerfile.property-web must run as USER ea")
     if "requirements.lock" not in web_dockerfile or "-c requirements.lock" not in web_dockerfile:
         failures.append("ea/Dockerfile.property-web must install with requirements.lock constraints")
     if "COPY scripts/willhaben_property_packet.py /app/scripts/willhaben_property_packet.py" not in web_dockerfile:
@@ -225,8 +355,10 @@ def build_security_posture_receipt() -> dict[str, object]:
         "lightweight_web_runtime_split",
         "web_runtime_browser_payload_isolation",
         "render_tooling_profile",
+        "render_hashed_requirements",
         "web_runtime_non_root_compose",
         "web_runtime_no_sys_nice",
+        "web_runtime_willhaben_helper",
         "no_docker_tooling_in_property_runtime",
         "sidecar_images_pinned_by_digest",
         "public_tour_secret_and_mutation_guards",

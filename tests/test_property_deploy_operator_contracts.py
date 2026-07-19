@@ -5,9 +5,12 @@ import os
 import re
 import shlex
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+
+from scripts import check_property_security_posture as property_security_posture
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,6 +18,29 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def _read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
+
+
+def _security_posture_failures_with_file_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    path: str,
+    mutate: Callable[[str], str],
+) -> list[str]:
+    read = property_security_posture._read
+    mutated = False
+
+    def read_with_mutation(candidate: str) -> str:
+        nonlocal mutated
+        value = read(candidate)
+        if candidate == path:
+            mutated = True
+            return mutate(value)
+        return value
+
+    monkeypatch.setattr(property_security_posture, "_read", read_with_mutation)
+    receipt = property_security_posture.build_security_posture_receipt()
+    assert mutated is True
+    return list(receipt["failures"])
 
 
 def test_property_render_runtime_uses_static_loader_environment_launcher() -> None:
@@ -1751,6 +1777,137 @@ def test_runtime_hard_exit_gates_can_extend_into_propertyquarry_live_runtime() -
         "scripts/property_live_provider_smoke.py",
     ):
         assert required in smoke_help
+
+
+def test_property_security_posture_accepts_pinned_multistage_scratch_runtimes() -> None:
+    for path in ("ea/Dockerfile.property", "ea/Dockerfile.property-web"):
+        dockerfile = _read(path)
+        base_images = property_security_posture._dockerfile_base_images(dockerfile)
+
+        assert len(base_images) >= 2
+        assert base_images[-1] == "scratch"
+        assert property_security_posture._unpinned_dockerfile_base_images(dockerfile) == []
+        assert property_security_posture._dockerfile_final_user(dockerfile) == "10001:10001"
+
+    receipt = property_security_posture.build_security_posture_receipt()
+    assert receipt["status"] == "pass"
+    assert receipt["failures"] == []
+
+
+def test_property_security_posture_checks_every_non_scratch_stage_digest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def remove_glib_builder_digest(dockerfile: str) -> str:
+        updated, count = re.subn(
+            r"^FROM debian:13\.6-slim@sha256:[0-9a-f]{64} AS glib-builder$",
+            "FROM debian:13.6-slim AS glib-builder",
+            dockerfile,
+            count=1,
+            flags=re.MULTILINE,
+        )
+        assert count == 1
+        return updated
+
+    failures = _security_posture_failures_with_file_mutation(
+        monkeypatch,
+        path="ea/Dockerfile.property",
+        mutate=remove_glib_builder_digest,
+    )
+
+    assert failures == [
+        "ea/Dockerfile.property must pin every non-scratch FROM image by digest: "
+        "debian:13.6-slim"
+    ]
+
+
+@pytest.mark.parametrize(
+    "path",
+    ("ea/Dockerfile.property", "ea/Dockerfile.property-web"),
+)
+def test_property_security_posture_requires_fixed_numeric_final_user(
+    monkeypatch: pytest.MonkeyPatch,
+    path: str,
+) -> None:
+    def replace_final_user(dockerfile: str) -> str:
+        before, marker, after = dockerfile.rpartition("USER 10001:10001")
+        assert marker
+        return before + "USER ea" + after
+
+    failures = _security_posture_failures_with_file_mutation(
+        monkeypatch,
+        path=path,
+        mutate=replace_final_user,
+    )
+
+    assert failures == [f"{path} must run its final stage as USER 10001:10001"]
+
+
+def test_property_security_posture_requires_hashed_render_install(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def remove_require_hashes(dockerfile: str) -> str:
+        marker = "        --require-hashes \\\n"
+        assert dockerfile.count(marker) == 1
+        return dockerfile.replace(marker, "", 1)
+
+    failures = _security_posture_failures_with_file_mutation(
+        monkeypatch,
+        path="ea/Dockerfile.property",
+        mutate=remove_require_hashes,
+    )
+
+    assert failures == [
+        "ea/Dockerfile.property must install /app/requirements.property-render.txt "
+        "with --require-hashes and --only-binary=:all:"
+    ]
+
+
+def test_property_security_posture_requires_hash_for_every_render_requirement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def remove_pillow_hash(requirements: str) -> str:
+        marker = (
+            "Pillow==12.3.0 \\\n"
+            "    --hash=sha256:78cb2c6865a35ab8ff8b75fd122f6033b92a62c82801110e48ddd6c936a45d91\n"
+        )
+        assert requirements.count(marker) == 1
+        return requirements.replace(marker, "Pillow==12.3.0\n", 1)
+
+    failures = _security_posture_failures_with_file_mutation(
+        monkeypatch,
+        path="ea/requirements.property-render.txt",
+        mutate=remove_pillow_hash,
+    )
+
+    assert failures == [
+        "ea/requirements.property-render.txt must pin every requirement with a "
+        "sha256 hash: Pillow==12.3.0"
+    ]
+
+
+def test_property_security_posture_requires_willhaben_helper_only_in_web_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    helper_copy = (
+        "COPY scripts/willhaben_property_packet.py "
+        "/app/scripts/willhaben_property_packet.py\n"
+    )
+    assert helper_copy not in _read("ea/Dockerfile.property")
+    assert helper_copy in _read("ea/Dockerfile.property-web")
+
+    def remove_web_helper(dockerfile: str) -> str:
+        assert dockerfile.count(helper_copy) == 1
+        return dockerfile.replace(helper_copy, "", 1)
+
+    failures = _security_posture_failures_with_file_mutation(
+        monkeypatch,
+        path="ea/Dockerfile.property-web",
+        mutate=remove_web_helper,
+    )
+
+    assert failures == [
+        "ea/Dockerfile.property-web must explicitly copy the Willhaben packet helper"
+    ]
 
 
 def test_property_dockerfile_allowlists_runtime_scripts() -> None:
