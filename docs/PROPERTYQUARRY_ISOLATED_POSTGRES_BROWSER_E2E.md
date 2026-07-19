@@ -39,15 +39,17 @@ and the production Compose project.
 From the integration worktree, run:
 
 ```bash
+export PROPERTYQUARRY_PLAYWRIGHT_CHROMIUM_EXECUTABLE=/absolute/path/to/chrome-headless-shell
 python3 scripts/smoke_property_postgres_isolated.py \
   --repo-root "$(pwd)" \
-  --venv "$(pwd)/.venv"
+  --venv "$(pwd)/.venv" \
+  --chromium-headless-shell "${PROPERTYQUARRY_PLAYWRIGHT_CHROMIUM_EXECUTABLE}"
 ```
 
-The gate selects the installed Playwright executable by default. Operators who
-must pin a separate browser pass its canonical absolute path with
-`--chromium-headless-shell`; no user-specific cache location is part of the
-release contract.
+Set the environment value to the canonical executable already installed on the
+current host. The gate performs no browser discovery and has no default or
+fallback executable; no user-specific cache location is part of the release
+contract.
 
 The launcher re-executes the candidate venv Python under a transient user
 scope capped at 1 GiB RAM, zero additional swap, 128 tasks, one CPU, and 20
@@ -97,9 +99,24 @@ check, the candidate API, session bootstrap, and the existing PostgreSQL
 Playwright test all run from the integration worktree and venv. Runtime state
 and secrets live under a mode-0700 temporary directory; both generated env
 files are mode 0600. Production runtime settings include a fresh, per-run
-property-search erasure secret. Migration, schema-check, session-bootstrap,
-browser-test, and API stdout/stderr are routed only to distinct mode-0600
-temporary logs; the terminal receives generic pass/fail status only.
+property-search erasure secret. Before migration, the controller creates the
+exact dedicated `NOLOGIN NOINHERIT` admission-capacity owner inside the
+disposable cluster and verifies that all elevated flags and outbound
+memberships are absent. After migration, it creates a distinct
+`propertyquarry_api_admission` login with a fresh per-run password, removes
+public database/schema/relation/function authority, grants only admission-table
+`SELECT, INSERT, UPDATE, DELETE` plus capacity-state `SELECT`, and runs the same
+strict least-privilege probe required by production readiness. Neither database
+DSN nor password is placed in Docker or process argv. The controller derives a
+PostgreSQL SCRAM verifier client-side, so the clear password is not embedded in
+a loggable role-management statement. Before any direct libpq connection, the
+scoped controller removes all inherited `PG*` overrides, asserts that the
+environment remains closed, and explicitly binds `hostaddr=127.0.0.1`, empty
+session options, and the private relay port from the canonical DSNs.
+Migration, schema-check,
+session-bootstrap, browser-test, and API stdout/stderr are routed only to
+distinct mode-0600 temporary logs; the terminal receives generic pass/fail
+status only.
 Every host producer is launched through `/usr/bin/prlimit`. Migration,
 schema-check, session-bootstrap, and API producers retain an 8 MiB file-size
 ceiling. The browser-test producer alone receives 128 MiB because Chromium's
@@ -123,8 +140,9 @@ Subprocess failures expose only an allowlisted phase and reason, never the
 command, stdout, stderr, URL, database DSN, token, or generated secret. Docker
 phases cover `docker-preflight-{container,network,volume}-{name,label}` plus
 `docker-image-inspect`, network/volume/container create and label checks,
-health inspection, exact internal-network address inspection, and bounded
-loopback-relay lifecycle. Host phases are
+health inspection, exact internal-network address inspection, fixed-argv
+capacity-owner bootstrap and verification, and bounded loopback-relay
+lifecycle. Host phases are
 `schema-migrate`, `schema-check`, `session-bootstrap`, and `browser-test`.
 API startup/readiness and exact per-resource cleanup have dedicated phase
 codes as well.

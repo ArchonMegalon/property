@@ -536,6 +536,386 @@ def test_container_address_inspection_is_bound_to_the_exact_internal_network() -
     ]
 
 
+def test_admission_capacity_owner_bootstrap_is_fixed_argv_and_least_privilege() -> None:
+    names = harness.ResourceNames(RUN_ID)
+    role = "propertyquarry_admission_capacity_owner"
+    create, verify = harness.build_admission_capacity_owner_commands(
+        docker_binary="/usr/bin/docker",
+        names=names,
+        role_name=role,
+    )
+    expected_prefix = [
+        "/usr/bin/docker",
+        "--host",
+        harness.DOCKER_HOST,
+        "exec",
+        "--user",
+        "postgres",
+        names.container,
+        "/usr/local/bin/psql",
+        "--no-psqlrc",
+        "--set=ON_ERROR_STOP=1",
+        "--host=/var/run/postgresql",
+        "--dbname=postgres",
+        "--username=postgres",
+        "--no-align",
+        "--tuples-only",
+        "--command",
+    ]
+    assert create[:-1] == expected_prefix
+    assert verify[:-1] == expected_prefix
+    assert create[-1] == (
+        'CREATE ROLE "propertyquarry_admission_capacity_owner" WITH '
+        "NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE "
+        "NOREPLICATION NOBYPASSRLS"
+    )
+    assert "pg_catalog.pg_auth_members" in verify[-1]
+    assert f"owner_role.rolname = '{role}'" in verify[-1]
+    assert all(
+        value not in create + verify
+        for value in ("sh", "bash", "-c", "--env", "DATABASE_URL", "POSTGRES_PASSWORD")
+    )
+
+    for invalid in (
+        "PropertyQuarryOwner",
+        "owner; DROP ROLE postgres",
+        "owner\npostgres",
+        "a" * 64,
+        "",
+    ):
+        with pytest.raises(
+            harness.IsolatedPostgresError,
+            match="admission-capacity-owner-role-invalid",
+        ):
+            harness.build_admission_capacity_owner_commands(
+                docker_binary="/usr/bin/docker",
+                names=names,
+                role_name=invalid,
+            )
+
+
+def test_admission_capacity_owner_bootstrap_verifies_exact_safe_role(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    names = harness.ResourceNames(RUN_ID)
+    observed: list[tuple[str, list[str]]] = []
+
+    def successful(
+        command: list[str] | tuple[str, ...],
+        *,
+        phase: str,
+        environment: dict[str, str],
+        accepted: frozenset[int] = frozenset({0}),
+        timeout_seconds: int = 60,
+    ) -> bytes:
+        del environment, accepted, timeout_seconds
+        observed.append((phase, list(command)))
+        if phase == "docker-role-bootstrap":
+            return b"CREATE ROLE\n"
+        assert phase == "docker-role-verify"
+        return b"f|f|f|f|f|f|f|0\n"
+
+    monkeypatch.setattr(harness, "_run_output", successful)
+    harness._provision_admission_capacity_owner_role(
+        docker_binary="/usr/bin/docker",
+        names=names,
+        role_name="propertyquarry_admission_capacity_owner",
+        environment={},
+    )
+    assert [phase for phase, _command in observed] == [
+        "docker-role-bootstrap",
+        "docker-role-verify",
+    ]
+
+    unsafe_rows = [
+        "|".join("t" if index == unsafe_index else "f" for index in range(7))
+        + "|0"
+        for unsafe_index in range(7)
+    ] + ["f|f|f|f|f|f|f|1", ""]
+    for unsafe_row in unsafe_rows:
+        def unsafe_role(
+            _command: list[str] | tuple[str, ...],
+            *,
+            phase: str,
+            environment: dict[str, str],
+            accepted: frozenset[int] = frozenset({0}),
+            timeout_seconds: int = 60,
+            _unsafe_row: str = unsafe_row,
+        ) -> bytes:
+            del environment, accepted, timeout_seconds
+            if phase == "docker-role-bootstrap":
+                return b"CREATE ROLE\n"
+            return (_unsafe_row + "\n").encode("ascii")
+
+        monkeypatch.setattr(harness, "_run_output", unsafe_role)
+        with pytest.raises(
+            harness.IsolatedPostgresError,
+            match="docker-role-verification-mismatch",
+        ):
+            harness._provision_admission_capacity_owner_role(
+                docker_binary="/usr/bin/docker",
+                names=names,
+                role_name="propertyquarry_admission_capacity_owner",
+                environment={},
+            )
+
+    def unexpected_create(
+        _command: list[str] | tuple[str, ...],
+        *,
+        phase: str,
+        environment: dict[str, str],
+        accepted: frozenset[int] = frozenset({0}),
+        timeout_seconds: int = 60,
+    ) -> bytes:
+        del _command, phase, environment, accepted, timeout_seconds
+        return b"unexpected\n"
+
+    monkeypatch.setattr(harness, "_run_output", unexpected_create)
+    with pytest.raises(
+        harness.IsolatedPostgresError,
+        match="docker-role-bootstrap-output-invalid",
+    ):
+        harness._provision_admission_capacity_owner_role(
+            docker_binary="/usr/bin/docker",
+            names=names,
+            role_name="propertyquarry_admission_capacity_owner",
+            environment={},
+        )
+
+
+def test_disposable_api_admission_dsns_are_distinct_loopback_credentials() -> None:
+    password = "A" * 32
+    admin = f"postgresql://postgres:{'B' * 32}@127.0.0.1:15432/postgres"
+    admission = (
+        "postgresql://propertyquarry_api_admission:"
+        f"{password}@127.0.0.1:15432/postgres"
+    )
+    harness._validate_disposable_admission_dsns(
+        admin_database_url=admin,
+        admission_database_url=admission,
+        admission_password=password,
+    )
+
+    invalid = (
+        (admin, admission, "short"),
+        ("\x00" + admin, admission, password),
+        (admin + "\t", admission, password),
+        (admin, "\r" + admission, password),
+        (admin, admission.replace("@", "\n@"), password),
+        (" " + admin, admission, password),
+        (admin.replace("127.0.0.1", "db.example"), admission, password),
+        (admin, admission.replace("127.0.0.1", "db.example"), password),
+        (admin, admin, password),
+        (admin, admission.replace(":15432", ":15433"), password),
+        (admin, admission + "?sslmode=disable", password),
+    )
+    for admin_url, admission_url, supplied_password in invalid:
+        with pytest.raises(
+            harness.IsolatedPostgresError,
+            match="api-admission-role-dsn-invalid",
+        ):
+            harness._validate_disposable_admission_dsns(
+                admin_database_url=admin_url,
+                admission_database_url=admission_url,
+                admission_password=supplied_password,
+            )
+
+
+def test_postgres_scram_verifier_is_deterministic_and_never_contains_cleartext() -> None:
+    password = "CleartextAdmissionPasswordValue01"
+    salt = bytes(range(harness.POSTGRES_SCRAM_SALT_BYTES))
+    verifier = harness._postgres_scram_verifier(password, salt=salt)
+    assert verifier == harness._postgres_scram_verifier(password, salt=salt)
+    assert harness.POSTGRES_SCRAM_VERIFIER_RE.fullmatch(verifier) is not None
+    assert verifier.startswith("SCRAM-SHA-256$4096:AAECAwQFBgcICQoLDA0ODw==$")
+    assert password not in verifier
+
+    with pytest.raises(
+        harness.IsolatedPostgresError,
+        match="api-admission-role-provision-failed",
+    ):
+        harness._postgres_scram_verifier(password, salt=b"short")
+
+
+def test_libpq_environment_is_closed_before_any_direct_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    isolated_environment = {
+        "PATH": "/usr/bin:/bin",
+        "PGHOSTADDR": "203.0.113.9",
+        "PGOPTIONS": "-c search_path=attacker",
+        "PGSERVICEFILE": "/tmp/attacker-service.conf",
+        "PGFUTURE_OVERRIDE": "attacker",
+    }
+    assert harness._clear_libpq_environment(isolated_environment) == (
+        "PGFUTURE_OVERRIDE",
+        "PGHOSTADDR",
+        "PGOPTIONS",
+        "PGSERVICEFILE",
+    )
+    assert isolated_environment == {"PATH": "/usr/bin:/bin"}
+    harness._require_closed_libpq_environment(isolated_environment)
+
+    password = "E" * 32
+    admin = f"postgresql://postgres:{'F' * 32}@127.0.0.1:15432/postgres"
+    admission = (
+        "postgresql://propertyquarry_api_admission:"
+        f"{password}@127.0.0.1:15432/postgres"
+    )
+    connected: list[bool] = []
+    for key in tuple(os.environ):
+        if key.startswith("PG"):
+            monkeypatch.delenv(key)
+    monkeypatch.setenv("PGHOSTADDR", "203.0.113.9")
+    with pytest.raises(
+        harness.IsolatedPostgresError,
+        match="libpq-environment-not-closed",
+    ):
+        harness._provision_api_admission_role(
+            admin_database_url=admin,
+            admission_database_url=admission,
+            admission_password=password,
+            connect=lambda *_args, **_kwargs: connected.append(True),
+        )
+    assert connected == []
+    assert harness._clear_libpq_environment() == ("PGHOSTADDR",)
+    harness._require_closed_libpq_environment()
+
+
+def test_disposable_api_admission_role_is_exactly_granted_and_strictly_probed(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    password = "C" * 32
+    admin = f"postgresql://postgres:{'D' * 32}@127.0.0.1:15432/postgres"
+    admission = (
+        "postgresql://propertyquarry_api_admission:"
+        f"{password}@127.0.0.1:15432/postgres"
+    )
+    statements: list[object] = []
+
+    class Cursor:
+        row: object = None
+        rows: list[tuple[object, ...]] = []
+
+        def __enter__(self) -> Cursor:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def execute(self, statement: object, _params: object = ()) -> None:
+            statements.append(statement)
+            normalized = " ".join(statement.split()) if isinstance(statement, str) else ""
+            self.row = None
+            self.rows = []
+            if normalized.startswith("SELECT current_database()"):
+                self.row = ("postgres", "postgres", True, True)
+            elif normalized.startswith("SELECT namespace.nspname"):
+                self.rows = [("public",)]
+            elif normalized.startswith("SELECT role.rolcanlogin"):
+                self.row = (True, False, False, False, False, False, False, 0)
+
+        def fetchone(self) -> object:
+            return self.row
+
+        def fetchall(self) -> list[tuple[object, ...]]:
+            return self.rows
+
+    class Connection:
+        committed = False
+
+        def __init__(self) -> None:
+            self._cursor = Cursor()
+
+        def __enter__(self) -> Connection:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def cursor(self) -> Cursor:
+            return self._cursor
+
+        def commit(self) -> None:
+            self.committed = True
+
+    provision_connection = Connection()
+
+    def connect_admin(database_url: str, **kwargs: object) -> Connection:
+        assert database_url == admin
+        assert kwargs == {
+            "autocommit": False,
+            "connect_timeout": 5,
+            "hostaddr": "127.0.0.1",
+            "sslmode": "disable",
+            "options": "",
+            "application_name": "propertyquarry-isolated-admission-provision",
+            "target_session_attrs": "read-write",
+        }
+        return provision_connection
+
+    harness._provision_api_admission_role(
+        admin_database_url=admin,
+        admission_database_url=admission,
+        admission_password=password,
+        connect=connect_admin,
+    )
+    assert provision_connection.committed is True
+    rendered = "\n".join(statement for statement in statements if isinstance(statement, str))
+    assert password not in "\n".join(repr(statement) for statement in statements)
+    assert "SET LOCAL log_statement = 'none'" in rendered
+    assert "SET LOCAL log_min_error_statement = 'panic'" in rendered
+    assert "REVOKE ALL PRIVILEGES ON DATABASE postgres FROM PUBLIC" in rendered
+    assert "REVOKE ALL ON SCHEMA public FROM PUBLIC" in rendered
+    assert "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE" in rendered
+    assert "GRANT SELECT ON TABLE propertyquarry_admission_capacity_state" in rendered
+
+    verify_connection = Connection()
+
+    def connect_admission(database_url: str, **kwargs: object) -> Connection:
+        assert database_url == admission
+        assert kwargs == {
+            "autocommit": True,
+            "connect_timeout": 5,
+            "hostaddr": "127.0.0.1",
+            "sslmode": "disable",
+            "options": "",
+            "application_name": "propertyquarry-isolated-api-admission-proof",
+            "target_session_attrs": "read-write",
+        }
+        return verify_connection
+
+    probed: list[object] = []
+
+    def probe(cursor: object, *, require_least_privilege: bool) -> None:
+        assert cursor is verify_connection._cursor
+        assert require_least_privilege is True
+        probed.append(cursor)
+
+    harness._verify_api_admission_role(
+        admission_database_url=admission,
+        connect=connect_admission,
+        probe=probe,
+    )
+    assert probed == [verify_connection._cursor]
+
+    def interrupted(_cursor: object, *, require_least_privilege: bool) -> None:
+        assert require_least_privilege is True
+        raise harness.IsolatedPostgresError("internal-watchdog-expired")
+
+    with pytest.raises(
+        harness.IsolatedPostgresError,
+        match="internal-watchdog-expired",
+    ):
+        harness._verify_api_admission_role(
+            admission_database_url=admission,
+            connect=connect_admission,
+            probe=interrupted,
+        )
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err == ""
+
+
 def test_internal_container_address_requires_exact_network_id_and_rfc1918_ipv4(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -830,6 +1210,7 @@ def test_prod_runtime_has_fresh_erasure_secret_and_only_temp_state(
         repo_root=tmp_path / "candidate",
         temp_root=tmp_path / "first",
         database_url="postgresql://loopback/first",
+        admission_database_url="postgresql://admission/first",
         api_token="api-one",
         signing_secret="sign-one",
         erasure_secret="erase-one",
@@ -840,6 +1221,7 @@ def test_prod_runtime_has_fresh_erasure_secret_and_only_temp_state(
         repo_root=tmp_path / "candidate",
         temp_root=tmp_path / "second",
         database_url="postgresql://loopback/second",
+        admission_database_url="postgresql://admission/second",
         api_token="api-two",
         signing_secret="sign-two",
         erasure_secret="erase-two",
@@ -848,6 +1230,12 @@ def test_prod_runtime_has_fresh_erasure_secret_and_only_temp_state(
     )
     assert first["EA_RUNTIME_MODE"] == "prod"
     assert first["EA_STORAGE_BACKEND"] == "postgres"
+    assert first["PROPERTYQUARRY_API_ADMISSION_DATABASE_URL"] == (
+        "postgresql://admission/first"
+    )
+    assert second["PROPERTYQUARRY_API_ADMISSION_DATABASE_URL"] == (
+        "postgresql://admission/second"
+    )
     assert first["PROPERTYQUARRY_PROPERTY_SEARCH_ERASURE_SECRET"] == "erase-one"
     assert second["PROPERTYQUARRY_PROPERTY_SEARCH_ERASURE_SECRET"] == "erase-two"
     assert first["PROPERTYQUARRY_PROPERTY_SEARCH_ERASURE_SECRET"] != second[
@@ -884,6 +1272,18 @@ def test_browser_launcher_has_one_exact_headless_shell_override_and_static_args(
         "--no-proxy-server",
     )
     assert all("=" not in argument for argument in harness.POSTGRES_CHROMIUM_ARGS)
+
+
+def test_operator_guide_requires_explicit_portable_browser_path_and_role_proof() -> None:
+    guide = Path("docs/PROPERTYQUARRY_ISOLATED_POSTGRES_BROWSER_E2E.md").read_text(
+        encoding="utf-8"
+    )
+    assert "--chromium-headless-shell" in guide
+    assert "${PROPERTYQUARRY_PLAYWRIGHT_CHROMIUM_EXECUTABLE}" in guide
+    assert "performs no browser discovery" in guide
+    assert "propertyquarry_api_admission" in guide
+    assert "strict least-privilege probe" in guide
+    assert "selects the installed Playwright executable by default" not in guide
 
 
 def test_every_subprocess_callsite_binds_an_allowlisted_observability_phase() -> None:
@@ -929,6 +1329,8 @@ def test_every_subprocess_callsite_binds_an_allowlisted_observability_phase() ->
         "docker-container-create",
         "docker-health-inspect",
         "docker-address-inspect",
+        "docker-role-bootstrap",
+        "docker-role-verify",
         "schema-migrate",
         "schema-check",
         "session-bootstrap",
@@ -993,6 +1395,14 @@ def test_scoped_diagnostic_allowlist_is_a_closed_phase_reason_schema() -> None:
             "docker-health-container-exited",
             "docker-health-timeout",
             "docker-address-output-invalid",
+            "admission-capacity-owner-role-invalid",
+            "docker-role-bootstrap-output-invalid",
+            "docker-role-verification-mismatch",
+            "api-admission-role-dsn-invalid",
+            "api-admission-role-collision",
+            "api-admission-role-provision-failed",
+            "api-admission-role-verification-failed",
+            "libpq-environment-not-closed",
             "database-relay-start-failed",
             "database-relay-runtime-failed",
             "database-relay-stop-failed",

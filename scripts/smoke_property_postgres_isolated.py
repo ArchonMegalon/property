@@ -11,8 +11,10 @@ virtual environment.
 from __future__ import annotations
 
 import argparse
+import base64
 from dataclasses import dataclass
 import hashlib
+import hmac
 import importlib.metadata
 import ipaddress
 import json
@@ -31,8 +33,9 @@ import sys
 import tempfile
 import threading
 import time
-from typing import Callable, Final, Mapping, Sequence
+from typing import Callable, Final, Mapping, MutableMapping, Sequence
 import urllib.error
+import urllib.parse
 import urllib.request
 
 
@@ -47,6 +50,15 @@ IMAGE_ID_RE: Final = re.compile(r"sha256:[0-9a-f]{64}\Z")
 CONTAINER_ID_RE: Final = re.compile(r"[0-9a-f]{64}\Z")
 NETWORK_ID_RE: Final = re.compile(r"[0-9a-f]{64}\Z")
 RESOURCE_NAME_RE: Final = re.compile(r"pq-pg-e2e-[0-9a-f]{16}-(?:db|net|data)\Z")
+ADMISSION_CAPACITY_OWNER_ROLE_RE: Final = re.compile(r"[a-z_][a-z0-9_]{0,62}\Z")
+DISPOSABLE_API_ADMISSION_ROLE: Final = "propertyquarry_api_admission"
+DISPOSABLE_DATABASE_PASSWORD_RE: Final = re.compile(r"[A-Za-z0-9_-]{32,128}\Z")
+POSTGRES_SCRAM_ITERATIONS: Final = 4096
+POSTGRES_SCRAM_SALT_BYTES: Final = 16
+POSTGRES_SCRAM_VERIFIER_RE: Final = re.compile(
+    r"SCRAM-SHA-256\$4096:[A-Za-z0-9+/]{22}==\$"
+    r"[A-Za-z0-9+/]{43}=:[A-Za-z0-9+/]{43}=\Z"
+)
 
 HOST_MEMORY_MAX_BYTES: Final = 1024 * 1024 * 1024
 HOST_SWAP_MAX_BYTES: Final = 0
@@ -154,6 +166,8 @@ COMMAND_PHASES: Final = frozenset(
         "docker-container-label",
         "docker-health-inspect",
         "docker-address-inspect",
+        "docker-role-bootstrap",
+        "docker-role-verify",
         "schema-migrate",
         "schema-check",
         "session-bootstrap",
@@ -211,6 +225,14 @@ PHASE_SEMANTIC_FAILURE_CODES: Final = frozenset(
         "docker-health-container-exited",
         "docker-health-timeout",
         "docker-address-output-invalid",
+        "admission-capacity-owner-role-invalid",
+        "docker-role-bootstrap-output-invalid",
+        "docker-role-verification-mismatch",
+        "api-admission-role-dsn-invalid",
+        "api-admission-role-collision",
+        "api-admission-role-provision-failed",
+        "api-admission-role-verification-failed",
+        "libpq-environment-not-closed",
         "database-relay-start-failed",
         "database-relay-runtime-failed",
         "database-relay-stop-failed",
@@ -1236,6 +1258,51 @@ def build_container_address_inspect_command(
     ]
 
 
+def build_admission_capacity_owner_commands(
+    *,
+    docker_binary: str,
+    names: ResourceNames,
+    role_name: str,
+) -> tuple[list[str], list[str]]:
+    """Build fixed-argv role bootstrap and verification commands for the disposable DB."""
+    if ADMISSION_CAPACITY_OWNER_ROLE_RE.fullmatch(role_name) is None:
+        _fail("admission-capacity-owner-role-invalid")
+    quoted_role = f'"{role_name}"'
+    role_literal = role_name
+    psql = [
+        "exec",
+        "--user",
+        "postgres",
+        names.container,
+        "/usr/local/bin/psql",
+        "--no-psqlrc",
+        "--set=ON_ERROR_STOP=1",
+        "--host=/var/run/postgresql",
+        "--dbname=postgres",
+        "--username=postgres",
+        "--no-align",
+        "--tuples-only",
+    ]
+    create_sql = (
+        f"CREATE ROLE {quoted_role} WITH "
+        "NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE "
+        "NOREPLICATION NOBYPASSRLS"
+    )
+    verify_sql = (
+        "SELECT rolcanlogin, rolinherit, rolsuper, rolcreaterole, "
+        "rolcreatedb, rolreplication, rolbypassrls, "
+        "(SELECT COUNT(*) FROM pg_catalog.pg_auth_members AS membership "
+        "WHERE membership.member = owner_role.oid) "
+        "FROM pg_catalog.pg_roles AS owner_role "
+        f"WHERE owner_role.rolname = '{role_literal}'"
+    )
+    base = _docker_base(docker_binary)
+    return (
+        base + psql + ["--command", create_sql],
+        base + psql + ["--command", verify_sql],
+    )
+
+
 def _write_env_file(path: Path, values: Mapping[str, str]) -> None:
     if not path.is_absolute() or path.exists():
         _fail("temporary-env-invalid")
@@ -2091,6 +2158,335 @@ def _wait_for_postgres(
     return _private_container_ipv4(fields[0])
 
 
+def _provision_admission_capacity_owner_role(
+    *,
+    docker_binary: str,
+    names: ResourceNames,
+    role_name: str,
+    environment: Mapping[str, str],
+) -> None:
+    """Provision the migration prerequisite only inside the disposable cluster."""
+    create_command, verify_command = build_admission_capacity_owner_commands(
+        docker_binary=docker_binary,
+        names=names,
+        role_name=role_name,
+    )
+    create_output = _ascii_phase_output(
+        _run_output(
+            create_command,
+            phase="docker-role-bootstrap",
+            environment=environment,
+        ),
+        "docker-role-bootstrap-output-invalid",
+    )
+    if create_output != "CREATE ROLE":
+        _fail("docker-role-bootstrap-output-invalid")
+    verification = _ascii_phase_output(
+        _run_output(
+            verify_command,
+            phase="docker-role-verify",
+            environment=environment,
+        ),
+        "docker-role-verification-mismatch",
+    )
+    if verification != "f|f|f|f|f|f|f|0":
+        _fail("docker-role-verification-mismatch")
+
+
+def _validate_disposable_admission_dsns(
+    *,
+    admin_database_url: str,
+    admission_database_url: str,
+    admission_password: str,
+) -> None:
+    raw_urls = (admin_database_url, admission_database_url)
+    if (
+        DISPOSABLE_DATABASE_PASSWORD_RE.fullmatch(admission_password) is None
+        or any(not value.isascii() for value in raw_urls)
+        or any(
+            ord(character) <= 0x20 or ord(character) == 0x7F
+            for value in raw_urls
+            for character in value
+        )
+    ):
+        _fail("api-admission-role-dsn-invalid")
+    try:
+        from psycopg.conninfo import conninfo_to_dict
+
+        admin = urllib.parse.urlsplit(admin_database_url)
+        admission = urllib.parse.urlsplit(admission_database_url)
+        admin_port = admin.port
+        admission_port = admission.port
+        admin_password = str(admin.password or "")
+        parsed_admin = conninfo_to_dict(admin_database_url)
+        parsed_admission = conninfo_to_dict(admission_database_url)
+    except Exception:
+        _fail("api-admission-role-dsn-invalid")
+    expected_admin = (
+        f"postgresql://postgres:{admin_password}@127.0.0.1:{admin_port}/postgres"
+    )
+    expected_admission = (
+        "postgresql://propertyquarry_api_admission:"
+        f"{admission_password}@127.0.0.1:{admission_port}/postgres"
+    )
+    if (
+        admin.scheme != "postgresql"
+        or admission.scheme != "postgresql"
+        or admin.hostname != "127.0.0.1"
+        or admission.hostname != "127.0.0.1"
+        or admin_port is None
+        or admission_port != admin_port
+        or admin.username != "postgres"
+        or admission.username != DISPOSABLE_API_ADMISSION_ROLE
+        or DISPOSABLE_DATABASE_PASSWORD_RE.fullmatch(admin_password) is None
+        or admission.password != admission_password
+        or admin.path != "/postgres"
+        or admission.path != "/postgres"
+        or admin.query
+        or admission.query
+        or admin.fragment
+        or admission.fragment
+        or admin_database_url == admission_database_url
+        or admin_database_url != expected_admin
+        or admission_database_url != expected_admission
+        or parsed_admin
+        != {
+            "user": "postgres",
+            "password": admin_password,
+            "dbname": "postgres",
+            "host": "127.0.0.1",
+            "port": str(admin_port),
+        }
+        or parsed_admission
+        != {
+            "user": DISPOSABLE_API_ADMISSION_ROLE,
+            "password": admission_password,
+            "dbname": "postgres",
+            "host": "127.0.0.1",
+            "port": str(admission_port),
+        }
+    ):
+        _fail("api-admission-role-dsn-invalid")
+
+
+def _clear_libpq_environment(
+    environ: MutableMapping[str, str] | None = None,
+) -> tuple[str, ...]:
+    """Remove every present and future libpq-style PG* environment override."""
+    target = environ if environ is not None else os.environ
+    keys = tuple(sorted(key for key in target if key.startswith("PG")))
+    for key in keys:
+        target.pop(key, None)
+    return keys
+
+
+def _require_closed_libpq_environment(
+    environ: Mapping[str, str] | None = None,
+) -> None:
+    target = environ if environ is not None else os.environ
+    if any(key.startswith("PG") for key in target):
+        _fail("libpq-environment-not-closed")
+
+
+def _postgres_scram_verifier(
+    password: str,
+    *,
+    salt: bytes | None = None,
+) -> str:
+    """Derive a PostgreSQL SCRAM verifier without putting cleartext in SQL."""
+    if DISPOSABLE_DATABASE_PASSWORD_RE.fullmatch(password) is None:
+        _fail("api-admission-role-dsn-invalid")
+    chosen_salt = salt if salt is not None else secrets.token_bytes(
+        POSTGRES_SCRAM_SALT_BYTES
+    )
+    if type(chosen_salt) is not bytes or len(chosen_salt) != POSTGRES_SCRAM_SALT_BYTES:
+        _fail("api-admission-role-provision-failed")
+    salted_password = hashlib.pbkdf2_hmac(
+        "sha256",
+        password.encode("ascii"),
+        chosen_salt,
+        POSTGRES_SCRAM_ITERATIONS,
+    )
+    client_key = hmac.digest(salted_password, b"Client Key", "sha256")
+    stored_key = hashlib.sha256(client_key).digest()
+    server_key = hmac.digest(salted_password, b"Server Key", "sha256")
+    encode = lambda value: base64.b64encode(value).decode("ascii")
+    verifier = (
+        f"SCRAM-SHA-256${POSTGRES_SCRAM_ITERATIONS}:"
+        f"{encode(chosen_salt)}${encode(stored_key)}:{encode(server_key)}"
+    )
+    if POSTGRES_SCRAM_VERIFIER_RE.fullmatch(verifier) is None:
+        _fail("api-admission-role-provision-failed")
+    return verifier
+
+
+def _provision_api_admission_role(
+    *,
+    admin_database_url: str,
+    admission_database_url: str,
+    admission_password: str,
+    connect: Callable[..., object] | None = None,
+) -> None:
+    """Install the exact API admission login in the disposable database only."""
+    _validate_disposable_admission_dsns(
+        admin_database_url=admin_database_url,
+        admission_database_url=admission_database_url,
+        admission_password=admission_password,
+    )
+    _require_closed_libpq_environment()
+    admission_verifier = _postgres_scram_verifier(admission_password)
+    try:
+        import psycopg
+        from psycopg import sql
+
+        connector = connect or psycopg.connect
+        with connector(
+            admin_database_url,
+            autocommit=False,
+            connect_timeout=5,
+            hostaddr="127.0.0.1",
+            sslmode="disable",
+            options="",
+            application_name="propertyquarry-isolated-admission-provision",
+            target_session_attrs="read-write",
+        ) as connection:
+            with connection.cursor() as cursor:  # type: ignore[attr-defined]
+                cursor.execute(
+                    """
+                    SELECT current_database(), current_user,
+                           role.rolcanlogin, role.rolsuper
+                    FROM pg_catalog.pg_roles AS role
+                    WHERE role.rolname = current_user
+                    """
+                )
+                if cursor.fetchone() != ("postgres", "postgres", True, True):
+                    _fail("api-admission-role-provision-failed")
+                cursor.execute("SET LOCAL log_statement = 'none'")
+                cursor.execute("SET LOCAL log_min_error_statement = 'panic'")
+                cursor.execute(
+                    "SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = %s",
+                    (DISPOSABLE_API_ADMISSION_ROLE,),
+                )
+                if cursor.fetchone() is not None:
+                    _fail("api-admission-role-collision")
+                cursor.execute(
+                    sql.SQL(
+                        'CREATE ROLE "propertyquarry_api_admission" WITH '
+                        "LOGIN PASSWORD {} NOINHERIT NOSUPERUSER NOCREATEDB "
+                        "NOCREATEROLE NOREPLICATION NOBYPASSRLS"
+                    ).format(sql.Literal(admission_verifier))
+                )
+                cursor.execute(
+                    """
+                    SELECT namespace.nspname
+                    FROM pg_catalog.pg_class AS relation
+                    JOIN pg_catalog.pg_namespace AS namespace
+                      ON namespace.oid = relation.relnamespace
+                    WHERE relation.oid IN (
+                        'propertyquarry_admission_quota_buckets'::regclass,
+                        'propertyquarry_admission_leases'::regclass,
+                        'propertyquarry_admission_capacity_state'::regclass
+                    )
+                    GROUP BY namespace.nspname
+                    HAVING COUNT(*) = 3
+                    """
+                )
+                if cursor.fetchall() != [("public",)]:
+                    _fail("api-admission-role-provision-failed")
+                for statement in (
+                    "REVOKE ALL PRIVILEGES ON DATABASE postgres FROM PUBLIC",
+                    "GRANT CONNECT ON DATABASE postgres TO propertyquarry_api_admission",
+                    "REVOKE CREATE, TEMPORARY ON DATABASE postgres FROM propertyquarry_api_admission",
+                    "REVOKE ALL ON SCHEMA public FROM PUBLIC",
+                    "GRANT USAGE ON SCHEMA public TO propertyquarry_api_admission",
+                    "ALTER ROLE propertyquarry_api_admission IN DATABASE postgres "
+                    "SET search_path TO public, pg_catalog",
+                    "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM PUBLIC",
+                    "REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM PUBLIC",
+                    "REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC",
+                    "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public "
+                    "FROM propertyquarry_api_admission",
+                    "REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public "
+                    "FROM propertyquarry_api_admission",
+                    "REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public "
+                    "FROM propertyquarry_api_admission",
+                    "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE "
+                    "propertyquarry_admission_quota_buckets, "
+                    "propertyquarry_admission_leases TO propertyquarry_api_admission",
+                    "GRANT SELECT ON TABLE propertyquarry_admission_capacity_state "
+                    "TO propertyquarry_api_admission",
+                    "REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER "
+                    "ON TABLE propertyquarry_admission_capacity_state "
+                    "FROM propertyquarry_api_admission",
+                    "REVOKE EXECUTE ON FUNCTION "
+                    "propertyquarry_admission_capacity_after_insert(), "
+                    "propertyquarry_admission_capacity_after_delete(), "
+                    "propertyquarry_admission_capacity_after_truncate() "
+                    "FROM propertyquarry_api_admission",
+                ):
+                    cursor.execute(statement)
+                cursor.execute(
+                    """
+                    SELECT role.rolcanlogin, role.rolinherit, role.rolsuper,
+                           role.rolcreaterole, role.rolcreatedb,
+                           role.rolreplication, role.rolbypassrls,
+                           (SELECT COUNT(*)
+                            FROM pg_catalog.pg_auth_members AS membership
+                            WHERE membership.member = role.oid)
+                    FROM pg_catalog.pg_roles AS role
+                    WHERE role.rolname = %s
+                    """,
+                    (DISPOSABLE_API_ADMISSION_ROLE,),
+                )
+                if cursor.fetchone() != (
+                    True,
+                    False,
+                    False,
+                    False,
+                    False,
+                    False,
+                    False,
+                    0,
+                ):
+                    _fail("api-admission-role-provision-failed")
+            connection.commit()  # type: ignore[attr-defined]
+    except IsolatedPostgresError:
+        raise
+    except Exception:
+        _fail("api-admission-role-provision-failed")
+
+
+def _verify_api_admission_role(
+    *,
+    admission_database_url: str,
+    connect: Callable[..., object] | None = None,
+    probe: Callable[..., None] | None = None,
+) -> None:
+    _require_closed_libpq_environment()
+    try:
+        import psycopg
+        from app.services.admission_control import probe_admission_cursor
+
+        connector = connect or psycopg.connect
+        verifier = probe or probe_admission_cursor
+        with connector(
+            admission_database_url,
+            autocommit=True,
+            connect_timeout=5,
+            hostaddr="127.0.0.1",
+            sslmode="disable",
+            options="",
+            application_name="propertyquarry-isolated-api-admission-proof",
+            target_session_attrs="read-write",
+        ) as connection:
+            with connection.cursor() as cursor:  # type: ignore[attr-defined]
+                verifier(cursor, require_least_privilege=True)
+    except IsolatedPostgresError:
+        raise
+    except Exception:
+        _fail("api-admission-role-verification-failed")
+
+
 def _resource_label_command(
     docker_binary: str, kind: str, name: str
 ) -> list[str]:
@@ -2303,6 +2699,7 @@ def _runtime_environment(
     repo_root: Path,
     temp_root: Path,
     database_url: str,
+    admission_database_url: str,
     api_token: str,
     signing_secret: str,
     erasure_secret: str,
@@ -2342,6 +2739,7 @@ def _runtime_environment(
         "PROPERTYQUARRY_ENABLE_PUBLIC_RESULTS": "0",
         "PROPERTYQUARRY_ENABLE_PUBLIC_SIDE_SURFACES": "0",
         "PROPERTYQUARRY_ENABLE_PUBLIC_TOURS": "0",
+        "PROPERTYQUARRY_API_ADMISSION_DATABASE_URL": admission_database_url,
         "PROPERTYQUARRY_POSTGRES_BROWSER_E2E": "1",
         "PROPERTYQUARRY_PROPERTY_SEARCH_ERASURE_SECRET": erasure_secret,
         CHROMIUM_EXECUTABLE_ENV: chromium_headless_shell,
@@ -2418,14 +2816,31 @@ def _execute_guarded(
                 expected_network_id=network_id,
                 environment=docker_environment,
             )
+            sys.path.insert(0, str(repo_root / "ea"))
+            from app.services.admission_control import (  # noqa: PLC0415
+                ADMISSION_CAPACITY_OWNER_ROLE_DEFAULT,
+            )
+
+            _provision_admission_capacity_owner_role(
+                docker_binary=docker_binary,
+                names=names,
+                role_name=ADMISSION_CAPACITY_OWNER_ROLE_DEFAULT,
+                environment=docker_environment,
+            )
             database_relay = _LoopbackDatabaseRelay(container_ipv4)
             db_port = database_relay.start()
             database_relay.assert_healthy()
             database_url = f"postgresql://postgres:{password}@127.0.0.1:{db_port}/postgres"
+            admission_password = secrets.token_urlsafe(32)
+            admission_database_url = (
+                "postgresql://propertyquarry_api_admission:"
+                f"{admission_password}@127.0.0.1:{db_port}/postgres"
+            )
             runtime_values = _runtime_environment(
                 repo_root=repo_root,
                 temp_root=temp_root,
                 database_url=database_url,
+                admission_database_url=admission_database_url,
                 api_token=secrets.token_urlsafe(32),
                 signing_secret=secrets.token_urlsafe(48),
                 erasure_secret=secrets.token_urlsafe(48),
@@ -2444,6 +2859,16 @@ def _execute_guarded(
                 storage_guard=storage_guard,
             )
             database_relay.assert_healthy()
+            _provision_api_admission_role(
+                admin_database_url=database_url,
+                admission_database_url=admission_database_url,
+                admission_password=admission_password,
+            )
+            database_relay.assert_healthy()
+            _verify_api_admission_role(
+                admission_database_url=admission_database_url,
+            )
+            database_relay.assert_healthy()
             _run_host(
                 [python, "-m", "app.product.property_search_schema", "check"],
                 phase="schema-check",
@@ -2453,7 +2878,6 @@ def _execute_guarded(
                 storage_guard=storage_guard,
             )
             database_relay.assert_healthy()
-            sys.path.insert(0, str(repo_root / "ea"))
             from app.product.property_search_schema import (  # noqa: PLC0415
                 LATEST_PROPERTY_SEARCH_SCHEMA_VERSION,
             )
@@ -2589,6 +3013,8 @@ def _execute_inside_scope(
     run_id: str,
     chromium_headless_shell: str,
 ) -> None:
+    _clear_libpq_environment()
+    _require_closed_libpq_environment()
     require_cgroup_limits()
     with _LifecycleGuard() as lifecycle:
         _execute_guarded(
