@@ -57,6 +57,49 @@ def _generated_reconstruction_transaction_kwargs() -> dict[str, object]:
     }
 
 
+def test_willhaben_packet_subprocess_uses_current_runtime_and_ea_pythonpath(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.product import outbound_url_security
+
+    script_path = tmp_path / "willhaben_property_packet.py"
+    script_path.write_text("# packet loader fixture\n", encoding="utf-8")
+    observed: dict[str, object] = {}
+
+    def _run(command: list[str], **kwargs: object) -> SimpleNamespace:
+        observed["command"] = list(command)
+        observed["env"] = dict(kwargs.get("env") or {})
+        return SimpleNamespace(
+            returncode=0,
+            stdout=json.dumps([{"listing_id": "2057055834"}]),
+            stderr="",
+        )
+
+    monkeypatch.setenv("PYTHONPATH", os.pathsep.join(("/existing/python-a", "/existing/python-b")))
+    monkeypatch.setattr(outbound_url_security, "validate_outbound_url", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(product_service, "_willhaben_property_packet_script_path", lambda: script_path)
+    monkeypatch.setattr(product_service.subprocess, "run", _run)
+
+    packet = product_service._load_willhaben_property_packet(
+        "https://www.willhaben.at/iad/immobilien/d/demo-2057055834/"
+    )
+
+    expected_ea_root = str(Path(product_service.__file__).resolve().parents[2])
+    assert packet["listing_id"] == "2057055834"
+    assert observed["command"] == [
+        product_service.sys.executable or "python3",
+        str(script_path),
+        "https://www.willhaben.at/iad/immobilien/d/demo-2057055834/",
+    ]
+    subprocess_env = dict(observed["env"])
+    assert subprocess_env["PYTHONPATH"].split(os.pathsep) == [
+        expected_ea_root,
+        "/existing/python-a",
+        "/existing/python-b",
+    ]
+
+
 def test_generated_reconstruction_publication_status_fails_closed() -> None:
     with pytest.raises(HTTPException) as raised:
         public_tour_payloads.require_public_tour_viewable(

@@ -23489,11 +23489,20 @@ def _load_willhaben_property_packet(property_url: str, *, timeout_seconds: int =
     script_path = _willhaben_property_packet_script_path()
     if not script_path.exists():
         raise RuntimeError(f"willhaben_property_packet_script_missing:{script_path}")
+    subprocess_env = dict(os.environ)
+    ea_source_root = str(Path(__file__).resolve().parents[2])
+    python_path_entries = [ea_source_root]
+    for entry in str(subprocess_env.get("PYTHONPATH") or "").split(os.pathsep):
+        normalized_entry = str(entry or "").strip()
+        if normalized_entry and normalized_entry not in python_path_entries:
+            python_path_entries.append(normalized_entry)
+    subprocess_env["PYTHONPATH"] = os.pathsep.join(python_path_entries)
     try:
         completed = subprocess.run(
-            ["python3", str(script_path), normalized_url],
+            [sys.executable or "python3", str(script_path), normalized_url],
             check=False,
             capture_output=True,
+            env=subprocess_env,
             text=True,
             timeout=max(1, int(timeout_seconds)),
         )
