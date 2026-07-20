@@ -16664,6 +16664,173 @@ def test_property_visual_status_falls_back_to_followup_when_run_candidate_identi
     assert body["diorama_style_hint"] == "urban jungle staging with plants"
 
 
+def test_property_visual_status_is_observational_and_prefers_ready_generated_layout(monkeypatch) -> None:
+    principal_id = "property-visual-status-ready-generated-layout"
+    property_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/generated-layout-ready"
+    source_ref = "willhaben:generated-layout-ready"
+    run_id = "run-generated-layout-ready"
+    generated_url = "/tours/generated-layout-ready"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    monkeypatch.setattr(
+        ProductService,
+        "_snapshot_property_search_run",
+        lambda self, **kwargs: {
+            "run_id": str(kwargs.get("run_id") or ""),
+            "updated_at": "2026-07-20T08:00:00+00:00",
+            "summary": {
+                "ranked_candidates": [
+                    {
+                        "title": "Generated layout ready",
+                        "property_url": property_url,
+                        "source_ref": source_ref,
+                        "source_label": "Willhaben",
+                        "tour_url": "",
+                        "open_tour_url": "",
+                        "generated_reconstruction_url": generated_url,
+                        "tour_status": "failed",
+                        "blocked_reason": "property_tour_execution_failed",
+                        "tour_requested_at": "2026-07-20T07:00:00+00:00",
+                        "tour_status_updated_at": "2026-07-20T07:01:00+00:00",
+                    }
+                ],
+                "sources": [],
+            },
+        },
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_latest_property_tour_followup",
+        lambda self, **kwargs: SimpleNamespace(
+            status="returned",
+            resolution="failed",
+            created_at="2026-07-20T07:00:00+00:00",
+            updated_at="2026-07-20T07:02:00+00:00",
+            returned_payload_json={
+                "status": "failed",
+                "tour_status": "failed",
+                "blocked_reason": "property_tour_execution_failed",
+            },
+            input_json={},
+        ),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_verified_open_url",
+        lambda *args, **kwargs: "",
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_hosted_property_tour_first_party_open_url",
+        lambda value, **kwargs: generated_url if str(value or "").strip() == generated_url else "",
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_repair_stalled_property_visual_request",
+        lambda self, **kwargs: (_ for _ in ()).throw(AssertionError("status GET must not enqueue repair")),
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_persist_property_search_visual_state",
+        lambda self, **kwargs: (_ for _ in ()).throw(AssertionError("status GET must not persist state")),
+    )
+
+    body = service.get_property_visual_request_status(
+        principal_id=principal_id,
+        run_id=run_id,
+        request_kind="tour",
+        candidate_ref="generated-layout-ready",
+        source_ref=source_ref,
+        property_url=property_url,
+    )
+
+    assert body["status"] == "ready"
+    assert body["tour_status"] == "ready"
+    assert body["status_label"] == "Open layout tour"
+    assert "floor plan and listing photos" in str(body["status_detail"])
+    assert body["open_tour_url"] == generated_url
+    assert body["generated_reconstruction_url"] == generated_url
+    assert body["tour_media_mode"] == "generated_reconstruction"
+    assert body["blocked_reason"] == ""
+    assert body["poll_after_seconds"] == 0
+
+
+def test_property_visual_status_terminal_read_does_not_repair_or_persist(monkeypatch) -> None:
+    principal_id = "property-visual-status-terminal-observational"
+    property_url = "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/terminal-observational"
+    source_ref = "willhaben:terminal-observational"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    service = product_service.build_product_service(client.app.state.container)
+
+    monkeypatch.setattr(
+        ProductService,
+        "_snapshot_property_search_run",
+        lambda self, **kwargs: {
+            "run_id": str(kwargs.get("run_id") or ""),
+            "updated_at": "2026-07-20T08:00:00+00:00",
+            "summary": {
+                "ranked_candidates": [
+                    {
+                        "title": "Terminal visual request",
+                        "property_url": property_url,
+                        "source_ref": source_ref,
+                        "source_label": "Willhaben",
+                        "tour_url": "",
+                        "tour_status": "failed",
+                        "blocked_reason": "property_tour_execution_failed",
+                        "tour_requested_at": "2026-07-19T07:00:00+00:00",
+                        "tour_status_updated_at": "2026-07-19T07:01:00+00:00",
+                    }
+                ],
+                "sources": [],
+            },
+        },
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_latest_property_tour_followup",
+        lambda self, **kwargs: SimpleNamespace(
+            status="returned",
+            resolution="failed",
+            created_at="2026-07-19T07:00:00+00:00",
+            updated_at="2026-07-19T07:02:00+00:00",
+            returned_payload_json={"blocked_reason": "property_tour_execution_failed"},
+            input_json={},
+        ),
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_property_visual_request_is_stale",
+        lambda self, **kwargs: (_ for _ in ()).throw(AssertionError("status GET must not evaluate repair")),
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_repair_stalled_property_visual_request",
+        lambda self, **kwargs: (_ for _ in ()).throw(AssertionError("status GET must not enqueue repair")),
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_persist_property_search_visual_state",
+        lambda self, **kwargs: (_ for _ in ()).throw(AssertionError("status GET must not persist state")),
+    )
+
+    body = service.get_property_visual_request_status(
+        principal_id=principal_id,
+        run_id="run-terminal-observational",
+        request_kind="tour",
+        candidate_ref="terminal-observational",
+        source_ref=source_ref,
+        property_url=property_url,
+    )
+
+    assert body["status"] in {"blocked", "failed"}
+    assert body["open_tour_url"] == ""
+    assert body["poll_after_seconds"] == 0
+
+
 def test_property_visual_request_queue_preserves_original_requested_timestamp(monkeypatch) -> None:
     principal_id = "property-visual-request-preserve-start"
     client = build_product_client(principal_id=principal_id)
@@ -17181,7 +17348,7 @@ def test_request_property_visual_asset_surfaces_terminal_walkthrough_render_fail
     assert persisted["flythrough_reason"] == "magicfit_segment_render_failed"
 
 
-def test_property_visual_status_retries_stale_visual_requests(monkeypatch) -> None:
+def test_property_visual_status_observes_stale_visual_without_repair(monkeypatch) -> None:
     principal_id = "property-visual-status-stale-retry"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Tour Office")
@@ -17247,19 +17414,13 @@ def test_property_visual_status_retries_stale_visual_requests(monkeypatch) -> No
         property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/stale-visual-42",
     )
 
-    assert repaired == {
-        "principal_id": principal_id,
-        "actor": "property_visual_status_repair",
-        "limit": 2,
-        "force_stale": True,
-    }
-    assert response["status"] == "ready"
-    assert response["status_label"] == "Open 3D tour"
-    assert response["tour_url"] == "https://propertyquarry.com/tours/stale-visual-42"
-    assert response["poll_after_seconds"] == 0
+    assert repaired == {}
+    assert response["status"] == "pending"
+    assert response["tour_url"] == ""
+    assert response["poll_after_seconds"] == 10
 
 
-def test_property_visual_status_queues_background_repair_when_stale_repair_is_slow(monkeypatch) -> None:
+def test_property_visual_status_does_not_queue_background_repair_when_stale(monkeypatch) -> None:
     principal_id = "property-visual-status-stale-background"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Tour Office")
@@ -17322,17 +17483,11 @@ def test_property_visual_status_queues_background_repair_when_stale_repair_is_sl
         property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/stale-visual-slow-42",
     )
 
-    assert repaired == {
-        "principal_id": principal_id,
-        "actor": "property_visual_status_repair",
-        "limit": 2,
-        "force_stale": True,
-    }
-    assert response["status"] == "repairing"
-    assert response["flythrough_status"] == "repairing"
-    assert response["status_label"] == "Walkthrough in progress"
+    assert repaired == {}
+    assert response["status"] == "rendering"
+    assert response["flythrough_status"] == "rendering"
+    assert response["status_label"] == "Walkthrough rendering"
     assert response["poll_after_seconds"] == 10
-    assert response["progress_pct"] >= 72
 
 
 def test_property_tour_followup_processing_preserves_original_requested_timestamp(monkeypatch) -> None:
@@ -18221,7 +18376,7 @@ def test_property_visual_status_keeps_user_requested_generated_reconstruction_fo
     assert response["poll_after_seconds"] == 0
 
 
-def test_property_visual_status_persists_blocked_generated_reconstruction_state(monkeypatch) -> None:
+def test_property_visual_status_reports_blocked_generated_reconstruction_without_persisting(monkeypatch) -> None:
     principal_id = "property-visual-status-persist-ready-generated-reconstruction"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Tour Office")
@@ -18279,10 +18434,7 @@ def test_property_visual_status_persists_blocked_generated_reconstruction_state(
     assert response["status"] == "blocked"
     assert response["tour_url"] == "https://propertyquarry.com/tours/generated-reconstruction-persist-1"
     assert response["open_tour_url"] == ""
-    assert persisted["run_id"] == "run-42"
-    assert persisted["candidate_ref"] == "candidate-42"
-    assert dict(persisted["visual_state"])["tour_status"] == "blocked"
-    assert dict(persisted["visual_state"])["blocked_reason"]
+    assert persisted == {}
 
 
 def test_property_visual_status_accepts_generated_reconstruction_launch_page_as_ready_url(monkeypatch) -> None:
@@ -18421,10 +18573,7 @@ def test_property_visual_status_hides_internal_skip_reason_for_walkthrough(monke
     assert response["status_detail"] == "Walkthrough not available yet."
     assert response["blocked_reason"] == ""
     assert response["flythrough_reason"] == ""
-    assert persisted_visual_states
-    assert persisted_visual_states[-1]["flythrough_status"] == "skipped"
-    assert persisted_visual_states[-1]["flythrough_eta_minutes"] == ""
-    assert persisted_visual_states[-1]["flythrough_progress_pct"] == "0"
+    assert persisted_visual_states == []
 
 
 def test_property_visual_status_converts_stale_magicfit_failure_to_terminal_walkthrough_state(monkeypatch) -> None:
@@ -18494,12 +18643,10 @@ def test_property_visual_status_converts_stale_magicfit_failure_to_terminal_walk
     assert response["status_detail"] == "Walkthrough could not be rendered from this listing yet."
     assert response["flythrough_reason"] == "magicfit_segment_render_failed"
     assert response["poll_after_seconds"] == 0
-    assert persisted_visual_states
-    assert persisted_visual_states[-1]["flythrough_status"] == "skipped"
-    assert persisted_visual_states[-1]["flythrough_reason"] == "magicfit_segment_render_failed"
+    assert persisted_visual_states == []
 
 
-def test_property_visual_status_terminal_resolution_clears_stale_repair_markers(monkeypatch) -> None:
+def test_property_visual_status_reports_terminal_resolution_without_clearing_repair_markers(monkeypatch) -> None:
     principal_id = "property-visual-status-clear-repair"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Tour Office")
@@ -18583,13 +18730,7 @@ def test_property_visual_status_terminal_resolution_clears_stale_repair_markers(
     assert response["status"] == "blocked"
     assert response["status_label"] == "3D tour not ready"
     assert response["status_detail"] == "Tour not available yet."
-    assert persisted_visual_states
-    terminal_state = persisted_visual_states[-1]
-    assert terminal_state["tour_status"] == "blocked"
-    assert terminal_state["tour_eta_minutes"] == ""
-    assert terminal_state["tour_progress_pct"] == "0"
-    assert terminal_state["tour_repair_queued_at"] == ""
-    assert terminal_state["tour_repair_started_at"] == ""
+    assert persisted_visual_states == []
 
 
 def test_property_visual_eta_uses_rendering_transition_time(monkeypatch) -> None:

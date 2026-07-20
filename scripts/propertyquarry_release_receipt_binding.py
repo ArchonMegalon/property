@@ -154,8 +154,15 @@ def changed_paths(root: Path, parent: str, commit: str) -> list[str]:
     return [line.strip() for line in output.splitlines() if line.strip()]
 
 
+def commit_tree(root: Path, commit: str) -> str:
+    tree = git_text(root, "rev-parse", "--verify", f"{commit}^{{tree}}")
+    if not tree:
+        raise ReleaseBindingError(f"Git commit did not resolve to a tree: {commit}")
+    return tree.lower()
+
+
 def resolve_source_binding_commit(root: Path, revision: str = "HEAD") -> str:
-    """Resolve the source commit behind any receipt-only refresh commits."""
+    """Resolve the source commit behind transparent merges and receipt refreshes."""
     candidate = resolve_commit(root, revision)
     for _depth in range(MAX_METADATA_ONLY_ANCESTORS):
         parents = commit_parents(root, candidate)
@@ -164,6 +171,15 @@ def resolve_source_binding_commit(root: Path, revision: str = "HEAD") -> str:
             raise ReleaseBindingError(
                 "source binding ancestry is shallow; fetch complete Git history before materialization"
             )
+        if len(parents) == 2:
+            candidate_tree = commit_tree(root, candidate)
+            identical_tree_parents = [
+                parent for parent in parents if commit_tree(root, parent) == candidate_tree
+            ]
+            if len(identical_tree_parents) != 1:
+                return candidate
+            candidate = identical_tree_parents[0]
+            continue
         if len(parents) != 1:
             return candidate
         parent = parents[0]

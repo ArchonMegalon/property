@@ -20,13 +20,13 @@ The marked JSON object is the single canonical release authority consumed by the
 <!-- propertyquarry-release-manifest-json:start -->
 ```json
 {
-  "release_artifact_set": "propertyquarry-generated-release-artifacts-v1@sha256:c1602a8d0c176b75ecf05a0b2d53011932b791c364b902e536c8bb6bd58615a2",
+  "release_artifact_set": "propertyquarry-generated-release-artifacts-v1@sha256:fa1aba91a9290c8841b2e0947c0539c013d1bb7b7322ef99425df4d587042a31",
   "release_branch": "main",
   "release_candidate_status": "source-browser-candidate-pending-protected-live-evidence",
-  "release_commit_sha": "c9b797f3e63e7285220258528416f5ea46d8c648",
-  "release_deployment_id": "propertyquarry-governed-deploy-c9b797f3e63e",
-  "release_generated_at": "2026-07-19T02:28:50Z",
-  "release_label": "propertyquarry-source-browser-candidate-c9b797f3e63e",
+  "release_commit_sha": "d36a9742ccc112d3f87e199b890848df80fc8976",
+  "release_deployment_id": "propertyquarry-governed-deploy-d36a9742ccc1",
+  "release_generated_at": "2026-07-20T07:22:43Z",
+  "release_label": "propertyquarry-source-browser-candidate-d36a9742ccc1",
   "release_manifest_schema": "propertyquarry.release_manifest.v1",
   "release_mirror_origin": "https://github.com/ArchonMegalon/propertyquarry.git",
   "release_mirror_repository": "ArchonMegalon/propertyquarry",

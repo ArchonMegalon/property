@@ -1074,6 +1074,10 @@ def _check_media_functions() -> dict[str, object]:
     except Exception:
         _fail("reconstruction_import_failed")
     try:
+        from scripts import accept_magicfit_delivery as magicfit_acceptance
+    except Exception:
+        _fail("magicfit_acceptance_import_failed")
+    try:
         from scripts.propertyquarry_playwright_runtime import (
             playwright_chromium_launch_kwargs,
         )
@@ -1127,8 +1131,17 @@ def _check_media_functions() -> dict[str, object]:
         finally:
             frame.close()
         _require(completed.returncode == 0, "ffmpeg_encode_preflight_failed")
-        duration = reconstruction._video_duration_seconds(mp4_path)
+        try:
+            video_probe = magicfit_acceptance._video_probe(mp4_path)
+            duration = float(video_probe["duration_seconds"])
+            probed_size = int(video_probe["size_bytes"])
+        except (KeyError, TypeError, ValueError, SystemExit):
+            _fail("magicfit_acceptance_video_probe_preflight_failed")
         _require(abs(duration - 1.0) <= 0.05, "ffmpeg_duration_preflight_failed")
+        _require(
+            probed_size == mp4_path.stat().st_size,
+            "magicfit_acceptance_video_size_preflight_failed",
+        )
 
         preflight_html = root / "preflight.html"
         glb_url_path = "/model/model.glb"
@@ -1311,6 +1324,7 @@ try {
             _fail("chromium_launch_preflight_failed")
     return {
         "glb": "pass",
+        "magicfit_acceptance_video_probe": "pass",
         "mp4_duration_seconds": 1.0,
         "chromium": "pass",
         "threejs_glb_webgl": "pass",

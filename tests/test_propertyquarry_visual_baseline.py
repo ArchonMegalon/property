@@ -19,6 +19,7 @@ def _source_binding_receipt(
     *,
     release_sha: str = RELEASE_SHA,
     workflow_head_sha: str = RELEASE_SHA,
+    binding_parent_sha: str | None = None,
 ) -> dict[str, object]:
     same_commit = release_sha == workflow_head_sha
     return {
@@ -30,7 +31,11 @@ def _source_binding_receipt(
         "failures": [],
         "manifest_runtime_commit": release_sha,
         "head_commit": workflow_head_sha,
-        "parent_commit": "b" * 40 if same_commit else release_sha,
+        "parent_commit": (
+            "b" * 40
+            if same_commit
+            else binding_parent_sha or release_sha
+        ),
         "manifest_descendant_paths": (
             [] if same_commit else list(visual.RELEASE_METADATA_DESCENDANT_PATHS)
         ),
@@ -562,6 +567,51 @@ def test_verify_requires_exact_source_to_metadata_envelope_binding(tmp_path: Pat
         check for check in receipt["checks"] if check["name"] == "source_checkout_bound"
     )
     assert source_check["ok"] is False
+    assert "source_binding_metadata_envelope_invalid" in source_check["errors"]
+
+
+def test_verify_accepts_merge_aware_metadata_binding_parent(tmp_path: Path) -> None:
+    workflow_head_sha = "c" * 40
+    feature_parent_sha = "d" * 40
+    manifest_path, actual_dir, diff_dir, receipt_path = _write_case_matrix(
+        tmp_path,
+        baseline_payloads={"bound": _png(6, 4)},
+    )
+    binding = _source_binding_receipt(
+        release_sha=RELEASE_SHA,
+        workflow_head_sha=workflow_head_sha,
+        binding_parent_sha=feature_parent_sha,
+    )
+
+    receipt, exit_code = _verify(
+        manifest_path=manifest_path,
+        actual_dir=actual_dir,
+        diff_dir=diff_dir,
+        receipt_path=receipt_path,
+        workflow_head_sha=workflow_head_sha,
+        source_binding_receipt=binding,
+    )
+
+    assert exit_code == 0
+    assert receipt["status"] == "pass"
+    source_check = next(
+        check for check in receipt["checks"] if check["name"] == "source_checkout_bound"
+    )
+    assert source_check["ok"] is True
+
+    binding["parent_commit"] = workflow_head_sha
+    receipt, exit_code = _verify(
+        manifest_path=manifest_path,
+        actual_dir=actual_dir,
+        diff_dir=diff_dir,
+        receipt_path=receipt_path,
+        workflow_head_sha=workflow_head_sha,
+        source_binding_receipt=binding,
+    )
+    assert exit_code == 1
+    source_check = next(
+        check for check in receipt["checks"] if check["name"] == "source_checkout_bound"
+    )
     assert "source_binding_metadata_envelope_invalid" in source_check["errors"]
 
 
