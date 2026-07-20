@@ -4269,6 +4269,7 @@
       detail: String(state?.detail || '').trim(),
       progress: Math.max(0, Math.min(100, Number(state?.progress || 0) || 0)),
       pollSeconds: Math.max(0, Number(state?.pollSeconds || 0) || 0),
+      refreshOnly: state?.refreshOnly === true,
     };
     const keepState = Boolean(
       payload.href
@@ -4300,6 +4301,7 @@
         detail: String(parsed.detail || '').trim(),
         progress: Math.max(0, Math.min(100, Number(parsed.progress || 0) || 0)),
         pollSeconds: Math.max(0, Number(parsed.pollSeconds || 0) || 0),
+        refreshOnly: parsed.refreshOnly === true,
       };
     } catch (_error) {
       return null;
@@ -4340,6 +4342,7 @@
     return primaryReadyTourRailState;
   };
   const visualPollTimers = new Map();
+  const visualPollFailureLimit = 3;
   const clearVisualStatusPoll = (requestKind = '') => {
     const kind = String(requestKind || '').trim().toLowerCase();
     if (!kind) return;
@@ -4502,11 +4505,13 @@
     const pollSource = normalized.pollSeconds !== undefined ? normalized.pollSeconds : (button.getAttribute('data-pw-visual-poll-seconds') || 0);
     const progress = Math.max(0, Math.min(100, Number(progressSource) || 0));
     const pollSeconds = Math.max(0, Number(pollSource) || 0);
+    const refreshOnly = normalized.refreshOnly === true;
     button.setAttribute('data-pw-visual-state', nextState);
     button.setAttribute('data-pw-visual-progress', String(progress));
     button.setAttribute('data-pw-visual-eta', eta);
     button.setAttribute('data-pw-visual-detail', detail);
     button.setAttribute('data-pw-visual-poll-seconds', String(pollSeconds));
+    button.toggleAttribute('data-pw-visual-refresh-only', refreshOnly);
     button.textContent = label;
     button.setAttribute('aria-label', label);
     if (detail || eta) {
@@ -4529,6 +4534,7 @@
         detail,
         progress,
         pollSeconds,
+        refreshOnly,
       });
       if (detail) rememberVisualStatusDetail(requestKind, detail);
     }
@@ -4694,6 +4700,34 @@
       pollSeconds: malformedReadyState ? 0 : (Number(payload?.poll_after_seconds || 0) || 0),
     };
   };
+  const visualPollIdentity = (payload, fallback = {}) => ({
+    runId: String(payload?.run_id || fallback.runId || '').trim(),
+    candidateRef: String(payload?.candidate_ref || fallback.candidateRef || '').trim(),
+    sourceRef: String(payload?.source_ref || fallback.sourceRef || '').trim(),
+    propertyUrl: String(payload?.property_url || fallback.propertyUrl || '').trim(),
+  });
+  const showVisualPollRefreshState = (requestKind) => {
+    const kind = String(requestKind || '').trim().toLowerCase();
+    if (!kind) return;
+    clearVisualStatusPoll(kind);
+    const noun = isWalkthroughRequestKind(kind) ? 'walkthrough' : '3D tour';
+    const state = {
+      state: 'failed',
+      kind,
+      label: `Refresh ${noun} status`,
+      href: '',
+      detail: `Could not refresh ${noun} status. The request may still be running; refresh its status before requesting again.`,
+      eta: '',
+      progress: 0,
+      pollSeconds: 0,
+      refreshOnly: true,
+    };
+    syncVisualRail(kind, state);
+    visualRequestButtons.forEach((button) => {
+      if (String(button.getAttribute('data-pw-visual-request') || '').trim().toLowerCase() !== kind) return;
+      applyVisualButtonState(button, state);
+    });
+  };
   const scheduleVisualStatusPoll = (requestKind, options = {}) => {
     const kind = String(requestKind || '').trim().toLowerCase();
     clearVisualStatusPoll(kind);
@@ -4703,6 +4737,7 @@
     const sourceRef = String(options.sourceRef || '').trim();
     const propertyUrl = String(options.propertyUrl || '').trim();
     const pollSeconds = Math.max(0, Number(options.pollSeconds || 0) || 0);
+    const failureCount = Math.max(0, Number(options.failureCount || 0) || 0);
     if (!pollSeconds) return;
     const requestedFirstPollDelaySeconds = Math.max(0, Number(options.firstPollDelaySeconds || 0) || 0);
     const firstPollDelaySeconds = requestedFirstPollDelaySeconds > 0
@@ -4728,20 +4763,24 @@
         const nextState = visualStateFromPayload(kind, payload);
         if (visualPendingStates.includes(nextState.state)) {
           scheduleVisualStatusPoll(kind, {
-            runId,
-            candidateRef,
-            sourceRef,
-            propertyUrl,
+            ...visualPollIdentity(payload, { runId, candidateRef, sourceRef, propertyUrl }),
             pollSeconds: nextState.pollSeconds || pollSeconds,
+            failureCount: 0,
           });
         }
       } catch (_error) {
+        const nextFailureCount = failureCount + 1;
+        if (nextFailureCount >= visualPollFailureLimit) {
+          showVisualPollRefreshState(kind);
+          return;
+        }
         scheduleVisualStatusPoll(kind, {
           runId,
           candidateRef,
           sourceRef,
           propertyUrl,
           pollSeconds,
+          failureCount: nextFailureCount,
         });
       }
     }, firstPollDelaySeconds * 1000));
@@ -4776,6 +4815,11 @@
     syncVisualRail(kind, state);
     visualRequestButtons.forEach((button) => {
       if (String(button.getAttribute('data-pw-visual-request') || '').trim().toLowerCase() !== kind) return;
+      const identity = visualPollIdentity(payload);
+      if (identity.runId) button.setAttribute('data-run-id', identity.runId);
+      if (identity.candidateRef) button.setAttribute('data-candidate-ref', identity.candidateRef);
+      if (identity.sourceRef) button.setAttribute('data-source-ref', identity.sourceRef);
+      if (identity.propertyUrl) button.setAttribute('data-property-url', identity.propertyUrl);
       applyVisualButtonState(button, {
         ...state,
         label: state.label || String(button.textContent || '').trim(),
@@ -4784,10 +4828,10 @@
     ensureVisualStatusPoll(kind, payload, state);
   };
   const refreshVisualStatusFromButton = async (button, { preserveExistingStatus = false } = {}) => {
-    if (!(button instanceof HTMLElement)) return;
+    if (!(button instanceof HTMLElement)) return false;
     const requestKind = String(button.getAttribute('data-pw-visual-request') || '').trim().toLowerCase();
     const runId = String(button.getAttribute('data-run-id') || '').trim() || currentVisualRunId;
-    if (!requestKind || !runId) return;
+    if (!requestKind || !runId) return false;
     const candidateRef = String(button.getAttribute('data-candidate-ref') || '').trim() || currentVisualCandidateRef;
     const sourceRef = String(button.getAttribute('data-source-ref') || '').trim();
     const propertyUrl = String(button.getAttribute('data-property-url') || '').trim();
@@ -4824,13 +4868,11 @@
       const nextState = visualStateFromPayload(requestKind, payload);
       if (visualPendingStates.includes(nextState.state)) {
         scheduleVisualStatusPoll(requestKind, {
-          runId,
-          candidateRef,
-          sourceRef,
-          propertyUrl,
+          ...visualPollIdentity(payload, { runId, candidateRef, sourceRef, propertyUrl }),
           pollSeconds: nextState.pollSeconds,
         });
       }
+      return true;
     } catch (_error) {
       if (
         visualRequestStatusNode
@@ -4839,6 +4881,7 @@
       ) {
         visualRequestStatusNode.textContent = fallbackDetail;
       }
+      return false;
     }
   };
   document.querySelectorAll('[data-pw-visual-request]').forEach((button) => {
@@ -4854,6 +4897,14 @@
       const readyHref = String(button.getAttribute('data-pw-visual-href') || '').trim();
       if (readyHref) {
         window.location.href = readyHref;
+        return;
+      }
+      if (button.getAttribute('data-pw-visual-refresh-only') !== null) {
+        button.disabled = true;
+        button.setAttribute('aria-disabled', 'true');
+        button.textContent = isWalkthroughRequest ? 'Refreshing walkthrough status...' : 'Refreshing 3D tour status...';
+        const refreshed = await refreshVisualStatusFromButton(button);
+        if (!refreshed) showVisualPollRefreshState(requestKind);
         return;
       }
       if (requestKind === 'tour' && visualPendingStates.includes(currentState)) {
@@ -4912,10 +4963,7 @@
         syncVisualButtons(requestKind, payload);
         const nextState = visualStateFromPayload(requestKind, payload, original);
         scheduleVisualStatusPoll(requestKind, {
-          runId,
-          candidateRef,
-          sourceRef,
-          propertyUrl,
+          ...visualPollIdentity(payload, { runId, candidateRef, sourceRef, propertyUrl }),
           pollSeconds: nextState.pollSeconds,
           firstPollDelaySeconds: 1,
         });

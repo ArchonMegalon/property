@@ -41076,7 +41076,6 @@ class ProductService:
         candidate_ref: str = "",
         source_ref: str = "",
         property_url: str = "",
-        _repair_attempted: bool = False,
     ) -> dict[str, object]:
         normalized_principal = str(principal_id or "").strip()
         normalized_run_id = str(run_id or "").strip()
@@ -41266,6 +41265,7 @@ class ProductService:
         title = str(matched_candidate.get("title") or "Selected property").strip() or "Selected property"
         source_ref_value = str(matched_candidate.get("source_ref") or normalized_source_ref or normalized_property_url).strip()
         status_value = flythrough_status if normalized_kind == "flythrough" else tour_status
+
         def _resolved_ready_url() -> str:
             if normalized_kind == "tour":
                 ready_tour_url = _property_visual_ready_tour_url(
@@ -41275,6 +41275,12 @@ class ProductService:
                 )
                 if ready_tour_url:
                     return ready_tour_url
+                ready_generated_reconstruction_url = _property_visual_ready_tour_url(
+                    tour_url=generated_reconstruction_url,
+                    principal_id=normalized_principal,
+                )
+                if ready_generated_reconstruction_url:
+                    return ready_generated_reconstruction_url
             if normalized_kind == "flythrough":
                 return _hosted_property_tour_walkthrough_asset_url(tour_url) or _published_walkthrough_asset_url(flythrough_url)
             return ""
@@ -41356,7 +41362,7 @@ class ProductService:
                     str(followup_payload.get("diorama_style_hint") or followup_input.get("diorama_style_hint") or ""),
                     max_length=180,
                 )
-            if followup_status in {"returned", "completed"} and followup_resolution:
+            if not ready_url and followup_status in {"returned", "completed"} and followup_resolution:
                 request_status_updated_at = str(getattr(latest_followup, "updated_at", "") or "").strip() or request_status_updated_at
                 followup_reason = str(
                     followup_payload.get("blocked_reason")
@@ -41393,10 +41399,29 @@ class ProductService:
                     eta_minutes = ""
                 elif followup_resolution in {"queued", "pending", "processing", "running", "in_progress", "started", "rendering"}:
                     status_value = followup_resolution
-            elif str(followup_payload.get("generated_reconstruction_url") or "").strip():
+            elif not ready_url and str(followup_payload.get("generated_reconstruction_url") or "").strip():
                 generated_reconstruction_url = str(followup_payload.get("generated_reconstruction_url") or "").strip()
-            elif followup_status == "pending":
+            elif not ready_url and followup_status == "pending":
                 status_value = "processing" if normalized_kind == "tour" else "queued"
+        generated_reconstruction_ready_url = ""
+        if normalized_kind == "tour" and generated_reconstruction_url:
+            generated_reconstruction_ready_url = str(
+                _hosted_property_tour_first_party_open_url(
+                    generated_reconstruction_url,
+                    principal_id=normalized_principal,
+                )
+                or ""
+            ).strip()
+            if _hosted_property_tour_verified_open_url(
+                generated_reconstruction_url,
+                principal_id=normalized_principal,
+            ):
+                generated_reconstruction_ready_url = ""
+        generated_reconstruction_ready = bool(
+            ready_url
+            and generated_reconstruction_ready_url
+            and ready_url == generated_reconstruction_ready_url
+        )
         if (
             normalized_kind == "tour"
             and not ready_url
@@ -41436,96 +41461,19 @@ class ProductService:
             status_value = terminal_status_from_reason
             eta_minutes = ""
         repair_active = bool(repair_queued_at or repair_started_at)
-        repair_queued = False
-        if (
-            not _repair_attempted
-            and not repair_active
-            and not ready_url
-            and self._property_visual_request_is_stale(
-                status=status_value,
-                requested_at=request_requested_at,
-                status_updated_at=request_status_updated_at,
-            )
-        ):
-            repaired_now = self._repair_stalled_property_visual_request(
-                principal_id=normalized_principal,
-                property_url=str(matched_candidate.get("property_url") or normalized_property_url).strip(),
-                title=title,
-                request_kind=normalized_kind,
-                source_ref=source_ref_value,
-                run_id=normalized_run_id,
-                candidate_ref=normalized_candidate_ref,
-                wait_seconds=0.2,
-            )
-            if repaired_now:
-                return self.get_property_visual_request_status(
-                    principal_id=normalized_principal,
-                    run_id=normalized_run_id,
-                    request_kind=normalized_kind,
-                    candidate_ref=normalized_candidate_ref,
-                    source_ref=normalized_source_ref,
-                    property_url=normalized_property_url,
-                    _repair_attempted=True,
-                )
-            repair_queued = True
-        if ready_url:
-            persisted_ready_state: dict[str, object]
-            ready_updated_at = request_status_updated_at or _now_iso()
-            if normalized_kind == "flythrough":
-                persisted_ready_state = {
-                    "tour_url": str(tour_url or "").strip(),
-                    "flythrough_url": str(ready_url).strip(),
-                    "flythrough_status": "ready",
-                    "flythrough_eta_minutes": "",
-                    "flythrough_requested_at": request_requested_at,
-                    "flythrough_status_updated_at": ready_updated_at,
-                    "flythrough_progress_pct": "100",
-                    "flythrough_reason": "",
-                }
-            else:
-                persisted_ready_state = {
-                    "tour_url": str(tour_url or generated_reconstruction_url or "").strip(),
-                    "open_tour_url": str(ready_url).strip(),
-                    "vendor_tour_url": str(
-                        _hosted_property_tour_verified_open_url(
-                            tour_url,
-                            principal_id=normalized_principal,
-                        )
-                        or ""
-                    ).strip(),
-                    "tour_status": "ready",
-                    "tour_eta_minutes": "",
-                    "tour_requested_at": request_requested_at,
-                    "tour_status_updated_at": ready_updated_at,
-                    "tour_progress_pct": "100",
-                    "blocked_reason": "",
-                }
-            current_status_value = (
-                str(matched_candidate.get("flythrough_status") or "").strip().lower()
-                if normalized_kind == "flythrough"
-                else str(matched_candidate.get("tour_status") or "").strip().lower()
-            )
-            current_ready_ref = (
-                str(matched_candidate.get("flythrough_url") or "").strip()
-                if normalized_kind == "flythrough"
-                else str(matched_candidate.get("tour_url") or "").strip()
-            )
-            if current_status_value != "ready" or current_ready_ref != str(persisted_ready_state.get("tour_url") or persisted_ready_state.get("flythrough_url") or "").strip():
-                with contextlib.suppress(Exception):
-                    self._persist_property_search_visual_state(
-                        principal_id=normalized_principal,
-                        run_id=normalized_run_id,
-                        candidate_ref=normalized_candidate_ref,
-                        source_ref=source_ref_value,
-                        property_url=str(matched_candidate.get("property_url") or normalized_property_url).strip(),
-                        visual_state=persisted_ready_state,
-                    )
         if ready_url:
             status_value = "ready"
             blocked_reason = ""
             reason = ""
-            status_label = "Open walkthrough" if normalized_kind == "flythrough" else "Open 3D tour"
-            status_detail = "Walkthrough is ready." if normalized_kind == "flythrough" else "3D tour is ready."
+            if normalized_kind == "flythrough":
+                status_label = "Open walkthrough"
+                status_detail = "Walkthrough is ready."
+            elif generated_reconstruction_ready:
+                status_label = "Open layout tour"
+                status_detail = "Layout tour generated from the floor plan and listing photos is ready."
+            else:
+                status_label = "Open 3D tour"
+                status_detail = "3D tour is ready."
         elif status_value in {"queued", "pending"}:
             status_label = "Walkthrough queued" if normalized_kind == "flythrough" else "3D tour queued"
             status_detail = "Queued."
@@ -41586,48 +41534,10 @@ class ProductService:
             )
             eta_label = "refreshing"
             progress_pct = max(progress_pct, 72 if normalized_kind == "flythrough" else 68)
-        if repair_queued and not ready_url:
-            if status_value in {"queued", "pending"}:
-                status_value = "repairing"
-                status_label = "Walkthrough in progress" if normalized_kind == "flythrough" else "3D tour in progress"
-                status_detail = "Refreshing walkthrough." if normalized_kind == "flythrough" else "Refreshing 3D tour."
-            elif status_value in {"processing", "running", "in_progress", "started", "rendering"}:
-                status_value = "repairing"
-                status_label = "Walkthrough in progress" if normalized_kind == "flythrough" else "3D tour in progress"
-                status_detail = "Refreshing walkthrough." if normalized_kind == "flythrough" else "Refreshing 3D tour."
-            eta_label = "refreshing"
-            progress_pct = max(progress_pct, 72 if normalized_kind == "flythrough" else 68)
         if live_progress_detail and not ready_url and status_value in {"queued", "pending", "processing", "running", "in_progress", "started", "rendering", "repairing"}:
             status_detail = live_progress_detail
         elif live_progress_detail and not ready_url and status_value in {"blocked", "failed", "skipped", "not_applicable"}:
             status_detail = live_progress_detail
-
-        if status_value in {"blocked", "failed", "skipped", "not_applicable"} and not ready_url:
-            state_prefix = "flythrough" if normalized_kind == "flythrough" else "tour"
-            terminal_updated_at = _now_iso()
-            visual_state = {
-                f"{state_prefix}_status": status_value,
-                f"{state_prefix}_eta_minutes": "",
-                f"{state_prefix}_progress_pct": "0",
-                f"{state_prefix}_status_updated_at": terminal_updated_at,
-                f"{state_prefix}_repair_queued_at": "",
-                f"{state_prefix}_repair_started_at": "",
-                "generated_reconstruction_url": generated_reconstruction_url,
-            }
-            if normalized_kind == "flythrough":
-                visual_state["flythrough_reason"] = reason
-            else:
-                visual_state["blocked_reason"] = blocked_reason or reason
-            if any(str(matched_candidate.get(key) or "").strip() != str(value or "").strip() for key, value in visual_state.items()):
-                with contextlib.suppress(Exception):
-                    self._persist_property_search_visual_state(
-                        principal_id=normalized_principal,
-                        run_id=normalized_run_id,
-                        candidate_ref=normalized_candidate_ref,
-                        source_ref=source_ref_value,
-                        property_url=str(matched_candidate.get("property_url") or normalized_property_url).strip(),
-                        visual_state=visual_state,
-                    )
 
         response_flythrough_reason = ""
         if normalized_kind == "flythrough":
@@ -41653,7 +41563,7 @@ class ProductService:
             "candidate_ref": normalized_candidate_ref,
             "tour_url": str(tour_url or generated_reconstruction_url or "").strip() if normalized_kind == "tour" else tour_url,
             "open_tour_url": ready_url if normalized_kind == "tour" else "",
-            "generated_reconstruction_url": generated_reconstruction_url,
+            "generated_reconstruction_url": generated_reconstruction_ready_url or generated_reconstruction_url,
             "flythrough_url": ready_url if normalized_kind == "flythrough" else _published_walkthrough_asset_url(flythrough_url),
             "tour_status": status_value if normalized_kind == "tour" else tour_status,
             "flythrough_status": status_value if normalized_kind == "flythrough" else flythrough_status,
@@ -41664,7 +41574,7 @@ class ProductService:
             "eta_label": eta_label,
             "progress_pct": progress_pct,
             "poll_after_seconds": 10 if status_value == "repairing" or _property_tour_status_is_pending(status_value) else 0,
-            "tour_media_mode": "stored_visual_state",
+            "tour_media_mode": "generated_reconstruction" if generated_reconstruction_ready else "stored_visual_state",
             "personal_fit_assessment": {},
             "diorama_style_hint": visual_style_hint,
         }
