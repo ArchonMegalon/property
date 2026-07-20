@@ -118,6 +118,10 @@ def docker_archive(
     config_mutation: dict[str, Any] | None = None,
     layer_payload_mutation: bytes | None = None,
     unsafe_symlink: bool = False,
+    containerd_layout: bool = False,
+    layer_source_size_delta: int = 0,
+    containerd_legacy_config_path: bool = False,
+    containerd_legacy_layer_paths: bool = False,
 ) -> tuple[bytes, str, list[str]]:
     diff_ids = [digest(layer) for layer in layers]
     config: dict[str, Any] = {
@@ -131,15 +135,32 @@ def docker_archive(
         config.update(copy.deepcopy(config_mutation))
     config_raw = canonical(config)
     image_id = digest(config_raw)
-    config_path = image_id.removeprefix("sha256:") + ".json"
-    layer_paths = [f"layer-{index}/layer.tar" for index in range(len(layers))]
-    manifest = [
-        {
-            "Config": config_path,
-            "RepoTags": [LOCAL_TAG],
-            "Layers": layer_paths,
+    config_digest = image_id.removeprefix("sha256:")
+    config_path = (
+        f"blobs/sha256/{config_digest}"
+        if containerd_layout and not containerd_legacy_config_path
+        else config_digest + ".json"
+    )
+    layer_paths = (
+        [f"blobs/sha256/{diff_id.removeprefix('sha256:')}" for diff_id in diff_ids]
+        if containerd_layout and not containerd_legacy_layer_paths
+        else [f"layer-{index}/layer.tar" for index in range(len(layers))]
+    )
+    manifest_record: dict[str, Any] = {
+        "Config": config_path,
+        "RepoTags": [LOCAL_TAG],
+        "Layers": layer_paths,
+    }
+    if containerd_layout:
+        manifest_record["LayerSources"] = {
+            diff_id: {
+                "mediaType": build.OCI_LAYER_MEDIA_TYPE,
+                "size": len(layer) + layer_source_size_delta,
+                "digest": diff_id,
+            }
+            for diff_id, layer in zip(diff_ids, layers, strict=True)
         }
-    ]
+    manifest = [manifest_record]
     files: dict[str, bytes] = {
         "manifest.json": canonical(manifest),
         config_path: config_raw,
@@ -660,6 +681,59 @@ def test_registry_free_manifest_is_recomputed_from_config_and_uncompressed_layer
     )
     assert save_call["argv"][7] == harness.world.image_id
     assert save_call["stdout_limit"] == harness.config().max_image_archive_bytes
+
+
+def test_containerd_backed_docker_save_layout_is_verified_fail_closed(
+    harness: Harness,
+) -> None:
+    archive, image_id, diff_ids = docker_archive(
+        layers=harness.world.layers,
+        labels=harness.world.labels,
+        containerd_layout=True,
+    )
+    harness.world.docker_archive = archive
+
+    receipt = harness.produce().receipt
+
+    assert receipt["image_config_id"] == image_id
+    assert [item["digest"] for item in receipt["local_oci_manifest"]["layers"]] == diff_ids
+
+
+def test_containerd_layer_source_metadata_must_match_verified_layer_bytes(
+    harness: Harness,
+) -> None:
+    archive, _image_id, _diff_ids = docker_archive(
+        layers=harness.world.layers,
+        labels=harness.world.labels,
+        containerd_layout=True,
+        layer_source_size_delta=1,
+    )
+    harness.world.docker_archive = archive
+
+    harness.fails("docker_archive_layer_source_invalid")
+
+
+@pytest.mark.parametrize(
+    ("hybrid_flag", "code"),
+    [
+        ("containerd_legacy_config_path", "docker_archive_config_mismatch"),
+        ("containerd_legacy_layer_paths", "docker_archive_layer_source_invalid"),
+    ],
+)
+def test_containerd_manifest_cannot_mix_legacy_and_content_addressed_profiles(
+    harness: Harness,
+    hybrid_flag: str,
+    code: str,
+) -> None:
+    archive, _image_id, _diff_ids = docker_archive(
+        layers=harness.world.layers,
+        labels=harness.world.labels,
+        containerd_layout=True,
+        **{hybrid_flag: True},
+    )
+    harness.world.docker_archive = archive
+
+    harness.fails(code)
 
 
 @pytest.mark.parametrize(

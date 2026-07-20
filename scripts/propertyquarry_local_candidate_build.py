@@ -1263,12 +1263,23 @@ def _docker_archive_oci_evidence(
     manifest_list = _strict_json(manifest_raw, error_code="docker_archive_manifest_invalid")
     if not isinstance(manifest_list, list) or len(manifest_list) != 1:
         raise BuildError("docker_archive_manifest_invalid")
-    record = _exact_mapping(
-        manifest_list[0], {"Config", "RepoTags", "Layers"}, "docker_archive_manifest_invalid"
-    )
+    record_value = manifest_list[0]
+    legacy_keys = {"Config", "RepoTags", "Layers"}
+    modern_keys = legacy_keys | {"LayerSources"}
+    if not isinstance(record_value, dict) or frozenset(record_value) not in {
+        frozenset(legacy_keys),
+        frozenset(modern_keys),
+    }:
+        raise BuildError("docker_archive_manifest_invalid")
+    record = record_value
+    modern_layout = "LayerSources" in record
     config_path = _string(record["Config"], "docker_archive_manifest_invalid")
     _safe_archive_member_path(config_path)
-    if config_path != expected_image_id.removeprefix("sha256:") + ".json":
+    config_digest = expected_image_id.removeprefix("sha256:")
+    expected_config_path = (
+        f"blobs/sha256/{config_digest}" if modern_layout else config_digest + ".json"
+    )
+    if config_path != expected_config_path:
         raise BuildError("docker_archive_config_mismatch")
     layer_paths = _string_list(record["Layers"], "docker_archive_manifest_invalid")
     if not layer_paths or len(layer_paths) != len(set(layer_paths)):
@@ -1295,6 +1306,32 @@ def _docker_archive_oci_evidence(
     config_diff_ids = _string_list(rootfs["diff_ids"], "docker_archive_config_invalid")
     if rootfs["type"] != "layers" or config_diff_ids != list(expected_diff_ids):
         raise BuildError("docker_archive_rootfs_mismatch")
+    layer_sources: Mapping[str, Any] | None = None
+    if modern_layout:
+        expected_layer_paths = [
+            f"blobs/sha256/{diff_id.removeprefix('sha256:')}"
+            for diff_id in config_diff_ids
+        ]
+        if layer_paths != expected_layer_paths:
+            raise BuildError("docker_archive_layer_source_invalid")
+        value = record["LayerSources"]
+        if not isinstance(value, dict) or set(value) != set(config_diff_ids):
+            raise BuildError("docker_archive_layer_source_invalid")
+        for diff_id, source_value in value.items():
+            source = _exact_mapping(
+                source_value,
+                {"mediaType", "size", "digest"},
+                "docker_archive_layer_source_invalid",
+            )
+            size = source["size"]
+            if (
+                source["mediaType"] != OCI_LAYER_MEDIA_TYPE
+                or source["digest"] != diff_id
+                or type(size) is not int
+                or size < 0
+            ):
+                raise BuildError("docker_archive_layer_source_invalid")
+        layer_sources = value
     config_config = config_document.get("config")
     if not isinstance(config_config, dict) or not isinstance(config_config.get("Labels"), dict):
         raise BuildError("docker_archive_config_invalid")
@@ -1313,6 +1350,8 @@ def _docker_archive_oci_evidence(
         layer_view = memoryview(archive)[start : start + layer_size]
         if "sha256:" + hashlib.sha256(layer_view).hexdigest() != diff_id:
             raise BuildError("docker_archive_layer_digest_mismatch")
+        if layer_sources is not None and layer_sources[diff_id]["size"] != layer_size:
+            raise BuildError("docker_archive_layer_source_invalid")
         layers.append(
             {
                 "media_type": OCI_LAYER_MEDIA_TYPE,
