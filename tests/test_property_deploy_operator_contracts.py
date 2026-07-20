@@ -202,6 +202,39 @@ def _read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
 
 
+def test_smoke_workflow_keeps_runner_temp_expression_at_step_scope() -> None:
+    workflow = _strict_workflow_document(
+        _read(".github/workflows/smoke-runtime.yml")
+    )
+    jobs = workflow["jobs"]
+    assert type(jobs) is dict
+    for job_name, job in jobs.items():
+        assert type(job_name) is str
+        assert type(job) is dict
+        environment = job.get("env", {})
+        assert type(environment) is dict
+        assert all("${{ runner." not in str(value) for value in environment.values())
+    accessibility = jobs["propertyquarry-accessibility-contracts"]
+    assert type(accessibility) is dict
+    job_environment = accessibility["env"]
+    assert type(job_environment) is dict
+    assert "EA_PUBLIC_TOUR_DIR" not in job_environment
+    steps = accessibility["steps"]
+    assert type(steps) is list
+    gate = next(
+        step
+        for step in steps
+        if type(step) is dict
+        and step.get("name")
+        == "Run governed accessibility gate across the provisioned engine matrix"
+    )
+    assert gate["env"] == {
+        "EA_PUBLIC_TOUR_DIR": (
+            "${{ runner.temp }}/propertyquarry-accessibility-tours"
+        )
+    }
+
+
 def test_property_release_gate_splits_core_and_advanced_visual_claim_scope() -> None:
     release_gate = _read("scripts/property_release_gates.sh")
 

@@ -957,7 +957,6 @@ jobs:
       PROPERTYQUARRY_ACCESSIBILITY_BROWSER_ENGINES: chromium,firefox,webkit
       PROPERTYQUARRY_ACCESSIBILITY_SHORTLIST_RUN_ROUTE: /app/shortlist/run/public-demo-run
       PROPERTYQUARRY_ACCESSIBILITY_PUBLIC_TOUR_ROUTE: /tours/accessibility-ci-tour
-      EA_PUBLIC_TOUR_DIR: ${{ runner.temp }}/propertyquarry-accessibility-tours
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -985,6 +984,8 @@ jobs:
             tests/test_propertyquarry_gold_status.py::test_gold_status_flagship_rejects_stale_accessibility_evidence
       - name: Run governed accessibility gate across the provisioned engine matrix
         shell: bash
+        env:
+          EA_PUBLIC_TOUR_DIR: ${{ runner.temp }}/propertyquarry-accessibility-tours
         run: |
           set -euo pipefail
           mkdir -p "${EA_PUBLIC_TOUR_DIR}/accessibility-ci-tour" _completion/smoke
