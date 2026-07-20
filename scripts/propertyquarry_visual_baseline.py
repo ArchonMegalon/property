@@ -791,7 +791,7 @@ def validate_source_binding_receipt(
         if descendant_paths != [] or metadata_only is not False:
             errors.append("source_binding_same_commit_shape_invalid")
     elif (
-        parent_sha != release_sha
+        parent_sha == workflow_sha
         or descendant_paths != list(RELEASE_METADATA_DESCENDANT_PATHS)
         or metadata_only is not True
     ):
