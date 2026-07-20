@@ -49,7 +49,7 @@ The artifact-set identity covers the exact tracked bytes of the flagship release
 Production stays fail-closed until every item is bound to the exact runtime candidate:
 
 1. Both ordinary hosted CI lanes are terminal and green for the final runtime and receipt envelope.
-2. The independently produced `propertyquarry-release-controller-v1` bundle is installed through the governed intake lane and enforces `PROPERTYQUARRY_PUBLIC_TOUR_VOLUME_PROFILE_V1.md`, including canonical-volume identity, pre/post manifests, ownership-only repair, mode preservation, and rollback evidence.
+2. The independently produced and authenticated `propertyquarry-release-controller-v2` authority is installed at `/usr/libexec/propertyquarry-release-control/propertyquarry-release-supervisor-v2`, registered on the protected `propertyquarry-release-controller-v2` runner label, and enforces `PROPERTYQUARRY_PUBLIC_TOUR_VOLUME_PROFILE_V1.md`, including canonical-volume identity, pre/post manifests, ownership-only repair, mode preservation, and rollback evidence. The repository-native non-authoritative bootstrap binary is not a substitute.
 3. The protected environment has an approved `propertyquarry-security` runner and distinct digest-pinned `PROPERTYQUARRY_WEB_IMAGE` and `PROPERTYQUARRY_RENDER_IMAGE` inputs.
 4. Dependency, container, policy, and SBOM scans pass without stale databases or weakened gates.
 5. The governed deployment preserves the canonical public-tour inventory, repairs only journaled legacy ownership, and completes; `/version` reports the approved runtime SHA and complete manifest; `/` remains healthy without generated-bundle permission errors or path disclosure.
