@@ -1219,7 +1219,9 @@ button:focus-visible { outline: 3px solid #315c8a; outline-offset: 3px; }
   const position = document.getElementById('room-position');
   const render = () => {
     const room = rooms[activeIndex];
-    image.src = room.image;
+    if (image.getAttribute('src') !== room.image) {
+      image.src = room.image;
+    }
     image.alt = `360-degree view of ${room.name}`;
     name.textContent = room.name;
     position.textContent = `${activeIndex + 1} of ${rooms.length}`;

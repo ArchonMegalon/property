@@ -140,6 +140,75 @@ def _remote_png_bytes(
     return payload.getvalue()
 
 
+def _visual_map_preview_png_bytes() -> bytes:
+    """Build stable map-like artwork for screenshots without runtime cache or network state."""
+
+    image = Image.new("RGB", (1024, 640), (226, 230, 223))
+    draw = ImageDraw.Draw(image)
+
+    draw.polygon(
+        (
+            (0, 420),
+            (170, 356),
+            (356, 374),
+            (540, 318),
+            (740, 338),
+            (1024, 246),
+            (1024, 640),
+            (0, 640),
+        ),
+        fill=(203, 218, 201),
+    )
+    draw.line(
+        ((-30, 132), (168, 170), (334, 154), (518, 224), (700, 204), (1054, 308)),
+        fill=(176, 207, 221),
+        width=82,
+        joint="curve",
+    )
+
+    blocks = (
+        (58, 42, 202, 116),
+        (248, 38, 390, 118),
+        (432, 48, 578, 132),
+        (626, 40, 786, 128),
+        (838, 52, 980, 150),
+        (54, 252, 210, 356),
+        (276, 260, 414, 360),
+        (480, 286, 632, 388),
+        (702, 286, 858, 386),
+        (86, 464, 232, 570),
+        (304, 430, 458, 552),
+        (536, 454, 686, 572),
+        (770, 434, 942, 564),
+    )
+    for left, top, right, bottom in blocks:
+        draw.rounded_rectangle(
+            (left, top, right, bottom),
+            radius=10,
+            fill=(238, 235, 226),
+            outline=(193, 190, 181),
+            width=3,
+        )
+
+    roads = (
+        ((-20, 232), (1044, 420)),
+        ((144, -20), (238, 660)),
+        ((402, -20), (494, 660)),
+        ((690, -20), (610, 660)),
+        ((900, -20), (826, 660)),
+    )
+    for start, end in roads:
+        draw.line((start, end), fill=(250, 248, 242), width=28)
+        draw.line((start, end), fill=(207, 203, 194), width=3)
+
+    draw.ellipse((474, 246, 550, 322), fill=(244, 241, 233), outline=(176, 75, 69), width=5)
+    draw.ellipse((496, 268, 528, 300), fill=(194, 54, 54), outline=(255, 255, 255), width=5)
+
+    payload = io.BytesIO()
+    image.save(payload, format="PNG")
+    return payload.getvalue()
+
+
 def _stub_remote_png(
     context: BrowserContext,
     *,
@@ -153,6 +222,25 @@ def _stub_remote_png(
         lambda route: route.fulfill(
             status=200,
             content_type="image/png",
+            body=body,
+        ),
+    )
+
+
+def _stub_visual_map_previews(context: BrowserContext) -> None:
+    """Keep the screenshot matrix representative while production preview routes stay untouched."""
+
+    body = _visual_map_preview_png_bytes()
+    context.route(
+        "**/app/api/property/map-previews/*.png",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="image/png",
+            headers={
+                "Cache-Control": "no-store, max-age=0, no-transform",
+                "Content-Encoding": "identity",
+                "X-Property-Map-Preview-State": "ready",
+            },
             body=body,
         ),
     )
@@ -11205,7 +11293,36 @@ def _new_propertyquarry_visual_context(
     }
     if authenticated:
         kwargs["extra_http_headers"] = {"X-EA-Principal-ID": "pq-greenfield-browser"}
-    return browser.new_context(**kwargs)
+    context = browser.new_context(**kwargs)
+    _stub_visual_map_previews(context)
+    return context
+
+
+def _assert_public_mobile_locale_is_in_flow(page: Page) -> None:
+    metrics = page.evaluate(
+        """() => {
+            const panel = document.querySelector(
+                '[data-pq-localization-placement="floating"]'
+            );
+            const footer = document.querySelector('footer');
+            if (!(panel instanceof HTMLElement) || !(footer instanceof HTMLElement)) {
+                return null;
+            }
+            const panelRect = panel.getBoundingClientRect();
+            const footerRect = footer.getBoundingClientRect();
+            return {
+                position: getComputedStyle(panel).position,
+                panelTop: panelRect.top,
+                panelBottom: panelRect.bottom,
+                footerBottom: footerRect.bottom,
+                documentHeight: document.documentElement.scrollHeight,
+            };
+        }"""
+    )
+    assert isinstance(metrics, dict), metrics
+    assert metrics["position"] == "relative", metrics
+    assert float(metrics["panelTop"]) >= float(metrics["footerBottom"]) - 1, metrics
+    assert float(metrics["panelBottom"]) <= float(metrics["documentHeight"]) + 1, metrics
 
 
 def _wait_for_propertyquarry_visual_stability(page: Page) -> None:
@@ -11310,6 +11427,8 @@ def test_propertyquarry_deterministic_visual_baseline_capture_matrix(
             response = page.goto(f"{base_url}{path}", wait_until="networkidle")
             assert response is not None and response.ok
             expect(page.get_by_role("heading", name=heading)).to_be_visible()
+            if viewport[0] <= 430:
+                _assert_public_mobile_locale_is_in_flow(page)
             _capture_propertyquarry_visual_case(
                 page,
                 output_dir=output_dir,

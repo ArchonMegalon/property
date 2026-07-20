@@ -114,6 +114,15 @@
 }
 
 @media (max-width: 32rem) {
+  .pq-locale-panel[data-pq-localization-placement="floating"] {
+    position: relative;
+    inset: auto;
+    inline-size: auto;
+    display: flex;
+    justify-content: flex-end;
+    margin: 0.75rem;
+  }
+
   .pq-locale-current {
     max-inline-size: 7.5rem;
     overflow: hidden;

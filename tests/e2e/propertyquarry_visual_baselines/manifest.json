@@ -15,77 +15,77 @@
       "baseline": "images/public-home.desktop.png",
       "height": 820,
       "id": "public-home.desktop",
-      "sha256": "17b56f7c9edec0f23d9f24f10a96c8b7f21dbff254867efb59a2cce61bb080b9",
+      "sha256": "609c3a9892503a2ceb2784de9bdf377b588a2d803f6916b5d0277fcf1e15425b",
       "width": 1440
     },
     {
       "baseline": "images/public-home.mobile.png",
       "height": 932,
       "id": "public-home.mobile",
-      "sha256": "bdb10b260a70c4fd9a86af82b166aa2795e5e2592128719e59e9f303b0a1a3a6",
+      "sha256": "7eeeed74d6bfb56a7ccf60f481a7304649472ce728c48d976e8f536d0e5f64ae",
       "width": 430
     },
     {
       "baseline": "images/sign-in.desktop.png",
       "height": 820,
       "id": "sign-in.desktop",
-      "sha256": "76ad623252318c30404e605c3963a769e875641ff61ca4f77e74d7d534eef8c6",
+      "sha256": "8e89748246b75d6e7cb732f95d87f12bddc8d5c28d32eb23125f20dbf6eb0a0b",
       "width": 1440
     },
     {
       "baseline": "images/sign-in.mobile.png",
       "height": 932,
       "id": "sign-in.mobile",
-      "sha256": "09d23d7bf9e8b73dac86d33bd4af3e2a916045c3b63afb199093a0a70713bef9",
+      "sha256": "774a97ec018b7d86f3399dc386ce406bb3981b53f028c048e01b2a75f40cd65b",
       "width": 430
     },
     {
       "baseline": "images/search-setup.desktop.png",
       "height": 1200,
       "id": "search-setup.desktop",
-      "sha256": "1fb4938f46e0f6ba693fd067ec3e4c6f72a959178d9d1430bf104290ea30f41f",
+      "sha256": "6397555de69e6568006d8c74555be908fe19df67a0617751ecb4ca9e905de2e4",
       "width": 1600
     },
     {
       "baseline": "images/search-setup.mobile.png",
       "height": 932,
       "id": "search-setup.mobile",
-      "sha256": "536e70612ff00d79c5064136d1553e5b50f98e9026d16bc42c460ce5528a2d17",
+      "sha256": "db2691fc972a7b50ae7029dc484e5710556ac1644720953ea41211db7c7c57b0",
       "width": 430
     },
     {
       "baseline": "images/results.desktop.png",
       "height": 900,
       "id": "results.desktop",
-      "sha256": "3bafa5b1a06f32c22febf38fb3f5ebbdcbb51e41aad948375f81842061535ad2",
+      "sha256": "de742ad301905732e6324907592707adf984b794c51af9211cfdfae617375278",
       "width": 1440
     },
     {
       "baseline": "images/results.mobile.png",
       "height": 844,
       "id": "results.mobile",
-      "sha256": "f0ab5be80eb462fb02ae1da096a0a8eb5edbd8cb5bcaf575972d5db19894fb9e",
+      "sha256": "4cfa140d9d533732fb04ca7faceaad3885008ef80651a7b58fd0f5d3048874b4",
       "width": 390
     },
     {
       "baseline": "images/research-no-tour.mobile.png",
       "height": 844,
       "id": "research-no-tour.mobile",
-      "sha256": "c562d2eb4cc8afb606f5a71e746f412428a9e8ceac1e8c1e490a8579b3d893e5",
+      "sha256": "19607c4d2c9f4f23a74b63a18047cb27f05da31fd4997b819915670dd3078653",
       "width": 390
     },
     {
       "baseline": "images/empty-results.desktop.png",
       "height": 900,
       "id": "empty-results.desktop",
-      "sha256": "f0badbca7068cf4028b8d85f75f32800fe280d516bf9c8b275fe8bcc3dc07fcf",
+      "sha256": "cca276d27780948f1d8548057ff0f0f2704669bb34a7709d8d8f3cadbf67a137",
       "width": 1440
     },
     {
       "baseline": "images/offline.mobile.png",
       "height": 844,
       "id": "offline.mobile",
-      "sha256": "999d7751fbeeb113f79266e73d6025341da91d0e96c435e6937776596f5cc758",
+      "sha256": "c8d63be0fbcddc6bde1d1a2a6ccd65b80dca00b0439b9f3484e231b2191c15e4",
       "width": 390
     }
   ],

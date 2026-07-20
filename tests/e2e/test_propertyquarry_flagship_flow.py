@@ -259,6 +259,52 @@ def test_propertyquarry_desktop_what_matters_is_independent_and_reduced_motion_i
         context.close()
 
 
+def test_propertyquarry_reduced_motion_skip_link_focus_is_immediately_visible(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False, width=1440, height=900)
+    page = context.new_page()
+    try:
+        page.emulate_media(reduced_motion="reduce")
+        response = page.goto(f"{base_url}/app/settings/usage", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        page.keyboard.press("Tab")
+        metrics = page.evaluate(
+            """() => {
+                const link = document.querySelector('.skip-link');
+                if (!(link instanceof HTMLElement)) return null;
+                const rect = link.getBoundingClientRect();
+                const centerX = Math.min(
+                    window.innerWidth - 1,
+                    Math.max(0, rect.left + (rect.width / 2)),
+                );
+                const centerY = Math.min(
+                    window.innerHeight - 1,
+                    Math.max(0, rect.top + (rect.height / 2)),
+                );
+                const hit = document.elementFromPoint(centerX, centerY);
+                return {
+                    active: document.activeElement === link,
+                    top: rect.top,
+                    bottom: rect.bottom,
+                    viewportHeight: window.innerHeight,
+                    animations: link.getAnimations().length,
+                    hit: Boolean(hit && (hit === link || hit.closest('.skip-link') === link)),
+                };
+            }"""
+        )
+        assert isinstance(metrics, dict), metrics
+        assert metrics["active"] is True, metrics
+        assert float(metrics["top"]) >= 0, metrics
+        assert float(metrics["bottom"]) <= float(metrics["viewportHeight"]), metrics
+        assert metrics["animations"] == 0, metrics
+        assert metrics["hit"] is True, metrics
+    finally:
+        context.close()
+
+
 def test_propertyquarry_mobile_flagship_flow_runs_search_opens_research_map_and_walkthrough(
     monkeypatch: pytest.MonkeyPatch,
     browser: Browser,
