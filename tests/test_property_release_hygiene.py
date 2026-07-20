@@ -157,9 +157,71 @@ def test_manifest_release_binding_accepts_safe_synthetic_merge_parent(monkeypatc
         head_sha,
         [base_parent_sha, feature_parent_sha],
     )
+    detailed_accepted, detailed_paths, binding_parent = (
+        release_hygiene._manifest_release_binding(
+            manifest_sha,
+            head_sha,
+            [base_parent_sha, feature_parent_sha],
+        )
+    )
 
     assert accepted is True
     assert descendant_paths == ["docs/PROPERTYQUARRY_RELEASE_MANIFEST.md"]
+    assert (detailed_accepted, detailed_paths) == (accepted, descendant_paths)
+    assert binding_parent == feature_parent_sha
+
+
+def test_release_hygiene_receipt_reports_safe_synthetic_merge_parent(monkeypatch) -> None:
+    manifest_sha = "a" * 40
+    head_sha = "b" * 40
+    base_parent_sha = "c" * 40
+    feature_parent_sha = "d" * 40
+    monkeypatch.setattr(release_hygiene, "release_manifest_runtime_sha", lambda: manifest_sha)
+    monkeypatch.setattr(release_hygiene, "git_head_sha", lambda: head_sha)
+    monkeypatch.setattr(
+        release_hygiene,
+        "git_commit_parent_shas",
+        lambda commit: [base_parent_sha, feature_parent_sha],
+    )
+    monkeypatch.setattr(
+        release_hygiene,
+        "git_commit_is_ancestor",
+        lambda ancestor, descendant: (ancestor, descendant)
+        in {
+            (manifest_sha, head_sha),
+            (manifest_sha, feature_parent_sha),
+        },
+    )
+    monkeypatch.setattr(
+        release_hygiene,
+        "committed_paths_since",
+        lambda ancestor, descendant: list(release_hygiene.RELEASE_METADATA_DESCENDANT_PATHS),
+    )
+    monkeypatch.setattr(release_hygiene, "tree_paths_between", lambda parent, head: [])
+    monkeypatch.setattr(release_hygiene, "_git_status_rows", lambda: [])
+    monkeypatch.setattr(release_hygiene, "tracked_paths", lambda: [])
+
+    receipt = release_hygiene.build_release_hygiene_receipt()
+
+    assert receipt["status"] == "pass"
+    assert receipt["parent_commit"] == feature_parent_sha
+    assert "parent_commits" not in receipt
+    assert set(receipt) == {
+        "schema",
+        "generated_at",
+        "status",
+        "required_checks",
+        "failure_count",
+        "failures",
+        "manifest_runtime_commit",
+        "head_commit",
+        "parent_commit",
+        "manifest_descendant_paths",
+        "manifest_metadata_only_ancestor",
+        "tracked_dirty_path_count",
+        "untracked_release_source_count",
+        "note",
+    }
 
 
 def test_manifest_release_binding_rejects_merge_parent_with_source_delta_from_manifest(monkeypatch) -> None:

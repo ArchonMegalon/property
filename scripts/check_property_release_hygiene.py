@@ -229,19 +229,19 @@ def _metadata_only(paths: list[str]) -> bool:
     return all(path in RELEASE_METADATA_DESCENDANT_PATHS for path in paths)
 
 
-def manifest_release_binding(
+def _manifest_release_binding(
     manifest_sha: str,
     head_sha: str,
     parent_shas: str | list[str],
-) -> tuple[bool, list[str]]:
-    if _revisions_match(manifest_sha, head_sha):
-        return True, []
-    if not git_commit_is_ancestor(manifest_sha, head_sha):
-        return False, []
-
+) -> tuple[bool, list[str], str]:
     normalized_parent_shas = (
         [parent_shas] if isinstance(parent_shas, str) else list(parent_shas)
     )
+    if _revisions_match(manifest_sha, head_sha):
+        return True, [], normalized_parent_shas[0] if normalized_parent_shas else ""
+    if not git_commit_is_ancestor(manifest_sha, head_sha):
+        return False, [], ""
+
     if len(normalized_parent_shas) > 1:
         observed_paths: set[str] = set()
         for parent_sha in normalized_parent_shas:
@@ -262,13 +262,36 @@ def manifest_release_binding(
                 continue
             observed_paths.update(merge_tree_paths)
             if _metadata_only(merge_tree_paths):
-                return True, sorted(set(parent_descendant_paths) | set(merge_tree_paths))
-        return False, sorted(observed_paths)
+                return (
+                    True,
+                    sorted(set(parent_descendant_paths) | set(merge_tree_paths)),
+                    parent_sha,
+                )
+        return False, sorted(observed_paths), ""
 
     descendant_paths = committed_paths_since(manifest_sha, head_sha)
     if descendant_paths is None:
-        return False, []
-    return _metadata_only(descendant_paths), descendant_paths
+        return False, [], ""
+    binding_ok = _metadata_only(descendant_paths)
+    binding_parent = (
+        normalized_parent_shas[0]
+        if binding_ok and normalized_parent_shas
+        else ""
+    )
+    return binding_ok, descendant_paths, binding_parent
+
+
+def manifest_release_binding(
+    manifest_sha: str,
+    head_sha: str,
+    parent_shas: str | list[str],
+) -> tuple[bool, list[str]]:
+    binding_ok, descendant_paths, _binding_parent = _manifest_release_binding(
+        manifest_sha,
+        head_sha,
+        parent_shas,
+    )
+    return binding_ok, descendant_paths
 
 
 def _git_status_rows() -> list[str]:
@@ -328,11 +351,17 @@ def build_release_hygiene_receipt() -> dict[str, object]:
     if not manifest_sha:
         failures.append("release manifest runtime commit missing: docs/PROPERTYQUARRY_RELEASE_MANIFEST.md")
     else:
-        manifest_binding_ok, manifest_descendant_paths = manifest_release_binding(
+        (
+            manifest_binding_ok,
+            manifest_descendant_paths,
+            binding_parent_sha,
+        ) = _manifest_release_binding(
             manifest_sha,
             head_sha,
             parent_shas,
         )
+        if binding_parent_sha:
+            parent_sha = binding_parent_sha
     if manifest_sha and not manifest_binding_ok:
         disallowed_descendants = [
             path for path in manifest_descendant_paths if path not in RELEASE_METADATA_DESCENDANT_PATHS
@@ -412,7 +441,6 @@ def build_release_hygiene_receipt() -> dict[str, object]:
         "manifest_runtime_commit": manifest_sha,
         "head_commit": head_sha,
         "parent_commit": parent_sha,
-        "parent_commits": parent_shas,
         "manifest_descendant_paths": manifest_descendant_paths,
         "manifest_metadata_only_ancestor": bool(manifest_descendant_paths) and manifest_binding_ok,
         "tracked_dirty_path_count": len(tracked_dirty_paths),
