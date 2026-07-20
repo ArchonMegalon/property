@@ -3860,8 +3860,14 @@ def test_flagship_performance_proof_rejects_redirect_away_from_exact_target(
     assert "chromium_cold_measurement_thresholds_invalid" in proof["errors"]
 
 
-def test_flagship_performance_proof_rejects_python_binary_as_chromium() -> None:
-    executable_identity = dict(_PYTHON_EXECUTABLE_IDENTITY)
+def test_flagship_performance_proof_rejects_python_binary_as_chromium(
+    tmp_path: Path,
+) -> None:
+    executable_identity = _secure_test_chromium_executable_identity(tmp_path)
+    chromium_path = Path(str(executable_identity["executable_path"]))
+    python_path = chromium_path.with_name("python3")
+    chromium_path.rename(python_path)
+    executable_identity["executable_path"] = str(python_path)
     payload = _performance_payload(executable_identity=executable_identity)
 
     ready, proof = _evaluate_flagship_performance_payload(

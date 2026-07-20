@@ -231,12 +231,72 @@ canonical-envelope, and signature-payload digests internally. Equality between
 the claimed and derived envelope digests is syntax metadata only and never
 establishes authentication.
 
-It still does not implement the workflow-client sender, authenticate a request
-signature or OIDC identity, apply a complete PID-stability/cgroup policy, write
-a response, perform a release effect, or produce a signed disposition. The Go
-runtime also starts before application descriptor validation. The local peer
-credential and authenticated installation permit only bounded controller
-quarantine execution; they are not promoted to request-signature authority.
+No executable mode yet invokes the workflow-client sender, authenticates a
+request signature or OIDC identity, applies a complete PID-stability/cgroup
+policy, writes a response, performs a release effect, or produces a signed
+disposition. The Go runtime also starts before application descriptor
+validation. The local peer credential and authenticated installation permit
+only bounded controller quarantine execution; they are not promoted to
+request-signature authority.
+
+### Package-internal Phase-B preflight identity primitive
+
+The native package now contains a production-shaped but deliberately
+unactivated Phase-B preflight identity primitive. It does not change any
+executable mode: the workflow-facing `release-preflight`, `release-run`, broker,
+and controller paths retain their existing silent exit-`50` behavior.
+
+The primitive implements these independently testable security boundaries:
+
+- a fixed-origin GitHub discovery/JWKS fetcher over HTTPS with proxies and
+  redirects disabled, one-resolution public-address dialing, TLS hostname
+  verification, bounded JSON, and no caller-selected URL or network authority;
+- strict compact-JWS parsing and RS256 verification against one uniquely keyed
+  RSA JWK, including duplicate-key, algorithm, modulus, exponent, issuer,
+  audience, lifetime, and key-substitution rejection;
+- exact binding of GitHub's signed repository and immutable repository/owner
+  IDs, ref, candidate SHA, workflow-ref, workflow SHA, run ID/attempt,
+  environment, and `check_run_id` to the package-authenticated canonical
+  RootPolicy and its versioned domain-separated digest, plus exact request
+  nonce binding to the signed token ID;
+- Ed25519-signed evidence that states, in signed fields, that it is
+  non-authorizing, not ready, not production-ready, and incapable of release
+  effects; and
+- a private-directory, locked, append-only signed journal with contiguous
+  predecessor chaining, `renameat2(RENAME_NOREPLACE)`, file and directory
+  `fsync`, request-ID/nonce replay conflict detection, lookup-first
+  byte-identical replay, one-record crash-pending reconciliation, bounded
+  streaming rebuild, and an explicit journal-head CAS for new records.
+
+The testable issuer accepts an unexported, package-internal already-fetched key
+set so adversarial tests can inject controlled RSA keys without contacting
+GitHub. Consequently its signed evidence says
+`github_oidc_keyset_source: package-internal-unactivated-input` and
+`github_oidc_transport_binding_verified: false`; `github_oidc_signature_verified`
+means that the JWS matched that exact digest-bound set, not that an activated
+broker fetched it. A production wrapper must invoke the fixed fetcher itself
+and must never deserialize or accept a key set from a request. No current
+executable invokes either function.
+
+The evidence deliberately records `job_name_binding_verified: false`.
+GitHub's documented OIDC claims expose a `check_run_id` but do not expose the
+workflow job name as a normal claim. The primitive therefore preserves the
+check-run identity for a later external request-authority correlation and does
+not trust a workflow-forwarded `github.job` value. It would be unsafe to turn
+this partial identity proof into a ready preflight or signed release
+disposition. See GitHub's current claim contract at
+`https://docs.github.com/en/actions/reference/security/oidc`.
+
+Activation remains forbidden until the installed broker obtains the exact
+package-authenticated RootPolicy/decision artifact and signing credential,
+internally invokes the fixed GitHub discovery/JWKS fetcher,
+verifies an external trusted-clock observation and request-authority job
+correlation, defines encrypted state/key-rotation recovery, evaluates the full
+ordered check set against a stable external lifecycle head, and transports the
+result through the authenticated response path. The package-internal functions
+accept already-authenticated installed-role and descriptor inputs so tests can
+exercise these boundaries without adding a caller-selectable path or a fourth
+executable.
 
 ## Proof labels
 
@@ -264,14 +324,17 @@ production release receipt.
 ## Phase-B release-effect blockers
 
 Release effects remain forbidden until independently reviewed code and the
-local Docker authority implement and prove all of the following:
+local Docker authority implement and prove all of the following. The
+package-internal identity primitive above is only one non-authorizing subset:
 
-- GitHub OIDC retrieval and JWT/JWS/JWKS verification with issuer, audience,
-  immutable identity, key-rotation, redirect, DNS, and trusted-clock policy;
+- workflow OIDC retrieval, external request-authority exchange/job
+  correlation, authenticated trusted-clock policy, key rotation, and wiring of
+  the package-internal JWT/JWS/JWKS verifier into the installed broker;
 - mTLS request, lifecycle-CAS, evidence, ledger, and response authorities with
   closed media types and signature algorithms;
 - the exact RootPolicy and decision-policy authentication and digest profiles;
-- durable encrypted replay/ready state and lookup-first admission recovery;
+- durable encrypted replay/ready state, signing-key rotation, and lookup-first
+  admission recovery beyond the signed non-authorizing identity journal;
 - all seven fence-enforcing target mediators and idempotent mutation protocols;
 - signed evidence persistence, file and directory fsync, terminal framing,
   verifier receipts, containment, cgroup-empty proof, watchdog takeover,

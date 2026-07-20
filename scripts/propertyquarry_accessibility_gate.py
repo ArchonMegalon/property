@@ -173,6 +173,28 @@ def _navigation_contract(
     final_path = str(final.path or "/").rstrip("/") or "/"
     if requested_path == final_path:
         return True, "exact_path"
+    if (
+        requested_path in {"/", "/app/properties"}
+        and not requested.query
+        and not requested.fragment
+        and final_path == "/app/search"
+        and not final.query
+        and not final.fragment
+    ):
+        return True, "canonical_search_redirect"
+    if (
+        requested_path in {"/app/settings/google", "/app/settings/access"}
+        and not requested.query
+        and not requested.fragment
+        and final_path == "/app/account"
+    ):
+        settings_view = requested_path.rsplit("/", 1)[-1]
+        final_query = urllib.parse.parse_qs(final.query, keep_blank_values=True)
+        if (
+            final_query == {"settings_view": [settings_view]}
+            and final.fragment == "connected-services"
+        ):
+            return True, "canonical_connected_services_redirect"
     if requested_path == "/app/support" and final_path == "/app/settings/support":
         return True, "canonical_app_support_redirect"
     if requested_path == "/app/billing" and final_path == "/app/account":
@@ -585,8 +607,14 @@ def _axe_moderate_or_higher_wcag_violations(
     ]
 
 
-def _axe_metrics(page: Any, *, axe_source: str) -> dict[str, Any]:
-    page.add_script_tag(content=axe_source)
+def _install_axe_core(context: Any, *, axe_source: str) -> None:
+    # Playwright init scripts are evaluated before document scripts and are not
+    # inline script elements.  That keeps the pinned audit engine available on
+    # nonce-only CSP pages without weakening the application's CSP.
+    context.add_init_script(script=axe_source)
+
+
+def _axe_metrics(page: Any) -> dict[str, Any]:
     axe_version = str(page.evaluate("() => window.axe && window.axe.version || ''") or "")
     if axe_version != AXE_CORE_VERSION:
         raise RuntimeError(f"axe_core_version_mismatch:expected={AXE_CORE_VERSION}:observed={axe_version or 'missing'}")
@@ -687,6 +715,7 @@ def collect_accessibility_engine_rows(
                 reduced_motion="reduce",
                 service_workers="block",
             )
+            _install_axe_core(context, axe_source=axe_source)
             context.route(
                 "**/*",
                 lambda route: _continue_with_origin_scoped_headers(
@@ -722,7 +751,7 @@ def collect_accessibility_engine_rows(
                             "route_document_loaded": navigation_ok,
                             "navigation_contract": navigation_contract,
                         }
-                        metrics.update(_axe_metrics(page, axe_source=axe_source))
+                        metrics.update(_axe_metrics(page))
                         metrics.update(_focus_metrics(page))
                         metrics.update(_target_size_metrics(page))
                         metrics.update(_dialog_focus_metrics(page))

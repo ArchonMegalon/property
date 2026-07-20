@@ -9,6 +9,9 @@ internal/releasecontrol/installed_authority_linux.go
 internal/releasecontrol/installed_authority_linux_test.go
 internal/releasecontrol/installed_runtime_linux.go
 internal/releasecontrol/installed_tree_linux.go
+internal/releasecontrol/phase_b_oidc_linux.go
+internal/releasecontrol/phase_b_preflight_linux.go
+internal/releasecontrol/phase_b_preflight_linux_test.go
 internal/releasecontrol/quarantine_request.go
 internal/releasecontrol/quarantine_request_test.go
 internal/releasecontrol/quarantine_transport_linux.go

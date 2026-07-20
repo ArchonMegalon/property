@@ -60,6 +60,15 @@ def _flagship_routes() -> tuple[str, ...]:
     )
 
 
+def test_research_detail_reflow_tracks_its_containing_block_not_viewport_units() -> None:
+    source = (
+        ROOT / "ea" / "app" / "templates" / "app" / "property_research_detail.html"
+    ).read_text(encoding="utf-8")
+
+    assert source.count("width: min(1180px, calc(100% - 32px));") == 2
+    assert "width: min(1180px, calc(100vw - 32px));" not in source
+
+
 def test_accessibility_gate_builds_engine_route_receipt_from_pinned_local_axe(tmp_path: Path) -> None:
     routes = _flagship_routes()
 
@@ -213,6 +222,18 @@ def test_accessibility_gate_rejects_empty_browser_engine_configuration() -> None
             "/app/account?billing=1#delivery",
             "canonical_billing_handoff_redirect",
         ),
+        ("/", "/app/search", "canonical_search_redirect"),
+        ("/app/properties", "/app/search", "canonical_search_redirect"),
+        (
+            "/app/settings/google",
+            "/app/account?settings_view=google#connected-services",
+            "canonical_connected_services_redirect",
+        ),
+        (
+            "/app/settings/access",
+            "/app/account?settings_view=access#connected-services",
+            "canonical_connected_services_redirect",
+        ),
         (
             "/tours/tour-a11y",
             "/tours/tour-a11y/control/3dvista",
@@ -236,27 +257,66 @@ def test_accessibility_navigation_contract_allows_only_named_canonical_redirects
 
 
 @pytest.mark.parametrize(
-    ("final_url", "status_code", "expected_contract"),
+    ("requested_url", "final_url", "status_code", "expected_contract"),
     (
-        ("https://billing.example.test/account", 200, "cross_origin_redirect"),
-        ("https://propertyquarry.com/app/account?billing=1", 200, "unexpected_final_path"),
-        ("https://propertyquarry.com/app/settings/support", 500, "non_success_status"),
-        ("https://propertyquarry.com/tours/another/control/3dvista", 200, "unexpected_final_path"),
+        (
+            "https://propertyquarry.com/app/billing",
+            "https://billing.example.test/account",
+            200,
+            "cross_origin_redirect",
+        ),
+        (
+            "https://propertyquarry.com/app/billing",
+            "https://propertyquarry.com/app/account?billing=1",
+            200,
+            "unexpected_final_path",
+        ),
+        (
+            "https://propertyquarry.com/app/billing",
+            "https://propertyquarry.com/app/settings/support",
+            500,
+            "non_success_status",
+        ),
+        (
+            "https://propertyquarry.com/app/billing",
+            "https://propertyquarry.com/tours/another/control/3dvista",
+            200,
+            "unexpected_final_path",
+        ),
+        (
+            "https://propertyquarry.com/",
+            "https://propertyquarry.com/app/search?unexpected=1",
+            200,
+            "unexpected_final_path",
+        ),
     ),
 )
 def test_accessibility_navigation_contract_rejects_unnamed_redirects(
+    requested_url: str,
     final_url: str,
     status_code: int,
     expected_contract: str,
 ) -> None:
     ok, contract = gate._navigation_contract(
-        requested_url="https://propertyquarry.com/app/billing",
+        requested_url=requested_url,
         final_url=final_url,
         status_code=status_code,
     )
 
     assert ok is False
     assert contract == expected_contract
+
+
+def test_accessibility_gate_installs_pinned_axe_as_csp_safe_init_script() -> None:
+    calls: list[dict[str, str]] = []
+
+    class FakeContext:
+        def add_init_script(self, **kwargs):
+            calls.append(kwargs)
+
+    gate._install_axe_core(FakeContext(), axe_source="window.axe = {version: '4.10.2'}")
+
+    assert calls == [{"script": "window.axe = {version: '4.10.2'}"}]
 
 
 def test_accessibility_gate_rejects_literal_dynamic_route_placeholders(tmp_path: Path) -> None:

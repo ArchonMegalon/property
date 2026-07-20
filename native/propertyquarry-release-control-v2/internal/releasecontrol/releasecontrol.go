@@ -1,7 +1,7 @@
 // Package releasecontrol implements the native v2 fail-closed bootstrap.
 //
-// It deliberately performs no release effect, network request, or response
-// write. Legacy and unconfigured modes dispose of descriptors and return the
+// Its executable paths deliberately perform no release effect, network request,
+// or response write. Legacy and unconfigured modes dispose of descriptors and return the
 // protocol/authentication failure class. The explicit installed-local-authority
 // mode additionally verifies its externally anchored local package and runs a
 // fixed controller that retains the same fail-closed exit-50 behavior.

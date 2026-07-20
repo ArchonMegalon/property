@@ -1242,9 +1242,20 @@ def test_prod_runtime_has_fresh_erasure_secret_and_only_temp_state(
         "PROPERTYQUARRY_PROPERTY_SEARCH_ERASURE_SECRET"
     ]
     assert first[harness.CHROMIUM_EXECUTABLE_ENV] == HEADLESS_SHELL
-    assert first["PYTHONPATH"] == str(tmp_path / "candidate" / "ea")
+    overlay_site = (
+        dependency_overlay
+        / "lib"
+        / f"python{harness.sys.version_info.major}.{harness.sys.version_info.minor}"
+        / "site-packages"
+    )
+    assert first["PYTHONPATH"].split(os.pathsep) == [
+        str(tmp_path / "candidate" / "ea"),
+        str(overlay_site),
+    ]
     assert first["PYTHONUSERBASE"] == str(dependency_overlay)
-    assert str(dependency_overlay) not in first["PYTHONPATH"]
+    assert first["PYTHONPATH"].index(str(tmp_path / "candidate" / "ea")) < first[
+        "PYTHONPATH"
+    ].index(str(overlay_site))
     assert "PLAYWRIGHT_BROWSERS_PATH" not in first
     assert "PROPERTYQUARRY_PLAYWRIGHT_BROWSERS_PATH" not in first
 

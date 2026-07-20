@@ -3853,8 +3853,8 @@ def test_propertyquarry_mobile_shortlist_keeps_one_focus_and_opens_the_property_
         assert metrics["firstRowRight"] <= metrics["viewportWidth"] + 1, metrics
         assert metrics["bodyWidth"] <= metrics["viewportWidth"] + 1, metrics
         assert metrics["firstRowHeight"] >= 120, metrics
-        assert metrics["actionLabels"] == ["Open property", "Remove"], metrics
-        assert metrics["actionHeights"] and min(metrics["actionHeights"]) >= 40, metrics
+        assert metrics["actionLabels"] == ["Review", "Open property", "Remove"], metrics
+        assert metrics["actionHeights"] and min(metrics["actionHeights"]) >= 44, metrics
         page.screenshot(path=str(screenshot_path), full_page=True, animations="disabled", caret="hide")
         assert screenshot_path.exists() and screenshot_path.stat().st_size > 20_000
 
@@ -10980,15 +10980,34 @@ def test_propertyquarry_workbench_candidate_history_stays_in_place(
         assert family_ref
         assert loft_ref
 
-        family_row.locator(".pqx-result-title").click()
+        family_review = family_row.get_by_role(
+            "button",
+            name="Review Family flat near Tiergarten",
+        )
+        expect(family_review).to_be_visible()
+        family_review.focus()
+        expect(family_review).to_be_focused()
+        family_review.press("Enter")
         expect(desktop_page.locator("[data-pw-title]").first).to_have_text("Family flat near Tiergarten")
+        expect(family_row).to_have_attribute("aria-current", "true")
+        expect(loft_row).to_have_attribute("aria-current", "false")
         assert urllib.parse.urlparse(desktop_page.url).path == initial_path
         assert urllib.parse.parse_qs(urllib.parse.urlparse(desktop_page.url).query)["candidate"] == [family_ref]
+        assert desktop_page.evaluate("performance.getEntriesByType('navigation').length") == initial_navigation_count
 
-        loft_row.click()
+        loft_review = loft_row.get_by_role(
+            "button",
+            name="Review Listing URL only loft",
+        )
+        loft_review.focus()
+        expect(loft_review).to_be_focused()
+        loft_review.press("Space")
         expect(desktop_page.locator("[data-pw-title]").first).to_have_text("Listing URL only loft")
+        expect(family_row).to_have_attribute("aria-current", "false")
+        expect(loft_row).to_have_attribute("aria-current", "true")
         assert urllib.parse.urlparse(desktop_page.url).path == initial_path
         assert urllib.parse.parse_qs(urllib.parse.urlparse(desktop_page.url).query)["candidate"] == [loft_ref]
+        assert desktop_page.evaluate("performance.getEntriesByType('navigation').length") == initial_navigation_count
 
         desktop_page.go_back()
         expect(desktop_page.locator("[data-pw-title]").first).to_have_text("Family flat near Tiergarten")
@@ -11011,7 +11030,10 @@ def test_propertyquarry_workbench_candidate_history_stays_in_place(
         family_row = mobile_page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").first
         family_ref = family_row.get_attribute("data-candidate-ref")
         assert family_ref
-        family_row.locator(".pqx-result-title").click()
+        family_row.get_by_role(
+            "button",
+            name="Review Family flat near Tiergarten",
+        ).click()
         expect(mobile_page.locator("[data-pw-title]").first).to_have_text("Family flat near Tiergarten")
         assert urllib.parse.urlparse(mobile_page.url).path == "/app/shortlist"
         assert urllib.parse.parse_qs(urllib.parse.urlparse(mobile_page.url).query)["candidate"] == [family_ref]

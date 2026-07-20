@@ -167,7 +167,7 @@
     white-space: nowrap;
   }
   .prd-route-recovery {
-    width: min(1180px, calc(100vw - 32px));
+    width: min(1180px, calc(100% - 32px));
     margin: 10px auto 0;
     display: flex;
     justify-content: space-between;
@@ -227,7 +227,7 @@
     gap: 16px;
   }
   .prd-shell {
-    width: min(1180px, calc(100vw - 32px));
+    width: min(1180px, calc(100% - 32px));
     margin: 0 auto;
     padding: 8px 0 22px;
     gap: 6px;
@@ -887,6 +887,9 @@
     z-index: 2;
     display: grid;
     gap: 4px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: #171915;
     color: #fffdf8;
   }
   .prd-media-caption strong {
@@ -914,8 +917,7 @@
     padding: 10px;
     border: 1px solid color-mix(in srgb, var(--line) 84%, var(--prd-gold) 16%);
     border-radius: 8px;
-    background:
-      linear-gradient(180deg, color-mix(in srgb, var(--panel) 95%, var(--prd-gold) 5%), color-mix(in srgb, var(--panel) 90%, var(--panel-2) 10%));
+    background: var(--panel);
     box-shadow: 0 16px 36px color-mix(in srgb, var(--prd-gold) 8%, transparent);
   }
   .prd-visual-toolbar {
@@ -1512,8 +1514,7 @@
   .prd-mobile-secondary {
     border: 1px solid color-mix(in srgb, var(--line) 88%, var(--prd-gold) 12%);
     border-radius: 8px;
-    background:
-      linear-gradient(180deg, color-mix(in srgb, var(--panel) 96%, var(--prd-gold) 4%), color-mix(in srgb, var(--panel) 94%, transparent));
+    background: var(--panel);
     overflow: hidden;
   }
   .prd-mobile-secondary > summary {
@@ -3298,7 +3299,7 @@
     {% for action in visual_actions.items %}
       {% set action_label = (action.get('label') or '')|lower %}
       {% if action.get('kind') == 'ai_360_reconstruction' or 'ai 360 tour' in action_label %}
-        {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'ai_360_reconstruction', 'eyebrow': 'AI 360 reconstruction', 'title': 'AI 360 tour', 'copy': action.get('status_detail') or research_media.get('ai_360_disclosure') or 'AI-reconstructed from listing photos; not a captured 360 or measured survey.', 'action': action}] %}
+        {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'ai_360_reconstruction', 'eyebrow': 'AI 360 reconstruction', 'title': 'AI 360 tour', 'copy': action.get('status_detail') or research_media.get('ai_360_disclosure') or 'AI reconstruction based on property photos; not a captured 360 or measured survey.', 'action': action}] %}
       {% elif action.get('kind') == 'generated_reconstruction' or 'layout tour' in action_label %}
         {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'generated_reconstruction', 'eyebrow': 'Layout tour', 'title': 'Layout tour', 'copy': action.get('status_detail') or research_media.get('generated_reconstruction_status_detail') or research_media.get('status_detail') or 'Open the generated layout tour here.', 'action': action}] %}
       {% elif action.get('kind') == 'tour' or '3d tour' in action_label or 'matterport' in action_label or '3dvista' in action_label or 'original tour' in action_label %}
@@ -3341,7 +3342,7 @@
       {% set visual_rail.label = research_media.get('status_label') or 'Open AI 360 tour' %}
       {% set visual_rail.eta = '' %}
       {% set visual_rail.progress = 100 %}
-      {% set visual_rail.detail = research_media.get('ai_360_disclosure') or research_media.get('generated_reconstruction_status_detail') or 'AI-reconstructed from listing photos; not a captured 360 or measured survey.' %}
+      {% set visual_rail.detail = research_media.get('ai_360_disclosure') or research_media.get('generated_reconstruction_status_detail') or 'AI reconstruction based on property photos; not a captured 360 or measured survey.' %}
     {% elif visual_ready_layout %}
       {% set visual_rail.kind = 'generated_reconstruction' %}
       {% set visual_rail.state = 'ready' %}
@@ -3414,7 +3415,7 @@
             loading="eager"
           ></iframe>
           <div class="prd-ai-360-meta" aria-label="AI 360 tour information">
-            <p>{{ research_media.get('ai_360_disclosure') or 'AI-reconstructed from listing photos; not a captured 360 or measured survey.' }}</p>
+            <p>{{ research_media.get('ai_360_disclosure') or 'AI reconstruction based on property photos; not a captured 360 or measured survey.' }}</p>
             <a href="{{ research_media.get('embed_href') }}" target="_blank" rel="noopener" data-prd-ai-360-fallback>Open AI 360 tour</a>
           </div>
         </div>

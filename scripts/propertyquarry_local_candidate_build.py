@@ -34,10 +34,13 @@ from typing import Any, Callable, Mapping, Protocol, Sequence
 # Direct script execution sets ``sys.path[0]`` to ``scripts/`` rather than the
 # repository root.  Keep the documented ``python3 scripts/...`` entrypoint
 # self-contained instead of relying on an ambient PYTHONPATH.
+ROOT = Path(__file__).resolve().parents[1]
+EA_ROOT = ROOT / "ea"
 if __package__ in {None, ""}:
-    _REPOSITORY_ROOT = str(Path(__file__).resolve().parents[1])
-    if _REPOSITORY_ROOT not in sys.path:
-        sys.path.insert(0, _REPOSITORY_ROOT)
+    for bootstrap_root in (EA_ROOT, ROOT):
+        bootstrap_path = str(bootstrap_root)
+        if bootstrap_path not in sys.path:
+            sys.path.insert(0, bootstrap_path)
 
 from scripts import verify_generated_release_artifacts_clean as manifest_model
 

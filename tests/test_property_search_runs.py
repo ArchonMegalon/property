@@ -14253,42 +14253,75 @@ def test_run_scene_video_skill_routes_propertyquarry_through_shared_ea_task(monk
     assert packet["provider_backend_key"] == "onemin_i2v"
 
 
-def test_property_scout_flythrough_uses_shared_scene_video_skill(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_property_scout_flythrough_uses_governed_render_lane_with_consent(monkeypatch: pytest.MonkeyPatch) -> None:
     client = build_property_client(principal_id="exec-property-scout-flythrough")
     service = ProductService(client.app.state.container)
     observed: dict[str, object] = {"delivery_calls": 0}
 
-    def _fake_run_scene_video_skill(
-        *,
-        title: str,
-        actor: str,
-        provider_key: str = "",
-        input_json=None,
-        task_principal_id: str = "",
-    ):
-        observed["title"] = title
-        observed["actor"] = actor
-        observed["provider_key"] = provider_key
-        observed["task_principal_id"] = task_principal_id
-        observed["input_json"] = dict(input_json or {})
+    def _fake_resolve_property_walkthrough_runtime_provider(provider_key: str):
+        observed["requested_provider_key"] = provider_key
         return {
-            "status": "completed",
-            "provider_key": "omagic",
-            "provider_backend_key": "onemin_i2v",
-            "video_url": "https://cdn.example/propertyquarry/rendered.mp4",
+            "provider_key": "magic",
+            "provider_backend_key": "magic",
+            "runtime_readiness_json": {"ready": True, "blockers": []},
+        }
+
+    def _fake_issue_owned_governed_property_flythrough_consent(
+        *,
+        tour_url: str,
+        principal_id: str,
+        preferred_provider_key: str,
+        external_processing_consent_granted: bool,
+    ):
+        observed["consent"] = {
+            "tour_url": tour_url,
+            "principal_id": principal_id,
+            "preferred_provider_key": preferred_provider_key,
+            "external_processing_consent_granted": external_processing_consent_granted,
+        }
+        return "governed-consent-receipt", ""
+
+    def _fake_render_property_flythrough_into_hosted_tour(**kwargs):
+        observed["render"] = dict(kwargs)
+        return {
+            "status": "pending",
+            "reason": "governed_render_request_accepted",
+            "provider_key": "magic",
+            "execution_lane": "ea_governed_render",
+            "public_ready": False,
+            "launch_eligible": False,
+            "video_url": "",
+            "flythrough_url": "",
+            "governed_render_request_id": "governed-request-north-tower",
+            "governed_render_receipt": {
+                "request_id": "governed-request-north-tower",
+                "status": "accepted",
+                "receipt_sha256": "a" * 64,
+            },
         }
 
     def _fake_hosted_property_tour_video_delivery(tour_url: str) -> dict[str, object]:
+        assert tour_url == "https://property.example/tours/north-tower"
         observed["delivery_calls"] = int(observed["delivery_calls"]) + 1
-        if int(observed["delivery_calls"]) == 1:
-            return {}
-        return {
-            "video_url": "https://cdn.example/propertyquarry/delivery.mp4",
-            "provider_key": "magicfit",
-            "duration_seconds": 18,
-        }
+        return {}
 
-    monkeypatch.setattr(service, "_run_scene_video_skill", _fake_run_scene_video_skill)
+    from app.services import scene_video_contract
+
+    monkeypatch.setattr(
+        scene_video_contract,
+        "resolve_property_walkthrough_runtime_provider",
+        _fake_resolve_property_walkthrough_runtime_provider,
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_issue_owned_governed_property_flythrough_consent",
+        _fake_issue_owned_governed_property_flythrough_consent,
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_render_property_flythrough_into_hosted_tour",
+        _fake_render_property_flythrough_into_hosted_tour,
+    )
     monkeypatch.setattr(product_service, "_hosted_property_tour_video_delivery", _fake_hosted_property_tour_video_delivery)
     monkeypatch.setattr(service, "_record_product_event", lambda **kwargs: observed.setdefault("event_payload", kwargs["payload"]))
 
@@ -14304,23 +14337,44 @@ def test_property_scout_flythrough_uses_shared_scene_video_skill(monkeypatch: py
         allow_below_threshold=True,
         diorama_style_hint="miniature realism",
         walkthrough_provider_key="magic",
+        external_processing_consent_granted=True,
     )
 
-    assert observed["provider_key"] == "magic"
-    assert observed["title"] == "North Tower"
-    assert observed["actor"] == "property-scout"
-    assert observed["task_principal_id"] == "exec-property-scout-flythrough"
-    assert observed["input_json"]["context_kind"] == "property_walkthrough"
-    assert observed["input_json"]["tour_url"] == "https://property.example/tours/north-tower"
-    assert observed["input_json"]["property_facts_json"] == {"bedrooms": 3}
-    assert observed["input_json"]["diorama_style_hint"] == "miniature realism"
-    assert isinstance(observed["input_json"].get("tour_context_json"), dict)
-    assert result["status"] == "completed"
-    assert result["provider_key"] == "omagic"
-    assert result["provider_backend_key"] == "onemin_i2v"
+    assert observed["requested_provider_key"] == "magic"
+    assert observed["consent"] == {
+        "tour_url": "https://property.example/tours/north-tower",
+        "principal_id": "exec-property-scout-flythrough",
+        "preferred_provider_key": "magic",
+        "external_processing_consent_granted": True,
+    }
+    render = dict(observed["render"])
+    assert render["title"] == "North Tower"
+    assert render["actor"] == "property-scout"
+    assert render["principal_id"] == "exec-property-scout-flythrough"
+    assert render["tour_url"] == "https://property.example/tours/north-tower"
+    assert render["property_facts"] == {"bedrooms": 3}
+    assert render["diorama_style_hint"] == "miniature realism"
+    assert render["preferred_provider_key"] == "magic"
+    assert render["external_processing_consent_receipt"] == "governed-consent-receipt"
+    assert isinstance(render.get("tour_context_json"), dict)
+    assert observed["delivery_calls"] == 2
+    assert result["status"] == "pending"
+    assert result["reason"] == "governed_render_request_accepted"
+    assert result["provider_key"] == "magic"
+    assert result["execution_lane"] == "ea_governed_render"
+    assert result["public_ready"] is False
+    assert result["launch_eligible"] is False
+    assert result["governed_render_request_id"] == "governed-request-north-tower"
+    assert result["governed_render_receipt"] == {
+        "request_id": "governed-request-north-tower",
+        "status": "accepted",
+        "receipt_sha256": "a" * 64,
+    }
     assert result["tour_url"] == "https://property.example/tours/north-tower"
-    assert result["video_url"] == "https://cdn.example/propertyquarry/delivery.mp4"
-    assert result["delivery_provider_key"] == "magicfit"
+    assert result["video_url"] == ""
+    assert result["flythrough_url"] == ""
+    assert result["delivery_provider_key"] == ""
+    assert result["delivery_duration_seconds"] == 0.0
 
 
 def test_property_search_run_state_builds_stale_failure_event() -> None:

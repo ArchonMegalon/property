@@ -68,7 +68,7 @@ _PROPERTY_TOUR_TERMINAL_SOURCE_GAP_REASONS = frozenset(
     }
 )
 _PROPERTY_AI_360_DISCLOSURE = (
-    "AI-reconstructed from listing photos; not a captured 360 or measured survey."
+    "AI reconstruction based on property photos; not a captured 360 or measured survey."
 )
 _PROPERTY_AI_360_PUBLIC_HOSTS = frozenset({"propertyquarry.com", "www.propertyquarry.com"})
 _PROPERTY_AI_360_SLUG_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")

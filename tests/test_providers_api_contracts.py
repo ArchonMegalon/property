@@ -7609,7 +7609,7 @@ def test_public_tour_routes_serve_bundle_html_json_and_assets(
     assert client.get(f"/tours/files/{slug}/magicfit-still-private.jpg").status_code == 404
 
 
-def test_public_tour_routes_serve_responsive_walkthrough_variants(
+def test_public_tour_routes_serve_provider_neutral_responsive_walkthrough_variants(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -7627,12 +7627,10 @@ def test_public_tour_routes_serve_responsive_walkthrough_variants(
             {
                 "slug": slug,
                 "title": "Danube Flats",
-                "display_title": "Danube Flats",
-                "video_relpath": "walkthrough-desktop.mp4",
-                "video_mobile_relpath": "walkthrough-mobile.mp4",
-                "video_provider": "magicfit",
-                "video_coverage_proof": "boundary_verified_frame_continuation",
-                "scenes": [
+                    "display_title": "Danube Flats",
+                    "video_relpath": "walkthrough-desktop.mp4",
+                    "video_mobile_relpath": "walkthrough-mobile.mp4",
+                    "scenes": [
                     {
                         "name": "Living room",
                         "role": "photo",

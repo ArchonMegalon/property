@@ -108,7 +108,7 @@
       color: var(--text);
       font-weight: 700;
       transform: translateY(calc(-100% - 16px));
-      transition: transform 120ms ease;
+      transition: none;
     }
     .skip-link:focus {
       transform: translateY(0);
@@ -581,6 +581,11 @@
       flex-wrap: wrap;
     }
     .footer nav { display: flex; gap: 16px; flex-wrap: wrap; }
+    .footer nav a {
+      min-height: 24px;
+      display: inline-flex;
+      align-items: center;
+    }
     .pq-consent-settings {
       margin-top: 22px;
       padding: 18px;
@@ -607,23 +612,29 @@
       cursor: pointer;
     }
     .pq-consent-banner {
-      position: fixed;
-      z-index: 80;
-      left: 50%;
-      bottom: 16px;
+      position: relative;
+      z-index: 20;
+      left: auto;
+      bottom: auto;
       width: min(720px, calc(100vw - 32px));
+      margin: 16px auto;
       padding: 18px;
       border: 1px solid var(--line-strong);
       border-radius: 12px;
       background: var(--panel);
       box-shadow: 0 16px 48px rgba(20, 24, 21, 0.22);
-      transform: translateX(-50%);
+      transform: none;
     }
     .pq-consent-banner a,
     .pq-consent-settings a {
       color: var(--text);
       text-decoration: underline;
       text-underline-offset: 2px;
+    }
+    .pq-consent-details {
+      min-height: 24px;
+      display: inline-flex;
+      align-items: center;
     }
 
     /* Console */
@@ -902,8 +913,9 @@
         gap: 6px 14px;
       }
       .pq-consent-banner {
-        bottom: 8px;
+        bottom: auto;
         width: calc(100vw - 16px);
+        margin: 8px auto;
         padding: 16px;
       }
       .pq-consent-form {
@@ -935,10 +947,9 @@
       *,
       *::before,
       *::after {
-        animation-duration: 0.01ms !important;
-        animation-iteration-count: 1 !important;
+        animation: none !important;
         scroll-behavior: auto !important;
-        transition-duration: 0.01ms !important;
+        transition: none !important;
       }
     }
     @media (forced-colors: active) {
@@ -1040,6 +1051,20 @@
     </div>
   </header>
 
+  {% if analytics_consent and analytics_consent.show_banner and analytics_consent.csrf_token %}
+  <aside class="pq-consent-banner" aria-labelledby="analytics-consent-title">
+    <h2 id="analytics-consent-title">Your privacy choice</h2>
+    <p id="analytics-consent-copy">Optional analytics help us understand which public pages are useful. They stay off unless you allow them. Essential security and preference cookies still work.</p>
+    <a class="pq-consent-details" href="/cookies#analytics-preferences">Review cookie settings</a>
+    <form class="pq-consent-form" method="post" action="/privacy/analytics-consent" aria-describedby="analytics-consent-copy">
+      <input type="hidden" name="csrf_token" value="{{ analytics_consent.csrf_token }}">
+      <input type="hidden" name="return_to" value="{{ analytics_consent.return_to }}">
+      <button class="btn" type="submit" name="decision" value="denied">Reject optional analytics</button>
+      <button class="btn" type="submit" name="decision" value="granted">Allow analytics</button>
+    </form>
+  </aside>
+  {% endif %}
+
   <main id="main-content" tabindex="-1">
     <div class="wrap">
       {% block content %}{% endblock %}
@@ -1113,18 +1138,6 @@
       </nav>
     </div>
   </footer>
-  {% if analytics_consent and analytics_consent.show_banner and analytics_consent.csrf_token %}
-  <aside class="pq-consent-banner" aria-labelledby="analytics-consent-title">
-    <h2 id="analytics-consent-title">Your privacy choice</h2>
-    <p id="analytics-consent-copy">Optional analytics help us understand which public pages are useful. They stay off unless you allow them. Essential security and preference cookies still work. <a href="/cookies#analytics-preferences">Review cookie settings</a>.</p>
-    <form class="pq-consent-form" method="post" action="/privacy/analytics-consent" aria-describedby="analytics-consent-copy">
-      <input type="hidden" name="csrf_token" value="{{ analytics_consent.csrf_token }}">
-      <input type="hidden" name="return_to" value="{{ analytics_consent.return_to }}">
-      <button class="btn" type="submit" name="decision" value="denied">Reject optional analytics</button>
-      <button class="btn" type="submit" name="decision" value="granted">Allow analytics</button>
-    </form>
-  </aside>
-  {% endif %}
   <script>
     if ('serviceWorker' in navigator && window.isSecureContext) {
       window.addEventListener('load', () => {

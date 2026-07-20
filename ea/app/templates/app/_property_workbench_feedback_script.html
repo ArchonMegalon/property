@@ -1045,7 +1045,7 @@
       if (feedbackNoteNode) feedbackNoteNode.value = '';
       feedbackReactionButtons.forEach((button) => button.classList.remove('active'));
       root.querySelectorAll('[data-workbench-row]').forEach((row) => {
-        row.setAttribute('aria-selected', row.getAttribute('data-candidate-ref') === candidate.candidate_ref ? 'true' : 'false');
+        row.setAttribute('aria-current', row.getAttribute('data-candidate-ref') === candidate.candidate_ref ? 'true' : 'false');
       });
       const titles = [...root.querySelectorAll('[data-pw-title]')];
       const sources = [...root.querySelectorAll('[data-pw-source]')];
@@ -1227,14 +1227,22 @@
         if (row.dataset.pqxRowBound === '1') return;
         row.dataset.pqxRowBound = '1';
         row.addEventListener('click', (event) => {
-          const interactiveTarget = event.target?.closest?.('a, button, [data-pqx-scope-open]');
+          const selectTrigger = event.target?.closest?.('[data-workbench-select-candidate]');
+          if (selectTrigger) {
+            event.preventDefault();
+            event.stopPropagation();
+            selectCandidate(selectTrigger.getAttribute('data-candidate-ref') || row.getAttribute('data-candidate-ref'));
+            if (root.querySelector('[data-pqx-mobile-panel="property"]')) setMode('property');
+            return;
+          }
+          const interactiveTarget = event.target?.closest?.('a, button, input, select, textarea, summary, [data-pqx-scope-open]');
           if (interactiveTarget && interactiveTarget !== row) return;
           selectCandidate(row.getAttribute('data-candidate-ref'));
           if (root.querySelector('[data-pqx-mobile-panel="property"]')) setMode('property');
         });
         row.addEventListener('keydown', (event) => {
           if (event.key !== 'Enter' && event.key !== ' ') return;
-          const interactiveTarget = event.target?.closest?.('a, button, [data-pqx-scope-open]');
+          const interactiveTarget = event.target?.closest?.('a, button, input, select, textarea, summary, [data-pqx-scope-open]');
           if (interactiveTarget && interactiveTarget !== row) return;
           event.preventDefault();
           selectCandidate(row.getAttribute('data-candidate-ref'));
@@ -1256,7 +1264,7 @@
       if (!button) return;
       event.preventDefault();
       event.stopPropagation();
-      const ref = button.getAttribute('data-candidate-ref') || root.querySelector('[aria-selected="true"][data-candidate-ref]')?.getAttribute('data-candidate-ref') || '';
+      const ref = button.getAttribute('data-candidate-ref') || root.querySelector('[aria-current="true"][data-candidate-ref]')?.getAttribute('data-candidate-ref') || '';
       createFlipLinkPacket(candidateByRef.get(ref) || candidates[0], button);
     });
     root.addEventListener('click', (event) => {
@@ -1319,7 +1327,7 @@
     const urlCandidate = new URL(window.location.href).searchParams.get('candidate');
     if (urlCandidate) selectCandidate(urlCandidate, { updateUrl: false });
     else if (typeof refreshSelectedCandidatePreview === 'function') {
-      const initialSelectedRef = String(root.querySelector('[data-workbench-row][aria-selected="true"]')?.getAttribute('data-candidate-ref') || candidates[0]?.candidate_ref || '').trim();
+      const initialSelectedRef = String(root.querySelector('[data-workbench-row][aria-current="true"]')?.getAttribute('data-candidate-ref') || candidates[0]?.candidate_ref || '').trim();
       if (initialSelectedRef) {
         window.setTimeout(() => {
           refreshSelectedCandidatePreview(initialSelectedRef);

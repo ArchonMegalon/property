@@ -1584,6 +1584,9 @@
       color: var(--pq-muted);
       font-size: 12px;
     }
+    .pqx-brand .pqx-mark {
+      color: #fff9ed;
+    }
     .pqx-brand-copy {
       display: block;
       font-size: 11px;
@@ -1901,9 +1904,8 @@
       *,
       *::before,
       *::after {
-        animation-duration: 0.01ms !important;
-        animation-iteration-count: 1 !important;
-        transition-duration: 0.01ms !important;
+        animation: none !important;
+        transition: none !important;
         scroll-behavior: auto !important;
       }
     }
@@ -3791,9 +3793,7 @@
       padding: 14px 16px;
       border: 1px solid rgba(137, 93, 28, 0.18);
       border-radius: 18px;
-      background:
-        radial-gradient(circle at 14% 18%, rgba(214, 232, 222, 0.48), transparent 32%),
-        rgba(255, 253, 248, 0.98);
+      background: #fffdf8;
       color: var(--pq-ink);
       box-shadow: none;
       cursor: pointer;
@@ -6619,13 +6619,13 @@
     }
     .pqx-current-property-copy p {
       margin: 0;
-      color: #dccfb9;
+      color: #5f574d;
     }
     .pqx-current-property-meta {
       display: flex;
       flex-wrap: wrap;
       gap: 6px 10px;
-      color: #eadfcc;
+      color: #5f574d;
       font-size: 11px;
     }
     .pqx-route-preview-card {
@@ -7518,7 +7518,7 @@
       padding: 11px;
       border: 1px solid rgba(171, 145, 83, 0.18);
       border-radius: 12px;
-      background: linear-gradient(180deg, rgba(255, 251, 243, 0.98), rgba(255, 254, 250, 0.98));
+      background: #fffdf8;
       box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
     }
     .pqx-reading-card strong {
@@ -7634,7 +7634,7 @@
     .pqx-card summary::-webkit-details-marker {
       display: none;
     }
-    .pqx-result[aria-selected="true"] {
+    .pqx-result[aria-current="true"] {
       border-color: var(--pq-charcoal);
       background: #fff8ea;
       box-shadow: 0 0 0 2px rgba(189, 139, 47, 0.18), var(--pq-shadow);
@@ -7787,7 +7787,7 @@
     html[data-pq-theme="dark"] .pqx-advanced-panel[open] > .pqx-disclosure-summary,
     html[data-pq-theme="dark"] .pqx-account-action-card.primary,
     html[data-pq-theme="dark"] .pqx-automation-card.is-selected,
-    html[data-pq-theme="dark"] .pqx-result[aria-selected="true"],
+    html[data-pq-theme="dark"] .pqx-result[aria-current="true"],
     html[data-pq-theme="dark"] a.pqx-result-fact:hover,
     html[data-pq-theme="dark"] a.pqx-result-fact:focus-visible,
     html[data-pq-theme="dark"] button.pqx-result-fact:hover,
@@ -8373,7 +8373,7 @@
       padding: 18px;
       border: 1px dashed var(--pq-line-strong);
       border-radius: 10px;
-      background: rgba(255, 253, 248, 0.72);
+      background: #fffdf8;
       text-wrap: pretty;
     }
     .pqx-results-empty-state {
@@ -8381,9 +8381,8 @@
       align-content: center;
       justify-items: start;
       border-style: solid;
-      background:
-        linear-gradient(135deg, rgba(255, 253, 248, 0.94), rgba(246, 249, 244, 0.9)),
-        var(--pq-panel);
+      background: var(--pq-paper);
+      background-image: none;
     }
     .pqx-results-empty-state strong {
       font-size: 1.02rem;
@@ -10787,7 +10786,7 @@
       color: var(--pq-ink);
       font-weight: 800;
       transform: translateY(calc(-100% - 16px));
-      transition: transform 120ms ease;
+      transition: none;
     }
     .pqx-skip-link:focus {
       transform: translateY(0);
@@ -10797,7 +10796,7 @@
     #pqx-main-content:focus { outline: none; }
     .pqx-topbar {
       border-bottom-color: var(--pq-line);
-      background: color-mix(in srgb, var(--pq-paper) 96%, transparent);
+      background: var(--pq-paper);
       box-shadow: none;
     }
     .pqx-mark,
@@ -11988,7 +11987,7 @@
                               </span>
                             </div>
                           <div class="pqx-pref-row-controls"{% if option.get('distance_options') %} data-pref-row-controls-distance="true"{% endif %}>
-                            <select name="keyword_preference__{{ option.get('value') }}" data-keyword-preference-select data-keyword-value="{{ option.get('value') }}">
+                            <select name="keyword_preference__{{ option.get('value') }}" aria-label="{{ option.get('label') }} priority" data-keyword-preference-select data-keyword-value="{{ option.get('value') }}">
                               {% if option.get('preference_options') %}
                               {% for preference in option.get('preference_options') or [] %}
                               <option value="{{ preference.get('value') }}" {% if (option.get('state') or 'any') == (preference.get('value') or 'any') %}selected{% endif %}>{{ preference.get('label') }}</option>
@@ -12002,7 +12001,7 @@
                               {% endif %}
                             </select>
                             {% if option.get('distance_options') %}
-                            <select name="keyword_distance__{{ option.get('value') }}" data-keyword-distance-select data-keyword-value="{{ option.get('value') }}" {% if (option.get('state') or 'any') == 'any' %}disabled{% endif %}>
+                            <select name="keyword_distance__{{ option.get('value') }}" aria-label="{{ option.get('label') }} distance" data-keyword-distance-select data-keyword-value="{{ option.get('value') }}" {% if (option.get('state') or 'any') == 'any' %}disabled{% endif %}>
                               {% for distance in option.get('distance_options') or [] %}
                               <option value="{{ distance.get('value') }}" {% if (option.get('distance_state') or '500') == (distance.get('value') or '500') %}selected{% endif %}>{{ distance.get('label') }}</option>
                               {% endfor %}

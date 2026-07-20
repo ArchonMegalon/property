@@ -851,21 +851,14 @@ def test_smoke_runtime_runs_unprivileged_local_propertyquarry_browser_contracts(
 def test_smoke_runtime_runs_fail_closed_postgres_production_storage_browser_lane() -> None:
     workflow = _read(".github/workflows/smoke-runtime.yml")
     job = _workflow_job(workflow, "propertyquarry-postgres-browser-e2e")
-    smoke = _read("scripts/smoke_property_postgres.sh")
     browser_test = _read("tests/e2e/test_propertyquarry_postgres_browser.py")
     bootstrap = _read("scripts/propertyquarry_postgres_browser_bootstrap.py")
-    property_web_dockerfile = _read("ea/Dockerfile.property-web")
 
     assert workflow.count("\n  propertyquarry-postgres-browser-e2e:\n") == 1
     assert "permissions:\n      contents: read" in job
     assert "runs-on: ubuntu-latest" in job
     assert "timeout-minutes: 45" in job
     assert "persist-credentials: false" in job
-    assert "PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES: \"0\"" in job
-    assert "EA_API_TOKEN: propertyquarry-postgres-browser-${{ github.run_id }}-${{ github.run_attempt }}" in job
-    assert "POSTGRES_PASSWORD: propertyquarry-browser-${{ github.run_id }}-${{ github.run_attempt }}" in job
-    assert "python -m playwright install --with-deps chromium" in job
-    assert "bash scripts/smoke_property_postgres.sh --browser-e2e" in job
     assert "continue-on-error:" not in job
     assert "|| true" not in job
     assert "secrets." not in job
@@ -873,28 +866,39 @@ def test_smoke_runtime_runs_fail_closed_postgres_production_storage_browser_lane
 
     for required in (
         "set -euo pipefail",
-        "docker-compose.property.yml",
-        'COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-propertyquarry-postgres-smoke-${smoke_suffix}}"',
-        'PROPERTYQUARRY_API_CONTAINER_NAME="${PROPERTYQUARRY_API_CONTAINER_NAME:-propertyquarry-postgres-smoke-api-${smoke_suffix}}"',
-        'PROPERTYQUARRY_DB_CONTAINER_NAME="${PROPERTYQUARRY_DB_CONTAINER_NAME:-propertyquarry-postgres-smoke-db-${smoke_suffix}}"',
-        'PROPERTYQUARRY_MIGRATE_CONTAINER_NAME="${PROPERTYQUARRY_MIGRATE_CONTAINER_NAME:-propertyquarry-postgres-smoke-migrate-${smoke_suffix}}"',
-        'set_env_value "EA_RUNTIME_MODE" "prod"',
-        'set_env_value "EA_STORAGE_BACKEND" "postgres"',
-        'set_env_value "EA_ALLOW_LOOPBACK_NO_AUTH" "0"',
-        'set_env_value "PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES" "0"',
-        'if [[ "${ready_reason}" == "${expected_ready_reason}" ]]',
-        'runtime_mode="$(docker exec',
-        'runtime_storage="$(docker exec',
-        'legacy_runtime_surfaces="$(docker exec',
-        "PROPERTYQUARRY_POSTGRES_BROWSER_E2E=1",
-        "propertyquarry_postgres_browser_bootstrap.py",
-        "PROPERTYQUARRY_POSTGRES_BROWSER_SESSION_FILE",
-        "tests/e2e/test_propertyquarry_postgres_browser.py",
+        'python -m venv "${venv}"',
+        "pip install --user --ignore-installed",
+        "pip install --ignore-installed",
+        "-c ea/requirements.lock",
+        "-c ea/requirements.ci.lock",
+        "pytest==9.0.3",
+        "-m playwright install --with-deps chromium",
+        'docker pull "${postgres_image}"',
+        'sudo systemctl start "user@${runner_uid}.service"',
+        'test -S "${user_runtime_dir}/bus"',
+        "DBUS_SESSION_BUS_ADDRESS",
+        "/usr/bin/systemd-run",
+        "--property=MemoryMax=1073741824",
+        "--property=MemorySwapMax=0",
+        "--property=TasksMax=128",
+        "--property=CPUQuota=100%",
+        "--property=RuntimeMaxSec=1200s",
+        "scripts/smoke_property_postgres_isolated.py",
+        '--venv "${PROPERTYQUARRY_POSTGRES_BROWSER_VENV}"',
+        '--chromium-headless-shell "${PROPERTYQUARRY_POSTGRES_BROWSER_CHROMIUM}"',
+        "--docker-binary /usr/bin/docker",
+        "--systemd-run /usr/bin/systemd-run",
     ):
-        assert required in smoke
-    assert "postgres_ready*" not in smoke
-    assert "sed -i" not in smoke
-    assert "multiline env values are not supported" in smoke
+        assert required in job
+    for forbidden in (
+        "scripts/smoke_property_postgres.sh",
+        "docker-compose.property.yml",
+        "POSTGRES_PASSWORD",
+        "EA_API_TOKEN",
+        "--system-site-packages",
+        "pytest==9.0.2",
+    ):
+        assert forbidden not in job
 
     for required in (
         "PROPERTYQUARRY_POSTGRES_BROWSER_BASE_URL",
@@ -931,11 +935,6 @@ def test_smoke_runtime_runs_fail_closed_postgres_production_storage_browser_lane
         'getattr(os, "O_NOFOLLOW", 0)',
     ):
         assert required in bootstrap
-    assert (
-        "COPY scripts/propertyquarry_postgres_browser_bootstrap.py "
-        "/app/scripts/propertyquarry_postgres_browser_bootstrap.py"
-        in property_web_dockerfile
-    )
 
 
 def test_smoke_runtime_bootstraps_clean_runner_dependencies_and_release_parent() -> None:
@@ -948,18 +947,19 @@ def test_smoke_runtime_bootstraps_clean_runner_dependencies_and_release_parent()
 
     assert "fetch-depth: 0" in security_job
     assert "Release hygiene audits every commit between the manifest candidate and HEAD." in security_job
-    assert "pytest==9.0.2" in api_job
+    assert "pytest==9.0.3" in api_job
     assert "httpx==0.28.1" in api_job
+    assert "jsonschema==4.25.1" in api_job
     assert "opencv-python-headless==4.13.0.92" in api_job
     assert "sudo apt-get install --yes ffmpeg" in api_job
     assert "python -m playwright install --with-deps chromium" in api_job
-    assert "pytest==9.0.2" in browser_job
+    assert "pytest==9.0.3" in browser_job
     assert "httpx==0.28.1" in browser_job
     assert "sudo apt-get install --yes ffmpeg" in browser_job
     assert "POSTGRES_PASSWORD: propertyquarry-ci-${{ github.run_id }}" in postgres_smoke_job
     assert "docker volume create property_propertyquarry_public_tours" in postgres_smoke_job
     assert "POSTGRES_PASSWORD: propertyquarry-ci-${{ github.run_id }}" in postgres_contract_job
-    assert "pytest==9.0.2" in postgres_contract_job
+    assert "pytest==9.0.3" in postgres_contract_job
     assert "httpx==0.28.1" in postgres_contract_job
 
 

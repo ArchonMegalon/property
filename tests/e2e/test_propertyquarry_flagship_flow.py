@@ -629,7 +629,7 @@ def test_propertyquarry_mobile_flagship_flow_runs_search_opens_research_map_and_
         expect(request_walkthrough).to_be_visible()
         request_walkthrough.click()
         with page.expect_response("**/app/api/signals/willhaben/property-tour", timeout=5_000) as visual_response:
-            _choose_research_visual_style(page)
+            _choose_research_visual_style(page, accept_external_processing=True)
         assert visual_response.value.ok
         assert len(visual_requests) == 1
         payload = visual_requests[0]
@@ -637,6 +637,7 @@ def test_propertyquarry_mobile_flagship_flow_runs_search_opens_research_map_and_
         assert payload["run_id"] == run_id
         assert payload["auto_deliver"] is False
         assert payload["allow_floorplan_only"] is True
+        assert payload["external_processing_consent_granted"] is True
         assert "urban jungle" in str(payload.get("diorama_style_hint") or "").lower()
         expect(page.locator("[data-prd-visual-status]")).to_contain_text("queued after your request", timeout=5_000)
         expect(page.locator("[data-prd-visual-eta]")).to_contain_text("about 8 min", timeout=5_000)

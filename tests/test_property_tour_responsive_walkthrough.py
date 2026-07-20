@@ -59,12 +59,10 @@ def test_public_payload_exposes_responsive_walkthrough_relpaths_without_private_
     assert rendered["video_mobile_relpath"] == "walkthrough-mobile-720p60.mp4"
 
 
-def test_rendered_tour_page_embeds_mobile_then_desktop_walkthrough_sources() -> None:
+def test_provider_neutral_rendered_tour_page_embeds_mobile_then_desktop_walkthrough_sources() -> None:
     payload = {
         **_payload(),
         "display_title": "Danube Flats",
-        "video_provider": "magicfit",
-        "video_coverage_proof": "boundary_verified_frame_continuation",
         "facts": {},
         "scenes": [
             {
@@ -76,7 +74,11 @@ def test_rendered_tour_page_embeds_mobile_then_desktop_walkthrough_sources() -> 
         ],
     }
 
-    rendered = _tour_html(payload, hostname="propertyquarry.com", path="/tours/danube-flats")
+    rendered = _tour_html(
+        payload,
+        hostname="propertyquarry.com",
+        path="/tours/danube-flats",
+    )
 
     mobile_url = "/tours/files/danube-flats/walkthrough-mobile-720p60.mp4"
     desktop_url = "/tours/danube-flats/walkthrough"

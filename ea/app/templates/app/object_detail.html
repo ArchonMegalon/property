@@ -614,6 +614,9 @@
     margin-bottom: 3px;
   }
   .object-row strong a {
+    min-height: 24px;
+    display: inline-flex;
+    align-items: center;
     color: inherit;
     text-decoration: none;
   }
@@ -656,7 +659,13 @@
   }
   .object-form textarea {
     min-height: 96px;
+    field-sizing: content;
+    overflow: clip;
     resize: vertical;
+  }
+  .object-form textarea:focus,
+  .object-form textarea:not(:placeholder-shown) {
+    overflow: auto;
   }
   .object-tag {
     white-space: nowrap;

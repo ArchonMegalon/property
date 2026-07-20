@@ -108,6 +108,19 @@ wait_for_postgres_sql() {
 
 wait_for_postgres_sql 90
 
+echo "== postgres contract tests: provision governed admission capacity owner =="
+capacity_owner_state="$(
+  docker exec -i "${DB_CONTAINER}" \
+    psql --no-psqlrc --quiet --tuples-only --no-align \
+      -v ON_ERROR_STOP=1 -U "${DB_USER}" -d postgres \
+    < "${EA_ROOT}/scripts/propertyquarry_disposable_capacity_owner.sql"
+)"
+capacity_owner_state="$(printf '%s' "${capacity_owner_state}" | tr -d '[:space:]')"
+if [[ "${capacity_owner_state}" != "f|f|f|f|f|f|f|0" ]]; then
+  echo "disposable admission capacity owner verification failed" >&2
+  exit 4
+fi
+
 docker exec -i "${DB_CONTAINER}" psql -v ON_ERROR_STOP=1 -U "${DB_USER}" -d postgres \
   -c "DROP DATABASE IF EXISTS \"${TEST_DB}\";" >/dev/null
 docker exec -i "${DB_CONTAINER}" psql -v ON_ERROR_STOP=1 -U "${DB_USER}" -d postgres \

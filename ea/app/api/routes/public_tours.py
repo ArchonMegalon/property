@@ -6474,7 +6474,7 @@ def _tour_html(
     <style nonce="{nonce_attr}">
       :root {{
         --bg: #f3eee3;
-        --panel: rgba(255,255,255,0.76);
+        --panel: #fffdf8;
         --ink: #1d1c1a;
         --muted: #6e6658;
         --accent: #9f2f22;
@@ -6485,10 +6485,7 @@ def _tour_html(
         margin: 0;
         color: var(--ink);
         font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
-        background:
-          radial-gradient(circle at top left, rgba(159,47,34,0.18), transparent 34%),
-          radial-gradient(circle at bottom right, rgba(29,28,26,0.10), transparent 30%),
-          linear-gradient(160deg, #f8f4eb 0%, #ece5d8 100%);
+        background: var(--bg);
       }}
       .shell {{
         max-width: 1220px;
@@ -6503,7 +6500,6 @@ def _tour_html(
       }}
       .mast, .panel {{
         background: var(--panel);
-        backdrop-filter: blur(14px);
         border: 1px solid var(--edge);
         border-radius: 28px;
         box-shadow: 0 18px 50px rgba(29,28,26,0.08);
@@ -6541,7 +6537,7 @@ def _tour_html(
       .chip {{
         padding: 10px 14px;
         border-radius: 999px;
-        background: rgba(255,255,255,0.72);
+        background: var(--panel);
         border: 1px solid rgba(29,28,26,0.09);
         font-size: 14px;
       }}
@@ -6583,7 +6579,7 @@ def _tour_html(
       .kv {{
         padding: 12px 14px;
         border-radius: 18px;
-        background: rgba(255,255,255,0.7);
+        background: var(--panel);
         border: 1px solid rgba(29,28,26,0.07);
       }}
       .kv b {{
@@ -6604,7 +6600,7 @@ def _tour_html(
         gap: 16px;
         padding: 22px;
         border-radius: 30px;
-        background: rgba(255,255,255,0.76);
+        background: var(--panel);
         border: 1px solid rgba(29,28,26,0.12);
         box-shadow: 0 18px 50px rgba(29,28,26,0.08);
       }}
@@ -6665,7 +6661,7 @@ def _tour_html(
         padding: 0 14px;
         border-radius: 999px;
         border: 1px solid rgba(29,28,26,0.10);
-        background: rgba(255,255,255,0.72);
+        background: var(--panel);
         color: var(--ink);
         cursor: pointer;
       }}
@@ -6699,12 +6695,13 @@ def _tour_html(
       }}
       .caption {{
         position: absolute;
+        z-index: 2;
         left: 18px;
         bottom: 18px;
         padding: 12px 16px;
         max-width: min(90%, 520px);
         border-radius: 18px;
-        background: rgba(11,11,10,0.64);
+        background: #1d1c1a;
         color: #fffaf2;
       }}
       .caption small {{
@@ -6715,6 +6712,7 @@ def _tour_html(
       }}
       .nav {{
         position: absolute;
+        z-index: 1;
         inset: 0;
         display: flex;
         align-items: center;
@@ -6743,7 +6741,7 @@ def _tour_html(
         overflow: hidden;
         border-radius: 18px;
         border: 2px solid transparent;
-        background: rgba(255,255,255,0.6);
+        background: var(--panel);
         cursor: pointer;
       }}
       .thumb.active {{
@@ -6765,7 +6763,7 @@ def _tour_html(
         color: var(--ink);
         font-weight: 800;
         letter-spacing: 0.08em;
-        background: linear-gradient(135deg, rgba(255,255,255,0.94), rgba(241,231,214,0.86));
+        background: #f1e7d6;
       }}
       .badge {{
         position: absolute;
@@ -6773,7 +6771,7 @@ def _tour_html(
         top: 8px;
         padding: 4px 8px;
         border-radius: 999px;
-        background: rgba(11,11,10,0.72);
+        background: #1d1c1a;
         color: #fffaf2;
         font-size: 11px;
         text-transform: uppercase;
@@ -6789,6 +6787,13 @@ def _tour_html(
         .viewer img {{ min-height: 320px; height: 52vh; }}
         .live-frame-wrap, .live-shell {{ border-radius: 22px; }}
         .live-frame {{ min-height: 380px; height: 60vh; }}
+      }}
+      @media (prefers-reduced-motion: reduce) {{
+        *, *::before, *::after {{
+          animation: none !important;
+          transition: none !important;
+          scroll-behavior: auto !important;
+        }}
       }}
     </style>
   </head>
@@ -10893,7 +10898,7 @@ def _tour_control_panorama_spec(
     representation_kind = str(walkable_scene.get("representation_kind") or "captured_360").strip().lower()
     disclosure = str(walkable_scene.get("representation_disclosure") or "").strip()
     if representation_kind == "ai_reconstruction" and not disclosure:
-        disclosure = "AI-reconstructed from listing photos; not a measured survey or captured 360 scan."
+        disclosure = "AI reconstruction based on property photos; not a measured survey or captured 360 scan."
     spatial_model: dict[str, object] = {}
     raw_spatial_model = walkable_scene.get("spatial_model")
     if isinstance(raw_spatial_model, dict):
@@ -12093,10 +12098,9 @@ def public_tour_control_viewer(slug: str, viewer_mode: str, request: Request) ->
     fullscreen = str(request.query_params.get("fullscreen") or "").strip().lower() in {"1", "true", "yes", "on"}
     if normalized_viewer_mode in {"matterport", "metaport"}:
         raise HTTPException(status_code=404, detail="tour_control_provider_retired")
-    if (
-        isinstance(payload.get("walkable_scene"), dict)
-        and normalized_viewer_mode != "krpano"
-    ):
+    if normalized_viewer_mode in {"pano2vr", "pano_2_vr", "krpano"}:
+        raise HTTPException(status_code=404, detail="tour_control_panorama_export_hidden")
+    if isinstance(payload.get("walkable_scene"), dict):
         primary_control_path = _public_tour_primary_control_path(payload)
         if not primary_control_path:
             raise HTTPException(status_code=404, detail="tour_control_acceptance_missing")

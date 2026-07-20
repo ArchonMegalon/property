@@ -126,22 +126,23 @@ POSTGRES_CHROMIUM_ARGS: Final = (
 DEPENDENCY_PROFILE: Final = (
     ("annotated-doc", "0.0.4"),
     ("annotated-types", "0.7.0"),
-    ("anyio", "4.12.1"),
-    ("fastapi", "0.135.1"),
+    ("anyio", "4.13.0"),
+    ("fastapi", "0.139.2"),
     ("h11", "0.16.0"),
     ("httpcore", "1.0.9"),
     ("httpx", "0.28.1"),
     ("iniconfig", "2.3.0"),
-    ("numpy", "2.4.3"),
+    ("numpy", "2.3.5"),
+    ("packaging", "26.2"),
     ("pluggy", "1.6.0"),
-    ("psycopg", "3.3.3"),
-    ("psycopg-binary", "3.3.3"),
+    ("psycopg", "3.3.4"),
+    ("psycopg-binary", "3.3.4"),
     ("pydantic", "2.12.5"),
     ("pydantic-core", "2.41.5"),
-    ("PyJWT", "2.12.1"),
-    ("pytest", "9.0.2"),
-    ("pytesseract", "0.3.13"),
-    ("starlette", "0.52.1"),
+    ("PyJWT", "2.13.0"),
+    ("Pygments", "2.20.0"),
+    ("pytest", "9.0.3"),
+    ("starlette", "1.3.1"),
     ("typing-extensions", "4.15.0"),
     ("typing-inspection", "0.4.2"),
 )
@@ -2706,6 +2707,12 @@ def _runtime_environment(
     chromium_headless_shell: str,
     dependency_overlay_base: Path,
 ) -> dict[str, str]:
+    dependency_overlay_site = (
+        dependency_overlay_base
+        / "lib"
+        / f"python{sys.version_info.major}.{sys.version_info.minor}"
+        / "site-packages"
+    )
     paths = {
         "artifacts": temp_root / "artifacts",
         "public-tours": temp_root / "public-tours",
@@ -2747,7 +2754,12 @@ def _runtime_environment(
         "PROPERTYQUARRY_SUBSCRIBR_COMPLETION_DIR": str(paths["subscribr"]),
         "PROPERTYQUARRY_TOUR_EXPORT_INCOMING_DIR": str(paths["incoming-tours"]),
         "PYTHONDONTWRITEBYTECODE": "1",
-        "PYTHONPATH": str(repo_root / "ea"),
+        # Candidate source stays first, followed by the private dependency
+        # snapshot.  The latter must precede the complete venv so the packages
+        # we hash before and after the run are the packages Python executes.
+        "PYTHONPATH": os.pathsep.join(
+            (str(repo_root / "ea"), str(dependency_overlay_site))
+        ),
         "PYTHONUSERBASE": str(dependency_overlay_base),
         "TMPDIR": str(temp_root),
     }

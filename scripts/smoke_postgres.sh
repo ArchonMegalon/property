@@ -297,6 +297,19 @@ wait_for_postgres_sql() {
 
 wait_for_postgres_sql 90
 
+echo "== smoke-postgres: provision governed admission capacity owner =="
+capacity_owner_state="$(
+  docker exec -i "${DB_CONTAINER}" \
+    psql --no-psqlrc --quiet --tuples-only --no-align \
+      -v ON_ERROR_STOP=1 -U "${DB_USER}" -d postgres \
+    < "${EA_ROOT}/scripts/propertyquarry_disposable_capacity_owner.sql"
+)"
+capacity_owner_state="$(printf '%s' "${capacity_owner_state}" | tr -d '[:space:]')"
+if [[ "${capacity_owner_state}" != "f|f|f|f|f|f|f|0" ]]; then
+  echo "disposable admission capacity owner verification failed" >&2
+  exit 47
+fi
+
 echo "== smoke-postgres: reset isolated db ${SMOKE_DB} =="
 db_password_sql="${DB_PASSWORD//\'/\'\'}"
 docker exec -i "${DB_CONTAINER}" psql -v ON_ERROR_STOP=1 -U "${DB_USER}" -d postgres \

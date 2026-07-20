@@ -673,7 +673,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes ffmpeg
-          python -m pip install -r ea/requirements.txt -c ea/requirements.lock httpx==0.28.1 opencv-python-headless==4.13.0.92 pytest==9.0.2
+          python -m pip install -r ea/requirements.txt -c ea/requirements.lock -c ea/requirements.ci.lock httpx==0.28.1 jsonschema==4.25.1 opencv-python-headless==4.13.0.92 pytest==9.0.3
           python -m playwright install --with-deps chromium
       - name: Prepare canonical repository path
         run: |
@@ -700,7 +700,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes ffmpeg
-          python -m pip install -r ea/requirements.txt -c ea/requirements.lock httpx==0.28.1 pytest==9.0.2
+          python -m pip install -r ea/requirements.txt -c ea/requirements.lock -c ea/requirements.ci.lock httpx==0.28.1 pytest==9.0.3
           python -m playwright install --with-deps chromium
       - name: Prepare canonical repository path
         run: |
@@ -732,7 +732,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes ffmpeg xvfb
-          python -m pip install -r ea/requirements.txt -c ea/requirements.lock httpx==0.28.1 pytest==9.0.2
+          python -m pip install -r ea/requirements.txt -c ea/requirements.lock -c ea/requirements.ci.lock httpx==0.28.1 pytest==9.0.3
           python -m playwright install --with-deps "${{ matrix.browser-engine }}"
       - name: Prepare canonical repository path
         run: |
@@ -773,11 +773,6 @@ jobs:
       contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    env:
-      EA_API_TOKEN: propertyquarry-postgres-browser-${{ github.run_id }}-${{ github.run_attempt }}
-      POSTGRES_PASSWORD: propertyquarry-browser-${{ github.run_id }}-${{ github.run_attempt }}
-      PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES: "0"
-      PROPERTYQUARRY_RECONSTRUCTION_RENDER_BRIDGE_TOKEN: propertyquarry-browser-render-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -786,11 +781,95 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install PostgreSQL storage-browser dependencies
+        shell: bash
         run: |
-          python -m pip install -r ea/requirements.txt -c ea/requirements.lock httpx==0.28.1 pytest==9.0.2
-          python -m playwright install --with-deps chromium
+          set -euo pipefail
+          venv="${RUNNER_TEMP}/propertyquarry-postgres-browser-venv"
+          browser_root="${RUNNER_TEMP}/propertyquarry-postgres-browser-playwright"
+          umask 077
+          dependency_userbase="$(mktemp -d "${RUNNER_TEMP}/propertyquarry-postgres-browser-userbase.XXXXXXXX")"
+          chmod 0700 "${dependency_userbase}"
+          PYTHONUSERBASE="${dependency_userbase}" \
+            python -m pip install --user --ignore-installed -r ea/requirements.txt -c ea/requirements.lock -c ea/requirements.ci.lock httpcore==1.0.9 httpx==0.28.1 iniconfig==2.3.0 pluggy==1.6.0 pytest==9.0.3
+          python -m venv "${venv}"
+          "${venv}/bin/python" -m pip install --ignore-installed -r ea/requirements.txt -c ea/requirements.lock -c ea/requirements.ci.lock httpcore==1.0.9 httpx==0.28.1 iniconfig==2.3.0 pluggy==1.6.0 pytest==9.0.3
+          PLAYWRIGHT_BROWSERS_PATH="${browser_root}" \
+            "${venv}/bin/python" -m playwright install --with-deps chromium
+
+          chromium_revision="$("${venv}/bin/python" - <<'PY'
+          import json
+          from pathlib import Path
+
+          import playwright
+
+          registry = (
+              Path(playwright.__file__).resolve().parent
+              / "driver"
+              / "package"
+              / "browsers.json"
+          )
+          payload = json.loads(registry.read_text(encoding="utf-8"))
+          matches = [
+              row
+              for row in payload.get("browsers", [])
+              if isinstance(row, dict) and row.get("name") == "chromium-headless-shell"
+          ]
+          if len(matches) != 1:
+              raise SystemExit("Playwright Chromium headless-shell registry entry is not exact")
+          revision = matches[0].get("revision")
+          if not isinstance(revision, str) or not revision.isdigit() or revision.startswith("0"):
+              raise SystemExit("Playwright Chromium headless-shell revision is invalid")
+          print(revision)
+          PY
+          )"
+          chromium_headless_shell="${browser_root}/chromium_headless_shell-${chromium_revision}/chrome-headless-shell-linux64/chrome-headless-shell"
+          test -x "${chromium_headless_shell}"
+          postgres_image="$("${venv}/bin/python" -c 'from scripts.smoke_property_postgres_isolated import POSTGRES_IMAGE; print(POSTGRES_IMAGE)')"
+          docker pull "${postgres_image}"
+
+          runner_uid="$(id -u)"
+          if [[ ! "${runner_uid}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "PostgreSQL browser lane requires an unprivileged numeric runner UID" >&2
+            exit 1
+          fi
+          sudo systemctl start "user@${runner_uid}.service"
+          user_runtime_dir="/run/user/${runner_uid}"
+          user_bus="unix:path=${user_runtime_dir}/bus"
+          test -d "${user_runtime_dir}"
+          test -S "${user_runtime_dir}/bus"
+          export XDG_RUNTIME_DIR="${user_runtime_dir}"
+          export DBUS_SESSION_BUS_ADDRESS="${user_bus}"
+          /usr/bin/systemd-run \
+            --user \
+            --scope \
+            --quiet \
+            --collect \
+            --unit="propertyquarry-postgres-browser-preflight-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --property=MemoryMax=1073741824 \
+            --property=MemorySwapMax=0 \
+            --property=TasksMax=128 \
+            --property=CPUQuota=100% \
+            --property=RuntimeMaxSec=1200s \
+            -- \
+            /usr/bin/true
+          {
+            printf '%s=%s\n' PROPERTYQUARRY_POSTGRES_BROWSER_VENV "${venv}"
+            printf '%s=%s\n' PROPERTYQUARRY_POSTGRES_BROWSER_CHROMIUM "${chromium_headless_shell}"
+            printf '%s=%s\n' PYTHONUSERBASE "${dependency_userbase}"
+            printf '%s=%s\n' XDG_RUNTIME_DIR "${user_runtime_dir}"
+            printf '%s=%s\n' DBUS_SESSION_BUS_ADDRESS "${user_bus}"
+          } >> "${GITHUB_ENV}"
       - name: Run production-storage PostgreSQL browser lane
-        run: bash scripts/smoke_property_postgres.sh --browser-e2e
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${PROPERTYQUARRY_POSTGRES_BROWSER_VENV}/bin/python" \
+            scripts/smoke_property_postgres_isolated.py \
+            --repo-root "${GITHUB_WORKSPACE}" \
+            --venv "${PROPERTYQUARRY_POSTGRES_BROWSER_VENV}" \
+            --chromium-headless-shell "${PROPERTYQUARRY_POSTGRES_BROWSER_CHROMIUM}" \
+            --docker-binary /usr/bin/docker \
+            --systemd-run /usr/bin/systemd-run
 
   propertyquarry-continuous-ux:
     permissions:
@@ -825,7 +904,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes ffmpeg
-          python -m pip install -r ea/requirements.txt -c ea/requirements.lock httpx==0.28.1 pytest==9.0.2
+          python -m pip install -r ea/requirements.txt -c ea/requirements.lock -c ea/requirements.ci.lock httpx==0.28.1 pytest==9.0.3
           python -m playwright install --with-deps chromium firefox webkit
       - name: Prepare canonical repository path
         run: |
@@ -969,7 +1048,7 @@ jobs:
           node-version: "20"
       - name: Install accessibility contract dependencies
         run: |
-          python -m pip install -r ea/requirements.txt -c ea/requirements.lock pytest==9.0.2
+          python -m pip install -r ea/requirements.txt -c ea/requirements.lock -c ea/requirements.ci.lock pytest==9.0.3
           python -m playwright install --with-deps chromium firefox webkit
           npm install --no-save --ignore-scripts axe-core@4.10.2
       - name: Run accessibility receipt and flagship-gold contracts
@@ -1112,7 +1191,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install failure-state contract dependencies
-        run: python -m pip install -r ea/requirements.txt -c ea/requirements.lock httpx==0.28.1 pytest==9.0.2
+        run: python -m pip install -r ea/requirements.txt -c ea/requirements.lock -c ea/requirements.ci.lock httpx==0.28.1 pytest==9.0.3
       - name: Run mock-boundary failure and public-route contracts
         run: |
           PYTHONPATH=ea python -m pytest -q \
@@ -1134,7 +1213,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install activation contract dependencies
-        run: python -m pip install -c ea/requirements.lock cryptography PyYAML pytest==9.0.2
+        run: python -m pip install -c ea/requirements.lock -c ea/requirements.ci.lock cryptography PyYAML pytest==9.0.3
       - name: Run mock-boundary and flagship activation contracts
         run: |
           PYTHONPATH=ea python -m pytest -q \
@@ -1973,6 +2052,6 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install Postgres contract dependencies
-        run: python -m pip install -r ea/requirements.txt -c ea/requirements.lock httpx==0.28.1 pytest==9.0.2
+        run: python -m pip install -r ea/requirements.txt -c ea/requirements.lock -c ea/requirements.ci.lock httpx==0.28.1 pytest==9.0.3
       - name: Run Postgres repository contracts
         run: bash scripts/test_postgres_contracts.sh

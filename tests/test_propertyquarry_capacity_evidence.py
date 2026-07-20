@@ -88,6 +88,34 @@ def _host_measurement(*, generated_at: datetime) -> dict[str, object]:
     }
 
 
+def _queue_measurement(*, generated_at: datetime) -> dict[str, object]:
+    workload = copy.deepcopy(capacity.PROFILE["queue_scheduler_worker"])
+    thresholds = capacity.THRESHOLDS["queue_scheduler_worker"]
+    job_count = int(workload["job_count"])
+    sample_window_seconds = 1.0
+    throughput = round(job_count / sample_window_seconds, 3)
+    assert throughput >= float(thresholds["scheduler_items_per_second_minimum"])
+    assert throughput >= float(thresholds["worker_items_per_second_minimum"])
+    return {
+        "state": "measured",
+        "reason": "",
+        "workload": workload,
+        "scheduler_sample": _sample(generated_at, sample_window_seconds),
+        "worker_sample": _sample(generated_at, sample_window_seconds),
+        "observations": {
+            "initial_depth": 0,
+            "scheduled": job_count,
+            "peak_depth": job_count,
+            "completed": job_count,
+            "final_depth": 0,
+            "error_count": 0,
+            "scheduler_items_per_second": throughput,
+            "worker_items_per_second": throughput,
+        },
+        "cleanup": {"active_jobs_after": 0, "fixture_released": True},
+    }
+
+
 def _postgres_measurement(*, generated_at: datetime) -> dict[str, object]:
     connect_samples = [5.0, 6.0, 7.0, 8.0]
     query_samples = [2.0] * int(capacity.PROFILE["postgres"]["query_count"])
@@ -191,20 +219,14 @@ def test_loopback_api_queue_host_and_strict_receipt_verify() -> None:
     assert verification["production_capacity_established"] is False
 
 
-def test_missing_api_and_postgres_are_explicit_partial_states(tmp_path: Path) -> None:
-    before = capacity._host_baseline(tmp_path)
-    sampler = capacity.HostSampler()
-    sampler.start()
-    queue_measurement = capacity.measure_queue_scheduler_worker()
-    sampler.stop()
-    host = capacity.build_host_measurement(before, capacity._host_baseline(tmp_path), sampler)
+def test_missing_api_and_postgres_are_explicit_partial_states() -> None:
     generated_at = datetime.now(timezone.utc)
     receipt = capacity.build_capacity_receipt(
         source_identity=_source_identity(clean=False),
         api=capacity.measure_api(None),
         postgres=capacity.measure_postgres(None),
-        queue_scheduler_worker=queue_measurement,
-        host=host,
+        queue_scheduler_worker=_queue_measurement(generated_at=generated_at),
+        host=_host_measurement(generated_at=generated_at),
         generated_at=generated_at,
     )
 
@@ -218,6 +240,106 @@ def test_missing_api_and_postgres_are_explicit_partial_states(tmp_path: Path) ->
         expected_source_tree_sha256=SOURCE_SHA,
         now=generated_at,
     )
+
+
+def test_host_measurement_helpers_and_sampler_lifecycle_are_covered_deterministically(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(capacity, "_proc_status", lambda: (64 * 1024 * 1024, 3))
+    monkeypatch.setattr(capacity, "_proc_io", lambda: (100, 200))
+    monkeypatch.setattr(
+        capacity.shutil,
+        "disk_usage",
+        lambda _path: types.SimpleNamespace(total=1_000, free=600),
+    )
+    cgroup_values = {
+        "memory.current": (256, "measured"),
+        "memory.max": (1_024, "measured"),
+        "pids.current": (8, "measured"),
+        "pids.max": (64, "measured"),
+    }
+    monkeypatch.setattr(capacity, "_read_cgroup_number", cgroup_values.__getitem__)
+    monkeypatch.setattr(capacity.time, "perf_counter", lambda: 10.0)
+    monkeypatch.setattr(capacity.time, "process_time", lambda: 2.0)
+    monkeypatch.setattr(capacity.os, "cpu_count", lambda: 4)
+
+    captured = capacity._host_baseline(tmp_path)
+    assert captured.rss_bytes == 64 * 1024 * 1024
+    assert captured.threads == 3
+    assert captured.disk_total == 1_000
+    assert captured.disk_free == 600
+    assert captured.read_bytes == 100
+    assert captured.write_bytes == 200
+    assert captured.cgroup_memory_current == 256
+    assert captured.cgroup_memory_maximum == 1_024
+    assert captured.cgroup_pids_current == 8
+    assert captured.cgroup_pids_maximum == 64
+    assert captured.monotonic == 10.0
+    assert captured.process_cpu_seconds == 2.0
+
+    started_at = datetime(2026, 7, 20, 12, 0, tzinfo=timezone.utc)
+    before = capacity._HostBaseline(
+        captured_at=started_at,
+        monotonic=10.0,
+        process_cpu_seconds=2.0,
+        rss_bytes=64,
+        threads=2,
+        disk_total=1_000,
+        disk_free=600,
+        read_bytes=100,
+        write_bytes=200,
+        cgroup_memory_current=256,
+        cgroup_memory_maximum=1_024,
+        cgroup_memory_maximum_state="measured",
+        cgroup_pids_current=8,
+        cgroup_pids_maximum=64,
+        cgroup_pids_maximum_state="measured",
+    )
+    after = capacity._HostBaseline(
+        captured_at=started_at + timedelta(seconds=2),
+        monotonic=12.0,
+        process_cpu_seconds=2.4,
+        rss_bytes=80,
+        threads=3,
+        disk_total=1_000,
+        disk_free=500,
+        read_bytes=160,
+        write_bytes=260,
+        cgroup_memory_current=280,
+        cgroup_memory_maximum=1_024,
+        cgroup_memory_maximum_state="measured",
+        cgroup_pids_current=9,
+        cgroup_pids_maximum=64,
+        cgroup_pids_maximum_state="measured",
+    )
+    sampler = capacity.HostSampler()
+    sampler.max_rss_bytes = 90
+    sampler.max_threads = 5
+    sampler.max_cgroup_memory_current = 300
+    sampler.max_cgroup_pids_current = 12
+
+    measured = capacity.build_host_measurement(before, after, sampler)
+    assert measured["sample"]["window_seconds"] == 2.0
+    assert measured["cpu"]["normalized_cpu_percent"] == 5.0
+    assert measured["memory"]["rss_peak_bytes"] == 90
+    assert measured["memory"]["cgroup_current_peak_bytes"] == 300
+    assert measured["memory"]["cgroup_headroom_bytes"] == 724
+    assert measured["processes"]["thread_count_peak"] == 5
+    assert measured["processes"]["cgroup_pids_current_peak"] == 12
+    assert measured["processes"]["cgroup_pids_headroom"] == 52
+    assert measured["disk"]["free_percent_after"] == 50.0
+    assert measured["disk"]["process_read_bytes_delta"] == 60
+    assert measured["disk"]["process_write_bytes_delta"] == 60
+
+    lifecycle_sampler = capacity.HostSampler()
+    monkeypatch.setattr(lifecycle_sampler, "_sample_loop", lambda: None)
+    lifecycle_sampler.start()
+    lifecycle_sampler.stop()
+    assert lifecycle_sampler._thread is not None
+    assert lifecycle_sampler._thread.is_alive() is False
+    with pytest.raises(capacity.CapacityEvidenceError, match="started twice"):
+        lifecycle_sampler.start()
 
 
 def test_api_rejects_external_query_and_credential_targets() -> None:

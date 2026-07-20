@@ -582,6 +582,13 @@ def test_accessibility_playwright_driver_and_browser_receive_scrubbed_environmen
     observed: dict[str, object] = {}
 
     class Context:
+        def add_init_script(self, *, script: str) -> None:
+            observed["axe_init_script"] = script
+            observed["axe_init_environment"] = {
+                LIVE_SECRET_ENV: os.environ.get(LIVE_SECRET_ENV),
+                PERFORMANCE_SECRET_ENV: os.environ.get(PERFORMANCE_SECRET_ENV),
+            }
+
         def route(self, _pattern: str, _handler) -> None:
             pass
 
@@ -634,6 +641,8 @@ def test_accessibility_playwright_driver_and_browser_receive_scrubbed_environmen
         PERFORMANCE_SECRET_ENV: None,
     }
     assert observed["browser_environment"] == observed["driver_environment"]
+    assert observed["axe_init_script"] == "window.axe = {};"
+    assert observed["axe_init_environment"] == observed["driver_environment"]
 
 
 def test_probe_secret_environment_rejection_and_receipts_never_echo_values(

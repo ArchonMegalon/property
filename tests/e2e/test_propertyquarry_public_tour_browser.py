@@ -2813,7 +2813,7 @@ def test_public_pano2vr_walkthrough_uses_governed_first_party_route_and_accessib
     context = browser.new_context(**context_options)
     console_errors: list[str] = []
     page_errors: list[str] = []
-    failed_requests: list[str] = []
+    failed_requests: list[tuple[str, str | None, str, str]] = []
     browser_requests: list[str] = []
     external_requests: list[str] = []
     context.on("request", lambda browser_request: browser_requests.append(browser_request.url))
@@ -2837,15 +2837,53 @@ def test_public_pano2vr_walkthrough_uses_governed_first_party_route_and_accessib
     page = context.new_page()
     page.on("console", lambda message: console_errors.append(message.text) if message.type == "error" else None)
     page.on("pageerror", lambda error: page_errors.append(str(error)))
-    page.on("requestfailed", lambda browser_request: failed_requests.append(browser_request.url))
+    page.on(
+        "requestfailed",
+        lambda browser_request: failed_requests.append(
+            (
+                browser_request.url,
+                browser_request.failure,
+                browser_request.resource_type,
+                browser_request.frame.url,
+            )
+        ),
+    )
     slug = public_tour_browser_server["pano2vr_slug"]
     entry_path = f"/tours/pano2vr/{slug}/pano2vr/index.html"
     entry_url = f"https://propertyquarry.com{entry_path}"
+    entry_image_path = f"/tours/files/{slug}/pano2vr/entry-hall.jpg"
+    entry_image_url = f"https://propertyquarry.com{entry_image_path}"
     public_url = f"https://propertyquarry.com/tours/{slug}"
 
     response = page.goto(public_url, wait_until="networkidle")
     assert response is not None
     assert response.status == 200
+    entry_image_states: list[dict[str, object]] = page.locator(
+        f'img[src="{entry_image_path}"]'
+    ).evaluate_all(
+        """async (images) => Promise.all(images.map(async (image) => {
+            let decoded = true;
+            try {
+                await image.decode();
+            } catch {
+                decoded = false;
+            }
+            return {
+                decoded,
+                complete: image.complete,
+                naturalWidth: image.naturalWidth,
+                naturalHeight: image.naturalHeight,
+            };
+        }))"""
+    )
+    assert entry_image_states
+    assert all(
+        bool(state["decoded"])
+        and bool(state["complete"])
+        and int(state["naturalWidth"]) > 0
+        and int(state["naturalHeight"]) > 0
+        for state in entry_image_states
+    ), entry_image_states
     assert urllib.parse.urlparse(page.url).hostname == "propertyquarry.com"
     assert page.locator("html").get_attribute("lang") == "en"
     assert page.locator(".shell").count() == 1
@@ -2881,13 +2919,28 @@ def test_public_pano2vr_walkthrough_uses_governed_first_party_route_and_accessib
     assert room_status.get_attribute("aria-live") == "polite"
     assert room_status.inner_text().splitlines() == ["Entry hall", "1 of 2"]
     panorama = frame.locator("#panorama")
-    assert panorama.get_attribute("alt") == "360-degree view of Entry hall"
+
+    def _assert_panorama_loaded(expected_alt: str) -> None:
+        expect(panorama).to_have_attribute("alt", expected_alt, timeout=5_000)
+        assert panorama.evaluate(
+            """async (image) => {
+                try {
+                    await image.decode();
+                } catch {
+                    return false;
+                }
+                return image.complete && image.naturalWidth > 0 && image.naturalHeight > 0;
+            }"""
+        ) is True
+
     # The deferred fixture script sets this only after attaching room controls.
     expect(frame.locator("html")).to_have_attribute(
         "data-room-index",
         "0",
         timeout=5_000,
     )
+    # Finish each room image before the next interaction replaces its src.
+    _assert_panorama_loaded("360-degree view of Entry hall")
 
     next_room = frame.get_by_role("button", name="Next room")
     previous_room = frame.get_by_role("button", name="Previous room")
@@ -2899,18 +2952,10 @@ def test_public_pano2vr_walkthrough_uses_governed_first_party_route_and_accessib
     next_room.focus()
     next_room.press("Enter")
     expect(room_status).to_have_text("Living room\n2 of 2", timeout=5_000)
-    expect(panorama).to_have_attribute(
-        "alt",
-        "360-degree view of Living room",
-        timeout=5_000,
-    )
+    _assert_panorama_loaded("360-degree view of Living room")
     next_room.press("ArrowLeft")
     expect(room_status).to_have_text("Entry hall\n1 of 2", timeout=5_000)
-    expect(panorama).to_have_attribute(
-        "alt",
-        "360-degree view of Entry hall",
-        timeout=5_000,
-    )
+    _assert_panorama_loaded("360-degree view of Entry hall")
     assert page.evaluate("() => matchMedia('(prefers-reduced-motion: reduce)').matches") is True
     _assert_no_horizontal_overflow(page)
 
@@ -2920,6 +2965,12 @@ def test_public_pano2vr_walkthrough_uses_governed_first_party_route_and_accessib
     direct_response = context.request.get(local_entry_url)
     assert direct_response.status == 200
     assert "Walk through the apartment" in direct_response.text()
+    direct_entry_image_response = context.request.get(
+        f"{public_tour_browser_server['base_url']}{entry_image_path}"
+    )
+    assert direct_entry_image_response.status == 200
+    assert direct_entry_image_response.headers["content-type"].startswith("image/")
+    assert len(direct_entry_image_response.body()) > 1_024
     exposed_text = f"{page.content()}\n{direct_response.text()}"
     assert "pano2vr_spatial_provenance" not in exposed_text
     assert f"fixture-authorization:{slug}" not in exposed_text
@@ -2932,7 +2983,26 @@ def test_public_pano2vr_walkthrough_uses_governed_first_party_route_and_accessib
     assert private_receipt.status == 404
     assert entry_url in browser_requests
     assert external_requests == []
-    assert failed_requests == []
+    # Firefox can supersede one of the public shell's duplicate requests for the
+    # same decoded entry image. Keep only that exact cancellation out of the
+    # strict request-failure audit; every transport, HTTP, decode, or other asset
+    # failure remains fatal above or below.
+    expected_firefox_duplicate_image_aborts = [
+        failed_request
+        for failed_request in failed_requests
+        if expected_engine == "firefox"
+        and len(entry_image_states) > 1
+        and failed_request[0] == entry_image_url
+        and failed_request[1] == "NS_BINDING_ABORTED"
+        and failed_request[2] == "image"
+        and urllib.parse.urldefrag(failed_request[3]).url == public_url
+    ]
+    assert len(expected_firefox_duplicate_image_aborts) <= 1
+    assert [
+        failed_request
+        for failed_request in failed_requests
+        if failed_request not in expected_firefox_duplicate_image_aborts
+    ] == []
     assert page_errors == []
     assert _unexpected_console_errors(console_errors) == []
     context.close()

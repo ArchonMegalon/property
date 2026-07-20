@@ -805,7 +805,7 @@
         const payload = await response.json().catch(() => ({}));
         if (!response.ok || !payload || typeof payload !== 'object') return null;
         const mergedCandidate = mergeAsyncPreviewCandidate(normalizedRef, payload.candidate);
-        const selectedRowRef = String(root.querySelector('[data-workbench-row][aria-selected="true"]')?.getAttribute('data-candidate-ref') || '').trim();
+        const selectedRowRef = String(root.querySelector('[data-workbench-row][aria-current="true"]')?.getAttribute('data-candidate-ref') || '').trim();
         if (
           mergedCandidate
           && typeof syncSelectedCandidate === 'function'
@@ -3672,6 +3672,7 @@
             : '',
         ].filter(Boolean).join('');
         const actions = [
+          `<button class="pqx-result-open pqx-result-open-button" type="button" data-workbench-select-candidate data-candidate-ref="${escapeHtml(candidateRef)}" aria-label="Review ${escapeHtml(title)}">Review</button>`,
           packetUrl ? `<a class="pqx-result-open" href="${escapeHtml(packetUrl)}">Open property</a>` : '',
           propertyUrl && !shortlistSurface ? `<a class="pqx-result-open" href="${escapeHtml(propertyUrl)}" target="_blank" rel="noopener noreferrer">Open listing</a>` : '',
           tourPending && !shortlistSurface ? `<button class="pqx-progress-button is-processing" type="button" disabled style="--pqx-fill: ${escapeHtml(tourProgress)}%;" title="${escapeHtml(tourTooltip)}" aria-label="${escapeHtml(tourTooltip)}">${escapeHtml(tourLabel)}</button>` : '',
@@ -3680,7 +3681,7 @@
         ].filter(Boolean).join('');
         const personalFitScore = candidatePersonalFitScore(candidate);
         return `
-          <article class="pqx-result pqx-card${index === 0 ? ' is-top-ranked' : ''}" role="button" tabindex="0" aria-selected="${index === 0 ? 'true' : 'false'}" data-candidate-ref="${escapeHtml(candidateRef)}" data-candidate-packet-url="${escapeHtml(packetUrl)}" data-candidate-listing-url="${escapeHtml(propertyUrl)}" data-workbench-row>
+          <article class="pqx-result pqx-card${index === 0 ? ' is-top-ranked' : ''}" aria-current="${index === 0 ? 'true' : 'false'}" data-candidate-ref="${escapeHtml(candidateRef)}" data-candidate-packet-url="${escapeHtml(packetUrl)}" data-candidate-listing-url="${escapeHtml(propertyUrl)}" data-workbench-row>
             <span class="pqx-result-main">
 	              <span class="pqx-result-media${shortlistSurface ? ' has-diorama' : (previewUrl ? '' : ' no-thumb')}">
                 ${thumb}

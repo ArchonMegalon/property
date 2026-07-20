@@ -4470,7 +4470,16 @@ def test_propertyquarry_search_route_renders_what_matters_as_comboboxes() -> Non
     assert "Full-day primary school coverage" not in section_html
     assert 'data-keyword-distance-select' in section_html
     assert 'data-keyword-distance-enabled="false"' in section_html
-    assert 'name="keyword_distance__playground nearby" data-keyword-distance-select data-keyword-value="playground nearby" disabled' in section_html
+    playground_distance = re.search(
+        r'<select\b[^>]*name="keyword_distance__playground nearby"[^>]*>',
+        section_html,
+    )
+    assert playground_distance
+    playground_distance_tag = playground_distance.group(0)
+    assert 'aria-label="Playground distance"' in playground_distance_tag
+    assert "data-keyword-distance-select" in playground_distance_tag
+    assert 'data-keyword-value="playground nearby"' in playground_distance_tag
+    assert "disabled" in playground_distance_tag
     assert ">Neutral</option>" in section_html
     parking_pressure_select = re.search(
         r'<select[^>]*name="keyword_preference__parking pressure check"[^>]*>(?P<select>.*?)</select>',
@@ -5162,7 +5171,7 @@ def test_propertyquarry_dark_mode_overrides_light_card_backgrounds() -> None:
         'html[data-pq-theme="dark"] .pqx-button.primary',
         'html[data-pq-theme="dark"] .pqx-link-button.primary',
         'html[data-pq-theme="dark"] .pqx-context-actions .pqx-link-button.primary',
-        'html[data-pq-theme="dark"] .pqx-result[aria-selected="true"]',
+        'html[data-pq-theme="dark"] .pqx-result[aria-current="true"]',
         'html[data-pq-theme="dark"] .pqx-result-fact.recovered',
         'html[data-pq-theme="dark"] .pqx-progress-button.is-ready',
         'html[data-pq-theme="dark"] .pqx-progress-button.is-blocked',
@@ -17220,6 +17229,8 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     notifications_preview = client.get("/app/properties/notifications/preview", params={"template": "property_match"}, headers=headers)
     assert notifications_preview.status_code == 200
     assert "Email preview" in notifications_preview.text
+    assert '<label class="meta" for="notification-template">Template</label>' in notifications_preview.text
+    assert 'title="PropertyQuarry notification HTML preview"' in notifications_preview.text
     assert "Property match: Altbau near U6" in notifications_preview.text
     assert "PropertyQuarry shortlisted a property match" in notifications_preview.text
     assert "No — tell us why" in notifications_preview.text
@@ -20498,7 +20509,18 @@ def test_property_shortlist_surface_keeps_results_first_and_restores_desktop_rev
     assert "const openRowTarget = () => {" not in body
     assert 'packetUrl ? `<a class="pqx-result-open" href="${escapeHtml(packetUrl)}">Open property</a>`' in body
     assert 'data-rybbit-prop-cta-key="open_listing" data-rybbit-prop-surface="selected_review">Open listing</a>' in body
-    assert "const interactiveTarget = event.target?.closest?.('a, button, [data-pqx-scope-open]');" in body
+    assert (
+        "const interactiveTarget = event.target?.closest?.('a, button, input, "
+        "select, textarea, summary, [data-pqx-scope-open]');"
+        in body
+    )
+    assert 'role="button" tabindex="0" aria-selected=' not in body
+    assert 'aria-current="${index === 0 ? \'true\' : \'false\'}"' in body
+    assert body.count("data-workbench-select-candidate") >= 3
+    assert 'aria-label="Review {{ candidate.get(\'title\') or \'property\' }}"' in body
+    assert 'aria-label="Review ${escapeHtml(title)}"' in body
+    assert "const selectTrigger = event.target?.closest?.('[data-workbench-select-candidate]');" in body
+    assert "selectCandidate(selectTrigger.getAttribute('data-candidate-ref') || row.getAttribute('data-candidate-ref'));" in body
     assert "if (interactiveTarget && interactiveTarget !== row) return;" in body
     assert "selectCandidate(row.getAttribute('data-candidate-ref'));" in body
     assert "event.key !== 'Enter' && event.key !== ' '" in body
@@ -28428,7 +28450,7 @@ def test_property_research_media_labels_ai_panorama_as_disclosed_reconstruction(
     assert payload["provider_label"] == "AI 360 reconstruction"
     assert payload["provider_key"] == "propertyquarry_ai_360"
     assert payload["ai_360_disclosure"] == (
-        "AI-reconstructed from listing photos; not a captured 360 or measured survey."
+        "AI reconstruction based on property photos; not a captured 360 or measured survey."
     )
 
 
@@ -28582,7 +28604,7 @@ def test_property_research_packet_embeds_only_canonical_ai_panorama_control(
     assert 'sandbox="allow-scripts allow-same-origin"' in rendered_html
     assert 'allow="fullscreen"' in rendered_html
     assert "allowfullscreen" in rendered_html
-    assert "AI-reconstructed from listing photos; not a captured 360 or measured survey." in rendered_html
+    assert "AI reconstruction based on property photos; not a captured 360 or measured survey." in rendered_html
     assert f'href="{expected_control}"' in rendered_html
     assert '>Open AI 360 tour</a>' in rendered_html
 

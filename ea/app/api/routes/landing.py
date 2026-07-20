@@ -7874,7 +7874,7 @@ def property_research_packet(
                 "status_detail": str(
                     research_media.get("generated_reconstruction_status_detail")
                     or (
-                        "AI-reconstructed from listing photos; not a captured 360 or measured survey."
+                        "AI reconstruction based on property photos; not a captured 360 or measured survey."
                         if ai_360_ready
                         else "Generated from the floor plan and listing photos."
                     )
@@ -8221,8 +8221,8 @@ def property_notification_preview_page(
         <div class="grid">
           <div class="panel">
             <form method="get" action="/app/properties/notifications/preview">
-              <div class="meta">Template</div>
-              <select name="template">{options}</select>
+              <label class="meta" for="notification-template">Template</label>
+              <select id="notification-template" name="template">{options}</select>
             </form>
             <script>document.querySelector('select[name="template"]')?.addEventListener('change', (event) => event.target.form.submit());</script>
             <div style="height:18px"></div>
@@ -8235,7 +8235,7 @@ def property_notification_preview_page(
           </div>
           <div class="panel">
             <div class="meta">HTML render</div>
-            <iframe sandbox="" srcdoc="{html.escape(str(preview.get('html') or ''))}"></iframe>
+            <iframe title="PropertyQuarry notification HTML preview" sandbox="" srcdoc="{html.escape(str(preview.get('html') or ''))}"></iframe>
           </div>
         </div>
       </div>

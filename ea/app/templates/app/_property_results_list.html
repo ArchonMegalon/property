@@ -121,7 +121,7 @@
 	    <span hidden></span>
 	    <dialog data-pqx-filtered-dialog aria-label="Homes outside this search" hidden></dialog>
 	    {% for candidate in visible_results %}
-    <article class="pqx-result pqx-card{% if candidate.get('recovered_by_filter') %} is-filter-recovered{% endif %}{% if loop.first %} is-top-ranked{% endif %}" role="button" tabindex="0" aria-selected="{{ 'true' if loop.first else 'false' }}" data-candidate-ref="{{ candidate.get('candidate_ref') }}" data-candidate-packet-url="{{ candidate.get('packet_url') or '' }}" data-candidate-listing-url="{{ candidate.get('source_url') or candidate.get('property_url') or candidate.get('listing_url') or '' }}" data-tour-status="{{ candidate.get('tour', {}).get('status') or 'missing' }}" data-tour-eta="{{ candidate.get('tour', {}).get('eta_label') or '' }}" data-workbench-row>
+    <article class="pqx-result pqx-card{% if candidate.get('recovered_by_filter') %} is-filter-recovered{% endif %}{% if loop.first %} is-top-ranked{% endif %}" aria-current="{{ 'true' if loop.first else 'false' }}" data-candidate-ref="{{ candidate.get('candidate_ref') }}" data-candidate-packet-url="{{ candidate.get('packet_url') or '' }}" data-candidate-listing-url="{{ candidate.get('source_url') or candidate.get('property_url') or candidate.get('listing_url') or '' }}" data-tour-status="{{ candidate.get('tour', {}).get('status') or 'missing' }}" data-tour-eta="{{ candidate.get('tour', {}).get('eta_label') or '' }}" data-workbench-row>
       {% set orientation_preview = candidate.get('orientation_preview') or {} %}
 		      {% set diorama_scene = candidate.get('diorama_scene') or {} %}
 		      {% set diorama_preview_url = candidate.get('diorama_preview_url') or diorama_scene.get('image_url') or '' %}
@@ -267,6 +267,13 @@
         <span class="pqx-result-secondary">{{ visual_delivery_note }}</span>
         {% endif %}
         <span class="pqx-result-actions">
+          <button
+            class="pqx-result-open pqx-result-open-button"
+            type="button"
+            data-workbench-select-candidate
+            data-candidate-ref="{{ candidate.get('candidate_ref') or '' }}"
+            aria-label="Review {{ candidate.get('title') or 'property' }}"
+          >Review</button>
           {% if candidate.get('packet_url') %}
           <a class="pqx-result-open" href="{{ candidate.get('packet_url') }}">Open property</a>
           {% endif %}
