@@ -9,9 +9,9 @@ import json
 import math
 import os
 import re
-import shutil
 import stat
-import subprocess
+import sys
+import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -104,6 +104,15 @@ except ModuleNotFoundError:
     from scripts.property_tour_publication_lock import (
         property_tour_publication_lock,
     )
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts.property_render_video_probe import (  # noqa: E402
+    PropertyRenderVideoProbeError,
+    probe_local_video,
+)
 
 
 # Pending, accepted, review, and evidence contracts advance independently and
@@ -874,63 +883,65 @@ def _video_probe(
     suffix = path.suffix.lower()
     if suffix not in PUBLIC_VIDEO_EXTENSIONS:
         raise SystemExit("magicfit_acceptance_video_extension_invalid")
-    ffprobe = shutil.which("ffprobe")
-    if not ffprobe:
-        raise SystemExit("magicfit_acceptance_ffprobe_missing")
     try:
-        probe_target = (
-            f"/proc/self/fd/{_probe_descriptor}"
-            if _probe_descriptor is not None
-            else str(path)
-        )
-        completed = subprocess.run(
-            [
-                ffprobe,
-                "-v",
-                "error",
-                "-select_streams",
-                "v:0",
-                "-show_entries",
-                "stream=codec_type,duration:format=duration,size",
-                "-of",
-                "json",
-                probe_target,
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=10,
-            pass_fds=(
-                (_probe_descriptor,)
-                if _probe_descriptor is not None
-                else ()
-            ),
-        )
-    except Exception as exc:
-        raise SystemExit(f"magicfit_acceptance_video_probe_failed:{type(exc).__name__}") from exc
-    if completed.returncode != 0:
-        raise SystemExit("magicfit_acceptance_video_probe_failed")
-    try:
-        payload = json.loads(completed.stdout or "{}")
-        streams = [row for row in list(payload.get("streams") or []) if isinstance(row, dict)]
-        duration = float(dict(payload.get("format") or {}).get("duration") or 0.0)
-        size_bytes = int(dict(payload.get("format") or {}).get("size") or 0)
-    except Exception as exc:
-        raise SystemExit(f"magicfit_acceptance_video_probe_invalid:{type(exc).__name__}") from exc
-    if not any(str(row.get("codec_type") or "").lower() == "video" for row in streams):
-        raise SystemExit("magicfit_acceptance_video_stream_missing")
+        if _probe_descriptor is None:
+            probe = probe_local_video(path)
+        else:
+            expected_size = int(expected_size_bytes or 0)
+            if expected_size <= 0:
+                raise SystemExit("magicfit_acceptance_video_probe_invalid")
+            with tempfile.TemporaryDirectory(
+                prefix="propertyquarry-video-probe-"
+            ) as temporary_root:
+                probe_path = Path(temporary_root) / f"asset{suffix}"
+                probe_fd = os.open(
+                    probe_path,
+                    os.O_WRONLY
+                    | os.O_CREAT
+                    | os.O_EXCL
+                    | os.O_NOFOLLOW
+                    | getattr(os, "O_CLOEXEC", 0),
+                    0o600,
+                )
+                try:
+                    copied = 0
+                    while True:
+                        chunk = os.read(_probe_descriptor, 1024 * 1024)
+                        if not chunk:
+                            break
+                        copied += len(chunk)
+                        if copied > expected_size:
+                            raise SystemExit(
+                                "magicfit_acceptance_video_probe_invalid"
+                            )
+                        view = memoryview(chunk)
+                        while view:
+                            written = os.write(probe_fd, view)
+                            view = view[written:]
+                    if copied != expected_size:
+                        raise SystemExit("magicfit_acceptance_video_probe_invalid")
+                    os.fsync(probe_fd)
+                finally:
+                    os.close(probe_fd)
+                probe = probe_local_video(probe_path)
+                os.lseek(_probe_descriptor, 0, os.SEEK_SET)
+    except PropertyRenderVideoProbeError as exc:
+        raise SystemExit(f"magicfit_acceptance_video_probe_failed:{exc}") from exc
+    except OSError as exc:
+        raise SystemExit(
+            f"magicfit_acceptance_video_probe_failed:{type(exc).__name__}"
+        ) from exc
     expected_size = (
         int(expected_size_bytes)
         if expected_size_bytes is not None
         else int(path.stat(follow_symlinks=False).st_size)
     )
-    if (
-        not math.isfinite(duration)
-        or duration <= 0.0
-        or size_bytes != expected_size
-    ):
+    if int(probe.get("size_bytes") or 0) != expected_size:
         raise SystemExit("magicfit_acceptance_video_probe_invalid")
-    return {"duration_seconds": duration, "size_bytes": size_bytes}
+    return {
+        "duration_seconds": probe["duration_seconds"],
+        "size_bytes": probe["size_bytes"],
+    }
 
 
 def _probe_bundle_video(

@@ -2803,6 +2803,10 @@ def test_property_dockerfile_allowlists_runtime_scripts() -> None:
     copied_scripts = re.findall(r"COPY\s+scripts/([^\s]+)\s+/app/scripts/", dockerfile)
     assert copied_scripts == [
         "property_tour_runtime_paths.py",
+        "verify_property_tour_controls.py",
+        "property_tour_3dvista_provenance.py",
+        "property_render_video_probe.py",
+        "accept_magicfit_delivery.py",
         "propertyquarry_playwright_runtime.py",
         "generate_property_reconstruction.py",
         "property_reconstruction_render_bridge.py",
@@ -2840,6 +2844,24 @@ def test_property_dockerfile_allowlists_runtime_scripts() -> None:
     assert "for script in /tmp/src/scripts/*" not in dockerfile
     assert 'for script in "$APP_SRC"/scripts/*' not in dockerfile
     assert 'cp "$script" /app/scripts/' not in dockerfile
+
+
+def test_property_render_image_magicfit_acceptance_uses_offline_pinned_browser_probe() -> None:
+    dockerfile = _read("ea/Dockerfile.property")
+    ffmpeg_recipe = _read("ea/property_render_ffmpeg_build_recipe.sh")
+    acceptance = _read("scripts/accept_magicfit_delivery.py")
+    probe = _read("scripts/property_render_video_probe.py")
+    preflight = _read("ea/property_render_runtime_preflight.py")
+
+    assert "--disable-ffprobe" in ffmpeg_recipe
+    assert '"ffprobe"' in dockerfile
+    assert 'shutil.which("ffprobe")' not in acceptance
+    assert "probe_local_video(path)" in acceptance
+    assert 'offline=True' in probe
+    assert 'service_workers="block"' in probe
+    assert 'page.route("**/*", route_local_asset)' in probe
+    assert "magicfit_acceptance._video_probe(mp4_path)" in preflight
+    assert '"magicfit_acceptance_video_probe": "pass"' in preflight
 
 
 def test_runtime_dockerfiles_fail_closed_for_worker_and_scheduler_health() -> None:
@@ -3084,6 +3106,10 @@ def test_property_runtime_copied_scripts_do_not_depend_on_fleet_paths() -> None:
 
     assert copied_scripts == [
         "property_tour_runtime_paths.py",
+        "verify_property_tour_controls.py",
+        "property_tour_3dvista_provenance.py",
+        "property_render_video_probe.py",
+        "accept_magicfit_delivery.py",
         "propertyquarry_playwright_runtime.py",
         "generate_property_reconstruction.py",
         "property_reconstruction_render_bridge.py",
