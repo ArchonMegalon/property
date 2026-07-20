@@ -308,6 +308,9 @@ _PROPERTY_SEARCH_RUN_COMPACT_DELIVERY_CANDIDATE_KEYS = (
     "floorplan_urls_json",
     "tour_url",
     "vendor_tour_url",
+    "generated_reconstruction_url",
+    "generated_reconstruction_kind",
+    "generated_reconstruction_disclosure",
     "tour_status",
     "blocked_reason",
 )
@@ -371,6 +374,9 @@ _PROPERTY_SEARCH_RUN_COMPACT_UI_CANDIDATE_KEYS = (
     "source_virtual_tour_url",
     "tour_url",
     "vendor_tour_url",
+    "generated_reconstruction_url",
+    "generated_reconstruction_kind",
+    "generated_reconstruction_disclosure",
     "tour_status",
     "blocked_reason",
     "property_facts",
@@ -891,6 +897,7 @@ def _compact_property_search_run_record(record: dict[str, object]) -> dict[str, 
             str(payload.get("tour_status") or "").strip()
             or str(payload.get("tour_url") or "").strip()
             or str(payload.get("vendor_tour_url") or "").strip()
+            or str(payload.get("generated_reconstruction_url") or "").strip()
             or str(payload.get("source_virtual_tour_url") or facts.get("source_virtual_tour_url") or "").strip()
             or payload.get("floorplan_url")
             or payload.get("floorplan_urls_json")
@@ -1452,6 +1459,140 @@ def _store_property_search_run_record(record: dict[str, object]) -> bool:
             return False
         raise
     return True
+
+
+def _compare_and_swap_property_search_run_record(
+    *,
+    principal_id: str,
+    run_id: str,
+    expected_record_sha256: str,
+    updated_record: dict[str, object],
+) -> dict[str, object]:
+    """Atomically replace one exact run revision and its packet projections."""
+
+    from app.product.property_search_tour_binding import property_search_run_record_sha256
+
+    if not _property_search_run_database_url():
+        return {"status": "durable_storage_required"}
+    _require_property_search_run_schema()
+    normalized_principal = str(principal_id or "").strip()
+    normalized_run_id = str(run_id or "").strip()
+    normalized_expected_sha256 = str(expected_record_sha256 or "").strip().lower()
+    if (
+        not normalized_principal
+        or not normalized_run_id
+        or len(normalized_expected_sha256) != 64
+        or any(character not in "0123456789abcdef" for character in normalized_expected_sha256)
+    ):
+        return {"status": "invalid_request"}
+
+    normalized_record = _property_search_run_canonicalize_record(dict(updated_record or {}))
+    if (
+        str(normalized_record.get("principal_id") or "").strip() != normalized_principal
+        or str(normalized_record.get("run_id") or "").strip() != normalized_run_id
+    ):
+        return {"status": "identity_mismatch"}
+    principal_key = _property_search_principal_key(normalized_principal)
+    if not principal_key:
+        return {"status": "identity_mismatch"}
+    write_timestamp = _now_iso()
+    normalized_record["created_at"] = (
+        str(normalized_record.get("created_at") or write_timestamp).strip()
+        or write_timestamp
+    )
+    normalized_record["updated_at"] = (
+        str(normalized_record.get("updated_at") or write_timestamp).strip()
+        or write_timestamp
+    )
+    compact_record = _compact_property_search_run_record(normalized_record)
+    packet_links = project_property_research_packet_links(normalized_record)
+    status_value = str(compact_record.get("status") or "").strip() or None
+    from psycopg.types.json import Json
+
+    try:
+        with _property_search_run_connect() as conn:
+            with _property_search_run_transaction(conn):
+                with conn.cursor() as cur:
+                    _set_property_search_writer_contract(cur)
+                    cur.execute(
+                        """
+                        SELECT payload_json
+                        FROM property_search_runs
+                        WHERE principal_id = %s AND run_id = %s
+                        FOR UPDATE
+                        """,
+                        (normalized_principal, normalized_run_id),
+                    )
+                    locked_row = cur.fetchone()
+                    if not locked_row or not isinstance(locked_row[0], dict):
+                        return {"status": "not_found"}
+                    locked_record = _property_search_run_canonicalize_record(
+                        dict(locked_row[0] or {})
+                    )
+                    locked_sha256 = property_search_run_record_sha256(locked_record)
+                    if not hmac.compare_digest(
+                        locked_sha256,
+                        normalized_expected_sha256,
+                    ):
+                        return {
+                            "status": "record_changed",
+                            "record_sha256": locked_sha256,
+                        }
+
+                    cur.execute(
+                        """
+                        UPDATE property_search_runs
+                        SET principal_key = %s,
+                            payload_json = %s,
+                            status = %s,
+                            compact_json = %s,
+                            compact_schema_version = %s,
+                            delivery_pending = %s,
+                            delivery_checked_at = CASE
+                                WHEN %s THEN NULL
+                                ELSE delivery_checked_at
+                            END,
+                            updated_at = %s
+                        WHERE principal_id = %s AND run_id = %s
+                        RETURNING payload_json
+                        """,
+                        (
+                            principal_key,
+                            Json(normalized_record),
+                            status_value,
+                            Json(compact_record),
+                            _PROPERTY_SEARCH_RUN_COMPACT_SCHEMA_VERSION,
+                            bool(compact_record.get("delivery_pending", True)),
+                            bool(compact_record.get("delivery_pending", True)),
+                            normalized_record["updated_at"],
+                            normalized_principal,
+                            normalized_run_id,
+                        ),
+                    )
+                    persisted_row = cur.fetchone()
+                    if not persisted_row or not isinstance(persisted_row[0], dict):
+                        return {"status": "store_rejected"}
+                    upsert_property_research_packet_links(cur, packet_links)
+                    sync_property_research_packet_run_memberships(
+                        cur,
+                        principal_id=normalized_principal,
+                        run_id=normalized_run_id,
+                        links=packet_links,
+                    )
+                    persisted_record = _property_search_run_canonicalize_record(
+                        dict(persisted_row[0] or {})
+                    )
+                    return {
+                        "status": "applied",
+                        "record": persisted_record,
+                        "record_sha256": property_search_run_record_sha256(
+                            persisted_record
+                        ),
+                    }
+    except Exception as exc:
+        if _is_property_search_account_erased_error(exc):
+            return {"status": "store_rejected"}
+        raise
 
 
 def _store_property_search_run_compact_record(record: dict[str, object]) -> bool:

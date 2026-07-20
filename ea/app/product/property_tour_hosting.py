@@ -45,6 +45,7 @@ _PROPERTY_PUBLIC_TOUR_PRIVATE_RECEIPT_MERGE_KEYS = frozenset(
     {
         "principal_id",
         "search_run_id",
+        "candidate_ref",
         "listing_url",
         "property_url",
         "source_ref",
@@ -1034,6 +1035,52 @@ def _load_hosted_property_tour_payload(bundle_dir: Path, *, principal_id: str = 
             bundle_dir,
             principal_id=requested_principal,
         )
+
+
+def _owned_hosted_property_tour_binding_identity(
+    tour_url: object,
+    *,
+    principal_id: object,
+) -> dict[str, object]:
+    """Return only an owner-verified source identity for an exact hosted bundle."""
+
+    normalized_url = str(tour_url or "").strip()
+    requested_principal = str(principal_id or "").strip()
+    slug = _hosted_property_tour_slug_from_url(normalized_url)
+    if (
+        not normalized_url
+        or not requested_principal
+        or not slug
+        or slug in {".", ".."}
+        or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,159}", slug)
+    ):
+        return {}
+    public_dir = _public_tour_dir()
+    bundle_dir = public_dir / slug
+    with _hosted_property_tour_publication_lock(public_dir=public_dir, slug=slug):
+        public_payload = _load_hosted_property_tour_payload_with_slug_lock_held(
+            bundle_dir,
+            principal_id="",
+        )
+        private_payload = _owned_hosted_property_tour_private_receipt(
+            bundle_dir,
+            principal_id=requested_principal,
+        )
+    if not public_payload or not private_payload:
+        return {}
+    return {
+        "owner_verified": True,
+        "slug": slug,
+        "search_run_id": str(private_payload.get("search_run_id") or "").strip(),
+        "candidate_ref": str(private_payload.get("candidate_ref") or "").strip(),
+        "listing_url": str(private_payload.get("listing_url") or "").strip(),
+        "property_url": str(private_payload.get("property_url") or "").strip(),
+        "source_ref": str(private_payload.get("source_ref") or "").strip(),
+        "external_id": str(private_payload.get("external_id") or "").strip(),
+        "property_url_sha256": str(
+            public_payload.get("property_url_sha256") or ""
+        ).strip().lower(),
+    }
 
 
 def _public_hosted_property_tour_live_source_url(bundle_dir: Path) -> str:

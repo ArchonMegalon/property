@@ -203,6 +203,7 @@ from app.product.property_tour_hosting import (
     _write_hosted_property_tour_payload,
 )
 from app.product.property_search_storage import (
+    _compare_and_swap_property_search_run_record,
     _compact_pruned_property_search_run_record,
     _delete_property_search_run_record as _delete_property_search_run_record_storage,
     _erase_property_search_account_data as _erase_property_search_account_data_storage,
@@ -4630,6 +4631,196 @@ def _load_property_search_run_record(*, run_id: str, principal_id: str) -> dict[
     if state and str(state.get("principal_id") or "").strip() == normalized_principal:
         return state
     return None
+
+
+def bind_property_search_candidate_generated_reconstruction(
+    *,
+    principal_id: str,
+    run_id: str,
+    candidate_ref: str,
+    expected_listing_id: str,
+    generated_reconstruction_url: str,
+    expected_record_sha256: str = "",
+    reconstruction_kind: str = "ai_panorama_360",
+    disclosure: str = "",
+    apply: bool = False,
+) -> dict[str, object]:
+    """Plan or persist one exact, source-anchored research-candidate tour binding."""
+
+    from app.product import property_tour_hosting as tour_hosting
+    from app.product.property_search_tour_binding import (
+        PropertySearchTourBindingError,
+        plan_property_search_candidate_tour_binding,
+        property_search_run_record_sha256,
+    )
+
+    normalized_principal = str(principal_id or "").strip()
+    normalized_run_id = str(run_id or "").strip()
+    normalized_candidate_ref = str(candidate_ref or "").strip()
+    normalized_listing_id = str(expected_listing_id or "").strip()
+    normalized_url = str(generated_reconstruction_url or "").strip()
+    normalized_kind = str(reconstruction_kind or "").strip().lower()
+    normalized_expected_sha256 = str(expected_record_sha256 or "").strip().lower()
+    if not _property_search_run_database_url():
+        raise PropertySearchTourBindingError("property_search_tour_durable_storage_required")
+    parsed_url = urllib.parse.urlsplit(normalized_url)
+    public_tour_base = urllib.parse.urlsplit(tour_hosting._property_public_tour_base_url())
+    try:
+        parsed_port = parsed_url.port
+        public_port = public_tour_base.port
+    except ValueError as exc:
+        raise PropertySearchTourBindingError("property_search_tour_url_not_first_party_base") from exc
+    path_parts = parsed_url.path.split("/")
+    if (
+        parsed_url.scheme.lower() != "https"
+        or not parsed_url.hostname
+        or parsed_url.scheme.lower() != public_tour_base.scheme.lower()
+        or parsed_url.hostname.lower() != str(public_tour_base.hostname or "").lower()
+        or parsed_port != public_port
+        or parsed_url.username
+        or parsed_url.password
+        or parsed_url.query
+        or parsed_url.fragment
+        or public_tour_base.username
+        or public_tour_base.password
+        or public_tour_base.path.rstrip("/") != "/tours"
+        or public_tour_base.query
+        or public_tour_base.fragment
+        or len(path_parts) not in {3, 4}
+        or path_parts[:2] != ["", "tours"]
+        or (len(path_parts) == 4 and path_parts[3] != "control")
+        or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,159}", path_parts[2])
+        or path_parts[2] in {".", ".."}
+        or not tour_hosting._is_branded_public_tour_url(normalized_url)
+    ):
+        raise PropertySearchTourBindingError("property_search_tour_url_not_first_party_base")
+    slug = path_parts[2]
+    canonical_path = (
+        f"/tours/{slug}/control"
+        if normalized_kind == "ai_panorama_360"
+        else f"/tours/{slug}"
+    )
+    normalized_url = urllib.parse.urlunsplit(
+        (
+            public_tour_base.scheme.lower(),
+            public_tour_base.netloc,
+            canonical_path,
+            "",
+            "",
+        )
+    )
+    verified_kind = tour_hosting._hosted_property_tour_reconstruction_kind(
+        normalized_url,
+        principal_id=normalized_principal,
+    )
+    if verified_kind != normalized_kind:
+        raise PropertySearchTourBindingError("property_search_tour_bundle_kind_mismatch")
+    verified_open_url = tour_hosting._hosted_property_tour_first_party_open_url(
+        normalized_url,
+        principal_id=normalized_principal,
+    )
+    if not verified_open_url or verified_open_url != normalized_url:
+        raise PropertySearchTourBindingError("property_search_tour_bundle_not_ready")
+    bundle_identity = tour_hosting._owned_hosted_property_tour_binding_identity(
+        normalized_url,
+        principal_id=normalized_principal,
+    )
+    if not bundle_identity:
+        raise PropertySearchTourBindingError("property_search_tour_bundle_owner_mismatch")
+    record = _load_property_search_run_record(
+        run_id=normalized_run_id,
+        principal_id=normalized_principal,
+    )
+    if not isinstance(record, dict):
+        raise PropertySearchTourBindingError("property_search_tour_run_not_found")
+    if str(record.get("status") or "").strip().lower() not in {
+        "complete",
+        "completed",
+        "processed",
+        "succeeded",
+        "success",
+    }:
+        raise PropertySearchTourBindingError("property_search_tour_run_not_terminal")
+    updated, receipt = plan_property_search_candidate_tour_binding(
+        record,
+        principal_id=normalized_principal,
+        run_id=normalized_run_id,
+        candidate_ref=normalized_candidate_ref,
+        expected_listing_id=normalized_listing_id,
+        generated_reconstruction_url=normalized_url,
+        bundle_identity=bundle_identity,
+        reconstruction_kind=normalized_kind,
+        disclosure=disclosure,
+    )
+    receipt["mode"] = "apply" if apply else "dry_run"
+    if not apply:
+        receipt["status"] = "change_required" if receipt["changed"] else "already_bound"
+        return receipt
+    if not receipt["changed"]:
+        receipt["status"] = "already_bound"
+        return receipt
+    if not re.fullmatch(r"[0-9a-f]{64}", normalized_expected_sha256):
+        raise PropertySearchTourBindingError("property_search_tour_expected_record_sha256_required")
+    if normalized_expected_sha256 != receipt["before_sha256"]:
+        raise PropertySearchTourBindingError("property_search_tour_record_changed_since_dry_run")
+    cas_result = _compare_and_swap_property_search_run_record(
+        principal_id=normalized_principal,
+        run_id=normalized_run_id,
+        expected_record_sha256=normalized_expected_sha256,
+        updated_record=updated,
+    )
+    cas_status = str(cas_result.get("status") or "").strip().lower()
+    if cas_status == "record_changed":
+        latest = _load_property_search_run_record_storage(
+            run_id=normalized_run_id,
+            principal_id=normalized_principal,
+        )
+        if isinstance(latest, dict):
+            _latest_updated, latest_receipt = plan_property_search_candidate_tour_binding(
+                latest,
+                principal_id=normalized_principal,
+                run_id=normalized_run_id,
+                candidate_ref=normalized_candidate_ref,
+                expected_listing_id=normalized_listing_id,
+                generated_reconstruction_url=normalized_url,
+                bundle_identity=bundle_identity,
+                reconstruction_kind=normalized_kind,
+                disclosure=disclosure,
+            )
+            if not latest_receipt["changed"]:
+                receipt["status"] = "already_bound"
+                receipt["persisted_sha256"] = property_search_run_record_sha256(latest)
+                return receipt
+        raise PropertySearchTourBindingError("property_search_tour_record_changed_since_dry_run")
+    if cas_status != "applied":
+        raise PropertySearchTourBindingError("property_search_tour_store_rejected")
+    verified = cas_result.get("record")
+    if not isinstance(verified, dict):
+        raise PropertySearchTourBindingError("property_search_tour_store_verification_failed")
+    _verified_record, verified_receipt = plan_property_search_candidate_tour_binding(
+        verified,
+        principal_id=normalized_principal,
+        run_id=normalized_run_id,
+        candidate_ref=normalized_candidate_ref,
+        expected_listing_id=normalized_listing_id,
+        generated_reconstruction_url=normalized_url,
+        bundle_identity=bundle_identity,
+        reconstruction_kind=normalized_kind,
+        disclosure=disclosure,
+    )
+    persisted_sha256 = property_search_run_record_sha256(verified)
+    if (
+        verified_receipt["changed"]
+        or persisted_sha256 != receipt["after_sha256"]
+        or str(cas_result.get("record_sha256") or "").strip().lower()
+        != persisted_sha256
+    ):
+        raise PropertySearchTourBindingError("property_search_tour_store_verification_failed")
+    with _PROPERTY_SEARCH_RUN_LOCK:
+        _PROPERTY_SEARCH_RUN_REGISTRY[normalized_run_id] = dict(verified)
+    receipt["persisted_sha256"] = persisted_sha256
+    receipt["status"] = "applied"
+    return receipt
 
 
 def _load_property_search_run_compact_record(*, run_id: str, principal_id: str) -> dict[str, object] | None:

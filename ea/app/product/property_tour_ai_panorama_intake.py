@@ -1,0 +1,1049 @@
+from __future__ import annotations
+
+import hashlib
+import hmac
+import json
+import os
+import re
+import shutil
+import stat
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
+from typing import Mapping
+from uuid import uuid4
+
+from app.product.property_search_storage import property_account_publication_authority
+from app.product.property_search_tour_binding import (
+    _normalized_provider_key,
+    _property_url_contains_listing_id,
+    _provider_key_from_url,
+    _source_ref_identity,
+    canonical_property_source_url,
+    property_search_source_url_sha256,
+)
+from app.product.property_tour_hosting import (
+    _hosted_property_tour_ai_panorama_contract,
+    _hosted_property_tour_public_asset_relpath,
+    _hosted_property_tour_publication_lock,
+    _load_hosted_property_tour_private_receipt,
+    _public_tour_dir,
+    _public_tour_private_receipt,
+    _write_hosted_property_tour_manifests_atomic,
+)
+
+
+AI_PANORAMA_INSTALL_REQUEST_CONTRACT = (
+    "propertyquarry.ai_panorama_sealed_install_request.v1"
+)
+AI_PANORAMA_INSTALL_RECEIPT_CONTRACT = (
+    "propertyquarry.ai_panorama_sealed_install_receipt.v1"
+)
+_PRIVATE_REQUEST_MAX_BYTES = 64 * 1024
+_SOURCE_MANIFEST_MAX_BYTES = 1024 * 1024
+_SOURCE_MAX_FILES = 256
+_SOURCE_MAX_BYTES = 64 * 1024 * 1024
+_DIGEST_PATTERN = re.compile(r"[0-9a-f]{64}")
+_SAFE_SLUG_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,159}")
+_SAFE_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:@+-]{0,255}")
+_PRIVATE_MANIFEST_KEYS = frozenset(
+    {
+        "principal_id",
+        "search_run_id",
+        "candidate_ref",
+        "research_candidate_ref",
+        "listing_url",
+        "property_url",
+        "source_ref",
+        "external_id",
+        "recipient_email",
+    }
+)
+
+
+class AiPanoramaIntakeError(RuntimeError):
+    def __init__(self, code: str) -> None:
+        self.code = str(code or "ai_panorama_intake_failed").strip()
+        super().__init__(self.code)
+
+
+@dataclass(frozen=True)
+class _SourceFile:
+    relpath: str
+    size_bytes: int
+    sha256: str
+    device: int
+    inode: int
+    modified_ns: int
+
+
+@dataclass(frozen=True)
+class _SourceSnapshot:
+    files: tuple[_SourceFile, ...]
+    tree_sha256: str
+    tour_sha256: str
+    total_bytes: int
+
+
+def _fail(code: str) -> None:
+    raise AiPanoramaIntakeError(code)
+
+
+def _require_digest(value: object, *, code: str, required: bool) -> str:
+    digest = str(value or "").strip().lower()
+    if not digest and not required:
+        return ""
+    if not _DIGEST_PATTERN.fullmatch(digest):
+        _fail(code)
+    return digest
+
+
+def _require_safe_id(value: object, *, code: str) -> str:
+    normalized = str(value or "").strip()
+    if not _SAFE_ID_PATTERN.fullmatch(normalized):
+        _fail(code)
+    return normalized
+
+
+def _require_principal(value: object) -> str:
+    normalized = str(value or "").strip()
+    if (
+        not normalized
+        or len(normalized) > 512
+        or any(ord(character) < 32 or ord(character) == 127 for character in normalized)
+    ):
+        _fail("ai_panorama_principal_required")
+    return normalized
+
+
+def _request_path(value: object, *, code: str) -> Path:
+    raw = str(value or "").strip()
+    if not raw or "\x00" in raw:
+        _fail(code)
+    path = Path(raw).expanduser()
+    if not path.is_absolute() or ".." in path.parts:
+        _fail(code)
+    return path
+
+
+def _require_no_symlink_components(path: Path, *, code: str) -> None:
+    current = Path(path.anchor)
+    for part in path.parts[1:]:
+        current /= part
+        try:
+            details = current.stat(follow_symlinks=False)
+        except OSError as exc:
+            raise AiPanoramaIntakeError(code) from exc
+        if stat.S_ISLNK(details.st_mode):
+            _fail(code)
+
+
+def _open_regular_nofollow(
+    path: Path,
+    *,
+    maximum_bytes: int,
+    code: str,
+    required_uid: int | None = None,
+    forbidden_mode_bits: int = 0,
+) -> bytes:
+    descriptor = -1
+    try:
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+        nofollow = getattr(os, "O_NOFOLLOW", 0)
+        if not nofollow:
+            _fail("ai_panorama_nofollow_unavailable")
+        descriptor = os.open(path, flags | nofollow)
+        details = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(details.st_mode)
+            or details.st_size <= 0
+            or details.st_size > maximum_bytes
+            or (required_uid is not None and details.st_uid != required_uid)
+            or stat.S_IMODE(details.st_mode) & forbidden_mode_bits
+        ):
+            _fail(code)
+        chunks: list[bytes] = []
+        remaining = int(details.st_size)
+        while remaining:
+            chunk = os.read(descriptor, min(remaining, 64 * 1024))
+            if not chunk:
+                _fail(code)
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        observed = os.fstat(descriptor)
+        if (
+            observed.st_dev != details.st_dev
+            or observed.st_ino != details.st_ino
+            or observed.st_size != details.st_size
+            or observed.st_mtime_ns != details.st_mtime_ns
+        ):
+            _fail("ai_panorama_source_changed")
+        return b"".join(chunks)
+    except AiPanoramaIntakeError:
+        raise
+    except OSError as exc:
+        raise AiPanoramaIntakeError(code) from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+def load_private_ai_panorama_install_request(path: Path) -> dict[str, object]:
+    """Load the operator request without following links or exposing its values."""
+
+    request_path = _request_path(path, code="ai_panorama_request_path_invalid")
+    _require_no_symlink_components(
+        request_path,
+        code="ai_panorama_request_permissions_invalid",
+    )
+    try:
+        details = request_path.stat(follow_symlinks=False)
+    except OSError as exc:
+        raise AiPanoramaIntakeError("ai_panorama_request_unreadable") from exc
+    if (
+        stat.S_ISLNK(details.st_mode)
+        or not stat.S_ISREG(details.st_mode)
+        or details.st_uid != os.geteuid()
+        or stat.S_IMODE(details.st_mode) & 0o077
+    ):
+        _fail("ai_panorama_request_permissions_invalid")
+    encoded = _open_regular_nofollow(
+        request_path,
+        maximum_bytes=_PRIVATE_REQUEST_MAX_BYTES,
+        code="ai_panorama_request_permissions_invalid",
+        required_uid=os.geteuid(),
+        forbidden_mode_bits=0o077,
+    )
+    try:
+        payload = json.loads(encoded.decode("utf-8"))
+    except (UnicodeError, ValueError) as exc:
+        raise AiPanoramaIntakeError("ai_panorama_request_invalid") from exc
+    if not isinstance(payload, dict):
+        _fail("ai_panorama_request_invalid")
+    request = dict(payload)
+    if request.get("contract") != AI_PANORAMA_INSTALL_REQUEST_CONTRACT:
+        _fail("ai_panorama_request_contract_invalid")
+    return request
+
+
+def _safe_relpath(value: object) -> str:
+    normalized = str(value or "").strip().replace("\\", "/")
+    candidate = PurePosixPath(normalized)
+    if (
+        not normalized
+        or normalized.startswith("/")
+        or candidate.is_absolute()
+        or any(part in {"", ".", ".."} for part in candidate.parts)
+        or any(part.startswith(".") for part in candidate.parts)
+        or len(normalized.encode("utf-8")) > 512
+        or any(ord(character) < 32 or ord(character) == 127 for character in normalized)
+    ):
+        _fail("ai_panorama_source_relpath_invalid")
+    return candidate.as_posix()
+
+
+def _configured_incoming_tour_dir() -> Path:
+    raw = str(
+        os.getenv("PROPERTYQUARRY_TOUR_EXPORT_INCOMING_DIR")
+        or os.getenv("PROPERTYQUARRY_TOUR_EXPORT_DROP_DIR")
+        or "/data/incoming_property_tours"
+    ).strip()
+    return Path(raw).expanduser()
+
+
+def _directory_identity(path: Path, *, code: str) -> tuple[int, int]:
+    _require_no_symlink_components(path, code=code)
+    try:
+        details = path.stat(follow_symlinks=False)
+    except OSError as exc:
+        raise AiPanoramaIntakeError(code) from exc
+    if stat.S_ISLNK(details.st_mode) or not stat.S_ISDIR(details.st_mode):
+        _fail(code)
+    return int(details.st_dev), int(details.st_ino)
+
+
+def _confined_source_bundle(path: Path) -> Path:
+    incoming_root = _request_path(
+        _configured_incoming_tour_dir(),
+        code="ai_panorama_incoming_root_invalid",
+    )
+    _directory_identity(incoming_root, code="ai_panorama_incoming_root_invalid")
+    try:
+        relative = path.relative_to(incoming_root)
+    except ValueError:
+        _fail("ai_panorama_source_outside_incoming_root")
+    if not relative.parts:
+        _fail("ai_panorama_source_outside_incoming_root")
+    current = incoming_root
+    for part in relative.parts:
+        current /= part
+        _directory_identity(current, code="ai_panorama_source_path_unsafe")
+        try:
+            details = current.stat(follow_symlinks=False)
+        except OSError as exc:
+            raise AiPanoramaIntakeError("ai_panorama_source_path_unsafe") from exc
+        if stat.S_IMODE(details.st_mode) & 0o022:
+            _fail("ai_panorama_source_path_unsafe")
+    return path
+
+
+def _hash_regular_file(path: Path, *, details: os.stat_result) -> str:
+    descriptor = -1
+    digest = hashlib.sha256()
+    try:
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(path, flags)
+        opened = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or opened.st_dev != details.st_dev
+            or opened.st_ino != details.st_ino
+            or opened.st_size != details.st_size
+            or opened.st_mtime_ns != details.st_mtime_ns
+        ):
+            _fail("ai_panorama_source_changed")
+        while True:
+            chunk = os.read(descriptor, 1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+        closed = os.fstat(descriptor)
+        if (
+            closed.st_dev != opened.st_dev
+            or closed.st_ino != opened.st_ino
+            or closed.st_size != opened.st_size
+            or closed.st_mtime_ns != opened.st_mtime_ns
+        ):
+            _fail("ai_panorama_source_changed")
+    except AiPanoramaIntakeError:
+        raise
+    except OSError as exc:
+        raise AiPanoramaIntakeError("ai_panorama_source_unreadable") from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    return digest.hexdigest()
+
+
+def _scan_source_bundle(source_bundle: Path) -> _SourceSnapshot:
+    try:
+        root_details = source_bundle.stat(follow_symlinks=False)
+    except OSError as exc:
+        raise AiPanoramaIntakeError("ai_panorama_source_missing") from exc
+    if (
+        stat.S_ISLNK(root_details.st_mode)
+        or not stat.S_ISDIR(root_details.st_mode)
+        or stat.S_IMODE(root_details.st_mode) & 0o022
+    ):
+        _fail("ai_panorama_source_directory_unsafe")
+    rows: list[_SourceFile] = []
+    total_bytes = 0
+    try:
+        walker = os.walk(source_bundle, topdown=True, followlinks=False)
+        for current_raw, directory_names, file_names in walker:
+            current = Path(current_raw)
+            current_details = current.stat(follow_symlinks=False)
+            if (
+                stat.S_ISLNK(current_details.st_mode)
+                or not stat.S_ISDIR(current_details.st_mode)
+                or stat.S_IMODE(current_details.st_mode) & 0o022
+            ):
+                _fail("ai_panorama_source_directory_unsafe")
+            directory_names.sort()
+            file_names.sort()
+            for directory_name in directory_names:
+                directory_path = current / directory_name
+                directory_details = directory_path.stat(follow_symlinks=False)
+                _safe_relpath(directory_path.relative_to(source_bundle).as_posix())
+                if stat.S_ISLNK(directory_details.st_mode) or not stat.S_ISDIR(
+                    directory_details.st_mode
+                ):
+                    _fail("ai_panorama_source_symlink_forbidden")
+            for file_name in file_names:
+                file_path = current / file_name
+                relpath = _safe_relpath(file_path.relative_to(source_bundle).as_posix())
+                details = file_path.stat(follow_symlinks=False)
+                if stat.S_ISLNK(details.st_mode) or not stat.S_ISREG(details.st_mode):
+                    _fail("ai_panorama_source_symlink_forbidden")
+                if stat.S_IMODE(details.st_mode) & 0o022:
+                    _fail("ai_panorama_source_file_unsafe")
+                if file_name == "tour.private.json":
+                    _fail("ai_panorama_source_private_receipt_forbidden")
+                total_bytes += int(details.st_size)
+                if len(rows) >= _SOURCE_MAX_FILES or total_bytes > _SOURCE_MAX_BYTES:
+                    _fail("ai_panorama_source_budget_exceeded")
+                rows.append(
+                    _SourceFile(
+                        relpath=relpath,
+                        size_bytes=int(details.st_size),
+                        sha256=_hash_regular_file(file_path, details=details),
+                        device=int(details.st_dev),
+                        inode=int(details.st_ino),
+                        modified_ns=int(details.st_mtime_ns),
+                    )
+                )
+    except AiPanoramaIntakeError:
+        raise
+    except OSError as exc:
+        raise AiPanoramaIntakeError("ai_panorama_source_unreadable") from exc
+    rows.sort(key=lambda row: row.relpath)
+    if not rows or rows[0].relpath == "tour.private.json":
+        _fail("ai_panorama_source_empty")
+    by_path = {row.relpath: row for row in rows}
+    if "tour.json" not in by_path:
+        _fail("ai_panorama_source_manifest_missing")
+    canonical = json.dumps(
+        [
+            {
+                "relpath": row.relpath,
+                "sha256": row.sha256,
+                "size_bytes": row.size_bytes,
+            }
+            for row in rows
+        ],
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return _SourceSnapshot(
+        files=tuple(rows),
+        tree_sha256=hashlib.sha256(canonical).hexdigest(),
+        tour_sha256=by_path["tour.json"].sha256,
+        total_bytes=total_bytes,
+    )
+
+
+def _load_source_manifest(source_bundle: Path) -> dict[str, object]:
+    encoded = _open_regular_nofollow(
+        source_bundle / "tour.json",
+        maximum_bytes=_SOURCE_MANIFEST_MAX_BYTES,
+        code="ai_panorama_source_manifest_invalid",
+    )
+    try:
+        payload = json.loads(encoded.decode("utf-8"))
+    except (UnicodeError, ValueError) as exc:
+        raise AiPanoramaIntakeError("ai_panorama_source_manifest_invalid") from exc
+    if not isinstance(payload, dict):
+        _fail("ai_panorama_source_manifest_invalid")
+    return dict(payload)
+
+
+def _declared_public_files(
+    source_bundle: Path,
+    payload: Mapping[str, object],
+) -> set[str]:
+    declared = {"tour.json"}
+    walkable_scene = payload.get("walkable_scene")
+    if not isinstance(walkable_scene, Mapping):
+        _fail("ai_panorama_walkable_scene_missing")
+    floorplan_relpath = _hosted_property_tour_public_asset_relpath(
+        walkable_scene.get("floorplan_relpath")
+    )
+    if not floorplan_relpath:
+        _fail("ai_panorama_floorplan_relpath_invalid")
+    declared.add(_safe_relpath(floorplan_relpath))
+    raw_scenes = walkable_scene.get("scenes")
+    if isinstance(raw_scenes, Mapping):
+        scenes = tuple(raw_scenes.values())
+    elif isinstance(raw_scenes, list):
+        scenes = tuple(raw_scenes)
+    else:
+        _fail("ai_panorama_scenes_invalid")
+    for scene in scenes:
+        if not isinstance(scene, Mapping):
+            _fail("ai_panorama_scenes_invalid")
+        values = {
+            _hosted_property_tour_public_asset_relpath(scene.get(key))
+            for key in (
+                "asset_relpath",
+                "panorama_relpath",
+                "equirect_relpath",
+                "image_relpath",
+            )
+            if str(scene.get(key) or "").strip()
+        }
+        if "" in values or len(values) != 1:
+            _fail("ai_panorama_scene_asset_invalid")
+        declared.add(_safe_relpath(next(iter(values))))
+    acceptance = walkable_scene.get("acceptance")
+    if not isinstance(acceptance, Mapping):
+        _fail("ai_panorama_acceptance_missing")
+    for key in ("provenance_relpath", "browser_receipt_relpath"):
+        relpath = _hosted_property_tour_public_asset_relpath(acceptance.get(key))
+        if not relpath:
+            _fail("ai_panorama_proof_relpath_invalid")
+        declared.add(_safe_relpath(relpath))
+    browser_relpath = _safe_relpath(str(acceptance.get("browser_receipt_relpath") or ""))
+    browser_encoded = _open_regular_nofollow(
+        source_bundle / browser_relpath,
+        maximum_bytes=_SOURCE_MANIFEST_MAX_BYTES,
+        code="ai_panorama_browser_receipt_invalid",
+    )
+    try:
+        browser_receipt = json.loads(browser_encoded.decode("utf-8"))
+    except (UnicodeError, ValueError) as exc:
+        raise AiPanoramaIntakeError("ai_panorama_browser_receipt_invalid") from exc
+    if not isinstance(browser_receipt, Mapping):
+        _fail("ai_panorama_browser_receipt_invalid")
+    for surface in ("desktop", "mobile", "dollhouse"):
+        surface_receipt = browser_receipt.get(surface)
+        if not isinstance(surface_receipt, Mapping):
+            _fail("ai_panorama_browser_receipt_invalid")
+        relpath = _hosted_property_tour_public_asset_relpath(
+            surface_receipt.get("screenshot_relpath")
+        )
+        if not relpath:
+            _fail("ai_panorama_browser_receipt_invalid")
+        declared.add(_safe_relpath(relpath))
+    return declared
+
+
+def _validate_source_identity(
+    *,
+    request: Mapping[str, object],
+    source_bundle: Path,
+    snapshot: _SourceSnapshot,
+    payload: dict[str, object],
+    apply: bool,
+) -> dict[str, str]:
+    expected_slug = str(request.get("expected_slug") or "").strip()
+    if not _SAFE_SLUG_PATTERN.fullmatch(expected_slug):
+        _fail("ai_panorama_expected_slug_invalid")
+    if str(payload.get("slug") or "").strip() != expected_slug:
+        _fail("ai_panorama_source_slug_mismatch")
+    if _PRIVATE_MANIFEST_KEYS.intersection(payload):
+        _fail("ai_panorama_source_public_manifest_contains_private_identity")
+
+    principal_id = _require_principal(request.get("principal_id"))
+    search_run_id = _require_safe_id(
+        request.get("search_run_id"), code="ai_panorama_search_run_id_invalid"
+    )
+    candidate_ref = _require_safe_id(
+        request.get("candidate_ref"), code="ai_panorama_candidate_ref_invalid"
+    )
+    external_id = _require_safe_id(
+        request.get("external_id"), code="ai_panorama_external_id_invalid"
+    )
+    source_ref = str(request.get("source_ref") or "").strip()
+    if (
+        not source_ref
+        or len(source_ref) > 512
+        or ":" not in source_ref
+        or any(ord(character) < 32 or ord(character) == 127 for character in source_ref)
+    ):
+        _fail("ai_panorama_source_ref_invalid")
+    raw_source_provider, _separator, raw_source_listing_id = source_ref.partition(":")
+    if not raw_source_provider.strip() or raw_source_listing_id.strip() != external_id:
+        _fail("ai_panorama_source_ref_identity_mismatch")
+
+    provider_key = _normalized_provider_key(request.get("provider_key"))
+    if not provider_key:
+        _fail("ai_panorama_provider_key_invalid")
+    source_provider, source_listing_id = _source_ref_identity(source_ref)
+    if source_listing_id != external_id or (
+        source_provider and source_provider != provider_key
+    ):
+        _fail("ai_panorama_source_ref_identity_mismatch")
+
+    listing_url = str(request.get("listing_url") or "").strip()
+    canonical_listing_url = canonical_property_source_url(listing_url)
+    if not canonical_listing_url or canonical_listing_url != listing_url:
+        _fail("ai_panorama_listing_url_not_canonical")
+    if _provider_key_from_url(canonical_listing_url) != provider_key:
+        _fail("ai_panorama_provider_url_mismatch")
+    if not _property_url_contains_listing_id(canonical_listing_url, external_id):
+        _fail("ai_panorama_listing_url_identity_mismatch")
+    property_url_sha256 = property_search_source_url_sha256(canonical_listing_url)
+    if str(payload.get("property_url_sha256") or "").strip().lower() != property_url_sha256:
+        _fail("ai_panorama_property_url_sha256_mismatch")
+
+    expected_tree_sha256 = _require_digest(
+        request.get("expected_source_tree_sha256"),
+        code="ai_panorama_expected_source_tree_sha256_invalid",
+        required=apply,
+    )
+    expected_tour_sha256 = _require_digest(
+        request.get("expected_tour_sha256"),
+        code="ai_panorama_expected_tour_sha256_invalid",
+        required=apply,
+    )
+    if expected_tree_sha256 and not hmac.compare_digest(
+        expected_tree_sha256, snapshot.tree_sha256
+    ):
+        _fail("ai_panorama_source_tree_sha256_mismatch")
+    if expected_tour_sha256 and not hmac.compare_digest(
+        expected_tour_sha256, snapshot.tour_sha256
+    ):
+        _fail("ai_panorama_source_tour_sha256_mismatch")
+
+    contract = _hosted_property_tour_ai_panorama_contract(
+        bundle_dir=source_bundle,
+        payload=payload,
+        mode="full",
+    )
+    if contract.get("ready") is not True:
+        reason = str(contract.get("reason") or "strict_contract_failed").strip()
+        raise AiPanoramaIntakeError(f"ai_panorama_strict_contract:{reason}")
+    if str(contract.get("property_url_sha256") or "").strip().lower() != property_url_sha256:
+        _fail("ai_panorama_strict_property_binding_mismatch")
+
+    declared = _declared_public_files(source_bundle, payload)
+    actual = {row.relpath for row in snapshot.files}
+    if declared != actual:
+        _fail("ai_panorama_source_file_set_mismatch")
+    acceptance = dict(dict(payload.get("walkable_scene") or {}).get("acceptance") or {})
+    provenance_relpath = _safe_relpath(str(acceptance.get("provenance_relpath") or ""))
+    provenance_encoded = _open_regular_nofollow(
+        source_bundle / provenance_relpath,
+        maximum_bytes=_SOURCE_MANIFEST_MAX_BYTES,
+        code="ai_panorama_provenance_invalid",
+    )
+    try:
+        provenance = json.loads(provenance_encoded.decode("utf-8"))
+    except (UnicodeError, ValueError) as exc:
+        raise AiPanoramaIntakeError("ai_panorama_provenance_invalid") from exc
+    expected_binding_kind = f"{provider_key}_source_listing_url_sha256"
+    if (
+        not isinstance(provenance, Mapping)
+        or str(provenance.get("property_binding_kind") or "").strip()
+        != expected_binding_kind
+        or str(provenance.get("property_url_sha256") or "").strip().lower()
+        != property_url_sha256
+    ):
+        _fail("ai_panorama_provider_qualified_provenance_mismatch")
+    return {
+        "principal_id": principal_id,
+        "search_run_id": search_run_id,
+        "candidate_ref": candidate_ref,
+        "external_id": external_id,
+        "source_ref": source_ref,
+        "provider_key": provider_key,
+        "listing_url": canonical_listing_url,
+        "property_url_sha256": property_url_sha256,
+        "core_manifest_sha256": str(contract.get("core_manifest_sha256") or ""),
+    }
+
+
+def _copy_snapshot(source: Path, stage: Path, snapshot: _SourceSnapshot) -> None:
+    for row in snapshot.files:
+        destination = stage / row.relpath
+        destination.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
+        source_path = source / row.relpath
+        source_fd = -1
+        destination_fd = -1
+        digest = hashlib.sha256()
+        try:
+            source_fd = os.open(
+                source_path,
+                os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0),
+            )
+            opened = os.fstat(source_fd)
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or opened.st_dev != row.device
+                or opened.st_ino != row.inode
+                or opened.st_size != row.size_bytes
+                or opened.st_mtime_ns != row.modified_ns
+            ):
+                _fail("ai_panorama_source_changed")
+            destination_fd = os.open(
+                destination,
+                os.O_WRONLY
+                | os.O_CREAT
+                | os.O_EXCL
+                | getattr(os, "O_CLOEXEC", 0)
+                | getattr(os, "O_NOFOLLOW", 0),
+                0o644,
+            )
+            while True:
+                chunk = os.read(source_fd, 1024 * 1024)
+                if not chunk:
+                    break
+                digest.update(chunk)
+                view = memoryview(chunk)
+                while view:
+                    written = os.write(destination_fd, view)
+                    view = view[written:]
+            if digest.hexdigest() != row.sha256 or os.fstat(source_fd).st_mtime_ns != row.modified_ns:
+                _fail("ai_panorama_source_changed")
+            os.fchmod(destination_fd, 0o644)
+            os.fsync(destination_fd)
+        except AiPanoramaIntakeError:
+            raise
+        except OSError as exc:
+            raise AiPanoramaIntakeError("ai_panorama_stage_copy_failed") from exc
+        finally:
+            if destination_fd >= 0:
+                os.close(destination_fd)
+            if source_fd >= 0:
+                os.close(source_fd)
+    if _scan_source_bundle(source).tree_sha256 != snapshot.tree_sha256:
+        _fail("ai_panorama_source_changed")
+
+
+def _load_json_manifest(path: Path, *, code: str) -> dict[str, object]:
+    encoded = _open_regular_nofollow(path, maximum_bytes=_SOURCE_MANIFEST_MAX_BYTES, code=code)
+    try:
+        payload = json.loads(encoded.decode("utf-8"))
+    except (UnicodeError, ValueError) as exc:
+        raise AiPanoramaIntakeError(code) from exc
+    if not isinstance(payload, dict):
+        _fail(code)
+    return dict(payload)
+
+
+def _fsync_directory_tree(root: Path) -> None:
+    directories = [root]
+    for current_raw, directory_names, _file_names in os.walk(
+        root, topdown=True, followlinks=False
+    ):
+        current = Path(current_raw)
+        for directory_name in directory_names:
+            candidate = current / directory_name
+            details = candidate.stat(follow_symlinks=False)
+            if stat.S_ISLNK(details.st_mode) or not stat.S_ISDIR(details.st_mode):
+                _fail("ai_panorama_stage_directory_invalid")
+            directories.append(candidate)
+    for directory in reversed(directories):
+        descriptor = -1
+        try:
+            descriptor = os.open(
+                directory,
+                os.O_RDONLY
+                | getattr(os, "O_CLOEXEC", 0)
+                | getattr(os, "O_DIRECTORY", 0)
+                | getattr(os, "O_NOFOLLOW", 0),
+            )
+            os.fsync(descriptor)
+        except OSError as exc:
+            raise AiPanoramaIntakeError("ai_panorama_stage_fsync_failed") from exc
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+
+
+def _semantic_manifest_sha256(payload: Mapping[str, object]) -> str:
+    try:
+        encoded = json.dumps(
+            dict(payload),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise AiPanoramaIntakeError("ai_panorama_manifest_not_canonical") from exc
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _validate_existing_target(
+    *,
+    target: Path,
+    source_payload: Mapping[str, object],
+    snapshot: _SourceSnapshot,
+    identity: Mapping[str, str],
+) -> bool:
+    try:
+        details = target.stat(follow_symlinks=False)
+    except FileNotFoundError:
+        return False
+    except OSError as exc:
+        raise AiPanoramaIntakeError("ai_panorama_target_invalid") from exc
+    if stat.S_ISLNK(details.st_mode) or not stat.S_ISDIR(details.st_mode):
+        _fail("ai_panorama_target_invalid")
+    private_payload = _load_hosted_property_tour_private_receipt(target)
+    existing_owner = str(private_payload.get("principal_id") or "").strip()
+    if not existing_owner:
+        _fail("ai_panorama_target_owner_receipt_missing")
+    if not hmac.compare_digest(existing_owner, identity["principal_id"]):
+        _fail("ai_panorama_target_owner_mismatch")
+    expected_private = {
+        "search_run_id": identity["search_run_id"],
+        "candidate_ref": identity["candidate_ref"],
+        "listing_url": identity["listing_url"],
+        "property_url": identity["listing_url"],
+        "source_ref": identity["source_ref"],
+        "external_id": identity["external_id"],
+    }
+    if any(str(private_payload.get(key) or "").strip() != value for key, value in expected_private.items()):
+        _fail("ai_panorama_target_private_identity_conflict")
+    installed_payload = _load_json_manifest(
+        target / "tour.json", code="ai_panorama_target_manifest_invalid"
+    )
+    installed_contract = _hosted_property_tour_ai_panorama_contract(
+        bundle_dir=target,
+        payload=installed_payload,
+        mode="full",
+    )
+    if installed_contract.get("ready") is not True:
+        _fail("ai_panorama_target_contract_invalid")
+    if (
+        str(installed_contract.get("core_manifest_sha256") or "")
+        != identity["core_manifest_sha256"]
+        or _semantic_manifest_sha256(installed_payload)
+        != _semantic_manifest_sha256(source_payload)
+    ):
+        _fail("ai_panorama_target_replace_forbidden")
+    expected_paths = {row.relpath for row in snapshot.files} | {"tour.private.json"}
+    observed_paths: set[str] = set()
+    for current_raw, directory_names, file_names in os.walk(target, topdown=True, followlinks=False):
+        current = Path(current_raw)
+        directory_names.sort()
+        file_names.sort()
+        for directory_name in directory_names:
+            directory_path = current / directory_name
+            directory_details = directory_path.stat(follow_symlinks=False)
+            if stat.S_ISLNK(directory_details.st_mode) or not stat.S_ISDIR(directory_details.st_mode):
+                _fail("ai_panorama_target_invalid")
+        for file_name in file_names:
+            file_path = current / file_name
+            relpath = _safe_relpath(file_path.relative_to(target).as_posix())
+            details = file_path.stat(follow_symlinks=False)
+            if stat.S_ISLNK(details.st_mode) or not stat.S_ISREG(details.st_mode):
+                _fail("ai_panorama_target_invalid")
+            observed_paths.add(relpath)
+    if observed_paths != expected_paths:
+        _fail("ai_panorama_target_replace_forbidden")
+    source_by_path = {row.relpath: row for row in snapshot.files}
+    for relpath, source_row in source_by_path.items():
+        if relpath == "tour.json":
+            continue
+        details = (target / relpath).stat(follow_symlinks=False)
+        if _hash_regular_file(target / relpath, details=details) != source_row.sha256:
+            _fail("ai_panorama_target_replace_forbidden")
+    return True
+
+
+def _receipt(
+    *,
+    status: str,
+    applied: bool,
+    already_installed: bool,
+    slug: str,
+    snapshot: _SourceSnapshot,
+    identity: Mapping[str, str],
+) -> dict[str, object]:
+    return {
+        "contract": AI_PANORAMA_INSTALL_RECEIPT_CONTRACT,
+        "status": status,
+        "mode": "apply" if applied else "dry_run",
+        "applied": applied and not already_installed,
+        "already_installed": already_installed,
+        "slug": slug,
+        "control_path": f"/tours/{slug}/control",
+        "representation_kind": "ai_panorama_360",
+        "provider_key": identity["provider_key"],
+        "property_url_sha256": identity["property_url_sha256"],
+        "core_manifest_sha256": identity["core_manifest_sha256"],
+        "source_tree_sha256": snapshot.tree_sha256,
+        "source_tour_sha256": snapshot.tour_sha256,
+        "source_file_count": len(snapshot.files),
+        "source_total_bytes": snapshot.total_bytes,
+        "principal_binding_verified": True,
+        "run_binding_verified": True,
+        "candidate_binding_verified": True,
+        "listing_identity_verified": True,
+        "private_values_redacted": True,
+    }
+
+
+def install_sealed_ai_panorama_bundle(
+    request: Mapping[str, object],
+    *,
+    apply: bool = False,
+) -> dict[str, object]:
+    """Validate or atomically install a first-party AI panorama bundle.
+
+    Dry-run is the default. Apply is a CAS operation over both the complete
+    source tree and its source tour manifest. The returned receipt intentionally
+    contains no principal, run, candidate, source-ref, external-id, or URL.
+    """
+
+    if request.get("contract") != AI_PANORAMA_INSTALL_REQUEST_CONTRACT:
+        _fail("ai_panorama_request_contract_invalid")
+    source_bundle = _confined_source_bundle(
+        _request_path(
+            request.get("source_bundle"), code="ai_panorama_source_path_invalid"
+        )
+    )
+    requested_public_tour_dir = _request_path(
+        request.get("public_tour_dir"), code="ai_panorama_public_dir_invalid"
+    )
+    public_tour_dir = _request_path(
+        _public_tour_dir(), code="ai_panorama_configured_public_dir_invalid"
+    )
+    requested_identity = _directory_identity(
+        requested_public_tour_dir,
+        code="ai_panorama_public_dir_invalid",
+    )
+    configured_identity = _directory_identity(
+        public_tour_dir,
+        code="ai_panorama_configured_public_dir_invalid",
+    )
+    if requested_identity != configured_identity:
+        _fail("ai_panorama_public_dir_not_configured")
+    snapshot = _scan_source_bundle(source_bundle)
+    source_payload = _load_source_manifest(source_bundle)
+    identity = _validate_source_identity(
+        request=request,
+        source_bundle=source_bundle,
+        snapshot=snapshot,
+        payload=source_payload,
+        apply=apply,
+    )
+    slug = str(request.get("expected_slug") or "").strip()
+    target = public_tour_dir / slug
+
+    if not apply:
+        already_installed = _validate_existing_target(
+            target=target,
+            source_payload=source_payload,
+            snapshot=snapshot,
+            identity=identity,
+        )
+        return _receipt(
+            status="already_installed" if already_installed else "validated",
+            applied=False,
+            already_installed=already_installed,
+            slug=slug,
+            snapshot=snapshot,
+            identity=identity,
+        )
+
+    with _hosted_property_tour_publication_lock(
+        public_dir=public_tour_dir,
+        slug=slug,
+    ):
+        if _validate_existing_target(
+            target=target,
+            source_payload=source_payload,
+            snapshot=snapshot,
+            identity=identity,
+        ):
+            with property_account_publication_authority(
+                identity["principal_id"], run_id=identity["search_run_id"]
+            ):
+                pass
+            return _receipt(
+                status="already_installed",
+                applied=True,
+                already_installed=True,
+                slug=slug,
+                snapshot=snapshot,
+                identity=identity,
+            )
+
+        stage: Path | None = None
+        try:
+            with property_account_publication_authority(
+                identity["principal_id"], run_id=identity["search_run_id"]
+            ):
+                stage = public_tour_dir / f".{slug}.ai-intake-{uuid4().hex}"
+                os.mkdir(stage, 0o755)
+                _copy_snapshot(source_bundle, stage, snapshot)
+                staged_payload = _load_source_manifest(stage)
+                staged_contract = _hosted_property_tour_ai_panorama_contract(
+                    bundle_dir=stage,
+                    payload=staged_payload,
+                    mode="full",
+                )
+                if (
+                    staged_contract.get("ready") is not True
+                    or str(staged_contract.get("core_manifest_sha256") or "")
+                    != identity["core_manifest_sha256"]
+                ):
+                    _fail("ai_panorama_stage_contract_invalid")
+                owned_payload = dict(staged_payload)
+                owned_payload.update(
+                    {
+                        "principal_id": identity["principal_id"],
+                        "search_run_id": identity["search_run_id"],
+                        "candidate_ref": identity["candidate_ref"],
+                        "listing_url": identity["listing_url"],
+                        "property_url": identity["listing_url"],
+                        "source_ref": identity["source_ref"],
+                        "external_id": identity["external_id"],
+                        "panorama_source": "ai_panorama_360_sealed_bundle",
+                    }
+                )
+                # The sealed manifest has already passed the complete AI-tour
+                # contract and contains no private identity. Preserve it byte-
+                # semantically here: the generic browser projection intentionally
+                # strips server-side acceptance proofs and therefore cannot be
+                # used as the hosted on-disk acceptance manifest.
+                public_payload = dict(staged_payload)
+                if _PRIVATE_MANIFEST_KEYS.intersection(public_payload):
+                    _fail("ai_panorama_public_manifest_private_value_leak")
+                private_payload = _public_tour_private_receipt(owned_payload)
+                expected_private = {
+                    "principal_id": identity["principal_id"],
+                    "search_run_id": identity["search_run_id"],
+                    "candidate_ref": identity["candidate_ref"],
+                    "listing_url": identity["listing_url"],
+                    "property_url": identity["listing_url"],
+                    "source_ref": identity["source_ref"],
+                    "external_id": identity["external_id"],
+                }
+                if any(
+                    str(private_payload.get(key) or "").strip() != value
+                    for key, value in expected_private.items()
+                ):
+                    _fail("ai_panorama_private_receipt_binding_failed")
+                _write_hosted_property_tour_manifests_atomic(
+                    stage,
+                    public_payload=public_payload,
+                    private_payload=private_payload,
+                )
+                written_payload = _load_json_manifest(
+                    stage / "tour.json", code="ai_panorama_stage_manifest_invalid"
+                )
+                written_contract = _hosted_property_tour_ai_panorama_contract(
+                    bundle_dir=stage,
+                    payload=written_payload,
+                    mode="full",
+                )
+                if (
+                    written_contract.get("ready") is not True
+                    or str(written_contract.get("core_manifest_sha256") or "")
+                    != identity["core_manifest_sha256"]
+                    or _semantic_manifest_sha256(written_payload)
+                    != _semantic_manifest_sha256(source_payload)
+                ):
+                    _fail("ai_panorama_written_manifest_contract_invalid")
+                _fsync_directory_tree(stage)
+                if target.exists() or target.is_symlink():
+                    _fail("ai_panorama_target_replace_forbidden")
+                os.rename(stage, target)
+                stage = None
+                directory_fd = os.open(
+                    public_tour_dir,
+                    os.O_RDONLY
+                    | getattr(os, "O_DIRECTORY", 0)
+                    | getattr(os, "O_NOFOLLOW", 0),
+                )
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+        finally:
+            if stage is not None and stage.parent == public_tour_dir and stage.name.startswith(
+                f".{slug}.ai-intake-"
+            ):
+                shutil.rmtree(stage, ignore_errors=True)
+
+    return _receipt(
+        status="installed",
+        applied=True,
+        already_installed=False,
+        slug=slug,
+        snapshot=snapshot,
+        identity=identity,
+    )
+
+
+__all__ = [
+    "AI_PANORAMA_INSTALL_RECEIPT_CONTRACT",
+    "AI_PANORAMA_INSTALL_REQUEST_CONTRACT",
+    "AiPanoramaIntakeError",
+    "install_sealed_ai_panorama_bundle",
+    "load_private_ai_panorama_install_request",
+]

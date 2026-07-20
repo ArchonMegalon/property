@@ -24,6 +24,7 @@ class PublicTourManifest:
 class PrivateTourReceipt:
     principal_id: str = ""
     search_run_id: str = ""
+    candidate_ref: str = ""
     listing_url: str = ""
     property_url: str = ""
     source_ref: str = ""
@@ -48,6 +49,11 @@ class PrivateTourReceipt:
         return cls(
             principal_id=str(source.get("principal_id") or "").strip(),
             search_run_id=str(source.get("search_run_id") or "").strip(),
+            candidate_ref=str(
+                source.get("candidate_ref")
+                or source.get("research_candidate_ref")
+                or ""
+            ).strip(),
             listing_url=str(source.get("listing_url") or "").strip(),
             property_url=str(source.get("property_url") or "").strip(),
             source_ref=str(source.get("source_ref") or "").strip(),
@@ -84,6 +90,7 @@ class PrivateTourReceipt:
         return {
             "principal_id": self.principal_id,
             "search_run_id": self.search_run_id,
+            "candidate_ref": self.candidate_ref,
             "listing_url": self.listing_url,
             "property_url": self.property_url,
             "source_ref": self.source_ref,
@@ -411,6 +418,7 @@ _PUBLIC_TOUR_TOP_LEVEL_KEYS = frozenset(
         "creation_mode",
         "publication_status",
         "brand_name",
+        "property_url_sha256",
         "hosted_url",
         "public_url",
         "diorama_preview_relpath",
@@ -1704,6 +1712,11 @@ def redacted_public_tour_payload(
             canonical_path = public_tour_canonical_path(slug)
             if canonical_path:
                 rendered[key] = canonical_path
+            continue
+        if key == "property_url_sha256":
+            digest = str(payload.get(key) or "").strip().lower()
+            if re.fullmatch(r"[0-9a-f]{64}", digest):
+                rendered[key] = digest
             continue
         rendered[key] = redact_public_tour_value(payload.get(key))
     rendered["slug"] = slug
