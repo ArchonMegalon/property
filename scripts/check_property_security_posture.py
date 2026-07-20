@@ -135,6 +135,47 @@ def _append_dockerfile_runtime_failures(
         failures.append(f"{path} must run its final stage as USER 10001:10001")
 
 
+def _web_wheelhouse_install_contract_present(dockerfile: str) -> bool:
+    instructions = _logical_instructions(dockerfile)
+    required_copy_instructions = {
+        "COPY ea/requirements.lock /app/requirements.lock",
+        "COPY ea/requirements.wheelhouse.lock /app/requirements.wheelhouse.lock",
+        "COPY vendor/propertyquarry-python-wheels /opt/propertyquarry-python-wheels",
+        (
+            "COPY --chmod=0555 scripts/verify_propertyquarry_python_wheelhouse.py "
+            "/usr/local/libexec/verify_propertyquarry_python_wheelhouse.py"
+        ),
+    }
+    if not required_copy_instructions.issubset(set(instructions)):
+        return False
+    expected_dependency_run = (
+        "RUN python /usr/local/libexec/verify_propertyquarry_python_wheelhouse.py "
+        "--requirements-lock /app/requirements.lock "
+        "--hash-lock /app/requirements.wheelhouse.lock "
+        "--wheelhouse /opt/propertyquarry-python-wheels && "
+        "python -m pip install --no-cache-dir --no-index "
+        "--find-links=/opt/propertyquarry-python-wheels --require-hashes "
+        "--requirement /app/requirements.wheelhouse.lock && "
+        "rm -rf /opt/propertyquarry-python-wheels && "
+        "rm -f /usr/local/libexec/verify_propertyquarry_python_wheelhouse.py"
+    )
+    pip_install_command = re.compile(
+        r"(?:^|&&|\|\||;)\s*"
+        r"(?:(?:\S*/)?python(?:3(?:\.\d+)?)?\s+-m\s+pip|"
+        r"(?:\S*/)?pip(?:3(?:\.\d+)?)?)\s+install\b"
+    )
+    pip_install_instructions = [
+        instruction
+        for instruction in instructions
+        if instruction.startswith("RUN ")
+        and pip_install_command.search(instruction.removeprefix("RUN "))
+    ]
+    return (
+        expected_dependency_run in instructions
+        and pip_install_instructions == [expected_dependency_run]
+    )
+
+
 def build_security_posture_receipt() -> dict[str, object]:
     failures: list[str] = []
     env_example = _read(".env.example")
@@ -464,8 +505,11 @@ def build_security_posture_receipt() -> dict[str, object]:
     )
     if " docker.io" in web_dockerfile or "docker-compose" in web_dockerfile or "docker-29." in web_dockerfile:
         failures.append("ea/Dockerfile.property-web must not install Docker tooling")
-    if "requirements.lock" not in web_dockerfile or "-c requirements.lock" not in web_dockerfile:
-        failures.append("ea/Dockerfile.property-web must install with requirements.lock constraints")
+    if not _web_wheelhouse_install_contract_present(web_dockerfile):
+        failures.append(
+            "ea/Dockerfile.property-web must verify requirements.lock and install "
+            "from the hash-locked offline wheelhouse"
+        )
     if "COPY scripts/willhaben_property_packet.py /app/scripts/willhaben_property_packet.py" not in web_dockerfile:
         failures.append("ea/Dockerfile.property-web must explicitly copy the Willhaben packet helper")
     required_web_shared_copies = (
@@ -634,6 +678,7 @@ def build_security_posture_receipt() -> dict[str, object]:
         "web_runtime_browser_payload_isolation",
         "render_tooling_profile",
         "render_hashed_requirements",
+        "web_runtime_verified_hash_locked_offline_dependencies",
         "web_runtime_non_root_compose",
         "web_runtime_no_sys_nice",
         "web_runtime_willhaben_helper",

@@ -356,7 +356,12 @@ def _wait_for_generated_reconstruction_layout_viewer_ready(
     return _generated_reconstruction_layout_viewer_state(page)
 
 
-def _choose_research_visual_style(page: Page, *, label: str = "Urban jungle") -> None:
+def _choose_research_visual_style(
+    page: Page,
+    *,
+    label: str = "Urban jungle",
+    accept_external_processing: bool = False,
+) -> None:
     dialog = page.locator("[data-prd-visual-style-dialog]").first
     expect(dialog).to_be_visible(timeout=5000)
     expect(page.locator("[data-prd-visual-status]")).to_contain_text("Choose a style", timeout=5000)
@@ -369,7 +374,20 @@ def _choose_research_visual_style(page: Page, *, label: str = "Urban jungle") ->
     expect(page.locator("[data-prd-visual-status]")).to_contain_text("selected", timeout=5000)
     confirm = dialog.locator("[data-prd-style-confirm]").first
     expect(confirm).to_contain_text(label)
+    accepted_consent_prompts: list[str] = []
+    if accept_external_processing:
+        def _accept_governed_external_processing(dialog_event) -> None:
+            message = str(dialog_event.message or "").strip()
+            assert dialog_event.type == "confirm"
+            assert "governed external rendering service" in message
+            assert "remains private" in message
+            accepted_consent_prompts.append(message)
+            dialog_event.accept()
+
+        page.once("dialog", _accept_governed_external_processing)
     confirm.click()
+    if accept_external_processing:
+        assert len(accepted_consent_prompts) == 1
 
 
 def _choose_workbench_visual_style(page: Page, *, label: str = "Urban jungle") -> None:
@@ -6067,13 +6085,14 @@ def test_propertyquarry_research_detail_is_mobile_optimized_and_visuals_are_opt_
 
         request_button = page.get_by_role("button", name=re.compile("Request walkthrough", re.I)).first
         request_button.click()
-        _choose_research_visual_style(page)
+        _choose_research_visual_style(page, accept_external_processing=True)
         page.wait_for_timeout(500)
         assert len(visual_requests) == 1
         payload = visual_requests[0]
         assert payload["request_kind"] == "flythrough"
         assert payload["auto_deliver"] is False
         assert payload["allow_floorplan_only"] is True
+        assert payload["external_processing_consent_granted"] is True
         assert "urban jungle" in str(payload["diorama_style_hint"]).lower()
         assert payload["run_id"] == "run-42"
         assert str(payload["property_url"]).endswith("/listing-url-only-loft")
@@ -6148,9 +6167,10 @@ def test_propertyquarry_visual_request_does_not_invent_eta_before_backend_suppli
         assert response is not None and response.ok
         request_button = page.get_by_role("button", name=re.compile("Request walkthrough", re.I)).first
         request_button.click()
-        _choose_research_visual_style(page)
+        _choose_research_visual_style(page, accept_external_processing=True)
         page.wait_for_timeout(900)
         assert visual_requests
+        assert visual_requests[-1]["external_processing_consent_granted"] is True
         assert "urban jungle" in str(visual_requests[-1].get("diorama_style_hint") or "").lower()
         expect(page.locator("[data-prd-visual-status]")).to_contain_text("queued after your request", timeout=5000)
         assert (page.locator("[data-prd-visual-eta]").inner_text() or "").strip() == ""
@@ -10297,7 +10317,7 @@ def test_propertyquarry_walkthrough_request_is_user_initiated_in_real_browser(
         request_button = page.get_by_role("button", name="Request walkthrough")
         expect(request_button).to_be_visible()
         request_button.click()
-        _choose_research_visual_style(page)
+        _choose_research_visual_style(page, accept_external_processing=True)
         page.wait_for_timeout(750)
         assert visual_requests, page.locator("body").inner_text()[:1000]
         assert "urban jungle" in str(visual_requests[-1].get("diorama_style_hint") or "").lower()
@@ -10312,6 +10332,7 @@ def test_propertyquarry_walkthrough_request_is_user_initiated_in_real_browser(
         assert payload["request_kind"] == "flythrough"
         assert payload["auto_deliver"] is False
         assert payload["allow_floorplan_only"] is True
+        assert payload["external_processing_consent_granted"] is True
         current_visual_status = page.locator("[data-prd-visual-status]").inner_text().strip().lower()
         assert (
             "queued after your request" in current_visual_status
@@ -10510,11 +10531,12 @@ def test_propertyquarry_ready_tour_rail_stays_on_tour_while_walkthrough_queue_is
         expect(request_button).to_be_visible()
 
         request_button.click()
-        _choose_research_visual_style(page)
+        _choose_research_visual_style(page, accept_external_processing=True)
         page.wait_for_timeout(300)
         assert len(visual_requests) == 2
         assert visual_requests[0]["request_kind"] == "tour"
         assert visual_requests[1]["request_kind"] == "flythrough"
+        assert visual_requests[1]["external_processing_consent_granted"] is True
         assert "urban jungle" in str(visual_requests[1].get("diorama_style_hint") or "").lower()
 
         expect(page.locator("[data-prd-visual-label]")).to_contain_text(re.compile("3D tour", re.I), timeout=5000)
@@ -10765,7 +10787,7 @@ def test_propertyquarry_visual_request_uses_listing_url_fallback_in_real_browser
         expect(request_button).to_be_visible()
         assert str(request_button.get_attribute("data-property-url") or "").endswith("/listing-url-only-loft")
         request_button.click()
-        _choose_research_visual_style(page)
+        _choose_research_visual_style(page, accept_external_processing=True)
         page.wait_for_timeout(750)
 
         assert len(visual_requests) == 1
@@ -10773,6 +10795,7 @@ def test_propertyquarry_visual_request_uses_listing_url_fallback_in_real_browser
         assert payload["request_kind"] == "flythrough"
         assert payload["auto_deliver"] is False
         assert payload["allow_floorplan_only"] is True
+        assert payload["external_processing_consent_granted"] is True
         assert "urban jungle" in str(payload["diorama_style_hint"]).lower()
         assert payload["run_id"] == "run-42"
         assert str(payload["property_url"]).endswith("/listing-url-only-loft")

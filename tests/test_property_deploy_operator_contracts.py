@@ -2579,6 +2579,92 @@ def test_property_security_posture_accepts_pinned_multistage_scratch_runtimes() 
     assert receipt["failures"] == []
 
 
+@pytest.mark.parametrize(
+    "marker",
+    (
+        (
+            "COPY --chmod=0555 scripts/verify_propertyquarry_python_wheelhouse.py "
+            "/usr/local/libexec/verify_propertyquarry_python_wheelhouse.py\n"
+        ),
+        "RUN python /usr/local/libexec/verify_propertyquarry_python_wheelhouse.py \\\n",
+        "        --requirements-lock /app/requirements.lock \\\n",
+        "        --hash-lock /app/requirements.wheelhouse.lock \\\n",
+        "        --wheelhouse /opt/propertyquarry-python-wheels && \\\n",
+        "        --no-index \\\n",
+        "        --require-hashes \\\n",
+        "        --requirement /app/requirements.wheelhouse.lock && \\\n",
+        "    rm -rf /opt/propertyquarry-python-wheels && \\\n",
+        "    rm -f /usr/local/libexec/verify_propertyquarry_python_wheelhouse.py\n",
+    ),
+)
+def test_property_security_posture_requires_verified_hash_locked_web_wheelhouse(
+    monkeypatch: pytest.MonkeyPatch,
+    marker: str,
+) -> None:
+    def remove_wheelhouse_contract_marker(dockerfile: str) -> str:
+        assert dockerfile.count(marker) == 1
+        return dockerfile.replace(marker, "", 1)
+
+    failures = _security_posture_failures_with_file_mutation(
+        monkeypatch,
+        path="ea/Dockerfile.property-web",
+        mutate=remove_wheelhouse_contract_marker,
+    )
+
+    assert failures == [
+        "ea/Dockerfile.property-web must verify requirements.lock and install "
+        "from the hash-locked offline wheelhouse"
+    ]
+
+
+def test_property_security_posture_rejects_ignored_web_wheelhouse_verification(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def ignore_wheelhouse_verification_failure(dockerfile: str) -> str:
+        marker = "        --wheelhouse /opt/propertyquarry-python-wheels && \\\n"
+        assert dockerfile.count(marker) == 1
+        return dockerfile.replace(
+            marker,
+            "        --wheelhouse /opt/propertyquarry-python-wheels || true; \\\n",
+            1,
+        )
+
+    failures = _security_posture_failures_with_file_mutation(
+        monkeypatch,
+        path="ea/Dockerfile.property-web",
+        mutate=ignore_wheelhouse_verification_failure,
+    )
+
+    assert failures == [
+        "ea/Dockerfile.property-web must verify requirements.lock and install "
+        "from the hash-locked offline wheelhouse"
+    ]
+
+
+def test_property_security_posture_rejects_second_web_dependency_install(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def append_network_dependency_install(dockerfile: str) -> str:
+        marker = "\nRUN mkdir -p /app/scripts"
+        assert dockerfile.count(marker) == 1
+        return dockerfile.replace(
+            marker,
+            "\nRUN pip3 install unverified-package" + marker,
+            1,
+        )
+
+    failures = _security_posture_failures_with_file_mutation(
+        monkeypatch,
+        path="ea/Dockerfile.property-web",
+        mutate=append_network_dependency_install,
+    )
+
+    assert failures == [
+        "ea/Dockerfile.property-web must verify requirements.lock and install "
+        "from the hash-locked offline wheelhouse"
+    ]
+
+
 def test_optional_magicfit_reviewer_trust_overlay_is_explicit_and_read_only() -> None:
     base_compose = _read("docker-compose.property.yml")
     overlay = _read("docker-compose.property-magicfit-reviewer.yml")
@@ -2803,10 +2889,7 @@ def test_property_dockerfile_allowlists_runtime_scripts() -> None:
     copied_scripts = re.findall(r"COPY\s+scripts/([^\s]+)\s+/app/scripts/", dockerfile)
     assert copied_scripts == [
         "property_tour_runtime_paths.py",
-        "verify_property_tour_controls.py",
-        "property_tour_3dvista_provenance.py",
         "property_render_video_probe.py",
-        "accept_magicfit_delivery.py",
         "propertyquarry_playwright_runtime.py",
         "generate_property_reconstruction.py",
         "property_reconstruction_render_bridge.py",
@@ -2846,7 +2929,7 @@ def test_property_dockerfile_allowlists_runtime_scripts() -> None:
     assert 'cp "$script" /app/scripts/' not in dockerfile
 
 
-def test_property_render_image_magicfit_acceptance_uses_offline_pinned_browser_probe() -> None:
+def test_property_render_image_uses_minimal_offline_pinned_browser_probe() -> None:
     dockerfile = _read("ea/Dockerfile.property")
     ffmpeg_recipe = _read("ea/property_render_ffmpeg_build_recipe.sh")
     acceptance = _read("scripts/accept_magicfit_delivery.py")
@@ -2860,8 +2943,50 @@ def test_property_render_image_magicfit_acceptance_uses_offline_pinned_browser_p
     assert 'offline=True' in probe
     assert 'service_workers="block"' in probe
     assert 'page.route("**/*", route_local_asset)' in probe
-    assert "magicfit_acceptance._video_probe(mp4_path)" in preflight
-    assert '"magicfit_acceptance_video_probe": "pass"' in preflight
+    assert "render_video_probe.probe_local_video(mp4_path)" in preflight
+    assert '"offline_render_video_probe": "pass"' in preflight
+    assert "COPY scripts/property_render_video_probe.py /app/scripts/property_render_video_probe.py" in dockerfile
+    assert "COPY scripts/accept_magicfit_delivery.py /app/scripts/accept_magicfit_delivery.py" not in dockerfile
+
+
+def test_magicfit_acceptance_probes_the_stable_descriptor_via_private_copy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from scripts import accept_magicfit_delivery as acceptance
+
+    source = tmp_path / "source.mp4"
+    body = b"stable-video-bytes"
+    source.write_bytes(body)
+    observed_probe_paths: list[Path] = []
+
+    def _probe(path: Path) -> dict[str, object]:
+        observed_probe_paths.append(path)
+        assert path.is_absolute()
+        assert path.suffix == ".mp4"
+        assert path.read_bytes() == body
+        assert path.stat().st_mode & 0o777 == 0o600
+        return {
+            "duration_seconds": 1.25,
+            "height": 720,
+            "size_bytes": len(body),
+            "width": 1280,
+        }
+
+    monkeypatch.setattr(acceptance, "probe_local_video", _probe)
+    descriptor = os.open(source, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        result = acceptance._video_probe(
+            Path("walkthrough.mp4"),
+            expected_size_bytes=len(body),
+            _probe_descriptor=descriptor,
+        )
+    finally:
+        os.close(descriptor)
+
+    assert result == {"duration_seconds": 1.25, "size_bytes": len(body)}
+    assert len(observed_probe_paths) == 1
+    assert not observed_probe_paths[0].exists()
 
 
 def test_runtime_dockerfiles_fail_closed_for_worker_and_scheduler_health() -> None:
@@ -3106,10 +3231,7 @@ def test_property_runtime_copied_scripts_do_not_depend_on_fleet_paths() -> None:
 
     assert copied_scripts == [
         "property_tour_runtime_paths.py",
-        "verify_property_tour_controls.py",
-        "property_tour_3dvista_provenance.py",
         "property_render_video_probe.py",
-        "accept_magicfit_delivery.py",
         "propertyquarry_playwright_runtime.py",
         "generate_property_reconstruction.py",
         "property_reconstruction_render_bridge.py",
