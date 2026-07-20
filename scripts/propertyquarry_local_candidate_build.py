@@ -53,11 +53,10 @@ from app.main import app
 
 
 async def _propertyquarry_built_image_smoke() -> None:
-    paths = {getattr(route, "path", None) for route in app.routes}
-    if "/health/live" not in paths:
+    if str(app.url_path_for("health_live")) != "/health/live":
         raise RuntimeError("health route missing")
-    await app.router.startup()
-    await app.router.shutdown()
+    async with app.router.lifespan_context(app):
+        pass
 
 
 asyncio.run(_propertyquarry_built_image_smoke())

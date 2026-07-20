@@ -51,6 +51,13 @@ def test_direct_cli_help_does_not_require_pythonpath() -> None:
     assert "Build one authenticated PropertyQuarry candidate" in completed.stdout
 
 
+def test_built_image_smoke_resolves_routes_through_fastapi_public_api() -> None:
+    assert 'app.url_path_for("health_live")' in build.BUILT_IMAGE_SMOKE_SCRIPT
+    assert "app.router.lifespan_context(app)" in build.BUILT_IMAGE_SMOKE_SCRIPT
+    assert "for route in app.routes" not in build.BUILT_IMAGE_SMOKE_SCRIPT
+    assert "app.router.startup()" not in build.BUILT_IMAGE_SMOKE_SCRIPT
+
+
 def digest(data: bytes) -> str:
     return "sha256:" + hashlib.sha256(data).hexdigest()
 
