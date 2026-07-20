@@ -22,7 +22,7 @@ from PIL import Image, ImageDraw
 
 uvicorn = pytest.importorskip("uvicorn")
 pytest.importorskip("playwright.sync_api")
-from playwright.sync_api import Browser, BrowserContext, expect, sync_playwright
+from playwright.sync_api import Browser, BrowserContext, Request, expect, sync_playwright
 
 Config = uvicorn.Config
 Server = uvicorn.Server
@@ -61,6 +61,109 @@ def _public_tour_browser_headless(engine: str) -> bool:
     if not str(os.environ.get("DISPLAY") or "").strip():
         raise RuntimeError(f"{_FIREFOX_HEADFUL_WEBGL_ENV}_display_required")
     return False
+
+
+def _is_expected_firefox_duplicate_entry_image_abort(
+    failure_receipt: dict[str, object],
+    *,
+    expected_engine: str,
+    decoded_entry_image_count: int,
+    entry_image_url: str,
+    public_url: str,
+) -> bool:
+    if expected_engine != "firefox" or decoded_entry_image_count <= 1:
+        return False
+    frame_url = urllib.parse.urldefrag(str(failure_receipt.get("frame_url") or "")).url
+    parent_frame_url = urllib.parse.urldefrag(
+        str(failure_receipt.get("parent_frame_url") or "")
+    ).url
+    frame_is_main = failure_receipt.get("frame_is_main") is True
+    parent_frame_is_main = failure_receipt.get("parent_frame_is_main") is True
+    originated_from_public_shell = (
+        frame_is_main
+        and frame_url == public_url
+        and not parent_frame_url
+        and not parent_frame_is_main
+    )
+    return (
+        failure_receipt.get("url") == entry_image_url
+        and failure_receipt.get("failure") == "NS_BINDING_ABORTED"
+        and failure_receipt.get("resource_type") == "image"
+        and failure_receipt.get("method") == "GET"
+        and failure_receipt.get("is_navigation_request") is False
+        and failure_receipt.get("redirected_from") is False
+        and failure_receipt.get("redirected_to") is False
+        and originated_from_public_shell
+    )
+
+
+def test_firefox_duplicate_entry_image_abort_classifier_is_fail_closed() -> None:
+    entry_image_url = "https://propertyquarry.com/tours/files/example/entry-hall.jpg"
+    public_url = "https://propertyquarry.com/tours/example"
+    main_frame_receipt: dict[str, object] = {
+        "url": entry_image_url,
+        "failure": "NS_BINDING_ABORTED",
+        "resource_type": "image",
+        "method": "GET",
+        "is_navigation_request": False,
+        "redirected_from": False,
+        "redirected_to": False,
+        "frame_url": f"{public_url}#live-360",
+        "frame_is_main": True,
+        "parent_frame_url": "",
+        "parent_frame_is_main": False,
+    }
+    child_frame_receipt = {
+        **main_frame_receipt,
+        "frame_url": "about:blank",
+        "frame_is_main": False,
+        "parent_frame_url": f"{public_url}#live-360",
+        "parent_frame_is_main": True,
+    }
+
+    assert _is_expected_firefox_duplicate_entry_image_abort(
+        main_frame_receipt,
+        expected_engine="firefox",
+        decoded_entry_image_count=2,
+        entry_image_url=entry_image_url,
+        public_url=public_url,
+    )
+
+    rejected_receipts = [
+        {**main_frame_receipt, "url": f"{entry_image_url}.missing"},
+        {**main_frame_receipt, "failure": "NS_ERROR_NET_TIMEOUT"},
+        {**main_frame_receipt, "resource_type": "document"},
+        {**main_frame_receipt, "method": "POST"},
+        {**main_frame_receipt, "is_navigation_request": True},
+        {**main_frame_receipt, "redirected_from": True},
+        {**main_frame_receipt, "redirected_to": True},
+        {**main_frame_receipt, "frame_url": "about:blank"},
+        child_frame_receipt,
+        {**child_frame_receipt, "parent_frame_is_main": False},
+        {**child_frame_receipt, "parent_frame_url": "https://propertyquarry.com/tours/other"},
+    ]
+    for receipt in rejected_receipts:
+        assert not _is_expected_firefox_duplicate_entry_image_abort(
+            receipt,
+            expected_engine="firefox",
+            decoded_entry_image_count=2,
+            entry_image_url=entry_image_url,
+            public_url=public_url,
+        )
+    assert not _is_expected_firefox_duplicate_entry_image_abort(
+        main_frame_receipt,
+        expected_engine="chromium",
+        decoded_entry_image_count=2,
+        entry_image_url=entry_image_url,
+        public_url=public_url,
+    )
+    assert not _is_expected_firefox_duplicate_entry_image_abort(
+        main_frame_receipt,
+        expected_engine="firefox",
+        decoded_entry_image_count=1,
+        entry_image_url=entry_image_url,
+        public_url=public_url,
+    )
 
 
 def _free_port() -> int:
@@ -2815,7 +2918,8 @@ def test_public_pano2vr_walkthrough_uses_governed_first_party_route_and_accessib
     context = browser.new_context(**context_options)
     console_errors: list[str] = []
     page_errors: list[str] = []
-    failed_requests: list[tuple[str, str | None, str, str]] = []
+    failed_requests: list[dict[str, object]] = []
+    request_origins: dict[Request, dict[str, object]] = {}
     browser_requests: list[str] = []
     external_requests: list[str] = []
     context.on("request", lambda browser_request: browser_requests.append(browser_request.url))
@@ -2837,19 +2941,48 @@ def test_public_pano2vr_walkthrough_uses_governed_first_party_route_and_accessib
 
     context.route("https://propertyquarry.com/**", _serve_canonical_first_party)
     page = context.new_page()
+
+    def _capture_request_origin(browser_request: Request) -> None:
+        # Firefox may detach or relabel a frame before requestfailed fires. Keep
+        # the request-start lineage so an about:blank failure cannot pass by itself.
+        frame = browser_request.frame
+        parent_frame = frame.parent_frame
+        request_origins[browser_request] = {
+            "frame_url": frame.url,
+            "frame_is_main": frame == page.main_frame,
+            "parent_frame_url": parent_frame.url if parent_frame is not None else "",
+            "parent_frame_is_main": parent_frame == page.main_frame,
+        }
+
+    def _capture_request_failure(browser_request: Request) -> None:
+        origin = request_origins.pop(browser_request, {})
+        failure_frame = browser_request.frame
+        failed_requests.append(
+            {
+                "url": browser_request.url,
+                "failure": browser_request.failure,
+                "resource_type": browser_request.resource_type,
+                "method": browser_request.method,
+                "is_navigation_request": browser_request.is_navigation_request(),
+                "redirected_from": browser_request.redirected_from is not None,
+                "redirected_to": browser_request.redirected_to is not None,
+                "frame_url": str(origin.get("frame_url") or ""),
+                "frame_is_main": origin.get("frame_is_main") is True,
+                "parent_frame_url": str(origin.get("parent_frame_url") or ""),
+                "parent_frame_is_main": origin.get("parent_frame_is_main") is True,
+                "failure_frame_url": failure_frame.url,
+                "failure_frame_is_main": failure_frame == page.main_frame,
+            }
+        )
+
+    page.on("request", _capture_request_origin)
+    page.on(
+        "requestfinished",
+        lambda browser_request: request_origins.pop(browser_request, None),
+    )
     page.on("console", lambda message: console_errors.append(message.text) if message.type == "error" else None)
     page.on("pageerror", lambda error: page_errors.append(str(error)))
-    page.on(
-        "requestfailed",
-        lambda browser_request: failed_requests.append(
-            (
-                browser_request.url,
-                browser_request.failure,
-                browser_request.resource_type,
-                browser_request.frame.url,
-            )
-        ),
-    )
+    page.on("requestfailed", _capture_request_failure)
     slug = public_tour_browser_server["pano2vr_slug"]
     entry_path = f"/tours/pano2vr/{slug}/pano2vr/index.html"
     entry_url = f"https://propertyquarry.com{entry_path}"
@@ -2992,18 +3125,31 @@ def test_public_pano2vr_walkthrough_uses_governed_first_party_route_and_accessib
     expected_firefox_duplicate_image_aborts = [
         failed_request
         for failed_request in failed_requests
-        if expected_engine == "firefox"
-        and len(entry_image_states) > 1
-        and failed_request[0] == entry_image_url
-        and failed_request[1] == "NS_BINDING_ABORTED"
-        and failed_request[2] == "image"
-        and urllib.parse.urldefrag(failed_request[3]).url == public_url
+        if _is_expected_firefox_duplicate_entry_image_abort(
+            failed_request,
+            expected_engine=expected_engine,
+            decoded_entry_image_count=len(entry_image_states),
+            entry_image_url=entry_image_url,
+            public_url=public_url,
+        )
     ]
     assert len(expected_firefox_duplicate_image_aborts) <= 1
+    request.node.user_properties.append(
+        (
+            "expected_firefox_duplicate_entry_image_abort_count",
+            len(expected_firefox_duplicate_image_aborts),
+        )
+    )
     assert [
         failed_request
         for failed_request in failed_requests
-        if failed_request not in expected_firefox_duplicate_image_aborts
+        if not _is_expected_firefox_duplicate_entry_image_abort(
+            failed_request,
+            expected_engine=expected_engine,
+            decoded_entry_image_count=len(entry_image_states),
+            entry_image_url=entry_image_url,
+            public_url=public_url,
+        )
     ] == []
     assert page_errors == []
     assert _unexpected_console_errors(console_errors) == []
