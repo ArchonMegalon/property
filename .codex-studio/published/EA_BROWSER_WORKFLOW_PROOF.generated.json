@@ -5,10 +5,10 @@
   "proof_target": "propertyquarry",
   "version": 1,
   "kind": "proof_receipt",
-  "generated_at": "2026-07-20T13:52:10Z",
+  "generated_at": "2026-07-20T18:08:21Z",
   "generated_by": "scripts/materialize_ea_browser_workflow_proof.py",
-  "status": "pass",
-  "operator_summary": "PropertyQuarry browser workflow proof is published and green across the required journey matrix, source-backed contracts, and real-browser E2E.",
+  "status": "blocked",
+  "operator_summary": "PropertyQuarry browser workflow proof is published, but it is blocked by failing or unavailable proof lanes.",
   "seed_source": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
   "release_claim_summary": "The standalone PropertyQuarry surface can only claim flagship-grade release truth when its browser workflow proof and release asset verification agree with this gate seed.",
   "expected_browser_signals": [
@@ -31,7 +31,7 @@
       "id": "propertyquarry.release-proof.v1",
       "sha256": "c9403bfba909e95ef8e0ded9c2c915c586e448db55f0e98f466d3ba3a166dcc9"
     },
-    "code_commit": "497f848f95eef52a12234d423d93feec8b285cbc",
+    "code_commit": "bdabc7076ea41fce2093b93c3c08b6b76de27681",
     "seed": {
       "path": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
       "sha256": "0221c24194de3b63ee42ce5ae77424183794da9cc8a08d0b38690cfaf5087d8f",
@@ -40,13 +40,13 @@
     "required_test_sources": [
       {
         "path": "tests/test_propertyquarry_workspace_redesign.py",
-        "sha256": "08a2ba60aad48a111d08e3a5de7b1852ab87ec069728d08a64fd0e3e09b33e8c",
-        "git_blob_oid": "c9dfbc407e92b213209e7f67b2fba7ec1834e31d"
+        "sha256": "7098bda20acb8c280cf399ca38653e64b7309b5e7a0985c9f1626c7791b9d8b7",
+        "git_blob_oid": "13cb12f9e585654d6a25bc49a0fe8482e858517c"
       },
       {
         "path": "tests/e2e/test_propertyquarry_greenfield_browser.py",
-        "sha256": "c05813964e1c57cadc6520d95394c25047efe45036c824a00b0e86386c645768",
-        "git_blob_oid": "f5c571de5a1df06d5eb22ed2ce8f8da4094bfd43"
+        "sha256": "9ec8c378c9382d2a515b136503d45468e5655a3782ba6ca52ef122271622a7f8",
+        "git_blob_oid": "f64d75d13bbf3bfd7cd3afdda7160c36a3ee653f"
       },
       {
         "path": "tests/test_property_evidence_overlays.py",
@@ -71,10 +71,10 @@
       "test_propertyquarry_public_home_survives_unreadable_optional_tour_media"
     ],
     "exit_code": 0,
-    "duration_seconds": 26.054,
+    "duration_seconds": 24.29,
     "output_excerpt": [
       ".......                                                                  [100%]",
-      "7 passed in 24.08s"
+      "7 passed in 22.60s"
     ],
     "limitations": [],
     "outcome_counts": {
@@ -106,10 +106,10 @@
         "test_propertyquarry_public_home_survives_unreadable_optional_tour_media"
       ],
       "exit_code": 0,
-      "duration_seconds": 26.054,
+      "duration_seconds": 24.29,
       "output_excerpt": [
         ".......                                                                  [100%]",
-        "7 passed in 24.08s"
+        "7 passed in 22.60s"
       ],
       "limitations": [],
       "outcome_counts": {
@@ -134,10 +134,10 @@
         "test_property_research_rows_preserve_evidence_states_and_original_article_link"
       ],
       "exit_code": 0,
-      "duration_seconds": 2.358,
+      "duration_seconds": 2.053,
       "output_excerpt": [
         ".                                                                        [100%]",
-        "1 passed in 1.25s"
+        "1 passed in 1.07s"
       ],
       "limitations": [],
       "outcome_counts": {
@@ -154,7 +154,7 @@
     }
   ],
   "real_browser_e2e_proof": {
-    "status": "pass",
+    "status": "blocked",
     "command": "/usr/bin/python3 -m pytest -q tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_greenfield_workspace_in_real_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_greenfield_workspace_is_mobile_usable tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_expired_session_next_action_moves_keyboard_focus_to_sign_in_options tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_workbench_candidate_history_stays_in_place tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_flagship_operating_loop_in_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_blocked_3d_tour_can_be_retried_from_research_packet_in_real_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_research_detail_never_shows_fake_open_tour_for_generated_reconstruction_status tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_generated_reconstruction_public_launch_renders_honest_shell_in_real_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_generated_reconstruction_public_launch_is_mobile_safe tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_expired_flat_preview_explains_3d_unavailable_in_real_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_packet_tracks_followup_state_in_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_account_notifications_save_multi_channel_preferences_in_real_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_browser_alert_button_toggles_enabled_state tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_research_evidence_states_and_links_render_in_real_browser -rs",
     "cwd": "/tmp/property-final-integration-v3-fa7",
     "python_bin": "/usr/bin/python3",
@@ -177,18 +177,58 @@
       "test_propertyquarry_browser_alert_button_toggles_enabled_state",
       "test_propertyquarry_research_evidence_states_and_links_render_in_real_browser"
     ],
-    "exit_code": 0,
-    "duration_seconds": 123.871,
+    "exit_code": 1,
+    "duration_seconds": 10.747,
     "output_excerpt": [
-      "................                                                         [100%]",
-      "16 passed in 121.74s (0:02:01)"
+      "EEEEEEEEEEEEEEEE                                                         [100%]",
+      "==================================== ERRORS ====================================",
+      "__ ERROR at setup of test_propertyquarry_greenfield_workspace_in_real_browser __",
+      "    @pytest.fixture()",
+      "    def browser() -> Iterator[Browser]:",
+      "        with sync_playwright() as playwright:",
+      "            engine = _configured_propertyquarry_browser_engine()",
+      "            try:",
+      ">               browser = playwright_engine_launch_browser(",
+      "                    playwright,",
+      "                    engine=engine,",
+      "                    args=list(_PROPERTYQUARRY_CHROMIUM_LAUNCH_ARGS),",
+      "                )",
+      "tests/e2e/test_propertyquarry_greenfield_browser.py:891:",
+      "_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _",
+      "scripts/propertyquarry_playwright_runtime.py:193: in playwright_engine_launch_browser",
+      "    return _launch_once()",
+      "           ^^^^^^^^^^^^^^",
+      "scripts/propertyquarry_playwright_runtime.py:190: in _launch_once",
+      "    return browser_type.launch(**launch_kwargs)",
+      "           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^",
+      "/home/tibor/.local/lib/python3.12/site-packages/playwright/sync_api/_generated.py:16269: in launch",
+      "    self._sync(",
+      "/home/tibor/.local/lib/python3.12/site-packages/playwright/_impl/_browser_type.py:98: in launch",
+      "    await self._channel.send(",
+      "/home/tibor/.local/lib/python3.12/site-packages/playwright/_impl/_connection.py:69: in send",
+      "    return await self._connection.wrap_api_call(",
+      "_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _",
+      "self = <playwright._impl._connection.Connection object at 0x70435682e000>",
+      "cb = <function Channel.send.<locals>.<lambda> at 0x70432ddbe200>",
+      "is_internal = False, title = None",
+      "    async def wrap_api_call(",
+      "        self, cb: Callable[[], Any], is_internal: bool = False, title: str = None",
+      "    ) -> Any:",
+      "        if self._api_zone.get():",
+      "            return await cb()",
+      "        task = asyncio.current_task(self._loop)",
+      "        st: List[inspect.FrameInfo] = getattr(",
+      "            task, \"__pw_stack__\", None",
+      "        ) or inspect.stack(0)"
     ],
-    "limitations": [],
+    "limitations": [
+      "playwright browser binaries are not installed"
+    ],
     "outcome_counts": {
-      "passed": 16,
+      "passed": 0,
       "failed": 0,
       "skipped": 0,
-      "errors": 0,
+      "errors": 16,
       "xfailed": 0,
       "xpassed": 0
     },
@@ -198,9 +238,9 @@
   },
   "journey_evidence_matrix": {
     "version": 1,
-    "status": "pass",
+    "status": "blocked",
     "readiness_scope": "candidate_source_and_browser_proof",
-    "runtime_commit_sha": "497f848f95eef52a12234d423d93feec8b285cbc",
+    "runtime_commit_sha": "bdabc7076ea41fce2093b93c3c08b6b76de27681",
     "required_journey_ids": [
       "public_entry",
       "onboarding_auth",
@@ -235,7 +275,7 @@
       {
         "journey_id": "onboarding_auth",
         "label": "Onboarding, authentication, session return, and sign-out",
-        "proof_status": "pass",
+        "proof_status": "blocked",
         "evidence_sources": [
           {
             "file": "tests/test_propertyquarry_workspace_redesign.py",
@@ -249,7 +289,7 @@
             "cases": [
               "test_propertyquarry_expired_session_next_action_moves_keyboard_focus_to_sign_in_options"
             ],
-            "lane_status": "pass"
+            "lane_status": "blocked"
           }
         ],
         "live_requirement": {
@@ -262,7 +302,7 @@
       {
         "journey_id": "search_ranking",
         "label": "Search setup, ranked results, and failed-run recovery",
-        "proof_status": "pass",
+        "proof_status": "blocked",
         "evidence_sources": [
           {
             "file": "tests/test_propertyquarry_workspace_redesign.py",
@@ -277,7 +317,7 @@
             "cases": [
               "test_propertyquarry_greenfield_workspace_in_real_browser"
             ],
-            "lane_status": "pass"
+            "lane_status": "blocked"
           }
         ],
         "live_requirement": {
@@ -290,7 +330,7 @@
       {
         "journey_id": "shortlist_research_revisit",
         "label": "Shortlist, research detail, persistence, and revisit",
-        "proof_status": "pass",
+        "proof_status": "blocked",
         "evidence_sources": [
           {
             "file": "tests/test_propertyquarry_workspace_redesign.py",
@@ -306,7 +346,7 @@
               "test_propertyquarry_workbench_candidate_history_stays_in_place",
               "test_propertyquarry_research_evidence_states_and_links_render_in_real_browser"
             ],
-            "lane_status": "pass"
+            "lane_status": "blocked"
           },
           {
             "file": "tests/test_property_evidence_overlays.py",
@@ -347,7 +387,7 @@
       {
         "journey_id": "packets_tours",
         "label": "Decision packets, sharing, tours, and recovery",
-        "proof_status": "pass",
+        "proof_status": "blocked",
         "evidence_sources": [
           {
             "file": "tests/e2e/test_propertyquarry_greenfield_browser.py",
@@ -360,7 +400,7 @@
               "test_propertyquarry_generated_reconstruction_public_launch_is_mobile_safe",
               "test_propertyquarry_expired_flat_preview_explains_3d_unavailable_in_real_browser"
             ],
-            "lane_status": "pass"
+            "lane_status": "blocked"
           }
         ],
         "live_requirement": {
@@ -373,7 +413,7 @@
       {
         "journey_id": "feedback",
         "label": "Decision feedback and packet follow-up",
-        "proof_status": "pass",
+        "proof_status": "blocked",
         "evidence_sources": [
           {
             "file": "tests/e2e/test_propertyquarry_greenfield_browser.py",
@@ -381,7 +421,7 @@
               "test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser",
               "test_propertyquarry_packet_tracks_followup_state_in_browser"
             ],
-            "lane_status": "pass"
+            "lane_status": "blocked"
           }
         ],
         "live_requirement": {
@@ -394,7 +434,7 @@
       {
         "journey_id": "notifications",
         "label": "Alert controls, channel preferences, and external Telegram delivery",
-        "proof_status": "pass",
+        "proof_status": "blocked",
         "evidence_sources": [
           {
             "file": "tests/e2e/test_propertyquarry_greenfield_browser.py",
@@ -402,7 +442,7 @@
               "test_propertyquarry_account_notifications_save_multi_channel_preferences_in_real_browser",
               "test_propertyquarry_browser_alert_button_toggles_enabled_state"
             ],
-            "lane_status": "pass"
+            "lane_status": "blocked"
           }
         ],
         "live_requirement": {
@@ -414,6 +454,10 @@
       }
     ]
   },
-  "blocking_reasons": [],
-  "current_limitations": []
+  "blocking_reasons": [
+    "real browser E2E proof is not passing"
+  ],
+  "current_limitations": [
+    "playwright browser binaries are not installed"
+  ]
 }
