@@ -6,7 +6,7 @@ This file is the concise, current release authority. Detailed dated notes are ar
 
 PropertyQuarry is a source/browser candidate, not a production launch:
 
-- The locally materialized candidate receipt covers `8/8` source cases, `16/16` real-browser cases, and all eight required product journeys for the exact source identity recorded below. It has not been published or accepted by protected release authority. This candidate includes explicit hosted/generated/blocked/expired 3D-tour truth, attributable unavailable/stale/verified area-evidence states, in-place shortlist history, protected Telegram delivery proof, production-mode PostgreSQL storage/browser parity with internal-only CI session provisioning, immutable CI actions, fail-closed production registration delivery, and a signed controller profile that preserves the canonical public-tour volume and permits only journaled ownership repair.
+- The locally materialized candidate receipt covers `7/7` source cases, `16/16` real-browser cases, and all eight required product journeys for the exact source identity recorded below. It has not been published or accepted by protected release authority. This candidate includes explicit hosted/generated/blocked/expired 3D-tour truth, attributable unavailable/stale/verified area-evidence states, in-place shortlist history, protected Telegram delivery proof, production-mode PostgreSQL storage/browser parity with internal-only CI session provisioning, immutable CI actions, fail-closed production registration delivery, and a signed controller profile that preserves the canonical public-tour volume and permits only journaled ownership repair.
 - Candidate/browser proof does not prove deployment, production storage, authentication, external delivery, observability, rollback, or disaster recovery.
 - A prior, separately observed public-edge check returned `200` for `/` after a narrow generated-tour permission repair and received a response from `/health/ready`; the observation has no current timestamp, immutable image binding, or exact-candidate authority and is therefore historical context only. At that observation, `/version` reported an incomplete release manifest without canonical release identity. None of those checks is deployment proof for this candidate.
 - Production promotion remains blocked on the independent release-controller artifact, an approved `propertyquarry-security` runner, and distinct digest-pinned web/render images.
@@ -23,13 +23,13 @@ The marked JSON object is the single canonical release authority consumed by the
 <!-- propertyquarry-release-manifest-json:start -->
 ```json
 {
-  "release_artifact_set": "propertyquarry-generated-release-artifacts-v1@sha256:66504e25444f20c8bb872eaaa940a543270370d4ce1a256ab8adbaaf57791dc8",
+  "release_artifact_set": "propertyquarry-generated-release-artifacts-v1@sha256:abbf8bff4c1e6736e51207f0c36c85eaec926818205271cfa2dd7f185c4a17a8",
   "release_branch": "main",
   "release_candidate_status": "source-browser-candidate-pending-protected-live-evidence",
-  "release_commit_sha": "bdabc7076ea41fce2093b93c3c08b6b76de27681",
-  "release_deployment_id": "propertyquarry-governed-deploy-bdabc7076ea4",
-  "release_generated_at": "2026-07-20T18:08:21Z",
-  "release_label": "propertyquarry-source-browser-candidate-bdabc7076ea4",
+  "release_commit_sha": "2954f77f7201d05e5fe30b3a8b0c62dfd8cfc68a",
+  "release_deployment_id": "propertyquarry-governed-deploy-2954f77f7201",
+  "release_generated_at": "2026-07-20T19:10:53Z",
+  "release_label": "propertyquarry-source-browser-candidate-2954f77f7201",
   "release_manifest_schema": "propertyquarry.release_manifest.v1",
   "release_mirror_origin": "https://github.com/ArchonMegalon/propertyquarry.git",
   "release_mirror_repository": "ArchonMegalon/propertyquarry",
