@@ -12,10 +12,18 @@ from scripts.propertyquarry_release_receipt_binding import build_source_binding
 
 
 SEED = Path(".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json")
+ROOT = Path(__file__).resolve().parents[1]
 SOURCE_CASES = tuple(
     Path(str(entry["file"]))
     for entry in release_proof_baseline.approved_evidence_sources()
 )
+
+
+def _global_launch_contract() -> dict[str, object]:
+    seed = json.loads((ROOT / SEED).read_text(encoding="utf-8"))
+    contract = seed["global_launch_contract"]
+    assert release_proof_baseline.approved_global_launch_contract_blockers(contract) == []
+    return contract
 
 
 def _git(root: Path, *args: str) -> str:
@@ -69,6 +77,7 @@ def _initialize_repository(root: Path) -> tuple[list[dict[str, object]], str]:
                         for journey_id in release_proof_baseline.APPROVED_REQUIRED_JOURNEY_IDS
                     ],
                 },
+                "global_launch_contract": _global_launch_contract(),
             }
         )
         + "\n",

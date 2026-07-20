@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from email.utils import formatdate
 from functools import lru_cache
 import base64
 import fcntl
@@ -10,6 +13,7 @@ import html
 import ipaddress
 import json
 import logging
+import math
 import mimetypes
 import os
 from pathlib import Path, PurePosixPath
@@ -22,7 +26,7 @@ import urllib.parse
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 
 from app.api.dependencies import get_container
 from app.container import AppContainer
@@ -62,6 +66,8 @@ from app.product.property_tour_hosting import (
     HostedPropertyTourManifestError,
     HostedPropertyTourManifestMissing,
     _PROPERTY_GENERATED_RECONSTRUCTION_VIEWER_VERSION,
+    _hosted_property_tour_ai_panorama_contract,
+    _hosted_property_tour_ai_panorama_browser_proof_current,
     _hosted_property_tour_preview_image_url,
     _hosted_property_tour_publication_lock,
     _read_hosted_property_tour_json_file,
@@ -74,6 +80,10 @@ from app.services.public_tour_release_policy import (
     evaluate_public_tour_generated_viewer_release,
 )
 try:
+    from scripts.property_magicfit_public_eligibility import (
+        evaluate_magicfit_public_eligibility,
+        magicfit_footprint_present as _magicfit_footprint_present,
+    )
     from scripts.property_tour_3dvista_provenance import (
         THREE_D_VISTA_PROVENANCE_FILENAMES,
         safe_relpath as _safe_3dvista_provenance_relpath,
@@ -95,6 +105,10 @@ try:
         tour_manifest_max_bytes,
     )
 except ModuleNotFoundError:
+    from property_magicfit_public_eligibility import (  # type: ignore[no-redef]
+        evaluate_magicfit_public_eligibility,
+        magicfit_footprint_present as _magicfit_footprint_present,
+    )
     from property_tour_3dvista_provenance import (  # type: ignore[no-redef]
         THREE_D_VISTA_PROVENANCE_FILENAMES,
         safe_relpath as _safe_3dvista_provenance_relpath,
@@ -140,6 +154,11 @@ _PUBLIC_TOUR_PROVIDER_CSP_ORIGINS = (
 _MATTERPORT_SDK_BOOTSTRAP_URL = "https://static.matterport.com/showcase-sdk/latest.js"
 _PUBLIC_TOUR_CSP_REPORT_PATH = "/tours/security/csp-report"
 _PUBLIC_TOUR_NONCE_PATTERN = re.compile(r"^[A-Za-z0-9_-]{16,128}$")
+_PUBLIC_TOUR_THREE_VERSION = "0.167.1"
+_PUBLIC_TOUR_THREE_SHA256 = "5289ca2dfde8572bd7715b9fa2ca929db12bae87e9a2cb53e431662df7039506"
+_PUBLIC_TOUR_THREE_MODULE_PATH = (
+    f"/tours/runtime/three-{_PUBLIC_TOUR_THREE_VERSION}.module.js"
+)
 _GENERATED_RECONSTRUCTION_PREVIEW_PREFIX = "generated-reconstruction/"
 _GENERATED_RECONSTRUCTION_PREVIEW_PRIVACY_CLASS = "generated_reconstruction_public"
 _GENERATED_RECONSTRUCTION_PREVIEW_ROLES = frozenset(
@@ -374,6 +393,533 @@ def _load_tour_with_private_receipt(slug: str) -> dict[str, object]:
             if key in _PRIVATE_TOUR_RECEIPT_ALLOWED_KEYS
         }
         return {**payload, **safe_private_payload}
+
+
+@dataclass(frozen=True)
+class _PublicTourFilePolicySnapshot:
+    slug: str
+    bundle_dir: Path
+    bundle_fd: int
+    payload: dict[str, object]
+    manifest_identity: tuple[int, int, int, int, int, int, int]
+
+
+@dataclass(frozen=True)
+class _OpenedPublicTourAsset:
+    descriptor: int
+    relpath: str
+    details: os.stat_result
+
+
+def _public_tour_stat_identity(
+    details: os.stat_result,
+) -> tuple[int, int, int, int, int, int, int]:
+    return (
+        int(details.st_dev),
+        int(details.st_ino),
+        int(details.st_mode),
+        int(details.st_nlink),
+        int(details.st_size),
+        int(details.st_mtime_ns),
+        int(details.st_ctime_ns),
+    )
+
+
+def _open_public_tour_directory_componentwise(path: Path) -> int:
+    if not hasattr(os, "O_DIRECTORY") or not hasattr(os, "O_NOFOLLOW"):
+        raise HTTPException(status_code=404, detail="tour_not_found")
+    absolute = Path(os.path.abspath(os.fspath(path.expanduser())))
+    parts = absolute.parts
+    if not parts or parts[0] != absolute.anchor:
+        raise HTTPException(status_code=404, detail="tour_not_found")
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0)
+    descriptor = -1
+    try:
+        descriptor = os.open(absolute.anchor, flags)
+        for component in parts[1:]:
+            if component in {"", ".", ".."}:
+                raise OSError("invalid_public_tour_root_component")
+            next_descriptor = os.open(component, flags, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = next_descriptor
+        result = descriptor
+        descriptor = -1
+        return result
+    except HTTPException:
+        raise
+    except OSError as exc:
+        raise HTTPException(status_code=404, detail="tour_not_found") from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+def _read_public_tour_policy_json_at(
+    bundle_fd: int,
+    filename: str,
+    *,
+    missing_ok: bool = False,
+) -> tuple[dict[str, object], tuple[int, int, int, int, int, int, int]] | None:
+    flags = (
+        os.O_RDONLY
+        | os.O_NOFOLLOW
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NONBLOCK", 0)
+    )
+    descriptor = -1
+    try:
+        descriptor = os.open(filename, flags, dir_fd=bundle_fd)
+    except FileNotFoundError as exc:
+        if missing_ok:
+            return None
+        raise HTTPException(status_code=404, detail="tour_not_found") from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail="tour_payload_invalid") from exc
+    try:
+        before = os.fstat(descriptor)
+        maximum = tour_manifest_max_bytes()
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or before.st_nlink != 1
+            or before.st_size <= 0
+            or before.st_size > maximum
+        ):
+            raise HTTPException(status_code=500, detail="tour_payload_invalid")
+        chunks: list[bytes] = []
+        remaining = int(before.st_size)
+        while remaining:
+            chunk = os.read(descriptor, min(remaining, 65_536))
+            if not chunk:
+                raise HTTPException(status_code=500, detail="tour_payload_invalid")
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        if os.read(descriptor, 1):
+            raise HTTPException(status_code=500, detail="tour_payload_invalid")
+        after = os.fstat(descriptor)
+        before_identity = _public_tour_stat_identity(before)
+        if before_identity != _public_tour_stat_identity(after):
+            raise HTTPException(status_code=500, detail="tour_payload_invalid")
+        try:
+            payload = json.loads(b"".join(chunks).decode("utf-8"))
+        except (UnicodeError, ValueError, json.JSONDecodeError) as exc:
+            raise HTTPException(status_code=500, detail="tour_payload_invalid") from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=500, detail="tour_payload_invalid")
+        return dict(payload), before_identity
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+@contextmanager
+def _public_tour_file_policy_snapshot(
+    slug: str,
+    *,
+    include_private_receipt: bool,
+):
+    safe_slug = str(slug or "").strip()
+    if (
+        not safe_slug
+        or safe_slug.startswith(".")
+        or "/" in safe_slug
+        or "\\" in safe_slug
+        or ".." in safe_slug
+        or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", safe_slug)
+    ):
+        raise HTTPException(status_code=404, detail="tour_not_found")
+    public_root = Path(os.path.abspath(os.fspath(_tour_dir().expanduser())))
+    with _hosted_property_tour_publication_lock(
+        public_dir=public_root,
+        slug=safe_slug,
+    ):
+        if hosted_property_tour_revocation_receipt(safe_slug):
+            raise HTTPException(status_code=410, detail="tour_revoked")
+        root_fd = _open_public_tour_directory_componentwise(public_root)
+        bundle_fd = -1
+        try:
+            directory_flags = (
+                os.O_RDONLY
+                | os.O_DIRECTORY
+                | os.O_NOFOLLOW
+                | getattr(os, "O_CLOEXEC", 0)
+            )
+            try:
+                bundle_fd = os.open(safe_slug, directory_flags, dir_fd=root_fd)
+            except OSError as exc:
+                raise HTTPException(status_code=404, detail="tour_not_found") from exc
+            manifest_result = _read_public_tour_policy_json_at(
+                bundle_fd, "tour.json"
+            )
+            assert manifest_result is not None
+            payload, manifest_identity = manifest_result
+            if payload.get("slug") != safe_slug:
+                raise HTTPException(status_code=500, detail="tour_payload_invalid")
+            if include_private_receipt:
+                private_result = _read_public_tour_policy_json_at(
+                    bundle_fd,
+                    "tour.private.json",
+                    missing_ok=True,
+                )
+                if private_result is not None:
+                    private_payload, _private_identity = private_result
+                    payload = {
+                        **payload,
+                        **{
+                            key: value
+                            for key, value in private_payload.items()
+                            if key in _PRIVATE_TOUR_RECEIPT_ALLOWED_KEYS
+                        },
+                    }
+            yield _PublicTourFilePolicySnapshot(
+                slug=safe_slug,
+                bundle_dir=public_root / safe_slug,
+                bundle_fd=bundle_fd,
+                payload=payload,
+                manifest_identity=manifest_identity,
+            )
+        finally:
+            if bundle_fd >= 0:
+                os.close(bundle_fd)
+            os.close(root_fd)
+
+
+def _open_public_tour_asset_descriptor(
+    snapshot: _PublicTourFilePolicySnapshot,
+    relpath: str,
+    *,
+    expected_identity: tuple[int, int, int, int, int, int, int] | None = None,
+) -> _OpenedPublicTourAsset:
+    safe_relpath = _public_tour_safe_asset_relpath(relpath)
+    if not safe_relpath:
+        raise HTTPException(status_code=404, detail="tour_file_not_found")
+    directory_flags = (
+        os.O_RDONLY
+        | os.O_DIRECTORY
+        | os.O_NOFOLLOW
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    file_flags = (
+        os.O_RDONLY
+        | os.O_NOFOLLOW
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NONBLOCK", 0)
+    )
+    current_fd = os.dup(snapshot.bundle_fd)
+    file_fd = -1
+    try:
+        parts = PurePosixPath(safe_relpath).parts
+        for component in parts[:-1]:
+            next_fd = os.open(component, directory_flags, dir_fd=current_fd)
+            os.close(current_fd)
+            current_fd = next_fd
+        file_fd = os.open(parts[-1], file_flags, dir_fd=current_fd)
+        details = os.fstat(file_fd)
+        identity = _public_tour_stat_identity(details)
+        if (
+            not stat.S_ISREG(details.st_mode)
+            or details.st_nlink != 1
+            or details.st_size < 0
+            or (expected_identity is not None and identity != expected_identity)
+        ):
+            raise OSError("public_tour_asset_identity_invalid")
+        result = _OpenedPublicTourAsset(
+            descriptor=file_fd,
+            relpath=safe_relpath,
+            details=details,
+        )
+        file_fd = -1
+        return result
+    except OSError as exc:
+        raise HTTPException(status_code=404, detail="tour_file_not_found") from exc
+    finally:
+        if file_fd >= 0:
+            os.close(file_fd)
+        os.close(current_fd)
+
+
+def _confirm_public_tour_asset_descriptor(
+    snapshot: _PublicTourFilePolicySnapshot,
+    opened: _OpenedPublicTourAsset,
+    *,
+    expected_identity: tuple[int, int, int, int, int, int, int] | None = None,
+) -> None:
+    try:
+        held_bundle = os.fstat(snapshot.bundle_fd)
+        named_bundle = os.stat(snapshot.bundle_dir, follow_symlinks=False)
+    except OSError as exc:
+        raise HTTPException(status_code=404, detail="tour_file_not_found") from exc
+    if (
+        not stat.S_ISDIR(named_bundle.st_mode)
+        or (held_bundle.st_dev, held_bundle.st_ino)
+        != (named_bundle.st_dev, named_bundle.st_ino)
+    ):
+        raise HTTPException(status_code=404, detail="tour_file_not_found")
+    confirmation = _open_public_tour_asset_descriptor(
+        snapshot,
+        opened.relpath,
+        expected_identity=expected_identity,
+    )
+    try:
+        if _public_tour_stat_identity(confirmation.details) != _public_tour_stat_identity(
+            opened.details
+        ):
+            raise HTTPException(status_code=404, detail="tour_file_not_found")
+    finally:
+        os.close(confirmation.descriptor)
+
+
+def _magicfit_subject_identity(
+    eligibility: object,
+    path: Path,
+) -> tuple[int, int, int, int, int, int, int] | None:
+    expected_path = os.path.abspath(os.fspath(path))
+    for subject in tuple(getattr(eligibility, "subjects", ()) or ()):
+        if os.path.abspath(str(getattr(subject, "path", ""))) != expected_path:
+            continue
+        identity = getattr(subject, "identity", None)
+        if isinstance(identity, tuple) and len(identity) == 7:
+            return identity
+    return None
+
+
+def _require_magicfit_policy_identity(
+    snapshot: _PublicTourFilePolicySnapshot,
+    eligibility: object,
+    relpath: str,
+) -> tuple[int, int, int, int, int, int, int]:
+    manifest_identity = _magicfit_subject_identity(
+        eligibility, snapshot.bundle_dir / "tour.json"
+    )
+    asset_identity = _magicfit_subject_identity(
+        eligibility, snapshot.bundle_dir / PurePosixPath(relpath)
+    )
+    if (
+        manifest_identity != snapshot.manifest_identity
+        or asset_identity is None
+    ):
+        raise HTTPException(status_code=404, detail="tour_file_not_found")
+    return asset_identity
+
+
+def _magicfit_namespace_expected_identity(
+    snapshot: _PublicTourFilePolicySnapshot,
+    relpath: str,
+) -> tuple[int, int, int, int, int, int, int] | None:
+    if not relpath.lower().startswith("magicfit-media/"):
+        return None
+    eligibility = evaluate_magicfit_public_eligibility(
+        snapshot.bundle_dir,
+        snapshot.payload,
+    )
+    if (
+        not getattr(eligibility, "declared", False)
+        or not getattr(eligibility, "eligible", False)
+        or relpath != str(getattr(eligibility, "video_relpath", ""))
+    ):
+        raise HTTPException(status_code=404, detail="tour_file_not_found")
+    return _require_magicfit_policy_identity(snapshot, eligibility, relpath)
+
+
+class _PublicTourMalformedRange(ValueError):
+    pass
+
+
+class _PublicTourUnsatisfiedRange(ValueError):
+    pass
+
+
+def _public_tour_byte_ranges(
+    raw_header: str,
+    *,
+    size_bytes: int,
+) -> tuple[tuple[int, int], ...] | None:
+    """Parse RFC byte ranges as start/end-exclusive pairs."""
+
+    normalized = str(raw_header or "").strip()
+    if not normalized:
+        return None
+    try:
+        units, raw_ranges = normalized.split("=", 1)
+    except ValueError as exc:
+        raise _PublicTourMalformedRange("invalid_range") from exc
+    if units.strip().lower() != "bytes" or size_bytes <= 0:
+        raise _PublicTourMalformedRange("invalid_range")
+    parsed: list[tuple[int, int]] = []
+    for part in raw_ranges.split(","):
+        value = part.strip()
+        if not value or value == "-" or "-" not in value:
+            continue
+        start_text, end_text = (item.strip() for item in value.split("-", 1))
+        try:
+            if not start_text:
+                suffix_length = int(end_text)
+                if suffix_length <= 0:
+                    continue
+                start = max(0, size_bytes - suffix_length)
+                end = size_bytes
+            else:
+                start = int(start_text)
+                end = (
+                    min(int(end_text) + 1, size_bytes)
+                    if end_text
+                    else size_bytes
+                )
+        except (TypeError, ValueError) as exc:
+            raise _PublicTourMalformedRange("invalid_range") from exc
+        if start < 0 or start >= size_bytes:
+            raise _PublicTourUnsatisfiedRange("unsatisfied_range")
+        if end <= start:
+            raise _PublicTourMalformedRange("invalid_range")
+        parsed.append((start, end))
+    if not parsed:
+        raise _PublicTourMalformedRange("invalid_range")
+    merged: list[tuple[int, int]] = []
+    for start, end in sorted(parsed):
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return tuple(merged)
+
+
+def _public_tour_multipart_range_parts(
+    ranges: tuple[tuple[int, int], ...],
+    *,
+    boundary: str,
+    media_type: str,
+    size_bytes: int,
+) -> tuple[tuple[bytes, int, int], bytes, int]:
+    parts: list[tuple[bytes, int, int]] = []
+    content_length = 0
+    for start, end in ranges:
+        prefix = (
+            f"--{boundary}\r\n"
+            f"Content-Type: {media_type}\r\n"
+            f"Content-Range: bytes {start}-{end - 1}/{size_bytes}\r\n\r\n"
+        ).encode("latin-1")
+        parts.append((prefix, start, end))
+        content_length += len(prefix) + (end - start) + 2
+    closing = f"--{boundary}--\r\n".encode("latin-1")
+    content_length += len(closing)
+    return tuple(parts), closing, content_length
+
+
+def _descriptor_bound_public_tour_response(
+    request: Request | None,
+    opened: _OpenedPublicTourAsset,
+    *,
+    media_type: str,
+    headers: dict[str, str],
+) -> Response:
+    descriptor = opened.descriptor
+    size_bytes = int(opened.details.st_size)
+    response_headers = dict(headers)
+    response_headers["Accept-Ranges"] = "bytes"
+    last_modified = formatdate(opened.details.st_mtime, usegmt=True)
+    etag_subject = ":".join(
+        str(value) for value in _public_tour_stat_identity(opened.details)
+    )
+    etag = f'"{hashlib.sha256(etag_subject.encode("ascii")).hexdigest()}"'
+    response_headers["Last-Modified"] = last_modified
+    response_headers["ETag"] = etag
+    raw_range = str(request.headers.get("range") or "") if request is not None else ""
+    if_range = str(request.headers.get("if-range") or "") if request is not None else ""
+    if if_range and if_range not in {etag, last_modified}:
+        raw_range = ""
+    try:
+        selected_ranges = _public_tour_byte_ranges(
+            raw_range,
+            size_bytes=size_bytes,
+        )
+    except _PublicTourMalformedRange:
+        os.close(descriptor)
+        response_headers["Content-Length"] = "0"
+        return Response(status_code=400, headers=response_headers)
+    except _PublicTourUnsatisfiedRange:
+        os.close(descriptor)
+        response_headers["Content-Range"] = f"bytes */{size_bytes}"
+        response_headers["Content-Length"] = "0"
+        return Response(status_code=416, headers=response_headers)
+    multipart_parts: tuple[tuple[bytes, int, int], ...] = ()
+    multipart_closing = b""
+    if selected_ranges is None:
+        start, end = 0, size_bytes
+        status_code = 200
+        content_length = size_bytes
+    elif len(selected_ranges) == 1:
+        start, end = selected_ranges[0]
+        status_code = 206
+        content_length = end - start
+        response_headers["Content-Range"] = (
+            f"bytes {start}-{end - 1}/{size_bytes}"
+        )
+    else:
+        boundary = secrets.token_hex(13)
+        multipart_parts, multipart_closing, content_length = (
+            _public_tour_multipart_range_parts(
+                selected_ranges,
+                boundary=boundary,
+                media_type=media_type,
+                size_bytes=size_bytes,
+            )
+        )
+        response_headers["Content-Type"] = (
+            f"multipart/byteranges; boundary={boundary}"
+        )
+        start, end = 0, 0
+        status_code = 206
+    response_headers["Content-Length"] = str(content_length)
+    if request is not None and request.method.upper() == "HEAD":
+        os.close(descriptor)
+        return Response(
+            status_code=status_code,
+            media_type=media_type,
+            headers=response_headers,
+        )
+
+    def _iterator():
+        try:
+            if multipart_parts:
+                for prefix, part_start, part_end in multipart_parts:
+                    yield prefix
+                    offset = part_start
+                    remaining = part_end - part_start
+                    while remaining:
+                        chunk = os.pread(
+                            descriptor,
+                            min(1024 * 1024, remaining),
+                            offset,
+                        )
+                        if not chunk:
+                            break
+                        offset += len(chunk)
+                        remaining -= len(chunk)
+                        yield chunk
+                    yield b"\r\n"
+                yield multipart_closing
+            else:
+                offset = start
+                remaining = end - start
+                while remaining:
+                    chunk = os.pread(
+                        descriptor,
+                        min(1024 * 1024, remaining),
+                        offset,
+                    )
+                    if not chunk:
+                        break
+                    offset += len(chunk)
+                    remaining -= len(chunk)
+                    yield chunk
+        finally:
+            os.close(descriptor)
+
+    return StreamingResponse(
+        _iterator(),
+        status_code=status_code,
+        media_type=media_type,
+        headers=response_headers,
+    )
 
 
 
@@ -668,8 +1214,14 @@ def _redacted_public_tour_payload(
     return rendered
 
 
-def _asset_file(slug: str, asset_path: str) -> Path:
-    payload = _load_tour(slug)
+def _asset_file(
+    slug: str,
+    asset_path: str,
+    *,
+    payload: dict[str, object] | None = None,
+    bundle_dir: Path | None = None,
+) -> Path:
+    payload = payload if payload is not None else _load_tour(slug)
     _require_public_tour_viewable(payload)
     safe_relpath = _public_tour_safe_asset_relpath(asset_path)
     # Keep an explicit full-manifest pass in the route so release gates can prove
@@ -677,7 +1229,7 @@ def _asset_file(slug: str, asset_path: str) -> Path:
     # ad hoc path checks at the call site.
     _public_tour_manifest(payload)
     manifest = _public_tour_manifest(payload, only_relpath=safe_relpath)
-    bundle_dir = _tour_bundle_dir(slug)
+    bundle_dir = bundle_dir if bundle_dir is not None else _tour_bundle_dir(slug)
     if not safe_relpath or bundle_dir is None:
         raise HTTPException(status_code=404, detail="tour_file_not_found")
     if safe_relpath not in manifest:
@@ -702,14 +1254,20 @@ def _asset_file(slug: str, asset_path: str) -> Path:
     return candidate
 
 
-def _pano2vr_export_file(slug: str, asset_path: str) -> Path:
-    payload = _load_tour_with_private_receipt(slug)
+def _pano2vr_export_file(
+    slug: str,
+    asset_path: str,
+    *,
+    payload: dict[str, object] | None = None,
+    bundle_dir: Path | None = None,
+) -> Path:
+    payload = payload if payload is not None else _load_tour_with_private_receipt(slug)
     _require_public_tour_viewable(payload)
     if _tour_payload_is_disabled_fallback(payload):
         raise HTTPException(status_code=404, detail="tour_disabled_fallback")
     entry_relpath = _pano2vr_entry_relpath(payload)
     safe_relpath = _public_tour_safe_asset_relpath(asset_path)
-    bundle_dir = _tour_bundle_dir(slug)
+    bundle_dir = bundle_dir if bundle_dir is not None else _tour_bundle_dir(slug)
     if not entry_relpath or not safe_relpath or bundle_dir is None:
         raise HTTPException(status_code=404, detail="tour_pano2vr_file_not_found")
     if not _pano2vr_spatial_provenance_ready(payload, slug=slug):
@@ -735,13 +1293,19 @@ def _pano2vr_export_file(slug: str, asset_path: str) -> Path:
     return candidate
 
 
-def _3dvista_export_file(slug: str, asset_path: str) -> Path:
-    payload = _load_tour_with_private_receipt(slug)
+def _3dvista_export_file(
+    slug: str,
+    asset_path: str,
+    *,
+    payload: dict[str, object] | None = None,
+    bundle_dir: Path | None = None,
+) -> Path:
+    payload = payload if payload is not None else _load_tour_with_private_receipt(slug)
     _require_public_tour_viewable(payload)
     if _tour_payload_is_disabled_fallback(payload):
         raise HTTPException(status_code=404, detail="tour_disabled_fallback")
     safe_relpath = _public_tour_safe_asset_relpath(asset_path)
-    bundle_dir = _tour_bundle_dir(slug)
+    bundle_dir = bundle_dir if bundle_dir is not None else _tour_bundle_dir(slug)
     entries, _roots = _3dvista_export_allowed_relpaths(payload)
     if not entries or not safe_relpath or bundle_dir is None:
         raise HTTPException(status_code=404, detail="tour_3dvista_file_not_found")
@@ -2444,6 +3008,374 @@ def _tour_spatial_review_experience(
     }
 
 
+def _public_tour_ai_panorama_scene(payload: dict[str, object]) -> dict[str, object]:
+    walkable_scene = payload.get("walkable_scene")
+    if not isinstance(walkable_scene, dict):
+        return {}
+    if (
+        str(walkable_scene.get("representation_kind") or "").strip().lower()
+        != "ai_reconstruction"
+    ):
+        return {}
+    return walkable_scene
+
+
+def _public_tour_ai_panorama_asset_paths(
+    payload: dict[str, object],
+) -> tuple[set[str], set[str]]:
+    """Return every AI scene ref and the strict contract-rendered subset.
+
+    The generic public asset collector intentionally understands several scene
+    aliases.  An AI panorama acceptance receipt, however, validates exactly one
+    panorama per scene plus the shared floorplan.  Keep secondary aliases from
+    becoming an unverified side door to additional bundle files.
+    """
+
+    walkable_scene = _public_tour_ai_panorama_scene(payload)
+    if not walkable_scene:
+        return set(), set()
+    referenced: set[str] = set()
+    accepted: set[str] = set()
+
+    def _add(target: set[str], value: object) -> str:
+        relpath = _public_tour_safe_asset_relpath(value)
+        if relpath:
+            target.add(relpath)
+        return relpath
+
+    floorplan_relpath = _add(
+        referenced,
+        walkable_scene.get("floorplan_relpath"),
+    )
+    if floorplan_relpath:
+        accepted.add(floorplan_relpath)
+    raw_scenes = walkable_scene.get("scenes")
+    if isinstance(raw_scenes, dict):
+        scenes = [value for value in raw_scenes.values() if isinstance(value, dict)]
+    elif isinstance(raw_scenes, list):
+        scenes = [value for value in raw_scenes if isinstance(value, dict)]
+    else:
+        scenes = []
+    for scene in scenes:
+        primary_relpath = ""
+        for key in (
+            "asset_relpath",
+            "panorama_relpath",
+            "equirect_relpath",
+            "image_relpath",
+        ):
+            relpath = _add(referenced, scene.get(key))
+            if relpath and not primary_relpath:
+                primary_relpath = relpath
+        if primary_relpath:
+            accepted.add(primary_relpath)
+        for key in (
+            "thumbnail_relpath",
+            "preview_relpath",
+            "floorplan_relpath",
+        ):
+            _add(referenced, scene.get(key))
+        cube_faces = scene.get("cube_faces")
+        if isinstance(cube_faces, dict):
+            for value in cube_faces.values():
+                _add(referenced, value)
+        elif isinstance(cube_faces, list):
+            for value in cube_faces:
+                _add(referenced, value)
+    return referenced, accepted
+
+
+def _public_tour_ai_panorama_asset_digests(
+    payload: dict[str, object],
+    *,
+    bundle_dir: Path | None,
+) -> dict[str, str]:
+    """Return contract-bound digests keyed by the exact public asset path."""
+
+    walkable_scene = _public_tour_ai_panorama_scene(payload)
+    acceptance = (
+        walkable_scene.get("acceptance")
+        if isinstance(walkable_scene.get("acceptance"), dict)
+        else {}
+    )
+    accepted_hashes = (
+        acceptance.get("panorama_asset_sha256")
+        if isinstance(acceptance.get("panorama_asset_sha256"), dict)
+        else {}
+    )
+    digests: dict[str, str] = {}
+    raw_scenes = walkable_scene.get("scenes")
+    scenes = (
+        [value for value in raw_scenes.values() if isinstance(value, dict)]
+        if isinstance(raw_scenes, dict)
+        else [value for value in raw_scenes if isinstance(value, dict)]
+        if isinstance(raw_scenes, list)
+        else []
+    )
+    for scene in scenes:
+        scene_id = str(scene.get("id") or scene.get("scene_id") or "").strip()
+        digest = str(accepted_hashes.get(scene_id) or "").strip().lower()
+        relpath = ""
+        for key in (
+            "asset_relpath",
+            "panorama_relpath",
+            "equirect_relpath",
+            "image_relpath",
+        ):
+            relpath = _public_tour_safe_asset_relpath(scene.get(key))
+            if relpath:
+                break
+        if relpath and re.fullmatch(r"[0-9a-f]{64}", digest):
+            digests[relpath] = digest
+
+    floorplan_relpath = _public_tour_safe_asset_relpath(
+        walkable_scene.get("floorplan_relpath")
+    )
+    provenance_relpath = _public_tour_safe_asset_relpath(
+        acceptance.get("provenance_relpath")
+    )
+    if bundle_dir is not None and floorplan_relpath and provenance_relpath:
+        root = bundle_dir.resolve()
+        provenance_path = (root / provenance_relpath).resolve()
+        if root in provenance_path.parents and provenance_path.is_file():
+            try:
+                provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, ValueError):
+                provenance = {}
+            floorplan_digest = str(
+                provenance.get("floorplan_sha256")
+                if isinstance(provenance, dict)
+                else ""
+            ).strip().lower()
+            if re.fullmatch(r"[0-9a-f]{64}", floorplan_digest):
+                digests[floorplan_relpath] = floorplan_digest
+    return digests
+
+
+def _public_tour_ai_panorama_preflight_enabled() -> bool:
+    """Permit receipt generation only in an explicit non-production runtime."""
+
+    return (
+        _public_tour_env_truthy(
+            os.getenv("PROPERTYQUARRY_AI_PANORAMA_PREFLIGHT")
+        )
+        and not _public_tour_prod_mode_enabled()
+    )
+
+
+def _public_tour_ai_panorama_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _public_tour_ai_panorama_browser_proof_current(
+    payload: dict[str, object],
+    *,
+    bundle_dir: Path,
+) -> bool:
+    """Recheck the proof clock on every strict request outside the heavy cache."""
+
+    walkable_scene = _public_tour_ai_panorama_scene(payload)
+    acceptance = (
+        walkable_scene.get("acceptance")
+        if isinstance(walkable_scene.get("acceptance"), dict)
+        else {}
+    )
+    relpath = _public_tour_safe_asset_relpath(
+        acceptance.get("browser_receipt_relpath")
+    )
+    if not relpath:
+        return False
+    root = bundle_dir.resolve()
+    receipt_path = (root / relpath).resolve()
+    if root not in receipt_path.parents:
+        return False
+    try:
+        metadata = receipt_path.lstat()
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or stat.S_ISLNK(metadata.st_mode)
+            or metadata.st_size <= 0
+            or metadata.st_size > 1_048_576
+        ):
+            return False
+        browser_receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError):
+        return False
+    return _hosted_property_tour_ai_panorama_browser_proof_current(
+        browser_receipt,
+        now=_public_tour_ai_panorama_now(),
+    )
+
+
+def _public_tour_ai_panorama_contract_cache_fingerprint(
+    payload: dict[str, object],
+    *,
+    bundle_dir: Path,
+) -> str:
+    """Fingerprint immutable contract inputs without rereading every panorama."""
+
+    root = bundle_dir.resolve()
+    manifest_path = root / "tour.json"
+    try:
+        manifest_bytes = manifest_path.read_bytes()
+        manifest_payload = json.loads(manifest_bytes)
+    except (OSError, ValueError):
+        return ""
+    if not isinstance(manifest_payload, dict) or any(
+        manifest_payload.get(key) != payload.get(key)
+        for key in (
+            "slug",
+            "publication_status",
+            "creation_mode",
+            "scene_count",
+            "property_url_sha256",
+            "walkable_scene",
+        )
+    ):
+        return ""
+
+    relpaths = set(_public_tour_ai_panorama_asset_paths(payload)[1])
+    walkable_scene = _public_tour_ai_panorama_scene(payload)
+    acceptance = (
+        walkable_scene.get("acceptance")
+        if isinstance(walkable_scene.get("acceptance"), dict)
+        else {}
+    )
+    for key in ("provenance_relpath", "browser_receipt_relpath"):
+        relpath = _public_tour_safe_asset_relpath(acceptance.get(key))
+        if relpath:
+            relpaths.add(relpath)
+    browser_relpath = _public_tour_safe_asset_relpath(
+        acceptance.get("browser_receipt_relpath")
+    )
+    if browser_relpath:
+        browser_path = (root / browser_relpath).resolve()
+        if root in browser_path.parents and browser_path.is_file():
+            try:
+                browser_receipt = json.loads(browser_path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, ValueError):
+                browser_receipt = {}
+            if isinstance(browser_receipt, dict):
+                for surface in ("desktop", "mobile", "dollhouse"):
+                    surface_receipt = browser_receipt.get(surface)
+                    if not isinstance(surface_receipt, dict):
+                        continue
+                    relpath = _public_tour_safe_asset_relpath(
+                        surface_receipt.get("screenshot_relpath")
+                    )
+                    if relpath:
+                        relpaths.add(relpath)
+
+    identities: list[tuple[object, ...]] = []
+    for relpath in sorted(relpaths):
+        path = root / relpath
+        try:
+            details = path.lstat()
+        except OSError:
+            identities.append((relpath, "missing"))
+            continue
+        identities.append(
+            (
+                relpath,
+                int(details.st_dev),
+                int(details.st_ino),
+                int(details.st_mode),
+                int(details.st_size),
+                int(details.st_mtime_ns),
+                int(details.st_ctime_ns),
+            )
+        )
+    canonical = json.dumps(
+        {
+            "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
+            "identities": identities,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+@lru_cache(maxsize=64)
+def _public_tour_ai_panorama_contract_cached(
+    bundle_dir_value: str,
+    fingerprint: str,
+    mode: str,
+) -> dict[str, object]:
+    bundle_dir = Path(bundle_dir_value)
+    try:
+        payload = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError):
+        return {
+            "ready": False,
+            "representation_kind": "ai_panorama_360",
+            "reason": "manifest_invalid",
+        }
+    if not isinstance(payload, dict):
+        return {
+            "ready": False,
+            "representation_kind": "ai_panorama_360",
+            "reason": "manifest_invalid",
+        }
+    return _hosted_property_tour_ai_panorama_contract(
+        bundle_dir=bundle_dir,
+        payload=payload,
+        mode=mode,
+    )
+
+
+def _require_public_tour_ai_panorama_release(
+    payload: dict[str, object],
+    *,
+    bundle_dir: Path | None,
+    allow_preflight: bool = False,
+) -> dict[str, object]:
+    if not _public_tour_ai_panorama_scene(payload):
+        return {}
+    if bundle_dir is None:
+        raise HTTPException(
+            status_code=404,
+            detail="tour_ai_panorama_acceptance_missing",
+        )
+    preflight = allow_preflight and _public_tour_ai_panorama_preflight_enabled()
+    mode = "preflight" if preflight else "full"
+    if mode == "full" and not _public_tour_ai_panorama_browser_proof_current(
+        payload,
+        bundle_dir=bundle_dir,
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail="tour_ai_panorama_acceptance_missing",
+        )
+    fingerprint = _public_tour_ai_panorama_contract_cache_fingerprint(
+        payload,
+        bundle_dir=bundle_dir,
+    )
+    contract = (
+        dict(
+            _public_tour_ai_panorama_contract_cached(
+                str(bundle_dir.resolve()),
+                fingerprint,
+                mode,
+            )
+        )
+        if fingerprint
+        else _hosted_property_tour_ai_panorama_contract(
+            bundle_dir=bundle_dir,
+            payload=payload,
+            mode=mode,
+        )
+    )
+    if not contract.get("ready") and not (
+        preflight and contract.get("preflight_ready") is True
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail="tour_ai_panorama_acceptance_missing",
+        )
+    return contract
+
+
 def _public_tour_primary_control_path(payload: dict[str, object]) -> str:
     slug = str(payload.get("slug") or "").strip()
     if not slug:
@@ -2468,6 +3400,21 @@ def _public_tour_primary_control_path(payload: dict[str, object]) -> str:
                 return f"/tours/{quoted_slug}/control/3dvista"
         if local_3dvista_entry and _3dvista_entry_ready(slug, payload, local_3dvista_entry):
             return f"/tours/{quoted_slug}/control/3dvista"
+
+    walkable_scene = payload.get("walkable_scene")
+    if isinstance(walkable_scene, dict):
+        try:
+            ai_panorama_contract = _require_public_tour_ai_panorama_release(
+                payload,
+                bundle_dir=_tour_bundle_dir(slug),
+                allow_preflight=True,
+            )
+        except HTTPException:
+            ai_panorama_contract = {}
+        if ai_panorama_contract.get("ready") or ai_panorama_contract.get(
+            "preflight_ready"
+        ):
+            return f"/tours/{quoted_slug}/control"
 
     return ""
 
@@ -2832,6 +3779,9 @@ def _public_tour_request_embeds_walkthrough(request: Request) -> bool:
     return _truthy(request.query_params.get("autoplay"))
 
 
+_PUBLIC_TOUR_RUNTIME_ACCEPTANCE_TOKEN = object()
+
+
 def _tour_html(
     payload: dict[str, object],
     *,
@@ -2839,6 +3789,7 @@ def _tour_html(
     path: str = "",
     nonce: str = "",
     validated_3dvista_control_path: str = "",
+    walkthrough_acceptance: dict[str, object] | None = None,
 ) -> str:
     nonce_attr = html.escape(_public_tour_normalized_nonce(nonce) or _public_tour_csp_nonce(), quote=True)
     if _public_tour_payload_needs_defensive_redaction(payload):
@@ -2853,6 +3804,14 @@ def _tour_html(
             if runtime_key in payload:
                 rendered_payload[runtime_key] = payload[runtime_key]
         payload = rendered_payload
+    if isinstance(walkthrough_acceptance, dict):
+        payload = dict(payload)
+        payload["_walkthrough_runtime_acceptance"] = dict(
+            walkthrough_acceptance
+        )
+        payload["_walkthrough_runtime_acceptance_token"] = (
+            _PUBLIC_TOUR_RUNTIME_ACCEPTANCE_TOKEN
+        )
     slug = str(payload.get("slug") or "").strip()
     # Retired Matterport receipts may remain in historical bundles, but they
     # are not a public control or CTA authority.
@@ -6121,13 +7080,14 @@ def _public_tour_security_headers(
     base_uri_policy = "'self'" if allow_base_uri_self else "'none'"
     normalized_nonce = _public_tour_normalized_nonce(nonce)
     normalized_profile = str(runtime_profile or "document").strip().lower()
-    external_origins = () if normalized_profile == "generated_viewer" else _public_tour_external_csp_origins()
+    self_only_runtime = normalized_profile in {"generated_viewer", "ai_panorama"}
+    external_origins = () if self_only_runtime else _public_tour_external_csp_origins()
     media_sources = " ".join(("'self'", "data:", "blob:", *external_origins))
     # Public control routes expose only local assets and verified 3DVista
     # exports. Media host configuration must never silently expand iframe
     # authority (or revive a retired provider).
-    frame_origins = () if normalized_profile == "generated_viewer" else _PUBLIC_TOUR_PROVIDER_CSP_ORIGINS
-    frame_sources = " ".join(("'self'", *frame_origins))
+    frame_origins = () if self_only_runtime else _PUBLIC_TOUR_PROVIDER_CSP_ORIGINS
+    frame_sources = "'none'" if normalized_profile == "ai_panorama" else " ".join(("'self'", *frame_origins))
 
     script_sources: list[str] = ["'self'"]
     style_sources: list[str] = ["'self'"]
@@ -6202,14 +7162,69 @@ def _public_tour_security_headers(
     }
 
 
-def _public_tour_control_security_headers(*, html_body: str, nonce: str) -> dict[str, str]:
+def _public_tour_control_security_headers(
+    *,
+    html_body: str,
+    nonce: str,
+    ai_panorama: bool = False,
+) -> dict[str, str]:
     """Bind a freshly rendered control document to one strict CSP envelope."""
 
     return _public_tour_security_headers(
         nonce=nonce,
-        allow_jsdelivr="https://cdn.jsdelivr.net/" in html_body,
+        allow_jsdelivr=(not ai_panorama and "https://cdn.jsdelivr.net/" in html_body),
+        runtime_profile="ai_panorama" if ai_panorama else "document",
         script_hashes=_public_tour_inline_csp_hashes(html_body, tag_name="script"),
         style_hashes=_public_tour_inline_csp_hashes(html_body, tag_name="style"),
+    )
+
+
+@lru_cache(maxsize=1)
+def _public_tour_three_module_bytes() -> bytes:
+    """Load the pinned first-party panorama runtime from the packaged vendor tree."""
+
+    module_relpath = Path("vendor") / "three" / _PUBLIC_TOUR_THREE_VERSION / "three.module.js"
+    route_path = Path(__file__).resolve()
+    candidates = (
+        route_path.parents[3] / module_relpath,
+        route_path.parents[4] / module_relpath,
+    )
+    for candidate in candidates:
+        if candidate.is_symlink() or not candidate.is_file():
+            continue
+        content = candidate.read_bytes()
+        if hashlib.sha256(content).hexdigest() == _PUBLIC_TOUR_THREE_SHA256:
+            return content
+    raise RuntimeError("public_tour_three_module_integrity_failed")
+
+
+@router.get(_PUBLIC_TOUR_THREE_MODULE_PATH, include_in_schema=False)
+@router.head(_PUBLIC_TOUR_THREE_MODULE_PATH, include_in_schema=False)
+def public_tour_three_module(request: Request) -> Response:
+    try:
+        content = _public_tour_three_module_bytes()
+    except (OSError, RuntimeError) as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="tour_renderer_runtime_unavailable",
+        ) from exc
+    etag = f'"{_PUBLIC_TOUR_THREE_SHA256}"'
+    headers = _public_tour_security_headers(
+        cache_control="public, max-age=31536000, immutable",
+    )
+    headers.update(
+        {
+            "Cross-Origin-Resource-Policy": "same-origin",
+            "ETag": etag,
+            "X-PropertyQuarry-Asset-SHA256": _PUBLIC_TOUR_THREE_SHA256,
+        }
+    )
+    if str(request.headers.get("if-none-match") or "").strip() == etag:
+        return Response(status_code=304, headers=headers)
+    return Response(
+        content=b"" if request.method.upper() == "HEAD" else content,
+        media_type="text/javascript",
+        headers=headers,
     )
 
 
@@ -6502,6 +7517,7 @@ def _public_tour_verified_generated_viewer_response(
     asset_path: str,
     *,
     payload: dict[str, object] | None = None,
+    request: Request | None = None,
 ) -> Response:
     content, binding, release = _public_tour_verified_generated_viewer_asset(
         slug,
@@ -6521,11 +7537,7 @@ def _public_tour_verified_generated_viewer_response(
                 detail="tour_viewer_integrity_failed",
             ) from exc
     headers = _public_tour_security_headers(
-        cache_control=(
-            "no-cache, max-age=0, must-revalidate"
-            if is_document
-            else "public, max-age=86400, immutable"
-        ),
+        cache_control="no-cache, max-age=0, must-revalidate",
         runtime_profile="generated_viewer" if is_document else "document",
         script_hashes=(
             _public_tour_inline_csp_hashes(viewer_html, tag_name="script")
@@ -6551,7 +7563,58 @@ def _public_tour_verified_generated_viewer_response(
             ),
         }
     )
-    return Response(content=content, media_type=mime_type, headers=headers)
+    headers["Accept-Ranges"] = "bytes"
+    etag = f'"{str(binding.get("sha256") or "")}"'
+    headers["ETag"] = etag
+    raw_range = str(request.headers.get("range") or "") if request is not None else ""
+    if_range = str(request.headers.get("if-range") or "") if request is not None else ""
+    if if_range and if_range != etag:
+        raw_range = ""
+    try:
+        selected_ranges = _public_tour_byte_ranges(
+            raw_range,
+            size_bytes=len(content),
+        )
+    except _PublicTourMalformedRange:
+        headers["Content-Length"] = "0"
+        return Response(status_code=400, headers=headers)
+    except _PublicTourUnsatisfiedRange:
+        headers["Content-Range"] = f"bytes */{len(content)}"
+        headers["Content-Length"] = "0"
+        return Response(status_code=416, headers=headers)
+    status_code = 200
+    body = content
+    if selected_ranges is not None and len(selected_ranges) == 1:
+        start, end = selected_ranges[0]
+        body = content[start:end]
+        status_code = 206
+        headers["Content-Range"] = f"bytes {start}-{end - 1}/{len(content)}"
+    elif selected_ranges is not None:
+        boundary = secrets.token_hex(13)
+        parts, closing, _content_length = _public_tour_multipart_range_parts(
+            selected_ranges,
+            boundary=boundary,
+            media_type=mime_type,
+            size_bytes=len(content),
+        )
+        body = b"".join(
+            [
+                fragment
+                for prefix, start, end in parts
+                for fragment in (prefix, content[start:end], b"\r\n")
+            ]
+        ) + closing
+        status_code = 206
+        headers["Content-Type"] = f"multipart/byteranges; boundary={boundary}"
+    headers["Content-Length"] = str(len(body))
+    if request is not None and request.method.upper() == "HEAD":
+        body = b""
+    return Response(
+        content=body,
+        status_code=status_code,
+        media_type=mime_type,
+        headers=headers,
+    )
 
 
 @router.get("/tours/{slug}.json", response_class=JSONResponse)
@@ -6560,6 +7623,18 @@ def public_tour_payload(slug: str) -> JSONResponse:
     _require_public_tour_viewable(payload)
     if _tour_payload_is_disabled_fallback(payload):
         raise HTTPException(status_code=404, detail="tour_disabled_fallback")
+    ai_panorama_contract = _require_public_tour_ai_panorama_release(
+        payload,
+        bundle_dir=_tour_bundle_dir(slug),
+    )
+    if ai_panorama_contract:
+        payload = {
+            **payload,
+            "_ai_panorama_asset_sha256": _public_tour_ai_panorama_asset_digests(
+                payload,
+                bundle_dir=_tour_bundle_dir(slug),
+            ),
+        }
     payload = _without_disqualified_walkthrough(payload)
     return JSONResponse(
         _redacted_public_tour_payload(
@@ -6574,9 +7649,96 @@ def public_tour_payload(slug: str) -> JSONResponse:
 @router.get("/tours/files/{slug}/{asset_path:path}")
 @router.head("/tours/files/{slug}/{asset_path:path}")
 def public_tour_file(slug: str, asset_path: str, request: Request):
-    payload = _load_tour_with_private_receipt(slug)
+    with _public_tour_file_policy_snapshot(
+        slug,
+        include_private_receipt=True,
+    ) as snapshot:
+        return _public_tour_file_from_snapshot(snapshot, asset_path, request)
+
+
+def _public_tour_file_from_snapshot(
+    snapshot: _PublicTourFilePolicySnapshot,
+    asset_path: str,
+    request: Request | None,
+) -> Response:
+    slug = snapshot.slug
+    payload = snapshot.payload
     _require_public_tour_viewable(payload)
     safe_relpath = _public_tour_safe_asset_relpath(asset_path)
+    ai_panorama_refs, ai_panorama_accepted_refs = (
+        _public_tour_ai_panorama_asset_paths(payload)
+    )
+    ai_panorama_asset_digests: dict[str, str] = {}
+    ai_panorama_expected_digest = ""
+    if _public_tour_ai_panorama_scene(payload):
+        if safe_relpath not in ai_panorama_accepted_refs:
+            raise HTTPException(status_code=404, detail="tour_file_not_found")
+        _require_public_tour_ai_panorama_release(
+            payload,
+            bundle_dir=snapshot.bundle_dir,
+            allow_preflight=True,
+        )
+        ai_panorama_asset_digests = _public_tour_ai_panorama_asset_digests(
+            payload,
+            bundle_dir=snapshot.bundle_dir,
+        )
+        ai_panorama_expected_digest = str(
+            ai_panorama_asset_digests.get(safe_relpath) or ""
+        ).strip().lower()
+        if not re.fullmatch(r"[0-9a-f]{64}", ai_panorama_expected_digest):
+            raise HTTPException(status_code=404, detail="tour_file_not_found")
+        version_token = (
+            str(request.query_params.get("v") or "").strip().lower()
+            if request is not None
+            else ""
+        )
+        if version_token and version_token != ai_panorama_expected_digest:
+            raise HTTPException(status_code=404, detail="tour_file_not_found")
+    magicfit_namespace = safe_relpath.lower().startswith("magicfit-media/")
+    magicfit_footprint = _magicfit_footprint_present(payload)
+    magicfit_eligibility = (
+        evaluate_magicfit_public_eligibility(snapshot.bundle_dir, payload)
+        if magicfit_namespace or magicfit_footprint
+        else None
+    )
+    walkthrough_acceptance = _public_tour_walkthrough_acceptance(
+        payload,
+        bundle_dir=snapshot.bundle_dir,
+        eligibility=magicfit_eligibility,
+    )
+    walkthrough_asset = safe_relpath in set(
+        walkthrough_acceptance.get("asset_relpaths") or []
+    )
+    magicfit_asset_unverified = bool(
+        magicfit_footprint
+        and walkthrough_asset
+        and safe_relpath
+        != str(walkthrough_acceptance.get("verified_video_relpath") or "")
+    )
+    magicfit_namespace_unverified = bool(
+        magicfit_namespace
+        and (
+            magicfit_eligibility is None
+            or not getattr(magicfit_eligibility, "declared", False)
+            or not getattr(magicfit_eligibility, "eligible", False)
+            or safe_relpath
+            != str(getattr(magicfit_eligibility, "video_relpath", ""))
+        )
+    )
+    if (
+        magicfit_namespace_unverified
+        or walkthrough_asset
+        and (
+            walkthrough_acceptance.get("allowed") is False
+            or magicfit_asset_unverified
+        )
+    ):
+        return Response(
+            "This walkthrough is no longer available.\n",
+            status_code=410,
+            media_type="text/plain; charset=utf-8",
+            headers=_public_tour_security_headers(cache_control="no-store"),
+        )
     generated_viewer_release = payload.get("generated_viewer_release")
     manifest_row = _public_tour_manifest(payload, only_relpath=safe_relpath).get(safe_relpath, {}) if safe_relpath else {}
     generated_privacy_class = (
@@ -6591,18 +7753,9 @@ def public_tour_file(slug: str, asset_path: str, request: Request):
             slug,
             safe_relpath,
             payload=payload,
+            request=request,
         )
     preview_manifest_row = _generated_reconstruction_preview_asset_manifest_row(payload, safe_relpath)
-    walkthrough_acceptance = _public_tour_walkthrough_acceptance(payload)
-    if walkthrough_acceptance.get("allowed") is False and safe_relpath in set(
-        walkthrough_acceptance.get("asset_relpaths") or []
-    ):
-        return Response(
-            "This walkthrough is no longer available.\n",
-            status_code=410,
-            media_type="text/plain; charset=utf-8",
-            headers=_public_tour_security_headers(cache_control="no-store"),
-        )
     safe_name = PurePosixPath(safe_relpath).name
     generated_asset_kind = _generated_reconstruction_non_tour_asset(payload, safe_relpath)
     if generated_asset_kind == "viewer":
@@ -6646,18 +7799,57 @@ def public_tour_file(slug: str, asset_path: str, request: Request):
         )
     # Public PDFs must stay on explicit public privacy classes such as
     # `floorplan_pdf_public` from `_PUBLIC_TOUR_PUBLIC_PDF_PRIVACY_CLASSES`.
-    file_path = _asset_file(slug, asset_path)
-    media_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
-    headers = _public_tour_security_headers(cache_control="public, max-age=86400, immutable")
+    expected_identity = None
+    if magicfit_namespace:
+        assert magicfit_eligibility is not None
+        expected_identity = _require_magicfit_policy_identity(
+            snapshot,
+            magicfit_eligibility,
+            safe_relpath,
+        )
+    opened = _open_public_tour_asset_descriptor(
+        snapshot,
+        safe_relpath,
+        expected_identity=expected_identity,
+    )
+    try:
+        _asset_file(
+            slug,
+            asset_path,
+            payload=payload,
+            bundle_dir=snapshot.bundle_dir,
+        )
+        _confirm_public_tour_asset_descriptor(
+            snapshot,
+            opened,
+            expected_identity=expected_identity,
+        )
+    except Exception:
+        os.close(opened.descriptor)
+        raise
+    media_type = mimetypes.guess_type(safe_relpath)[0] or "application/octet-stream"
+    if PurePosixPath(safe_relpath).suffix.lower() == ".pdf":
+        max_bytes = max(
+            int(os.getenv("PROPERTYQUARRY_PUBLIC_PDF_MAX_BYTES") or "15728640"),
+            1,
+        )
+        if opened.details.st_size > max_bytes:
+            os.close(opened.descriptor)
+            raise HTTPException(status_code=404, detail="tour_file_not_found")
+    headers = _public_tour_security_headers(cache_control="no-store")
     if generated_asset_kind == "viewer":
         viewer_html = ""
         if media_type in {"text/html", "application/xhtml+xml"}:
             try:
-                viewer_html = file_path.read_text(encoding="utf-8")
+                viewer_html = os.pread(
+                    opened.descriptor,
+                    min(int(opened.details.st_size), 8 * 1024 * 1024),
+                    0,
+                ).decode("utf-8")
             except (OSError, UnicodeError):
                 viewer_html = ""
         headers = _public_tour_security_headers(
-            cache_control="no-cache, max-age=0, must-revalidate",
+            cache_control="no-store",
             allow_base_uri_self=True,
             runtime_profile="generated_viewer",
             script_hashes=_public_tour_inline_csp_hashes(viewer_html, tag_name="script"),
@@ -6671,12 +7863,54 @@ def public_tour_file(slug: str, asset_path: str, request: Request):
         headers["X-PropertyQuarry-Preview-Kind"] = "approximate-layout"
         headers["X-PropertyQuarry-Verified-Provider-Capture"] = "false"
         headers["X-PropertyQuarry-Verified-Tour-Gate"] = "false"
-    if manifest_row.get("sha256"):
-        headers["X-PropertyQuarry-Asset-SHA256"] = str(manifest_row["sha256"])
+    expected_asset_digest = (
+        ai_panorama_expected_digest
+        or str(manifest_row.get("sha256") or "").strip().lower()
+    )
+    verified_asset_digest = ""
+    if re.fullmatch(r"[0-9a-f]{64}", expected_asset_digest) and opened.details.st_size <= 8 * 1024 * 1024:
+        digest = hashlib.sha256()
+        offset = 0
+        while offset < opened.details.st_size:
+            chunk = os.pread(
+                opened.descriptor,
+                min(1024 * 1024, opened.details.st_size - offset),
+                offset,
+            )
+            if not chunk:
+                break
+            digest.update(chunk)
+            offset += len(chunk)
+        if (
+            offset != opened.details.st_size
+            or digest.hexdigest() != expected_asset_digest
+        ):
+            os.close(opened.descriptor)
+            raise HTTPException(status_code=404, detail="tour_file_not_found")
+        verified_asset_digest = digest.hexdigest()
+        headers["X-PropertyQuarry-Asset-SHA256"] = verified_asset_digest
+    if ai_panorama_expected_digest:
+        version_token = (
+            str(request.query_params.get("v") or "").strip().lower()
+            if request is not None
+            else ""
+        )
+        if verified_asset_digest != ai_panorama_expected_digest:
+            os.close(opened.descriptor)
+            raise HTTPException(status_code=404, detail="tour_file_not_found")
+        if version_token == ai_panorama_expected_digest:
+            headers.update(
+                _public_tour_security_headers(
+                    cache_control="public, max-age=31536000, immutable"
+                )
+            )
+        headers["ETag"] = f'"sha256-{ai_panorama_expected_digest}"'
+        headers["Cross-Origin-Resource-Policy"] = "same-origin"
     if manifest_row.get("privacy_class"):
         headers["X-PropertyQuarry-Asset-Privacy"] = str(manifest_row["privacy_class"])
-    return FileResponse(
-        file_path,
+    return _descriptor_bound_public_tour_response(
+        request,
+        opened,
         media_type=media_type,
         headers=headers,
     )
@@ -6693,6 +7927,7 @@ def public_tour_generated_reconstruction_preview_asset(slug: str, asset_path: st
             slug,
             safe_relpath,
             payload=payload,
+            request=request,
         )
     if not safe_relpath or not _generated_reconstruction_preview_asset_manifest_row(payload, safe_relpath):
         raise HTTPException(status_code=404, detail="tour_file_not_found")
@@ -6701,61 +7936,180 @@ def public_tour_generated_reconstruction_preview_asset(slug: str, asset_path: st
 
 @router.get("/tours/pano2vr/{slug}/{asset_path:path}")
 @router.head("/tours/pano2vr/{slug}/{asset_path:path}")
-def public_tour_pano2vr_file(slug: str, asset_path: str):
-    file_path = _pano2vr_export_file(slug, asset_path)
-    media_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
-    runtime_profile = "vendor_export" if media_type in {"text/html", "application/xhtml+xml"} else "document"
-    return FileResponse(
-        file_path,
-        media_type=media_type,
-        headers=_public_tour_security_headers(
-            cache_control="public, max-age=86400",
-            allow_base_uri_self=runtime_profile == "vendor_export",
-            runtime_profile=runtime_profile,
-        ),
-    )
+def public_tour_pano2vr_file(slug: str, asset_path: str, request: Request):
+    with _public_tour_file_policy_snapshot(
+        slug,
+        include_private_receipt=True,
+    ) as snapshot:
+        safe_relpath = _public_tour_safe_asset_relpath(asset_path)
+        expected_identity = _magicfit_namespace_expected_identity(
+            snapshot, safe_relpath
+        )
+        opened = _open_public_tour_asset_descriptor(
+            snapshot,
+            safe_relpath,
+            expected_identity=expected_identity,
+        )
+        try:
+            _pano2vr_export_file(
+                slug,
+                asset_path,
+                payload=snapshot.payload,
+                bundle_dir=snapshot.bundle_dir,
+            )
+            _confirm_public_tour_asset_descriptor(
+                snapshot,
+                opened,
+                expected_identity=expected_identity,
+            )
+        except Exception:
+            os.close(opened.descriptor)
+            raise
+        media_type = mimetypes.guess_type(safe_relpath)[0] or "application/octet-stream"
+        runtime_profile = (
+            "vendor_export"
+            if media_type in {"text/html", "application/xhtml+xml"}
+            else "document"
+        )
+        return _descriptor_bound_public_tour_response(
+            request,
+            opened,
+            media_type=media_type,
+            headers=_public_tour_security_headers(
+                cache_control="no-store",
+                allow_base_uri_self=runtime_profile == "vendor_export",
+                runtime_profile=runtime_profile,
+            ),
+        )
 
 
 @router.get("/tours/3dvista/{slug}/{asset_path:path}")
 @router.head("/tours/3dvista/{slug}/{asset_path:path}")
-def public_tour_3dvista_file(slug: str, asset_path: str):
-    file_path = _3dvista_export_file(slug, asset_path)
-    media_type = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
-    runtime_profile = "vendor_export" if media_type in {"text/html", "application/xhtml+xml"} else "document"
-    return FileResponse(
-        file_path,
-        media_type=media_type,
-        headers=_public_tour_security_headers(
-            cache_control="public, max-age=86400",
-            allow_base_uri_self=runtime_profile == "vendor_export",
-            runtime_profile=runtime_profile,
-        ),
-    )
+def public_tour_3dvista_file(slug: str, asset_path: str, request: Request):
+    with _public_tour_file_policy_snapshot(
+        slug,
+        include_private_receipt=True,
+    ) as snapshot:
+        safe_relpath = _public_tour_safe_asset_relpath(asset_path)
+        expected_identity = _magicfit_namespace_expected_identity(
+            snapshot, safe_relpath
+        )
+        opened = _open_public_tour_asset_descriptor(
+            snapshot,
+            safe_relpath,
+            expected_identity=expected_identity,
+        )
+        try:
+            _3dvista_export_file(
+                slug,
+                asset_path,
+                payload=snapshot.payload,
+                bundle_dir=snapshot.bundle_dir,
+            )
+            _confirm_public_tour_asset_descriptor(
+                snapshot,
+                opened,
+                expected_identity=expected_identity,
+            )
+        except Exception:
+            os.close(opened.descriptor)
+            raise
+        media_type = mimetypes.guess_type(safe_relpath)[0] or "application/octet-stream"
+        runtime_profile = (
+            "vendor_export"
+            if media_type in {"text/html", "application/xhtml+xml"}
+            else "document"
+        )
+        return _descriptor_bound_public_tour_response(
+            request,
+            opened,
+            media_type=media_type,
+            headers=_public_tour_security_headers(
+                cache_control="no-store",
+                allow_base_uri_self=runtime_profile == "vendor_export",
+                runtime_profile=runtime_profile,
+            ),
+        )
 
 
 @router.get("/tours/{slug}/walkthrough")
 @router.head("/tours/{slug}/walkthrough")
-def public_tour_walkthrough(slug: str):
-    payload = _load_tour(slug)
-    _require_public_tour_viewable(payload)
-    if _tour_payload_is_disabled_fallback(payload):
-        raise HTTPException(status_code=404, detail="tour_disabled_fallback")
-    if _public_tour_walkthrough_acceptance(payload).get("allowed") is False:
-        raise HTTPException(status_code=404, detail="tour_walkthrough_unavailable")
-    video_relpath = _public_tour_safe_asset_relpath(str(payload.get("video_relpath") or "").strip())
-    if not video_relpath:
-        video_relpath = _public_tour_safe_asset_relpath(
-            str(dict(payload.get("generated_reconstruction") or {}).get("walkthrough_video_relpath") or "").strip()
+def public_tour_walkthrough(slug: str, request: Request = None):  # type: ignore[assignment]
+    with _public_tour_file_policy_snapshot(
+        slug,
+        include_private_receipt=False,
+    ) as snapshot:
+        payload = snapshot.payload
+        _require_public_tour_viewable(payload)
+        if _tour_payload_is_disabled_fallback(payload):
+            raise HTTPException(status_code=404, detail="tour_disabled_fallback")
+        magicfit_footprint = _magicfit_footprint_present(payload)
+        eligibility = (
+            evaluate_magicfit_public_eligibility(snapshot.bundle_dir, payload)
+            if magicfit_footprint
+            else None
         )
-    if not video_relpath:
-        raise HTTPException(status_code=404, detail="tour_walkthrough_unavailable")
-    file_path = _asset_file(slug, video_relpath)
-    media_type = mimetypes.guess_type(str(file_path))[0] or "video/mp4"
-    return FileResponse(
-        file_path,
-        media_type=media_type,
-        headers=_public_tour_security_headers(cache_control="public, max-age=86400, immutable"),
-    )
+        acceptance = _public_tour_walkthrough_acceptance(
+            payload,
+            bundle_dir=snapshot.bundle_dir,
+            eligibility=eligibility,
+        )
+        if acceptance.get("allowed") is False:
+            raise HTTPException(status_code=404, detail="tour_walkthrough_unavailable")
+        video_relpath = _public_tour_safe_asset_relpath(
+            str(payload.get("video_relpath") or "").strip()
+        )
+        if not video_relpath:
+            video_relpath = _public_tour_safe_asset_relpath(
+                str(
+                    dict(payload.get("generated_reconstruction") or {}).get(
+                        "walkthrough_video_relpath"
+                    )
+                    or ""
+                ).strip()
+            )
+        if (
+            not video_relpath
+            or magicfit_footprint
+            and video_relpath
+            != str(acceptance.get("verified_video_relpath") or "")
+        ):
+            raise HTTPException(status_code=404, detail="tour_walkthrough_unavailable")
+        expected_identity = None
+        if magicfit_footprint:
+            assert eligibility is not None
+            expected_identity = _require_magicfit_policy_identity(
+                snapshot,
+                eligibility,
+                video_relpath,
+            )
+        opened = _open_public_tour_asset_descriptor(
+            snapshot,
+            video_relpath,
+            expected_identity=expected_identity,
+        )
+        try:
+            _asset_file(
+                slug,
+                video_relpath,
+                payload=payload,
+                bundle_dir=snapshot.bundle_dir,
+            )
+            _confirm_public_tour_asset_descriptor(
+                snapshot,
+                opened,
+                expected_identity=expected_identity,
+            )
+        except Exception:
+            os.close(opened.descriptor)
+            raise
+        media_type = mimetypes.guess_type(video_relpath)[0] or "video/mp4"
+        return _descriptor_bound_public_tour_response(
+            request,
+            opened,
+            media_type=media_type,
+            headers=_public_tour_security_headers(cache_control="no-store"),
+        )
 
 
 @router.get("/tours/{slug}/layout-preview", response_class=HTMLResponse)
@@ -6874,6 +8228,16 @@ def _tour_control_html(
     if control_mode == "internal_walkable_3d":
         raise HTTPException(status_code=410, detail="tour_control_legacy_viewer_removed")
     if control_mode == "walkable_3d" or isinstance(payload.get("walkable_scene"), dict):
+        walkable_scene = payload.get("walkable_scene")
+        if isinstance(walkable_scene, dict) and _tour_control_panorama_spec(
+            payload, walkable_scene
+        ):
+            return _tour_control_walkable_html(
+                payload,
+                provider_label="PropertyQuarry AI 360",
+                viewer_name="propertyquarry-ai-panorama",
+                nonce=control_nonce,
+            )
         raise HTTPException(status_code=404, detail="tour_control_provider_export_missing")
     if str(payload.get("scene_strategy") or "").strip() == "pure_360_cube":
         raise HTTPException(status_code=404, detail="tour_control_cube_viewer_removed")
@@ -7303,7 +8667,19 @@ def _tour_control_matterport_html(payload: dict[str, object]) -> str:
 </html>"""
 
 
-def _public_tour_walkthrough_acceptance(payload: dict[str, object]) -> dict[str, object]:
+def _public_tour_walkthrough_acceptance(
+    payload: dict[str, object],
+    *,
+    bundle_dir: Path | None = None,
+    eligibility: object | None = None,
+) -> dict[str, object]:
+    runtime_acceptance = payload.get("_walkthrough_runtime_acceptance")
+    if (
+        payload.get("_walkthrough_runtime_acceptance_token")
+        is _PUBLIC_TOUR_RUNTIME_ACCEPTANCE_TOKEN
+        and isinstance(runtime_acceptance, dict)
+    ):
+        return dict(runtime_acceptance)
     slug = str(payload.get("slug") or "").strip()
     generated_reconstruction = (
         dict(payload.get("generated_reconstruction") or {})
@@ -7332,6 +8708,35 @@ def _public_tour_walkthrough_acceptance(payload: dict[str, object]) -> dict[str,
             str(generated_reconstruction.get("walkthrough_video_relpath") or "").strip()
         )
         asset_relpaths = {generated_video_relpath} if generated_video_relpath else set()
+    if _magicfit_footprint_present(payload):
+        selected_bundle_dir = bundle_dir or (_tour_bundle_dir(slug) if slug else None)
+        if selected_bundle_dir is None:
+            return {
+                "allowed": False,
+                "declared": True,
+                "scope": scope,
+                "asset_relpaths": sorted(asset_relpaths),
+                "status": "magicfit_bundle_unavailable",
+                "verified_video_relpath": "",
+            }
+        evaluated = eligibility or evaluate_magicfit_public_eligibility(
+            selected_bundle_dir, payload
+        )
+        return {
+            "allowed": bool(
+                getattr(evaluated, "declared", False)
+                and getattr(evaluated, "eligible", False)
+            ),
+            "declared": True,
+            "scope": scope,
+            "asset_relpaths": sorted(asset_relpaths),
+            "status": str(getattr(evaluated, "reason", "magicfit_acceptance_invalid")),
+            "verified_video_relpath": (
+                str(getattr(evaluated, "video_relpath", ""))
+                if getattr(evaluated, "eligible", False)
+                else ""
+            ),
+        }
     if not raw_sidecar_relpath:
         return {
             "allowed": True,
@@ -9364,6 +10769,892 @@ def _tour_control_pano2vr_html(payload: dict[str, object], *, nonce: str = "") -
     )
 
 
+def _tour_control_panorama_spec(
+    payload: dict[str, object],
+    walkable_scene: dict[str, object],
+) -> dict[str, object]:
+    slug = str(payload.get("slug") or "").strip()
+    if not slug:
+        return {}
+    allowed_assets = _public_tour_allowed_asset_paths(payload)
+    asset_digests = (
+        payload.get("_ai_panorama_asset_sha256")
+        if isinstance(payload.get("_ai_panorama_asset_sha256"), dict)
+        else {}
+    )
+
+    def _asset_url(relpath: str) -> str:
+        url = _public_tour_file_url(slug, relpath)
+        digest = str(asset_digests.get(relpath) or "").strip().lower()
+        return f"{url}?v={digest}" if re.fullmatch(r"[0-9a-f]{64}", digest) else url
+
+    raw_scenes = walkable_scene.get("scenes")
+    if isinstance(raw_scenes, dict):
+        scene_rows = [
+            (str(key or "").strip(), dict(value))
+            for key, value in raw_scenes.items()
+            if isinstance(value, dict)
+        ]
+    elif isinstance(raw_scenes, list):
+        scene_rows = [
+            (str(index + 1), dict(value))
+            for index, value in enumerate(raw_scenes)
+            if isinstance(value, dict)
+        ]
+    else:
+        scene_rows = []
+
+    def _number(value: object, *, default: float, minimum: float, maximum: float) -> float:
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            parsed = default
+        if not math.isfinite(parsed):
+            parsed = default
+        return max(minimum, min(maximum, parsed))
+
+    normalized_rows: list[tuple[dict[str, object], dict[str, object]]] = []
+    seen_ids: set[str] = set()
+    for index, (fallback_id, scene) in enumerate(scene_rows):
+        scene_id = str(
+            scene.get("id")
+            or scene.get("node_id")
+            or scene.get("scene_id")
+            or fallback_id
+            or f"scene-{index + 1}"
+        ).strip()
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", scene_id) or scene_id in seen_ids:
+            scene_id = f"scene-{index + 1}"
+        if scene_id in seen_ids:
+            continue
+        projection = str(scene.get("projection") or scene.get("type") or "equirectangular").strip().lower()
+        if projection not in {"equirectangular", "equirect", "panorama", "spherical", "360"}:
+            continue
+        relpath = ""
+        for key in ("asset_relpath", "panorama_relpath", "equirect_relpath", "image_relpath"):
+            candidate = _public_tour_safe_asset_relpath(scene.get(key))
+            if candidate and candidate in allowed_assets:
+                relpath = candidate
+                break
+        if not relpath:
+            continue
+        normalized = {
+            "id": scene_id,
+            "label": str(scene.get("label") or scene.get("name") or scene.get("room") or f"Space {index + 1}").strip()[:80],
+            "image_url": _asset_url(relpath),
+            "start_yaw": _number(scene.get("start_yaw") or scene.get("start_deg"), default=0.0, minimum=-360.0, maximum=360.0),
+            "start_pitch": _number(scene.get("start_pitch"), default=0.0, minimum=-80.0, maximum=80.0),
+            "start_fov": _number(scene.get("start_fov"), default=72.0, minimum=40.0, maximum=100.0),
+            "floorplan_x_pct": _number(scene.get("floorplan_x_pct"), default=-1.0, minimum=-1.0, maximum=100.0),
+            "floorplan_y_pct": _number(scene.get("floorplan_y_pct"), default=-1.0, minimum=-1.0, maximum=100.0),
+            "hotspots": [],
+        }
+        seen_ids.add(scene_id)
+        normalized_rows.append((normalized, scene))
+
+    if not normalized_rows:
+        return {}
+    scene_ids = {str(row[0]["id"]) for row in normalized_rows}
+    for normalized, source in normalized_rows:
+        hotspots: list[dict[str, object]] = []
+        for key in ("hotspots", "transitions", "links"):
+            raw_hotspots = source.get(key)
+            if not isinstance(raw_hotspots, list):
+                continue
+            for raw_hotspot in raw_hotspots:
+                if not isinstance(raw_hotspot, dict):
+                    continue
+                target = str(
+                    raw_hotspot.get("target")
+                    or raw_hotspot.get("target_scene_id")
+                    or raw_hotspot.get("target_node_id")
+                    or raw_hotspot.get("target_scene")
+                    or raw_hotspot.get("scene")
+                    or ""
+                ).strip()
+                if target not in scene_ids or target == normalized["id"]:
+                    continue
+                hotspots.append(
+                    {
+                        "target": target,
+                        "label": str(raw_hotspot.get("label") or raw_hotspot.get("title") or "Continue").strip()[:80],
+                        "yaw": _number(raw_hotspot.get("yaw") or raw_hotspot.get("yaw_deg"), default=0.0, minimum=-360.0, maximum=360.0),
+                        "pitch": _number(raw_hotspot.get("pitch") or raw_hotspot.get("pitch_deg"), default=-12.0, minimum=-80.0, maximum=80.0),
+                    }
+                )
+        normalized["hotspots"] = hotspots
+
+    floorplan_relpath = _public_tour_safe_asset_relpath(walkable_scene.get("floorplan_relpath"))
+    floorplan_url = (
+        _asset_url(floorplan_relpath)
+        if floorplan_relpath and floorplan_relpath in allowed_assets
+        else ""
+    )
+    representation_kind = str(walkable_scene.get("representation_kind") or "captured_360").strip().lower()
+    disclosure = str(walkable_scene.get("representation_disclosure") or "").strip()
+    if representation_kind == "ai_reconstruction" and not disclosure:
+        disclosure = "AI-reconstructed from listing photos; not a measured survey or captured 360 scan."
+    spatial_model: dict[str, object] = {}
+    raw_spatial_model = walkable_scene.get("spatial_model")
+    if isinstance(raw_spatial_model, dict):
+        source_basis = str(raw_spatial_model.get("source_basis") or "").strip().lower()
+        raw_rooms = raw_spatial_model.get("rooms")
+        normalized_rooms: list[dict[str, object]] = []
+        seen_room_ids: set[str] = set()
+        if isinstance(raw_rooms, list):
+            for index, raw_room in enumerate(raw_rooms):
+                if not isinstance(raw_room, dict):
+                    continue
+                room_id = str(raw_room.get("id") or f"room-{index + 1}").strip()
+                if (
+                    not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", room_id)
+                    or room_id in seen_room_ids
+                ):
+                    continue
+                width = _number(
+                    raw_room.get("width"),
+                    default=0.0,
+                    minimum=0.0,
+                    maximum=40.0,
+                )
+                depth = _number(
+                    raw_room.get("depth"),
+                    default=0.0,
+                    minimum=0.0,
+                    maximum=40.0,
+                )
+                if width < 0.2 or depth < 0.2:
+                    continue
+                scene_id = str(raw_room.get("scene_id") or "").strip()
+                if scene_id not in scene_ids:
+                    scene_id = ""
+                seen_room_ids.add(room_id)
+                normalized_rooms.append(
+                    {
+                        "id": room_id,
+                        "label": str(
+                            raw_room.get("label")
+                            or raw_room.get("name")
+                            or f"Space {index + 1}"
+                        ).strip()[:80],
+                        "scene_id": scene_id,
+                        "x": _number(
+                            raw_room.get("x"),
+                            default=0.0,
+                            minimum=-40.0,
+                            maximum=40.0,
+                        ),
+                        "z": _number(
+                            raw_room.get("z"),
+                            default=0.0,
+                            minimum=-40.0,
+                            maximum=40.0,
+                        ),
+                        "width": width,
+                        "depth": depth,
+                        "height": _number(
+                            raw_room.get("height"),
+                            default=2.55,
+                            minimum=1.8,
+                            maximum=6.0,
+                        ),
+                        "kind": (
+                            str(raw_room.get("kind") or "interior").strip().lower()
+                            if str(raw_room.get("kind") or "interior").strip().lower()
+                            in {"interior", "exterior", "unavailable"}
+                            else "interior"
+                        ),
+                    }
+                )
+        if (
+            source_basis == "floorplan_scaled_approximation"
+            and raw_spatial_model.get("measured") is False
+            and normalized_rooms
+        ):
+            spatial_model = {
+                "source_basis": source_basis,
+                "measured": False,
+                "rooms": normalized_rooms,
+            }
+    return {
+        "scenes": [row[0] for row in normalized_rows],
+        "initial_scene_id": str(walkable_scene.get("initial_scene_id") or normalized_rows[0][0]["id"]),
+        "floorplan_url": floorplan_url,
+        "representation_kind": representation_kind,
+        "representation_disclosure": disclosure,
+        "spatial_model": spatial_model,
+    }
+
+
+def _tour_control_panorama_html(
+    payload: dict[str, object],
+    *,
+    panorama_spec: dict[str, object],
+    provider_label: str,
+    viewer_name: str,
+    nonce: str,
+) -> str:
+    nonce_attr = html.escape(_public_tour_normalized_nonce(nonce) or _public_tour_csp_nonce(), quote=True)
+    title = html.escape(str(payload.get("display_title") or payload.get("title") or "360 tour").strip())
+    safe_provider_label = html.escape(str(provider_label or "360 Tour").strip())
+    safe_viewer_name = html.escape(str(viewer_name or "panorama").strip().lower() or "panorama", quote=True)
+    disclosure = html.escape(str(panorama_spec.get("representation_disclosure") or "").strip())
+    data_json = _public_tour_script_json(panorama_spec)
+    document = """<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>__PQ_TITLE__ - __PQ_PROVIDER__</title>
+    <style nonce="__PQ_NONCE__">
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #080b0e; color: #fff; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+      #viewer { position: fixed; inset: 0; touch-action: none; cursor: grab; }
+      #viewer.dragging { cursor: grabbing; }
+      #viewer canvas { display: block; width: 100%; height: 100%; }
+      .topbar { position: fixed; z-index: 20; top: max(12px, env(safe-area-inset-top)); left: 12px; right: 12px; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; pointer-events: none; }
+      .glass { background: rgba(8,11,14,.72); border: 1px solid rgba(255,255,255,.18); box-shadow: 0 18px 50px rgba(0,0,0,.22); backdrop-filter: blur(16px); border-radius: 14px; }
+      .identity { padding: 11px 13px; max-width: min(620px, calc(100vw - 86px)); }
+      .identity strong { display: block; font-size: 14px; line-height: 1.2; }
+      .identity span { display: block; margin-top: 4px; color: rgba(255,255,255,.72); font-size: 11px; line-height: 1.35; }
+      .icon-button { pointer-events: auto; min-width: 44px; min-height: 44px; border: 1px solid rgba(255,255,255,.22); background: rgba(8,11,14,.72); color: white; border-radius: 13px; cursor: pointer; font: inherit; }
+      .icon-button[aria-pressed="true"] { color: #10151a; background: #fff; border-color: #fff; }
+      .top-actions { display: flex; gap: 7px; pointer-events: auto; }
+      .zoom-controls { position: fixed; z-index: 20; right: 12px; top: 50%; transform: translateY(-50%); display: grid; gap: 7px; }
+      .zoom-controls .icon-button { font-size: 20px; font-weight: 600; line-height: 1; }
+      .scene-rail { position: fixed; z-index: 20; left: 50%; bottom: max(14px, env(safe-area-inset-bottom)); transform: translateX(-50%); width: min(980px, calc(100vw - 28px)); display: flex; gap: 8px; overflow-x: auto; padding: 8px; scroll-padding-inline: 42%; scrollbar-width: none; }
+      .scene-rail[hidden] { display: none; }
+      .scene-rail::-webkit-scrollbar { display: none; }
+      .scene-button { flex: 0 0 auto; min-height: 42px; border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.09); color: white; border-radius: 10px; padding: 0 14px; cursor: pointer; font: inherit; }
+      .scene-button.active { color: #10151a; background: #fff; border-color: #fff; }
+      .hotspot-layer { position: fixed; inset: 0; z-index: 12; pointer-events: none; overflow: hidden; }
+      .hotspot { position: absolute; transform: translate(-50%,-50%); pointer-events: auto; border: 0; color: #111820; background: #fff; min-height: 38px; border-radius: 999px; padding: 0 14px 0 11px; font: 700 12px/1 Inter,system-ui,sans-serif; box-shadow: 0 9px 30px rgba(0,0,0,.38); cursor: pointer; white-space: nowrap; }
+      .hotspot::before { content: '→'; display: inline-grid; place-items: center; width: 22px; height: 22px; margin-right: 7px; border-radius: 50%; color: white; background: #111820; }
+      .floorplan { position: fixed; z-index: 19; right: 12px; bottom: 76px; width: min(260px, 36vw); padding: 8px; transition: opacity .2s ease, transform .2s ease; }
+      .floorplan[hidden] { display: none; }
+      .floorplan.collapsed { opacity: 0; pointer-events: none; transform: translateY(12px); }
+      .floorplan-stage { position: relative; border-radius: 9px; overflow: hidden; background: white; }
+      .floorplan img { display: block; width: 100%; max-height: 34vh; object-fit: contain; }
+      .floorplan-pin { position: absolute; width: 24px; height: 24px; transform: translate(-50%,-50%); border: 2px solid #fff; border-radius: 50%; background: #182028; color: white; font-size: 10px; cursor: pointer; }
+      .floorplan-pin.active { background: #ee6b45; box-shadow: 0 0 0 4px rgba(238,107,69,.24); }
+      .dollhouse-layer { position: fixed; inset: 0; z-index: 13; pointer-events: none; overflow: hidden; }
+      .dollhouse-layer[hidden] { display: none; }
+      .dollhouse-node { position: absolute; transform: translate(-50%,-50%); pointer-events: auto; min-height: 34px; border: 1px solid rgba(255,255,255,.8); border-radius: 999px; padding: 0 11px; color: #111820; background: rgba(255,255,255,.94); box-shadow: 0 8px 24px rgba(0,0,0,.3); cursor: pointer; font: 700 11px/1 Inter,system-ui,sans-serif; white-space: nowrap; }
+      .dollhouse-node.active { color: #fff; background: #ee6b45; border-color: #fff; }
+      .dollhouse-node.unavailable { color: rgba(255,255,255,.76); background: rgba(24,32,40,.88); border-color: rgba(255,255,255,.3); cursor: default; }
+      .dollhouse-note { position: fixed; z-index: 20; left: 50%; top: max(86px, calc(env(safe-area-inset-top) + 74px)); transform: translateX(-50%); padding: 8px 11px; color: rgba(255,255,255,.78); font-size: 11px; text-align: center; pointer-events: none; }
+      .dollhouse-note[hidden] { display: none; }
+      .status { position: fixed; z-index: 25; left: 50%; top: 50%; transform: translate(-50%,-50%); padding: 12px 16px; font-size: 13px; pointer-events: none; }
+      .status[hidden] { display: none; }
+      .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
+      @media (max-width: 720px) {
+        .floorplan { width: min(220px, 52vw); bottom: 74px; }
+        .topbar { gap: 7px; }
+        .identity { padding: 9px 10px; max-width: calc(100vw - 142px); }
+        .identity strong { font-size: 13px; }
+        .identity span { max-width: 58vw; font-size: 10px; line-height: 1.25; }
+        .icon-button { min-width: 40px; min-height: 40px; padding: 0 8px; font-size: 11px; }
+        .top-actions { gap: 5px; }
+        .zoom-controls { right: 9px; }
+        .scene-button { min-height: 40px; padding: 0 12px; font-size: 12px; }
+        .dollhouse-note { top: max(104px, calc(env(safe-area-inset-top) + 94px)); width: calc(100vw - 30px); }
+      }
+      @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+    </style>
+  </head>
+  <body data-viewer="__PQ_VIEWER__">
+    <main id="viewer" tabindex="0" aria-label="Interactive 360 degree property view"></main>
+    <div class="hotspot-layer" id="hotspots" aria-label="Navigation hotspots"></div>
+    <div class="dollhouse-layer" id="dollhouse-nodes" aria-label="Dollhouse room navigation" hidden></div>
+    <header class="topbar">
+      <div class="identity glass"><strong id="scene-title">__PQ_TITLE__</strong><span>__PQ_PROVIDER____PQ_DISCLOSURE__</span></div>
+      <div class="top-actions"><button class="icon-button" id="dollhouse-toggle" type="button" aria-label="Open 3D dollhouse" aria-pressed="false">Dollhouse</button><button class="icon-button" id="map-toggle" type="button" aria-label="Open floor plan" aria-pressed="false">Map</button><button class="icon-button" id="fullscreen" type="button" aria-label="Enter full screen">⛶</button></div>
+    </header>
+    <div class="zoom-controls" aria-label="View zoom controls"><button class="icon-button" id="zoom-in" type="button" aria-label="Zoom in">+</button><button class="icon-button" id="zoom-out" type="button" aria-label="Zoom out">−</button></div>
+    <nav class="scene-rail glass" id="scene-rail" aria-label="Tour spaces"></nav>
+    <aside class="floorplan glass" id="floorplan" hidden><div class="floorplan-stage"><img id="floorplan-image" alt="Property floor plan"><div id="floorplan-pins"></div></div></aside>
+    <div class="dollhouse-note glass" id="dollhouse-note" hidden>Floorplan-scaled AI model · approximate, not measured</div>
+    <div class="status glass" id="status" role="status">Loading 360° view…</div>
+    <div class="sr-only" id="announcer" aria-live="polite"></div>
+    <script nonce="__PQ_NONCE__" id="panorama-data" type="application/json">__PQ_DATA__</script>
+    <script nonce="__PQ_NONCE__" type="module">
+      import * as THREE from '__PQ_THREE_MODULE__';
+      const spec = JSON.parse(document.getElementById('panorama-data').textContent || '{}');
+      const nodes = Array.isArray(spec.scenes) ? spec.scenes : [];
+      const byId = new Map(nodes.map(node => [String(node.id), node]));
+      const viewer = document.getElementById('viewer');
+      const status = document.getElementById('status');
+      const announcer = document.getElementById('announcer');
+      const sceneTitle = document.getElementById('scene-title');
+      const rail = document.getElementById('scene-rail');
+      const hotspotLayer = document.getElementById('hotspots');
+      const floorplan = document.getElementById('floorplan');
+      const floorplanImage = document.getElementById('floorplan-image');
+      const floorplanPins = document.getElementById('floorplan-pins');
+      const dollhouseToggle = document.getElementById('dollhouse-toggle');
+      const dollhouseNodes = document.getElementById('dollhouse-nodes');
+      const dollhouseNote = document.getElementById('dollhouse-note');
+      const spatialModel = spec.spatial_model && Array.isArray(spec.spatial_model.rooms) ? spec.spatial_model : null;
+      const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setSize(innerWidth, innerHeight);
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      viewer.appendChild(renderer.domElement);
+      const panoramaScene = new THREE.Scene();
+      const panoramaCamera = new THREE.PerspectiveCamera(72, innerWidth / innerHeight, .05, 120);
+      panoramaCamera.position.set(0, 0, 0.01);
+      const geometry = new THREE.SphereGeometry(10, 96, 64);
+      geometry.scale(-1, 1, 1);
+      const material = new THREE.MeshBasicMaterial({ color: 0xffffff });
+      panoramaScene.add(new THREE.Mesh(geometry, material));
+      const dollhouseScene = new THREE.Scene();
+      dollhouseScene.background = new THREE.Color(0x151a1f);
+      dollhouseScene.fog = new THREE.Fog(0x151a1f, 18, 34);
+      const dollhouseCamera = new THREE.PerspectiveCamera(44, innerWidth / innerHeight, .1, 80);
+      const dollhouseGroup = new THREE.Group();
+      dollhouseScene.add(dollhouseGroup);
+      dollhouseScene.add(new THREE.HemisphereLight(0xffffff, 0x35404b, 2.2));
+      const dollhouseSun = new THREE.DirectionalLight(0xfff4df, 2.8);
+      dollhouseSun.position.set(-7, 16, 9);
+      dollhouseScene.add(dollhouseSun);
+      const loader = new THREE.TextureLoader();
+      loader.setCrossOrigin('anonymous');
+      let activeNode = null;
+      let activeTexture = null;
+      const textureCache = new Map();
+      const textureCacheLimit = matchMedia('(max-width: 720px)').matches ? 2 : 3;
+      let mode = 'panorama';
+      let yaw = 0;
+      let pitch = 0;
+      let dollhouseAzimuth = -.72;
+      let dollhouseElevation = .72;
+      let dollhouseDistance = 17;
+      let dragging = false;
+      const activePointers = new Map();
+      let primaryPointerId = null;
+      let pinchDistance = 0;
+      let pointerTravel = 0;
+      let lastX = 0;
+      let lastY = 0;
+      let loadToken = 0;
+      const dollhouseRoomMeshes = new Map();
+      const dollhouseSelectableMeshes = [];
+      const dollhouseRaycaster = new THREE.Raycaster();
+      const dollhouseCenter = new THREE.Vector3(5, 0, 5);
+
+      const radians = degrees => THREE.MathUtils.degToRad(Number(degrees) || 0);
+      function direction(yawValue, pitchValue, radius = 10) {
+        return new THREE.Vector3(
+          -Math.cos(pitchValue) * Math.cos(yawValue) * radius,
+          Math.sin(pitchValue) * radius,
+          -Math.cos(pitchValue) * Math.sin(yawValue) * radius,
+        );
+      }
+      function updateCamera() {
+        pitch = Math.max(radians(-84), Math.min(radians(84), pitch));
+        panoramaCamera.lookAt(direction(yaw, pitch, 1));
+        viewer.dataset.panoramaFov = panoramaCamera.fov.toFixed(2);
+      }
+      function setStatus(message = '') {
+        status.textContent = message;
+        status.hidden = !message;
+      }
+      function addDollhouseBox(name, x, y, z, width, height, depth, material) {
+        const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), material);
+        mesh.name = name;
+        mesh.position.set(x, y, z);
+        mesh.receiveShadow = true;
+        dollhouseGroup.add(mesh);
+        return mesh;
+      }
+      function addDollhouseWall(name, x1, z1, x2, z2, height, material, opening = null) {
+        const dx = x2 - x1, dz = z2 - z1, length = Math.hypot(dx, dz);
+        if (length < .08) return;
+        const placeSegment = (from, to) => {
+          const segmentLength = to - from;
+          if (segmentLength < .08) return;
+          const midpoint = (from + to) / 2;
+          const ratio = midpoint / length;
+          const wall = addDollhouseBox(
+            name,
+            x1 + dx * ratio,
+            .12 + height / 2,
+            z1 + dz * ratio,
+            segmentLength,
+            height,
+            .075,
+            material,
+          );
+          wall.rotation.y = -Math.atan2(dz, dx);
+        };
+        if (!opening) {
+          placeSegment(0, length);
+          return;
+        }
+        const halfGap = Math.min(Number(opening.width) || .86, length * .55) / 2;
+        const center = Math.max(halfGap + .08, Math.min(length - halfGap - .08, Number(opening.center) || length / 2));
+        placeSegment(0, center - halfGap);
+        placeSegment(center + halfGap, length);
+      }
+      function buildDollhouse() {
+        if (!spatialModel) return false;
+        const rooms = spatialModel.rooms
+          .filter(room => Number(room.width) > 0 && Number(room.depth) > 0)
+          .map(room => ({
+            ...room,
+            x: Number(room.x), z: Number(room.z),
+            width: Number(room.width), depth: Number(room.depth),
+            height: Number(room.height) || 2.55,
+          }));
+        if (!rooms.length) return false;
+        const minX = Math.min(...rooms.map(room => room.x));
+        const minZ = Math.min(...rooms.map(room => room.z));
+        const maxX = Math.max(...rooms.map(room => room.x + room.width));
+        const maxZ = Math.max(...rooms.map(room => room.z + room.depth));
+        dollhouseCenter.set((minX + maxX) / 2, .3, (minZ + maxZ) / 2);
+        dollhouseDistance = Math.max(13, Math.hypot(maxX - minX, maxZ - minZ) * 1.22);
+        const overlap = (a1, a2, b1, b2) => Math.max(0, Math.min(a2, b2) - Math.max(a1, b1));
+        const adjacent = (room, side) => {
+          let best = null;
+          for (const other of rooms) {
+            if (other === room) continue;
+            let span = 0, start = 0;
+            if (side === 'north' && Math.abs(other.z + other.depth - room.z) < .06) {
+              span = overlap(room.x, room.x + room.width, other.x, other.x + other.width);
+              start = Math.max(room.x, other.x) - room.x;
+            } else if (side === 'south' && Math.abs(other.z - (room.z + room.depth)) < .06) {
+              span = overlap(room.x, room.x + room.width, other.x, other.x + other.width);
+              start = Math.max(room.x, other.x) - room.x;
+            } else if (side === 'west' && Math.abs(other.x + other.width - room.x) < .06) {
+              span = overlap(room.z, room.z + room.depth, other.z, other.z + other.depth);
+              start = Math.max(room.z, other.z) - room.z;
+            } else if (side === 'east' && Math.abs(other.x - (room.x + room.width)) < .06) {
+              span = overlap(room.z, room.z + room.depth, other.z, other.z + other.depth);
+              start = Math.max(room.z, other.z) - room.z;
+            }
+            if (span > .45 && (!best || span > best.span)) best = { other, span, start };
+          }
+          return best;
+        };
+        for (const room of rooms) {
+          const x = room.x, z = room.z, width = room.width, depth = room.depth;
+          const sceneId = String(room.scene_id || '');
+          const baseColor = room.kind === 'exterior' ? 0x87a39b : (sceneId ? 0xd9d4c8 : 0x666d75);
+          const floorMaterial = new THREE.MeshStandardMaterial({ color: baseColor, roughness: .78, metalness: .02 });
+          const floor = addDollhouseBox(`${room.id}-floor`, x + width / 2, .04, z + depth / 2, width, .12, depth, floorMaterial);
+          floor.userData.baseColor = baseColor;
+          floor.userData.sceneId = sceneId;
+          floor.userData.roomLabel = String(room.label || 'Space');
+          if (sceneId) {
+            dollhouseRoomMeshes.set(sceneId, [floor]);
+            dollhouseSelectableMeshes.push(floor);
+          }
+          const wallMaterial = new THREE.MeshStandardMaterial({
+            color: sceneId ? 0xf4f0e8 : 0x7b8289,
+            roughness: .82,
+            transparent: true,
+            opacity: room.kind === 'exterior' ? .7 : .9,
+          });
+          const wallHeight = room.kind === 'exterior' ? .22 : Math.max(.58, Math.min(1.42, room.height * .4));
+          const north = adjacent(room, 'north');
+          const south = adjacent(room, 'south');
+          const west = adjacent(room, 'west');
+          const east = adjacent(room, 'east');
+          const openingFor = match => match ? { center: match.start + match.span / 2, width: Math.min(.92, match.span * .58) } : null;
+          addDollhouseWall(`${room.id}-north`, x, z, x + width, z, wallHeight, wallMaterial, openingFor(north));
+          addDollhouseWall(`${room.id}-west`, x, z, x, z + depth, wallHeight, wallMaterial, openingFor(west));
+          if (!south) addDollhouseWall(`${room.id}-south`, x, z + depth, x + width, z + depth, wallHeight, wallMaterial);
+          if (!east) addDollhouseWall(`${room.id}-east`, x + width, z, x + width, z + depth, wallHeight, wallMaterial);
+          const marker = document.createElement('button');
+          marker.type = 'button';
+          marker.className = `dollhouse-node${sceneId ? '' : ' unavailable'}`;
+          marker.textContent = room.label || 'Space';
+          marker.dataset.worldX = String(x + width / 2);
+          marker.dataset.worldY = String(wallHeight + .28);
+          marker.dataset.worldZ = String(z + depth / 2);
+          if (sceneId) {
+            marker.dataset.sceneId = sceneId;
+            marker.addEventListener('click', () => loadNode(sceneId));
+          } else {
+            marker.title = 'No source panorama is available for this space.';
+            marker.setAttribute('aria-disabled', 'true');
+          }
+          dollhouseNodes.appendChild(marker);
+        }
+        return true;
+      }
+      function updateDollhouseCamera() {
+        const horizontal = Math.cos(dollhouseElevation) * dollhouseDistance;
+        dollhouseCamera.position.set(
+          dollhouseCenter.x + Math.sin(dollhouseAzimuth) * horizontal,
+          dollhouseCenter.y + Math.sin(dollhouseElevation) * dollhouseDistance,
+          dollhouseCenter.z + Math.cos(dollhouseAzimuth) * horizontal,
+        );
+        dollhouseCamera.lookAt(dollhouseCenter);
+        viewer.dataset.dollhouseDistance = dollhouseDistance.toFixed(2);
+      }
+      function adjustZoom(directionValue, announce = true) {
+        const direction = Number(directionValue) || 0;
+        if (mode === 'dollhouse') {
+          dollhouseDistance = Math.max(7, Math.min(30, dollhouseDistance - direction * 1.15));
+          updateDollhouseCamera();
+        } else {
+          panoramaCamera.fov = Math.max(34, Math.min(98, panoramaCamera.fov - direction * 5));
+          panoramaCamera.updateProjectionMatrix();
+          updateCamera();
+        }
+        if (announce) announcer.textContent = direction > 0 ? 'View zoomed in' : 'View zoomed out';
+      }
+      function updateDollhouseNodes() {
+        const candidates = [];
+        for (const marker of dollhouseNodes.children) {
+          marker.hidden = false;
+          const point = new THREE.Vector3(Number(marker.dataset.worldX), Number(marker.dataset.worldY) || .95, Number(marker.dataset.worldZ));
+          point.project(dollhouseCamera);
+          marker.hidden = point.z < -1 || point.z > 1;
+          if (!marker.hidden) {
+            candidates.push({ marker, x: (point.x * .5 + .5) * innerWidth, y: (-point.y * .5 + .5) * innerHeight, depth: point.z });
+          }
+        }
+        candidates.sort((left, right) => left.depth - right.depth);
+        const occupied = [];
+        for (const candidate of candidates) {
+          const width = Math.max(candidate.marker.offsetWidth, 74);
+          const height = Math.max(candidate.marker.offsetHeight, 34);
+          let placed = null;
+          for (const shift of [0, -38, 38, -76, 76]) {
+            const x = Math.max(width / 2 + 8, Math.min(innerWidth - width / 2 - 8, candidate.x));
+            const y = Math.max(height / 2 + 84, Math.min(innerHeight - height / 2 - 18, candidate.y + shift));
+            const box = { left: x - width / 2 - 4, right: x + width / 2 + 4, top: y - height / 2 - 3, bottom: y + height / 2 + 3 };
+            if (!occupied.some(other => box.left < other.right && box.right > other.left && box.top < other.bottom && box.bottom > other.top)) {
+              placed = { x, y, box };
+              break;
+            }
+          }
+          candidate.marker.hidden = !placed;
+          if (placed) {
+            candidate.marker.style.left = `${placed.x}px`;
+            candidate.marker.style.top = `${placed.y}px`;
+            occupied.push(placed.box);
+          }
+        }
+      }
+      function selectDollhouseRoom(clientX, clientY) {
+        const bounds = renderer.domElement.getBoundingClientRect();
+        const pointer = new THREE.Vector2(
+          ((clientX - bounds.left) / bounds.width) * 2 - 1,
+          -((clientY - bounds.top) / bounds.height) * 2 + 1,
+        );
+        dollhouseRaycaster.setFromCamera(pointer, dollhouseCamera);
+        const hit = dollhouseRaycaster.intersectObjects(dollhouseSelectableMeshes, false)
+          .find(row => String(row.object.userData.sceneId || ''));
+        if (hit) loadNode(String(hit.object.userData.sceneId));
+      }
+      function setMode(nextMode) {
+        const requested = nextMode === 'dollhouse' && spatialModel ? 'dollhouse' : 'panorama';
+        mode = requested;
+        document.body.dataset.mode = mode;
+        const inDollhouse = mode === 'dollhouse';
+        hotspotLayer.hidden = inDollhouse;
+        rail.hidden = inDollhouse;
+        dollhouseNodes.hidden = !inDollhouse;
+        dollhouseNote.hidden = !inDollhouse;
+        dollhouseToggle.setAttribute('aria-pressed', String(inDollhouse));
+        dollhouseToggle.textContent = inDollhouse ? 'Tour' : 'Dollhouse';
+        dollhouseToggle.setAttribute('aria-label', inDollhouse ? 'Return to panorama tour' : 'Open 3D dollhouse');
+        viewer.setAttribute('aria-label', inDollhouse ? 'Interactive approximate 3D dollhouse' : 'Interactive 360 degree property view');
+        viewer.style.cursor = inDollhouse ? 'grab' : '';
+        if (inDollhouse) {
+          floorplan.classList.add('collapsed');
+          document.getElementById('map-toggle').setAttribute('aria-pressed', 'false');
+          sceneTitle.textContent = 'Dollhouse overview';
+          updateDollhouseCamera();
+          announcer.textContent = 'Approximate 3D dollhouse opened';
+        } else if (activeNode) {
+          sceneTitle.textContent = activeNode.label || document.title;
+          announcer.textContent = `Now viewing ${activeNode.label || 'space'}`;
+        }
+      }
+      function buildHotspots(node) {
+        hotspotLayer.replaceChildren();
+        for (const hotspot of Array.isArray(node.hotspots) ? node.hotspots : []) {
+          if (!byId.has(String(hotspot.target))) continue;
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'hotspot';
+          button.textContent = hotspot.label || 'Continue';
+          button.dataset.targetSceneId = String(hotspot.target);
+          button.dataset.yaw = String(hotspot.yaw || 0);
+          button.dataset.pitch = String(hotspot.pitch || 0);
+          button.addEventListener('click', () => loadNode(String(hotspot.target)));
+          hotspotLayer.appendChild(button);
+        }
+      }
+      function updateHotspots() {
+        const forward = new THREE.Vector3();
+        panoramaCamera.getWorldDirection(forward);
+        for (const button of hotspotLayer.children) {
+          const vector = direction(radians(button.dataset.yaw), radians(button.dataset.pitch), 9.7);
+          const visible = forward.dot(vector.clone().normalize()) > .08;
+          const projected = vector.project(panoramaCamera);
+          button.hidden = !visible || projected.z < -1 || projected.z > 1;
+          if (!button.hidden) {
+            button.style.left = `${(projected.x * .5 + .5) * innerWidth}px`;
+            button.style.top = `${(-projected.y * .5 + .5) * innerHeight}px`;
+          }
+        }
+      }
+      function markActive(id) {
+        document.querySelectorAll('[data-scene-id]').forEach(element => element.classList.toggle('active', element.dataset.sceneId === id));
+        const activeButton = rail.querySelector(`[data-scene-id="${CSS.escape(id)}"]`);
+        if (activeButton) activeButton.scrollIntoView({ block: 'nearest', inline: 'center' });
+        for (const [sceneId, meshes] of dollhouseRoomMeshes.entries()) {
+          for (const mesh of meshes) {
+            mesh.material.color.setHex(sceneId === id ? 0xee6b45 : Number(mesh.userData.baseColor || 0xd9d4c8));
+          }
+        }
+      }
+      function loadNode(id) {
+        const node = byId.get(id);
+        if (!node || !node.image_url) return;
+        const token = ++loadToken;
+        setStatus('Loading 360° view…');
+        const rememberTexture = texture => {
+          textureCache.delete(node.image_url);
+          textureCache.set(node.image_url, texture);
+          while (textureCache.size > textureCacheLimit) {
+            const oldestUrl = textureCache.keys().next().value;
+            const oldestTexture = textureCache.get(oldestUrl);
+            if (oldestTexture === activeTexture) {
+              textureCache.delete(oldestUrl);
+              textureCache.set(oldestUrl, oldestTexture);
+              continue;
+            }
+            textureCache.delete(oldestUrl);
+            if (oldestTexture) oldestTexture.dispose();
+          }
+        };
+        const applyTexture = texture => {
+          if (token !== loadToken) return;
+          texture.colorSpace = THREE.SRGBColorSpace;
+          texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+          activeTexture = texture;
+          material.map = texture;
+          material.needsUpdate = true;
+          activeNode = node;
+          yaw = radians(node.start_yaw);
+          pitch = radians(node.start_pitch);
+          panoramaCamera.fov = Number(node.start_fov) || 72;
+          panoramaCamera.updateProjectionMatrix();
+          updateCamera();
+          buildHotspots(node);
+          setMode('panorama');
+          markActive(id);
+          sceneTitle.textContent = node.label || document.title;
+          announcer.textContent = `Now viewing ${node.label || 'space'}`;
+          setStatus();
+        };
+        const cachedTexture = textureCache.get(node.image_url);
+        if (cachedTexture) {
+          rememberTexture(cachedTexture);
+          applyTexture(cachedTexture);
+          return;
+        }
+        loader.load(node.image_url, texture => {
+          rememberTexture(texture);
+          applyTexture(texture);
+        }, undefined, () => {
+          if (token === loadToken) setStatus('This panorama could not be loaded.');
+        });
+      }
+      for (const node of nodes) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'scene-button';
+        button.dataset.sceneId = String(node.id);
+        button.textContent = node.label || 'Space';
+        button.addEventListener('click', () => loadNode(String(node.id)));
+        rail.appendChild(button);
+        if (spec.floorplan_url && node.floorplan_x_pct >= 0 && node.floorplan_y_pct >= 0) {
+          const pin = document.createElement('button');
+          pin.type = 'button';
+          pin.className = 'floorplan-pin';
+          pin.dataset.sceneId = String(node.id);
+          pin.style.left = `${node.floorplan_x_pct}%`;
+          pin.style.top = `${node.floorplan_y_pct}%`;
+          pin.textContent = String(floorplanPins.children.length + 1);
+          pin.title = node.label || 'Space';
+          pin.addEventListener('click', () => loadNode(String(node.id)));
+          floorplanPins.appendChild(pin);
+        }
+      }
+      const dollhouseReady = buildDollhouse();
+      dollhouseToggle.hidden = !dollhouseReady;
+      if (spec.floorplan_url) {
+        floorplan.hidden = false;
+        floorplanImage.src = spec.floorplan_url;
+        if (matchMedia('(max-width: 720px)').matches) floorplan.classList.add('collapsed');
+      }
+      const mapToggle = document.getElementById('map-toggle');
+      function syncMapToggle() {
+        const expanded = Boolean(spec.floorplan_url) && !floorplan.classList.contains('collapsed') && mode !== 'dollhouse';
+        mapToggle.setAttribute('aria-pressed', String(expanded));
+        mapToggle.setAttribute('aria-label', expanded ? 'Close floor plan' : 'Open floor plan');
+      }
+      syncMapToggle();
+      mapToggle.addEventListener('click', () => {
+        if (!spec.floorplan_url) return;
+        if (mode === 'dollhouse') setMode('panorama');
+        floorplan.classList.toggle('collapsed');
+        syncMapToggle();
+      });
+      dollhouseToggle.addEventListener('click', () => setMode(mode === 'dollhouse' ? 'panorama' : 'dollhouse'));
+      document.getElementById('zoom-in').addEventListener('click', () => adjustZoom(1));
+      document.getElementById('zoom-out').addEventListener('click', () => adjustZoom(-1));
+      document.getElementById('fullscreen').addEventListener('click', async () => {
+        try {
+          if (!document.fullscreenElement) await document.documentElement.requestFullscreen();
+          else await document.exitFullscreen();
+        } catch (_) {}
+      });
+      viewer.addEventListener('pointerdown', event => {
+        activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+        if (activePointers.size === 1) {
+          primaryPointerId = event.pointerId;
+          lastX = event.clientX;
+          lastY = event.clientY;
+          pointerTravel = 0;
+          pinchDistance = 0;
+        } else if (activePointers.size === 2) {
+          const [first, second] = [...activePointers.values()];
+          pinchDistance = Math.hypot(second.x - first.x, second.y - first.y);
+        }
+        dragging = true;
+        viewer.classList.add('dragging');
+        try { viewer.setPointerCapture(event.pointerId); } catch (_) {}
+        viewer.focus();
+      });
+      viewer.addEventListener('pointermove', event => {
+        if (!dragging || !activePointers.has(event.pointerId)) return;
+        const previous = activePointers.get(event.pointerId);
+        activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+        pointerTravel += Math.hypot(event.clientX - previous.x, event.clientY - previous.y);
+        if (activePointers.size >= 2) {
+          const [first, second] = [...activePointers.values()];
+          const nextDistance = Math.hypot(second.x - first.x, second.y - first.y);
+          if (pinchDistance > 8 && nextDistance > 8) {
+            const scale = nextDistance / pinchDistance;
+            if (mode === 'dollhouse') {
+              dollhouseDistance = Math.max(7, Math.min(30, dollhouseDistance / scale));
+              updateDollhouseCamera();
+            } else {
+              panoramaCamera.fov = Math.max(34, Math.min(98, panoramaCamera.fov / scale));
+              panoramaCamera.updateProjectionMatrix();
+              updateCamera();
+            }
+          }
+          pinchDistance = nextDistance;
+          return;
+        }
+        if (event.pointerId !== primaryPointerId) return;
+        if (mode === 'dollhouse') {
+          dollhouseAzimuth -= (event.clientX - lastX) * .006;
+          dollhouseElevation = Math.max(.3, Math.min(1.18, dollhouseElevation + (event.clientY - lastY) * .004));
+          updateDollhouseCamera();
+        } else {
+          yaw -= (event.clientX - lastX) * .0042;
+          pitch += (event.clientY - lastY) * .0036;
+          updateCamera();
+        }
+        lastX = event.clientX; lastY = event.clientY;
+      });
+      const endPointer = (event, cancelled = false) => {
+        if (!activePointers.has(event.pointerId)) return;
+        const wasTap = !cancelled && activePointers.size === 1 && event.pointerId === primaryPointerId && pointerTravel < 7;
+        activePointers.delete(event.pointerId);
+        if (wasTap && mode === 'dollhouse') selectDollhouseRoom(event.clientX, event.clientY);
+        if (activePointers.size === 1) {
+          const [nextId, nextPointer] = activePointers.entries().next().value;
+          primaryPointerId = nextId;
+          lastX = nextPointer.x;
+          lastY = nextPointer.y;
+          pointerTravel = 0;
+          pinchDistance = 0;
+        } else if (!activePointers.size) {
+          dragging = false;
+          primaryPointerId = null;
+          pinchDistance = 0;
+          viewer.classList.remove('dragging');
+        }
+      };
+      viewer.addEventListener('pointerup', endPointer);
+      viewer.addEventListener('pointercancel', event => endPointer(event, true));
+      viewer.addEventListener('wheel', event => {
+        event.preventDefault();
+        if (mode === 'dollhouse') {
+          dollhouseDistance = Math.max(7, Math.min(30, dollhouseDistance + event.deltaY * .012));
+          updateDollhouseCamera();
+        } else {
+          panoramaCamera.fov = Math.max(34, Math.min(98, panoramaCamera.fov + event.deltaY * .035));
+          panoramaCamera.updateProjectionMatrix();
+          updateCamera();
+        }
+      }, { passive: false });
+      viewer.addEventListener('keydown', event => {
+        const key = event.key.toLowerCase();
+        if (['arrowleft','arrowright','arrowup','arrowdown','+','=','-','_'].includes(key)) event.preventDefault();
+        if (mode === 'dollhouse') {
+          if (key === 'arrowleft') dollhouseAzimuth += .08;
+          if (key === 'arrowright') dollhouseAzimuth -= .08;
+          if (key === 'arrowup') dollhouseElevation = Math.min(1.18, dollhouseElevation + .05);
+          if (key === 'arrowdown') dollhouseElevation = Math.max(.3, dollhouseElevation - .05);
+          if (key === '+' || key === '=') dollhouseDistance = Math.max(7, dollhouseDistance - 1);
+          if (key === '-' || key === '_') dollhouseDistance = Math.min(30, dollhouseDistance + 1);
+          updateDollhouseCamera();
+        } else {
+          if (key === 'arrowleft') yaw += .08;
+          if (key === 'arrowright') yaw -= .08;
+          if (key === 'arrowup') pitch += .06;
+          if (key === 'arrowdown') pitch -= .06;
+          if (key === '+' || key === '=') panoramaCamera.fov = Math.max(34, panoramaCamera.fov - 4);
+          if (key === '-' || key === '_') panoramaCamera.fov = Math.min(98, panoramaCamera.fov + 4);
+          panoramaCamera.updateProjectionMatrix(); updateCamera();
+        }
+      });
+      addEventListener('resize', () => {
+        panoramaCamera.aspect = innerWidth / innerHeight;
+        panoramaCamera.updateProjectionMatrix();
+        dollhouseCamera.aspect = innerWidth / innerHeight;
+        dollhouseCamera.updateProjectionMatrix();
+        renderer.setSize(innerWidth, innerHeight);
+      });
+      renderer.setAnimationLoop(() => {
+        if (mode === 'dollhouse') {
+          updateDollhouseNodes();
+          renderer.render(dollhouseScene, dollhouseCamera);
+        } else {
+          updateHotspots();
+          renderer.render(panoramaScene, panoramaCamera);
+        }
+      });
+      const initialId = byId.has(String(spec.initial_scene_id)) ? String(spec.initial_scene_id) : String(nodes[0]?.id || '');
+      if (initialId) loadNode(initialId); else setStatus('No panorama scenes are available.');
+    </script>
+  </body>
+</html>"""
+    disclosure_html = f" · {disclosure}" if disclosure else ""
+    return (
+        document.replace("__PQ_NONCE__", nonce_attr)
+        .replace("__PQ_TITLE__", title)
+        .replace("__PQ_PROVIDER__", safe_provider_label)
+        .replace("__PQ_VIEWER__", safe_viewer_name)
+        .replace("__PQ_DISCLOSURE__", disclosure_html)
+        .replace("__PQ_THREE_MODULE__", _PUBLIC_TOUR_THREE_MODULE_PATH)
+        .replace("__PQ_DATA__", data_json)
+    )
+
+
 def _tour_control_walkable_html(
     payload: dict[str, object],
     *,
@@ -9378,6 +11669,15 @@ def _tour_control_walkable_html(
     walkable_scene = payload.get("walkable_scene") if isinstance(payload.get("walkable_scene"), dict) else {}
     if not walkable_scene:
         raise HTTPException(status_code=404, detail="tour_control_walkable_scene_missing")
+    panorama_spec = _tour_control_panorama_spec(payload, walkable_scene)
+    if panorama_spec:
+        return _tour_control_panorama_html(
+            payload,
+            panorama_spec=panorama_spec,
+            provider_label=provider_label,
+            viewer_name=viewer_name,
+            nonce=nonce,
+        )
     public_walkable_scene = dict(walkable_scene)
     if "walkthrough_scene_images" not in public_walkable_scene and isinstance(public_walkable_scene.get("magicfit_scene_images"), list):
         public_walkable_scene["walkthrough_scene_images"] = list(public_walkable_scene.get("magicfit_scene_images") or [])
@@ -9589,6 +11889,7 @@ def public_tour_page(
             )
         if generated_reconstruction_only:
             return _generated_reconstruction_public_launch_response(payload, request=request)
+        walkthrough_acceptance = _public_tour_walkthrough_acceptance(payload)
         rendered_payload = _redacted_public_tour_payload(payload, expose_asset_relpaths=True)
         rendered_facts, research_snapshot = _merged_facts_with_listing_research(payload, dict(payload.get("facts") or {}))
         rendered_facts.pop("public_preference_snapshot", None)
@@ -9627,6 +11928,7 @@ def public_tour_page(
                 if primary_control_path.endswith("/control/3dvista")
                 else ""
             ),
+            walkthrough_acceptance=walkthrough_acceptance,
         )
         return HTMLResponse(
             html_body,
@@ -9734,6 +12036,8 @@ def public_tour_control(slug: str, request: Request) -> HTMLResponse:
         raise HTTPException(status_code=404, detail="tour_disabled_fallback")
     control_mode = str(payload.get("control_mode") or "").strip().lower()
     primary_control_path = _public_tour_primary_control_path(payload)
+    if isinstance(payload.get("walkable_scene"), dict) and not primary_control_path:
+        raise HTTPException(status_code=404, detail="tour_control_acceptance_missing")
     if primary_control_path.endswith("/control/3dvista"):
         # Match the explicit 3DVista route: retain only the allowlisted private
         # provider receipt fields long enough to revalidate target provenance.
@@ -9741,7 +12045,18 @@ def public_tour_control(slug: str, request: Request) -> HTMLResponse:
     else:
         rendered_payload = _redacted_public_tour_payload(
             payload,
-            expose_asset_relpaths=control_mode in {"pano2vr", "pano_2_vr"} or bool(_pano2vr_entry_relpath(payload)),
+            expose_asset_relpaths=(
+                control_mode in {"pano2vr", "pano_2_vr"}
+                or bool(_pano2vr_entry_relpath(payload))
+                or isinstance(payload.get("walkable_scene"), dict)
+            ),
+        )
+    if _public_tour_ai_panorama_scene(payload):
+        rendered_payload["_ai_panorama_asset_sha256"] = (
+            _public_tour_ai_panorama_asset_digests(
+                payload,
+                bundle_dir=_tour_bundle_dir(slug),
+            )
         )
     if _public_tour_request_embeds_walkthrough(request):
         rendered_payload["_tour_control_embed_walkthrough"] = True
@@ -9762,6 +12077,7 @@ def public_tour_control(slug: str, request: Request) -> HTMLResponse:
         headers=_public_tour_control_security_headers(
             html_body=html_body,
             nonce=nonce,
+            ai_panorama=bool(_public_tour_ai_panorama_scene(payload)),
         ),
     )
 
@@ -9777,6 +12093,13 @@ def public_tour_control_viewer(slug: str, viewer_mode: str, request: Request) ->
     fullscreen = str(request.query_params.get("fullscreen") or "").strip().lower() in {"1", "true", "yes", "on"}
     if normalized_viewer_mode in {"matterport", "metaport"}:
         raise HTTPException(status_code=404, detail="tour_control_provider_retired")
+    if (
+        isinstance(payload.get("walkable_scene"), dict)
+        and normalized_viewer_mode != "krpano"
+    ):
+        primary_control_path = _public_tour_primary_control_path(payload)
+        if not primary_control_path:
+            raise HTTPException(status_code=404, detail="tour_control_acceptance_missing")
     nonce = _public_tour_csp_nonce()
     if normalized_viewer_mode in {"3dvista", "3d_vista", "three_d_vista"}:
         # Provider controls need the verified private receipt URL server-side, but
@@ -9795,12 +12118,23 @@ def public_tour_control_viewer(slug: str, viewer_mode: str, request: Request) ->
             headers=_public_tour_control_security_headers(
                 html_body=html_body,
                 nonce=nonce,
+                ai_panorama=False,
             ),
         )
     rendered_payload = _redacted_public_tour_payload(
         payload,
-        expose_asset_relpaths=normalized_viewer_mode in {"pano2vr", "pano_2_vr"},
+        expose_asset_relpaths=(
+            normalized_viewer_mode in {"pano2vr", "pano_2_vr"}
+            or isinstance(payload.get("walkable_scene"), dict)
+        ),
     )
+    if _public_tour_ai_panorama_scene(payload):
+        rendered_payload["_ai_panorama_asset_sha256"] = (
+            _public_tour_ai_panorama_asset_digests(
+                payload,
+                bundle_dir=_tour_bundle_dir(slug),
+            )
+        )
     if _public_tour_request_embeds_walkthrough(request):
         rendered_payload["_tour_control_embed_walkthrough"] = True
     html_body = _tour_control_html(
@@ -9814,6 +12148,7 @@ def public_tour_control_viewer(slug: str, viewer_mode: str, request: Request) ->
         headers=_public_tour_control_security_headers(
             html_body=html_body,
             nonce=nonce,
+            ai_panorama=bool(_public_tour_ai_panorama_scene(payload)),
         ),
     )
 

@@ -275,6 +275,7 @@ def _check_source_contracts() -> None:
         (14, "property_research_packet_erasure_trigger_split"),
         (15, "durable_property_account_privacy_lifecycle"),
         (16, "distributed_request_admission_control"),
+        (17, "bounded_admission_capacity_state"),
     )
     declared_migrations = _declared_migration_contracts(schema)
     if declared_migrations != expected_migrations:

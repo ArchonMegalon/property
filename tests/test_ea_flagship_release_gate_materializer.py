@@ -4,6 +4,7 @@ import json
 import subprocess
 from pathlib import Path
 
+import scripts.materialize_ea_flagship_release_gate as flagship_materializer
 from scripts.materialize_ea_flagship_release_gate import (
     REAL_BROWSER_TEST_FILE,
     REQUIRED_PACKETS_TOURS_REAL_BROWSER_CASES,
@@ -31,6 +32,7 @@ PRODUCT_CANON_DOCS = [
     Path(".codex-design/ea/METRICS_AND_SLOS.yaml"),
     Path(".codex-design/ea/LTD_INTEGRATION_MAP.md"),
 ]
+REQUIRED_RELEASE_DOCS = [Path("docs/PROPERTYQUARRY_GLOBAL_FLAGSHIP_GOAL.md")]
 JOURNEY_IDS = [
     "public_entry",
     "onboarding_auth",
@@ -41,6 +43,29 @@ JOURNEY_IDS = [
     "feedback",
     "notifications",
 ]
+
+
+def test_flagship_stable_writer_heals_digest_size_and_source_commit_drift(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "flagship.json"
+    expected = {
+        "generated_at": "2026-07-18T10:00:00Z",
+        "source_binding": {
+            "code_commit": "a" * 40,
+            "seed": {"sha256": "b" * 64, "size_bytes": 123},
+        },
+    }
+    stale = json.loads(json.dumps(expected))
+    stale["generated_at"] = "2026-07-18T09:00:00Z"
+    stale["source_binding"]["code_commit"] = "c" * 40
+    stale["source_binding"]["seed"]["sha256"] = "d" * 64
+    stale["source_binding"]["seed"]["size_bytes"] = 456
+    output.write_text(json.dumps(stale), encoding="utf-8")
+
+    flagship_materializer._write_json_stable(output, expected)
+
+    assert json.loads(output.read_text(encoding="utf-8")) == expected
 
 
 def _git(root: Path, *args: str) -> str:
@@ -62,6 +87,7 @@ def _commit_flagship_sources(root: Path) -> dict[str, object]:
             SEED.as_posix(),
             TRUTH_PLANE.as_posix(),
             *(path.as_posix() for path in PRODUCT_CANON_DOCS),
+            *(path.as_posix() for path in REQUIRED_RELEASE_DOCS),
             "README.md",
             "RUNBOOK.md",
             "RELEASE_CHECKLIST.md",
@@ -158,6 +184,9 @@ def _write_minimal_flagship_tree(
     for rel in PRODUCT_CANON_DOCS:
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         (root / rel).write_text("# canon\n", encoding="utf-8")
+    for rel in REQUIRED_RELEASE_DOCS:
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text("# governed global flagship goal\n", encoding="utf-8")
 
     seed = json.loads((ROOT / SEED).read_text(encoding="utf-8"))
     sources = seed["browser_workflow_proof"]["evidence_sources"]
@@ -260,7 +289,7 @@ def test_materializer_writes_preview_only_receipt_without_browser_execution_rece
 
     assert receipt["product"] == "propertyquarry"
     assert receipt["surface"] == "propertyquarry_flagship_release_control"
-    assert receipt["version"] == 1
+    assert receipt["version"] == 2
     assert receipt["status"] == "preview_only"
     assert len(receipt["source_binding"]["code_commit"]) == 40
     assert receipt["truth_plane"]["source"] == ".codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md"

@@ -2914,6 +2914,219 @@ class BrowserActToolAdapter:
         return []
 
     @classmethod
+    def _crezlo_immersive_acceptance(cls, normalized: dict[str, object]) -> dict[str, object]:
+        """Return fail-closed evidence for a customer-facing Crezlo tour.
+
+        A list of JPEG-backed scenes is not spatial evidence.  Promotion
+        requires actual panorama/cubemap scenes, a hotspot/navigation graph,
+        an anonymous interaction proof, and a browser-proven first-party URL.
+        """
+
+        structured = cls._crezlo_json_dict(normalized.get("structured_output_json"))
+        workflow_output = cls._crezlo_json_dict(structured.get("workflow_output_json"))
+        detail = cls._crezlo_json_dict(
+            workflow_output.get("tour_detail_json") or structured.get("tour_detail_json")
+        )
+        requested_inputs = cls._crezlo_json_dict(structured.get("requested_inputs"))
+        requested_floorplans: list[object] = []
+        for key in ("floorplan_urls_json", "floorplan_urls", "floorplans"):
+            requested_floorplans.extend(cls._crezlo_json_list(requested_inputs.get(key)))
+        floorplan_required = bool(requested_floorplans)
+        scenes = [
+            dict(entry)
+            for entry in cls._crezlo_json_list(detail.get("scenes"))
+            if isinstance(entry, dict)
+        ]
+        spatial_scene_count = 0
+        hotspot_count = 0
+        for scene in scenes:
+            file_payload = cls._crezlo_json_dict(scene.get("file"))
+            documents = (
+                scene,
+                cls._crezlo_json_dict(scene.get("payload")),
+                file_payload,
+                cls._crezlo_json_dict(file_payload.get("meta")),
+            )
+            cube_faces: set[str] = set()
+            projection = ""
+            width = 0
+            height = 0
+            for document in documents:
+                for key, value in document.items():
+                    lowered_key = str(key or "").strip().lower()
+                    if lowered_key in {"cube_map", "cube_maps", "cubemap", "cubemaps"}:
+                        cube_rows: list[object]
+                        if isinstance(value, dict):
+                            cube_rows = list(value.values())
+                        else:
+                            cube_rows = cls._crezlo_json_list(value)
+                        for index, cube_row in enumerate(cube_rows):
+                            if isinstance(cube_row, dict):
+                                face = str(
+                                    cube_row.get("face")
+                                    or cube_row.get("side")
+                                    or cube_row.get("name")
+                                    or index
+                                ).strip().lower()
+                            else:
+                                face = str(cube_row or index).strip().lower()
+                            if face:
+                                cube_faces.add(face)
+                    if lowered_key in {"projection", "image_projection", "panorama_type", "mapping"}:
+                        projection = str(value or "").strip().lower() or projection
+                    if lowered_key in {"width", "image_width", "pixel_width"}:
+                        try:
+                            width = max(width, int(value or 0))
+                        except Exception:
+                            pass
+                    if lowered_key in {"height", "image_height", "pixel_height"}:
+                        try:
+                            height = max(height, int(value or 0))
+                        except Exception:
+                            pass
+                    if "hotspot" in lowered_key:
+                        hotspot_count += len(cls._crezlo_json_list(value))
+            equirectangular = (
+                projection in {"equirectangular", "equirect", "360", "spherical"}
+                and width >= 4096
+                and height >= 2048
+                and 1.8 <= (float(width) / float(height)) <= 2.2
+            )
+            complete_cube_map = len(cube_faces) >= 6
+            if complete_cube_map or equirectangular:
+                spatial_scene_count += 1
+
+        proof = cls._crezlo_json_dict(
+            workflow_output.get("immersive_viewer_proof")
+            or structured.get("immersive_viewer_proof")
+            or normalized.get("immersive_viewer_proof")
+        )
+        proof_status = str(proof.get("status") or "").strip().lower()
+        try:
+            anonymous_http_status = int(proof.get("anonymous_http_status") or 0)
+        except Exception:
+            anonymous_http_status = 0
+        drag_look_verified = bool(proof.get("drag_look_verified"))
+        scene_navigation_verified = bool(proof.get("scene_navigation_verified"))
+        scene_graph_connected = proof.get("scene_graph_connected") is True
+        all_required_scenes_navigable = proof.get("all_required_scenes_navigable") is True
+        desktop_viewer_verified = proof.get("desktop_viewer_verified") is True
+        mobile_viewer_verified = proof.get("mobile_viewer_verified") is True
+        touch_look_verified = proof.get("touch_look_verified") is True
+        exact_property_provenance_verified = proof.get("exact_property_provenance_verified") is True
+        source_asset_hashes = [
+            str(value or "").strip().lower().removeprefix("sha256:")
+            for value in cls._crezlo_json_list(proof.get("source_asset_hashes"))
+        ]
+        valid_source_asset_hashes = [
+            value for value in source_asset_hashes if re.fullmatch(r"[0-9a-f]{64}", value)
+        ]
+        browser_receipt_sha256 = str(proof.get("browser_receipt_sha256") or "").strip().lower().removeprefix("sha256:")
+        browser_receipt_verified = bool(re.fullmatch(r"[0-9a-f]{64}", browser_receipt_sha256))
+        expected_property_url = str(requested_inputs.get("property_url") or "").strip()
+        proof_property_url = str(proof.get("source_property_url") or "").strip()
+        property_binding_verified = bool(
+            expected_property_url
+            and proof_property_url
+            and expected_property_url == proof_property_url
+            and exact_property_provenance_verified
+        )
+        floorplan_alignment_verified = proof.get("floorplan_alignment_verified") is True
+        try:
+            required_spatial_scene_count = max(3, min(24, int(proof.get("required_spatial_scene_count") or 3)))
+        except Exception:
+            required_spatial_scene_count = 3
+        try:
+            required_space_count = max(1, min(24, int(proof.get("required_space_count") or required_spatial_scene_count)))
+        except Exception:
+            required_space_count = required_spatial_scene_count
+        try:
+            covered_space_count = max(0, int(proof.get("covered_space_count") or 0))
+        except Exception:
+            covered_space_count = 0
+        first_party_url = str(proof.get("first_party_public_url") or "").strip()
+        first_party_base = cls._crezlo_public_tour_base_url().rstrip("/")
+        first_party_url_verified = bool(
+            first_party_url
+            and first_party_base
+            and (first_party_url == first_party_base or first_party_url.startswith(first_party_base + "/"))
+            and proof.get("first_party_viewer_verified") is True
+        )
+        accepted = bool(
+            spatial_scene_count >= required_spatial_scene_count
+            and covered_space_count >= required_space_count
+            and hotspot_count >= spatial_scene_count - 1
+            and scene_graph_connected
+            and all_required_scenes_navigable
+            and property_binding_verified
+            and bool(valid_source_asset_hashes)
+            and browser_receipt_verified
+            and (not floorplan_required or floorplan_alignment_verified)
+            and proof_status == "pass"
+            and anonymous_http_status == 200
+            and drag_look_verified
+            and scene_navigation_verified
+            and desktop_viewer_verified
+            and mobile_viewer_verified
+            and touch_look_verified
+            and first_party_url_verified
+        )
+        if spatial_scene_count < required_spatial_scene_count:
+            reason = "spatial_scenes_missing"
+        elif covered_space_count < required_space_count:
+            reason = "required_space_coverage_missing"
+        elif hotspot_count < spatial_scene_count - 1:
+            reason = "hotspot_graph_missing"
+        elif not scene_graph_connected or not all_required_scenes_navigable:
+            reason = "scene_graph_unverified"
+        elif not property_binding_verified or not valid_source_asset_hashes:
+            reason = "exact_property_provenance_unverified"
+        elif not browser_receipt_verified:
+            reason = "browser_receipt_unverified"
+        elif floorplan_required and not floorplan_alignment_verified:
+            reason = "floorplan_alignment_unverified"
+        elif proof_status != "pass":
+            reason = "browser_proof_missing"
+        elif anonymous_http_status != 200:
+            reason = "anonymous_viewer_unverified"
+        elif not drag_look_verified:
+            reason = "drag_look_unverified"
+        elif not scene_navigation_verified:
+            reason = "scene_navigation_unverified"
+        elif not desktop_viewer_verified or not mobile_viewer_verified or not touch_look_verified:
+            reason = "cross_device_interaction_unverified"
+        elif not first_party_url_verified:
+            reason = "first_party_viewer_unverified"
+        else:
+            reason = ""
+        return {
+            "accepted": accepted,
+            "reason": reason,
+            "scene_count": len(scenes),
+            "spatial_scene_count": spatial_scene_count,
+            "required_spatial_scene_count": required_spatial_scene_count,
+            "required_space_count": required_space_count,
+            "covered_space_count": covered_space_count,
+            "hotspot_count": hotspot_count,
+            "scene_graph_connected": scene_graph_connected,
+            "all_required_scenes_navigable": all_required_scenes_navigable,
+            "exact_property_provenance_verified": exact_property_provenance_verified,
+            "property_binding_verified": property_binding_verified,
+            "source_asset_hash_count": len(valid_source_asset_hashes),
+            "browser_receipt_verified": browser_receipt_verified,
+            "floorplan_required": floorplan_required,
+            "floorplan_alignment_verified": floorplan_alignment_verified,
+            "anonymous_http_status": anonymous_http_status,
+            "drag_look_verified": drag_look_verified,
+            "scene_navigation_verified": scene_navigation_verified,
+            "desktop_viewer_verified": desktop_viewer_verified,
+            "mobile_viewer_verified": mobile_viewer_verified,
+            "touch_look_verified": touch_look_verified,
+            "first_party_viewer_verified": first_party_url_verified,
+            "first_party_public_url": first_party_url if first_party_url_verified else "",
+        }
+
+    @classmethod
     def _crezlo_public_asset_rows(cls, normalized: dict[str, object]) -> list[dict[str, object]]:
         structured = cls._crezlo_json_dict(normalized.get("structured_output_json"))
         requested_inputs = cls._crezlo_json_dict(structured.get("requested_inputs"))
@@ -3870,7 +4083,11 @@ class BrowserActToolAdapter:
             workspace_id=workspace["workspace_id"],
             payload={
                 "title": title,
-                "status": "published",
+                # Remote image records are only staging inputs.  They are not
+                # an immersive tour until Crezlo has produced spatial assets
+                # and the anonymous viewer has passed the governed browser
+                # gate, so never publish the shell up front.
+                "status": "draft",
             },
         )
         tour_id = str(created_tour.get("id") or "").strip()
@@ -4049,6 +4266,7 @@ class BrowserActToolAdapter:
             "workspace_domain",
             "workspace_base_url",
             "workspace_tours_url",
+            "editor_url",
             "scene_strategy",
             "display_title",
             "tour_visibility",
@@ -4101,6 +4319,57 @@ class BrowserActToolAdapter:
         return {
             key: value
             for key, value in inputs.items()
+            if value is not None and (not isinstance(value, str) or bool(value.strip()))
+        }
+
+    @classmethod
+    def _crezlo_workflow_inputs(
+        cls,
+        *,
+        workflow_id: str,
+        requested_inputs: dict[str, object],
+        binding_metadata: dict[str, object],
+        editor_url: object = "",
+    ) -> dict[str, object]:
+        """Build a schema-safe payload for a configured Crezlo workflow.
+
+        The live ``crezlo_property_tour_operator_live`` workflow is an
+        inspector for an existing editor, not a tour creator.  Sending the
+        creation packet to it makes BrowserAct reject the task before a
+        browser opens, so keep its three declared inputs isolated.
+        """
+
+        normalized_workflow_id = str(workflow_id or "").strip()
+        workflow_kind = str(
+            binding_metadata.get("crezlo_property_tour_workflow_kind")
+            or binding_metadata.get("browseract_crezlo_property_tour_workflow_kind")
+            or ""
+        ).strip().lower()
+        inspection_workflow = bool(
+            normalized_workflow_id == "86048166080352916"
+            or workflow_kind in {"inspect", "inspection", "inspect_existing"}
+        )
+        if inspection_workflow:
+            resolved_editor_url = str(editor_url or requested_inputs.get("editor_url") or "").strip()
+            if not resolved_editor_url:
+                raise ToolExecutionError("crezlo_inspection_editor_url_missing")
+            workflow_inputs = {
+                "browseract_username": requested_inputs.get("browseract_username"),
+                "browseract_password": requested_inputs.get("browseract_password"),
+                "editor_url": resolved_editor_url,
+            }
+        else:
+            workflow_inputs = dict(requested_inputs)
+            declared_names = cls._crezlo_json_list(
+                binding_metadata.get("crezlo_property_tour_workflow_input_names_json")
+                or binding_metadata.get("browseract_crezlo_property_tour_workflow_input_names_json")
+            )
+            if declared_names:
+                allowlist = {str(name or "").strip() for name in declared_names if str(name or "").strip()}
+                workflow_inputs = {key: value for key, value in workflow_inputs.items() if key in allowlist}
+        return {
+            key: value
+            for key, value in workflow_inputs.items()
             if value is not None and (not isinstance(value, str) or bool(value.strip()))
         }
 
@@ -4331,9 +4600,15 @@ class BrowserActToolAdapter:
                     requested_inputs=requested_inputs,
                 )
             elif workflow_id and not run_url:
+                workflow_inputs = self._crezlo_workflow_inputs(
+                    workflow_id=workflow_id,
+                    requested_inputs=requested_inputs,
+                    binding_metadata=binding_metadata,
+                    editor_url=payload.get("editor_url"),
+                )
                 started = self._run_browseract_workflow_task_with_inputs(
                     workflow_id=workflow_id,
-                    input_values=requested_inputs,
+                    input_values=workflow_inputs,
                 )
                 response = self._wait_for_browseract_task(
                     task_id=self._browseract_task_id(started),
@@ -4383,8 +4658,14 @@ class BrowserActToolAdapter:
                     value = direct_result.get(key)
                     if value not in {None, ""}:
                         workflow_inputs[key] = self._browseract_safe_input_value(value)
-                requested_inputs = workflow_inputs
                 try:
+                    workflow_inputs = self._crezlo_workflow_inputs(
+                        workflow_id=workflow_id,
+                        requested_inputs=workflow_inputs,
+                        binding_metadata=binding_metadata,
+                        editor_url=direct_result.get("editor_url"),
+                    )
+                    requested_inputs = workflow_inputs
                     if workflow_id and not run_url:
                         started = self._run_browseract_workflow_task_with_inputs(
                             workflow_id=workflow_id,
@@ -4432,42 +4713,48 @@ class BrowserActToolAdapter:
             if base_text:
                 normalized["normalized_text"] = f"{base_text}\nWorkflow follow-up error: {workflow_followup_error}"
                 normalized["preview_text"] = artifact_preview_text(normalized["normalized_text"])
+        acceptance = self._crezlo_immersive_acceptance(normalized)
+        structured = dict(normalized.get("structured_output_json") or {})
+        structured["immersive_acceptance_json"] = acceptance
+        vendor_public_url = str(normalized.get("public_url") or "").strip()
+        if vendor_public_url:
+            normalized["crezlo_public_url"] = vendor_public_url
+            structured["crezlo_public_url"] = vendor_public_url
         hosted_url = ""
-        if payload.get("proxy_result", True):
-            mirror_error = ""
-            try:
-                hosted_url = self._publish_crezlo_public_tour_bundle(normalized)
-            except Exception as exc:
-                mirror_error = str(exc).strip()
-            structured = dict(normalized.get("structured_output_json") or {})
-            if mirror_error:
-                structured["hosted_url_error"] = mirror_error
-            if hosted_url:
-                vendor_public_url = str(normalized.get("public_url") or "").strip()
-                normalized["crezlo_public_url"] = vendor_public_url or None
-                normalized["hosted_url"] = hosted_url
-                normalized["public_url"] = hosted_url
-                structured["hosted_url"] = hosted_url
-                structured["public_url"] = hosted_url
-                if vendor_public_url:
-                    structured["crezlo_public_url"] = vendor_public_url
-                normalized["structured_output_json"] = structured
-                normalized["normalized_text"] = "\n".join(
-                    line
-                    for line in (
-                        f"Tour title: {normalized.get('tour_title')}" if normalized.get("tour_title") else "",
-                        f"Tour status: {normalized.get('tour_status')}" if normalized.get("tour_status") else "",
-                        f"Tour ID: {normalized.get('tour_id')}" if normalized.get("tour_id") else "",
-                        f"Slug: {normalized.get('slug')}" if normalized.get("slug") else "",
-                        f"Hosted URL: {hosted_url}",
-                        f"Crezlo URL: {vendor_public_url}" if vendor_public_url else "",
-                        f"Editor URL: {normalized.get('editor_url')}" if normalized.get("editor_url") else "",
-                        f"Requested URL: {normalized.get('requested_url')}" if normalized.get("requested_url") else "",
-                        f"Task ID: {normalized.get('task_id')}" if normalized.get("task_id") else "",
-                    )
-                    if line
-                )
-                normalized["preview_text"] = artifact_preview_text(normalized["normalized_text"])
+        if acceptance.get("accepted") is True:
+            hosted_url = str(acceptance.get("first_party_public_url") or "").strip()
+            normalized["hosted_url"] = hosted_url or None
+            normalized["public_url"] = hosted_url or None
+            structured["hosted_url"] = hosted_url
+            structured["public_url"] = hosted_url
+        else:
+            normalized["tour_status"] = "blocked"
+            normalized["share_url"] = None
+            normalized["hosted_url"] = None
+            normalized["public_url"] = None
+            structured["quality_gate_status"] = "blocked"
+            structured["quality_gate_reason"] = str(acceptance.get("reason") or "crezlo_immersive_evidence_missing")
+        normalized["structured_output_json"] = structured
+        normalized["normalized_text"] = "\n".join(
+            line
+            for line in (
+                f"Tour title: {normalized.get('tour_title')}" if normalized.get("tour_title") else "",
+                f"Tour status: {normalized.get('tour_status')}" if normalized.get("tour_status") else "",
+                f"Tour ID: {normalized.get('tour_id')}" if normalized.get("tour_id") else "",
+                f"Slug: {normalized.get('slug')}" if normalized.get("slug") else "",
+                f"Hosted URL: {hosted_url}" if hosted_url else "",
+                (
+                    f"Immersive quality gate: {acceptance.get('reason')}"
+                    if acceptance.get("accepted") is not True
+                    else "Immersive quality gate: pass"
+                ),
+                f"Editor URL: {normalized.get('editor_url')}" if normalized.get("editor_url") else "",
+                f"Requested URL: {normalized.get('requested_url')}" if normalized.get("requested_url") else "",
+                f"Task ID: {normalized.get('task_id')}" if normalized.get("task_id") else "",
+            )
+            if line
+        )
+        normalized["preview_text"] = artifact_preview_text(normalized["normalized_text"])
         action_kind = str(request.action_kind or "property_tour.create") or "property_tour.create"
         target_ref = str(normalized.get("share_url") or normalized.get("public_url") or normalized.get("editor_url") or "")
         if not target_ref:

@@ -25,31 +25,58 @@ import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Iterator
 from urllib.parse import urlsplit
 
 try:
     from accept_magicfit_delivery import (
-        BROWSER_RECEIPT_CONTRACT,
-        DELIVERY_CONTRACT,
-        EVIDENCE_CONTRACT,
         EVIDENCE_FIELDS,
         EVIDENCE_VIDEO_FIELDS,
         MAX_FUTURE_SKEW,
-        PENDING_SIDECAR_FIELDS,
         REVIEW_CHECKS,
+        VISUAL_REVIEW_FIELDS,
         _canonical_relpath,
-        _load_json_bytes,
-        _local_file,
         _sha256_bytes,
-        _sha256_file,
-        _source_receipt_valid,
         _strict_utc,
         _validate_browser_receipt,
         _validate_evidence,
+        _validate_visual_review,
         _valid_sha256,
         _video_probe,
+    )
+    from property_magicfit_contact_sheet import (
+        MagicFitContactSheetError,
+        validate_magicfit_contact_sheet_bytes,
+    )
+    from property_magicfit_delivery_contract import (
+        BROWSER_RECEIPT_CONTRACT,
+        EVIDENCE_CONTRACT,
+        MANIFEST_TRANSFORM_CONTRACT,
+        PENDING_DELIVERY_CONTRACT,
+        PENDING_POINTER_RELPATH,
+        PENDING_SIDECAR_FIELDS,
+        PUBLIC_VIDEO_EXTENSIONS,
+        SHA256_RE,
+        VISUAL_REVIEW_CONTRACT,
+        canonical_json_bytes,
+        coverage_proof_from_receipt,
+        delivery_digest as _contract_delivery_digest,
+        require_exact_candidate_manifest,
+        strict_json_object_bytes,
+        validate_magicfit_source_receipt,
+    )
+    from property_magicfit_secure_io import (
+        MagicFitSecureIOError,
+        MagicFitReviewReceiptBundle,
+        StableFileSnapshot,
+        hash_stable_bounded_file,
+        lexical_absolute_path,
+        load_magicfit_review_receipt_bundle,
+        publish_magicfit_review_receipt_bundle,
+        read_stable_bounded_bytes,
+        read_stable_bounded_file,
+        stat_regular_file_identity,
     )
     from property_tour_host_safety import (
         TourHostSafetyError,
@@ -63,25 +90,52 @@ try:
     )
 except ModuleNotFoundError:
     from scripts.accept_magicfit_delivery import (
-        BROWSER_RECEIPT_CONTRACT,
-        DELIVERY_CONTRACT,
-        EVIDENCE_CONTRACT,
         EVIDENCE_FIELDS,
         EVIDENCE_VIDEO_FIELDS,
         MAX_FUTURE_SKEW,
-        PENDING_SIDECAR_FIELDS,
         REVIEW_CHECKS,
+        VISUAL_REVIEW_FIELDS,
         _canonical_relpath,
-        _load_json_bytes,
-        _local_file,
         _sha256_bytes,
-        _sha256_file,
-        _source_receipt_valid,
         _strict_utc,
         _validate_browser_receipt,
         _validate_evidence,
+        _validate_visual_review,
         _valid_sha256,
         _video_probe,
+    )
+    from scripts.property_magicfit_contact_sheet import (  # type: ignore[no-redef]
+        MagicFitContactSheetError,
+        validate_magicfit_contact_sheet_bytes,
+    )
+    from scripts.property_magicfit_delivery_contract import (
+        BROWSER_RECEIPT_CONTRACT,
+        EVIDENCE_CONTRACT,
+        MANIFEST_TRANSFORM_CONTRACT,
+        PENDING_DELIVERY_CONTRACT,
+        PENDING_POINTER_RELPATH,
+        PENDING_SIDECAR_FIELDS,
+        PUBLIC_VIDEO_EXTENSIONS,
+        SHA256_RE,
+        VISUAL_REVIEW_CONTRACT,
+        canonical_json_bytes,
+        coverage_proof_from_receipt,
+        delivery_digest as _contract_delivery_digest,
+        require_exact_candidate_manifest,
+        strict_json_object_bytes,
+        validate_magicfit_source_receipt,
+    )
+    from scripts.property_magicfit_secure_io import (
+        MagicFitSecureIOError,
+        MagicFitReviewReceiptBundle,
+        StableFileSnapshot,
+        hash_stable_bounded_file,
+        lexical_absolute_path,
+        load_magicfit_review_receipt_bundle,
+        publish_magicfit_review_receipt_bundle,
+        read_stable_bounded_bytes,
+        read_stable_bounded_file,
+        stat_regular_file_identity,
     )
     from scripts.property_tour_host_safety import (
         TourHostSafetyError,
@@ -95,18 +149,6 @@ except ModuleNotFoundError:
     )
 
 
-VISUAL_REVIEW_CONTRACT = "propertyquarry.magicfit_private_visual_review.v1"
-VISUAL_REVIEW_FIELDS = frozenset(
-    {
-        "schema",
-        "status",
-        "provider",
-        "target_slug",
-        "observed_at",
-        "video_sha256",
-        "checklist",
-    }
-)
 REVIEW_PAGE_ROUTE = "/_private/magicfit-review"
 DEFAULT_PUBLIC_TOUR_ROOT = Path("/data/public_property_tours")
 TOKEN_MAX_BYTES = 512
@@ -127,21 +169,31 @@ def _utc_now() -> str:
 
 
 def _json_bytes(payload: dict[str, object]) -> bytes:
-    return (
-        json.dumps(
-            payload,
-            ensure_ascii=False,
-            indent=2,
-            allow_nan=False,
-        )
-        + "\n"
-    ).encode("utf-8")
+    return canonical_json_bytes(payload)
+
+
+def _fsync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _unlink_created_private_file(path: Path) -> None:
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+    finally:
+        _fsync_directory(path.parent)
 
 
 def _write_private_file_exclusive(path: Path, body: bytes) -> None:
     """Atomically create one mode-0600 file without replacing existing evidence."""
 
     temporary: Path | None = None
+    linked = False
     descriptor, temporary_name = tempfile.mkstemp(
         prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
     )
@@ -156,33 +208,170 @@ def _write_private_file_exclusive(path: Path, body: bytes) -> None:
             os.link(temporary, path, follow_symlinks=False)
         except FileExistsError as exc:
             raise SystemExit("magicfit_private_review_output_exists") from exc
+        linked = True
         path.chmod(0o600)
-        directory_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
-        try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
+        _fsync_directory(path.parent)
+    except BaseException as original:
+        if linked:
+            try:
+                _unlink_created_private_file(path)
+            except BaseException as cleanup_error:
+                raise cleanup_error from original
+        raise
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
 
 
-def _write_receipt_pair(
-    *,
-    browser_path: Path,
-    browser_body: bytes,
-    evidence_path: Path,
-    evidence_body: bytes,
-) -> None:
-    browser_created = False
+def _stable_bytes(
+    path: Path, *, reason: str, maximum_bytes: int
+) -> StableFileSnapshot:
     try:
-        _write_private_file_exclusive(browser_path, browser_body)
-        browser_created = True
-        _write_private_file_exclusive(evidence_path, evidence_body)
-    except BaseException:
-        if browser_created:
-            browser_path.unlink(missing_ok=True)
+        return read_stable_bounded_bytes(
+            path,
+            reason=reason,
+            maximum_bytes=maximum_bytes,
+        )
+    except MagicFitSecureIOError as exc:
+        raise SystemExit(str(exc)) from exc
+
+
+def _stable_hash(
+    path: Path, *, reason: str, maximum_bytes: int
+) -> StableFileSnapshot:
+    try:
+        return hash_stable_bounded_file(
+            path,
+            reason=reason,
+            maximum_bytes=maximum_bytes,
+        )
+    except MagicFitSecureIOError as exc:
+        raise SystemExit(str(exc)) from exc
+
+
+def _lexical_path(value: str, *, reason: str) -> Path:
+    try:
+        return lexical_absolute_path(value)
+    except MagicFitSecureIOError as exc:
+        raise SystemExit(reason) from exc
+
+
+def _load_stable_json(
+    path: Path, *, error: str, maximum_bytes: int
+) -> tuple[dict[str, Any], StableFileSnapshot]:
+    snapshot = _stable_bytes(
+        path,
+        reason=error,
+        maximum_bytes=maximum_bytes,
+    )
+    assert snapshot.body is not None
+    try:
+        payload = strict_json_object_bytes(snapshot.body, reason=error)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    return dict(payload), snapshot
+
+
+def _validate_committed_receipt_bundle(
+    bundle: MagicFitReviewReceiptBundle,
+    *,
+    slug: str,
+    pending: dict[str, object],
+    contact_sheet_sha256: str,
+    visual_review_sha256: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
+        browser_payload = strict_json_object_bytes(
+            bundle.browser_receipt_bytes,
+            reason="magicfit_private_review_browser_receipt_invalid",
+        )
+        evidence_payload = strict_json_object_bytes(
+            bundle.evidence_receipt_bytes,
+            reason="magicfit_private_review_evidence_receipt_invalid",
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    _validate_browser_receipt(
+        browser_payload,
+        slug=slug,
+        generated_at=pending["generated_at"],  # type: ignore[arg-type]
+        video_sha256=str(pending["video_sha256"]),
+        base_manifest_sha256=str(pending["base_manifest_sha256"]),
+        staged_manifest_sha256=str(pending["staged_manifest_sha256"]),
+        delivery_digest=str(pending["delivery_digest"]),
+        video_duration=float(pending["video_duration"]),
+    )
+    browser_sha256 = hashlib.sha256(bundle.browser_receipt_bytes).hexdigest()
+    _validate_evidence(
+        evidence_payload,
+        slug=slug,
+        generated_at=pending["generated_at"],  # type: ignore[arg-type]
+        video_sha256=str(pending["video_sha256"]),
+        video_probe={
+            "size_bytes": int(pending["video_size_bytes"]),
+            "duration_seconds": float(pending["video_duration"]),
+        },
+        source_receipt_sha256=str(pending["source_receipt_sha256"]),
+        base_manifest_sha256=str(pending["base_manifest_sha256"]),
+        staged_manifest_sha256=str(pending["staged_manifest_sha256"]),
+        delivery_digest=str(pending["delivery_digest"]),
+        contact_sheet_sha256=contact_sheet_sha256,
+        browser_receipt_sha256=browser_sha256,
+        visual_review_sha256=visual_review_sha256,
+    )
+    return dict(browser_payload), dict(evidence_payload)
+
+
+def _copy_stable_private_video(
+    source: Path,
+    destination: Path,
+    *,
+    expected_sha256: str,
+    maximum_bytes: int,
+) -> StableFileSnapshot:
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(destination, flags, 0o600)
+    created = True
+    try:
+        try:
+            snapshot = read_stable_bounded_file(
+                source,
+                reason="magicfit_private_review_input_changed",
+                maximum_bytes=maximum_bytes,
+                capture_body=False,
+                copy_to_fd=descriptor,
+            )
+        except MagicFitSecureIOError as exc:
+            raise SystemExit("magicfit_private_review_input_changed") from exc
+        if snapshot.sha256 != expected_sha256:
+            raise SystemExit("magicfit_private_review_input_changed")
+        os.fsync(descriptor)
+        os.close(descriptor)
+        descriptor = -1
+        destination.chmod(0o600)
+        _fsync_directory(destination.parent)
+        return snapshot
+    except BaseException as original:
+        close_error: BaseException | None = None
+        if descriptor >= 0:
+            try:
+                os.close(descriptor)
+            except BaseException as exc:
+                close_error = exc
+            descriptor = -1
+        if created:
+            try:
+                _unlink_created_private_file(destination)
+            except BaseException as cleanup_error:
+                raise cleanup_error from original
+        if close_error is not None:
+            raise close_error from original
         raise
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
 
 
 def _path_within(path: Path, root: Path) -> bool:
@@ -331,45 +520,26 @@ def _pending_bundle(
     *, bundle_dir: Path, slug: str, source_receipt_path: Path
 ) -> dict[str, object]:
     manifest_path = bundle_dir / "tour.json"
-    sidecar_path = bundle_dir / "tour.magicfit.json"
-    _require_existing_regular(
+    sidecar_path = bundle_dir / PENDING_POINTER_RELPATH
+    manifest, manifest_snapshot = _load_stable_json(
         manifest_path,
-        reason="magicfit_private_review_manifest",
+        error="magicfit_private_review_manifest_invalid",
         maximum_bytes=tour_manifest_max_bytes(),
     )
-    _require_existing_regular(
+    assert manifest_snapshot.body is not None
+    manifest_bytes = manifest_snapshot.body
+    if manifest.get("slug") != slug:
+        raise SystemExit("magicfit_private_review_manifest_binding_invalid")
+
+    sidecar, sidecar_snapshot = _load_stable_json(
         sidecar_path,
-        reason="magicfit_private_review_sidecar",
+        error="magicfit_private_review_pending_contract_invalid",
         maximum_bytes=tour_manifest_max_bytes(),
     )
-    manifest, manifest_bytes = _load_json_bytes(
-        manifest_path, error="magicfit_private_review_manifest_invalid"
-    )
-    if (
-        manifest.get("slug") != slug
-        or manifest.get("video_provider") != "magicfit"
-        or manifest.get("video_provider_backend_key") != "magicfit"
-        or manifest.get("video_sidecar_relpath") != "tour.magicfit.json"
-    ):
-        raise SystemExit("magicfit_private_review_manifest_binding_invalid")
-
-    video_relpath = _canonical_relpath(manifest.get("video_relpath"))
-    if not video_relpath:
-        raise SystemExit("magicfit_private_review_manifest_binding_invalid")
-    video_path = _local_file(bundle_dir, video_relpath)
-    if video_path is None:
-        raise SystemExit("magicfit_private_review_video_missing")
-    _require_existing_regular(
-        video_path,
-        reason="magicfit_private_review_video",
-        maximum_bytes=tour_asset_max_bytes(),
-    )
-
-    sidecar, sidecar_bytes = _load_json_bytes(
-        sidecar_path, error="magicfit_private_review_pending_contract_invalid"
-    )
+    assert sidecar_snapshot.body is not None
+    sidecar_bytes = sidecar_snapshot.body
     expected = {
-        "contract_name": DELIVERY_CONTRACT,
+        "contract_name": PENDING_DELIVERY_CONTRACT,
         "provider": "magicfit",
         "provider_key": "magicfit",
         "provider_backend_key": "magicfit",
@@ -377,26 +547,123 @@ def _pending_bundle(
         "status": "rendered_pending_delivery_acceptance",
         "acceptance_status": "pending",
         "launch_eligible": False,
+        "manifest_transform_contract": MANIFEST_TRANSFORM_CONTRACT,
+        "tour_slug": slug,
     }
     if set(sidecar) != PENDING_SIDECAR_FIELDS or any(
         sidecar.get(key) != value for key, value in expected.items()
     ):
         raise SystemExit("magicfit_private_review_pending_contract_invalid")
-    if sidecar.get("video_relpath") != video_relpath:
-        raise SystemExit("magicfit_private_review_pending_video_mismatch")
-
-    generated_at = _strict_utc(sidecar.get("generated_at"), require_z=False)
+    requested_target_relpath = _canonical_relpath(
+        sidecar.get("requested_target_relpath")
+    )
+    video_relpath = _canonical_relpath(sidecar.get("video_relpath"))
+    staged_video_relpath = _canonical_relpath(sidecar.get("staged_video_relpath"))
+    staged_manifest_relpath = _canonical_relpath(
+        sidecar.get("staged_manifest_relpath")
+    )
+    accepted_sidecar_relpath = _canonical_relpath(
+        sidecar.get("accepted_sidecar_relpath")
+    )
+    generated_at_text = sidecar.get("generated_at")
+    generated_at = _strict_utc(generated_at_text, require_z=False)
+    video_size_value = sidecar.get("video_size_bytes")
+    video_size_bytes = (
+        video_size_value
+        if isinstance(video_size_value, int) and not isinstance(video_size_value, bool)
+        else 0
+    )
+    coverage_value = sidecar.get("coverage_proof")
+    coverage_proof = dict(coverage_value) if isinstance(coverage_value, dict) else None
     video_sha256 = _valid_sha256(sidecar.get("video_sha256"))
     source_receipt_sha256 = _valid_sha256(sidecar.get("source_receipt_sha256"))
+    base_manifest_sha256 = _valid_sha256(sidecar.get("base_manifest_sha256"))
+    staged_manifest_sha256 = _valid_sha256(
+        sidecar.get("staged_manifest_sha256")
+    )
+    stage_parts = PurePosixPath(staged_video_relpath).parts
+    staged_video_path_value = PurePosixPath(staged_video_relpath)
+    staged_manifest_parts = PurePosixPath(staged_manifest_relpath).parts
+    accepted_sidecar_parts = PurePosixPath(accepted_sidecar_relpath).parts
+    delivery_digest = stage_parts[1] if len(stage_parts) >= 3 else ""
     now = datetime.now(timezone.utc)
     if (
         generated_at is None
+        or not isinstance(generated_at_text, str)
+        or not requested_target_relpath
+        or video_size_bytes <= 0
+        or coverage_proof is None
         or generated_at > now + MAX_FUTURE_SKEW
         or not video_sha256
         or not source_receipt_sha256
+        or not base_manifest_sha256
+        or not staged_manifest_sha256
+        or not video_relpath.startswith("magicfit-media/")
+        or f".{video_sha256}" not in PurePosixPath(video_relpath).stem
+        or len(stage_parts) != 3
+        or stage_parts[0] != ".magicfit-staging"
+        or staged_video_path_value.stem != "video"
+        or staged_video_path_value.suffix.lower() not in PUBLIC_VIDEO_EXTENSIONS
+        or SHA256_RE.fullmatch(delivery_digest) is None
+        or staged_manifest_parts
+        != (".magicfit-staging", delivery_digest, "tour.json")
+        or accepted_sidecar_parts
+        != (".magicfit-deliveries", f"{delivery_digest}.json")
     ):
         raise SystemExit("magicfit_private_review_pending_contract_invalid")
-    if _sha256_file(video_path) != video_sha256:
+
+    try:
+        expected_delivery_digest = _contract_delivery_digest(
+            slug=slug,
+            requested_target_relpath=requested_target_relpath,
+            video_relpath=video_relpath,
+            video_sha256=video_sha256,
+            video_size_bytes=video_size_bytes,
+            source_receipt_sha256=source_receipt_sha256,
+            base_manifest_sha256=base_manifest_sha256,
+            generated_at=generated_at_text,
+            coverage_proof=coverage_proof,
+        )
+    except ValueError as exc:
+        raise SystemExit("magicfit_private_review_pending_contract_invalid") from exc
+    if delivery_digest != expected_delivery_digest:
+        raise SystemExit("magicfit_private_review_pending_contract_invalid")
+    if _sha256_bytes(manifest_bytes) != base_manifest_sha256:
+        raise SystemExit("magicfit_private_review_manifest_changed")
+
+    staged_manifest_path = bundle_dir / staged_manifest_relpath
+    _staged_manifest, staged_manifest_snapshot = _load_stable_json(
+        staged_manifest_path,
+        error="magicfit_private_review_staged_manifest_invalid",
+        maximum_bytes=tour_manifest_max_bytes(),
+    )
+    assert staged_manifest_snapshot.body is not None
+    staged_manifest_bytes = staged_manifest_snapshot.body
+    if staged_manifest_snapshot.sha256 != staged_manifest_sha256:
+        raise SystemExit("magicfit_private_review_staged_manifest_invalid")
+    try:
+        require_exact_candidate_manifest(
+            staged_manifest_bytes=staged_manifest_bytes,
+            base_manifest_bytes=manifest_bytes,
+            slug=slug,
+            requested_target_relpath=requested_target_relpath,
+            video_relpath=video_relpath,
+            video_sha256=video_sha256,
+            video_size_bytes=video_size_bytes,
+            source_receipt_sha256=source_receipt_sha256,
+            generated_at=generated_at_text,
+            coverage_proof=coverage_proof,
+        )
+    except ValueError as exc:
+        raise SystemExit("magicfit_private_review_staged_manifest_invalid") from exc
+
+    video_path = bundle_dir / staged_video_relpath
+    video_snapshot = _stable_hash(
+        video_path,
+        reason="magicfit_private_review_video",
+        maximum_bytes=tour_asset_max_bytes(),
+    )
+    if video_snapshot.sha256 != video_sha256:
         raise SystemExit("magicfit_private_review_video_digest_mismatch")
 
     receipt_limit = bounded_env_int(
@@ -405,38 +672,55 @@ def _pending_bundle(
         minimum=1_024,
         maximum=8 * 1024 * 1024,
     )
-    _require_existing_regular(
-        source_receipt_path,
-        reason="magicfit_private_review_source_receipt",
-        maximum_bytes=receipt_limit,
-    )
-    source_receipt, source_bytes = _load_json_bytes(
+    source_receipt, source_snapshot = _load_stable_json(
         source_receipt_path,
         error="magicfit_private_review_source_receipt_invalid",
+        maximum_bytes=receipt_limit,
     )
+    assert source_snapshot.body is not None
+    source_bytes = source_snapshot.body
+    try:
+        validate_magicfit_source_receipt(source_receipt, slug=slug)
+        source_coverage_proof = coverage_proof_from_receipt(source_receipt)
+    except ValueError as exc:
+        raise SystemExit("magicfit_private_review_source_receipt_mismatch") from exc
     if (
-        _sha256_bytes(source_bytes) != source_receipt_sha256
-        or not _source_receipt_valid(source_receipt, slug=slug)
+        source_snapshot.sha256 != source_receipt_sha256
+        or source_coverage_proof != coverage_proof
     ):
         raise SystemExit("magicfit_private_review_source_receipt_mismatch")
 
-    probe = _video_probe(video_path)
+    probe = _video_probe(
+        video_path,
+        expected_size_bytes=video_snapshot.size_bytes,
+    )
     duration = float(probe["duration_seconds"])
     size_bytes = int(probe["size_bytes"])
-    if not math.isfinite(duration) or duration <= 0.0 or size_bytes <= 0:
+    if (
+        not math.isfinite(duration)
+        or duration <= 0.0
+        or size_bytes != video_size_bytes
+    ):
         raise SystemExit("magicfit_private_review_video_probe_invalid")
     return {
         "generated_at": generated_at,
         "manifest_path": manifest_path,
-        "manifest_sha256": _sha256_bytes(manifest_bytes),
+        "manifest_sha256": manifest_snapshot.sha256,
+        "base_manifest_sha256": base_manifest_sha256,
+        "staged_manifest_path": staged_manifest_path,
+        "staged_manifest_sha256": staged_manifest_sha256,
+        "delivery_digest": delivery_digest,
         "sidecar_path": sidecar_path,
-        "sidecar_sha256": _sha256_bytes(sidecar_bytes),
+        "sidecar_sha256": sidecar_snapshot.sha256,
         "source_receipt_path": source_receipt_path,
         "source_receipt_sha256": source_receipt_sha256,
         "video_path": video_path,
         "video_sha256": video_sha256,
         "video_duration": duration,
         "video_size_bytes": size_bytes,
+        "manifest_max_bytes": tour_manifest_max_bytes(),
+        "source_receipt_max_bytes": receipt_limit,
+        "video_max_bytes": tour_asset_max_bytes(),
     }
 
 
@@ -446,38 +730,48 @@ def _visual_review(
     slug: str,
     generated_at: datetime,
     video_sha256: str,
+    base_manifest_sha256: str,
+    staged_manifest_sha256: str,
+    delivery_digest: str,
 ) -> dict[str, bool]:
-    _require_existing_regular(
+    checklist, _snapshot = _visual_review_with_snapshot(
+        path=path,
+        slug=slug,
+        generated_at=generated_at,
+        video_sha256=video_sha256,
+        base_manifest_sha256=base_manifest_sha256,
+        staged_manifest_sha256=staged_manifest_sha256,
+        delivery_digest=delivery_digest,
+    )
+    return checklist
+
+
+def _visual_review_with_snapshot(
+    *,
+    path: Path,
+    slug: str,
+    generated_at: datetime,
+    video_sha256: str,
+    base_manifest_sha256: str,
+    staged_manifest_sha256: str,
+    delivery_digest: str,
+) -> tuple[dict[str, bool], StableFileSnapshot]:
+    payload, snapshot = _load_stable_json(
         path,
-        reason="magicfit_private_visual_review",
+        error="magicfit_private_visual_review_invalid",
         maximum_bytes=64 * 1024,
     )
-    payload, _body = _load_json_bytes(
-        path, error="magicfit_private_visual_review_invalid"
+    checklist = _validate_visual_review(
+        payload,
+        slug=slug,
+        generated_at=generated_at,
+        video_sha256=video_sha256,
+        base_manifest_sha256=base_manifest_sha256,
+        staged_manifest_sha256=staged_manifest_sha256,
+        delivery_digest=delivery_digest,
+        error_prefix="magicfit_private",
     )
-    if (
-        set(payload) != VISUAL_REVIEW_FIELDS
-        or payload.get("schema") != VISUAL_REVIEW_CONTRACT
-        or payload.get("status") != "pass"
-        or payload.get("provider") != "magicfit"
-        or payload.get("target_slug") != slug
-        or payload.get("video_sha256") != video_sha256
-    ):
-        raise SystemExit("magicfit_private_visual_review_contract_invalid")
-    observed_at = _strict_utc(payload.get("observed_at"), require_z=True)
-    now = datetime.now(timezone.utc)
-    if (
-        observed_at is None
-        or observed_at < generated_at
-        or observed_at > now + MAX_FUTURE_SKEW
-    ):
-        raise SystemExit("magicfit_private_visual_review_timestamp_invalid")
-    checklist = payload.get("checklist")
-    if not isinstance(checklist, dict) or set(checklist) != REVIEW_CHECKS:
-        raise SystemExit("magicfit_private_visual_review_checklist_invalid")
-    if not all(checklist.get(key) is True for key in REVIEW_CHECKS):
-        raise SystemExit("magicfit_private_visual_review_checklist_failed")
-    return {key: True for key in sorted(REVIEW_CHECKS)}
+    return checklist, snapshot
 
 
 class _PrivateReviewServer(ThreadingHTTPServer):
@@ -642,7 +936,27 @@ def _playback_worker(args: argparse.Namespace) -> int:
     slug = _canonical_relpath(args.slug)
     if not slug or "/" in slug:
         raise SystemExit("magicfit_private_review_worker_slug_invalid")
+    video_sha256 = _valid_sha256(getattr(args, "video_sha256", None))
+    base_manifest_sha256 = _valid_sha256(
+        getattr(args, "base_manifest_sha256", None)
+    )
+    staged_manifest_sha256 = _valid_sha256(
+        getattr(args, "staged_manifest_sha256", None)
+    )
+    delivery_digest = _valid_sha256(getattr(args, "delivery_digest", None))
+    if not all(
+        (
+            video_sha256,
+            base_manifest_sha256,
+            staged_manifest_sha256,
+            delivery_digest,
+        )
+    ):
+        raise SystemExit("magicfit_private_review_worker_binding_invalid")
     route = f"/tours/{slug}/walkthrough"
+    receipt_route = (
+        f"operator-review://propertyquarry/magicfit/{slug}/{video_sha256}"
+    )
     review_url = _worker_url(args.review_url)
     token_path = Path(args.token_file).expanduser().resolve()
     result_path = Path(args.result_file).expanduser().resolve()
@@ -723,8 +1037,9 @@ def _playback_worker(args: argparse.Namespace) -> int:
                     "route": urlsplit(str(request.url or "")).path,
                 }
                 if row == expected_benign:
-                    if row not in benign_request_aborts:
-                        benign_request_aborts.append(row)
+                    receipt_row = {**row, "route": receipt_route}
+                    if receipt_row not in benign_request_aborts:
+                        benign_request_aborts.append(receipt_row)
                 elif len(request_failures) < 20:
                     request_failures.append(row)
 
@@ -815,9 +1130,12 @@ def _playback_worker(args: argparse.Namespace) -> int:
         "provider": "magicfit",
         "target_slug": slug,
         "observed_at": _utc_now(),
-        "route": route,
+        "route": receipt_route,
         "http_status": http_status,
-        "video_sha256": args.video_sha256,
+        "video_sha256": video_sha256,
+        "base_manifest_sha256": base_manifest_sha256,
+        "staged_manifest_sha256": staged_manifest_sha256,
+        "delivery_digest": delivery_digest,
         "duration_seconds": duration if finite_metrics else 0.0,
         "final_current_time": final_current_time if finite_metrics else 0.0,
         "playback_to_end": playback_to_end,
@@ -836,6 +1154,9 @@ def _run_browser_playback(
     slug: str,
     video_path: Path,
     video_sha256: str,
+    base_manifest_sha256: str,
+    staged_manifest_sha256: str,
+    delivery_digest: str,
     runtime_dir: Path,
     timeout_seconds: int,
 ) -> dict[str, Any]:
@@ -869,6 +1190,12 @@ def _run_browser_playback(
                 str(result_path),
                 "--video-sha256",
                 video_sha256,
+                "--base-manifest-sha256",
+                base_manifest_sha256,
+                "--staged-manifest-sha256",
+                staged_manifest_sha256,
+                "--delivery-digest",
+                delivery_digest,
                 "--timeout-ms",
                 str(timeout_seconds * 1000),
             ]
@@ -885,13 +1212,10 @@ def _run_browser_playback(
             )
         if result.returncode != 0:
             raise SystemExit("magicfit_private_review_browser_failed")
-        _require_existing_regular(
+        payload, _snapshot = _load_stable_json(
             result_path,
-            reason="magicfit_private_review_browser_result",
+            error="magicfit_private_review_browser_result_invalid",
             maximum_bytes=WORKER_RESULT_MAX_BYTES,
-        )
-        payload, _body = _load_json_bytes(
-            result_path, error="magicfit_private_review_browser_result_invalid"
         )
         return payload
     finally:
@@ -921,117 +1245,314 @@ def _main(args: argparse.Namespace) -> int:
     )
 
     browser_only = bool(args.browser_only)
-    browser_path = Path(args.browser_receipt_out).expanduser().resolve()
+    browser_value = str(args.browser_receipt_out or "").strip()
     evidence_value = str(args.evidence_receipt_out or "").strip()
-    if browser_only and evidence_value:
-        evidence_candidate = Path(evidence_value).expanduser().resolve()
-        if browser_path == evidence_candidate:
-            raise SystemExit("magicfit_private_review_output_collision")
-        raise SystemExit("magicfit_private_review_browser_only_pair_arguments_forbidden")
-    if browser_only and (
-        str(args.contact_sheet or "").strip()
-        or str(args.visual_review or "").strip()
-    ):
-        raise SystemExit("magicfit_private_review_browser_only_pair_arguments_forbidden")
-    evidence_path = (
-        None if browser_only else Path(evidence_value).expanduser().resolve()
-    )
-    if evidence_path is not None and browser_path == evidence_path:
-        raise SystemExit("magicfit_private_review_output_collision")
-    output_paths = (browser_path,) if evidence_path is None else (browser_path, evidence_path)
-    for path in output_paths:
-        _require_private_path(
-            path, reason="magicfit_private_review_public_output_forbidden"
+    review_root_value = str(args.review_bundle_root or "").strip()
+    browser_path: Path | None = None
+    review_bundle_root: Path | None = None
+    if browser_only:
+        if (
+            evidence_value
+            or review_root_value
+            or str(args.contact_sheet or "").strip()
+            or str(args.visual_review or "").strip()
+        ):
+            raise SystemExit(
+                "magicfit_private_review_browser_only_pair_arguments_forbidden"
+            )
+        browser_path = _lexical_path(
+            browser_value,
+            reason="magicfit_private_review_browser_receipt_invalid",
         )
-        if not path.parent.is_dir() or path.parent.is_symlink():
+        _require_private_path(
+            browser_path, reason="magicfit_private_review_public_output_forbidden"
+        )
+        if not browser_path.parent.is_dir() or browser_path.parent.is_symlink():
             raise SystemExit("magicfit_private_review_output_parent_invalid")
-        if path.exists() or path.is_symlink():
-            raise SystemExit("magicfit_private_review_output_exists")
+    else:
+        if browser_value or evidence_value:
+            raise SystemExit(
+                "magicfit_private_review_legacy_loose_outputs_forbidden"
+            )
+        review_bundle_root = _lexical_path(
+            review_root_value,
+            reason="magicfit_private_review_receipt_bundle_root_invalid",
+        )
+        _require_private_path(
+            review_bundle_root,
+            reason="magicfit_private_review_public_output_forbidden",
+        )
+        try:
+            root_details = review_bundle_root.stat(follow_symlinks=False)
+        except OSError as exc:
+            raise SystemExit(
+                "magicfit_private_review_receipt_bundle_root_invalid"
+            ) from exc
+        if (
+            stat.S_ISLNK(root_details.st_mode)
+            or not stat.S_ISDIR(root_details.st_mode)
+            or root_details.st_uid != os.geteuid()
+            or stat.S_IMODE(root_details.st_mode) != 0o700
+        ):
+            raise SystemExit("magicfit_private_review_receipt_bundle_root_invalid")
+    output_parent = browser_path.parent if browser_path is not None else review_bundle_root
+    assert output_parent is not None
 
-    source_receipt = Path(args.source_receipt).expanduser().resolve()
+    source_receipt = _lexical_path(
+        args.source_receipt,
+        reason="magicfit_private_review_source_receipt_invalid",
+    )
     pending = _pending_bundle(
         bundle_dir=bundle_dir,
         slug=slug,
         source_receipt_path=source_receipt,
     )
+    timeout_seconds = max(15, min(int(args.timeout_seconds), 180))
+    base_result: dict[str, object] = {
+        "provider": "magicfit",
+        "target_slug": slug,
+        "proof_transport": "ephemeral_token_gated_loopback_review_server",
+        "public_route_proof": False,
+        "acceptance_status": "pending",
+        "launch_eligible": False,
+        "reviewer_authority_generated": False,
+        "published": False,
+        "base_manifest_sha256": str(pending["base_manifest_sha256"]),
+        "staged_manifest_sha256": str(pending["staged_manifest_sha256"]),
+        "delivery_digest": str(pending["delivery_digest"]),
+        "execution_boundary": {
+            "kind": "transient_user_systemd_scope",
+            "memory_max_bytes": WORKER_MEMORY_MAX_BYTES,
+            "memory_swap_max_bytes": WORKER_SWAP_MAX_BYTES,
+            "tasks_max": WORKER_TASKS_MAX,
+            "cpu_quota_percent": WORKER_CPU_MAX_RATIO * 100.0,
+            "runtime_max_seconds": timeout_seconds + 20,
+        },
+    }
+    if browser_only:
+        assert browser_path is not None
+        try:
+            existing_browser = read_stable_bounded_bytes(
+                browser_path,
+                reason="magicfit_private_review_browser_receipt_invalid",
+                maximum_bytes=64 * 1024,
+            )
+        except MagicFitSecureIOError as exc:
+            if not exc.missing:
+                raise SystemExit(str(exc)) from exc
+        else:
+            try:
+                current_browser_identity = stat_regular_file_identity(
+                    browser_path,
+                    reason="magicfit_private_review_browser_receipt_invalid",
+                )
+            except MagicFitSecureIOError as exc:
+                raise SystemExit(str(exc)) from exc
+            if (
+                stat.S_IMODE(existing_browser.identity[2]) != 0o600
+                or current_browser_identity != existing_browser.identity
+            ):
+                raise SystemExit("magicfit_private_review_browser_receipt_invalid")
+            assert existing_browser.body is not None
+            try:
+                existing_browser_payload = strict_json_object_bytes(
+                    existing_browser.body,
+                    reason="magicfit_private_review_browser_receipt_invalid",
+                )
+            except ValueError as exc:
+                raise SystemExit(str(exc)) from exc
+            _validate_browser_receipt(
+                existing_browser_payload,
+                slug=slug,
+                generated_at=pending["generated_at"],  # type: ignore[arg-type]
+                video_sha256=str(pending["video_sha256"]),
+                base_manifest_sha256=str(pending["base_manifest_sha256"]),
+                staged_manifest_sha256=str(pending["staged_manifest_sha256"]),
+                delivery_digest=str(pending["delivery_digest"]),
+                video_duration=float(pending["video_duration"]),
+            )
+            print(
+                json.dumps(
+                    {
+                        "status": "private_browser_playback_ready",
+                        "proof_scope": "private_technical_playback_only",
+                        **base_result,
+                        "browser_receipt_sha256": existing_browser.sha256,
+                        "receipt_recovered": True,
+                    },
+                    ensure_ascii=False,
+                )
+            )
+            return 0
     contact_sheet: Path | None = None
     visual_review: Path | None = None
     contact_sheet_sha256 = ""
     visual_review_sha256 = ""
     checklist: dict[str, bool] = {}
     if not browser_only:
-        contact_sheet = Path(args.contact_sheet).expanduser().resolve()
-        visual_review = Path(args.visual_review).expanduser().resolve()
+        contact_sheet = _lexical_path(
+            args.contact_sheet,
+            reason="magicfit_private_review_contact_sheet_invalid",
+        )
+        visual_review = _lexical_path(
+            args.visual_review,
+            reason="magicfit_private_visual_review_invalid",
+        )
         contact_limit = bounded_env_int(
             "PROPERTYQUARRY_MAGICFIT_CONTACT_SHEET_MAX_BYTES",
             default=32 * 1024 * 1024,
             minimum=1_024,
             maximum=128 * 1024 * 1024,
         )
-        _require_existing_regular(
+        contact_snapshot = _stable_bytes(
             contact_sheet,
             reason="magicfit_private_review_contact_sheet",
             maximum_bytes=contact_limit,
         )
+        assert contact_snapshot.body is not None
         try:
-            image_header = contact_sheet.read_bytes()[:12]
-        except OSError as exc:
-            raise SystemExit("magicfit_private_review_contact_sheet_invalid") from exc
-        if not (
-            image_header.startswith(b"\x89PNG\r\n\x1a\n")
-            or image_header.startswith(b"\xff\xd8\xff")
-        ):
+            validate_magicfit_contact_sheet_bytes(
+                contact_snapshot.body,
+                maximum_bytes=contact_limit,
+            )
+        except MagicFitContactSheetError:
             raise SystemExit("magicfit_private_review_contact_sheet_invalid")
-        contact_sheet_sha256 = _sha256_file(contact_sheet)
-        visual_review_sha256 = _sha256_file(visual_review)
-        checklist = _visual_review(
+        contact_sheet_sha256 = contact_snapshot.sha256
+        checklist, visual_snapshot = _visual_review_with_snapshot(
             path=visual_review,
             slug=slug,
             generated_at=pending["generated_at"],  # type: ignore[arg-type]
             video_sha256=str(pending["video_sha256"]),
+            base_manifest_sha256=str(pending["base_manifest_sha256"]),
+            staged_manifest_sha256=str(pending["staged_manifest_sha256"]),
+            delivery_digest=str(pending["delivery_digest"]),
         )
-    timeout_seconds = max(15, min(int(args.timeout_seconds), 180))
+        visual_review_sha256 = visual_snapshot.sha256
+        assert review_bundle_root is not None
+        committed_path = review_bundle_root / str(pending["delivery_digest"])
+        try:
+            existing_bundle = load_magicfit_review_receipt_bundle(
+                committed_path,
+                expected_delivery_digest=str(pending["delivery_digest"]),
+                reason="magicfit_private_review_receipt_bundle_invalid",
+            )
+        except MagicFitSecureIOError as exc:
+            if not exc.missing:
+                raise SystemExit(str(exc)) from exc
+        else:
+            _validate_committed_receipt_bundle(
+                existing_bundle,
+                slug=slug,
+                pending=pending,
+                contact_sheet_sha256=contact_sheet_sha256,
+                visual_review_sha256=visual_review_sha256,
+            )
+            print(
+                json.dumps(
+                    {
+                        "status": "private_review_evidence_ready",
+                        "proof_scope": (
+                            "private_technical_and_operator_review_evidence"
+                        ),
+                        **base_result,
+                        "review_bundle": str(existing_bundle.path),
+                        "review_bundle_manifest_sha256": hashlib.sha256(
+                            existing_bundle.manifest_bytes
+                        ).hexdigest(),
+                        "browser_receipt_sha256": hashlib.sha256(
+                            existing_bundle.browser_receipt_bytes
+                        ).hexdigest(),
+                        "evidence_receipt_sha256": hashlib.sha256(
+                            existing_bundle.evidence_receipt_bytes
+                        ).hexdigest(),
+                        "visual_review_sha256": visual_review_sha256,
+                        "receipt_bundle_recovered": True,
+                    },
+                    ensure_ascii=False,
+                )
+            )
+            return 0
     try:
         require_free_disk(
-            browser_path.parent,
+            output_parent,
             reason_prefix="magicfit_private_review",
-            expected_write_bytes=128 * 1024,
+            expected_write_bytes=int(pending["video_size_bytes"]) + 128 * 1024,
         )
     except TourHostSafetyError as exc:
         raise SystemExit(str(exc)) from exc
 
     with tempfile.TemporaryDirectory(
-        prefix=".magicfit-private-review-", dir=browser_path.parent
+        prefix=".magicfit-private-review-", dir=output_parent
     ) as runtime_name:
         runtime_dir = Path(runtime_name)
         runtime_dir.chmod(0o700)
+        review_video = runtime_dir / (
+            f"review-video{Path(pending['video_path']).suffix.lower()}"
+        )
+        review_video_snapshot = _copy_stable_private_video(
+            pending["video_path"],  # type: ignore[arg-type]
+            review_video,
+            expected_sha256=str(pending["video_sha256"]),
+            maximum_bytes=int(pending["video_max_bytes"]),
+        )
+        if review_video_snapshot.size_bytes != int(pending["video_size_bytes"]):
+            raise SystemExit("magicfit_private_review_input_changed")
         browser_payload = _run_browser_playback(
             slug=slug,
-            video_path=pending["video_path"],  # type: ignore[arg-type]
+            video_path=review_video,
             video_sha256=str(pending["video_sha256"]),
+            base_manifest_sha256=str(pending["base_manifest_sha256"]),
+            staged_manifest_sha256=str(pending["staged_manifest_sha256"]),
+            delivery_digest=str(pending["delivery_digest"]),
             runtime_dir=runtime_dir,
             timeout_seconds=timeout_seconds,
         )
 
-    unchanged_files: list[tuple[Path, object]] = [
-        (pending["manifest_path"], pending["manifest_sha256"]),
-        (pending["sidecar_path"], pending["sidecar_sha256"]),
-        (pending["source_receipt_path"], pending["source_receipt_sha256"]),
-        (pending["video_path"], pending["video_sha256"]),
+    unchanged_files: list[tuple[Path, object, int]] = [
+        (
+            pending["manifest_path"],
+            pending["manifest_sha256"],
+            pending["manifest_max_bytes"],
+        ),
+        (
+            pending["staged_manifest_path"],
+            pending["staged_manifest_sha256"],
+            pending["manifest_max_bytes"],
+        ),
+        (
+            pending["sidecar_path"],
+            pending["sidecar_sha256"],
+            pending["manifest_max_bytes"],
+        ),
+        (
+            pending["source_receipt_path"],
+            pending["source_receipt_sha256"],
+            pending["source_receipt_max_bytes"],
+        ),
+        (
+            pending["video_path"],
+            pending["video_sha256"],
+            pending["video_max_bytes"],
+        ),
     ]  # type: ignore[list-item]
     if contact_sheet is not None and visual_review is not None:
         unchanged_files.extend(
             (
-                (contact_sheet, contact_sheet_sha256),
-                (visual_review, visual_review_sha256),
+                (contact_sheet, contact_sheet_sha256, contact_limit),
+                (visual_review, visual_review_sha256, 64 * 1024),
             )
         )
     try:
         changed = any(
-            _sha256_file(path) != expected
-            for path, expected in unchanged_files
+            hash_stable_bounded_file(
+                path,
+                reason="magicfit_private_review_input_changed",
+                maximum_bytes=maximum_bytes,
+            ).sha256
+            != expected
+            for path, expected, maximum_bytes in unchanged_files
         )
-    except OSError as exc:
+    except MagicFitSecureIOError as exc:
         raise SystemExit("magicfit_private_review_input_changed") from exc
     if changed:
         raise SystemExit("magicfit_private_review_input_changed")
@@ -1041,29 +1562,18 @@ def _main(args: argparse.Namespace) -> int:
         slug=slug,
         generated_at=pending["generated_at"],  # type: ignore[arg-type]
         video_sha256=str(pending["video_sha256"]),
+        base_manifest_sha256=str(pending["base_manifest_sha256"]),
+        staged_manifest_sha256=str(pending["staged_manifest_sha256"]),
+        delivery_digest=str(pending["delivery_digest"]),
         video_duration=float(pending["video_duration"]),
     )
     browser_body = _json_bytes(browser_payload)
     common_result: dict[str, object] = {
-        "provider": "magicfit",
-        "target_slug": slug,
-        "proof_transport": "ephemeral_token_gated_loopback_review_server",
-        "public_route_proof": False,
-        "acceptance_status": "pending",
-        "launch_eligible": False,
-        "reviewer_authority_generated": False,
-        "published": False,
-        "execution_boundary": {
-            "kind": "transient_user_systemd_scope",
-            "memory_max_bytes": WORKER_MEMORY_MAX_BYTES,
-            "memory_swap_max_bytes": WORKER_SWAP_MAX_BYTES,
-            "tasks_max": WORKER_TASKS_MAX,
-            "cpu_quota_percent": WORKER_CPU_MAX_RATIO * 100.0,
-            "runtime_max_seconds": timeout_seconds + 20,
-        },
+        **base_result,
         "browser_receipt_sha256": hashlib.sha256(browser_body).hexdigest(),
     }
     if browser_only:
+        assert browser_path is not None
         _write_private_file_exclusive(browser_path, browser_body)
         print(
             json.dumps(
@@ -1077,7 +1587,7 @@ def _main(args: argparse.Namespace) -> int:
         )
         return 0
 
-    if contact_sheet is None or evidence_path is None:
+    if contact_sheet is None or review_bundle_root is None:
         raise SystemExit("magicfit_private_review_internal_contract_invalid")
     evidence_payload: dict[str, object] = {
         "schema": EVIDENCE_CONTRACT,
@@ -1086,6 +1596,9 @@ def _main(args: argparse.Namespace) -> int:
         "target_slug": slug,
         "observed_at": _utc_now(),
         "source_receipt_sha256": str(pending["source_receipt_sha256"]),
+        "base_manifest_sha256": str(pending["base_manifest_sha256"]),
+        "staged_manifest_sha256": str(pending["staged_manifest_sha256"]),
+        "delivery_digest": str(pending["delivery_digest"]),
         "video": {
             "sha256": str(pending["video_sha256"]),
             "size_bytes": int(pending["video_size_bytes"]),
@@ -1095,6 +1608,7 @@ def _main(args: argparse.Namespace) -> int:
         "artifacts": {
             "contact_sheet_sha256": contact_sheet_sha256,
             "browser_receipt_sha256": hashlib.sha256(browser_body).hexdigest(),
+            "visual_review_sha256": visual_review_sha256,
         },
     }
     if set(evidence_payload) != EVIDENCE_FIELDS or set(
@@ -1111,15 +1625,30 @@ def _main(args: argparse.Namespace) -> int:
             "duration_seconds": float(pending["video_duration"]),
         },
         source_receipt_sha256=str(pending["source_receipt_sha256"]),
+        base_manifest_sha256=str(pending["base_manifest_sha256"]),
+        staged_manifest_sha256=str(pending["staged_manifest_sha256"]),
+        delivery_digest=str(pending["delivery_digest"]),
         contact_sheet_sha256=contact_sheet_sha256,
         browser_receipt_sha256=hashlib.sha256(browser_body).hexdigest(),
+        visual_review_sha256=visual_review_sha256,
     )
     evidence_body = _json_bytes(evidence_payload)
-    _write_receipt_pair(
-        browser_path=browser_path,
-        browser_body=browser_body,
-        evidence_path=evidence_path,
-        evidence_body=evidence_body,
+    try:
+        committed_bundle = publish_magicfit_review_receipt_bundle(
+            review_bundle_root,
+            delivery_digest=str(pending["delivery_digest"]),
+            browser_receipt_bytes=browser_body,
+            evidence_receipt_bytes=evidence_body,
+            reason="magicfit_private_review_receipt_bundle_invalid",
+        )
+    except MagicFitSecureIOError as exc:
+        raise SystemExit(str(exc)) from exc
+    _validate_committed_receipt_bundle(
+        committed_bundle,
+        slug=slug,
+        pending=pending,
+        contact_sheet_sha256=contact_sheet_sha256,
+        visual_review_sha256=visual_review_sha256,
     )
     print(
         json.dumps(
@@ -1127,7 +1656,16 @@ def _main(args: argparse.Namespace) -> int:
                 "status": "private_review_evidence_ready",
                 "proof_scope": "private_technical_and_operator_review_evidence",
                 **common_result,
+                "visual_review_sha256": visual_review_sha256,
                 "evidence_receipt_sha256": hashlib.sha256(evidence_body).hexdigest(),
+                "review_bundle": str(committed_bundle.path),
+                "review_bundle_manifest_sha256": hashlib.sha256(
+                    committed_bundle.manifest_bytes
+                ).hexdigest(),
+                "receipt_bundle_recovered": (
+                    committed_bundle.browser_receipt_bytes != browser_body
+                    or committed_bundle.evidence_receipt_bytes != evidence_body
+                ),
             },
             ensure_ascii=False,
         )
@@ -1156,14 +1694,30 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--source-receipt")
     parser.add_argument("--contact-sheet")
     parser.add_argument("--visual-review")
-    parser.add_argument("--browser-receipt-out")
-    parser.add_argument("--evidence-receipt-out")
+    parser.add_argument(
+        "--review-bundle-root",
+        help=(
+            "Existing private mode-0700 parent for the digest-named committed "
+            "full-review receipt bundle."
+        ),
+    )
+    parser.add_argument(
+        "--browser-receipt-out",
+        help="Browser-only mode output; forbidden for a full review.",
+    )
+    parser.add_argument(
+        "--evidence-receipt-out",
+        help="Legacy loose output; always forbidden.",
+    )
     parser.add_argument("--timeout-seconds", type=int, default=60)
     parser.add_argument("--_playback-worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--review-url", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     parser.add_argument("--token-file", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     parser.add_argument("--result-file", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     parser.add_argument("--video-sha256", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+    parser.add_argument("--base-manifest-sha256", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+    parser.add_argument("--staged-manifest-sha256", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
+    parser.add_argument("--delivery-digest", default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     parser.add_argument("--timeout-ms", type=int, default=argparse.SUPPRESS, help=argparse.SUPPRESS)
     return parser
 
@@ -1176,10 +1730,11 @@ def main() -> int:
         "slug",
         "bundle_dir",
         "source_receipt",
-        "browser_receipt_out",
     ]
-    if not args.browser_only:
-        required.extend(("contact_sheet", "visual_review", "evidence_receipt_out"))
+    if args.browser_only:
+        required.append("browser_receipt_out")
+    else:
+        required.extend(("contact_sheet", "visual_review", "review_bundle_root"))
     missing = [name for name in required if not str(getattr(args, name) or "").strip()]
     if missing:
         raise SystemExit(f"magicfit_private_review_argument_missing:{missing[0]}")

@@ -121,7 +121,24 @@ Required behavior before promotion:
 
 ### Current Long-Running Flagship Goal (active)
 
-The active objective is continuous flagship readiness, not a narrow patch pass. Keep auditing, polishing, testing, and redeploying until PropertyQuarry is presentation-safe across the full customer journey. "Gold" means the product feels minimal, human-designed, specific, and reliable on phone and desktop, and every claim is backed by hard receipts rather than optimistic copy.
+The authoritative active objective is defined in
+`docs/PROPERTYQUARRY_GLOBAL_FLAGSHIP_GOAL.md`. Bring the preserved
+release-candidate worktree to a genuinely global flagship standard: close every
+safe local product, accessibility, internationalization, privacy/security,
+reliability, observability, operations, provenance, and customer-journey gap;
+then obtain exact-candidate cross-browser, production-like, and protected-live
+evidence. Core Gold must remain independently launchable when optional paid
+advanced visuals are unavailable. No local source, generated receipt, unsigned
+self-assertion, or historical live observation may be relabelled as launch
+authority.
+
+The goal continues until the terminal acceptance contract in that document is
+met for one exact clean candidate or an irreducible credential, legal/business,
+external-service, or explicit-authority blocker is evidenced precisely. Work may
+continue through safe local implementation, tests, builds, and read-only
+inspection. Pushing, publishing, purchasing, deploying, changing external
+services, activating traffic, or weakening a safeguard requires explicit user
+authority and the applicable independent controller.
 
 For every continuation pass, the objective is:
 

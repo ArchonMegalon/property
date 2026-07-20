@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -11,11 +12,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+try:
+    from import_magicfit_walkthrough import _load_magicfit_receipt
+    from property_magicfit_delivery_contract import validate_magicfit_source_receipt
+except ModuleNotFoundError:
+    from scripts.import_magicfit_walkthrough import _load_magicfit_receipt
+    from scripts.property_magicfit_delivery_contract import (
+        validate_magicfit_source_receipt,
+    )
+
 
 SIDECAR_NAMES = {
-    "magicfit": "tour.magicfit.json",
     "omagic": "tour.omagic.json",
 }
+SUPPORTED_PROVIDERS = ("magicfit", "omagic")
 
 
 def _utc_now() -> str:
@@ -71,31 +81,25 @@ def _probe_video(path: Path) -> dict[str, object]:
     return result
 
 
-def _validate_source(provider: str, source: dict[str, Any]) -> None:
+def _validate_source(
+    provider: str, source: dict[str, Any], *, slug: str = ""
+) -> None:
+    if provider == "magicfit":
+        try:
+            validate_magicfit_source_receipt(source, slug=slug)
+        except ValueError as exc:
+            raise RuntimeError("magicfit_strict_source_receipt_required") from exc
+        return
     if str(source.get("provider_key") or source.get("provider") or "").strip().lower() != provider:
         raise RuntimeError("provider_source_key_mismatch")
     if str(source.get("provider_backend_key") or "").strip().lower() != provider:
         raise RuntimeError("provider_source_backend_mismatch")
     if str(source.get("render_status") or "").strip().lower() != "completed":
         raise RuntimeError("provider_source_render_incomplete")
-    if provider == "magicfit":
-        if str(source.get("status") or "").strip().lower() != "rendered":
-            raise RuntimeError("magicfit_source_status_invalid")
-        if str(source.get("composition") or "") != "boundary_verified_frame_continuation":
-            raise RuntimeError("magicfit_source_continuity_unverified")
-        if int(source.get("segment_count") or 0) <= 0:
-            raise RuntimeError("magicfit_source_segment_count_invalid")
-        route_labels = list(source.get("route_labels") or [])
-        covered_labels = list(source.get("covered_route_labels") or [])
-        if not route_labels or route_labels != covered_labels:
-            raise RuntimeError("magicfit_source_route_coverage_invalid")
-        if source.get("full_decode_verified") is not True:
-            raise RuntimeError("magicfit_source_decode_unverified")
-    else:
-        if source.get("model_input_consumed") is not True:
-            raise RuntimeError("omagic_source_model_not_consumed")
-        if not str(source.get("model_input_consumption_proof") or "").strip():
-            raise RuntimeError("omagic_source_consumption_proof_missing")
+    if source.get("model_input_consumed") is not True:
+        raise RuntimeError("omagic_source_model_not_consumed")
+    if not str(source.get("model_input_consumption_proof") or "").strip():
+        raise RuntimeError("omagic_source_consumption_proof_missing")
 
 
 def _source_sidecar(
@@ -108,8 +112,10 @@ def _source_sidecar(
     model_relpath: str = "",
     model_sha256: str = "",
 ) -> dict[str, object]:
+    if provider == "magicfit":
+        raise RuntimeError("magicfit_shallow_public_sidecar_forbidden")
     payload: dict[str, object] = {
-        "provider": "MagicFit" if provider == "magicfit" else "OMagic",
+        "provider": "OMagic",
         "provider_key": provider,
         "provider_backend_key": provider,
         "status": "rendered",
@@ -121,40 +127,18 @@ def _source_sidecar(
         "source_receipt_sha256": _sha256(source_receipt_path),
         "generated_at": _utc_now(),
     }
-    if provider == "magicfit":
-        payload.update(
-            {
-                "composition": source["composition"],
-                "segment_count": int(source["segment_count"]),
-                "route_labels": list(source["route_labels"]),
-                "covered_route_labels": list(source["covered_route_labels"]),
-                "duration_seconds": float(metadata["duration_seconds"]),
-                "required_duration_seconds": float(source.get("required_duration_seconds") or 0.0),
-                "boundary_checks": list(source.get("boundary_checks") or []),
-                "transition_offsets_seconds": list(source.get("transition_offsets_seconds") or []),
-                "transition_seconds": float(source.get("transition_seconds") or 0.0),
-                "continuity_repair_status": str(source.get("continuity_repair_status") or ""),
-                "continuity_repairs": list(source.get("continuity_repairs") or []),
-                "output_frame_rate": str(source.get("output_frame_rate") or ""),
-                "source_frame_rates": list(source.get("source_frame_rates") or []),
-                "native_source_frame_rates": list(source.get("native_source_frame_rates") or []),
-                "motion_interpolation_status": str(source.get("motion_interpolation_status") or ""),
-                "motion_interpolation_method": str(source.get("motion_interpolation_method") or ""),
-            }
-        )
-    else:
-        payload.update(
-            {
-                "model_input_consumed": True,
-                "model_input_consumption_proof": str(source["model_input_consumption_proof"]),
-                "model_path": model_relpath,
-                "model_sha256": model_sha256,
-                "input_library_item_id": source.get("input_library_item_id"),
-                "output_library_item_id": source.get("output_library_item_id"),
-                "template_variant_id": str(source.get("template_variant_id") or ""),
-                "truth_boundary": "property-specific generated reconstruction; not a measured scan or native apartment walkthrough",
-            }
-        )
+    payload.update(
+        {
+            "model_input_consumed": True,
+            "model_input_consumption_proof": str(source["model_input_consumption_proof"]),
+            "model_path": model_relpath,
+            "model_sha256": model_sha256,
+            "input_library_item_id": source.get("input_library_item_id"),
+            "output_library_item_id": source.get("output_library_item_id"),
+            "template_variant_id": str(source.get("template_variant_id") or ""),
+            "truth_boundary": "property-specific generated reconstruction; not a measured scan or native apartment walkthrough",
+        }
+    )
     return payload
 
 
@@ -169,22 +153,45 @@ def materialize(
     model_path: Path | None = None,
 ) -> Path:
     normalized_provider = str(provider or "").strip().lower()
-    if normalized_provider not in SIDECAR_NAMES:
+    if normalized_provider not in SUPPORTED_PROVIDERS:
         raise RuntimeError("unsupported_provider")
     if not slug or "/" in slug or slug in {".", ".."}:
         raise RuntimeError("invalid_bundle_slug")
     if not video_path.is_file() or not source_receipt_path.is_file():
         raise RuntimeError("provider_source_artifact_missing")
-    source = _load_json(source_receipt_path)
-    _validate_source(normalized_provider, source)
-    metadata = _probe_video(video_path)
     if normalized_provider == "magicfit":
+        try:
+            source, _, _ = _load_magicfit_receipt(
+                str(source_receipt_path),
+                source=video_path,
+                slug=slug,
+                allow_unreceipted=False,
+            )
+        except SystemExit as exc:
+            raise RuntimeError(
+                f"magicfit_strict_source_receipt_required:{exc}"
+            ) from exc
         declared_sha = str(source.get("video_sha256") or "")
         if declared_sha and declared_sha != _sha256(video_path):
             raise RuntimeError("magicfit_video_hash_mismatch")
-        required_duration = float(source.get("required_duration_seconds") or 0.0)
-        if required_duration <= 0 or float(metadata["duration_seconds"]) + 0.25 < required_duration:
-            raise RuntimeError("magicfit_video_duration_below_contract")
+        handoff_command = shlex.join(
+            (
+                "python",
+                "scripts/import_magicfit_walkthrough.py",
+                "--slug",
+                slug,
+                "--video-path",
+                str(video_path),
+                "--source-receipt",
+                str(source_receipt_path),
+            )
+        )
+        raise RuntimeError(
+            f"magicfit_public_materialization_forbidden:{handoff_command}"
+        )
+    source = _load_json(source_receipt_path)
+    _validate_source(normalized_provider, source, slug=slug)
+    metadata = _probe_video(video_path)
     if normalized_provider == "omagic" and (model_path is None or not model_path.is_file()):
         raise RuntimeError("omagic_model_artifact_missing")
 
@@ -238,7 +245,7 @@ def materialize(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Materialize truthful PropertyQuarry provider-proof tour bundles.")
-    parser.add_argument("--provider", choices=sorted(SIDECAR_NAMES), required=True)
+    parser.add_argument("--provider", choices=SUPPORTED_PROVIDERS, required=True)
     parser.add_argument("--tour-root", default="state/public_property_tours")
     parser.add_argument("--slug", required=True)
     parser.add_argument("--title", required=True)

@@ -14,6 +14,48 @@ PROPERTYQUARRY_LOCALE_COOKIE = "pq_locale"
 PROPERTYQUARRY_PUBLIC_LOCALES = ("en", "de-AT", "de-DE", "es-CR")
 PROPERTYQUARRY_PSEUDO_LOCALE = "qps-ploc"
 PROPERTYQUARRY_MAX_LOCALIZED_HTML_BYTES = 2 * 1024 * 1024
+PROPERTYQUARRY_PUBLIC_ORIGIN = "https://propertyquarry.com"
+PROPERTYQUARRY_REQUIRED_CUSTOMER_ROUTE_TEMPLATES = (
+    "/",
+    "/pricing",
+    "/security",
+    "/support",
+    "/privacy",
+    "/terms",
+    "/cookies",
+    "/subprocessors",
+    "/refunds",
+    "/disclaimers",
+    "/imprint",
+    "/integrations",
+    "/docs",
+    "/guides/wohnung-kaufen-wien-checkliste",
+    "/markets/vienna",
+    "/sign-in",
+    "/register",
+    "/app/search",
+    "/app/properties",
+    "/app/shortlist",
+    "/app/agents",
+    "/app/alerts",
+    "/app/research",
+    "/app/account",
+    "/app/billing",
+    "/app/support",
+    "/app/settings/google",
+    "/app/settings/access",
+    "/app/settings/usage",
+    "/app/settings/support",
+    "/app/settings/trust",
+    "/app/settings/invitations",
+    "/app/settings/outcomes",
+    "/app/settings/plan",
+    "/app/properties/packets",
+    "/app/properties/notifications/preview",
+    "/app/research/{candidate_ref}",
+    "/app/shortlist/run/{run_id}",
+    "/tours/{slug}",
+)
 
 _LOCALE_LABELS = {
     "en": "English",
@@ -254,6 +296,153 @@ _TRANSLATIONS = {
     "es-CR": _ES_CR,
 }
 
+_LOCALIZED_SEO_COPY = {
+    "/": {
+        "en": (
+            "PropertyQuarry — Find, compare, and decide on property",
+            "Define your search, compare the strongest homes, open evidence-rich research, and keep every property decision in one workspace.",
+        ),
+        "de-AT": (
+            "PropertyQuarry – Immobilien finden, vergleichen und entscheiden",
+            "Legen Sie Ihre Suche fest, vergleichen Sie passende Immobilien und treffen Sie Entscheidungen mit nachvollziehbaren Unterlagen an einem Ort.",
+        ),
+        "de-DE": (
+            "PropertyQuarry – Immobilien finden, vergleichen und entscheiden",
+            "Legen Sie Ihre Suche fest, vergleichen Sie passende Immobilien und treffen Sie Entscheidungen mit nachvollziehbaren Unterlagen an einem Ort.",
+        ),
+        "es-CR": (
+            "PropertyQuarry — Encuentre, compare y decida sobre propiedades",
+            "Defina su búsqueda, compare las propiedades más adecuadas y tome decisiones con investigación verificable en un solo espacio.",
+        ),
+    },
+    "/pricing": {
+        "en": (
+            "PropertyQuarry Pricing",
+            "Compare PropertyQuarry plans by search coverage, research depth, property pages, and optional advanced visual features.",
+        ),
+        "de-AT": (
+            "PropertyQuarry Preise",
+            "Vergleichen Sie PropertyQuarry Tarife nach Suchabdeckung, Recherchetiefe, Immobilienseiten und optionalen erweiterten Visualisierungen.",
+        ),
+        "de-DE": (
+            "PropertyQuarry Preise",
+            "Vergleichen Sie PropertyQuarry Tarife nach Suchabdeckung, Recherchetiefe, Immobilienseiten und optionalen erweiterten Visualisierungen.",
+        ),
+        "es-CR": (
+            "Precios de PropertyQuarry",
+            "Compare los planes de PropertyQuarry por cobertura de búsqueda, profundidad de investigación, páginas de propiedades y funciones visuales opcionales.",
+        ),
+    },
+    "/security": {
+        "en": (
+            "PropertyQuarry Security",
+            "Review how PropertyQuarry protects account access, private searches, controlled sharing, and customer data.",
+        ),
+        "de-AT": (
+            "PropertyQuarry Sicherheit",
+            "Erfahren Sie, wie PropertyQuarry Kontozugriffe, private Suchen, kontrollierte Freigaben und Kundendaten schützt.",
+        ),
+        "de-DE": (
+            "PropertyQuarry Sicherheit",
+            "Erfahren Sie, wie PropertyQuarry Kontozugriffe, private Suchen, kontrollierte Freigaben und Kundendaten schützt.",
+        ),
+        "es-CR": (
+            "Seguridad de PropertyQuarry",
+            "Conozca cómo PropertyQuarry protege el acceso a la cuenta, las búsquedas privadas, el uso compartido y los datos de clientes.",
+        ),
+    },
+    "/support": {
+        "en": (
+            "PropertyQuarry Support",
+            "Get help with account access, searches, research, billing handoffs, and property workflows.",
+        ),
+        "de-AT": (
+            "PropertyQuarry Support",
+            "Erhalten Sie Hilfe bei Kontozugriff, Suche, Recherche, Abrechnung und Immobilienabläufen.",
+        ),
+        "de-DE": (
+            "PropertyQuarry Support",
+            "Erhalten Sie Hilfe bei Kontozugriff, Suche, Recherche, Abrechnung und Immobilienabläufen.",
+        ),
+        "es-CR": (
+            "Soporte de PropertyQuarry",
+            "Obtenga ayuda con el acceso a la cuenta, las búsquedas, la investigación, la facturación y los flujos de propiedades.",
+        ),
+    },
+    "/integrations": {
+        "en": (
+            "PropertyQuarry Integrations",
+            "See which PropertyQuarry integrations are available, which remain guided, and where review is required.",
+        ),
+        "de-AT": (
+            "PropertyQuarry Integrationen",
+            "Sehen Sie, welche PropertyQuarry Integrationen verfügbar oder begleitet sind und wo eine Prüfung erforderlich bleibt.",
+        ),
+        "de-DE": (
+            "PropertyQuarry Integrationen",
+            "Sehen Sie, welche PropertyQuarry Integrationen verfügbar oder begleitet sind und wo eine Prüfung erforderlich bleibt.",
+        ),
+        "es-CR": (
+            "Integraciones de PropertyQuarry",
+            "Conozca qué integraciones están disponibles o guiadas y dónde se requiere una revisión.",
+        ),
+    },
+    "/docs": {
+        "en": (
+            "PropertyQuarry Docs",
+            "Read the public guide to PropertyQuarry features, workflows, product boundaries, and evidence handling.",
+        ),
+        "de-AT": (
+            "PropertyQuarry Dokumentation",
+            "Lesen Sie den öffentlichen Leitfaden zu Funktionen, Abläufen, Produktgrenzen und Nachweisen in PropertyQuarry.",
+        ),
+        "de-DE": (
+            "PropertyQuarry Dokumentation",
+            "Lesen Sie den öffentlichen Leitfaden zu Funktionen, Abläufen, Produktgrenzen und Nachweisen in PropertyQuarry.",
+        ),
+        "es-CR": (
+            "Documentación de PropertyQuarry",
+            "Consulte la guía pública sobre funciones, flujos, límites del producto y manejo de evidencia en PropertyQuarry.",
+        ),
+    },
+    "/guides/wohnung-kaufen-wien-checkliste": {
+        "en": (
+            "Vienna apartment purchase checklist | PropertyQuarry",
+            "Use a structured checklist for documents, condition, location, financing, and follow-up when buying an apartment in Vienna.",
+        ),
+        "de-AT": (
+            "Checkliste für den Wohnungskauf in Wien | PropertyQuarry",
+            "Prüfen Sie Unterlagen, Zustand, Lage, Finanzierung und nächste Schritte beim Wohnungskauf in Wien mit einer klaren Checkliste.",
+        ),
+        "de-DE": (
+            "Checkliste für den Wohnungskauf in Wien | PropertyQuarry",
+            "Prüfen Sie Unterlagen, Zustand, Lage, Finanzierung und nächste Schritte beim Wohnungskauf in Wien mit einer klaren Checkliste.",
+        ),
+        "es-CR": (
+            "Lista para comprar un apartamento en Viena | PropertyQuarry",
+            "Revise documentos, condición, ubicación, financiamiento y próximos pasos al comprar un apartamento en Viena.",
+        ),
+    },
+    "/markets/vienna": {
+        "en": (
+            "Vienna property search | PropertyQuarry",
+            "Explore a structured Vienna property search with district context, comparable homes, evidence, and saved decisions.",
+        ),
+        "de-AT": (
+            "Immobiliensuche in Wien | PropertyQuarry",
+            "Suchen Sie strukturiert nach Immobilien in Wien – mit Bezirkskontext, vergleichbaren Objekten, Nachweisen und gespeicherten Entscheidungen.",
+        ),
+        "de-DE": (
+            "Immobiliensuche in Wien | PropertyQuarry",
+            "Suchen Sie strukturiert nach Immobilien in Wien – mit Bezirkskontext, vergleichbaren Objekten, Nachweisen und gespeicherten Entscheidungen.",
+        ),
+        "es-CR": (
+            "Búsqueda de propiedades en Viena | PropertyQuarry",
+            "Explore propiedades en Viena con contexto por distrito, comparables, evidencia y decisiones guardadas.",
+        ),
+    },
+}
+
 _STATUS_COPY = {
     "en": (
         "Language and translation status",
@@ -297,17 +486,72 @@ _HTML_TAG_RE = re.compile(r"<html\b(?P<attrs>[^>]*)>", re.IGNORECASE)
 _HTML_LANG_RE = re.compile(r"\s+lang\s*=\s*(['\"]).*?\1", re.IGNORECASE | re.DOTALL)
 _HEAD_CONTENT_RE = re.compile(r"<head\b[^>]*>(?P<content>.*?)</head\s*>", re.IGNORECASE | re.DOTALL)
 _META_TAG_RE = re.compile(r"<meta\b[^>]*>", re.IGNORECASE | re.DOTALL)
+_LINK_TAG_RE = re.compile(r"<link\b[^>]*>", re.IGNORECASE | re.DOTALL)
+_TITLE_TAG_RE = re.compile(r"<title\b[^>]*>.*?</title\s*>", re.IGNORECASE | re.DOTALL)
 _TAG_ATTRIBUTE_RE = re.compile(
     r"\b(?P<name>[A-Za-z_:][A-Za-z0-9_.:-]*)\s*=\s*"
     r"(?P<quote>['\"])(?P<value>.*?)(?P=quote)",
     re.DOTALL,
 )
 _TRANSLATED_ROUTE_RE = re.compile(
-    r"^/app/(?:search|properties|shortlist(?:/run/[^/]+)?|research(?:/[^/]+)?)/*$"
+    r"^(?:"
+    r"/|"
+    r"/(?:pricing|security|support|integrations|docs|sign-in|register)|"
+    r"/guides/wohnung-kaufen-wien-checkliste|"
+    r"/markets/vienna|"
+    r"/app/(?:search|properties|shortlist|agents|alerts|research|account|billing|support)|"
+    r"/app/settings/(?:google|access|usage|support|trust|invitations|outcomes|plan)|"
+    r"/app/properties/(?:packets|notifications/preview)|"
+    r"/app/research/[^/]+|"
+    r"/app/shortlist/run/[^/]+|"
+    r"/tours/[^/]+"
+    r")/*$"
+)
+_REQUIRED_ROUTE_RE = re.compile(
+    r"^(?:"
+    r"/|"
+    r"/(?:pricing|security|support|privacy|terms|cookies|subprocessors|refunds|disclaimers|imprint|integrations|docs|sign-in|register)|"
+    r"/guides/wohnung-kaufen-wien-checkliste|"
+    r"/markets/vienna|"
+    r"/app/(?:search|properties|shortlist|agents|alerts|research|account|billing|support)|"
+    r"/app/settings/(?:google|access|usage|support|trust|invitations|outcomes|plan)|"
+    r"/app/properties/(?:packets|notifications/preview)|"
+    r"/app/research/[^/]+|"
+    r"/app/shortlist/run/[^/]+|"
+    r"/tours/[^/]+"
+    r")/*$"
+)
+_LEGAL_ENGLISH_SOURCE_ROUTE_RE = re.compile(
+    r"^/(?:privacy|terms|cookies|subprocessors|refunds|disclaimers|imprint)/*$"
+)
+_INDEXABLE_LOCALIZED_ROUTES = frozenset(
+    {
+        "/",
+        "/pricing",
+        "/security",
+        "/support",
+        "/integrations",
+        "/docs",
+        "/guides/wohnung-kaufen-wien-checkliste",
+        "/markets/vienna",
+    }
 )
 _LOCALIZATION_SLOT = '<span data-pq-localization-slot></span>'
 _SAFE_QUERY_KEY_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
-_SENSITIVE_QUERY_KEY_PARTS = ("token", "secret", "password", "auth", "email", "code", "key")
+_SAFE_LOCALE_SELECTOR_QUERY_KEYS = frozenset(
+    {"run_id", "home", "pane", "autoplay", "view", "sort", "page"}
+)
+_SENSITIVE_QUERY_KEY_PARTS = (
+    "token",
+    "secret",
+    "password",
+    "auth",
+    "email",
+    "code",
+    "key",
+    "error",
+    "return",
+)
 _ACCEPT_LANGUAGE_Q_RE = re.compile(r"^(?:0(?:\.[0-9]{0,3})?|1(?:\.0{0,3})?)$")
 _PSEUDO_ACCENTS = str.maketrans(
     {
@@ -467,6 +711,17 @@ def propertyquarry_route_is_translated(path: str) -> bool:
     return bool(_TRANSLATED_ROUTE_RE.fullmatch(str(path or "")))
 
 
+def propertyquarry_required_route_translation_status(path: str) -> str:
+    normalized = str(path or "")
+    if not _REQUIRED_ROUTE_RE.fullmatch(normalized):
+        return "not_in_global_experience_contract"
+    if _LEGAL_ENGLISH_SOURCE_ROUTE_RE.fullmatch(normalized):
+        return "blocked_unreviewed_legal_source"
+    if _TRANSLATED_ROUTE_RE.fullmatch(normalized):
+        return "localized_route_shell_pending_native_review"
+    return "blocked_missing_route_localization"
+
+
 def _pseudo_localize(value: str) -> str:
     accented = value.translate(_PSEUDO_ACCENTS)
     expanded = re.sub(r"([àëïôüÀËÏÔÜ])", r"\1\1", accented)
@@ -490,14 +745,41 @@ def propertyquarry_translation_coverage(locale: str) -> dict[str, object]:
         raise ValueError("unsupported_propertyquarry_locale")
     source_messages = frozenset(_DE_AT)
     translated_messages = source_messages if normalized in {"en", PROPERTYQUARRY_PSEUDO_LOCALE} else frozenset(_TRANSLATIONS[normalized])
+    route_statuses = {
+        route: propertyquarry_required_route_translation_status(
+            route.replace("{candidate_ref}", "candidate-ref")
+            .replace("{run_id}", "run-id")
+            .replace("{slug}", "tour-slug")
+        )
+        for route in PROPERTYQUARRY_REQUIRED_CUSTOMER_ROUTE_TEMPLATES
+    }
+    localized_route_count = sum(
+        status == "localized_route_shell_pending_native_review"
+        for status in route_statuses.values()
+    )
+    blocked_routes = sorted(
+        route
+        for route, status in route_statuses.items()
+        if status != "localized_route_shell_pending_native_review"
+    )
     return {
         "locale": normalized,
         "critical_source_messages": len(source_messages),
         "critical_translated_messages": len(source_messages.intersection(translated_messages)),
         "missing_critical_messages": sorted(source_messages.difference(translated_messages)),
-        "coverage_scope": "critical_customer_ui_shell",
-        "english_fallback_scopes": ["legal", "provider_specific", "incomplete"],
+        "coverage_scope": "global_required_route_shell",
+        "required_customer_route_count": len(PROPERTYQUARRY_REQUIRED_CUSTOMER_ROUTE_TEMPLATES),
+        "localized_route_shell_count": localized_route_count,
+        "blocked_required_routes": blocked_routes,
+        "route_statuses": route_statuses,
+        "localized_indexable_route_count": len(_INDEXABLE_LOCALIZED_ROUTES),
+        "english_fallback_scopes": [
+            "unreviewed_legal_source",
+            "provider_specific",
+            "customer_or_listing_content",
+        ],
         "professional_review": False,
+        "native_launch_ready": False,
     }
 
 
@@ -505,7 +787,11 @@ def _safe_query_pairs(query_string: bytes | str) -> list[tuple[str, str]]:
     safe: list[tuple[str, str]] = []
     for key, value in _parse_query_pairs(query_string):
         lowered_key = key.casefold()
-        if key == "lang" or not _SAFE_QUERY_KEY_RE.fullmatch(key):
+        if (
+            key == "lang"
+            or lowered_key not in _SAFE_LOCALE_SELECTOR_QUERY_KEYS
+            or not _SAFE_QUERY_KEY_RE.fullmatch(key)
+        ):
             continue
         if any(part in lowered_key for part in _SENSITIVE_QUERY_KEY_PARTS):
             continue
@@ -534,12 +820,21 @@ def _localized_internal_url(value: str, *, locale: str) -> str:
     if parsed.scheme or parsed.netloc:
         return raw
     path = parsed.path
-    if (
-        (path != "/app" and not path.startswith("/app/"))
-        or path.startswith(("/app/api", "/app/assets", "/app/actions"))
+    if path == "/app":
+        route_is_localized = True
+    else:
+        route_is_localized = propertyquarry_route_is_translated(path)
+    if not route_is_localized or path.startswith(
+        ("/app/api", "/app/assets", "/app/actions", "/tours/files")
     ):
         return raw
-    query = [(key, item) for key, item in urllib.parse.parse_qsl(parsed.query, keep_blank_values=True) if key != "lang"]
+    query = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+    if any(
+        any(part in key.casefold() for part in _SENSITIVE_QUERY_KEY_PARTS)
+        for key, _item in query
+    ):
+        return raw
+    query = [(key, item) for key, item in query if key != "lang"]
     query.append(("lang", locale))
     return urllib.parse.urlunsplit(("", "", path, urllib.parse.urlencode(query), parsed.fragment))
 
@@ -586,6 +881,141 @@ def _set_html_lang(document: str, locale: str) -> str:
     return _HTML_TAG_RE.sub(replace, document, count=1)
 
 
+def _replace_meta_content(
+    head_content: str,
+    *,
+    attribute_name: str,
+    attribute_value: str,
+    content: str,
+) -> tuple[str, bool]:
+    expected_name = attribute_name.casefold()
+    expected_value = attribute_value.casefold()
+    replaced = False
+
+    def replace_tag(match: re.Match[str]) -> str:
+        nonlocal replaced
+        tag = match.group(0)
+        attributes = {
+            item.group("name").casefold(): html.unescape(item.group("value")).strip()
+            for item in _TAG_ATTRIBUTE_RE.finditer(tag)
+        }
+        if attributes.get(expected_name, "").casefold() != expected_value:
+            return tag
+        content_attribute = next(
+            (
+                item
+                for item in _TAG_ATTRIBUTE_RE.finditer(tag)
+                if item.group("name").casefold() == "content"
+            ),
+            None,
+        )
+        if content_attribute is None:
+            return tag
+        escaped = html.escape(content, quote=True)
+        replaced = True
+        return (
+            tag[: content_attribute.start("value")]
+            + escaped
+            + tag[content_attribute.end("value") :]
+        )
+
+    return _META_TAG_RE.sub(replace_tag, head_content), replaced
+
+
+def _localized_seo_url(path: str, locale: str) -> str:
+    base = f"{PROPERTYQUARRY_PUBLIC_ORIGIN}{path}"
+    if locale == "en":
+        return base
+    return f"{base}?{urllib.parse.urlencode({'lang': locale})}"
+
+
+def _localized_seo_head_markup(*, path: str, locale: str) -> str:
+    canonical = _localized_seo_url(path, locale)
+    alternates = [
+        (
+            target_locale,
+            _localized_seo_url(path, target_locale),
+        )
+        for target_locale in PROPERTYQUARRY_PUBLIC_LOCALES
+    ]
+    alternates.append(("x-default", _localized_seo_url(path, "en")))
+    links = "".join(
+        '<link data-pq-localization-seo rel="alternate" '
+        f'hreflang="{html.escape(hreflang, quote=True)}" '
+        f'href="{html.escape(href, quote=True)}">'
+        for hreflang, href in alternates
+    )
+    og_locale = {
+        "en": "en_US",
+        "de-AT": "de_AT",
+        "de-DE": "de_DE",
+        "es-CR": "es_CR",
+    }[locale]
+    return (
+        '<link data-pq-localization-seo rel="canonical" '
+        f'href="{html.escape(canonical, quote=True)}">'
+        f"{links}"
+        '<meta data-pq-localization-seo property="og:locale" '
+        f'content="{html.escape(og_locale, quote=True)}">'
+    )
+
+
+def _apply_localized_seo(document: str, *, path: str, locale: str) -> str:
+    route_copy = _LOCALIZED_SEO_COPY.get(path, {}).get(locale)
+    if path not in _INDEXABLE_LOCALIZED_ROUTES or route_copy is None:
+        return document
+    head_match = _HEAD_CONTENT_RE.search(document)
+    if head_match is None:
+        return document
+    title, description = route_copy
+    head_content = head_match.group("content")
+    escaped_title = html.escape(title, quote=False)
+    if _TITLE_TAG_RE.search(head_content):
+        head_content = _TITLE_TAG_RE.sub(
+            f"<title>{escaped_title}</title>", head_content, count=1
+        )
+    else:
+        head_content = f"<title>{escaped_title}</title>{head_content}"
+    for attribute_name, attribute_value, value in (
+        ("name", "description", description),
+        ("property", "og:title", title),
+        ("property", "og:description", description),
+        ("property", "og:url", _localized_seo_url(path, locale)),
+        ("name", "twitter:title", title),
+        ("name", "twitter:description", description),
+    ):
+        head_content, found = _replace_meta_content(
+            head_content,
+            attribute_name=attribute_name,
+            attribute_value=attribute_value,
+            content=value,
+        )
+        if not found:
+            head_content += (
+                f'<meta data-pq-localization-seo {attribute_name}="'
+                f'{html.escape(attribute_value, quote=True)}" content="'
+                f'{html.escape(value, quote=True)}">'
+            )
+
+    def remove_conflicting_links(match: re.Match[str]) -> str:
+        attributes = {
+            item.group("name").casefold(): html.unescape(item.group("value")).strip()
+            for item in _TAG_ATTRIBUTE_RE.finditer(match.group(0))
+        }
+        rel_values = {
+            item.casefold() for item in attributes.get("rel", "").split()
+        }
+        return "" if rel_values.intersection({"canonical", "alternate"}) else match.group(0)
+
+    head_content = _LINK_TAG_RE.sub(remove_conflicting_links, head_content)
+    head_content += _localized_seo_head_markup(path=path, locale=locale)
+    return (
+        document[: head_match.start("content")]
+        + head_content
+        + document[head_match.end("content") :]
+    )
+
+
 def _is_propertyquarry_document(document: str) -> bool:
     head_match = _HEAD_CONTENT_RE.search(str(document)[:131_072])
     if head_match is None:
@@ -616,7 +1046,7 @@ def _head_markup(
 ) -> str:
     return (
         '<meta data-pq-localization-head name="propertyquarry:translation-status" '
-        'content="critical-ui-shell; english-fallback-legal-provider-incomplete; not-professionally-reviewed">'
+        'content="global-route-shell; english-fallback-unreviewed-legal-provider-customer-content; independent-native-review-required">'
         '<link rel="stylesheet" href="/static/propertyquarry-localization.css">'
         f'<meta name="propertyquarry:locale" content="{html.escape(locale, quote=True)}">'
     )
@@ -642,8 +1072,8 @@ def _selector_markup(
     return (
         f'<aside class="pq-locale-panel" data-pq-localization-status data-pq-locale="{html.escape(locale, quote=True)}" '
         f'data-pq-localization-placement="{html.escape(placement, quote=True)}" '
-        'data-pq-localization-coverage="critical-customer-ui-shell" '
-        'data-pq-english-fallback="legal provider-specific incomplete" '
+        'data-pq-localization-coverage="global-required-route-shell" '
+        'data-pq-english-fallback="unreviewed-legal provider-specific customer-or-listing-content" '
         'data-pq-professional-review="false" role="note" '
         f'aria-label="{html.escape(heading, quote=True)}">'
         '<details class="pq-locale-disclosure">'
@@ -668,6 +1098,7 @@ def localize_propertyquarry_html(
     path: str,
     query_string: bytes | str = b"",
     preserve_locale_in_urls: bool = True,
+    include_localized_seo: bool = True,
 ) -> str:
     normalized_locale = normalize_propertyquarry_locale(locale, allow_pseudo=True)
     if normalized_locale is None:
@@ -687,6 +1118,12 @@ def localize_propertyquarry_html(
         for index, part in enumerate(parts)
     ]
     localized = _set_html_lang("".join(localized_parts), normalized_locale)
+    if include_localized_seo and normalized_locale in PROPERTYQUARRY_PUBLIC_LOCALES:
+        localized = _apply_localized_seo(
+            localized,
+            path=str(path or "").rstrip("/") or "/",
+            locale=normalized_locale,
+        )
     if "data-pq-localization-head" not in localized:
         localized = re.sub(
             r"</head\s*>",
@@ -789,7 +1226,7 @@ def _prepare_response_start(
         headers = _replace_single_header(
             headers,
             "X-PropertyQuarry-Translation-Status",
-            "critical-ui-shell; english-fallback-legal-provider-incomplete; not-professionally-reviewed",
+            "global-route-shell; english-fallback-unreviewed-legal-provider-customer-content; independent-native-review-required",
         )
     else:
         headers = _drop_headers(headers, "x-propertyquarry-translation-status")
@@ -832,7 +1269,11 @@ class PropertyQuarryLocalizationMiddleware:
         request_headers = list(scope.get("headers") or [])
         query_string = scope.get("query_string") or b""
         decision = resolve_propertyquarry_locale(query_string=query_string, headers=request_headers)
-        preserve_locale = decision.source != "default" or decision.locale != "en"
+        # Query selection is the only case that needs one-hop URL propagation.
+        # Cookie and Accept-Language decisions naturally survive navigation and
+        # keeping them out of every internal URL avoids leaking stale locale
+        # state into copied links and canonical application routes.
+        preserve_locale = decision.source == "query"
         method = str(scope.get("method") or "GET").upper()
         secure_cookie = _scope_is_secure(scope)
         pending_start: Message | None = None
@@ -923,16 +1364,13 @@ class PropertyQuarryLocalizationMiddleware:
                 return
 
             status = int(pending_start.get("status") or 200)
-            if not 200 <= status < 300:
-                await flush_source_response(propertyquarry_document=True)
-                return
-
             localized_body = localize_propertyquarry_html(
                 source,
                 locale=decision.locale,
                 path=path,
                 query_string=query_string,
                 preserve_locale_in_urls=preserve_locale,
+                include_localized_seo=200 <= status < 300,
             ).encode("utf-8")
             if len(localized_body) > self.max_html_bytes:
                 await flush_source_response(propertyquarry_document=True)

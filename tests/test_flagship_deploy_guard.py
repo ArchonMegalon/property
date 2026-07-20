@@ -27,16 +27,19 @@ from scripts.propertyquarry_release_receipt_binding import (
     sha256_bytes,
 )
 from scripts.verify_generated_release_artifacts_clean import (
-    RELEASE_ARTIFACT_SET_PREFIX,
     RELEASE_MANIFEST_JSON_END,
     RELEASE_MANIFEST_JSON_START,
     RELEASE_MANIFEST_STATIC_VALUES,
+    _release_artifact_set_identity,
+    load_release_manifest,
+    verify_release_manifest,
 )
 from scripts.verify_propertyquarry_deploy_receipts import verify_deploy_receipts
 
 
 ROOT = Path(__file__).resolve().parents[1]
 TRUTH_PLANE = Path(".codex-design/repo/EA_FLAGSHIP_TRUTH_PLANE.md")
+GLOBAL_FLAGSHIP_GOAL_DOC = Path("docs/PROPERTYQUARRY_GLOBAL_FLAGSHIP_GOAL.md")
 RELEASE_DOCS = (
     "README.md",
     "RUNBOOK.md",
@@ -50,6 +53,13 @@ EVIDENCE_SOURCE_CASES = list(release_proof_baseline.EVIDENCE_OVERLAY_CASES)
 BROWSER_FILE = release_proof_baseline.REAL_BROWSER_TEST_FILE
 PACKETS_TOUR_CASES = list(release_proof_baseline.PACKETS_TOURS_REAL_BROWSER_CASES)
 BROWSER_CASES = list(release_proof_baseline.REAL_BROWSER_CASES)
+
+
+def _global_launch_contract() -> dict[str, Any]:
+    seed = json.loads((ROOT / CANONICAL_SEED).read_text(encoding="utf-8"))
+    contract = seed["global_launch_contract"]
+    assert release_proof_baseline.approved_global_launch_contract_blockers(contract) == []
+    return contract
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -280,6 +290,7 @@ def _seed() -> dict[str, Any]:
                 },
             ],
         },
+        "global_launch_contract": _global_launch_contract(),
         "verification_binding": {
             "primary_verifier": "scripts/verify_release_assets.sh",
             "supporting_test": "tests/test_flagship_truth_plane.py",
@@ -327,6 +338,7 @@ def _prepare_code_commit(root: Path) -> str:
     _git(root, "config", "user.email", "propertyquarry-test@example.invalid")
     _write_json(root / CANONICAL_SEED, _seed())
     _write_text(root / TRUTH_PLANE)
+    _write_text(root / GLOBAL_FLAGSHIP_GOAL_DOC)
     _write_text(root / ".codex-design/ea/START_HERE.md")
     for path in RELEASE_DOCS:
         _write_text(root / path)
@@ -377,32 +389,6 @@ def _canonical_receipt_repo(
     _git(root, "commit", "-q", "-m", "canonical release receipt metadata")
     receipt_commit = _git(root, "rev-parse", "HEAD")
     assert _git(root, "rev-parse", "HEAD^") == code_parent
-    manifest_authority = dict(RELEASE_MANIFEST_STATIC_VALUES)
-    manifest_authority.update(
-        {
-            "release_commit_sha": receipt_commit,
-            "release_artifact_set": f"{RELEASE_ARTIFACT_SET_PREFIX}{'0' * 64}",
-            "release_label": (
-                f"propertyquarry-source-browser-candidate-{receipt_commit[:12]}"
-            ),
-            "release_generated_at": datetime.now(timezone.utc)
-            .replace(microsecond=0)
-            .isoformat()
-            .replace("+00:00", "Z"),
-            "release_deployment_id": (
-                f"propertyquarry-governed-deploy-{receipt_commit[:12]}"
-            ),
-        }
-    )
-    manifest = (
-        "# PropertyQuarry Release Manifest\n\n"
-        f"{RELEASE_MANIFEST_JSON_START}\n"
-        "```json\n"
-        f"{json.dumps(manifest_authority, indent=2, sort_keys=True)}\n"
-        "```\n"
-        f"{RELEASE_MANIFEST_JSON_END}\n"
-    )
-    _write_text(root / CANONICAL_RELEASE_MANIFEST, manifest)
     flagship_bytes = (root / CANONICAL_FLAGSHIP_RECEIPT).read_bytes()
     pulse = {
         "contract_name": "ea.weekly_product_pulse",
@@ -423,6 +409,29 @@ def _canonical_receipt_repo(
         },
     }
     _write_json(root / CANONICAL_WEEKLY_PULSE, pulse)
+    manifest_authority = dict(RELEASE_MANIFEST_STATIC_VALUES)
+    manifest_authority.update(
+        {
+            "release_commit_sha": code_parent,
+            "release_artifact_set": _release_artifact_set_identity(root),
+            "release_label": (
+                f"propertyquarry-source-browser-candidate-{code_parent[:12]}"
+            ),
+            "release_generated_at": str(flagship["generated_at"]),
+            "release_deployment_id": (
+                f"propertyquarry-governed-deploy-{code_parent[:12]}"
+            ),
+        }
+    )
+    manifest = (
+        "# PropertyQuarry Release Manifest\n\n"
+        f"{RELEASE_MANIFEST_JSON_START}\n"
+        "```json\n"
+        f"{json.dumps(manifest_authority, indent=2, sort_keys=True)}\n"
+        "```\n"
+        f"{RELEASE_MANIFEST_JSON_END}\n"
+    )
+    _write_text(root / CANONICAL_RELEASE_MANIFEST, manifest)
     _git(
         root,
         "add",
@@ -677,7 +686,43 @@ def test_canonical_three_commit_release_envelope_passes(
     assert hygiene["status"] == "pass", hygiene
     assert hygiene["head_commit"] == deploy_head
     assert hygiene["parent_commit"] == receipt_commit
-    assert hygiene["manifest_runtime_commit"] == receipt_commit
+    assert hygiene["manifest_runtime_commit"] == code_parent
+    assert verify_release_manifest(root) == []
+
+
+def test_release_manifest_cannot_relabel_receipt_commit_as_runtime_source(
+    tmp_path: Path,
+) -> None:
+    root, _deploy_head, receipt_commit, code_parent = _canonical_receipt_repo(
+        tmp_path
+    )
+    manifest_path = root / CANONICAL_RELEASE_MANIFEST
+    authority = load_release_manifest(manifest_path)
+    authority["release_commit_sha"] = receipt_commit
+    manifest_path.write_text(
+        "# PropertyQuarry Release Manifest\n\n"
+        f"{RELEASE_MANIFEST_JSON_START}\n"
+        "```json\n"
+        f"{json.dumps(authority, indent=2, sort_keys=True)}\n"
+        "```\n"
+        f"{RELEASE_MANIFEST_JSON_END}\n",
+        encoding="utf-8",
+    )
+    _git(root, "add", CANONICAL_RELEASE_MANIFEST.as_posix())
+    _git(root, "commit", "-q", "--amend", "--no-edit")
+    deploy_head = _git(root, "rev-parse", "HEAD")
+
+    issues = verify_deploy_receipts(
+        root=root,
+        expected_head=deploy_head,
+        expected_receipt_commit=receipt_commit,
+        expected_code_parent=code_parent,
+    )
+
+    assert (
+        "release manifest Runtime commit SHA must equal the exact source/code commit"
+        in issues
+    )
 
 
 def test_deploy_verifier_rejects_weakened_journey_baseline_even_with_prior_pass_receipts(
@@ -822,7 +867,12 @@ def test_canonical_verifier_rejects_older_same_contract_under_new_head(tmp_path:
 
 
 def test_canonical_verifier_rejects_stale_receipt_and_metadata_window(tmp_path: Path) -> None:
-    stale = (datetime.now(timezone.utc) - timedelta(days=2)).isoformat().replace("+00:00", "Z")
+    stale = (
+        (datetime.now(timezone.utc) - timedelta(days=2))
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
 
     def mutate(_root: Path, browser: dict[str, Any], flagship: dict[str, Any]) -> None:
         browser["generated_at"] = stale

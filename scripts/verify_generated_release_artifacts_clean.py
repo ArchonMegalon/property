@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +18,11 @@ GENERATED_ARTIFACTS = (
     Path(".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json"),
     Path(".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json"),
     Path(".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json"),
+)
+MATERIALIZER_SCRIPTS = (
+    Path("scripts/materialize_ea_browser_workflow_proof.py"),
+    Path("scripts/materialize_ea_flagship_release_gate.py"),
+    Path("scripts/materialize_weekly_product_pulse.py"),
 )
 RELEASE_MANIFEST_PATH = Path("docs/PROPERTYQUARRY_RELEASE_MANIFEST.md")
 RELEASE_ARTIFACT_SET_PREFIX = "propertyquarry-generated-release-artifacts-v1@sha256:"
@@ -65,8 +73,6 @@ VOLATILE_KEYS = {
     "as_of",
     "created_at",
     "mtime_utc",
-    "size_bytes",
-    "sha256",
     "duration_seconds",
     "git_branch",
     "git_head",
@@ -78,7 +84,6 @@ VOLATILE_KEYS = {
     "output_excerpt",
     "python_bin",
     "review_due",
-    "code_commit",
 }
 
 
@@ -87,8 +92,6 @@ def _normalize(value: Any, path: tuple[str, ...] = ()) -> Any:
         normalized: dict[str, Any] = {}
         for key, item in value.items():
             if key in VOLATILE_KEYS or str(key).endswith("_git_head"):
-                continue
-            if key == "git_blob_oid" and path[-1:] == ("browser_receipt_binding",):
                 continue
             normalized[key] = _normalize(item, (*path, str(key)))
         return normalized
@@ -109,6 +112,132 @@ def _load_head(path: Path) -> Any:
         text=True,
     )
     return json.loads(result.stdout)
+
+
+def _load_worktree_bytes(path: Path, *, root: Path = ROOT) -> bytes:
+    return (root / path).read_bytes()
+
+
+def _load_head_bytes(path: Path, *, root: Path = ROOT) -> bytes:
+    return subprocess.run(
+        ["git", "-C", str(root), "show", f"HEAD:{path.as_posix()}"],
+        check=True,
+        capture_output=True,
+    ).stdout
+
+
+def _exact_artifact_failures(
+    *,
+    root: Path = ROOT,
+    candidate_root: Path | None = None,
+) -> list[str]:
+    candidate_root = candidate_root or root
+    failures: list[str] = []
+    for path in GENERATED_ARTIFACTS:
+        try:
+            expected = _load_head_bytes(path, root=root)
+            observed = _load_worktree_bytes(path, root=candidate_root)
+        except Exception as exc:
+            failures.append(f"{path}: unable to load generated artifact: {exc}")
+            continue
+        if observed != expected:
+            failures.append(
+                f"{path}: exact byte drift after materialization "
+                "(timestamps may vary only when the governed stable writer preserves committed bytes)"
+            )
+    return failures
+
+
+def _run_materializers_in_detached_worktree(*, root: Path = ROOT) -> list[str]:
+    """Regenerate canonical artifacts at HEAD without touching the caller's worktree."""
+
+    before = {
+        path: _load_worktree_bytes(path, root=root)
+        for path in (*GENERATED_ARTIFACTS, RELEASE_MANIFEST_PATH)
+    }
+    failures: list[str] = []
+    with tempfile.TemporaryDirectory(prefix="propertyquarry-release-verify-") as temp_dir:
+        scratch_root = Path(temp_dir) / "repo"
+        worktree_added = False
+        try:
+            subprocess.run(
+                [
+                    "git",
+                    "-C",
+                    str(root),
+                    "worktree",
+                    "add",
+                    "--detach",
+                    scratch_root.as_posix(),
+                    "HEAD",
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            worktree_added = True
+            env = os.environ.copy()
+            pythonpath = [scratch_root.as_posix(), (scratch_root / "ea").as_posix()]
+            existing_pythonpath = str(env.get("PYTHONPATH") or "").strip()
+            if existing_pythonpath:
+                pythonpath.append(existing_pythonpath)
+            env["PYTHONPATH"] = os.pathsep.join(pythonpath)
+            for script in MATERIALIZER_SCRIPTS:
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        (scratch_root / script).as_posix(),
+                        "--root",
+                        scratch_root.as_posix(),
+                    ],
+                    cwd=scratch_root,
+                    env=env,
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode != 0:
+                    detail = (result.stderr or result.stdout or "no output").strip()
+                    failures.append(
+                        f"{script}: detached materialization failed with exit "
+                        f"{result.returncode}: {detail}"
+                    )
+                    break
+            if not failures:
+                failures.extend(_exact_artifact_failures(root=root, candidate_root=scratch_root))
+        except Exception as exc:
+            failures.append(f"detached release materialization failed: {exc}")
+        finally:
+            if worktree_added:
+                cleanup = subprocess.run(
+                    [
+                        "git",
+                        "-C",
+                        str(root),
+                        "worktree",
+                        "remove",
+                        "--force",
+                        scratch_root.as_posix(),
+                    ],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                )
+                if cleanup.returncode != 0:
+                    failures.append(
+                        "detached release materialization cleanup failed: "
+                        + (cleanup.stderr or cleanup.stdout or "no output").strip()
+                    )
+
+    for path, original in before.items():
+        try:
+            after = _load_worktree_bytes(path, root=root)
+        except Exception as exc:
+            failures.append(f"{path}: verifier changed or removed the caller artifact: {exc}")
+            continue
+        if after != original:
+            failures.append(f"{path}: verifier mutated the caller worktree")
+    return failures
 
 
 def _release_artifact_set_identity(root: Path = ROOT) -> str:
@@ -318,36 +447,33 @@ def verify_release_manifest(root: Path = ROOT) -> list[str]:
     return list(dict.fromkeys(issues))
 
 
-def main() -> int:
-    failures: list[str] = []
-    semantically_clean: list[Path] = []
-    for path in GENERATED_ARTIFACTS:
-        try:
-            head_payload = _load_head(path)
-            worktree_payload = _load_worktree(path)
-        except Exception as exc:
-            failures.append(f"{path}: unable to load generated artifact: {exc}")
-            continue
-        if _normalize(head_payload) != _normalize(worktree_payload):
-            failures.append(f"{path}: semantic drift after materialization")
-        else:
-            semantically_clean.append(path)
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Verify committed generated release artifacts without mutating the worktree."
+    )
+    parser.add_argument(
+        "--materialize-in-sandbox",
+        action="store_true",
+        help="also regenerate at HEAD in a detached scratch worktree and require exact bytes",
+    )
+    args = parser.parse_args(argv)
 
+    failures = _exact_artifact_failures(root=ROOT)
+    if args.materialize_in_sandbox and not failures:
+        failures.extend(_run_materializers_in_detached_worktree(root=ROOT))
     if failures:
         for failure in failures:
             print(failure, file=sys.stderr)
         return 1
 
-    subprocess.run(
-        ["git", "-C", str(ROOT), "restore", "--", *(path.as_posix() for path in semantically_clean)],
-        check=True,
-    )
     manifest_failures = verify_release_manifest(ROOT)
     if manifest_failures:
         for failure in manifest_failures:
             print(failure, file=sys.stderr)
         return 1
-    print("generated release artifacts are semantically clean")
+    print("generated release artifacts exactly match committed bytes")
+    if args.materialize_in_sandbox:
+        print("detached materialization reproduced the committed artifact set")
     print("immutable release manifest authority is exact")
     return 0
 

@@ -454,71 +454,68 @@ def test_scene_video_mootion_readiness_keeps_remote_bridge_requirement_fail_clos
     assert "execution_lane" not in readiness
 
 
-def test_property_walkthrough_runtime_provider_prefers_magicfit_when_omagic_is_blocked(monkeypatch) -> None:
-    def _fake_readiness(provider_key):
-        provider_key = str(provider_key or "").strip()
-        if provider_key == "omagic":
-            return {
-                "provider_key": "omagic",
-                "provider_backend_key": "omagic",
-                "ready": False,
-                "status": "blocked",
-                "blockers": ["omagic_model_upload_adapter_missing"],
-                "checks": {},
-            }
-        if provider_key == "magicfit":
-            return {
-                "provider_key": "magicfit",
-                "provider_backend_key": "magicfit",
-                "ready": True,
-                "status": "ready",
-                "blockers": [],
-                "checks": {},
-            }
-        return {
-            "provider_key": provider_key,
-            "provider_backend_key": provider_key,
-            "ready": False,
-            "status": "blocked",
-            "blockers": [f"{provider_key}_blocked"],
-            "checks": {},
-        }
-
-    monkeypatch.setattr(service, "scene_video_provider_runtime_readiness", _fake_readiness)
+def test_property_walkthrough_runtime_provider_requires_governed_lane(monkeypatch) -> None:
+    monkeypatch.delenv("PROPERTYQUARRY_GOVERNED_RENDER_API_URL", raising=False)
+    monkeypatch.delenv("EA_GOVERNED_RENDER_API_URL", raising=False)
+    monkeypatch.delenv("PROPERTYQUARRY_CHUMMER_RUN_INTERNAL_BASE_URL", raising=False)
+    monkeypatch.delenv("CHUMMER_RUN_INTERNAL_BASE_URL", raising=False)
+    monkeypatch.delenv("PROPERTYQUARRY_GOVERNED_RENDER_API_TOKEN", raising=False)
+    monkeypatch.delenv("EA_GOVERNED_RENDER_API_TOKEN", raising=False)
+    monkeypatch.delenv("FLEET_INTERNAL_API_TOKEN", raising=False)
+    monkeypatch.delenv("PROPERTYQUARRY_GOVERNED_RENDER_ALLOWED_ORIGIN", raising=False)
+    monkeypatch.delenv("PROPERTYQUARRY_GOVERNED_RENDER_CONSENT_SIGNING_SECRET", raising=False)
+    monkeypatch.delenv("PROPERTYQUARRY_GOVERNED_RENDER_CONSENT_STORE_DIR", raising=False)
 
     resolution = service.resolve_property_walkthrough_runtime_provider("")
 
     assert resolution["provider_backend_key"] == "magicfit"
-    assert resolution["selected_via"] == "auto_final_ready"
-    assert resolution["checked"][0]["provider_key"] == "omagic"
-    assert resolution["checked"][1]["provider_key"] == "magicfit"
-
-
-def test_property_walkthrough_runtime_provider_falls_back_to_onemin_when_final_primary_lanes_are_blocked(monkeypatch) -> None:
-    def _fake_readiness(provider_key):
-        provider_key = str(provider_key or "").strip()
-        if provider_key == "onemin_i2v":
-            return {
-                "provider_key": "onemin_i2v",
-                "provider_backend_key": "onemin_i2v",
-                "ready": True,
-                "status": "ready",
-                "blockers": [],
-                "checks": {},
-            }
-        return {
-            "provider_key": provider_key,
-            "provider_backend_key": provider_key,
+    assert resolution["selected_via"] == "governed_render_default"
+    assert resolution["checked"] == [
+        {
+            "provider_key": "magicfit",
             "ready": False,
             "status": "blocked",
-            "blockers": [f"{provider_key}_blocked"],
-            "checks": {},
+                "blockers": [
+                    "governed_render_endpoint_missing",
+                    "governed_render_allowed_origin_missing",
+                    "governed_render_internal_token_missing",
+                    "governed_render_consent_signing_secret_missing",
+                    "governed_render_consent_store_missing",
+                ],
+            "execution_lane": "ea_governed_render",
         }
+    ]
 
-    monkeypatch.setattr(service, "scene_video_provider_runtime_readiness", _fake_readiness)
 
-    resolution = service.resolve_property_walkthrough_runtime_provider("")
+def test_property_walkthrough_runtime_provider_keeps_provider_preference_inside_governed_lane(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv(
+        "PROPERTYQUARRY_GOVERNED_RENDER_API_URL",
+        "https://run-services.internal.example/api/internal/propertyquarry/apartment-videos/artifact-requests",
+    )
+    monkeypatch.setenv(
+        "PROPERTYQUARRY_GOVERNED_RENDER_API_TOKEN",
+        "scene-video-governed-render-token-at-least-32-bytes",
+    )
+    monkeypatch.setenv(
+        "PROPERTYQUARRY_GOVERNED_RENDER_ALLOWED_ORIGIN",
+        "https://run-services.internal.example",
+    )
+    monkeypatch.setenv(
+        "PROPERTYQUARRY_GOVERNED_RENDER_CONSENT_SIGNING_SECRET",
+        "scene-video-consent-secret-with-at-least-32-bytes",
+    )
+    monkeypatch.setenv(
+        "PROPERTYQUARRY_GOVERNED_RENDER_CONSENT_STORE_DIR",
+        str(tmp_path / "consents"),
+    )
+
+    resolution = service.resolve_property_walkthrough_runtime_provider("onemin_i2v")
 
     assert resolution["provider_backend_key"] == "onemin_i2v"
-    assert resolution["selected_via"] == "auto_final_ready"
-    assert [entry["provider_key"] for entry in resolution["checked"]] == ["omagic", "magicfit", "onemin_i2v"]
+    assert resolution["selected_via"] == "governed_render_explicit"
+    assert resolution["runtime_readiness_json"]["execution_lane"] == "ea_governed_render"
+    assert resolution["runtime_readiness_json"]["ready"] is True
+    assert [entry["provider_key"] for entry in resolution["checked"]] == ["onemin_i2v"]

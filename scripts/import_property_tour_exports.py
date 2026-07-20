@@ -258,12 +258,51 @@ def _run_import(row: dict[str, Any], *, env: dict[str, str]) -> dict[str, Any]:
     try:
         imported = json.loads(completed.stdout or "{}")
     except Exception:
-        imported = {}
+        result["error"] = "import_child_receipt_invalid"
+        return result
+    if not isinstance(imported, dict):
+        result["error"] = "import_child_receipt_invalid"
+        return result
+
+    child_status = imported.get("status")
+    if provider == "magicfit":
+        if (
+            child_status != "staged_pending_delivery_acceptance"
+            or imported.get("acceptance_status") != "pending"
+            or imported.get("launch_eligible") is not False
+        ):
+            result["error"] = "magicfit_import_status_invalid"
+            return result
+        result.update(
+            {
+                "status": "staged_pending_delivery_acceptance",
+                "acceptance_status": "pending",
+                "launch_eligible": False,
+            }
+        )
+        pending_relpath = imported.get("video_relpath_after_acceptance")
+        if isinstance(pending_relpath, str) and pending_relpath.strip():
+            result["video_relpath_after_acceptance"] = pending_relpath.strip()
+        # A staged delivery has no public/control URL.  In particular, do not
+        # propagate the child's descriptive `*_after_acceptance` URL as if it
+        # were live before the independent acceptance command succeeds.
+        return result
+
+    if child_status != "imported":
+        result["error"] = f"{provider}_import_status_invalid"
+        return result
     result["status"] = "imported"
-    result["control_url"] = str(imported.get("control_url") or f"/tours/{slug}/control/{provider}")
+    control_url = imported.get("control_url")
+    if isinstance(control_url, str) and control_url.strip():
+        result["control_url"] = control_url.strip()
     result["entry_relpath"] = str(imported.get("entry_relpath") or "")
     result["video_relpath"] = str(imported.get("video_relpath") or "")
-    result["asset_count"] = int(imported.get("asset_count") or 0)
+    asset_count = imported.get("asset_count")
+    result["asset_count"] = (
+        asset_count
+        if isinstance(asset_count, int) and not isinstance(asset_count, bool) and asset_count >= 0
+        else 0
+    )
     return result
 
 
@@ -287,14 +326,34 @@ def build_import_receipt(manifest_path: Path, *, public_tour_dir: Path | None = 
             }
             for row in imports
         ]
-    failed = [row for row in rows if row.get("status") != "imported"]
+    accepted = [row for row in rows if row.get("status") == "imported"]
+    staged = [
+        row
+        for row in rows
+        if row.get("status") == "staged_pending_delivery_acceptance"
+    ]
+    failed = [
+        row
+        for row in rows
+        if row.get("status")
+        not in {"imported", "staged_pending_delivery_acceptance"}
+    ]
+    if failed:
+        status = "fail"
+    elif staged:
+        status = "staged_pending_delivery_acceptance"
+    else:
+        status = "pass"
     return {
-        "status": "pass" if not failed else "fail",
+        "status": status,
         "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "manifest": str(manifest_path.resolve()),
         "public_tour_dir": env.get("EA_PUBLIC_TOUR_DIR") or "",
         "import_count": len(rows),
-        "imported_count": len(rows) - len(failed),
+        "imported_count": len(accepted) + len(staged),
+        "accepted_count": len(accepted),
+        "staged_count": len(staged),
+        "successful_count": len(accepted) + len(staged),
         "failed_count": len(failed),
         "host_safety": {
             "concurrency_limit": 1,
@@ -316,7 +375,9 @@ def build_import_receipt(manifest_path: Path, *, public_tour_dir: Path | None = 
         "notes": [
             "Each row delegates to the hardened single-export or asset importer for its provider.",
             "3DVista rows require a private target-bound provenance receipt for the exact tour and export bytes.",
-            "Receipts include slugs, provider keys, control URLs, and relative entry paths only; raw provider credentials and private listing data are not required.",
+            "Only accepted child imports can contribute their child-confirmed control URL; the batch importer never fabricates one.",
+            "MagicFit rows remain staged_pending_delivery_acceptance with no public/control URL until independent delivery acceptance succeeds.",
+            "imported_count records successful batch operations; accepted_count and staged_count separate their publication state.",
         ],
     }
 
@@ -337,8 +398,25 @@ def main() -> int:
     write_path = Path(args.write).expanduser().resolve() if str(args.write or "").strip() else _artifact_dir() / "property-tour-export-imports.json"
     write_path.parent.mkdir(parents=True, exist_ok=True)
     write_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    print(json.dumps({key: receipt[key] for key in ("status", "import_count", "imported_count", "failed_count", "imports")}, indent=2, sort_keys=True))
-    return 0 if receipt["status"] == "pass" else 1
+    print(
+        json.dumps(
+            {
+                key: receipt[key]
+                for key in (
+                    "status",
+                    "import_count",
+                    "imported_count",
+                    "accepted_count",
+                    "staged_count",
+                    "failed_count",
+                    "imports",
+                )
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return 0 if receipt["status"] in {"pass", "staged_pending_delivery_acceptance"} else 1
 
 
 if __name__ == "__main__":

@@ -661,7 +661,11 @@ def looks_like_floorplan(*values: object) -> bool:
 
 
 def best_image_url(image: dict[str, object]) -> str:
-    for key in ("mainImageUrl", "referenceImageUrl", "largeImageUrl", "middleImageUrl", "smallImageUrl"):
+    # Willhaben currently exposes ``mainImageUrl`` as the 400 px ``_hoved``
+    # derivative while ``referenceImageUrl`` points at the 1024 px listing
+    # image.  Tour/reconstruction inputs need the source-sized reference; the
+    # small derivative is only suitable as a card thumbnail.
+    for key in ("referenceImageUrl", "largeImageUrl", "mainImageUrl", "middleImageUrl", "smallImageUrl"):
         text = as_text(image.get(key))
         if text:
             return text

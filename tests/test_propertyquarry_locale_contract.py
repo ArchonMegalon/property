@@ -8,7 +8,7 @@ from app.api.routes import landing as landing_routes
 from tests.product_test_helpers import build_property_client, start_workspace
 
 
-def test_propertyquarry_locale_contract_does_not_mislabel_untranslated_copy() -> None:
+def test_propertyquarry_public_route_shell_is_localized_without_native_review_claim() -> None:
     client = build_property_client(principal_id="pq-ui-locale-contract")
     client.headers.pop("X-EA-Principal-ID", None)
 
@@ -21,11 +21,16 @@ def test_propertyquarry_locale_contract_does_not_mislabel_untranslated_copy() ->
     )
 
     assert response.status_code == 200
-    assert '<html lang="en" dir="ltr">' in response.text
-    assert response.headers["content-language"] == "en"
+    assert re.search(r'<html\b[^>]*\blang="de-AT"', response.text)
+    assert response.headers["content-language"] == "de-AT"
+    assert response.headers["x-propertyquarry-translation-status"].endswith(
+        "independent-native-review-required"
+    )
+    assert 'hreflang="x-default"' in response.text
+    assert 'data-pq-professional-review="false"' in response.text
 
 
-def test_propertyquarry_partial_locale_contract_applies_only_to_governed_app_shell() -> None:
+def test_propertyquarry_route_shell_preserves_explicit_fallback_boundaries() -> None:
     client = build_property_client(principal_id="pq-ui-locale-console")
     start_workspace(client, mode="personal", workspace_name="Locale contract")
 
@@ -41,10 +46,13 @@ def test_propertyquarry_partial_locale_contract_applies_only_to_governed_app_she
     assert re.search(r'\bdir="ltr"', html_tag.group(0))
     assert response.headers["content-language"] == "es-CR"
     assert response.headers["x-propertyquarry-translation-status"] == (
-        "critical-ui-shell; english-fallback-legal-provider-incomplete; "
-        "not-professionally-reviewed"
+        "global-route-shell; english-fallback-unreviewed-legal-provider-customer-content; "
+        "independent-native-review-required"
     )
-    assert 'data-pq-english-fallback="legal provider-specific incomplete"' in response.text
+    assert (
+        'data-pq-english-fallback="unreviewed-legal provider-specific '
+        'customer-or-listing-content"'
+    ) in response.text
     assert 'data-pq-professional-review="false"' in response.text
     assert "Los textos legales, de proveedores y aún no traducidos permanecen en inglés." in response.text
 

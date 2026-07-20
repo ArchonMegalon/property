@@ -1120,6 +1120,7 @@ def create_willhaben_property_tour(
             diorama_style_hint=body.diorama_style_hint,
             actor=actor,
             walkthrough_provider_key=body.walkthrough_provider_key,
+            external_processing_consent_granted=body.external_processing_consent_granted,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

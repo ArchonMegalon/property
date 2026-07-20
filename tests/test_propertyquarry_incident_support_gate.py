@@ -5,7 +5,16 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
+
+from propertyquarry_global_governance_test_support import (
+    install_test_authority,
+    signed_attestation,
+)
 from scripts import propertyquarry_incident_support_gate as gate
+from scripts.propertyquarry_global_governance_attestation import (
+    INCIDENT_SUPPORT_GATE_ID,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -13,6 +22,11 @@ CONTRACT = ROOT / "config" / "monitoring" / "propertyquarry_incident_support.v1.
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
 IMAGE = "sha256:89abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567"
 EVIDENCE = "sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+
+
+@pytest.fixture(autouse=True)
+def _global_governance_authority(tmp_path: Path, monkeypatch) -> None:
+    install_test_authority(tmp_path, monkeypatch)
 
 
 def _live_receipt(*, generated_at: datetime) -> dict[str, object]:
@@ -60,15 +74,16 @@ def _live_receipt(*, generated_at: datetime) -> dict[str, object]:
             {"control": control, "reviewer_ref": f"review:{control}:owner", **evidence}
             for control in gate.REQUIRED_APPROVALS
         ],
-        "attestation_verification": {
-            "authority": "independent_release_controller",
-            "workflow_run_ref": "github:propertyquarry:run:12345",
-            "subject_commit_sha": COMMIT,
-            "subject_image_digest": IMAGE,
-            **evidence,
-        },
     }
-    receipt["attestation_verification"]["subject_payload_digest"] = gate._attested_payload_digest(receipt)
+    receipt["attestation_verification"] = signed_attestation(
+        gate_id=INCIDENT_SUPPORT_GATE_ID,
+        receipt_contract=gate.LIVE_RECEIPT_SCHEMA,
+        release_commit_sha=COMMIT,
+        release_image_digest=IMAGE,
+        source_digests={"incident_support_contract_sha256": contract_digest},
+        payload_sha256=gate._attested_payload_digest(receipt),
+        issued_at=generated_at,
+    )
     return receipt
 
 
@@ -111,7 +126,10 @@ def test_incident_support_gate_rejects_stale_unstaffed_or_unattested_claims(tmp_
     now = datetime(2026, 7, 19, 12, 0, tzinfo=timezone.utc)
     payload = _live_receipt(generated_at=now - timedelta(hours=30))
     payload["launch_market_support"][0]["staffed"] = False  # type: ignore[index]
-    payload["attestation_verification"]["authority"] = "local_self_attestation"  # type: ignore[index]
+    payload["attestation_verification"] = {
+        "authority": "local_self_attestation",
+        "independent": True,
+    }
     live = _write(tmp_path / "bad-live.json", payload)
 
     receipt = gate.build_gate(

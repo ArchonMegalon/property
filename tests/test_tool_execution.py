@@ -4108,8 +4108,9 @@ def test_tool_execution_service_self_heals_missing_builtin_browseract_crezlo_pro
     )
 
     assert result.tool_name == "browseract.crezlo_property_tour"
-    assert result.output_json["tour_status"] == "published"
-    assert result.output_json["share_url"] == "https://tours.crezlo.com/share/kahlenberg-variant-a"
+    assert result.output_json["tour_status"] == "blocked"
+    assert not result.output_json.get("share_url")
+    assert not result.output_json.get("public_url")
     assert result.output_json["workflow_id"] == "wf-crezlo-1"
     structured = result.output_json["structured_output_json"]
     assert structured["requested_url"] == "browseract://workflow/wf-crezlo-1"
@@ -4857,12 +4858,12 @@ def test_tool_execution_service_executes_crezlo_property_tour_via_direct_api_rem
         assert access_token == "crezlo-token-1"
         assert workspace_id == "workspace-crezlo-1"
         assert payload["title"] == "Kahlenberg Variant B"
-        assert payload["status"] == "published"
+        assert payload["status"] == "draft"
         return {
             "id": "tour-crezlo-2",
             "title": "Kahlenberg Variant B",
             "slug": "kahlenberg-variant-b",
-            "status": "published",
+            "status": "draft",
         }
 
     def _fake_create_file_record(
@@ -5001,13 +5002,13 @@ def test_tool_execution_service_executes_crezlo_property_tour_via_direct_api_rem
     )
 
     assert result.tool_name == "browseract.crezlo_property_tour"
-    assert result.output_json["tour_status"] == "published"
+    assert result.output_json["tour_status"] == "blocked"
     assert result.output_json["tour_id"] == "tour-crezlo-2"
     assert result.output_json["slug"] == "kahlenberg-variant-b"
     assert result.output_json["creation_mode"] == "crezlo_api_remote_assets"
     assert result.output_json["scene_count"] == 3
-    assert result.output_json["public_url"] == "https://ea.girschele.com/tours/kahlenberg-variant-b"
-    assert result.output_json["hosted_url"] == "https://ea.girschele.com/tours/kahlenberg-variant-b"
+    assert result.output_json["public_url"] is None
+    assert result.output_json["hosted_url"] is None
     assert result.output_json["crezlo_public_url"] == "https://ea-property-tours-20260320.crezlotours.com/tours/kahlenberg-variant-b"
     assert result.output_json["workflow_id"] is None
     assert result.output_json["requested_url"] == "crezlo://direct/workspace-crezlo-1"
@@ -5015,9 +5016,9 @@ def test_tool_execution_service_executes_crezlo_property_tour_via_direct_api_rem
     structured = result.output_json["structured_output_json"]
     assert structured["tour_id"] == "tour-crezlo-2"
     assert structured["slug"] == "kahlenberg-variant-b"
-    assert structured["public_url"] == "https://ea.girschele.com/tours/kahlenberg-variant-b"
-    assert structured["hosted_url"] == "https://ea.girschele.com/tours/kahlenberg-variant-b"
     assert structured["crezlo_public_url"] == "https://ea-property-tours-20260320.crezlotours.com/tours/kahlenberg-variant-b"
+    assert structured["quality_gate_status"] == "blocked"
+    assert structured["quality_gate_reason"] == "spatial_scenes_missing"
     assert structured["requested_inputs"]["scene_strategy"] == "layout_first"
     assert [entry["meta"]["role"] for entry in created_files] == ["floorplan", "photo", "photo"]
     assert [entry["path"] for entry in created_files] == [
@@ -5133,12 +5134,15 @@ def test_tool_execution_service_keeps_direct_crezlo_tour_when_followup_workflow_
 
     assert result.output_json["tour_id"] == "tour-crezlo-3"
     assert result.output_json["workflow_id"] == "wf-crezlo-followup-1"
-    assert result.output_json["public_url"] == "https://myexternalbrain.com/tours/wahring-layout-first"
+    assert result.output_json["public_url"] is None
+    assert result.output_json["hosted_url"] is None
     assert result.output_json["crezlo_public_url"] == "https://ea-property-tours-20260320.crezlotours.com/tours/wahring-layout-first"
     structured = result.output_json["structured_output_json"]
     assert structured["workflow_followup_status"] == "failed"
     assert "browseract_task_failed" in structured["workflow_followup_error"]
     assert structured["direct_create_json"]["editor_url"] == "https://ea-property-tours-20260320.crezlotours.com/admin/tours/tour-crezlo-3"
+    assert structured["quality_gate_status"] == "blocked"
+    assert structured["quality_gate_reason"] == "spatial_scenes_missing"
 
 
 def test_tool_execution_service_executes_crezlo_property_tour_via_ui_worker_upload(
@@ -5243,12 +5247,15 @@ def test_tool_execution_service_executes_crezlo_property_tour_via_ui_worker_uplo
     assert packet["tour_title"] == "Wahring UI Worker"
     assert result.output_json["tour_id"] == "tour-crezlo-ui-1"
     assert result.output_json["creation_mode"] == "crezlo_ui_worker_upload"
-    assert result.output_json["public_url"] == "https://myexternalbrain.com/tours/wahring-ui-worker"
+    assert result.output_json["public_url"] is None
+    assert result.output_json["hosted_url"] is None
     assert result.output_json["crezlo_public_url"] == "https://ea-property-tours-20260320.crezlotours.com/tours/wahring-ui-worker"
     structured = dict(result.output_json["structured_output_json"] or {})
     workflow_output = dict(structured.get("workflow_output_json") or {})
     assert workflow_output["file_records_json"][0]["path"] == "https://media.crezlo.com/tours/2026-05-03/scene-1.jpg"
     assert workflow_output["tour_detail_json"]["scenes"][0]["file"]["meta"]["source_url"] == "https://assets.example/photo-1.jpg"
+    assert structured["quality_gate_status"] == "blocked"
+    assert structured["quality_gate_reason"] == "spatial_scenes_missing"
 
 
 def test_crezlo_property_tour_env_credentials_populate_inputs_and_worker_packet(
@@ -5290,6 +5297,180 @@ def test_crezlo_property_tour_env_credentials_populate_inputs_and_worker_packet(
     )
     assert packet["login_email"] == "env-crezlo@example.com"
     assert packet["login_password"] == "env-crezlo-password"
+
+
+def test_crezlo_inspection_workflow_sends_only_declared_existing_editor_inputs() -> None:
+    inputs = {
+        "browseract_username": "owner@example.com",
+        "browseract_password": "secret",
+        "login_email": "owner@example.com",
+        "tour_title": "Must not reach inspector",
+        "media_urls_json": ["https://assets.example/photo.jpg"],
+        "workspace_id": "workspace-1",
+    }
+
+    result = BrowserActToolAdapter._crezlo_workflow_inputs(
+        workflow_id="86048166080352916",
+        requested_inputs=inputs,
+        binding_metadata={},
+        editor_url="https://workspace.crezlotours.com/admin/tours/tour-1",
+    )
+
+    assert result == {
+        "browseract_username": "owner@example.com",
+        "browseract_password": "secret",
+        "editor_url": "https://workspace.crezlotours.com/admin/tours/tour-1",
+    }
+
+
+def test_crezlo_inspection_workflow_requires_existing_editor_url() -> None:
+    with pytest.raises(ToolExecutionError, match="crezlo_inspection_editor_url_missing"):
+        BrowserActToolAdapter._crezlo_workflow_inputs(
+            workflow_id="86048166080352916",
+            requested_inputs={
+                "browseract_username": "owner@example.com",
+                "browseract_password": "secret",
+            },
+            binding_metadata={},
+        )
+
+
+def test_crezlo_immersive_acceptance_rejects_flat_jpeg_scenes() -> None:
+    result = BrowserActToolAdapter._crezlo_immersive_acceptance(
+        {
+            "structured_output_json": {
+                "workflow_output_json": {
+                    "tour_detail_json": {
+                        "scenes": [
+                            {"id": "scene-1", "payload": [], "file": {"mime_type": "image/jpeg", "cube_maps": []}},
+                            {"id": "scene-2", "payload": [], "file": {"mime_type": "image/jpeg", "cube_maps": []}},
+                        ]
+                    }
+                }
+            }
+        }
+    )
+
+    assert result["accepted"] is False
+    assert result["reason"] == "spatial_scenes_missing"
+    assert result["spatial_scene_count"] == 0
+
+
+def test_crezlo_immersive_acceptance_rejects_token_two_scene_demo() -> None:
+    scene = {
+        "file": {
+            "meta": {
+                "projection": "equirectangular",
+                "width": 4096,
+                "height": 2048,
+            }
+        }
+    }
+    result = BrowserActToolAdapter._crezlo_immersive_acceptance(
+        {
+            "structured_output_json": {
+                "workflow_output_json": {
+                    "tour_detail_json": {
+                        "scenes": [
+                            {"id": "scene-1", **scene},
+                            {"id": "scene-2", **scene},
+                        ]
+                    }
+                }
+            }
+        }
+    )
+
+    assert result["accepted"] is False
+    assert result["reason"] == "spatial_scenes_missing"
+    assert result["spatial_scene_count"] == 2
+    assert result["required_spatial_scene_count"] == 3
+
+
+def test_crezlo_immersive_acceptance_requires_spatial_and_first_party_browser_proof(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        BrowserActToolAdapter,
+        "_crezlo_public_tour_base_url",
+        staticmethod(lambda: "https://propertyquarry.com/tours"),
+    )
+    result = BrowserActToolAdapter._crezlo_immersive_acceptance(
+        {
+            "structured_output_json": {
+                "requested_inputs": {
+                    "property_url": "https://www.willhaben.at/listing/verified-property",
+                    "floorplan_urls_json": ["https://assets.example/floorplan.jpg"],
+                },
+                "workflow_output_json": {
+                    "tour_detail_json": {
+                        "scenes": [
+                            {
+                                "id": "scene-1",
+                                "payload": {"hotspots": [{"target_scene_id": "scene-2"}]},
+                                "file": {
+                                    "meta": {
+                                        "projection": "equirectangular",
+                                        "width": 4096,
+                                        "height": 2048,
+                                    }
+                                },
+                            },
+                            {
+                                "id": "scene-2",
+                                "payload": {"hotspots": [{"target_scene_id": "scene-3"}]},
+                                "file": {
+                                    "meta": {
+                                        "projection": "equirectangular",
+                                        "width": 4096,
+                                        "height": 2048,
+                                    }
+                                },
+                            },
+                            {
+                                "id": "scene-3",
+                                "file": {
+                                    "meta": {
+                                        "projection": "equirectangular",
+                                        "width": 4096,
+                                        "height": 2048,
+                                    }
+                                },
+                            },
+                        ]
+                    },
+                    "immersive_viewer_proof": {
+                        "status": "pass",
+                        "required_spatial_scene_count": 3,
+                        "required_space_count": 3,
+                        "covered_space_count": 3,
+                        "anonymous_http_status": 200,
+                        "drag_look_verified": True,
+                        "scene_navigation_verified": True,
+                        "scene_graph_connected": True,
+                        "all_required_scenes_navigable": True,
+                        "desktop_viewer_verified": True,
+                        "mobile_viewer_verified": True,
+                        "touch_look_verified": True,
+                        "exact_property_provenance_verified": True,
+                        "source_property_url": "https://www.willhaben.at/listing/verified-property",
+                        "source_asset_hashes": ["a" * 64, "b" * 64],
+                        "browser_receipt_sha256": "c" * 64,
+                        "floorplan_alignment_verified": True,
+                        "first_party_viewer_verified": True,
+                        "first_party_public_url": "https://propertyquarry.com/tours/verified-crezlo/control/crezlo",
+                    },
+                }
+            }
+        }
+    )
+
+    assert result["accepted"] is True
+    assert result["reason"] == ""
+    assert result["spatial_scene_count"] == 3
+    assert result["hotspot_count"] == 2
+    assert result["covered_space_count"] == 3
+    assert result["floorplan_alignment_verified"] is True
 
 
 def test_crezlo_public_tour_bundle_writer_downloads_assets_and_writes_tour_json(
@@ -5946,9 +6127,25 @@ def test_tool_execution_service_self_heals_missing_builtin_scene_video_generate_
             "checks": {},
         },
     )
+    monkeypatch.setattr(
+        "app.services.scene_video_contract.resolve_property_walkthrough_runtime_provider",
+        lambda provider_key: {
+            "provider_key": "omagic",
+            "provider_backend_key": "omagic",
+            "runtime_readiness_json": {
+                "provider_key": "omagic",
+                "provider_backend_key": "omagic",
+                "ready": True,
+                "status": "ready",
+                "blockers": [],
+                "checks": {},
+            },
+            "checked": [],
+            "selected_via": "explicit",
+        },
+    )
     registry._rows.pop("ea.scene_video_generate", None)  # type: ignore[attr-defined]
     registry._order = [key for key in registry._order if key != "ea.scene_video_generate"]  # type: ignore[attr-defined]
-
     result = service.execute_invocation(
         ToolInvocationRequest(
             session_id="session-scene-video-1",
@@ -5964,6 +6161,7 @@ def test_tool_execution_service_self_heals_missing_builtin_scene_video_generate_
                     "verified_provider": "3dvista",
                     "control_url": "https://property.example/tours/runsite/control/3dvista",
                 },
+                "external_processing_consent_receipt": "opaque-server-issued-receipt",
                 "property_facts_json": {"room_count": 4},
             },
             context_json={"principal_id": "exec-1"},
@@ -5979,6 +6177,7 @@ def test_tool_execution_service_self_heals_missing_builtin_scene_video_generate_
         "verified_provider": "3dvista",
         "control_url": "https://property.example/tours/runsite/control/3dvista",
     }
+    assert captured_render_kwargs["external_processing_consent_receipt"] == ""
     structured = result.output_json["structured_output_json"]
     assert structured["provider_key"] == "omagic"
     assert structured["provider_backend_key"] == "omagic"
@@ -5987,10 +6186,57 @@ def test_tool_execution_service_self_heals_missing_builtin_scene_video_generate_
     assert result.receipt_json["provider_key"] == "omagic"
     assert result.receipt_json["provider_backend_key"] == "omagic"
     assert result.receipt_json["tour_context_present"] is True
-    assert tool_runtime.get_tool("ea.scene_video_generate") is not None
+    assert "external_processing_consent_granted" not in json.dumps(result.output_json)
+    assert "external_processing_consent_granted" not in json.dumps(result.receipt_json)
+    definition = tool_runtime.get_tool("ea.scene_video_generate")
+    assert definition is not None
+    assert "external_processing_consent_receipt" not in definition.input_schema_json["properties"]
+    assert "external_processing_consent_granted" not in definition.input_schema_json["properties"]
+    assert "external_processing_consent_json" not in definition.input_schema_json["properties"]
+
+    captured_render_kwargs.clear()
+    service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-scene-video-untrusted-boolean",
+            step_id="step-scene-video-untrusted-boolean",
+            tool_name="ea.scene_video_generate",
+            action_kind="video.generate",
+            payload_json={
+                "provider_key": "magic",
+                "context_kind": "property_walkthrough",
+                "title": "Untrusted Boolean Walkthrough",
+                "tour_url": "https://property.example/tours/runsite",
+                "external_processing_consent_granted": True,
+            },
+            context_json={"principal_id": "exec-1"},
+        )
+    )
+    assert captured_render_kwargs["external_processing_consent_receipt"] == ""
+    assert "external_processing_consent_granted" not in captured_render_kwargs
+    with pytest.raises(
+        ToolExecutionError,
+        match="governed_render_authenticated_principal_context_missing",
+    ):
+        service.execute_invocation(
+            ToolInvocationRequest(
+                session_id="session-scene-video-payload-principal",
+                step_id="step-scene-video-payload-principal",
+                tool_name="ea.scene_video_generate",
+                action_kind="video.generate",
+                payload_json={
+                    "provider_key": "magic",
+                    "context_kind": "property_walkthrough",
+                    "title": "Payload Principal Walkthrough",
+                    "tour_url": "https://property.example/tours/runsite",
+                    "principal_id": "claimed-owner",
+                    "external_processing_consent_receipt": "leaked-receipt",
+                },
+                context_json={},
+            )
+        )
 
 
-def test_tool_execution_property_walkthrough_blocks_before_render_when_runtime_not_ready(
+def test_tool_execution_property_walkthrough_blocks_before_render_when_governed_lane_not_ready(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     registry = InMemoryToolRegistryRepository()
@@ -6008,14 +6254,21 @@ def test_tool_execution_property_walkthrough_blocks_before_render_when_runtime_n
     )
     monkeypatch.setattr("app.product.service._hosted_property_tour_video_delivery", lambda tour_url: {})
     monkeypatch.setattr(
-        "app.services.scene_video_contract.scene_video_provider_runtime_readiness",
+        "app.services.scene_video_contract.resolve_property_walkthrough_runtime_provider",
         lambda provider_key: {
             "provider_key": "omagic",
             "provider_backend_key": "omagic",
-            "ready": False,
-            "status": "blocked",
-            "blockers": ["omagic_model_upload_adapter_missing"],
-            "checks": {"model_upload_supported": False},
+            "runtime_readiness_json": {
+                "provider_key": "omagic",
+                "provider_backend_key": "omagic",
+                "execution_lane": "ea_governed_render",
+                "ready": False,
+                "status": "blocked",
+                "blockers": ["governed_render_endpoint_missing"],
+                "checks": {"endpoint_configured": False},
+            },
+            "checked": [],
+            "selected_via": "governed_render_explicit",
         },
     )
 
@@ -6039,7 +6292,8 @@ def test_tool_execution_property_walkthrough_blocks_before_render_when_runtime_n
 
     assert result.output_json["provider_key"] == "omagic"
     assert result.output_json["render_status"] == "blocked"
-    assert result.output_json["runtime_readiness_json"]["checks"]["model_upload_supported"] is False
+    assert result.output_json["runtime_readiness_json"]["execution_lane"] == "ea_governed_render"
+    assert result.output_json["runtime_readiness_json"]["checks"]["endpoint_configured"] is False
     assert result.output_json["telegram_delivery_readiness_json"]["status"] == "blocked"
     assert result.output_json["tour_context_json"]["verified_provider"] == "3dvista"
 
@@ -6870,7 +7124,7 @@ def test_tool_execution_scene_video_mootion_auto_selects_browseract_bridge_bindi
     assert "mootion_remote_asset_host_allowlist_invalid" in invalid.output_json["structured_output_json"]["reason"]
 
 
-def test_tool_execution_property_walkthrough_mootion_uses_principal_browseract_bridge(
+def test_tool_execution_property_walkthrough_mootion_never_uses_direct_browseract_bridge(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _stub_mootion_public_dns(monkeypatch)
@@ -6913,20 +7167,21 @@ def test_tool_execution_property_walkthrough_mootion_uses_principal_browseract_b
 
     monkeypatch.setattr(provider_registry, "route_tool_with_context", _route_tool_with_context)
     monkeypatch.setattr(
-        "app.services.scene_video_contract.scene_video_provider_runtime_readiness",
+        "app.services.scene_video_contract.resolve_property_walkthrough_runtime_provider",
         lambda provider_key: {
             "provider_key": "mootion",
             "provider_backend_key": "mootion",
-            "ready": True,
-            "status": "ready",
-            "blockers": [],
-            "execution_lane": "browseract_remote",
-            "checks": {
-                "script_exists": True,
-                "mootion_execution_lane": "browseract_remote",
-                "mootion_local_worker_blockers": ["mootion_docker_socket_missing"],
-                "mootion_browseract_remote": {"ready": True, "status": "ready", "target_count": 1},
+            "runtime_readiness_json": {
+                "provider_key": "mootion",
+                "provider_backend_key": "mootion",
+                "ready": True,
+                "status": "ready",
+                "blockers": [],
+                "execution_lane": "ea_governed_render",
+                "checks": {"provider_execution_in_web_process": False},
             },
+            "checked": [],
+            "selected_via": "governed_render_explicit",
         },
     )
     service = _tool_execution_service(
@@ -6958,40 +7213,25 @@ def test_tool_execution_property_walkthrough_mootion_uses_principal_browseract_b
         )
 
     service.register_handler("browseract.mootion_movie", _fake_mootion_remote)
-    callback_result: dict[str, object] = {}
+    captured_render_kwargs: dict[str, object] = {}
 
     def _fake_property_render(**kwargs: object) -> dict[str, object]:
-        callback = kwargs.get("mootion_remote_render_callback")
-        assert callable(callback)
-        callback_result.update(
-            callback(
-                {
-                    "title": "Remote Property Walkthrough",
-                    "script_text": "Follow the verified property route in one continuous pass.",
-                    "visual_style": "photoreal",
-                    "camera_style": "continuous first-person",
-                    "aspect_ratio": "16:9",
-                    "duration_seconds": 30,
-                }
-            )
-        )
+        captured_render_kwargs.update(kwargs)
+        assert kwargs.get("mootion_remote_render_callback") is None
         return {
-            "status": "rendered",
+            "status": "pending",
             "provider_key": "mootion",
             "media_route_provider_key": "mootion",
-            "editor_url": callback_result.get("editor_url"),
+            "execution_lane": "ea_governed_render",
+            "video_url": "",
+            "flythrough_url": "",
         }
 
     monkeypatch.setattr("app.product.service._render_property_flythrough_into_hosted_tour", _fake_property_render)
     monkeypatch.setattr(
         "app.product.service._hosted_property_tour_video_delivery",
-        lambda tour_url: {
-            "provider_key": "mootion",
-            "video_url": "https://property.example/tours/remote/video",
-            "flythrough_url": "https://property.example/tours/remote/flythrough",
-        },
+        lambda tour_url: {},
     )
-
     result = service.execute_invocation(
         ToolInvocationRequest(
             session_id="session-property-mootion-remote-1",
@@ -7004,6 +7244,7 @@ def test_tool_execution_property_walkthrough_mootion_uses_principal_browseract_b
                 "title": "Remote Property Walkthrough",
                 "tour_url": "https://property.example/tours/remote",
                 "tour_context_json": {"verified_provider": "3dvista"},
+                "external_processing_consent_receipt": "opaque-server-issued-mootion-receipt",
                 "workflow_id": "wf-caller-must-not-override-binding",
                 "run_url": "https://attacker.example/collect",
             },
@@ -7011,15 +7252,13 @@ def test_tool_execution_property_walkthrough_mootion_uses_principal_browseract_b
         )
     )
 
-    assert captured_remote_payload["binding_id"] == binding.binding_id
-    assert captured_remote_payload["workflow_id"] == "wf-property-mootion-remote"
-    assert captured_remote_payload["run_url"] == ""
-    assert captured_remote_payload["force_browseract"] is True
-    assert callback_result["download_url"] == "https://cdn.example/mootion/property-remote.mp4"
-    assert callback_result["structured_output_json"]["execution_lane"] == "browseract_remote"
+    assert captured_remote_payload == {}
+    assert captured_render_kwargs["mootion_remote_render_callback"] is None
+    assert captured_render_kwargs["external_processing_consent_receipt"] == ""
     assert result.output_json["provider_key"] == "mootion"
-    assert result.output_json["render_status"] == "rendered"
-    assert result.output_json["video_url"] == "https://property.example/tours/remote/video"
+    assert result.output_json["render_status"] == "pending"
+    assert result.output_json["video_url"] == ""
+    assert result.output_json["runtime_readiness_json"]["execution_lane"] == "ea_governed_render"
 
     def _fake_mootion_missing_status(request: ToolInvocationRequest, definition: ToolDefinition) -> ToolInvocationResult:
         return ToolInvocationResult(
@@ -7036,22 +7275,24 @@ def test_tool_execution_property_walkthrough_mootion_uses_principal_browseract_b
         )
 
     service.register_handler("browseract.mootion_movie", _fake_mootion_missing_status)
-    with pytest.raises(ToolExecutionError, match="mootion_browseract_remote_not_completed:status_missing"):
-        service.execute_invocation(
-            ToolInvocationRequest(
-                session_id="session-property-mootion-missing-status-1",
-                step_id="step-property-mootion-missing-status-1",
-                tool_name="ea.scene_video_generate",
-                action_kind="video.generate",
-                payload_json={
-                    "provider_key": "mootion",
-                    "context_kind": "property_walkthrough",
-                    "title": "Missing Status Property Walkthrough",
-                    "tour_url": "https://property.example/tours/remote",
-                },
-                context_json={"principal_id": "exec-property-mootion-remote"},
-            )
+    repeated = service.execute_invocation(
+        ToolInvocationRequest(
+            session_id="session-property-mootion-missing-status-1",
+            step_id="step-property-mootion-missing-status-1",
+            tool_name="ea.scene_video_generate",
+            action_kind="video.generate",
+            payload_json={
+                "provider_key": "mootion",
+                "context_kind": "property_walkthrough",
+                "title": "Missing Status Property Walkthrough",
+                "tour_url": "https://property.example/tours/remote",
+                "external_processing_consent_receipt": "opaque-server-issued-mootion-receipt-2",
+            },
+            context_json={"principal_id": "exec-property-mootion-remote"},
         )
+    )
+    assert repeated.output_json["render_status"] == "pending"
+    assert captured_remote_payload == {}
 
 
 def test_tool_execution_mootion_remote_binding_is_principal_scoped(

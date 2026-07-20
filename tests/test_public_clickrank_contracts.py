@@ -14,6 +14,7 @@ from app.services.public_clickrank import (
     clickrank_site_id_for_hostname,
     request_hostname,
 )
+from app.services.public_analytics_consent import ANALYTICS_CONSENT_CSRF_COOKIE
 
 
 _MYEXTERNALBRAIN_SITE_ID = "33ff8f39-6213-4903-99d7-81048b5b3e1f"
@@ -40,6 +41,20 @@ def _client(*, principal_id: str = "exec-clickrank-contract", clickrank_enabled:
     client = TestClient(create_app())
     client.headers.update({"X-EA-Principal-ID": principal_id})
     return client
+
+
+def _grant_public_analytics(client: TestClient, *, host: str) -> None:
+    initial = client.get("/", headers={"host": host})
+    csrf_token = str(client.cookies.get(ANALYTICS_CONSENT_CSRF_COOKIE) or "")
+    assert initial.status_code == 200
+    assert csrf_token
+    response = client.post(
+        "/privacy/analytics-consent",
+        data={"csrf_token": csrf_token, "decision": "granted", "return_to": "/"},
+        headers={"host": host, "origin": f"http://{host}"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
 
 
 def test_request_hostname_prefers_forwarded_host_over_host_and_url_host() -> None:
@@ -97,7 +112,7 @@ def test_clickrank_site_id_for_hostname_rejects_invalid_env_value(monkeypatch: p
     monkeypatch.setenv("CLICKRANK_AI_MYEXTERNALBRAIN_SITE_ID", 'bad/site"id')
 
     assert clickrank_site_id_for_hostname("myexternalbrain.com") == ""
-    assert clickrank_head_snippet("myexternalbrain.com", "/") == ""
+    assert clickrank_head_snippet("myexternalbrain.com", "/", consent_granted=True) == ""
 
 
 def test_clickrank_site_id_for_hostname_falls_back_to_public_base_url(
@@ -142,6 +157,7 @@ def test_clickrank_route_allowlist_blocks_private_and_generated_routes() -> None
 
 def test_public_landing_includes_clickrank_snippet_for_myexternalbrain_host() -> None:
     client = _client()
+    _grant_public_analytics(client, host="myexternalbrain.com")
 
     response = client.get("/", headers={"host": "myexternalbrain.com"})
 
@@ -151,6 +167,7 @@ def test_public_landing_includes_clickrank_snippet_for_myexternalbrain_host() ->
 
 def test_public_landing_includes_clickrank_snippet_for_www_myexternalbrain_host() -> None:
     client = _client()
+    _grant_public_analytics(client, host="www.myexternalbrain.com")
 
     response = client.get("/", headers={"host": "www.myexternalbrain.com"})
 
@@ -198,7 +215,7 @@ def test_clickrank_head_snippet_can_include_rybbit_for_propertyquarry_host(
     monkeypatch.setenv("RYBBIT_IO_PROPERTYQUARRY_SITE_ID", _PROPERTYQUARRY_RYBBIT_SITE_ID)
     monkeypatch.delenv("EA_ENABLE_CLICKRANK", raising=False)
 
-    snippet = clickrank_head_snippet("propertyquarry.com", "/")
+    snippet = clickrank_head_snippet("propertyquarry.com", "/", consent_granted=True)
 
     assert 'https://app.rybbit.io/api/script.js' in snippet
     assert f'data-site-id="{_PROPERTYQUARRY_RYBBIT_SITE_ID}"' in snippet
@@ -216,7 +233,7 @@ def test_clickrank_head_snippet_can_include_optional_rybbit_attributes(
     monkeypatch.setenv("EA_PUBLIC_RYBBIT_SKIP_PATTERNS", '["/health","/ready"]')
     monkeypatch.setenv("EA_PUBLIC_RYBBIT_MASK_PATTERNS", '["token","session"]')
 
-    snippet = clickrank_head_snippet("propertyquarry.com", "/")
+    snippet = clickrank_head_snippet("propertyquarry.com", "/", consent_granted=True)
 
     assert 'data-tag="propertyquarry-public"' in snippet
     assert 'data-debounce="750"' in snippet
@@ -233,6 +250,7 @@ def test_public_landing_can_include_clickrank_and_rybbit_together(
     monkeypatch.setenv("RYBBIT_IO_MYEXTERNALBRAIN_SITE_ID", "rybbit-meb-site")
     monkeypatch.delenv("EA_PUBLIC_RYBBIT_RENDER_IN_CLICKRANK", raising=False)
     client = _client()
+    _grant_public_analytics(client, host="myexternalbrain.com")
 
     response = client.get("/", headers={"host": "myexternalbrain.com"})
 

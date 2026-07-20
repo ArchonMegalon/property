@@ -14,8 +14,18 @@ from typing import Any, Mapping
 from urllib.parse import urlparse
 
 if __package__:
+    from scripts.propertyquarry_global_governance_attestation import (
+        INCIDENT_SUPPORT_GATE_ID,
+        GlobalGovernanceAttestationError,
+        verify_global_governance_attestation,
+    )
     from scripts.propertyquarry_strict_json import load_strict_json_object_snapshot
 else:
+    from propertyquarry_global_governance_attestation import (  # type: ignore[no-redef]
+        INCIDENT_SUPPORT_GATE_ID,
+        GlobalGovernanceAttestationError,
+        verify_global_governance_attestation,
+    )
     from propertyquarry_strict_json import load_strict_json_object_snapshot
 
 
@@ -372,18 +382,22 @@ def build_gate(
                 blockers.append(f"required incident/support owner approval is not proved: {control}")
 
         attestation = live.get("attestation_verification")
-        if (
-            not _evidence_record(
-                attestation,
-                now=now,
-                max_age_hours=effective_age_hours,
+        try:
+            verify_global_governance_attestation(
+                attestation if isinstance(attestation, Mapping) else {},
+                expected_subject={
+                    "gate_id": INCIDENT_SUPPORT_GATE_ID,
+                    "receipt_contract": LIVE_RECEIPT_SCHEMA,
+                    "release_commit_sha": expected_release_sha,
+                    "release_image_digest": expected_image_digest,
+                    "source_digests": {
+                        "incident_support_contract_sha256": contract_digest,
+                    },
+                    "payload_sha256": _attested_payload_digest(live),
+                },
+                observed_at=now,
             )
-            or str((attestation or {}).get("authority") or "").strip() != "independent_release_controller"
-            or not _opaque_ref((attestation or {}).get("workflow_run_ref"))
-            or str((attestation or {}).get("subject_commit_sha") or "").strip().lower() != expected_release_sha
-            or str((attestation or {}).get("subject_image_digest") or "").strip().lower() != expected_image_digest
-            or str((attestation or {}).get("subject_payload_digest") or "").strip().lower() != _attested_payload_digest(live)
-        ):
+        except GlobalGovernanceAttestationError:
             blockers.append("live incident/support receipt lacks independent exact-release attestation verification")
 
     blockers = list(dict.fromkeys(blockers))

@@ -665,6 +665,12 @@
       max-height: 336px;
     }
   }
+  .prd-media-frame.prd-media-frame-live.prd-media-frame-ai-360 {
+    display: block;
+    min-height: clamp(460px, 62vh, 680px);
+    max-height: none;
+    background: #0b0e12;
+  }
   .prd-media-frame iframe,
   .prd-media-frame img {
     width: 100%;
@@ -673,6 +679,55 @@
     display: block;
     object-fit: cover;
     background: var(--panel);
+  }
+  .prd-ai-360-embed {
+    display: grid;
+    grid-template-rows: minmax(420px, 1fr) auto;
+    min-height: clamp(460px, 62vh, 680px);
+    background: #0b0e12;
+  }
+  .prd-ai-360-embed iframe {
+    min-height: clamp(420px, 56vh, 620px);
+    background: #0b0e12;
+  }
+  .prd-ai-360-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 10px 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.14);
+    background: #11161d;
+    color: rgba(255, 255, 255, 0.82);
+  }
+  .prd-ai-360-meta p {
+    margin: 0;
+    font-size: 0.76rem;
+    line-height: 1.35;
+  }
+  .prd-ai-360-meta a {
+    flex: 0 0 auto;
+    color: #fff;
+    font-size: 0.78rem;
+    font-weight: 780;
+    text-underline-offset: 3px;
+  }
+  @media (max-width: 760px) {
+    .prd-media-frame.prd-media-frame-live.prd-media-frame-ai-360,
+    .prd-ai-360-embed {
+      min-height: 520px;
+    }
+    .prd-ai-360-embed {
+      grid-template-rows: minmax(460px, 1fr) auto;
+    }
+    .prd-ai-360-embed iframe {
+      min-height: 460px;
+    }
+    .prd-ai-360-meta {
+      align-items: flex-start;
+      flex-direction: column;
+      gap: 7px;
+    }
   }
   .prd-media-frame.prd-media-frame-diorama img {
     position: absolute;
@@ -3235,13 +3290,16 @@
         {% set visual_actions.items = visual_actions.items + [action] %}
       {% endif %}
     {% endfor %}
-    {% set visual_ready_tour = research_media.get('hosted_ready') or research_media.get('vendor_ready') or research_media.get('generated_reconstruction_ready') %}
-    {% set visual_ready_layout = research_media.get('generated_reconstruction_ready') and not research_media.get('hosted_ready') %}
+    {% set visual_ready_tour = research_media.get('hosted_ready') or research_media.get('vendor_ready') %}
+    {% set visual_ready_ai_360 = research_media.get('ai_360_ready') and not visual_ready_tour %}
+    {% set visual_ready_layout = research_media.get('generated_reconstruction_ready') and not visual_ready_tour and not visual_ready_ai_360 %}
     {% set visual_ready_walkthrough = research_media.get('walkthrough_href') %}
     {% set primary_visual_actions = namespace(items=[]) %}
     {% for action in visual_actions.items %}
       {% set action_label = (action.get('label') or '')|lower %}
-      {% if action.get('kind') == 'generated_reconstruction' or 'layout tour' in action_label %}
+      {% if action.get('kind') == 'ai_360_reconstruction' or 'ai 360 tour' in action_label %}
+        {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'ai_360_reconstruction', 'eyebrow': 'AI 360 reconstruction', 'title': 'AI 360 tour', 'copy': action.get('status_detail') or research_media.get('ai_360_disclosure') or 'AI-reconstructed from listing photos; not a captured 360 or measured survey.', 'action': action}] %}
+      {% elif action.get('kind') == 'generated_reconstruction' or 'layout tour' in action_label %}
         {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'generated_reconstruction', 'eyebrow': 'Layout tour', 'title': 'Layout tour', 'copy': action.get('status_detail') or research_media.get('generated_reconstruction_status_detail') or research_media.get('status_detail') or 'Open the generated layout tour here.', 'action': action}] %}
       {% elif action.get('kind') == 'tour' or '3d tour' in action_label or 'matterport' in action_label or '3dvista' in action_label or 'original tour' in action_label %}
         {% set primary_visual_actions.items = primary_visual_actions.items + [{'key': 'tour', 'eyebrow': '3D tour', 'title': '3D tour', 'copy': action.get('status_detail') or research_media.get('status_detail') or 'Open or request it here.', 'action': action}] %}
@@ -3271,12 +3329,26 @@
       detail=''
     ) %}
     {% if visual_ready_tour %}
-      {% set visual_rail.kind = 'generated_reconstruction' if visual_ready_layout else 'tour' %}
+      {% set visual_rail.kind = 'tour' %}
       {% set visual_rail.state = 'ready' %}
-      {% set visual_rail.label = research_media.get('status_label') or ('Open layout tour' if visual_ready_layout else 'Open 3D tour') %}
+      {% set visual_rail.label = research_media.get('status_label') or 'Open 3D tour' %}
       {% set visual_rail.eta = '' %}
       {% set visual_rail.progress = 100 %}
-      {% set visual_rail.detail = research_visual_status_line or (research_media.get('generated_reconstruction_status_detail') if visual_ready_layout else research_media.get('status_detail')) or ('Layout tour is ready.' if visual_ready_layout else '3D tour is ready.') %}
+      {% set visual_rail.detail = research_visual_status_line or research_media.get('status_detail') or '3D tour is ready.' %}
+    {% elif visual_ready_ai_360 %}
+      {% set visual_rail.kind = 'ai_360_reconstruction' %}
+      {% set visual_rail.state = 'ready' %}
+      {% set visual_rail.label = research_media.get('status_label') or 'Open AI 360 tour' %}
+      {% set visual_rail.eta = '' %}
+      {% set visual_rail.progress = 100 %}
+      {% set visual_rail.detail = research_media.get('ai_360_disclosure') or research_media.get('generated_reconstruction_status_detail') or 'AI-reconstructed from listing photos; not a captured 360 or measured survey.' %}
+    {% elif visual_ready_layout %}
+      {% set visual_rail.kind = 'generated_reconstruction' %}
+      {% set visual_rail.state = 'ready' %}
+      {% set visual_rail.label = research_media.get('status_label') or 'Open layout preview' %}
+      {% set visual_rail.eta = '' %}
+      {% set visual_rail.progress = 100 %}
+      {% set visual_rail.detail = research_visual_status_line or research_media.get('generated_reconstruction_status_detail') or 'Layout preview is ready.' %}
     {% elif visual_status.active %}
       {% set visual_rail.kind = visual_status.active.get('kind') or '' %}
       {% set visual_rail.state = visual_status.active.get('state') or '' %}
@@ -3305,6 +3377,8 @@
     {% set visual_rail_label_display = visual_rail.label or '' %}
     {% if visual_rail.state == 'ready' and visual_rail.kind == 'tour' %}
       {% set visual_rail_label_display = '3D tour' %}
+    {% elif visual_rail.state == 'ready' and visual_rail.kind == 'ai_360_reconstruction' %}
+      {% set visual_rail_label_display = 'AI 360 reconstruction' %}
     {% elif visual_rail.state == 'ready' and visual_rail.kind == 'generated_reconstruction' %}
       {% set visual_rail_label_display = 'Layout tour' %}
     {% elif visual_rail.state == 'ready' and visual_rail.kind in ['flythrough', 'walkthrough'] %}
@@ -3315,7 +3389,9 @@
       {% set visual_rail_label_display = 'Preparing walkthrough' %}
     {% endif %}
     {% set research_media_badge_label = research_media.get('status_label') or 'Media' %}
-    {% if visual_ready_layout %}
+    {% if visual_ready_ai_360 %}
+      {% set research_media_badge_label = 'AI 360 reconstruction' %}
+    {% elif visual_ready_layout %}
       {% set research_media_badge_label = 'Layout tour' %}
     {% elif visual_ready_tour %}
       {% set research_media_badge_label = '3D tour' %}
@@ -3325,9 +3401,26 @@
     <section class="prd-media-stack">
       {% set inline_media_preview = research_hero_preview_image or research_preview_image or research_location_preview.get('image_url') or '' %}
       {% set inline_media_fallback = research_location_preview.get('image_url') if research_location_preview.get('image_url') and inline_media_preview != research_location_preview.get('image_url') else '' %}
-      <section class="prd-media-frame prd-panel{% if research_media.get('has_live_viewer') %} prd-media-frame-live{% endif %}{% if research_hero_preview_kind == 'diorama' %} prd-media-frame-diorama{% endif %}" data-object-media-stage>
+      <section class="prd-media-frame prd-panel{% if research_media.get('has_live_viewer') %} prd-media-frame-live{% endif %}{% if visual_ready_ai_360 %} prd-media-frame-ai-360{% endif %}{% if research_hero_preview_kind == 'diorama' and not visual_ready_ai_360 %} prd-media-frame-diorama{% endif %}" data-object-media-stage>
+        {% if visual_ready_ai_360 and research_media.get('embed_href') %}
+        <div class="prd-ai-360-embed" data-prd-ai-360-embed>
+          <iframe
+            src="{{ research_media.get('embed_href') }}"
+            title="Interactive AI 360 tour: {{ research_title }}"
+            sandbox="allow-scripts allow-same-origin"
+            allow="fullscreen"
+            allowfullscreen
+            referrerpolicy="same-origin"
+            loading="eager"
+          ></iframe>
+          <div class="prd-ai-360-meta" aria-label="AI 360 tour information">
+            <p>{{ research_media.get('ai_360_disclosure') or 'AI-reconstructed from listing photos; not a captured 360 or measured survey.' }}</p>
+            <a href="{{ research_media.get('embed_href') }}" target="_blank" rel="noopener" data-prd-ai-360-fallback>Open AI 360 tour</a>
+          </div>
+        </div>
+        {% else %}
         <div class="prd-media-badge">
-          {% if visual_ready_tour or visual_ready_walkthrough %}
+          {% if visual_ready_tour or visual_ready_ai_360 or visual_ready_layout or visual_ready_walkthrough %}
             {{ research_media_badge_label }}
           {% elif research_hero_preview_kind == 'diorama' %}
             Diorama
@@ -3353,6 +3446,7 @@
           <strong data-prd-hero-title>{{ research_title }}</strong>
           <span data-prd-hero-summary>{{ research_summary }}</span>
         </div>
+        {% endif %}
       </section>
     </section>
     {% if visual_actions.items or research_media.get('show_status_line') or research_visual_status_line or visual_status.active %}
@@ -3376,8 +3470,8 @@
             <strong>{{ visual_card.get('title') }}</strong>
           </div>
           <p class="prd-visual-card-copy">{{ visual_card.get('copy') }}</p>
-          {% if visual_card.get('key') in ['tour', 'generated_reconstruction'] %}
-          <p class="prd-visual-evidence" data-prd-visual-evidence="tour">
+          {% if visual_card.get('key') in ['tour', 'generated_reconstruction', 'ai_360_reconstruction'] %}
+          <p class="prd-visual-evidence" data-prd-visual-evidence="{% if visual_card.get('key') == 'generated_reconstruction' %}layout-preview{% elif visual_card.get('key') == 'ai_360_reconstruction' %}ai-360-reconstruction{% else %}tour{% endif %}">
             {% if action.get('href') %}
             Open now.
             {% else %}
@@ -4933,6 +5027,10 @@
       }
       const visualStyleChoice = await chooseVisualStyleForRequest(requestKind);
       if (['tour', 'flythrough'].includes(requestKind) && !visualStyleChoice) return;
+      const externalProcessingConsentGranted = isWalkthroughRequest
+        ? window.confirm("Send this property's private packet to PropertyQuarry's governed external rendering service to create the walkthrough? The result remains private and requires approval before publication.")
+        : false;
+      if (isWalkthroughRequest && !externalProcessingConsentGranted) return;
       const dioramaStyleHint = ['tour', 'flythrough'].includes(requestKind)
         ? String(visualStyleChoice?.prompt || visualStyleChoice?.value || '').trim()
         : '';
@@ -4967,6 +5065,7 @@
             auto_deliver: false,
             allow_floorplan_only: true,
             walkthrough_provider_key: walkthroughProvider,
+            external_processing_consent_granted: externalProcessingConsentGranted,
             diorama_style_hint: dioramaStyleHint,
           }),
         });

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import math
 import mimetypes
 import os
 import re
@@ -22,6 +23,17 @@ import fcntl
 
 from app.product.projections import compact_text
 from app.product.property_search_storage import property_account_publication_authority
+
+try:
+    from scripts.property_magicfit_public_eligibility import (
+        evaluate_magicfit_public_eligibility,
+        magicfit_provider_declared,
+    )
+except ModuleNotFoundError:
+    from property_magicfit_public_eligibility import (  # type: ignore[no-redef]
+        evaluate_magicfit_public_eligibility,
+        magicfit_provider_declared,
+    )
 
 _PROPERTY_SCOUT_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0 Safari/537.36"
 _PROPERTY_SCOUT_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp")
@@ -59,6 +71,24 @@ _KRPANO_FORBIDDEN_SCENE_STRATEGIES = {"generated_listing_summary", "photo_galler
 _KRPANO_FORBIDDEN_CREATION_MODES = {"hosted_listing_fallback", "hosted_photo_gallery_tour"}
 _CUSTOMER_FACING_TOUR_PROVIDERS = ("3dvista",)
 _PROPERTY_GENERATED_RECONSTRUCTION_VIEWER_VERSION = "propertyquarry_3d_tour_viewer_v3"
+_AI_PANORAMA_CANONICAL_DISCLOSURE = (
+    "AI-reconstructed from listing photos; not a captured 360 or measured survey."
+)
+_AI_PANORAMA_THREE_MODULE_PATH = "/tours/runtime/three-0.167.1.module.js"
+_AI_PANORAMA_THREE_MODULE_SHA256 = (
+    "5289ca2dfde8572bd7715b9fa2ca929db12bae87e9a2cb53e431662df7039506"
+)
+_AI_PANORAMA_CORE_MANIFEST_EXCLUDED_ACCEPTANCE_FIELDS = frozenset(
+    {
+        # These fields are browser-proof lifecycle metadata.  Excluding only
+        # them lets a preflight manifest be hashed before its browser receipt
+        # exists, then sealed without changing the functional tour digest.
+        "proof_status",
+        "browser_receipt_relpath",
+        "browser_receipt_sha256",
+        "core_manifest_sha256",
+    }
+)
 _3DVISTA_FORBIDDEN_PUBLIC_MARKERS = (
     "created with the trial of 3dvista",
     "created with 3dvista",
@@ -69,6 +99,35 @@ _3DVISTA_FORBIDDEN_PUBLIC_MARKERS = (
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _hosted_property_tour_ai_panorama_browser_proof_current(
+    browser_receipt: object,
+    *,
+    now: datetime | None = None,
+) -> bool:
+    """Apply the browser-proof clock window independently of asset caching."""
+
+    if not isinstance(browser_receipt, Mapping):
+        return False
+    try:
+        observed_at = datetime.fromisoformat(
+            str(browser_receipt.get("observed_at") or "")
+            .strip()
+            .replace("Z", "+00:00")
+        )
+        if observed_at.tzinfo is None:
+            observed_at = observed_at.replace(tzinfo=timezone.utc)
+        current = now or datetime.now(timezone.utc)
+        if current.tzinfo is None:
+            return False
+        age_seconds = (
+            current.astimezone(timezone.utc)
+            - observed_at.astimezone(timezone.utc)
+        ).total_seconds()
+    except (TypeError, ValueError, OverflowError):
+        return False
+    return -300.0 <= age_seconds <= 30 * 86400
 
 
 def _first_non_empty_text(*values: object) -> str:
@@ -1705,26 +1764,35 @@ def _hosted_property_tour_has_walkable_360_asset(*, bundle_dir: Path, payload: d
     walkable_scene = payload.get("walkable_scene")
     if not isinstance(walkable_scene, dict) or not walkable_scene:
         return False
-    projection = str(walkable_scene.get("projection") or walkable_scene.get("type") or "").strip().lower()
-    if projection and projection not in {"equirectangular", "panorama", "cubemap", "cube"}:
-        return False
-    for key in ("panorama_relpath", "equirect_relpath", "image_relpath", "asset_relpath"):
-        relpath = str(walkable_scene.get(key) or "").strip()
-        if relpath and _hosted_property_tour_is_equirectangular_image(bundle_dir, relpath):
+    candidates = [walkable_scene]
+    raw_scenes = walkable_scene.get("scenes")
+    if isinstance(raw_scenes, dict):
+        candidates.extend(value for value in raw_scenes.values() if isinstance(value, dict))
+    elif isinstance(raw_scenes, list):
+        candidates.extend(value for value in raw_scenes if isinstance(value, dict))
+    for candidate in candidates:
+        projection = str(candidate.get("projection") or candidate.get("type") or "").strip().lower()
+        if projection and projection not in {"equirectangular", "equirect", "panorama", "spherical", "360", "cubemap", "cube"}:
+            continue
+        for key in ("panorama_relpath", "equirect_relpath", "image_relpath", "asset_relpath"):
+            relpath = str(candidate.get(key) or "").strip()
+            if relpath and _hosted_property_tour_is_equirectangular_image(bundle_dir, relpath):
+                return True
+        cube_faces = candidate.get("cube_faces")
+        if isinstance(cube_faces, dict):
+            values = list(cube_faces.values())
+        elif isinstance(cube_faces, list):
+            values = cube_faces
+        else:
+            values = []
+        valid_faces = [
+            value
+            for value in values
+            if _hosted_property_tour_is_cube_face_image(bundle_dir, value)
+        ]
+        if len(valid_faces) >= 6:
             return True
-    cube_faces = walkable_scene.get("cube_faces")
-    if isinstance(cube_faces, dict):
-        values = list(cube_faces.values())
-    elif isinstance(cube_faces, list):
-        values = cube_faces
-    else:
-        values = []
-    valid_faces = [
-        value
-        for value in values
-        if _hosted_property_tour_is_cube_face_image(bundle_dir, value)
-    ]
-    return len(valid_faces) >= 6
+    return False
 
 
 def _krpano_license_runtime_config() -> dict[str, str]:
@@ -1739,6 +1807,14 @@ def _hosted_property_tour_has_krpano_control(tour_url: object) -> bool:
     payload = _hosted_property_tour_payload_for_url(tour_url)
     slug = _hosted_property_tour_slug_from_url(tour_url)
     if not payload or not slug or not _krpano_license_runtime_config():
+        return False
+    walkable_scene = payload.get("walkable_scene")
+    representation_kind = (
+        str(walkable_scene.get("representation_kind") or "").strip().lower()
+        if isinstance(walkable_scene, dict)
+        else ""
+    )
+    if representation_kind == "ai_reconstruction":
         return False
     scenes = [dict(entry) for entry in (payload.get("scenes") or []) if isinstance(entry, dict)]
     if any(str(scene.get("role") or "").strip() == "generated_overview" for scene in scenes):
@@ -1809,6 +1885,694 @@ def _hosted_property_tour_generated_reconstruction_open_url(tour_url: object) ->
     return normalized_url
 
 
+def _hosted_property_tour_file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError:
+        return ""
+    return digest.hexdigest()
+
+
+def _hosted_property_tour_public_asset_relpath(value: object) -> str:
+    """Normalize only paths that the public asset route can serve verbatim."""
+
+    raw = str(value or "").strip().replace("\\", "/")
+    if (
+        not raw
+        or "\x00" in raw
+        or "://" in raw
+        or raw.startswith("/")
+        or any(character in ":?#[]@!$&'()*+,;=%" for character in raw)
+    ):
+        return ""
+    path = PurePosixPath(raw)
+    if path.is_absolute() or any(
+        part in {"", ".", ".."} or part.startswith(".")
+        for part in path.parts
+    ):
+        return ""
+    return "/".join(path.parts)
+
+
+def _hosted_property_tour_ai_panorama_core_manifest_sha256(
+    payload: Mapping[str, object],
+) -> str:
+    """Hash the complete functional AI-tour manifest without its proof loop."""
+
+    core_payload = dict(payload)
+    walkable_scene = core_payload.get("walkable_scene")
+    if isinstance(walkable_scene, dict):
+        core_walkable_scene = dict(walkable_scene)
+        acceptance = core_walkable_scene.get("acceptance")
+        if isinstance(acceptance, dict):
+            core_walkable_scene["acceptance"] = {
+                str(key): value
+                for key, value in acceptance.items()
+                if str(key)
+                not in _AI_PANORAMA_CORE_MANIFEST_EXCLUDED_ACCEPTANCE_FIELDS
+            }
+        core_payload["walkable_scene"] = core_walkable_scene
+    try:
+        canonical = json.dumps(
+            core_payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError):
+        return ""
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def _hosted_property_tour_ai_panorama_contract(
+    *,
+    bundle_dir: Path,
+    payload: dict[str, object],
+    mode: str = "full",
+) -> dict[str, object]:
+    """Validate a disclosed, immutable, browser-proven AI panorama bundle.
+
+    Passing this contract means the first-party spherical viewer is usable. It
+    never upgrades the reconstruction into a captured or measured property tour.
+    """
+
+    validation_mode = str(mode or "").strip().lower()
+
+    def _blocked(reason: str) -> dict[str, object]:
+        result: dict[str, object] = {
+            "ready": False,
+            "representation_kind": "ai_panorama_360",
+            "reason": reason,
+        }
+        if validation_mode == "preflight":
+            result.update(
+                {
+                    "preflight": True,
+                    "preflight_ready": False,
+                    "proof_pending": False,
+                }
+            )
+        return result
+
+    if validation_mode not in {"full", "preflight"}:
+        return _blocked("validation_mode_invalid")
+
+    if payload.get("publication_status") != "ready":
+        return _blocked("publication_not_ready")
+    walkable_scene = payload.get("walkable_scene")
+    if not isinstance(walkable_scene, dict):
+        return _blocked("walkable_scene_missing")
+    if str(walkable_scene.get("representation_kind") or "").strip().lower() != "ai_reconstruction":
+        return _blocked("representation_kind_invalid")
+    disclosure = str(walkable_scene.get("representation_disclosure") or "").strip()
+    if disclosure != _AI_PANORAMA_CANONICAL_DISCLOSURE:
+        return _blocked("representation_disclosure_missing")
+
+    raw_scenes = walkable_scene.get("scenes")
+    if isinstance(raw_scenes, dict):
+        scene_rows = [
+            (str(key or "").strip(), dict(value))
+            for key, value in raw_scenes.items()
+            if isinstance(value, dict)
+        ]
+    elif isinstance(raw_scenes, list):
+        scene_rows = [
+            (str(index + 1), dict(value))
+            for index, value in enumerate(raw_scenes)
+            if isinstance(value, dict)
+        ]
+    else:
+        scene_rows = []
+    try:
+        expected_scene_count = int(
+            walkable_scene.get("expected_scene_count") or len(scene_rows)
+        )
+    except (TypeError, ValueError):
+        return _blocked("expected_scene_count_invalid")
+    if (
+        len(scene_rows) < 3
+        or expected_scene_count < 3
+        or len(scene_rows) != expected_scene_count
+    ):
+        return _blocked("scene_coverage_incomplete")
+
+    acceptance = walkable_scene.get("acceptance")
+    if not isinstance(acceptance, dict):
+        return _blocked("acceptance_missing")
+    proof_status = str(acceptance.get("proof_status") or "").strip().lower()
+    if acceptance.get("contract_name") != "propertyquarry.ai_panorama_acceptance.v1":
+        return _blocked("acceptance_invalid")
+    if validation_mode == "full" and proof_status != "pass":
+        return _blocked("acceptance_invalid")
+    if validation_mode == "preflight" and proof_status not in {"pending", "pass"}:
+        return _blocked("acceptance_invalid")
+    digest_pattern = re.compile(r"[0-9a-f]{64}")
+    property_binding_sha256 = str(
+        acceptance.get("property_url_sha256") or ""
+    ).strip().lower()
+    if (
+        not digest_pattern.fullmatch(property_binding_sha256)
+        or str(payload.get("property_url_sha256") or "").strip().lower()
+        != property_binding_sha256
+    ):
+        return _blocked("property_binding_invalid")
+    declared_asset_hashes = acceptance.get("panorama_asset_sha256")
+    if not isinstance(declared_asset_hashes, dict):
+        return _blocked("panorama_asset_hashes_missing")
+
+    scene_ids: list[str] = []
+    actual_asset_hashes: dict[str, str] = {}
+    edges: dict[str, set[str]] = {}
+    total_panorama_bytes = 0
+    largest_panorama_bytes = 0
+    for fallback_id, scene in scene_rows:
+        scene_id = str(
+            scene.get("id")
+            or scene.get("node_id")
+            or scene.get("scene_id")
+            or fallback_id
+        ).strip()
+        if (
+            not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", scene_id)
+            or scene_id in scene_ids
+        ):
+            return _blocked("scene_id_invalid")
+        projection = str(
+            scene.get("projection") or scene.get("type") or ""
+        ).strip().lower()
+        if projection not in {
+            "equirectangular",
+            "equirect",
+            "panorama",
+            "spherical",
+            "360",
+        }:
+            return _blocked("scene_projection_invalid")
+        raw_asset_relpaths = [
+            str(scene.get(key) or "").strip()
+            for key in (
+                "asset_relpath",
+                "panorama_relpath",
+                "equirect_relpath",
+                "image_relpath",
+            )
+            if str(scene.get(key) or "").strip()
+        ]
+        canonical_asset_relpaths = {
+            _hosted_property_tour_public_asset_relpath(value)
+            for value in raw_asset_relpaths
+        }
+        if "" in canonical_asset_relpaths:
+            return _blocked("scene_asset_relpath_invalid")
+        if len(canonical_asset_relpaths) != 1:
+            return _blocked("scene_asset_relpath_ambiguous")
+        relpath = next(iter(canonical_asset_relpaths))
+        asset_path = _hosted_property_tour_asset_path(bundle_dir, relpath)
+        if asset_path is None:
+            return _blocked("scene_asset_missing")
+        width, height = _hosted_property_tour_image_dimensions(asset_path)
+        ratio = width / height if height else 0.0
+        if width < 4096 or height < 2048 or not 1.98 <= ratio <= 2.02:
+            return _blocked("scene_asset_not_release_resolution")
+        asset_sha256 = _hosted_property_tour_file_sha256(asset_path)
+        if (
+            not digest_pattern.fullmatch(asset_sha256)
+            or str(declared_asset_hashes.get(scene_id) or "").strip().lower()
+            != asset_sha256
+        ):
+            return _blocked("scene_asset_hash_mismatch")
+        asset_size_bytes = int(asset_path.stat(follow_symlinks=False).st_size)
+        total_panorama_bytes += asset_size_bytes
+        largest_panorama_bytes = max(largest_panorama_bytes, asset_size_bytes)
+        try:
+            floorplan_x = float(scene.get("floorplan_x_pct"))
+            floorplan_y = float(scene.get("floorplan_y_pct"))
+        except (TypeError, ValueError):
+            return _blocked("floorplan_alignment_missing")
+        if not (0.0 <= floorplan_x <= 100.0 and 0.0 <= floorplan_y <= 100.0):
+            return _blocked("floorplan_alignment_invalid")
+        scene_ids.append(scene_id)
+        actual_asset_hashes[scene_id] = asset_sha256
+        edges[scene_id] = set()
+    if len(set(actual_asset_hashes.values())) != len(scene_ids):
+        return _blocked("duplicate_panorama_assets")
+    if total_panorama_bytes > 12_000_000 or largest_panorama_bytes > 2_500_000:
+        return _blocked("panorama_performance_budget_exceeded")
+
+    scene_id_set = set(scene_ids)
+    hotspot_count = 0
+    hotspot_edges: set[str] = set()
+    for fallback_id, scene in scene_rows:
+        scene_id = str(
+            scene.get("id")
+            or scene.get("node_id")
+            or scene.get("scene_id")
+            or fallback_id
+        ).strip()
+        for key in ("hotspots", "transitions", "links"):
+            raw_hotspots = scene.get(key)
+            if not isinstance(raw_hotspots, list):
+                continue
+            for hotspot in raw_hotspots:
+                if not isinstance(hotspot, dict):
+                    continue
+                target = _first_non_empty_text(
+                    hotspot.get("target"),
+                    hotspot.get("target_scene_id"),
+                    hotspot.get("target_node_id"),
+                    hotspot.get("target_scene"),
+                    hotspot.get("scene"),
+                )
+                if target in scene_id_set and target != scene_id:
+                    edges[scene_id].add(target)
+                    hotspot_edges.add(f"{scene_id}->{target}")
+                    hotspot_count += 1
+    if hotspot_count < len(scene_ids) - 1:
+        return _blocked("navigation_hotspots_incomplete")
+    initial_scene_id = str(
+        walkable_scene.get("initial_scene_id") or scene_ids[0]
+    ).strip()
+    if initial_scene_id not in scene_id_set:
+        return _blocked("initial_scene_invalid")
+    reachable = {initial_scene_id}
+    frontier = [initial_scene_id]
+    while frontier:
+        current = frontier.pop()
+        for target in edges.get(current, set()):
+            if target not in reachable:
+                reachable.add(target)
+                frontier.append(target)
+    if reachable != scene_id_set:
+        return _blocked("scene_graph_disconnected")
+
+    spatial_model = walkable_scene.get("spatial_model")
+    if not isinstance(spatial_model, dict):
+        return _blocked("spatial_model_missing")
+    if (
+        str(spatial_model.get("source_basis") or "").strip().lower()
+        != "floorplan_scaled_approximation"
+        or spatial_model.get("measured") is not False
+    ):
+        return _blocked("spatial_model_provenance_invalid")
+    spatial_rooms = spatial_model.get("rooms")
+    if not isinstance(spatial_rooms, list) or len(spatial_rooms) < len(scene_ids):
+        return _blocked("spatial_model_coverage_incomplete")
+    spatial_room_ids: set[str] = set()
+    spatial_scene_ids: list[str] = []
+    for raw_room in spatial_rooms:
+        if not isinstance(raw_room, dict):
+            return _blocked("spatial_room_invalid")
+        room_id = str(raw_room.get("id") or "").strip()
+        if (
+            not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", room_id)
+            or room_id in spatial_room_ids
+        ):
+            return _blocked("spatial_room_id_invalid")
+        try:
+            room_values = tuple(
+                float(raw_room.get(key))
+                for key in ("x", "z", "width", "depth", "height")
+            )
+        except (TypeError, ValueError):
+            return _blocked("spatial_room_geometry_invalid")
+        x, z, width, depth, height = room_values
+        if (
+            not all(math.isfinite(value) for value in room_values)
+            or not (-40.0 <= x <= 40.0 and -40.0 <= z <= 40.0)
+            or not (0.2 <= width <= 40.0 and 0.2 <= depth <= 40.0)
+            or not (1.8 <= height <= 6.0)
+        ):
+            return _blocked("spatial_room_geometry_invalid")
+        kind = str(raw_room.get("kind") or "interior").strip().lower()
+        if kind not in {"interior", "exterior", "unavailable"}:
+            return _blocked("spatial_room_kind_invalid")
+        scene_id = str(raw_room.get("scene_id") or "").strip()
+        if scene_id:
+            if scene_id not in scene_id_set or scene_id in spatial_scene_ids:
+                return _blocked("spatial_scene_binding_invalid")
+            spatial_scene_ids.append(scene_id)
+        elif kind != "unavailable":
+            return _blocked("spatial_scene_binding_missing")
+        spatial_room_ids.add(room_id)
+    if set(spatial_scene_ids) != scene_id_set:
+        return _blocked("spatial_model_coverage_incomplete")
+
+    floorplan_relpath = _hosted_property_tour_public_asset_relpath(
+        walkable_scene.get("floorplan_relpath")
+    )
+    if not floorplan_relpath:
+        return _blocked("floorplan_relpath_invalid")
+    floorplan_path = _hosted_property_tour_asset_path(bundle_dir, floorplan_relpath)
+    if floorplan_path is None:
+        return _blocked("floorplan_missing")
+    floorplan_width, floorplan_height = _hosted_property_tour_image_dimensions(
+        floorplan_path
+    )
+    if floorplan_width < 800 or floorplan_height < 800:
+        return _blocked("floorplan_resolution_invalid")
+
+    def _verified_json_receipt(
+        *,
+        relpath_key: str,
+        digest_key: str,
+        contract_name: str,
+    ) -> dict[str, object] | None:
+        relpath = str(acceptance.get(relpath_key) or "").strip()
+        expected_sha256 = str(acceptance.get(digest_key) or "").strip().lower()
+        receipt_path = _hosted_property_tour_asset_path(bundle_dir, relpath)
+        if (
+            receipt_path is None
+            or not digest_pattern.fullmatch(expected_sha256)
+            or _hosted_property_tour_file_sha256(receipt_path) != expected_sha256
+        ):
+            return None
+        try:
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        except Exception:
+            return None
+        if (
+            not isinstance(receipt, dict)
+            or receipt.get("contract_name") != contract_name
+        ):
+            return None
+        return dict(receipt)
+
+    provenance = _verified_json_receipt(
+        relpath_key="provenance_relpath",
+        digest_key="provenance_sha256",
+        contract_name="propertyquarry.ai_panorama_provenance.v1",
+    )
+    if provenance is None:
+        return _blocked("provenance_invalid")
+    source_hashes = provenance.get("source_image_sha256")
+    if (
+        provenance.get("generation_method") != "ai_image_reconstruction"
+        or provenance.get("captured_360") is not False
+        or provenance.get("measured_survey") is not False
+        or str(provenance.get("representation_disclosure") or "").strip()
+        != disclosure
+        or str(provenance.get("property_url_sha256") or "").strip().lower()
+        != property_binding_sha256
+        or not isinstance(source_hashes, list)
+        or len(source_hashes) < len(scene_ids)
+        or any(
+            not digest_pattern.fullmatch(str(value or "").strip().lower())
+            for value in source_hashes
+        )
+        or str(provenance.get("floorplan_sha256") or "").strip().lower()
+        != _hosted_property_tour_file_sha256(floorplan_path)
+        or dict(provenance.get("panorama_asset_sha256") or {})
+        != actual_asset_hashes
+        or provenance.get("spatial_model_basis")
+        != "floorplan_scaled_approximation"
+        or provenance.get("spatial_model_measured") is not False
+        or set(provenance.get("spatial_scene_ids") or []) != scene_id_set
+    ):
+        return _blocked("provenance_content_invalid")
+
+    core_manifest_sha256 = (
+        _hosted_property_tour_ai_panorama_core_manifest_sha256(payload)
+    )
+    if not digest_pattern.fullmatch(core_manifest_sha256):
+        return _blocked("core_manifest_invalid")
+
+    common_result: dict[str, object] = {
+        "representation_kind": "ai_panorama_360",
+        "representation_disclosure": disclosure,
+        "scene_count": len(scene_ids),
+        "scene_ids": scene_ids,
+        "initial_scene_id": initial_scene_id,
+        "hotspot_count": hotspot_count,
+        "spatial_room_count": len(spatial_rooms),
+        "floorplan_relpath": floorplan_relpath,
+        "total_panorama_bytes": total_panorama_bytes,
+        "largest_panorama_bytes": largest_panorama_bytes,
+        "property_url_sha256": property_binding_sha256,
+        "panorama_asset_sha256": actual_asset_hashes,
+        "core_manifest_sha256": core_manifest_sha256,
+    }
+    if validation_mode == "preflight":
+        return {
+            "ready": False,
+            "preflight": True,
+            "preflight_ready": True,
+            "proof_pending": True,
+            **common_result,
+            "reason": "browser_proof_pending",
+        }
+
+    browser_receipt = _verified_json_receipt(
+        relpath_key="browser_receipt_relpath",
+        digest_key="browser_receipt_sha256",
+        contract_name="propertyquarry.ai_panorama_browser_proof.v1",
+    )
+    slug = str(payload.get("slug") or "").strip()
+    expected_control_path = (
+        f"/tours/{urllib.parse.quote(slug, safe='')}/control"
+    )
+    required_browser_checks = (
+        "anonymous_http_200",
+        "drag_navigation_verified",
+        "scene_navigation_verified",
+        "all_hotspots_verified",
+        "dollhouse_verified",
+        "desktop_verified",
+        "mobile_verified",
+        "touch_verified",
+        "first_party_viewer_verified",
+        "first_party_renderer_verified",
+        "slow_network_verified",
+        "performance_budget_verified",
+        "disclosure_verified",
+    )
+    browser_scene_ids = (
+        browser_receipt.get("scene_ids")
+        if isinstance(browser_receipt, dict)
+        and isinstance(browser_receipt.get("scene_ids"), list)
+        else []
+    )
+    browser_observed_at_valid = (
+        _hosted_property_tour_ai_panorama_browser_proof_current(browser_receipt)
+    )
+    if browser_receipt is None:
+        return _blocked("browser_proof_invalid")
+    if (
+        str(browser_receipt.get("core_manifest_sha256") or "").strip().lower()
+        != core_manifest_sha256
+    ):
+        return _blocked("browser_core_manifest_binding_invalid")
+
+    try:
+        configured_tour_base = urllib.parse.urlsplit(
+            _property_public_tour_base_url()
+        )
+        _ = configured_tour_base.port
+    except ValueError:
+        return _blocked("browser_tested_origin_invalid")
+    if (
+        configured_tour_base.scheme not in {"http", "https"}
+        or not configured_tour_base.netloc
+        or configured_tour_base.username is not None
+        or configured_tour_base.password is not None
+        or configured_tour_base.path.rstrip("/") != "/tours"
+        or configured_tour_base.query
+        or configured_tour_base.fragment
+    ):
+        return _blocked("browser_tested_origin_invalid")
+    expected_origin = urllib.parse.urlunsplit(
+        (
+            configured_tour_base.scheme,
+            configured_tour_base.netloc,
+            "",
+            "",
+            "",
+        )
+    )
+    expected_tested_url = f"{expected_origin}{expected_control_path}"
+    tested_url = str(browser_receipt.get("tested_url") or "")
+    tested_origin = str(browser_receipt.get("tested_origin") or "")
+    tested_path = str(browser_receipt.get("tour_path") or "")
+    try:
+        tested_url_parts = urllib.parse.urlsplit(tested_url)
+        _ = tested_url_parts.port
+    except ValueError:
+        return _blocked("browser_tested_url_invalid")
+    if tested_origin != expected_origin:
+        return _blocked("browser_tested_origin_invalid")
+    if tested_path != expected_control_path:
+        return _blocked("browser_tested_path_invalid")
+    if (
+        tested_url != expected_tested_url
+        or tested_url_parts.scheme != configured_tour_base.scheme
+        or tested_url_parts.netloc != configured_tour_base.netloc
+        or tested_url_parts.path != expected_control_path
+        or tested_url_parts.query
+        or tested_url_parts.fragment
+        or tested_url_parts.username is not None
+        or tested_url_parts.password is not None
+    ):
+        return _blocked("browser_tested_url_invalid")
+    if (
+        str(browser_receipt.get("proof_status") or "").strip().lower()
+        != "pass"
+        or any(browser_receipt.get(key) is not True for key in required_browser_checks)
+        or set(browser_scene_ids) != scene_id_set
+        or str(browser_receipt.get("representation_disclosure") or "").strip()
+        != disclosure
+        or browser_receipt.get("viewer_implementation")
+        != "app.api.routes.public_tours._tour_control_panorama_html"
+        or browser_receipt.get("route_stack") != "fastapi_public_route"
+        or browser_receipt.get("renderer_module_path")
+        != _AI_PANORAMA_THREE_MODULE_PATH
+        or str(browser_receipt.get("renderer_module_sha256") or "").strip().lower()
+        != _AI_PANORAMA_THREE_MODULE_SHA256
+        or browser_receipt.get("renderer_http_status") != 200
+        or list(browser_receipt.get("external_script_requests") or [])
+        or set(browser_receipt.get("verified_hotspot_edges") or [])
+        != hotspot_edges
+        or browser_receipt.get("dollhouse_room_count") != len(spatial_rooms)
+        or not browser_observed_at_valid
+    ):
+        return _blocked("browser_proof_invalid")
+    performance_receipt = browser_receipt.get("performance")
+    if not isinstance(performance_receipt, dict):
+        return _blocked("browser_performance_proof_invalid")
+    try:
+        initial_scene_loaded_ms = float(
+            performance_receipt.get("initial_scene_loaded_ms")
+        )
+        slow_network_initial_scene_loaded_ms = float(
+            performance_receipt.get("slow_network_initial_scene_loaded_ms")
+        )
+    except (TypeError, ValueError):
+        return _blocked("browser_performance_proof_invalid")
+    if (
+        not math.isfinite(initial_scene_loaded_ms)
+        or not math.isfinite(slow_network_initial_scene_loaded_ms)
+        or not (0.0 < initial_scene_loaded_ms <= 12_000.0)
+        or not (0.0 < slow_network_initial_scene_loaded_ms <= 20_000.0)
+        or performance_receipt.get("total_panorama_bytes")
+        != total_panorama_bytes
+        or performance_receipt.get("largest_panorama_bytes")
+        != largest_panorama_bytes
+        or performance_receipt.get("slow_network_profile")
+        != "150ms-latency-4mbps"
+        or performance_receipt.get("slow_network_all_scenes_loaded") is not True
+    ):
+        return _blocked("browser_performance_proof_invalid")
+    screenshot_hashes: set[str] = set()
+    for surface in ("desktop", "mobile", "dollhouse"):
+        surface_receipt = browser_receipt.get(surface)
+        if not isinstance(surface_receipt, dict):
+            return _blocked("browser_surface_proof_invalid")
+        screenshot_relpath = _hosted_property_tour_public_asset_relpath(
+            surface_receipt.get("screenshot_relpath")
+        )
+        screenshot_path = _hosted_property_tour_asset_path(
+            bundle_dir,
+            screenshot_relpath,
+        )
+        screenshot_sha256 = str(
+            surface_receipt.get("screenshot_sha256") or ""
+        ).strip().lower()
+        if (
+            screenshot_path is None
+            or not screenshot_relpath
+            or not digest_pattern.fullmatch(screenshot_sha256)
+            or _hosted_property_tour_file_sha256(screenshot_path)
+            != screenshot_sha256
+            or list(surface_receipt.get("page_errors") or [])
+            or list(surface_receipt.get("failed_requests") or [])
+        ):
+            return _blocked("browser_surface_proof_invalid")
+        screenshot_width, screenshot_height = _hosted_property_tour_image_dimensions(
+            screenshot_path
+        )
+        expected_viewport = "390x844" if surface == "mobile" else "1440x960"
+        expected_canvas = "780x1688" if surface == "mobile" else "1440x960"
+        if (
+            str(surface_receipt.get("viewport") or "") != expected_viewport
+            or str(surface_receipt.get("canvas") or "") != expected_canvas
+            or screenshot_sha256 in screenshot_hashes
+            or (
+                surface in {"desktop", "dollhouse"}
+                and not (
+                    screenshot_width >= 1280
+                    and screenshot_height >= 720
+                    and screenshot_width > screenshot_height
+                )
+            )
+            or (
+                surface == "mobile"
+                and not (
+                    screenshot_width >= 700
+                    and screenshot_height >= 1200
+                    and screenshot_height > screenshot_width
+                )
+            )
+        ):
+            return _blocked("browser_surface_image_invalid")
+        screenshot_hashes.add(screenshot_sha256)
+
+    return {
+        "ready": True,
+        "preflight": False,
+        "preflight_ready": False,
+        "proof_pending": False,
+        **common_result,
+        "reason": "",
+    }
+
+
+def _hosted_property_tour_ai_panorama_open_url(
+    tour_url: object,
+    *,
+    principal_id: object = "",
+) -> str:
+    normalized_url = str(tour_url or "").strip()
+    if not normalized_url:
+        return ""
+    payload = _hosted_property_tour_payload_for_url(
+        normalized_url,
+        principal_id=principal_id,
+    )
+    slug = _hosted_property_tour_slug_from_url(normalized_url)
+    if not payload or not slug:
+        return ""
+    contract = _hosted_property_tour_ai_panorama_contract(
+        bundle_dir=_public_tour_dir() / slug,
+        payload=payload,
+    )
+    if not contract.get("ready"):
+        return ""
+    control_path = f"/tours/{urllib.parse.quote(slug, safe='')}/control"
+    parsed = urllib.parse.urlparse(normalized_url)
+    if not parsed.scheme and not parsed.netloc:
+        return control_path
+    return urllib.parse.urlunparse(
+        (parsed.scheme, parsed.netloc, control_path, "", "", "")
+    )
+
+
+def _hosted_property_tour_reconstruction_kind(
+    tour_url: object,
+    *,
+    principal_id: object = "",
+) -> str:
+    if _hosted_property_tour_ai_panorama_open_url(
+        tour_url,
+        principal_id=principal_id,
+    ):
+        return "ai_panorama_360"
+    if _hosted_property_tour_generated_reconstruction_open_url(tour_url):
+        return "layout_preview"
+    return ""
+
+
 def _hosted_property_tour_first_party_open_url(
     tour_url: object,
     *,
@@ -1823,6 +2587,12 @@ def _hosted_property_tour_first_party_open_url(
     )
     if verified_url:
         return verified_url
+    ai_panorama_url = _hosted_property_tour_ai_panorama_open_url(
+        normalized_url,
+        principal_id=principal_id,
+    )
+    if ai_panorama_url:
+        return ai_panorama_url
     generated_reconstruction_url = _hosted_property_tour_generated_reconstruction_open_url(normalized_url)
     if generated_reconstruction_url:
         parsed = urllib.parse.urlparse(normalized_url)
@@ -1849,6 +2619,23 @@ def _hosted_property_tour_walkthrough_asset_url(tour_url: object) -> str:
         return ""
     payload = _load_hosted_property_tour_payload(bundle_dir)
     if not payload or not isinstance(payload, dict):
+        return ""
+    magicfit_footprint = bool(
+        magicfit_provider_declared(payload)
+        or isinstance(payload.get("magicfit_import"), dict)
+        or str(payload.get("video_sidecar_relpath") or "").strip().startswith(".magicfit-deliveries/")
+        or str(payload.get("video_relpath") or "").strip().startswith("magicfit-media/")
+    )
+    if magicfit_footprint:
+        eligibility = evaluate_magicfit_public_eligibility(bundle_dir, payload)
+        if not (eligibility.declared and eligibility.eligible and eligibility.video_relpath):
+            return ""
+        parsed = urllib.parse.urlparse(normalized_url)
+        route_path = f"/tours/{urllib.parse.quote(slug, safe='')}/walkthrough"
+        if not parsed.scheme and not parsed.netloc and str(parsed.path or "").startswith("/tours/"):
+            return route_path
+        if parsed.scheme and parsed.netloc:
+            return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, route_path, "", "", ""))
         return ""
     generated_reconstruction = (
         dict(payload.get("generated_reconstruction") or {})
@@ -3122,16 +3909,24 @@ def _hosted_public_tour_asset_url(tour_url: str, *, slug: str, asset_relpath: st
     safe_relpath = str(asset_relpath or "").strip().lstrip("/")
     if not normalized_url or not safe_slug or not safe_relpath:
         return ""
+    # Keep producer-side URLs byte-for-byte aligned with the public route's
+    # component validation and encoding.  In particular, URI delimiters can
+    # never be reinterpreted as query/fragment syntax after publication.
+    from app.api.routes.public_tour_payloads import public_tour_file_url
+
+    relative_asset_url = public_tour_file_url(safe_slug, safe_relpath)
+    if not relative_asset_url:
+        return ""
     parsed = urllib.parse.urlparse(normalized_url)
     if not parsed.scheme and not parsed.netloc and str(parsed.path or "").startswith("/tours/"):
-        return f"/tours/files/{safe_slug}/{safe_relpath}"
+        return relative_asset_url
     if not parsed.scheme or not parsed.netloc:
         return ""
     return urllib.parse.urlunparse(
         (
             parsed.scheme,
             parsed.netloc,
-            f"/tours/files/{safe_slug}/{safe_relpath}",
+            relative_asset_url,
             "",
             "",
             "",

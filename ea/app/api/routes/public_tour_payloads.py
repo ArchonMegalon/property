@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import mimetypes
 import re
 from dataclasses import dataclass, field
@@ -257,6 +258,21 @@ _PUBLIC_TOUR_READY_PUBLICATION_STATUSES = frozenset(
 )
 _PUBLIC_TOUR_SLUG_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 _PUBLIC_TOUR_RESERVED_STAGE_PREFIX = ".propertyquarry-stage-"
+_PUBLIC_TOUR_URI_DELIMITERS = frozenset(":?#[]@!$&'()*+,;=%")
+_PUBLIC_TOUR_QUARANTINED_ASSET_NAMES = frozenset(
+    {
+        "tour.json",
+        "tour.private.json",
+        "tour.magicfit.json",
+        "tour.magicfit.pending.json",
+    }
+)
+_PUBLIC_TOUR_QUARANTINED_ASSET_ROOTS = frozenset(
+    {
+        ".magicfit-deliveries",
+        ".magicfit-staging",
+    }
+)
 _PUBLIC_TOUR_PENDING_MAGICFIT_PROOF_STATUSES = frozenset(
     {
         "provider_render_pending_delivery_acceptance",
@@ -667,12 +683,28 @@ def scrub_public_tour_exact_location_strings(
 
 def public_tour_safe_asset_relpath(value: object) -> str:
     raw = str(value or "").strip().replace("\\", "/")
-    if not raw or "\x00" in raw or "://" in raw or raw.startswith("/"):
+    if (
+        not raw
+        or "\x00" in raw
+        or "://" in raw
+        or raw.startswith("/")
+        or any(character in _PUBLIC_TOUR_URI_DELIMITERS for character in raw)
+    ):
         return ""
     path = PurePosixPath(raw)
     if path.is_absolute() or any(
         part in {"", ".", ".."} or part.startswith(".")
         for part in path.parts
+    ):
+        return ""
+    lowered_parts = tuple(part.lower() for part in path.parts)
+    lowered_name = lowered_parts[-1]
+    if (
+        lowered_parts[0] in _PUBLIC_TOUR_QUARANTINED_ASSET_ROOTS
+        or lowered_name in _PUBLIC_TOUR_QUARANTINED_ASSET_NAMES
+        or lowered_name.startswith("tour.magicfit.")
+        or lowered_name.endswith(".magicfit.json")
+        or ".magicfit.pending." in lowered_name
     ):
         return ""
     return "/".join(path.parts)
@@ -931,13 +963,30 @@ def public_tour_collect_asset_refs(payload: dict[str, object]) -> set[str]:
                 privacy_class="generated_reconstruction_public",
                 role="photo",
             )
-    for scene in list(payload.get("scenes") or []):
+    scene_rows = [scene for scene in list(payload.get("scenes") or []) if isinstance(scene, dict)]
+    walkable_scene = payload.get("walkable_scene")
+    if isinstance(walkable_scene, dict):
+        _add(walkable_scene.get("floorplan_relpath"), privacy_class="public", role="floorplan")
+        walkable_scenes = walkable_scene.get("scenes")
+        if isinstance(walkable_scenes, dict):
+            scene_rows.extend(scene for scene in walkable_scenes.values() if isinstance(scene, dict))
+        elif isinstance(walkable_scenes, list):
+            scene_rows.extend(scene for scene in walkable_scenes if isinstance(scene, dict))
+    for scene in scene_rows:
         if not isinstance(scene, dict):
             continue
         scene_privacy = str(scene.get("privacy_class") or scene.get("privacy") or "").strip()
         scene_role = str(scene.get("role") or "").strip()
         scene_mime = str(scene.get("mime_type") or "").strip()
-        for key in ("asset_relpath", "thumbnail_relpath", "preview_relpath", "floorplan_relpath"):
+        for key in (
+            "asset_relpath",
+            "panorama_relpath",
+            "equirect_relpath",
+            "image_relpath",
+            "thumbnail_relpath",
+            "preview_relpath",
+            "floorplan_relpath",
+        ):
             _add(scene.get(key), privacy_class=scene_privacy, role=scene_role, mime_type=scene_mime)
         cube_faces = scene.get("cube_faces")
         if isinstance(cube_faces, dict):
@@ -1032,13 +1081,30 @@ def public_tour_asset_metadata(payload: dict[str, object]) -> dict[str, dict[str
                 privacy_class="generated_reconstruction_public",
                 role="photo",
             )
-    for scene in list(payload.get("scenes") or []):
+    scene_rows = [scene for scene in list(payload.get("scenes") or []) if isinstance(scene, dict)]
+    walkable_scene = payload.get("walkable_scene")
+    if isinstance(walkable_scene, dict):
+        _record(walkable_scene.get("floorplan_relpath"), privacy_class="public", role="floorplan")
+        walkable_scenes = walkable_scene.get("scenes")
+        if isinstance(walkable_scenes, dict):
+            scene_rows.extend(scene for scene in walkable_scenes.values() if isinstance(scene, dict))
+        elif isinstance(walkable_scenes, list):
+            scene_rows.extend(scene for scene in walkable_scenes if isinstance(scene, dict))
+    for scene in scene_rows:
         if not isinstance(scene, dict):
             continue
         scene_privacy = str(scene.get("privacy_class") or scene.get("privacy") or "").strip()
         scene_role = str(scene.get("role") or "").strip()
         scene_mime = str(scene.get("mime_type") or "").strip()
-        for key in ("asset_relpath", "thumbnail_relpath", "preview_relpath", "floorplan_relpath"):
+        for key in (
+            "asset_relpath",
+            "panorama_relpath",
+            "equirect_relpath",
+            "image_relpath",
+            "thumbnail_relpath",
+            "preview_relpath",
+            "floorplan_relpath",
+        ):
             _record(scene.get(key), privacy_class=scene_privacy, role=scene_role, mime_type=scene_mime)
         cube_faces = scene.get("cube_faces")
         if isinstance(cube_faces, dict):
@@ -1067,7 +1133,13 @@ def public_tour_file_url(slug: str, relpath: str) -> str:
     safe_relpath = public_tour_safe_asset_relpath(relpath)
     if not normalized_slug or not safe_relpath:
         return ""
-    return f"/tours/files/{normalized_slug}/{safe_relpath}"
+    from urllib.parse import quote
+
+    encoded_slug = quote(normalized_slug, safe="-._~")
+    encoded_relpath = "/".join(
+        quote(part, safe="-._~") for part in PurePosixPath(safe_relpath).parts
+    )
+    return f"/tours/files/{encoded_slug}/{encoded_relpath}"
 
 
 def public_tour_canonical_path(slug: str) -> str:
@@ -1268,6 +1340,296 @@ def redacted_public_tour_scenes(
     return rows
 
 
+def redacted_public_tour_walkable_scene(
+    payload: dict[str, object],
+    *,
+    expose_asset_relpaths: bool,
+) -> dict[str, object]:
+    """Project only viewer-safe panorama fields from a walkable scene.
+
+    The publication manifest also carries immutable provenance and browser-proof
+    receipts.  Those fields are required server-side, but they must never be
+    serialized into public tour JSON or page source.
+    """
+
+    walkable_scene = payload.get("walkable_scene")
+    if not isinstance(walkable_scene, dict):
+        return {}
+    slug = str(payload.get("slug") or "").strip()
+    allowed_assets = public_tour_allowed_asset_paths(payload)
+    asset_digests = (
+        payload.get("_ai_panorama_asset_sha256")
+        if isinstance(payload.get("_ai_panorama_asset_sha256"), dict)
+        else {}
+    )
+
+    def _versioned_file_url(relpath: str) -> str:
+        url = public_tour_file_url(slug, relpath)
+        digest = str(asset_digests.get(relpath) or "").strip().lower()
+        return f"{url}?v={digest}" if re.fullmatch(r"[0-9a-f]{64}", digest) else url
+
+    def _bounded_number(
+        value: object,
+        *,
+        default: float,
+        minimum: float,
+        maximum: float,
+    ) -> float:
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            parsed = default
+        if not math.isfinite(parsed):
+            parsed = default
+        return max(minimum, min(maximum, parsed))
+
+    raw_scenes = walkable_scene.get("scenes")
+    if isinstance(raw_scenes, dict):
+        scene_rows = [
+            (str(key or "").strip(), dict(value))
+            for key, value in raw_scenes.items()
+            if isinstance(value, dict)
+        ]
+    elif isinstance(raw_scenes, list):
+        scene_rows = [
+            (str(index + 1), dict(value))
+            for index, value in enumerate(raw_scenes)
+            if isinstance(value, dict)
+        ]
+    else:
+        scene_rows = []
+
+    normalized_rows: list[tuple[dict[str, object], dict[str, object]]] = []
+    seen_ids: set[str] = set()
+    for index, (fallback_id, scene) in enumerate(scene_rows[:64]):
+        scene_id = str(
+            scene.get("id")
+            or scene.get("node_id")
+            or scene.get("scene_id")
+            or fallback_id
+            or f"scene-{index + 1}"
+        ).strip()
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", scene_id) or scene_id in seen_ids:
+            continue
+        projection = str(
+            scene.get("projection") or scene.get("type") or "equirectangular"
+        ).strip().lower()
+        if projection not in {
+            "equirectangular",
+            "equirect",
+            "panorama",
+            "spherical",
+            "360",
+        }:
+            continue
+        relpath = ""
+        for key in (
+            "asset_relpath",
+            "panorama_relpath",
+            "equirect_relpath",
+            "image_relpath",
+        ):
+            candidate = public_tour_safe_asset_relpath(scene.get(key))
+            if candidate and candidate in allowed_assets:
+                relpath = candidate
+                break
+        if not relpath:
+            continue
+        rendered: dict[str, object] = {
+            "id": scene_id,
+            "label": str(
+                scene.get("label")
+                or scene.get("name")
+                or scene.get("room")
+                or f"Space {index + 1}"
+            ).strip()[:80],
+            "projection": "equirectangular",
+            "start_yaw": _bounded_number(
+                scene.get("start_yaw") or scene.get("start_deg"),
+                default=0.0,
+                minimum=-360.0,
+                maximum=360.0,
+            ),
+            "start_pitch": _bounded_number(
+                scene.get("start_pitch"),
+                default=0.0,
+                minimum=-80.0,
+                maximum=80.0,
+            ),
+            "start_fov": _bounded_number(
+                scene.get("start_fov"),
+                default=72.0,
+                minimum=40.0,
+                maximum=100.0,
+            ),
+            "floorplan_x_pct": _bounded_number(
+                scene.get("floorplan_x_pct"),
+                default=-1.0,
+                minimum=-1.0,
+                maximum=100.0,
+            ),
+            "floorplan_y_pct": _bounded_number(
+                scene.get("floorplan_y_pct"),
+                default=-1.0,
+                minimum=-1.0,
+                maximum=100.0,
+            ),
+        }
+        if expose_asset_relpaths:
+            rendered["asset_relpath"] = relpath
+        else:
+            rendered["image_url"] = _versioned_file_url(relpath)
+        seen_ids.add(scene_id)
+        normalized_rows.append((rendered, scene))
+
+    if not normalized_rows:
+        return {}
+    scene_ids = {str(row[0]["id"]) for row in normalized_rows}
+    for rendered, source in normalized_rows:
+        hotspots: list[dict[str, object]] = []
+        for key in ("hotspots", "transitions", "links"):
+            raw_hotspots = source.get(key)
+            if not isinstance(raw_hotspots, list):
+                continue
+            for raw_hotspot in raw_hotspots[:64]:
+                if not isinstance(raw_hotspot, dict):
+                    continue
+                target = str(
+                    raw_hotspot.get("target")
+                    or raw_hotspot.get("target_scene_id")
+                    or raw_hotspot.get("target_node_id")
+                    or raw_hotspot.get("target_scene")
+                    or raw_hotspot.get("scene")
+                    or ""
+                ).strip()
+                if target not in scene_ids or target == rendered["id"]:
+                    continue
+                hotspots.append(
+                    {
+                        "target": target,
+                        "label": str(
+                            raw_hotspot.get("label")
+                            or raw_hotspot.get("title")
+                            or "Continue"
+                        ).strip()[:80],
+                        "yaw": _bounded_number(
+                            raw_hotspot.get("yaw") or raw_hotspot.get("yaw_deg"),
+                            default=0.0,
+                            minimum=-360.0,
+                            maximum=360.0,
+                        ),
+                        "pitch": _bounded_number(
+                            raw_hotspot.get("pitch") or raw_hotspot.get("pitch_deg"),
+                            default=-12.0,
+                            minimum=-80.0,
+                            maximum=80.0,
+                        ),
+                    }
+                )
+        rendered["hotspots"] = hotspots
+
+    rendered_walkable: dict[str, object] = {
+        "representation_kind": str(
+            walkable_scene.get("representation_kind") or ""
+        ).strip().lower()[:80],
+        "representation_disclosure": str(
+            walkable_scene.get("representation_disclosure") or ""
+        ).strip()[:500],
+        "initial_scene_id": str(
+            walkable_scene.get("initial_scene_id") or normalized_rows[0][0]["id"]
+        ).strip()[:80],
+        "scenes": [row[0] for row in normalized_rows],
+    }
+    raw_spatial_model = walkable_scene.get("spatial_model")
+    if isinstance(raw_spatial_model, dict):
+        raw_rooms = raw_spatial_model.get("rooms")
+        rendered_rooms: list[dict[str, object]] = []
+        seen_room_ids: set[str] = set()
+        if isinstance(raw_rooms, list):
+            for index, raw_room in enumerate(raw_rooms[:64]):
+                if not isinstance(raw_room, dict):
+                    continue
+                room_id = str(raw_room.get("id") or f"room-{index + 1}").strip()
+                if (
+                    not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", room_id)
+                    or room_id in seen_room_ids
+                ):
+                    continue
+                width = _bounded_number(
+                    raw_room.get("width"),
+                    default=0.0,
+                    minimum=0.0,
+                    maximum=40.0,
+                )
+                depth = _bounded_number(
+                    raw_room.get("depth"),
+                    default=0.0,
+                    minimum=0.0,
+                    maximum=40.0,
+                )
+                if width < 0.2 or depth < 0.2:
+                    continue
+                scene_id = str(raw_room.get("scene_id") or "").strip()
+                if scene_id not in scene_ids:
+                    scene_id = ""
+                kind = str(raw_room.get("kind") or "interior").strip().lower()
+                if kind not in {"interior", "exterior", "unavailable"}:
+                    kind = "interior"
+                seen_room_ids.add(room_id)
+                rendered_rooms.append(
+                    {
+                        "id": room_id,
+                        "label": str(
+                            raw_room.get("label")
+                            or raw_room.get("name")
+                            or f"Space {index + 1}"
+                        ).strip()[:80],
+                        "scene_id": scene_id,
+                        "kind": kind,
+                        "x": _bounded_number(
+                            raw_room.get("x"),
+                            default=0.0,
+                            minimum=-40.0,
+                            maximum=40.0,
+                        ),
+                        "z": _bounded_number(
+                            raw_room.get("z"),
+                            default=0.0,
+                            minimum=-40.0,
+                            maximum=40.0,
+                        ),
+                        "width": width,
+                        "depth": depth,
+                        "height": _bounded_number(
+                            raw_room.get("height"),
+                            default=2.55,
+                            minimum=1.8,
+                            maximum=6.0,
+                        ),
+                    }
+                )
+        if (
+            str(raw_spatial_model.get("source_basis") or "").strip().lower()
+            == "floorplan_scaled_approximation"
+            and raw_spatial_model.get("measured") is False
+            and rendered_rooms
+        ):
+            rendered_walkable["spatial_model"] = {
+                "source_basis": "floorplan_scaled_approximation",
+                "measured": False,
+                "rooms": rendered_rooms,
+            }
+    floorplan_relpath = public_tour_safe_asset_relpath(
+        walkable_scene.get("floorplan_relpath")
+    )
+    if floorplan_relpath and floorplan_relpath in allowed_assets:
+        if expose_asset_relpaths:
+            rendered_walkable["floorplan_relpath"] = floorplan_relpath
+        else:
+            rendered_walkable["floorplan_url"] = _versioned_file_url(floorplan_relpath)
+    return rendered_walkable
+
+
 def redacted_public_tour_payload(
     payload: dict[str, object],
     *,
@@ -1302,6 +1664,14 @@ def redacted_public_tour_payload(
                     if "image_url" in scene or "asset_relpath" in scene or "cube_faces" in scene
                 ]
             rendered[key] = rendered_scenes
+            continue
+        if key == "walkable_scene":
+            rendered_walkable_scene = redacted_public_tour_walkable_scene(
+                payload,
+                expose_asset_relpaths=expose_asset_relpaths,
+            )
+            if rendered_walkable_scene:
+                rendered[key] = rendered_walkable_scene
             continue
         if key in {"video_relpath", "video_mobile_relpath"}:
             relpath = public_tour_safe_asset_relpath(payload.get(key))

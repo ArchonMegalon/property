@@ -7,12 +7,12 @@ import shutil
 import subprocess
 import sys
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 from PIL import Image
 
-from scripts.discover_property_tour_exports import build_discovery_receipt
+from scripts.discover_property_tour_exports import REJECTION_ACTIONS, build_discovery_receipt
 from scripts.import_3dvista_export import _normalize_web_readable_export_tree
 from scripts.intake_3dvista_gold_artifact import build_3dvista_intake_receipt
 from scripts.property_tour_3dvista_provenance import (
@@ -31,6 +31,11 @@ from scripts.property_tour_panorama_provenance import (
 )
 from scripts.verify_property_tour_controls import build_property_tour_control_receipt
 from scripts.check_property_tour_delivery_contract import build_tour_delivery_contract_receipt
+from scripts.import_magicfit_walkthrough import (
+    _activation_lock as _magicfit_import_activation_lock,
+    _confirm_named_bundle_identity as _confirm_magicfit_import_bundle_identity,
+)
+from scripts.property_tour_publication_lock import property_tour_publication_lock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -212,6 +217,20 @@ def _write_playable_mp4(path: Path) -> None:
         timeout=20,
     )
     assert result.returncode == 0, result.stderr
+
+
+def _magicfit_source_receipt(*, slug: str, video: Path) -> dict[str, object]:
+    hosted_url = f"https://media.powlcdn.com/magicfit/{slug}.mp4"
+    return {
+        "provider": "magicfit",
+        "provider_key": "magicfit",
+        "provider_backend_key": "magicfit",
+        "render_status": "completed",
+        "target_slug": slug,
+        "hosted_walkthrough_video_url": hosted_url,
+        "video_output_url": hosted_url,
+        "output_file": str(video),
+    }
 
 
 def _write_equirectangular_image(path: Path) -> None:
@@ -1664,8 +1683,19 @@ def test_batch_tour_export_importer_materializes_krpano_and_magicfit_assets(tmp_
 
     assert imported.returncode == 0, imported.stderr
     receipt = json.loads(receipt_out.read_text(encoding="utf-8"))
-    assert receipt["status"] == "pass"
+    assert receipt["status"] == "staged_pending_delivery_acceptance"
     assert receipt["imported_count"] == 2
+    assert receipt["accepted_count"] == 1
+    assert receipt["staged_count"] == 1
+    assert receipt["successful_count"] == 2
+    assert receipt["failed_count"] == 0
+    rows = {row["provider"]: row for row in receipt["imports"]}
+    assert rows["krpano"]["status"] == "imported"
+    assert rows["magicfit"]["status"] == "staged_pending_delivery_acceptance"
+    assert rows["magicfit"]["acceptance_status"] == "pending"
+    assert rows["magicfit"]["launch_eligible"] is False
+    assert "control_url" not in rows["magicfit"]
+    assert not any("url" in key.lower() for key in rows["magicfit"])
     krpano_manifest = json.loads((public_root / "batch-krpano" / "tour.json").read_text(encoding="utf-8"))
     magicfit_manifest = json.loads((public_root / "batch-magicfit" / "tour.json").read_text(encoding="utf-8"))
     assert krpano_manifest["control_mode"] == "krpano"
@@ -1772,6 +1802,9 @@ def test_magicfit_importer_materializes_playable_walkthrough_and_rejects_placeho
     assert stub_rejected.returncode != 0
     assert "magicfit_video_unverified" in stub_rejected.stderr
     assert not (bundle_dir / "magicfit-walkthrough.mp4").exists()
+    staging_root = bundle_dir / ".magicfit-staging"
+    assert staging_root.is_dir()
+    assert list(staging_root.iterdir()) == []
 
     playable_video = tmp_path / "walkthrough.mp4"
     _write_playable_mp4(playable_video)
@@ -1815,7 +1848,7 @@ def test_magicfit_importer_materializes_playable_walkthrough_and_rejects_placeho
     )
 
     assert mismatched.returncode != 0
-    assert "magicfit_receipt_target_mismatch" in mismatched.stderr
+    assert "magicfit_source_receipt_provider_invalid" in mismatched.stderr
     assert not (bundle_dir / "magicfit-walkthrough.mp4").exists()
 
     receipt_path.write_text(
@@ -1845,7 +1878,7 @@ def test_magicfit_importer_materializes_playable_walkthrough_and_rejects_placeho
     )
 
     assert weak_receipt.returncode != 0
-    assert "magicfit_receipt_backend_mismatch" in weak_receipt.stderr
+    assert "magicfit_source_receipt_provider_invalid" in weak_receipt.stderr
     assert not (bundle_dir / "magicfit-walkthrough.mp4").exists()
 
     receipt_path.write_text(
@@ -1905,8 +1938,15 @@ def test_magicfit_importer_materializes_playable_walkthrough_and_rejects_placeho
     pending = json.loads(pending_path.read_text(encoding="utf-8"))
     assert pending_path.stat().st_mode & 0o777 == 0o600
     assert pending["contract_name"] == (
-        "propertyquarry.magicfit_delivery_acceptance.v1"
+        "propertyquarry.magicfit_delivery_pending.v2"
     )
+    assert pending["manifest_transform_contract"] == (
+        "propertyquarry.magicfit_manifest_transform.v1"
+    )
+    assert pending["tour_slug"] == slug
+    assert pending["requested_target_relpath"] == "walkthrough/final.mp4"
+    assert pending["video_size_bytes"] == playable_video.stat().st_size
+    assert pending["coverage_proof"]["status"] == "pass"
     assert pending["render_status"] == "completed"
     assert pending["generated_at"].endswith("Z")
     assert pending["acceptance_status"] == "pending"
@@ -1986,6 +2026,129 @@ def test_magicfit_importer_materializes_playable_walkthrough_and_rejects_placeho
     assert json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8")) == manifest
     assert not (bundle_dir / pending["video_relpath"]).exists()
 
+
+def test_magicfit_importer_retires_previous_and_bounded_closed_orphans(
+    tmp_path: Path,
+) -> None:
+    slug = "magicfit-stage-retirement"
+    bundle = _write_base_tour(tmp_path, slug)
+    stage_root = bundle / ".magicfit-staging"
+    previous_digest = "2" * 64
+    orphan_digest = "3" * 64
+    unknown_digest = "4" * 64
+    for digest in (previous_digest, orphan_digest):
+        stage = stage_root / digest
+        stage.mkdir(parents=True)
+        (stage / "tour.json").write_text("{}\n", encoding="utf-8")
+        (stage / "video.mp4").write_bytes(b"closed-orphan")
+    unknown_stage = stage_root / unknown_digest
+    unknown_stage.mkdir()
+    (unknown_stage / "operator-authority.bin").write_bytes(b"preserve")
+    (bundle / "tour.magicfit.pending.json").write_text(
+        json.dumps(
+            {
+                "staged_manifest_relpath": (
+                    f".magicfit-staging/{previous_digest}/tour.json"
+                ),
+                "staged_video_relpath": (
+                    f".magicfit-staging/{previous_digest}/video.mp4"
+                ),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    video = tmp_path / "retirement.mp4"
+    _write_playable_mp4(video)
+    receipt = tmp_path / "retirement-receipt.json"
+    receipt.write_text(
+        json.dumps(
+            {
+                "provider": "magicfit",
+                "provider_backend_key": "magicfit",
+                "render_status": "completed",
+                "target_slug": slug,
+                "hosted_walkthrough_video_url": (
+                    "https://media.powlcdn.com/magicfit/retirement.mp4"
+                ),
+                "output_file": str(video),
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    imported = _run_importer(
+        "import_magicfit_walkthrough.py",
+        tmp_path,
+        "--slug",
+        slug,
+        "--video-path",
+        str(video),
+        "--source-receipt",
+        str(receipt),
+    )
+
+    assert imported.returncode == 0, imported.stderr
+    pending = json.loads(
+        (bundle / "tour.magicfit.pending.json").read_text(encoding="utf-8")
+    )
+    selected_digest = PurePosixPath(pending["staged_manifest_relpath"]).parts[1]
+    assert (stage_root / selected_digest).is_dir()
+    assert not (stage_root / previous_digest).exists()
+    assert not (stage_root / orphan_digest).exists()
+    assert (unknown_stage / "operator-authority.bin").read_bytes() == b"preserve"
+
+
+@pytest.mark.parametrize("symlinked_subject", ("video", "source_receipt"))
+def test_magicfit_importer_rejects_symlinked_integrity_subjects(
+    tmp_path: Path,
+    symlinked_subject: str,
+) -> None:
+    slug = f"symlinked-magicfit-{symlinked_subject.replace('_', '-')}"
+    bundle = _write_base_tour(tmp_path, slug)
+    real_video = tmp_path / "real-walkthrough.mp4"
+    _write_playable_mp4(real_video)
+    real_receipt = tmp_path / "real-magicfit-receipt.json"
+    real_receipt.write_text(
+        json.dumps(
+            {
+                "provider": "magicfit",
+                "provider_backend_key": "magicfit",
+                "render_status": "completed",
+                "hosted_walkthrough_video_url": (
+                    "https://media.powlcdn.com/magicfit/symlinked.mp4"
+                ),
+                "output_file": str(real_video),
+                "target_slug": slug,
+            }
+        ),
+        encoding="utf-8",
+    )
+    video_argument = real_video
+    receipt_argument = real_receipt
+    if symlinked_subject == "video":
+        video_argument = tmp_path / "linked-walkthrough.mp4"
+        video_argument.symlink_to(real_video.name)
+    else:
+        receipt_argument = tmp_path / "linked-magicfit-receipt.json"
+        receipt_argument.symlink_to(real_receipt.name)
+
+    rejected = _run_importer(
+        "import_magicfit_walkthrough.py",
+        tmp_path,
+        "--slug",
+        slug,
+        "--video-path",
+        str(video_argument),
+        "--source-receipt",
+        str(receipt_argument),
+    )
+
+    assert rejected.returncode != 0
+    assert "magicfit_video" in rejected.stderr or "magicfit_receipt" in rejected.stderr
+    assert not (bundle / "tour.magicfit.pending.json").exists()
+
+
 def test_magicfit_importer_rejects_ambiguous_receipts_and_noncanonical_paths(
     tmp_path: Path,
 ) -> None:
@@ -2063,8 +2226,28 @@ def test_magicfit_importer_rejects_ambiguous_receipts_and_noncanonical_paths(
         str(numeric_receipt),
     )
     assert numeric_result.returncode != 0
-    assert "magicfit_receipt_target_mismatch" in numeric_result.stderr
+    assert "magicfit_source_receipt_slug_invalid" in numeric_result.stderr
     assert not (numeric_bundle / "magicfit-walkthrough.mp4").exists()
+
+    output_slug = "output-mismatch-receipt"
+    output_bundle = _write_base_tour(tmp_path, output_slug)
+    output_receipt = tmp_path / "output-mismatch-receipt.json"
+    output_payload = valid_receipt(output_slug)
+    output_payload["output_file"] = str(tmp_path / "different.mp4")
+    output_receipt.write_text(json.dumps(output_payload), encoding="utf-8")
+    output_result = _run_importer(
+        "import_magicfit_walkthrough.py",
+        tmp_path,
+        "--slug",
+        output_slug,
+        "--video-path",
+        str(playable_video),
+        "--source-receipt",
+        str(output_receipt),
+    )
+    assert output_result.returncode != 0
+    assert "magicfit_receipt_output_mismatch" in output_result.stderr
+    assert not (output_bundle / "tour.magicfit.pending.json").exists()
 
     target_slug = "noncanonical-target"
     target_bundle = _write_base_tour(tmp_path, target_slug)
@@ -2215,7 +2398,12 @@ def test_tour_export_discovery_emits_manifest_for_verified_drop_folders(tmp_path
     magicfit_video = magicfit_assets / "magicfit-walkthrough.mp4"
     _write_playable_mp4(magicfit_video)
     (magicfit_assets / "magicfit-receipt.json").write_text(
-        json.dumps({"provider": "magicfit", "target_slug": "discover-magicfit", "output_file": str(magicfit_video)}),
+        json.dumps(
+            _magicfit_source_receipt(
+                slug="discover-magicfit",
+                video=magicfit_video,
+            )
+        ),
         encoding="utf-8",
     )
     receipt_path = tmp_path / "discovery.json"
@@ -2513,8 +2701,12 @@ def test_tour_export_discovery_rejects_magicfit_receipt_mismatch_before_import(t
     magicfit_assets.mkdir(parents=True)
     magicfit_video = magicfit_assets / "magicfit-walkthrough.mp4"
     _write_playable_mp4(magicfit_video)
+    source_receipt = _magicfit_source_receipt(
+        slug="different-tour",
+        video=magicfit_video,
+    )
     (magicfit_assets / "magicfit-receipt.json").write_text(
-        json.dumps({"provider": "magicfit", "target_slug": "different-tour", "output_file": str(magicfit_video)}),
+        json.dumps(source_receipt),
         encoding="utf-8",
     )
     receipt_path = tmp_path / "discovery.json"
@@ -2555,6 +2747,192 @@ def test_tour_export_discovery_rejects_magicfit_receipt_mismatch_before_import(t
     assert repair["reason"] == "magicfit_receipt_target_mismatch"
     assert "import_magicfit_walkthrough.py" in repair["import_command_after_assets_arrive"]
     assert "magicfit-receipt.json" in repair["import_command_after_assets_arrive"]
+
+
+def test_tour_export_discovery_enforces_closed_magicfit_source_contract(
+    tmp_path: Path,
+) -> None:
+    public_root = tmp_path / "public_tours"
+    drop_dir = tmp_path / "drop"
+    template_video = tmp_path / "magicfit-template.mp4"
+    _write_playable_mp4(template_video)
+    expected_reasons = {
+        "magicfit-receipt-missing": "magicfit_receipt_missing",
+        "magicfit-status-invalid": "magicfit_receipt_status_invalid",
+        "magicfit-url-missing": "magicfit_receipt_url_invalid",
+        "magicfit-url-alias-conflict": "magicfit_receipt_url_invalid",
+        "magicfit-provider-alias-conflict": "magicfit_receipt_provider_mismatch",
+        "magicfit-slug-alias-conflict": "magicfit_receipt_target_mismatch",
+    }
+
+    for slug in expected_reasons:
+        _write_base_tour(tmp_path, slug)
+        assets = drop_dir / slug / "magicfit"
+        assets.mkdir(parents=True)
+        video = assets / "magicfit-walkthrough.mp4"
+        shutil.copy2(template_video, video)
+        if slug == "magicfit-receipt-missing":
+            continue
+        source_receipt = _magicfit_source_receipt(slug=slug, video=video)
+        if slug == "magicfit-status-invalid":
+            source_receipt["render_status"] = "processing"
+        elif slug == "magicfit-url-missing":
+            source_receipt.pop("hosted_walkthrough_video_url")
+            source_receipt.pop("video_output_url")
+        elif slug == "magicfit-url-alias-conflict":
+            source_receipt["video_output_url"] = (
+                "https://cdn.pushowl.com/magicfit/different.mp4"
+            )
+        elif slug == "magicfit-provider-alias-conflict":
+            source_receipt["provider_key"] = "MagicFit"
+        elif slug == "magicfit-slug-alias-conflict":
+            source_receipt["tour_slug"] = "different-tour"
+        (assets / "magicfit-receipt.json").write_text(
+            json.dumps(source_receipt),
+            encoding="utf-8",
+        )
+
+    receipt = build_discovery_receipt(
+        drop_dir=drop_dir,
+        public_tour_dir=public_root,
+    )
+
+    assert receipt["status"] == "blocked_no_verified_exports"
+    assert receipt["import_count"] == 0
+    assert receipt["rejected_count"] == len(expected_reasons)
+    rejected_by_slug = {row["slug"]: row for row in receipt["rejected"]}
+    assert set(rejected_by_slug) == set(expected_reasons)
+    for slug, reason in expected_reasons.items():
+        assert rejected_by_slug[slug]["reason"] == reason
+        assert rejected_by_slug[slug]["action"] == REJECTION_ACTIONS[reason]
+
+
+def test_tour_export_discovery_rejects_magicfit_symlinks_and_sparse_subjects(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PROPERTYQUARRY_TOUR_ASSET_MAX_BYTES", str(1024 * 1024))
+    monkeypatch.setenv("PROPERTYQUARRY_MAGICFIT_RECEIPT_MAX_BYTES", "1024")
+    public_root = tmp_path / "public_tours"
+    drop_dir = tmp_path / "drop"
+    template_video = tmp_path / "magicfit-template.mp4"
+    _write_playable_mp4(template_video)
+    expected_reasons = {
+        "magicfit-video-symlink": "magicfit_video_unverified",
+        "magicfit-receipt-symlink": "magicfit_receipt_invalid",
+        "magicfit-component-symlink": "magicfit_video_unverified",
+        "magicfit-sparse-video": "magicfit_video_unverified",
+        "magicfit-sparse-receipt": "magicfit_receipt_invalid",
+    }
+
+    video_symlink_slug = "magicfit-video-symlink"
+    _write_base_tour(tmp_path, video_symlink_slug)
+    video_symlink_assets = drop_dir / video_symlink_slug / "magicfit"
+    video_symlink_assets.mkdir(parents=True)
+    video_symlink = video_symlink_assets / "magicfit-walkthrough.mp4"
+    video_symlink.symlink_to(template_video)
+    (video_symlink_assets / "magicfit-receipt.json").write_text(
+        json.dumps(
+            _magicfit_source_receipt(
+                slug=video_symlink_slug,
+                video=video_symlink,
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    receipt_symlink_slug = "magicfit-receipt-symlink"
+    _write_base_tour(tmp_path, receipt_symlink_slug)
+    receipt_symlink_assets = drop_dir / receipt_symlink_slug / "magicfit"
+    receipt_symlink_assets.mkdir(parents=True)
+    receipt_symlink_video = receipt_symlink_assets / "magicfit-walkthrough.mp4"
+    shutil.copy2(template_video, receipt_symlink_video)
+    external_receipt = tmp_path / "external-magicfit-receipt.json"
+    external_receipt.write_text(
+        json.dumps(
+            _magicfit_source_receipt(
+                slug=receipt_symlink_slug,
+                video=receipt_symlink_video,
+            )
+        ),
+        encoding="utf-8",
+    )
+    (receipt_symlink_assets / "magicfit-receipt.json").symlink_to(
+        external_receipt
+    )
+
+    component_symlink_slug = "magicfit-component-symlink"
+    _write_base_tour(tmp_path, component_symlink_slug)
+    external_assets = tmp_path / "external-magicfit-assets"
+    external_assets.mkdir()
+    external_video = external_assets / "magicfit-walkthrough.mp4"
+    shutil.copy2(template_video, external_video)
+    (external_assets / "magicfit-receipt.json").write_text(
+        json.dumps(
+            _magicfit_source_receipt(
+                slug=component_symlink_slug,
+                video=external_video,
+            )
+        ),
+        encoding="utf-8",
+    )
+    component_parent = drop_dir / component_symlink_slug
+    component_parent.mkdir(parents=True)
+    (component_parent / "magicfit").symlink_to(
+        external_assets,
+        target_is_directory=True,
+    )
+
+    sparse_video_slug = "magicfit-sparse-video"
+    _write_base_tour(tmp_path, sparse_video_slug)
+    sparse_video_assets = drop_dir / sparse_video_slug / "magicfit"
+    sparse_video_assets.mkdir(parents=True)
+    sparse_video = sparse_video_assets / "magicfit-walkthrough.mp4"
+    sparse_video.write_bytes(b"\x00\x00\x00\x18ftypisom")
+    with sparse_video.open("r+b") as stream:
+        stream.truncate(2 * 1024 * 1024)
+    (sparse_video_assets / "magicfit-receipt.json").write_text(
+        json.dumps(
+            _magicfit_source_receipt(
+                slug=sparse_video_slug,
+                video=sparse_video,
+            )
+        ),
+        encoding="utf-8",
+    )
+
+    sparse_receipt_slug = "magicfit-sparse-receipt"
+    _write_base_tour(tmp_path, sparse_receipt_slug)
+    sparse_receipt_assets = drop_dir / sparse_receipt_slug / "magicfit"
+    sparse_receipt_assets.mkdir(parents=True)
+    sparse_receipt_video = sparse_receipt_assets / "magicfit-walkthrough.mp4"
+    shutil.copy2(template_video, sparse_receipt_video)
+    sparse_receipt = sparse_receipt_assets / "magicfit-receipt.json"
+    sparse_receipt.write_text(
+        json.dumps(
+            _magicfit_source_receipt(
+                slug=sparse_receipt_slug,
+                video=sparse_receipt_video,
+            )
+        ),
+        encoding="utf-8",
+    )
+    with sparse_receipt.open("r+b") as stream:
+        stream.truncate(2 * 1024)
+
+    receipt = build_discovery_receipt(
+        drop_dir=drop_dir,
+        public_tour_dir=public_root,
+    )
+
+    assert receipt["status"] == "blocked_no_verified_exports"
+    assert receipt["import_count"] == 0
+    assert receipt["rejected_count"] == len(expected_reasons)
+    rejected_by_slug = {row["slug"]: row for row in receipt["rejected"]}
+    assert set(rejected_by_slug) == set(expected_reasons)
+    for slug, reason in expected_reasons.items():
+        assert rejected_by_slug[slug]["reason"] == reason
+        assert rejected_by_slug[slug]["action"] == REJECTION_ACTIONS[reason]
 
 
 def test_tour_export_discovery_rejects_placeholders_and_missing_tour_manifests(tmp_path: Path) -> None:
@@ -2734,3 +3112,71 @@ def test_magicfit_importer_fails_closed_on_low_disk_before_publishing(
     assert not (bundle_dir / "magicfit-walkthrough.mp4").exists()
     manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
     assert "video_relpath" not in manifest
+
+
+def test_magicfit_importer_serializes_on_canonical_publication_lock(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    slug = "publication-locked-magicfit-import"
+    bundle_dir = _write_base_tour(tmp_path, slug)
+    source = tmp_path / "publication-locked-magicfit.mp4"
+    _write_playable_mp4(source)
+    manifest_before = (bundle_dir / "tour.json").read_bytes()
+    monkeypatch.setenv(
+        "PROPERTYQUARRY_RECONSTRUCTION_PUBLICATION_LOCK_TIMEOUT_SECONDS",
+        "0.05",
+    )
+
+    with property_tour_publication_lock(
+        public_dir=tmp_path / "public_tours",
+        slug=slug,
+        timeout_seconds=1.0,
+    ):
+        blocked = _run_importer(
+            "import_magicfit_walkthrough.py",
+            tmp_path,
+            "--slug",
+            slug,
+            "--video-path",
+            str(source),
+            "--allow-unreceipted-test-asset",
+        )
+
+    assert blocked.returncode != 0
+    assert "property_reconstruction_publication_lock_timeout" in blocked.stderr
+    assert (bundle_dir / "tour.json").read_bytes() == manifest_before
+    assert not (bundle_dir / "tour.magicfit.pending.json").exists()
+
+    imported = _run_importer(
+        "import_magicfit_walkthrough.py",
+        tmp_path,
+        "--slug",
+        slug,
+        "--video-path",
+        str(source),
+        "--allow-unreceipted-test-asset",
+    )
+    assert imported.returncode == 0, imported.stderr
+
+
+def test_magicfit_importer_rejects_named_bundle_swap_before_pointer_commit(
+    tmp_path: Path,
+) -> None:
+    slug = "bundle-swapped-magicfit-import"
+    bundle_dir = _write_base_tour(tmp_path, slug)
+    public_root = tmp_path / "public_tours"
+    moved_bundle = bundle_dir.with_name(f"{slug}.moved")
+
+    with _magicfit_import_activation_lock(
+        public_root, slug
+    ) as (public_root_fd, bundle_fd):
+        bundle_dir.rename(moved_bundle)
+        bundle_dir.symlink_to(moved_bundle.name, target_is_directory=True)
+
+        with pytest.raises(SystemExit, match="magicfit_import_bundle_changed"):
+            _confirm_magicfit_import_bundle_identity(
+                public_root_fd,
+                slug,
+                bundle_fd,
+            )

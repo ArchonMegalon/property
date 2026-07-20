@@ -8,6 +8,17 @@ from dataclasses import dataclass, replace
 
 _PROCESS_SIGNING_SECRET = secrets.token_urlsafe(48)
 
+SUPPORTED_RUNTIME_MODES = ("dev", "test", "prod")
+SUPPORTED_RUNTIME_ROLES = (
+    "api",
+    "worker",
+    "scheduler",
+    "openvoice",
+    "operator-tools",
+    "render-tools",
+    "property-search-migrate",
+)
+
 
 def _to_int(raw: str, default: int) -> int:
     try:
@@ -219,11 +230,47 @@ class Settings:
         return self.features.legacy_runtime_surfaces_enabled
 
 
-def _runtime_mode(raw: str) -> str:
-    mode = str(raw or "").strip().lower() or "dev"
-    if mode not in {"dev", "test", "prod"}:
+def _runtime_mode(raw: str | None) -> str:
+    if raw is None:
         return "dev"
+    mode = str(raw).strip().lower()
+    if mode not in SUPPORTED_RUNTIME_MODES:
+        raise RuntimeError("EA_RUNTIME_MODE must be one of dev, test, prod")
     return mode
+
+
+def _runtime_role(raw: str | None) -> str:
+    if raw is None:
+        return "api"
+    role = str(raw).strip().lower()
+    if role not in SUPPORTED_RUNTIME_ROLES:
+        raise RuntimeError(
+            "EA_ROLE must be one of api, worker, scheduler, openvoice, "
+            "operator-tools, render-tools, property-search-migrate"
+        )
+    return role
+
+
+def ensure_runtime_authority_valid(settings: Settings) -> None:
+    runtime = getattr(settings, "runtime", None)
+    mode = str(getattr(runtime, "mode", "") or "").strip().lower()
+    if mode not in SUPPORTED_RUNTIME_MODES:
+        raise RuntimeError("EA_RUNTIME_MODE must be one of dev, test, prod")
+    core = getattr(settings, "core", None)
+    role = (
+        "api"
+        if core is None
+        else str(getattr(core, "role", "") or "").strip().lower()
+    )
+    if role not in SUPPORTED_RUNTIME_ROLES:
+        raise RuntimeError(
+            "EA_ROLE must be one of api, worker, scheduler, openvoice, "
+            "operator-tools, render-tools, property-search-migrate"
+        )
+    if role == "operator-tools" and mode == "prod":
+        raise RuntimeError(
+            "EA_ROLE=operator-tools requires EA_RUNTIME_MODE=dev or test"
+        )
 
 
 def is_prod_mode(raw: str | None) -> bool:
@@ -400,6 +447,7 @@ def ensure_prod_registration_email_sender_domain(settings: Settings) -> None:
 
 
 def validate_startup_settings(settings: Settings) -> RuntimeProfile:
+    ensure_runtime_authority_valid(settings)
     ensure_prod_api_token_configured(settings)
     ensure_prod_signing_secret_configured(settings)
     ensure_prod_loopback_no_auth_disabled(settings)
@@ -416,12 +464,12 @@ def validate_startup_settings(settings: Settings) -> RuntimeProfile:
 def get_settings() -> Settings:
     app_name = (os.environ.get("EA_APP_NAME") or "PropertyQuarry").strip() or "PropertyQuarry"
     app_version = (os.environ.get("EA_APP_VERSION") or "0.3.0").strip() or "0.3.0"
-    role = (os.environ.get("EA_ROLE") or "api").strip().lower() or "api"
+    role = _runtime_role(os.environ.get("EA_ROLE"))
     host = (os.environ.get("EA_HOST") or "0.0.0.0").strip() or "0.0.0.0"
     port = max(1, min(65535, _to_int(os.environ.get("EA_PORT") or "8090", 8090)))
     log_level = (os.environ.get("EA_LOG_LEVEL") or "INFO").strip().upper() or "INFO"
     tenant_id = (os.environ.get("EA_TENANT_ID") or "default").strip() or "default"
-    runtime_mode = _runtime_mode(os.environ.get("EA_RUNTIME_MODE") or "dev")
+    runtime_mode = _runtime_mode(os.environ.get("EA_RUNTIME_MODE"))
     storage_fallback_allowed_override = _env_optional_bool(os.environ.get("EA_STORAGE_FALLBACK_ALLOWED"))
 
     legacy_backend = (os.environ.get("EA_LEDGER_BACKEND") or "").strip().lower()
@@ -551,5 +599,6 @@ def get_settings() -> Settings:
             legacy_runtime_surfaces_enabled=legacy_runtime_surfaces_enabled,
         ),
     )
+    ensure_runtime_authority_valid(settings)
     ensure_prod_api_token_configured(settings)
     return settings

@@ -152,6 +152,20 @@ def test_inspect_panorama_signal_accepts_wide_two_to_one_images(monkeypatch) -> 
     assert result["height"] == 2000
 
 
+def test_best_image_url_prefers_source_reference_over_main_thumbnail() -> None:
+    module = _load_module()
+
+    result = module.best_image_url(
+        {
+            "mainImageUrl": "https://cache.willhaben.at/mmo/1/2/3/4_hoved.jpg",
+            "referenceImageUrl": "https://cache.willhaben.at/mmo/1/2/3/4.jpg",
+            "thumbnailImageUrl": "https://cache.willhaben.at/mmo/1/2/3/4_thumb.jpg",
+        }
+    )
+
+    assert result == "https://cache.willhaben.at/mmo/1/2/3/4.jpg"
+
+
 def test_extract_media_surfaces_panorama_candidates_separately(monkeypatch) -> None:
     module = _load_module()
 

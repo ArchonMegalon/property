@@ -13,6 +13,14 @@ from scripts.materialize_ea_browser_workflow_proof import build_receipt
 
 
 SEED = Path(".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json")
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def _global_launch_contract() -> dict[str, object]:
+    seed = json.loads((ROOT / SEED).read_text(encoding="utf-8"))
+    contract = seed["global_launch_contract"]
+    assert release_proof_baseline.approved_global_launch_contract_blockers(contract) == []
+    return contract
 
 
 def _evidence_sources() -> list[dict[str, object]]:
@@ -215,6 +223,7 @@ def _write_seed(root: Path) -> None:
                     "evidence_sources": _evidence_sources(),
                 },
                 "journey_evidence_matrix": _journey_evidence_matrix(),
+                "global_launch_contract": _global_launch_contract(),
             },
             indent=2,
         )
@@ -410,11 +419,18 @@ def test_browser_receipt_stable_write_heals_sha256_but_ignores_generated_at_only
     expected = {
         "generated_at": "2026-07-17T03:00:00Z",
         "status": "pass",
-        "source_binding": {"seed": {"sha256": "a" * 64, "git_blob_oid": "1" * 40}},
+        "source_binding": {
+            "seed": {
+                "sha256": "a" * 64,
+                "git_blob_oid": "1" * 40,
+                "size_bytes": 123,
+            }
+        },
     }
     stale = json.loads(json.dumps(expected))
     stale["generated_at"] = "2026-07-17T02:00:00Z"
     stale["source_binding"]["seed"]["sha256"] = "b" * 64
+    stale["source_binding"]["seed"]["size_bytes"] = 456
     output.write_text(json.dumps(stale), encoding="utf-8")
 
     browser_proof_materializer._write_json_stable(output, expected)

@@ -828,7 +828,7 @@ def build_browser_gate_receipt(
             ]
             mobile_expected = int(viewport["width"]) <= 760
             current_src_path = urllib.parse.urlparse(str(walkthrough_state.get("current_src") or "")).path
-            expected_mobile_suffix = "/magicfit-walkthrough-mobile-720p60.mp4"
+            expected_mobile_suffix = "/walkthrough-mobile-720p60.mp4"
             expected_desktop_suffix = f"/tours/{urllib.parse.quote(slug, safe='')}/walkthrough"
             screenshot_error = ""
             walkthrough_screenshot_path = screenshot_dir / "walkthrough.png" if screenshot_dir else None

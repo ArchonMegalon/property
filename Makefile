@@ -80,7 +80,6 @@ release-docs:
 	$(MAKE) operator-help
 
 test-api:
-	$(MAKE) materialize-release-assets
 	PYTHONPATH=ea EA_STORAGE_BACKEND=memory $(PYTEST_PYTHON_BIN) -m pytest -q tests --durations=25 --durations-min=1.0 $(TEST_API_PYTEST_IGNORE) $(TEST_API_PYTEST_DESELECT)
 
 test-all:
@@ -153,8 +152,7 @@ materialize-release-assets:
 	$(PYTHON_BIN) scripts/materialize_weekly_product_pulse.py
 
 verify-generated-release-artifacts-clean:
-	$(MAKE) materialize-release-assets
-	$(PYTHON_BIN) scripts/verify_generated_release_artifacts_clean.py
+	$(PYTHON_BIN) scripts/verify_generated_release_artifacts_clean.py --materialize-in-sandbox
 
 ci-local:
 	$(PYTHON_BIN) -m compileall -q ea/app
@@ -195,11 +193,9 @@ ltd-release-gates:
 	$(MAKE) verify-ltd-flagship-subset
 
 verify-release-assets:
-	$(MAKE) materialize-release-assets
 	bash scripts/verify_release_assets.sh
 
 verify-flagship-release-readiness:
-	$(MAKE) materialize-release-assets
 	$(PYTHON_BIN) scripts/verify_flagship_release_readiness.py
 
 verify-pocket-audio-archive:

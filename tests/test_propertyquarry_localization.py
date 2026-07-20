@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
@@ -12,16 +14,22 @@ from app.api.propertyquarry_localization import (
     PROPERTYQUARRY_MAX_LOCALIZED_HTML_BYTES,
     PROPERTYQUARRY_PSEUDO_LOCALE,
     PROPERTYQUARRY_PUBLIC_LOCALES,
+    PROPERTYQUARRY_PUBLIC_ORIGIN,
+    PROPERTYQUARRY_REQUIRED_CUSTOMER_ROUTE_TEMPLATES,
     PropertyQuarryLocalizationMiddleware,
     localize_propertyquarry_html,
     normalize_propertyquarry_locale,
     propertyquarry_locale_cookie_header,
     propertyquarry_route_is_translated,
+    propertyquarry_required_route_translation_status,
     propertyquarry_translation,
     propertyquarry_translation_coverage,
     resolve_propertyquarry_locale,
 )
 from tests.product_test_helpers import build_property_client, start_workspace
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def _scope(
@@ -153,14 +161,110 @@ def test_locale_cookie_is_host_only_http_only_lax_and_secure_on_https() -> None:
     assert "Secure" not in local_cookie
 
 
-def test_all_public_catalogs_cover_the_governed_critical_shell_without_review_claim() -> None:
+def test_all_public_catalogs_cover_the_global_route_shell_without_review_claim() -> None:
     for locale in PROPERTYQUARRY_PUBLIC_LOCALES:
         coverage = propertyquarry_translation_coverage(locale)
         assert coverage["missing_critical_messages"] == []
         assert coverage["critical_translated_messages"] == coverage["critical_source_messages"]
-        assert coverage["coverage_scope"] == "critical_customer_ui_shell"
-        assert coverage["english_fallback_scopes"] == ["legal", "provider_specific", "incomplete"]
+        assert coverage["coverage_scope"] == "global_required_route_shell"
+        assert coverage["required_customer_route_count"] == 39
+        assert coverage["localized_route_shell_count"] == 32
+        assert coverage["blocked_required_routes"] == [
+            "/cookies",
+            "/disclaimers",
+            "/imprint",
+            "/privacy",
+            "/refunds",
+            "/subprocessors",
+            "/terms",
+        ]
+        assert coverage["localized_indexable_route_count"] == 8
+        assert coverage["english_fallback_scopes"] == [
+            "unreviewed_legal_source",
+            "provider_specific",
+            "customer_or_listing_content",
+        ]
         assert coverage["professional_review"] is False
+        assert coverage["native_launch_ready"] is False
+
+
+def test_global_experience_route_inventory_is_exact_and_fail_closed_for_legal_copy() -> None:
+    experience_contract = json.loads(
+        (ROOT / "config/monitoring/propertyquarry_global_experience.v1.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert tuple(experience_contract["required_customer_routes"]) == (
+        PROPERTYQUARRY_REQUIRED_CUSTOMER_ROUTE_TEMPLATES
+    )
+    assert len(PROPERTYQUARRY_REQUIRED_CUSTOMER_ROUTE_TEMPLATES) == 39
+    assert len(set(PROPERTYQUARRY_REQUIRED_CUSTOMER_ROUTE_TEMPLATES)) == 39
+    legal_routes = {
+        "/privacy",
+        "/terms",
+        "/cookies",
+        "/subprocessors",
+        "/refunds",
+        "/disclaimers",
+        "/imprint",
+    }
+    for route_template in PROPERTYQUARRY_REQUIRED_CUSTOMER_ROUTE_TEMPLATES:
+        route = (
+            route_template.replace("{candidate_ref}", "candidate-ref")
+            .replace("{run_id}", "run-id")
+            .replace("{slug}", "tour-slug")
+        )
+        status = propertyquarry_required_route_translation_status(route)
+        if route_template in legal_routes:
+            assert status == "blocked_unreviewed_legal_source"
+            assert propertyquarry_route_is_translated(route) is False
+        else:
+            assert status == "localized_route_shell_pending_native_review"
+            assert propertyquarry_route_is_translated(route) is True
+
+
+def test_indexable_localized_routes_emit_self_canonical_and_reciprocal_hreflang() -> None:
+    source = """<!doctype html><html lang="en"><head>
+    <meta name="application-name" content="PropertyQuarry">
+    <title>PropertyQuarry Pricing</title>
+    <meta name="description" content="English description">
+    <link rel="canonical" href="https://propertyquarry.com/pricing">
+    <meta property="og:title" content="PropertyQuarry Pricing">
+    <meta property="og:description" content="English description">
+    <meta property="og:url" content="https://propertyquarry.com/pricing">
+    <meta name="twitter:title" content="PropertyQuarry Pricing">
+    <meta name="twitter:description" content="English description">
+    </head><body><a href="/docs">Research</a></body></html>"""
+
+    for locale in PROPERTYQUARRY_PUBLIC_LOCALES:
+        localized = localize_propertyquarry_html(
+            source,
+            locale=locale,
+            path="/pricing",
+            query_string=f"utm_source=ignored&lang={locale}".encode(),
+        )
+        canonical = f"{PROPERTYQUARRY_PUBLIC_ORIGIN}/pricing"
+        if locale != "en":
+            canonical += f"?lang={locale}"
+        assert localized.count('rel="canonical"') == 1
+        assert f'rel="canonical" href="{canonical}"' in localized
+        assert localized.count('rel="alternate"') == 5
+        for target_locale in PROPERTYQUARRY_PUBLIC_LOCALES:
+            target = f"{PROPERTYQUARRY_PUBLIC_ORIGIN}/pricing"
+            if target_locale != "en":
+                target += f"?lang={target_locale}"
+            assert (
+                f'hreflang="{target_locale}" href="{target}"'
+                in localized
+            )
+        assert (
+            'hreflang="x-default" '
+            f'href="{PROPERTYQUARRY_PUBLIC_ORIGIN}/pricing"'
+        ) in localized
+        assert "utm_source" not in localized.split("</head>", 1)[0]
+        if locale != "en":
+            assert "English description" not in localized
+            assert f'href="/docs?lang={locale}"' in localized
 
 
 def test_html_localization_preserves_scripts_external_urls_and_english_fallback_copy() -> None:
@@ -191,7 +295,10 @@ def test_html_localization_preserves_scripts_external_urls_and_english_fallback_
     assert 'href="https://provider.example/legal?lang=en&amp;version=2"' in localized
     assert "Provider legal terms and listing disclosures remain in English." in localized
     assert "do-not-reflect" not in localized
-    assert 'data-pq-english-fallback="legal provider-specific incomplete"' in localized
+    assert (
+        'data-pq-english-fallback="unreviewed-legal provider-specific '
+        'customer-or-listing-content"'
+    ) in localized
     assert 'data-pq-professional-review="false"' in localized
     assert 'data-pq-localization-placement="floating"' in localized
     assert "nicht professionell geprüft" in localized
@@ -276,23 +383,28 @@ def test_localization_protects_verbatim_blocks_requires_app_boundary_and_keeps_s
     assert 'rel="alternate"' not in localized
 
 
-def test_seo_alternates_and_mutation_are_absent_for_untranslated_routes() -> None:
-    source = '<!doctype html><html lang="en"><head><title>Account</title></head><body><a href="/app/search">Search</a></body></html>'
+def test_legal_source_routes_remain_unmodified_until_independent_review() -> None:
+    source = '<!doctype html><html lang="en"><head><title>Privacy</title></head><body><a href="/app/search">Search</a></body></html>'
     assert propertyquarry_route_is_translated("/app/search") is True
     assert propertyquarry_route_is_translated("/app/research/candidate-7") is True
-    assert propertyquarry_route_is_translated("/app/account") is False
+    assert propertyquarry_route_is_translated("/app/account") is True
+    assert propertyquarry_route_is_translated("/privacy") is False
+    assert (
+        propertyquarry_required_route_translation_status("/privacy")
+        == "blocked_unreviewed_legal_source"
+    )
     assert (
         localize_propertyquarry_html(
             source,
             locale="de-DE",
-            path="/app/account",
+            path="/privacy",
             query_string=b"lang=de-DE",
         )
         == source
     )
 
 
-def test_error_html_keeps_english_language_and_never_advertises_translated_alternates() -> None:
+def test_error_html_localizes_known_recovery_copy_without_advertising_seo_alternates() -> None:
     app = FastAPI()
     app.add_middleware(PropertyQuarryLocalizationMiddleware)
 
@@ -302,7 +414,7 @@ def test_error_html_keeps_english_language_and_never_advertises_translated_alter
             '<html lang="en"><head>'
             '<meta name="application-name" content="PropertyQuarry">'
             "<title>PropertyQuarry Research</title></head>"
-            f"<body>Unavailable: {candidate_ref}</body></html>",
+            f"<body>Unavailable: {candidate_ref}. <button>Try again</button></body></html>",
             status_code=503,
         )
 
@@ -310,9 +422,12 @@ def test_error_html_keeps_english_language_and_never_advertises_translated_alter
         "/app/research/candidate-7?lang=de-DE"
     )
     assert response.status_code == 503
-    assert response.headers["content-language"] == "en"
-    assert "x-propertyquarry-translation-status" not in response.headers
-    assert "PropertyQuarry Research" in response.text
+    assert response.headers["content-language"] == "de-DE"
+    assert response.headers["x-propertyquarry-translation-status"].startswith(
+        "global-route-shell;"
+    )
+    assert "PropertyQuarry Recherche" in response.text
+    assert "Erneut versuchen" in response.text
     assert 'rel="alternate"' not in response.text
     assert "pq_locale=de-DE" in response.headers["set-cookie"]
 
@@ -585,7 +700,8 @@ def test_search_shortlist_cookie_selector_and_fail_closed_redirect_contracts() -
     assert german.headers["content-language"] == "de-AT"
     assert german.headers["content-encoding"] == "gzip"
     assert german.headers["x-propertyquarry-translation-status"] == (
-        "critical-ui-shell; english-fallback-legal-provider-incomplete; not-professionally-reviewed"
+        "global-route-shell; english-fallback-unreviewed-legal-provider-customer-content; "
+        "independent-native-review-required"
     )
     assert "Cookie" in german.headers["vary"]
     assert "Accept-Language" in german.headers["vary"]
@@ -614,7 +730,8 @@ def test_search_shortlist_cookie_selector_and_fail_closed_redirect_contracts() -
     assert persisted.status_code == 200
     assert persisted.headers["content-language"] == "es-CR"
     assert "Favoritos de PropertyQuarry" in persisted.text
-    assert 'href="/app/properties?lang=es-CR"' in persisted.text
+    assert 'href="/app/properties"' in persisted.text
+    assert 'href="/app/properties?lang=es-CR"' not in persisted.text
     assert "set-cookie" not in persisted.headers
 
     redirect = client.get("/app/properties?lang=de-DE", follow_redirects=False)

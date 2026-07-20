@@ -3,17 +3,29 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from propertyquarry_global_governance_test_support import (
+    install_test_authority,
+    signed_attestation,
+)
 from scripts import propertyquarry_global_market_envelope as envelope
 from scripts import propertyquarry_gold_status as gold
+from scripts.propertyquarry_global_governance_attestation import (
+    GLOBAL_MARKET_GATE_ID,
+)
 
 
 NOW = datetime(2026, 7, 19, 12, 0, tzinfo=timezone.utc)
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
 IMAGE = "sha256:89abcdef0123456789abcdef0123456789abcdef0123456789abcdef01234567"
+
+
+@pytest.fixture(autouse=True)
+def _global_governance_authority(tmp_path, monkeypatch) -> None:
+    install_test_authority(tmp_path, monkeypatch)
 
 
 def _source() -> dict[str, object]:
@@ -191,17 +203,16 @@ def _live_launch_evidence(source: dict[str, object]) -> dict[str, object]:
             }
             for market in source["markets"]
         ],
-        "independent_attestation": {
-            "independent": True,
-            "authority": "independent_release_controller",
-            "subject_commit_sha": COMMIT,
-            "subject_image_digest": IMAGE,
-            "subject_source_sha256": source_sha,
-            "attestor_ref": "attestor:global-market:release-control:517e9a",
-            **evidence,
-        },
     }
-    receipt["independent_attestation"]["subject_payload_digest"] = envelope._attested_payload_digest(receipt)
+    receipt["independent_attestation"] = signed_attestation(
+        gate_id=GLOBAL_MARKET_GATE_ID,
+        receipt_contract=envelope.LIVE_RECEIPT_SCHEMA,
+        release_commit_sha=COMMIT,
+        release_image_digest=IMAGE,
+        source_digests={"market_envelope_sha256": f"sha256:{source_sha}"},
+        payload_sha256=envelope._attested_payload_digest(receipt),
+        issued_at=NOW - timedelta(minutes=2),
+    )
     return receipt
 
 

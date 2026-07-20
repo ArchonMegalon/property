@@ -2594,6 +2594,10 @@
       }
       const visualStyleChoice = await chooseVisualStyleForRequest(requestKind);
       if (['tour', 'flythrough'].includes(requestKind) && !visualStyleChoice) return;
+      const externalProcessingConsentGranted = isWalkthroughRequest
+        ? window.confirm("Send this property's private packet to PropertyQuarry's governed external rendering service to create the walkthrough? The result remains private and requires approval before publication.")
+        : false;
+      if (isWalkthroughRequest && !externalProcessingConsentGranted) return;
       const dioramaStyleHint = ['tour', 'flythrough'].includes(requestKind)
         ? String(visualStyleChoice?.prompt || visualStyleChoice?.value || '').trim()
         : '';
@@ -2626,6 +2630,7 @@
             auto_deliver: false,
             allow_floorplan_only: true,
             walkthrough_provider_key: walkthroughProvider,
+            external_processing_consent_granted: externalProcessingConsentGranted,
             diorama_style_hint: dioramaStyleHint,
           }),
         });

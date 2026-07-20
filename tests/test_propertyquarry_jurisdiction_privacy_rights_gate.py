@@ -5,7 +5,16 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
+
+from propertyquarry_global_governance_test_support import (
+    install_test_authority,
+    signed_attestation,
+)
 from scripts import propertyquarry_jurisdiction_privacy_rights_gate as gate
+from scripts.propertyquarry_global_governance_attestation import (
+    JURISDICTION_PRIVACY_RIGHTS_GATE_ID,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,6 +23,11 @@ ENVELOPE = ROOT / "docs" / "propertyquarry_global_market_envelope.v1.json"
 COMMIT = "a" * 40
 IMAGE = "sha256:" + "b" * 64
 EVIDENCE = "sha256:" + "c" * 64
+
+
+@pytest.fixture(autouse=True)
+def _global_governance_authority(tmp_path: Path, monkeypatch) -> None:
+    install_test_authority(tmp_path, monkeypatch)
 
 
 def _digest(path: Path) -> str:
@@ -100,7 +114,7 @@ def _live_receipt(*, now: datetime) -> dict[str, object]:
                 },
             }
         )
-    return {
+    receipt = {
         "schema": gate.LIVE_RECEIPT_SCHEMA,
         "profile": "launch",
         "claim_scope": "core",
@@ -111,17 +125,20 @@ def _live_receipt(*, now: datetime) -> dict[str, object]:
         "market_compliance": markets,
         "market_provider_inventory": inventory,
         "provider_rights": rights,
-        "attestation_verification": {
-            "status": "pass",
-            "observed_at": (now - timedelta(minutes=2)).isoformat(),
-            "evidence_digest": EVIDENCE,
-            "authority": "independent_compliance_controller",
-            "independent_of_implementation": True,
-            "workflow_run_ref": "controller:compliance:run:12345",
-            "subject_commit_sha": COMMIT,
-            "subject_image_digest": IMAGE,
-        },
     }
+    receipt["attestation_verification"] = signed_attestation(
+        gate_id=JURISDICTION_PRIVACY_RIGHTS_GATE_ID,
+        receipt_contract=gate.LIVE_RECEIPT_SCHEMA,
+        release_commit_sha=COMMIT,
+        release_image_digest=IMAGE,
+        source_digests={
+            "jurisdiction_privacy_rights_contract_sha256": _digest(CONTRACT),
+            "market_envelope_sha256": _digest(ENVELOPE),
+        },
+        payload_sha256=gate._attested_payload_digest(receipt),
+        issued_at=now - timedelta(minutes=2),
+    )
+    return receipt
 
 
 def _write(path: Path, payload: dict[str, object]) -> Path:

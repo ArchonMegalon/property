@@ -57,7 +57,7 @@ def _normalize_release_value(value: Any) -> Any:
     if isinstance(value, dict):
         normalized: dict[str, Any] = {}
         for key, item in value.items():
-            if key in {"generated_at", "created_at", "mtime_utc", "size_bytes", "duration_seconds", "git_head"}:
+            if key in {"generated_at", "created_at", "mtime_utc", "duration_seconds", "git_head"}:
                 continue
             if key.endswith("_git_head"):
                 continue

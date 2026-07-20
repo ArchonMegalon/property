@@ -67,6 +67,11 @@ _PROPERTY_TOUR_TERMINAL_SOURCE_GAP_REASONS = frozenset(
         "pure_360_assets_unavailable",
     }
 )
+_PROPERTY_AI_360_DISCLOSURE = (
+    "AI-reconstructed from listing photos; not a captured 360 or measured survey."
+)
+_PROPERTY_AI_360_PUBLIC_HOSTS = frozenset({"propertyquarry.com", "www.propertyquarry.com"})
+_PROPERTY_AI_360_SLUG_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 
 
 def _property_market_country_code(values: dict[str, object]) -> str:
@@ -1027,6 +1032,55 @@ def _property_tour_first_party_open_url(tour_url: object, *, principal_id: str =
     return str(resolved_url or "").strip()
 
 
+def _property_ai_360_control_href(
+    source_url: object,
+    open_url: object,
+) -> str:
+    """Return a relative control route only for one canonical first-party tour."""
+
+    def _tour_slug(value: object) -> str:
+        raw = str(value or "").strip()
+        if not raw or raw.startswith("//") or any(character.isspace() for character in raw):
+            return ""
+        try:
+            parsed = urllib.parse.urlsplit(raw)
+            parsed_port = parsed.port
+        except (TypeError, ValueError):
+            return ""
+        if parsed.query or parsed.fragment:
+            return ""
+        if parsed.scheme or parsed.netloc:
+            if (
+                parsed.scheme.lower() != "https"
+                or str(parsed.hostname or "").lower() not in _PROPERTY_AI_360_PUBLIC_HOSTS
+                or parsed.username
+                or parsed.password
+                or parsed_port not in (None, 443)
+            ):
+                return ""
+        elif not raw.startswith("/"):
+            return ""
+        path = str(parsed.path or "")
+        if urllib.parse.unquote(path) != path:
+            return ""
+        match = re.fullmatch(
+            r"/tours/(?P<slug>[A-Za-z0-9][A-Za-z0-9._-]{0,127})(?:/control)?/?",
+            path,
+        )
+        if not match:
+            return ""
+        slug = str(match.group("slug") or "")
+        if not _PROPERTY_AI_360_SLUG_RE.fullmatch(slug) or slug in {".", ".."} or ".." in slug:
+            return ""
+        return slug
+
+    source_slug = _tour_slug(source_url)
+    open_slug = _tour_slug(open_url)
+    if not source_slug or open_slug != source_slug:
+        return ""
+    return f"/tours/{source_slug}/control"
+
+
 def _property_hosted_tour_ready(tour_url: str, *, principal_id: str = "") -> bool:
     return bool(_property_tour_verified_open_url(tour_url, principal_id=principal_id))
 
@@ -1160,21 +1214,58 @@ def _property_tour_media_payload(
         else ""
     )
     generated_reconstruction_source_url = str(candidate.get("generated_reconstruction_url") or "").strip()
+    generated_reconstruction_kind = (
+        property_tour_hosting._hosted_property_tour_reconstruction_kind(
+            generated_reconstruction_source_url,
+            principal_id=normalized_principal_id,
+        )
+        if generated_reconstruction_source_url
+        else ""
+    )
+    if (
+        generated_reconstruction_source_url
+        and not generated_reconstruction_kind
+        and property_tour_hosting._hosted_property_tour_generated_reconstruction_bundle_ready(
+            generated_reconstruction_source_url
+        )
+    ):
+        generated_reconstruction_kind = "layout_preview"
     if (
         not generated_reconstruction_source_url
         and tour_url
-        and property_tour_hosting._hosted_property_tour_generated_reconstruction_bundle_ready(tour_url)
     ):
-        generated_reconstruction_source_url = tour_url
+        generated_reconstruction_kind = (
+            property_tour_hosting._hosted_property_tour_reconstruction_kind(
+                tour_url,
+                principal_id=normalized_principal_id,
+            )
+        )
+        if (
+            not generated_reconstruction_kind
+            and property_tour_hosting._hosted_property_tour_generated_reconstruction_bundle_ready(
+                tour_url
+            )
+        ):
+            generated_reconstruction_kind = "layout_preview"
+        if generated_reconstruction_kind:
+            generated_reconstruction_source_url = tour_url
     generated_reconstruction_href = ""
     if generated_reconstruction_source_url and not _property_hosted_tour_disabled_fallback(generated_reconstruction_source_url):
         generated_reconstruction_href = _property_tour_first_party_open_url(
             generated_reconstruction_source_url,
             principal_id=normalized_principal_id,
         )
+    ai_360_embed_href = ""
+    if generated_reconstruction_kind == "ai_panorama_360":
+        ai_360_embed_href = _property_ai_360_control_href(
+            generated_reconstruction_source_url,
+            generated_reconstruction_href,
+        )
+        generated_reconstruction_href = ai_360_embed_href
     generated_reconstruction_ready = bool(generated_reconstruction_href)
+    ai_360_ready = bool(ai_360_embed_href)
     open_tour_href = verified_tour_href
-    embed_href = verified_tour_href if hosted_tour_ready else ""
+    embed_href = ai_360_embed_href or (verified_tour_href if hosted_tour_ready else "")
     unbacked_available_status = bool(
         status
         in {
@@ -1228,6 +1319,9 @@ def _property_tour_media_payload(
     if hosted_tour_ready:
         status_label = "3D tour available"
         status_detail = "3D tour is ready."
+    elif ai_360_ready:
+        status_label = "AI 360 tour available"
+        status_detail = _PROPERTY_AI_360_DISCLOSURE
     elif generated_reconstruction_ready:
         status_label = "Layout tour available"
         status_detail = "Generated from the floor plan and listing photos. Open it as a layout aid while captured 3D media is still unavailable."
@@ -1277,9 +1371,22 @@ def _property_tour_media_payload(
         "vendor_tour_href": vendor_tour_url,
         "generated_reconstruction_ready": generated_reconstruction_ready,
         "generated_reconstruction_href": generated_reconstruction_href,
-        "generated_reconstruction_label": "Open layout tour" if generated_reconstruction_ready else "",
+        "generated_reconstruction_kind": generated_reconstruction_kind,
+        "ai_360_ready": ai_360_ready,
+        "ai_360_disclosure": (
+            _PROPERTY_AI_360_DISCLOSURE
+            if ai_360_ready
+            else ""
+        ),
+        "generated_reconstruction_label": (
+            "Open AI 360 tour"
+            if ai_360_ready
+            else ("Open layout tour" if generated_reconstruction_ready else "")
+        ),
         "generated_reconstruction_status_detail": (
-            "Generated from the floor plan and listing photos. Open it as a layout aid while captured 3D media is still unavailable."
+            _PROPERTY_AI_360_DISCLOSURE
+            if ai_360_ready
+            else "Generated from the floor plan and listing photos. Open it as a layout aid while captured 3D media is still unavailable."
             if generated_reconstruction_ready
             else ""
         ),
@@ -1298,8 +1405,12 @@ def _property_tour_media_payload(
             if open_tour_href
             else (
                 "Open layout tour"
-                if generated_reconstruction_href
-                else ("Open original tour" if vendor_tour_url else ("Open property" if review_url else ""))
+                if generated_reconstruction_href and not ai_360_ready
+                else (
+                    "Open AI 360 tour"
+                    if generated_reconstruction_href
+                    else ("Open original tour" if vendor_tour_url else ("Open property" if review_url else ""))
+                )
             )
         ),
         "secondary_href": review_url,
@@ -1310,12 +1421,20 @@ def _property_tour_media_payload(
         "provider_label": (
             "3D tour"
             if open_tour_href or vendor_tour_url
-            else ("Layout tour" if generated_reconstruction_href else "")
+            else (
+                "AI 360 reconstruction"
+                if ai_360_ready
+                else ("Layout tour" if generated_reconstruction_href else "")
+            )
         ),
         "provider_key": (
             verified_tour_provider
             or vendor_tour_provider
-            or ("propertyquarry_generated_reconstruction" if generated_reconstruction_ready else "")
+            or (
+                "propertyquarry_ai_360"
+                if ai_360_ready
+                else ("propertyquarry_generated_reconstruction" if generated_reconstruction_ready else "")
+            )
         ),
         "walkthrough_provider_label": "Walkthrough" if walkthrough_provider or walkthrough_ready else "",
         "walkthrough_provider_key": walkthrough_provider,
@@ -1364,6 +1483,16 @@ def _property_tour_detail_line(
         principal_id=normalized_principal_id,
     )
     if str(first_party_open_url or "").strip():
+        if (
+            property_tour_hosting._hosted_property_tour_reconstruction_kind(
+                tour_url,
+                principal_id=normalized_principal_id,
+            )
+            == "ai_panorama_360"
+        ):
+            return "Open the AI 360 reconstruction on PropertyQuarry. It is photo-derived, not a captured survey."
+        if property_tour_hosting._hosted_property_tour_generated_reconstruction_bundle_ready(tour_url):
+            return "Open the layout preview on PropertyQuarry. Captured 3D media is not available yet."
         return "Open the 3D tour on PropertyQuarry."
     if vendor_tour_url:
         return "An original tour exists, but the in-page 3D tour is not ready yet."

@@ -820,78 +820,38 @@ def resolve_property_walkthrough_runtime_provider(
     *,
     allow_non_final_fallback: bool = False,
 ) -> dict[str, object]:
-    explicit_token = _normalized_provider_token(value)
-    explicit_requested = bool(explicit_token)
-    checked: list[dict[str, object]] = []
+    # Property apartment videos are composed by the shared Horizon render lane.
+    # Provider executables, credentials, browser runtimes and quota consumption
+    # belong to that lane; the PropertyQuarry web process only submits a private
+    # governed request and later trusts the exact accepted-v4 publication proof.
+    from app.services.property_governed_render import governed_property_video_runtime_readiness
 
-    def _record(provider_key: str) -> dict[str, object]:
-        readiness = scene_video_provider_runtime_readiness(provider_key)
-        checked.append(
-            {
-                "provider_key": provider_key,
-                "ready": bool(readiness.get("ready")),
-                "status": str(readiness.get("status") or ""),
-                "blockers": list(readiness.get("blockers") or []),
-            }
-        )
-        return readiness
-
-    if explicit_requested:
-        resolved_provider = normalize_scene_video_backend_provider(value, default="mootion")
-        readiness = _record(resolved_provider)
-        return {
-            "provider_key": str(readiness.get("provider_key") or normalize_scene_video_contract_provider(resolved_provider)),
-            "provider_backend_key": str(readiness.get("provider_backend_key") or resolved_provider),
-            "runtime_readiness_json": readiness,
-            "checked": checked,
-            "selected_via": "explicit_request",
-            "explicit_requested": True,
+    explicit_requested = bool(_normalized_provider_token(value))
+    requested_provider = normalize_scene_video_backend_provider(value, default="magicfit")
+    governed_readiness = governed_property_video_runtime_readiness()
+    runtime_readiness = {
+        **governed_readiness,
+        "provider_key": normalize_scene_video_contract_provider(requested_provider, default="magicfit"),
+        "provider_backend_key": requested_provider,
+        "requested_provider_key": requested_provider,
+    }
+    checked = [
+        {
+            "provider_key": requested_provider,
+            "ready": bool(runtime_readiness.get("ready")),
+            "status": str(runtime_readiness.get("status") or ""),
+            "blockers": list(runtime_readiness.get("blockers") or []),
+            "execution_lane": "ea_governed_render",
         }
-
-    final_candidates = ("omagic", "magicfit", "onemin_i2v")
-    for candidate in final_candidates:
-        readiness = _record(candidate)
-        if bool(readiness.get("ready")):
-            return {
-                "provider_key": str(readiness.get("provider_key") or normalize_scene_video_contract_provider(candidate)),
-                "provider_backend_key": str(readiness.get("provider_backend_key") or candidate),
-                "runtime_readiness_json": readiness,
-                "checked": checked,
-                "selected_via": "auto_final_ready",
-                "explicit_requested": False,
-            }
-
-    if allow_non_final_fallback:
-        for candidate in ("onemin_i2v", "mootion"):
-            readiness = _record(candidate)
-            if bool(readiness.get("ready")):
-                return {
-                    "provider_key": str(readiness.get("provider_key") or normalize_scene_video_contract_provider(candidate)),
-                    "provider_backend_key": str(readiness.get("provider_backend_key") or candidate),
-                    "runtime_readiness_json": readiness,
-                    "checked": checked,
-                    "selected_via": "auto_fallback_ready",
-                    "explicit_requested": False,
-                }
-
-    fallback_provider = "magicfit"
-    fallback_readiness = next(
-        (
-            scene_video_provider_runtime_readiness(entry.get("provider_key") or "")
-            for entry in checked
-            if str(entry.get("provider_key") or "").strip() == fallback_provider
-        ),
-        None,
-    )
-    if not isinstance(fallback_readiness, dict):
-        fallback_readiness = scene_video_provider_runtime_readiness(fallback_provider)
+    ]
     return {
-        "provider_key": str(fallback_readiness.get("provider_key") or normalize_scene_video_contract_provider(fallback_provider)),
-        "provider_backend_key": str(fallback_readiness.get("provider_backend_key") or fallback_provider),
-        "runtime_readiness_json": fallback_readiness,
+        "provider_key": str(runtime_readiness["provider_key"]),
+        "provider_backend_key": requested_provider,
+        "runtime_readiness_json": runtime_readiness,
         "checked": checked,
-        "selected_via": "auto_no_ready_provider",
-        "explicit_requested": False,
+        "selected_via": "governed_render_explicit" if explicit_requested else "governed_render_default",
+        "explicit_requested": explicit_requested,
+        "allow_non_final_fallback": bool(allow_non_final_fallback),
     }
 
 

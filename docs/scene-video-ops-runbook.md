@@ -234,7 +234,72 @@ This writes only:
 
 When `*_ACCOUNTS_JSON_FILE` is present, PropertyQuarry runtime readiness and MagicFit helper selection prefer that file over inline `*_ACCOUNTS_JSON`.
 
-MagicFit pass criteria:
+### Governed MagicFit execution and delivery
+
+PropertyQuarry apartment video requests belong to the shared governed render
+lane. `OrchestrationLane` on the Horizon capability is the source of truth. The
+domain bridge composes the request through
+`HorizonGovernedRenderRequestComposerService` and
+`HorizonArtifactRequestService`; it must carry first-party property packet,
+account-route, and continuity truth/evidence refs, not raw provider URLs,
+provider IDs, or credentials. A compose-only audit sets `ConsumeQuota=false`.
+Only an explicitly authorized build may consume quota.
+
+The request-serving web image contains contract helpers but intentionally has
+neither browser payloads nor FFmpeg. A local provider execution is therefore
+valid only in the isolated `render-tools`/governed worker lane with its required
+browser, media tools, credentials, quota, resource bounds, and durable render
+receipt. Web readiness must not infer MagicFit execution from copied Python
+scripts or configured credentials alone.
+
+The canonical delivery sequence is one-way:
+
+1. Governed render produces the exact video bytes and a strict source receipt.
+2. `import_magicfit_walkthrough.py` creates only a digest-bound pending stage.
+3. Private browser and human visual review produce a committed receipt bundle.
+4. `accept_magicfit_delivery.py` verifies the same subject and atomically
+   activates it.
+
+The source receipt must bind every present provider alias to the lowercase
+literal `magicfit`, carry an approved completed `render_status`, bind
+`target_slug` (or another supported slug alias) to the exact existing
+`tour.json` slug, and include exactly one agreed approved MagicFit CDN URL via
+`hosted_walkthrough_video_url` or `video_output_url`. If it declares
+`output_file`, that absolute path must identify the exact bytes passed with
+`--video-path`. Use the same slug literal for compose, import, private review,
+and acceptance; never derive or silently normalize a different slug at a later
+step.
+
+The legacy composer can produce such a handoff only after the exact composed
+bytes have an approved hosted URL:
+
+```bash
+python scripts/compose_magicfit_property_walkthrough.py \
+  --segment <segment-1.mp4> --segment-receipt <segment-1-receipt.json> \
+  --segment <segment-2.mp4> --segment-receipt <segment-2-receipt.json> \
+  --coverage-receipt <passed-walkthrough-coverage-receipt.json> \
+  --property-slug <exact-tour-slug> \
+  --hosted-walkthrough-video-url <approved-magicfit-cdn-url> \
+  --out <composed-video.mp4> \
+  --state-json <strict-source-receipt.json>
+```
+
+It emits `launch_eligible=false`, requires the importer handoff, and does not
+publish. `materialize_propertyquarry_walkthrough_provider_proof.py` refuses a
+MagicFit public bundle and reports the importer command instead. Do not bypass
+that refusal or recreate the retired shallow `tour.magicfit.json` profile.
+
+Stage the exact subject with one command:
+
+```bash
+EA_PUBLIC_TOUR_DIR=<public-tour-root> \
+python scripts/import_magicfit_walkthrough.py \
+  --slug <exact-tour-slug> \
+  --video-path <composed-video.mp4> \
+  --source-receipt <strict-source-receipt.json>
+```
+
+MagicFit provider-execution receipt criteria, which are not launch criteria:
 
 - `provider_backend_key=magicfit`
 - `render_status=completed`
@@ -242,29 +307,189 @@ MagicFit pass criteria:
 - `magicfit_insufficient_credits` is cleared only after that proof render succeeds
 
 Provider render success is not delivery acceptance. `import_magicfit_walkthrough.py`
-copies the playable artifact but writes `tour.magicfit.json` with
-`acceptance_status=pending` and `launch_eligible=false`. A separate delivery
-review must replace that state with the closed
-`propertyquarry.magicfit_delivery_acceptance.v1` profile. It requires canonical
-MagicFit/provider state, the nonempty source-receipt hash, the active canonical
-`video_relpath` and exact `video_sha256`, and a nested
-`propertyquarry.magicfit_delivery_review.v1` record. That record binds the tour
-slug and all three artifact identities to a UTC review time, reviewer-authority
-digest, evidence digest, and literal passing checks for end-to-end playback,
+keeps the playable artifact and candidate manifest in private staging and writes
+the strict `propertyquarry.magicfit_delivery_pending.v2` pointer with
+`acceptance_status=pending` and `launch_eligible=false`. The pending pointer is a
+closed transform subject: it records the requested and content-addressed final
+paths, video hash and size, source-receipt hash, exact base-manifest hash,
+generation time, and the source-derived coverage proof object. That object is
+empty when the provider receipt has no recognized optional coverage fields.
+Its delivery digest covers every one of those values. The staged manifest is never an
+authority for its own contents: importer, private-review builder, accepter, and
+readiness verifier all reconstruct the same canonical base-to-candidate bytes
+using `propertyquarry.magicfit_manifest_transform.v1`. Extra changes to an
+unowned manifest field and alternate JSON whitespace fail closed even if every
+review receipt is freshly regenerated.
+
+The private browser, operator visual-review, and aggregate evidence receipts use
+their strict v3 schemas and bind the exact base-manifest hash,
+staged-manifest hash, delivery digest, video identity, and evidence-artifact
+hashes. Legacy receipt profiles and receipts for another pending subject fail
+closed. A full review never publishes the browser and aggregate evidence as two
+loose files. `build_private_magicfit_review_evidence.py` commits both under the
+closed
+`propertyquarry.magicfit_private_review_receipt_bundle.v1` contract at
+`<private-review-root>/<delivery-digest>/`. That mode-0700 directory contains
+only the following mode-0600 files:
+
+- `browser-receipt.json`
+- `evidence-receipt.json`
+- `bundle-manifest.json`
+
+The bundle manifest binds the exact delivery digest and, for both receipts, the
+fixed filename, SHA-256 digest, and byte size. The private review root must
+already exist, be owned by the invoking user, have mode 0700, remain outside
+every public tour root, and contain no symlink path component. Full review uses:
+
+```bash
+install -d -m 0700 <private-review-root>
+python scripts/build_private_magicfit_review_evidence.py \
+  --allow-private-review \
+  --slug <exact-tour-slug> \
+  --bundle-dir <existing-tour-bundle-dir> \
+  --source-receipt <strict-source-receipt.json> \
+  --contact-sheet <contact-sheet.png> \
+  --visual-review <visual-review.json> \
+  --review-bundle-root <private-review-root>
+```
+
+Publication uses one bounded root lock and one deterministic temporary
+directory, fsyncs every file and directory, then performs an atomic no-replace
+rename to the digest name and fsyncs the parent. A retry either validates and
+returns the exact committed bundle or safely rebuilds the recognized partial
+temporary layout. Unknown, linked, or non-regular temporary entries are never
+deleted and fail closed. Browser-only review remains a single exclusive private
+file through `--browser-only --browser-receipt-out`; an exact existing valid
+browser receipt is returned idempotently.
+
+A separate delivery review must replace that pending state with the closed
+`propertyquarry.magicfit_delivery_acceptance.v4` accepted profile. It requires
+canonical MagicFit/provider state, the nonempty source-receipt hash, the active
+canonical `video_relpath`, exact video hash and size, every transform input, and
+a nested `propertyquarry.magicfit_delivery_review.v4` record. Before making the
+manifest public, acceptance safe-copies the exact base manifest, source receipt,
+browser receipt, aggregate evidence receipt, visual-review receipt,
+reviewer-authority artifact, and contact sheet into deterministic private
+`.magicfit-deliveries/` paths. Each mode-0600 snapshot is recorded with its
+path, SHA-256 digest, and byte size under
+`propertyquarry.magicfit_delivery_audit.v1`. Existing different bytes at an
+audit-snapshot path or the digest-bound active-media path are a conflict; exact
+bytes at those paths are idempotent for crash recovery.
+
+Acceptance consumes browser and aggregate evidence only from the committed
+bundle; `--browser-receipt` and `--evidence-receipt` loose-pair arguments fail
+closed. Contact sheet, operator visual review, source receipt, and reviewer
+authority remain separate safe-opened evidence inputs whose hashes are bound by
+the receipt chain:
+
+```bash
+EA_PUBLIC_TOUR_DIR=<same-public-tour-root> \
+python scripts/accept_magicfit_delivery.py \
+  --slug <exact-tour-slug> \
+  --source-receipt <strict-source-receipt.json> \
+  --contact-sheet <contact-sheet.png> \
+  --review-bundle <private-review-root>/<delivery-digest> \
+  --visual-review <visual-review.json> \
+  --reviewer-authority <signed-reviewer-authorization.json>
+```
+
+Acceptance safe-opens the digest-named directory and all three exact files,
+rejects extra, missing, linked, mistyped, wrong-mode, wrong-digest, or
+hash/size-mismatched content, and then independently revalidates both receipt
+subjects against the pending delivery.
+
+`--reviewer-authority` is not a reviewer name, an unsigned approval document, a
+PEM key, or a digest-only assertion. It must be the strict
+`propertyquarry.magicfit_reviewer_authorization.v1` document whose detached
+Ed25519 signature covers the domain-separated canonical subject: delivery
+digest, video SHA-256, staged-manifest SHA-256, browser-receipt SHA-256,
+aggregate-evidence SHA-256, visual-review SHA-256, contact-sheet SHA-256, and
+`reviewed_at`. The authorization's key and authority IDs only select an entry;
+they cannot supply or redirect their own trust anchor.
+
+Provision the verification trust separately from the image and from every
+public-tour root, then expose its absolute path as
+`PROPERTYQUARRY_MAGICFIT_REVIEWER_TRUST_STORE_FILE`. The trust store and each
+referenced `propertyquarry.magicfit_reviewer_public_key.v1` record must be
+root-owned, regular one-link files under trusted directories, mounted read-only
+for the request-serving runtime, and neither group/world-writable nor
+executable. Never place the signing private key in the runtime, repository,
+authorization document, or public bundle. The trust entry must match the key
+and authority IDs, cover the signed review/issuance/expiry window, and remain
+unrevoked. Authorization lifetime defaults to at most 24 hours and can never be
+configured above seven days.
+
+The base Compose profile intentionally omits this optional trust input so Core
+Gold has no Advanced Visual dependency. To enable reviewer verification for the
+API and scheduler lanes, provision a verifier-only directory containing
+`trust-store.json` and its relative public-key records, confirm every directory
+is root-owned and non-writable and every file is root-owned, one-link,
+non-executable, and non-writable, then render the explicit overlay before start:
+
+```bash
+export PROPERTYQUARRY_MAGICFIT_REVIEWER_TRUST_DIR=/etc/propertyquarry/magicfit-reviewers
+test -f "$PROPERTYQUARRY_MAGICFIT_REVIEWER_TRUST_DIR/trust-store.json"
+find "$PROPERTYQUARRY_MAGICFIT_REVIEWER_TRUST_DIR" -type l -print -quit | grep -q . && exit 1
+find "$PROPERTYQUARRY_MAGICFIT_REVIEWER_TRUST_DIR" -type f -perm /022 -print -quit | grep -q . && exit 1
+docker compose \
+  -f docker-compose.property.yml \
+  -f docker-compose.property-magicfit-reviewer.yml \
+  config >/dev/null
+```
+
+The overlay requires the host directory explicitly, disables automatic host
+path creation, mounts the complete verifier trust directory read-only, and
+exposes only the in-container trust-store path. Do not put the signing key,
+provider credentials, or public-tour bytes in that directory. Removing the
+overlay or trust material immediately makes accepted MagicFit media ineligible;
+it does not affect Core search, ranking, packets, or eligible first-party tours.
+
+Missing trust configuration, an unknown or revoked key, an invalid signature,
+an out-of-window authorization, or any subject mismatch fails closed before
+publication. Public eligibility re-verifies the persisted authorization against
+the current external trust material, so revocation cannot be hidden by a warm
+media-validation cache. Expiry bounds the review authorization and acceptance
+window; it must never be treated as permission to accept stale evidence. Once a
+fresh authorization has been admitted, serve-time signature verification uses
+its signed issue instant as the historical decision time while still applying
+the current key identity and revocation state. Thus routine expiry does not
+silently unpublish an accepted asset, but revocation, key replacement, missing
+trust, or signature drift does.
+
+The durable review record binds the tour slug, full transform subject, video and
+source identities, base/staged manifest hashes, and delivery digest to a UTC
+review time, signed-authorization digest and verified non-secret authority
+projection, evidence digest, and literal passing checks for end-to-end playback,
 walkthrough continuity, visible rotation jumps, intended property/scope, and
 sensitive or trial branding. Missing, extra, stale, unbound, mistyped, future,
 pre-import, or hash-mismatched fields remain ineligible; status aliases and
 truthy strings are not approval. Here, stale means an artifact binding that no
-longer matches the active manifest or video bytes, not age alone. The local
-profile deliberately has no expiry and cannot establish freshness or detect
-replay. Allowlisted remote playback remains a separate live-probed control path.
+longer matches the active manifest or video bytes, not age alone. The signed
+authorization adds bounded independent reviewer authority; allowlisted remote
+playback remains a separate live-probed control path.
+The readiness verifier safe-opens and rehashes the active manifest, video,
+accepted sidecar, and all seven audit snapshots; checks every cross-artifact
+digest; revalidates the source-derived coverage proof and v3 receipt subjects;
+and reproduces the exact base-to-active manifest bytes. Missing, replaced,
+symlinked, truncated, extended, or byte-drifted audit artifacts disqualify the
+walkthrough. Legacy accepted profiles have no reproducible audit basis and fail
+closed.
 
-This local JSON contract prevents accidental promotion; it is not reviewer or
-provider authority. A launch authority must still verify canonical signed bytes,
-a root-pinned reviewer key and role (including revocation and scope), the
-content-addressed provider/evidence artifacts, trusted time, and replay state.
-The digest fields do not prove those facts by themselves, and an unverified
-`signature` field must never be accepted.
+Accepted v4 video bytes are published on a fresh mode-0444 inode, and the public
+route validates then streams the same descriptor. Production should additionally
+serve the public-tour volume from a read-only replica or mount owned by a
+separate publication lane; mode bits are defense in depth, not a substitute for
+writer/reader isolation. Until that topology is independently observed, this is
+a remaining Advanced Visual production-evidence blocker, not a Core Gold blocker.
+
+The authorization supplies reviewer authority, not provider provenance or
+launch authority. Advanced Visual Gold still requires the complete governed
+provider, quota, privacy, playback, quality, candidate-binding, and protected
+live evidence set; digest fields and an unverified `signature` field prove none
+of those facts. If signed reviewer authority or any other advanced-visual proof
+is unavailable, MagicFit remains unavailable in customer copy. That condition
+does not block Core Gold: the search-to-decision loop and eligible first-party
+tours remain independently launchable without paid generated media.
 
 Readiness with multiple accounts may become `constrained` rather than blocked if only one account is known depleted.
 

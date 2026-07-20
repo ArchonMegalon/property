@@ -2579,6 +2579,42 @@ def test_property_security_posture_accepts_pinned_multistage_scratch_runtimes() 
     assert receipt["failures"] == []
 
 
+def test_optional_magicfit_reviewer_trust_overlay_is_explicit_and_read_only() -> None:
+    base_compose = _read("docker-compose.property.yml")
+    overlay = _read("docker-compose.property-magicfit-reviewer.yml")
+
+    assert "PROPERTYQUARRY_MAGICFIT_REVIEWER_TRUST_STORE_FILE" not in base_compose
+    assert overlay.count("  propertyquarry-api:\n") == 1
+    assert overlay.count("  propertyquarry-scheduler:\n") == 1
+    assert overlay.count("PROPERTYQUARRY_MAGICFIT_REVIEWER_TRUST_STORE_FILE") == 2
+    assert overlay.count("PROPERTYQUARRY_MAGICFIT_REVIEWER_TRUST_DIR") == 2
+    assert overlay.count("read_only: true") == 2
+    assert overlay.count("create_host_path: false") == 2
+    assert "private" not in overlay.lower()
+    assert "PROPERTYQUARRY_MAGICFIT_REVIEWER_TRUST_DIR=\n" in _read(
+        ".env.example"
+    )
+
+
+def test_security_posture_rejects_writable_magicfit_reviewer_trust_overlay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def remove_one_read_only(overlay: str) -> str:
+        assert overlay.count("        read_only: true\n") == 2
+        return overlay.replace("        read_only: true\n", "", 1)
+
+    failures = _security_posture_failures_with_file_mutation(
+        monkeypatch,
+        path="docker-compose.property-magicfit-reviewer.yml",
+        mutate=remove_one_read_only,
+    )
+
+    assert failures == [
+        "MagicFit reviewer overlay must mount one explicit external trust "
+        "directory read-only without host-path creation in API and scheduler"
+    ]
+
+
 def test_property_security_posture_requires_hardened_durable_worker(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2718,6 +2754,47 @@ def test_property_security_posture_requires_willhaben_helper_only_in_web_runtime
     ]
 
 
+@pytest.mark.parametrize(
+    ("shared_module", "render_image_copy_expected"),
+    (
+        ("property_magicfit_contact_sheet.py", False),
+        ("property_magicfit_delivery_contract.py", False),
+        ("property_magicfit_public_eligibility.py", False),
+        ("property_magicfit_reviewer_authority.py", False),
+        ("property_magicfit_secure_io.py", False),
+        ("property_tour_publication_lock.py", False),
+        ("browseract_ui_media.py", False),
+        ("property_scene_video_shared_env.py", False),
+        ("propertyquarry_playwright_runtime.py", True),
+    ),
+)
+def test_property_security_posture_requires_magicfit_shared_modules_in_web_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+    shared_module: str,
+    render_image_copy_expected: bool,
+) -> None:
+    helper_copy = f"COPY scripts/{shared_module} /app/scripts/{shared_module}\n"
+    assert (helper_copy in _read("ea/Dockerfile.property")) is render_image_copy_expected
+    assert helper_copy in _read("ea/Dockerfile.property-web")
+
+    def remove_web_helper(dockerfile: str) -> str:
+        assert dockerfile.count(helper_copy) == 1
+        return dockerfile.replace(helper_copy, "", 1)
+
+    failures = _security_posture_failures_with_file_mutation(
+        monkeypatch,
+        path="ea/Dockerfile.property-web",
+        mutate=remove_web_helper,
+    )
+
+    assert failures == [
+        "ea/Dockerfile.property-web must explicitly copy the shared MagicFit "
+        "contact-sheet, delivery-contract, eligibility, reviewer-authority, "
+        "secure-I/O, publication-lock, browser runtime, media, and scene-video "
+        "environment helpers"
+    ]
+
+
 def test_property_dockerfile_allowlists_runtime_scripts() -> None:
     dockerfile = _read("ea/Dockerfile.property")
 
@@ -2854,6 +2931,30 @@ def test_property_web_dockerfile_keeps_reconstruction_lightweight_and_excludes_b
     assert "COPY ea/requirements.txt /app/requirements.txt" in dockerfile
     assert "COPY ea/requirements.lock /app/requirements.lock" in dockerfile
     assert "COPY scripts/willhaben_property_packet.py /app/scripts/willhaben_property_packet.py" in dockerfile
+    assert (
+        "COPY scripts/property_magicfit_contact_sheet.py "
+        "/app/scripts/property_magicfit_contact_sheet.py"
+    ) in dockerfile
+    assert (
+        "COPY scripts/property_magicfit_delivery_contract.py "
+        "/app/scripts/property_magicfit_delivery_contract.py"
+    ) in dockerfile
+    assert (
+        "COPY scripts/property_magicfit_public_eligibility.py "
+        "/app/scripts/property_magicfit_public_eligibility.py"
+    ) in dockerfile
+    assert (
+        "COPY scripts/property_magicfit_reviewer_authority.py "
+        "/app/scripts/property_magicfit_reviewer_authority.py"
+    ) in dockerfile
+    assert (
+        "COPY scripts/property_magicfit_secure_io.py "
+        "/app/scripts/property_magicfit_secure_io.py"
+    ) in dockerfile
+    assert (
+        "COPY scripts/property_tour_publication_lock.py "
+        "/app/scripts/property_tour_publication_lock.py"
+    ) in dockerfile
     assert "COPY scripts/render_magicfit_property_flythrough.py /app/scripts/render_magicfit_property_flythrough.py" in dockerfile
     assert "COPY scripts/render_onemin_property_i2v_segment.py /app/scripts/render_onemin_property_i2v_segment.py" in dockerfile
     assert "COPY scripts/render_omagic_property_model_walkthrough.py /app/scripts/render_omagic_property_model_walkthrough.py" in dockerfile

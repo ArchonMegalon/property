@@ -167,6 +167,23 @@ def test_property_tour_detail_line_does_not_treat_generated_reconstruction_as_re
     )
 
 
+def test_property_tour_detail_line_labels_ready_generated_reconstruction_as_layout_preview(monkeypatch) -> None:
+    monkeypatch.setattr(
+        landing_property_research,
+        "_property_tour_first_party_open_url",
+        lambda _tour_url, *, principal_id="": "https://propertyquarry.com/tours/generated-detail",
+    )
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_generated_reconstruction_bundle_ready",
+        lambda _tour_url: True,
+    )
+
+    assert landing_property_research._property_tour_detail_line(
+        {"tour_url": "https://propertyquarry.com/tours/generated-detail"}
+    ) == "Open the layout preview on PropertyQuarry. Captured 3D media is not available yet."
+
+
 @pytest.mark.parametrize(
     "candidate",
     [
@@ -2975,6 +2992,9 @@ def test_propertyquarry_workbench_asks_for_furniture_style_at_visual_request_tim
     assert "data-pqx-visual-style-dialog" in script
     assert "diorama_style_hint: dioramaStyleHint" in script
     assert "Only this generated visual changes. Your search brief stays as it is." in script
+    assert "data-pqx-visual-processing-consent" in script
+    assert "governed external rendering service" in script
+    assert "visualStyleChoice?.externalProcessingConsentGranted === true" in script
     assert "normalizedKind === 'flythrough' ? 'Request walkthrough' : 'Request 3D tour'" in script
     assert "data-pqx-visual-style-selected-label" in script
     assert "data-pqx-visual-style-current" in script
@@ -3019,6 +3039,23 @@ def test_propertyquarry_all_tour_and_walkthrough_request_controls_require_style_
                 start = index + 1
 
     assert missing == []
+
+
+def test_propertyquarry_all_live_walkthrough_requests_require_explicit_external_processing_consent() -> None:
+    template_root = Path(__file__).resolve().parents[1] / "ea/app/templates/app"
+    workbench = (template_root / "_property_workbench_script.html").read_text(encoding="utf-8")
+    research = (template_root / "property_research_detail.html").read_text(encoding="utf-8")
+    object_detail = (template_root / "object_detail.html").read_text(encoding="utf-8")
+    disclosure = "governed external rendering service"
+
+    assert disclosure in workbench
+    assert "externalProcessingConsentGranted" in workbench
+    assert "visualStyleChoice?.externalProcessingConsentGranted === true" in workbench
+    for surface in (research, object_detail):
+        assert disclosure in surface
+        assert "window.confirm(" in surface
+        assert "if (isWalkthroughRequest && !externalProcessingConsentGranted) return;" in surface
+        assert "external_processing_consent_granted: externalProcessingConsentGranted" in surface
 
 
 def test_propertyquarry_magicfit_scene_cache_is_furniture_style_aware(monkeypatch) -> None:
@@ -7396,7 +7433,7 @@ def test_propertyquarry_example_shortlist_rows_keep_static_diorama_preview_when_
     assert rows[0]["scope_preview"]["preview_image_url"].startswith("/static/property/home/example-shortlist-home-1.png?v=")
 
 
-def test_propertyquarry_example_media_targets_prefer_propertyquarry_3dvista_private_viewer(
+def test_propertyquarry_example_media_targets_prefer_3dvista_and_hide_unaccepted_magicfit_video(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -7453,8 +7490,6 @@ def test_propertyquarry_example_media_targets_prefer_propertyquarry_3dvista_priv
         "demo_href": "/tours/demo-3dvista-propertyquarry",
         "tour_href": "/tours/demo-3dvista-propertyquarry/control/3dvista",
         "tour_label": "3D tour available",
-        "walkthrough_href": "/tours/demo-3dvista-propertyquarry?pane=flythrough-pane&autoplay=1",
-        "walkthrough_label": "Walkthrough available",
     }
 
 
@@ -28349,6 +28384,215 @@ def test_property_research_packet_accepts_generated_reconstruction_launch_page_a
     assert payload["primary_href"] == "https://propertyquarry.com/tours/generated-reconstruction-only-loft"
     assert payload["primary_label"] == "Open layout tour"
     assert payload["status_label"] == "Layout tour available"
+
+
+def test_property_research_media_labels_ai_panorama_as_disclosed_reconstruction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate = {
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/ai-panorama-loft",
+        "review_url": "https://propertyquarry.com/app/research/ai-panorama-loft",
+        "generated_reconstruction_url": "https://propertyquarry.com/tours/ai-panorama-loft",
+        "tour_status": "blocked",
+        "blocked_reason": "provider_export_missing",
+    }
+
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_reconstruction_kind",
+        lambda _url, *, principal_id="": "ai_panorama_360",
+    )
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_first_party_open_url",
+        lambda _url, *, principal_id="": "https://propertyquarry.com/tours/ai-panorama-loft/control",
+    )
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_generated_reconstruction_bundle_ready",
+        lambda _url: False,
+    )
+
+    payload = landing_property_research._property_tour_media_payload(candidate)
+
+    assert payload["hosted_ready"] is False
+    assert payload["generated_reconstruction_ready"] is True
+    assert payload["generated_reconstruction_kind"] == "ai_panorama_360"
+    assert payload["ai_360_ready"] is True
+    assert payload["embed_href"] == "/tours/ai-panorama-loft/control"
+    assert payload["has_live_viewer"] is True
+    assert payload["primary_href"] == "/tours/ai-panorama-loft/control"
+    assert payload["primary_label"] == "Open AI 360 tour"
+    assert payload["generated_reconstruction_label"] == "Open AI 360 tour"
+    assert payload["status_label"] == "AI 360 tour available"
+    assert payload["provider_label"] == "AI 360 reconstruction"
+    assert payload["provider_key"] == "propertyquarry_ai_360"
+    assert payload["ai_360_disclosure"] == (
+        "AI-reconstructed from listing photos; not a captured 360 or measured survey."
+    )
+
+
+@pytest.mark.parametrize(
+    "unsafe_href",
+    [
+        "https://external.example/tours/ai-panorama-loft/control",
+        "//propertyquarry.com/tours/ai-panorama-loft/control",
+        "https://propertyquarry.com/tours/ai-panorama-loft/control?next=/app",
+        "/tours/a-different-tour/control",
+        "javascript:/tours/ai-panorama-loft/control",
+    ],
+)
+def test_property_research_media_rejects_unsafe_ai_panorama_embed_href(
+    monkeypatch: pytest.MonkeyPatch,
+    unsafe_href: str,
+) -> None:
+    candidate = {
+        "review_url": "/app/research/ai-panorama-loft",
+        "generated_reconstruction_url": "https://propertyquarry.com/tours/ai-panorama-loft",
+        "tour_status": "blocked",
+        "blocked_reason": "provider_export_missing",
+    }
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_reconstruction_kind",
+        lambda _url, *, principal_id="": "ai_panorama_360",
+    )
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_first_party_open_url",
+        lambda _url, *, principal_id="": unsafe_href,
+    )
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_generated_reconstruction_bundle_ready",
+        lambda _url: False,
+    )
+
+    payload = landing_property_research._property_tour_media_payload(candidate)
+
+    assert payload["ai_360_ready"] is False
+    assert payload["generated_reconstruction_ready"] is False
+    assert payload["generated_reconstruction_href"] == ""
+    assert payload["embed_href"] == ""
+    assert payload["has_live_viewer"] is False
+    assert payload["primary_href"] == "/app/research/ai-panorama-loft"
+
+
+def test_property_research_packet_embeds_only_canonical_ai_panorama_control(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "pq-research-packet-ai-panorama"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Office")
+    slug = "flagship-ai-panorama-apartment"
+    candidate = {
+        "title": "Flagship AI panorama apartment",
+        "summary": "EUR 2,950 · 112 m² · 1010 Wien",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/flagship-ai-panorama-apartment",
+        "source_ref": "willhaben:flagship-ai-panorama-apartment",
+        "tour_status": "blocked",
+        "blocked_reason": "provider_export_missing",
+        "generated_reconstruction_url": f"https://propertyquarry.com/tours/{slug}",
+        "property_facts": {
+            "price_eur": 2950.0,
+            "area_m2": 112.0,
+            "postal_name": "1010 Wien",
+        },
+    }
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status_url": f"/app/api/signals/property/search/run/{run_id}",
+            "status": "processed",
+            "progress": 100,
+            "message": "done",
+            "summary": {
+                "sources_total": 1,
+                "listing_total": 1,
+                "ranked_candidates": [candidate],
+                "sources": [
+                    {
+                        "source_label": "Willhaben | Austria | Rent | 1010 Vienna",
+                        "listing_total": 1,
+                        "top_candidates": [candidate],
+                    }
+                ],
+            },
+            "events": [],
+        }
+
+    resolved_open_url = {
+        "value": f"https://propertyquarry.com/tours/{slug}/control"
+    }
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(
+        landing_property_research,
+        "_property_investment_research_snapshot",
+        lambda **kwargs: {},
+    )
+    monkeypatch.setattr(
+        landing_property_research,
+        "_property_hosted_tour_disabled_fallback",
+        lambda _url: False,
+    )
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_reconstruction_kind",
+        lambda _url, *, principal_id="": "ai_panorama_360",
+    )
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_first_party_open_url",
+        lambda _url, *, principal_id="": resolved_open_url["value"],
+    )
+    monkeypatch.setattr(
+        landing_property_research.property_tour_hosting,
+        "_hosted_property_tour_generated_reconstruction_bundle_ready",
+        lambda _url: False,
+    )
+
+    packet_ref = landing_property_research._property_candidate_ref(
+        {
+            **candidate,
+            "source_label": "Willhaben | Austria | Rent | 1010 Vienna",
+        }
+    )
+    packet_url = f"/app/research/{packet_ref}?run_id=run-ai-panorama-embed"
+    packet = client.get(packet_url, headers={"host": "propertyquarry.com"})
+
+    assert packet.status_code == 200
+    rendered_html = re.sub(
+        r"<script\b[^>]*>.*?</script>",
+        " ",
+        packet.text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    rendered_html = re.sub(
+        r"<style\b[^>]*>.*?</style>",
+        " ",
+        rendered_html,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    expected_control = f"/tours/{slug}/control"
+    assert 'data-prd-ai-360-embed' in rendered_html
+    assert f'src="{expected_control}"' in rendered_html
+    assert 'title="Interactive AI 360 tour: Flagship AI panorama apartment"' in rendered_html
+    assert 'sandbox="allow-scripts allow-same-origin"' in rendered_html
+    assert 'allow="fullscreen"' in rendered_html
+    assert "allowfullscreen" in rendered_html
+    assert "AI-reconstructed from listing photos; not a captured 360 or measured survey." in rendered_html
+    assert f'href="{expected_control}"' in rendered_html
+    assert '>Open AI 360 tour</a>' in rendered_html
+
+    resolved_open_url["value"] = (
+        f"https://external.example/tours/{slug}/control"
+    )
+    unsafe_packet = client.get(packet_url, headers={"host": "propertyquarry.com"})
+    assert unsafe_packet.status_code == 200
+    assert "data-prd-ai-360-embed" not in unsafe_packet.text
+    assert resolved_open_url["value"] not in unsafe_packet.text
 
 
 def test_property_research_packet_shows_ready_walkthrough_inside_visual_console(monkeypatch) -> None:

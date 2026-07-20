@@ -150,6 +150,18 @@ def test_release_requires_least_privilege_github_hosted_attestation() -> None:
     assert "workflow_call" not in triggers
 
 
+def test_repository_authority_docs_describe_the_structural_bootstrap_gate() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert (
+        "structurally gates `propertyquarry-release-v2` on the same-run "
+        "`propertyquarry-security-bootstrap-attestation` job"
+    ) in readme
+    assert "binds its attestation SHA-256, bootstrap run ID, and artifact digest" in readme
+    assert "bootstrap-consumption evidence is made an explicit" not in readme
+    assert "standalone release authority" in readme
+
+
 def test_run_blocks_never_interpolate_dispatch_inputs_or_event_payloads() -> None:
     unsafe_expression = re.compile(
         r"\$\{\{\s*(?:inputs(?:\.|\[)|github\.event(?:_name|\.|\[))"

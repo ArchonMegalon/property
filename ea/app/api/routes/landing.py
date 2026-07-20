@@ -146,6 +146,7 @@ from app.product.service import (
 )
 from app.services.cloudflare_access import CloudflareAccessIdentity
 from app.services import google_oauth as google_oauth_service
+from app.services import public_analytics_consent as analytics_consent
 from app.services.google_oauth import complete_google_oauth_callback
 from app.services.property_billing import payfunnels_configured, property_commercial_snapshot
 from app.services.property_curated_diorama import build_curated_diorama_preview_index
@@ -2873,7 +2874,11 @@ def _property_research_compact_fact(value: object) -> str:
     return text
 
 templates.env.globals["clickrank_head_snippet"] = lambda request=None: Markup(
-    _clickrank_head_snippet(_request_hostname(request), _request_path(request))
+    _clickrank_head_snippet(
+        _request_hostname(request),
+        _request_path(request),
+        consent_granted=analytics_consent.analytics_consent_granted(request),
+    )
 )
 templates.env.globals["rybbit_head_snippet"] = lambda request=None: Markup(_rybbit_head_snippet(request))
 templates.env.globals["heyy_live_chat_head_snippet"] = lambda request=None: Markup(_heyy_live_chat_head_snippet(request))
@@ -2931,6 +2936,66 @@ def sitemap_xml(request: Request) -> Response:
     body.append("</urlset>")
     response = Response("\n".join(body), media_type="application/xml")
     response.headers["X-Robots-Tag"] = "index, follow, max-image-preview:large"
+    return response
+
+
+@router.post("/privacy/analytics-consent", include_in_schema=False)
+async def set_public_analytics_consent(request: Request) -> RedirectResponse:
+    if not analytics_consent.consent_request_is_same_origin(request):
+        raise HTTPException(status_code=403, detail="analytics_consent_origin_invalid")
+    content_type = str(request.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
+    if content_type != "application/x-www-form-urlencoded":
+        raise HTTPException(status_code=415, detail="analytics_consent_form_required")
+    raw_body = await request.body()
+    if not raw_body or len(raw_body) > 4096:
+        raise HTTPException(status_code=422, detail="analytics_consent_form_invalid")
+    try:
+        form = urllib.parse.parse_qs(
+            raw_body.decode("utf-8", errors="strict"),
+            keep_blank_values=True,
+            strict_parsing=True,
+            max_num_fields=8,
+        )
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="analytics_consent_form_invalid") from exc
+    if any(len(values) != 1 for values in form.values()):
+        raise HTTPException(status_code=422, detail="analytics_consent_form_invalid")
+    if set(form).difference({"csrf_token", "decision", "return_to"}):
+        raise HTTPException(status_code=422, detail="analytics_consent_form_invalid")
+    submitted_token = str((form.get("csrf_token") or [""])[0]).strip()
+    cookie_token = analytics_consent.consent_csrf_token_for_request(request)
+    if (
+        not analytics_consent.valid_consent_csrf_token(submitted_token)
+        or not cookie_token
+        or not hmac.compare_digest(submitted_token, cookie_token)
+    ):
+        raise HTTPException(status_code=403, detail="analytics_consent_csrf_invalid")
+    decision = str((form.get("decision") or [""])[0]).strip().lower()
+    if decision not in {"granted", "denied"}:
+        raise HTTPException(status_code=422, detail="analytics_consent_decision_invalid")
+    if analytics_consent.browser_privacy_signal_enabled(request):
+        decision = "denied"
+    return_to = _normalize_browser_return_to(
+        str((form.get("return_to") or [""])[0]),
+        default="/cookies",
+    )
+    response = RedirectResponse(return_to, status_code=303)
+    response.set_cookie(
+        analytics_consent.ANALYTICS_CONSENT_COOKIE,
+        analytics_consent.ANALYTICS_CONSENT_GRANTED
+        if decision == "granted"
+        else analytics_consent.ANALYTICS_CONSENT_DENIED,
+        **analytics_consent.consent_cookie_kwargs(request),
+    )
+    response.delete_cookie(
+        analytics_consent.ANALYTICS_CONSENT_CSRF_COOKIE,
+        path="/",
+        secure=analytics_consent.request_uses_secure_scheme(request),
+        httponly=True,
+        samesite="strict",
+    )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
     return response
 
 
@@ -4371,7 +4436,39 @@ def _render_public_template(request: Request, template_name: str, **context: Any
     context.setdefault("request", request)
     context.setdefault("brand", request_brand(request))
     context.update(_propertyquarry_ui_locale_context(request))
+    existing_consent_csrf_token = analytics_consent.consent_csrf_token_for_request(request)
+    consent_context = analytics_consent.consent_ui_context(
+        request,
+        csrf_token=existing_consent_csrf_token,
+    )
+    created_consent_csrf_token = ""
+    if (
+        consent_context.get("show_banner") is True
+        or consent_context.get("show_settings") is True
+    ) and not existing_consent_csrf_token:
+        created_consent_csrf_token = analytics_consent.new_consent_csrf_token()
+        consent_context = analytics_consent.consent_ui_context(
+            request,
+            csrf_token=created_consent_csrf_token,
+        )
+    context["analytics_consent"] = consent_context
     response = templates.TemplateResponse(request, template_name, context)
+    if created_consent_csrf_token:
+        response.set_cookie(
+            analytics_consent.ANALYTICS_CONSENT_CSRF_COOKIE,
+            created_consent_csrf_token,
+            **analytics_consent.consent_csrf_cookie_kwargs(request),
+        )
+    if analytics_consent.consent_ui_allowed(request):
+        response.headers["Cache-Control"] = "private, no-store"
+        response.headers["Pragma"] = "no-cache"
+        vary_values = {
+            token.strip()
+            for token in str(response.headers.get("Vary") or "").split(",")
+            if token.strip()
+        }
+        vary_values.update({"Cookie", "DNT", "Sec-GPC"})
+        response.headers["Vary"] = ", ".join(sorted(vary_values, key=str.lower))
     response.headers["X-Robots-Tag"] = str(context.get("robots_directive") or "index, follow, max-image-preview:large")
     response.headers["Content-Language"] = str(context["document_language"])
     return response
@@ -7672,6 +7769,7 @@ def property_research_packet(
     vendor_tour_ready = bool(research_media.get("vendor_ready"))
     vendor_tour_action_href = str(research_media.get("vendor_tour_href") or "").strip()
     generated_reconstruction_ready = bool(research_media.get("generated_reconstruction_ready"))
+    ai_360_ready = bool(research_media.get("ai_360_ready"))
     generated_reconstruction_action_href = str(research_media.get("generated_reconstruction_href") or "").strip()
     tour_action_href = str(research_media.get("primary_href") or "").strip() if hosted_tour_ready else ""
     tour_status_value = (
@@ -7767,12 +7865,19 @@ def property_research_packet(
         hero_actions.append(
             {
                 "href": generated_reconstruction_action_href,
-                "label": str(research_media.get("generated_reconstruction_label") or "Open layout tour").strip(),
+                "label": str(
+                    research_media.get("generated_reconstruction_label")
+                    or ("Open AI 360 tour" if ai_360_ready else "Open layout tour")
+                ).strip(),
                 "external": False,
-                "kind": "generated_reconstruction",
+                "kind": "ai_360_reconstruction" if ai_360_ready else "generated_reconstruction",
                 "status_detail": str(
                     research_media.get("generated_reconstruction_status_detail")
-                    or "Generated from the floor plan and listing photos."
+                    or (
+                        "AI-reconstructed from listing photos; not a captured 360 or measured survey."
+                        if ai_360_ready
+                        else "Generated from the floor plan and listing photos."
+                    )
                 ).strip(),
             }
         )

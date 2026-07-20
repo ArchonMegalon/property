@@ -5,7 +5,7 @@ import json
 import math
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator, model_validator
 from pydantic_core import PydanticCustomError
 
 from app.domain.models import ExecutionEvent
@@ -1596,6 +1596,10 @@ class WillhabenPropertyTourIn(StrictMutationIn):
     walkthrough_provider_key: WalkthroughProviderChoice = Field(
         default="",
         description="Preferred walkthrough provider lane. `mootion`, `magicfit`, and `omagic` are choosable; `magic` is its alias.",
+    )
+    external_processing_consent_granted: StrictBool = Field(
+        default=False,
+        description="Explicit consent for this authenticated principal's private walkthrough request to cross the governed external-processing lane.",
     )
 
 

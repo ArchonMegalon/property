@@ -882,7 +882,7 @@ class ToolExecutionService:
                 runtime_readiness = dict(runtime_provider_resolution.get("runtime_readiness_json") or {})
             else:
                 runtime_readiness = scene_video_provider_runtime_readiness(provider_key)
-            if effective_provider_key == "mootion":
+            if effective_provider_key == "mootion" and context_kind != "property_walkthrough":
                 payload = _with_default_mootion_browseract_bridge(payload, request)
                 remote_requested = _mootion_remote_browseract_requested(payload)
                 remote_binding_id = str(payload.get("binding_id") or "").strip()
@@ -1090,6 +1090,14 @@ class ToolExecutionService:
             if context_kind == "property_walkthrough":
                 from app.product.service import _hosted_property_tour_video_delivery, _render_property_flythrough_into_hosted_tour
 
+                authenticated_principal_id = str(
+                    dict(request.context_json or {}).get("principal_id") or ""
+                ).strip()
+                if not authenticated_principal_id:
+                    raise ToolExecutionError(
+                        "governed_render_authenticated_principal_context_missing"
+                    )
+                request_principal_id = authenticated_principal_id
                 tour_url = str(payload.get("tour_url") or "").strip()
                 if not tour_url:
                     raise ToolExecutionError("scene_video_tour_url_missing")
@@ -1237,82 +1245,12 @@ class ToolExecutionService:
                             "runtime_provider_resolution_json": dict(runtime_provider_resolution or {}),
                         },
                     )
+                # Customer property walkthroughs cross the governed render lane.
+                # Never construct a direct BrowserAct/provider callback in the
+                # customer-scoped tool process, even when legacy routing fields
+                # are present in the request.
                 mootion_remote_render_callback = None
                 mootion_remote_private_receipt: dict[str, object] = {}
-                if effective_provider_key == "mootion" and _mootion_remote_browseract_requested(payload):
-                    def _render_mootion_property_via_browseract(
-                        packet: dict[str, object],
-                    ) -> dict[str, object]:
-                        remote_context = dict(request.context_json or {})
-                        remote_context.pop("telegram_delivery", None)
-                        remote_context["suppress_telegram_delivery"] = True
-                        nested = self.execute_invocation(
-                            ToolInvocationRequest(
-                                session_id=request.session_id,
-                                step_id=request.step_id,
-                                tool_name="browseract.mootion_movie",
-                                action_kind="movie.render",
-                                payload_json={
-                                    **dict(packet),
-                                    "binding_id": payload.get("binding_id"),
-                                    "run_url": payload.get("run_url"),
-                                    "workflow_id": payload.get("workflow_id"),
-                                    "timeout_seconds": payload.get("timeout_seconds") or packet.get("timeout_seconds"),
-                                    "force_browseract": True,
-                                    "allow_browseract_remote_fallback": True,
-                                    "remote_fallback_allowed": True,
-                                },
-                                context_json=remote_context,
-                            )
-                        )
-                        nested_output = dict(nested.output_json or {})
-                        nested_structured = dict(nested_output.get("structured_output_json") or {})
-                        remote_asset_url = str(
-                            nested_output.get("download_url")
-                            or nested_output.get("asset_url")
-                            or nested_output.get("public_url")
-                            or nested_output.get("video_url")
-                            or nested_structured.get("download_url")
-                            or nested_structured.get("asset_url")
-                            or nested_structured.get("public_url")
-                            or nested_structured.get("video_url")
-                            or ""
-                        ).strip()
-                        if not remote_asset_url:
-                            candidate_urls = _candidate_urls(nested_output) or _candidate_urls(nested_structured)
-                            remote_asset_url = str(candidate_urls[0] if candidate_urls else "").strip()
-                        if not remote_asset_url:
-                            raise ToolExecutionError("mootion_browseract_remote_asset_missing")
-                        remote_render_status = str(
-                            nested_output.get("render_status")
-                            or nested_structured.get("render_status")
-                            or ""
-                        ).strip().lower()
-                        if remote_render_status not in {"completed", "rendered", "ready", "success", "succeeded"}:
-                            raise ToolExecutionError(
-                                f"mootion_browseract_remote_not_completed:{remote_render_status or 'status_missing'}"
-                            )
-                        mootion_remote_private_receipt.update(
-                            {
-                                "binding_id": str(nested_output.get("binding_id") or "").strip(),
-                                "workflow_id": str(nested_output.get("workflow_id") or "").strip(),
-                                "task_id": str(nested_output.get("task_id") or "").strip(),
-                                "render_status": remote_render_status,
-                                "execution_lane": "browseract_remote",
-                            }
-                        )
-                        return {
-                            "render_status": remote_render_status,
-                            "asset_url": remote_asset_url,
-                            "download_url": str(nested_output.get("download_url") or remote_asset_url).strip(),
-                            "public_url": str(nested_output.get("public_url") or "").strip(),
-                            "structured_output_json": {
-                                "execution_lane": "browseract_remote",
-                                "provider_key": "mootion",
-                            },
-                        }
-
-                    mootion_remote_render_callback = _render_mootion_property_via_browseract
                 rendered = _render_property_flythrough_into_hosted_tour(
                     tour_url=tour_url,
                     title=title,
@@ -1323,6 +1261,10 @@ class ToolExecutionService:
                     diorama_style_hint=str(payload.get("diorama_style_hint") or "").strip(),
                     preferred_provider_key=effective_provider_key,
                     tour_context_json=tour_context_json,
+                    # Generic/model-authored tool input is never consent
+                    # authority. Only the authenticated ProductService path can
+                    # issue and carry the one-time receipt to this boundary.
+                    external_processing_consent_receipt="",
                     principal_id=request_principal_id,
                     mootion_remote_render_callback=mootion_remote_render_callback,
                 )

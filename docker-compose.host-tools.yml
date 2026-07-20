@@ -8,8 +8,8 @@ services:
     env_file:
       - .env
     environment:
-      EA_ROLE: operator_tools
-      EA_RUNTIME_MODE: operator
+      EA_ROLE: operator-tools
+      EA_RUNTIME_MODE: dev
       EA_FASTESTVPN_COMPOSE_ROOT: /docker/property
       HOME: /home/ea
       TZ: Europe/Vienna

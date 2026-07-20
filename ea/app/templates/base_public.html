@@ -581,6 +581,50 @@
       flex-wrap: wrap;
     }
     .footer nav { display: flex; gap: 16px; flex-wrap: wrap; }
+    .pq-consent-settings {
+      margin-top: 22px;
+      padding: 18px;
+    }
+    .pq-consent-settings h2,
+    .pq-consent-banner h2 {
+      max-width: none;
+      margin-bottom: 6px;
+      font-size: 1.05rem;
+    }
+    .pq-consent-settings p,
+    .pq-consent-banner p {
+      color: var(--text-soft);
+      font-size: 14px;
+    }
+    .pq-consent-form {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 14px;
+    }
+    .pq-consent-form .btn {
+      cursor: pointer;
+    }
+    .pq-consent-banner {
+      position: fixed;
+      z-index: 80;
+      left: 50%;
+      bottom: 16px;
+      width: min(720px, calc(100vw - 32px));
+      padding: 18px;
+      border: 1px solid var(--line-strong);
+      border-radius: 12px;
+      background: var(--panel);
+      box-shadow: 0 16px 48px rgba(20, 24, 21, 0.22);
+      transform: translateX(-50%);
+    }
+    .pq-consent-banner a,
+    .pq-consent-settings a {
+      color: var(--text);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
 
     /* Console */
     .console {
@@ -857,6 +901,17 @@
       .footer nav {
         gap: 6px 14px;
       }
+      .pq-consent-banner {
+        bottom: 8px;
+        width: calc(100vw - 16px);
+        padding: 16px;
+      }
+      .pq-consent-form {
+        align-items: stretch;
+      }
+      .pq-consent-form .btn {
+        flex: 1 1 180px;
+      }
       main, .console-main { padding-top: 24px; }
     }
     @media (pointer: coarse) {
@@ -988,6 +1043,31 @@
   <main id="main-content" tabindex="-1">
     <div class="wrap">
       {% block content %}{% endblock %}
+      {% if analytics_consent and analytics_consent.show_settings %}
+      <section class="panel pq-consent-settings" id="analytics-preferences" aria-labelledby="analytics-preferences-title">
+        <h2 id="analytics-preferences-title">Analytics preferences</h2>
+        {% if analytics_consent.browser_signal %}
+        <p id="analytics-preferences-status" role="status">Your browser's Global Privacy Control or Do Not Track signal is on. PropertyQuarry treats that signal as a refusal, so optional analytics stay off.</p>
+        {% elif analytics_consent.state == 'granted' %}
+        <p id="analytics-preferences-status" role="status">Optional analytics are currently allowed. You can turn them off here at any time.</p>
+        {% elif analytics_consent.state == 'denied' %}
+        <p id="analytics-preferences-status" role="status">Optional analytics are currently off. You can keep them off or allow them here.</p>
+        {% else %}
+        <p id="analytics-preferences-status" role="status">Optional analytics are off until you choose to allow them.</p>
+        {% endif %}
+        <p><a href="/privacy">Read the privacy notice</a> for more information about data use.</p>
+        {% if analytics_consent.csrf_token %}
+        <form class="pq-consent-form" method="post" action="/privacy/analytics-consent" aria-describedby="analytics-preferences-status">
+          <input type="hidden" name="csrf_token" value="{{ analytics_consent.csrf_token }}">
+          <input type="hidden" name="return_to" value="{{ analytics_consent.return_to }}#analytics-preferences">
+          <button class="btn" type="submit" name="decision" value="denied">Keep analytics off</button>
+          {% if analytics_consent.can_grant %}
+          <button class="btn" type="submit" name="decision" value="granted">Allow analytics</button>
+          {% endif %}
+        </form>
+        {% endif %}
+      </section>
+      {% endif %}
     </div>
   </main>
   <style data-pq-dark-surface-fallback>
@@ -1026,13 +1106,25 @@
         <a href="/terms">Terms</a>
         <a href="/support">Support</a>
         <a href="/imprint">Imprint</a>
-        <a href="/cookies">Cookies</a>
+        <a href="/cookies">Cookie settings</a>
         <a href="/subprocessors">Subprocessors</a>
         <a href="/refunds">Refunds</a>
         <a href="/disclaimers">Disclaimers</a>
       </nav>
     </div>
   </footer>
+  {% if analytics_consent and analytics_consent.show_banner and analytics_consent.csrf_token %}
+  <aside class="pq-consent-banner" aria-labelledby="analytics-consent-title">
+    <h2 id="analytics-consent-title">Your privacy choice</h2>
+    <p id="analytics-consent-copy">Optional analytics help us understand which public pages are useful. They stay off unless you allow them. Essential security and preference cookies still work. <a href="/cookies#analytics-preferences">Review cookie settings</a>.</p>
+    <form class="pq-consent-form" method="post" action="/privacy/analytics-consent" aria-describedby="analytics-consent-copy">
+      <input type="hidden" name="csrf_token" value="{{ analytics_consent.csrf_token }}">
+      <input type="hidden" name="return_to" value="{{ analytics_consent.return_to }}">
+      <button class="btn" type="submit" name="decision" value="denied">Reject optional analytics</button>
+      <button class="btn" type="submit" name="decision" value="granted">Allow analytics</button>
+    </form>
+  </aside>
+  {% endif %}
   <script>
     if ('serviceWorker' in navigator && window.isSecureContext) {
       window.addEventListener('load', () => {

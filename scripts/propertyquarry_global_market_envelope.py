@@ -13,11 +13,21 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 if __package__:
+    from scripts.propertyquarry_global_governance_attestation import (
+        GLOBAL_MARKET_GATE_ID,
+        GlobalGovernanceAttestationError,
+        verify_global_governance_attestation,
+    )
     from scripts.propertyquarry_strict_json import (
         StrictJsonError,
         load_strict_json_object_snapshot,
     )
 else:
+    from propertyquarry_global_governance_attestation import (  # type: ignore[no-redef]
+        GLOBAL_MARKET_GATE_ID,
+        GlobalGovernanceAttestationError,
+        verify_global_governance_attestation,
+    )
     from propertyquarry_strict_json import (  # type: ignore[no-redef]
         StrictJsonError,
         load_strict_json_object_snapshot,
@@ -380,17 +390,30 @@ def _validate_live_launch_evidence(
             ):
                 errors.append(f"live market evidence {country_code}/{dimension} is not fresh pass evidence")
 
-    attestation = live.get("independent_attestation") if isinstance(live.get("independent_attestation"), Mapping) else {}
-    independently_attested = (
-        attestation.get("independent") is True
-        and attestation.get("authority") == "independent_release_controller"
-        and str(attestation.get("subject_commit_sha") or "").strip().lower() == expected_release_sha
-        and str(attestation.get("subject_image_digest") or "").strip().lower() == expected_image_digest
-        and str(attestation.get("subject_source_sha256") or "").strip().lower() == source_sha256
-        and str(attestation.get("subject_payload_digest") or "").strip().lower() == _attested_payload_digest(live)
-        and _opaque_ref(attestation.get("attestor_ref"))
-        and _fresh_evidence(attestation, now=now, maximum_age_hours=maximum_age_hours)
+    attestation = (
+        live.get("independent_attestation")
+        if isinstance(live.get("independent_attestation"), Mapping)
+        else {}
     )
+    try:
+        verify_global_governance_attestation(
+            attestation,
+            expected_subject={
+                "gate_id": GLOBAL_MARKET_GATE_ID,
+                "receipt_contract": LIVE_RECEIPT_SCHEMA,
+                "release_commit_sha": expected_release_sha,
+                "release_image_digest": expected_image_digest,
+                "source_digests": {
+                    "market_envelope_sha256": f"sha256:{source_sha256}",
+                },
+                "payload_sha256": _attested_payload_digest(live),
+            },
+            observed_at=now,
+        )
+    except GlobalGovernanceAttestationError:
+        independently_attested = False
+    else:
+        independently_attested = True
     if not independently_attested:
         errors.append("live market evidence lacks independent exact-release payload attestation")
     return list(dict.fromkeys(errors)), independently_attested, age_seconds

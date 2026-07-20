@@ -31,10 +31,58 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable, Mapping, Protocol, Sequence
 
+# Direct script execution sets ``sys.path[0]`` to ``scripts/`` rather than the
+# repository root.  Keep the documented ``python3 scripts/...`` entrypoint
+# self-contained instead of relying on an ambient PYTHONPATH.
+if __package__ in {None, ""}:
+    _REPOSITORY_ROOT = str(Path(__file__).resolve().parents[1])
+    if _REPOSITORY_ROOT not in sys.path:
+        sys.path.insert(0, _REPOSITORY_ROOT)
+
 from scripts import verify_generated_release_artifacts_clean as manifest_model
 
 
 BUILD_RECEIPT_SCHEMA = "propertyquarry.local_candidate_build.v1"
+BUILT_IMAGE_SMOKE_CONTRACT = "propertyquarry.built_image_import_start_smoke.v1"
+BUILT_IMAGE_SMOKE_LABEL = "com.propertyquarry.local-smoke-nonce"
+BUILT_IMAGE_SMOKE_MARKER = b"propertyquarry-built-image-smoke-v1\n"
+BUILT_IMAGE_SMOKE_SCRIPT = """\
+import asyncio
+
+from app.main import app
+
+
+async def _propertyquarry_built_image_smoke() -> None:
+    paths = {getattr(route, "path", None) for route in app.routes}
+    if "/health/live" not in paths:
+        raise RuntimeError("health route missing")
+    await app.router.startup()
+    await app.router.shutdown()
+
+
+asyncio.run(_propertyquarry_built_image_smoke())
+print("propertyquarry-built-image-smoke-v1")
+"""
+BUILT_IMAGE_SMOKE_ENTRYPOINT = (
+    "/usr/local/bin/python",
+    "-I",
+    "-S",
+    "/usr/local/libexec/property_web_entrypoint.py",
+)
+BUILT_IMAGE_SMOKE_COMMAND = (
+    "/usr/local/bin/python",
+    "-c",
+    BUILT_IMAGE_SMOKE_SCRIPT,
+)
+BUILT_IMAGE_SMOKE_ENVIRONMENT = (
+    "EA_RUNTIME_MODE=test",
+    "EA_STORAGE_BACKEND=memory",
+    "EA_ARTIFACTS_DIR=/tmp/ea_artifacts",
+    "EA_ROLE=api",
+    "EA_PUBLIC_RESULTS_ENABLED=1",
+    "EA_PUBLIC_TOURS_ENABLED=1",
+    "EA_LEGACY_RUNTIME_SURFACES_ENABLED=0",
+)
 DOCKERFILE_PATH = "ea/Dockerfile.property-web"
 RELEASE_MANIFEST_PATH = "docs/PROPERTYQUARRY_RELEASE_MANIFEST.md"
 DEFAULT_ALLOWED_METADATA_PATHS = (
@@ -64,6 +112,7 @@ _DIGEST_RE = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _IMAGE_TAG_RE = re.compile(
     r"propertyquarry-local-candidate:[a-z0-9][a-z0-9_.-]{0,127}\Z"
 )
+_CONTAINER_ID_RE = re.compile(r"[0-9a-f]{64}\Z")
 _REPO_DIGEST_RE = re.compile(r"[^@\s]+@sha256:[0-9a-f]{64}\Z")
 _DOCKER_CONFIG_NAME_RE = re.compile(r"\.pq-build-docker-[A-Za-z0-9_-]+\Z")
 _FROM_RE = re.compile(
@@ -127,6 +176,7 @@ class BuildConfig:
     docker_inspect_timeout_s: float = 30.0
     docker_build_timeout_s: float = 1_800.0
     docker_save_timeout_s: float = 300.0
+    docker_smoke_timeout_s: float = 120.0
     max_command_output_bytes: int = 4_194_304
     max_git_archive_bytes: int = 536_870_912
     max_image_archive_bytes: int = 1_073_741_824
@@ -561,6 +611,7 @@ def _validate_config(config: BuildConfig) -> None:
         (config.docker_inspect_timeout_s, 120.0),
         (config.docker_build_timeout_s, 7_200.0),
         (config.docker_save_timeout_s, 1_200.0),
+        (config.docker_smoke_timeout_s, 300.0),
     )
     byte_limits = (
         (config.max_command_output_bytes, 16_777_216),
@@ -736,6 +787,19 @@ def _one_line_digest(data: bytes, error_code: str) -> str:
         raise BuildError(error_code)
     value = value[:-1]
     if not _DIGEST_RE.fullmatch(value):
+        raise BuildError(error_code)
+    return value
+
+
+def _one_line_container_id(data: bytes, error_code: str) -> str:
+    try:
+        value = data.decode("ascii", errors="strict")
+    except UnicodeDecodeError:
+        raise BuildError(error_code) from None
+    if not value.endswith("\n") or value.count("\n") != 1:
+        raise BuildError(error_code)
+    value = value[:-1]
+    if not _CONTAINER_ID_RE.fullmatch(value):
         raise BuildError(error_code)
     return value
 
@@ -1443,6 +1507,278 @@ def _cleanup_built_tag_with_fresh_config(
         raise BuildError("local_build_cleanup_failed") from None
 
 
+def _smoke_container_identity(
+    raw: bytes,
+    *,
+    expected_name: str,
+    expected_container_id: str | None,
+    expected_image_id: str,
+    expected_nonce: str,
+) -> Mapping[str, Any]:
+    container = _docker_inspect_object(
+        raw,
+        "built_image_smoke_container_invalid",
+    )
+    container_id = container.get("Id")
+    config = container.get("Config")
+    if (
+        not isinstance(container_id, str)
+        or not _CONTAINER_ID_RE.fullmatch(container_id)
+        or (expected_container_id is not None and container_id != expected_container_id)
+        or container.get("Name") != f"/{expected_name}"
+        or container.get("Image") != expected_image_id
+        or not isinstance(config, Mapping)
+        or config.get("Image") != expected_image_id
+        or not isinstance(config.get("Labels"), Mapping)
+        or config["Labels"].get(BUILT_IMAGE_SMOKE_LABEL) != expected_nonce
+    ):
+        raise BuildError("built_image_smoke_container_invalid")
+    return container
+
+
+def _smoke_container_evidence(
+    raw: bytes,
+    *,
+    expected_name: str,
+    expected_container_id: str,
+    expected_image_id: str,
+    expected_nonce: str,
+) -> Mapping[str, Any]:
+    container = _smoke_container_identity(
+        raw,
+        expected_name=expected_name,
+        expected_container_id=expected_container_id,
+        expected_image_id=expected_image_id,
+        expected_nonce=expected_nonce,
+    )
+    config = container["Config"]
+    host = container.get("HostConfig")
+    state = container.get("State")
+    mounts = container.get("Mounts")
+    environment = config.get("Env")
+    if (
+        config.get("User") != "10001:10001"
+        or config.get("Entrypoint") != list(BUILT_IMAGE_SMOKE_ENTRYPOINT)
+        or config.get("Cmd") != list(BUILT_IMAGE_SMOKE_COMMAND)
+        or not isinstance(environment, list)
+        or any(not isinstance(item, str) for item in environment)
+        or any(environment.count(item) != 1 for item in BUILT_IMAGE_SMOKE_ENVIRONMENT)
+        or any(
+            sum(
+                observed.partition("=")[0] == expected.partition("=")[0]
+                for observed in environment
+            )
+            != 1
+            for expected in BUILT_IMAGE_SMOKE_ENVIRONMENT
+        )
+        or any(
+            item.startswith(
+                (
+                    "DATABASE_URL=",
+                    "EA_API_TOKEN=",
+                    "EA_SIGNING_SECRET=",
+                    "HTTP_PROXY=",
+                    "HTTPS_PROXY=",
+                    "ALL_PROXY=",
+                    "NO_PROXY=",
+                )
+            )
+            for item in environment
+        )
+        or not isinstance(host, Mapping)
+        or host.get("NetworkMode") != "none"
+        or host.get("ReadonlyRootfs") is not True
+        or host.get("Privileged") is not False
+        or host.get("AutoRemove") is not False
+        or host.get("CapAdd") not in (None, [])
+        or host.get("CapDrop") != ["ALL"]
+        or host.get("Binds") not in (None, [])
+        or host.get("Devices") not in (None, [])
+        or host.get("PidsLimit") != 128
+        or host.get("Memory") != 536_870_912
+        or host.get("MemorySwap") != 536_870_912
+        or host.get("NanoCpus") != 1_000_000_000
+        or not isinstance(host.get("SecurityOpt"), list)
+        or "no-new-privileges=true" not in host["SecurityOpt"]
+        or not isinstance(host.get("Tmpfs"), Mapping)
+        or set(host["Tmpfs"]) != {"/tmp"}
+        or not isinstance(mounts, list)
+        or any(
+            not isinstance(mount, Mapping)
+            or mount.get("Type") != "tmpfs"
+            or mount.get("Destination") != "/tmp"
+            for mount in mounts
+        )
+        or not isinstance(state, Mapping)
+        or state.get("Running") is not False
+        or state.get("OOMKilled") is not False
+        or state.get("ExitCode") != 0
+        or state.get("Error") not in (None, "")
+    ):
+        raise BuildError("built_image_smoke_policy_invalid")
+    return {
+        "contract_name": BUILT_IMAGE_SMOKE_CONTRACT,
+        "image_reference": expected_image_id,
+        "container_id_sha256": _sha256(expected_container_id.encode("ascii")),
+        "script_sha256": _sha256(BUILT_IMAGE_SMOKE_SCRIPT.encode("utf-8")),
+        "entrypoint_enforced": True,
+        "application_imported": True,
+        "asgi_lifespan_completed": True,
+        "health_route_registered": True,
+        "runtime_mode": "test",
+        "storage_backend": "memory",
+        "network_mode": "none",
+        "root_filesystem": "read_only",
+        "capabilities": "none",
+        "no_new_privileges": True,
+        "pids_limit": 128,
+        "memory_limit_bytes": 536_870_912,
+        "memory_swap_limit_bytes": 536_870_912,
+        "nano_cpus": 1_000_000_000,
+        "external_authority": False,
+        "production_runtime_proof": False,
+    }
+
+
+def _cleanup_smoke_container(
+    evidence: _Evidence,
+    *,
+    name: str,
+    expected_image_id: str,
+    expected_nonce: str,
+) -> None:
+    observed = evidence.docker(
+        "container",
+        "inspect",
+        name,
+        error_code="built_image_smoke_cleanup_failed",
+        allowed_returncodes=frozenset({0, 1}),
+    )
+    if observed.returncode == 1:
+        return
+    container = _smoke_container_identity(
+        observed.stdout,
+        expected_name=name,
+        expected_container_id=None,
+        expected_image_id=expected_image_id,
+        expected_nonce=expected_nonce,
+    )
+    container_id = str(container["Id"])
+    evidence.docker(
+        "container",
+        "rm",
+        "--force",
+        container_id,
+        error_code="built_image_smoke_cleanup_failed",
+    )
+    absent = evidence.docker(
+        "container",
+        "inspect",
+        container_id,
+        error_code="built_image_smoke_cleanup_failed",
+        allowed_returncodes=frozenset({0, 1}),
+    )
+    if absent.returncode != 1:
+        raise BuildError("built_image_smoke_cleanup_failed")
+
+
+def _run_built_image_smoke(
+    config: BuildConfig,
+    evidence: _Evidence,
+    *,
+    image_id: str,
+) -> Mapping[str, Any]:
+    nonce = secrets.token_hex(16)
+    name = f"propertyquarry-smoke-{nonce}"
+    existing = evidence.docker(
+        "container",
+        "inspect",
+        name,
+        error_code="built_image_smoke_preflight_failed",
+        allowed_returncodes=frozenset({0, 1}),
+    )
+    if existing.returncode == 0:
+        raise BuildError("built_image_smoke_name_collision")
+
+    create_attempted = False
+    container_id: str | None = None
+    try:
+        create_arguments: list[str] = [
+            "container",
+            "create",
+            "--name",
+            name,
+            "--label",
+            f"{BUILT_IMAGE_SMOKE_LABEL}={nonce}",
+            "--network",
+            "none",
+            "--read-only",
+            "--cap-drop",
+            "ALL",
+            "--security-opt",
+            "no-new-privileges=true",
+            "--pids-limit",
+            "128",
+            "--memory",
+            "536870912",
+            "--memory-swap",
+            "536870912",
+            "--cpus",
+            "1",
+            "--tmpfs",
+            "/tmp:rw,noexec,nosuid,nodev,size=64m,uid=10001,gid=10001,mode=0700",
+        ]
+        for item in BUILT_IMAGE_SMOKE_ENVIRONMENT:
+            create_arguments.extend(("--env", item))
+        create_arguments.extend((image_id, *BUILT_IMAGE_SMOKE_COMMAND))
+
+        def capture_container_id(result: CommandResult) -> None:
+            nonlocal container_id
+            container_id = _one_line_container_id(
+                result.stdout,
+                "built_image_smoke_container_id_invalid",
+            )
+
+        create_attempted = True
+        evidence.docker(
+            *create_arguments,
+            error_code="built_image_smoke_create_failed",
+            success_observer=capture_container_id,
+        )
+        assert container_id is not None
+        started = evidence.docker(
+            "container",
+            "start",
+            "--attach",
+            container_id,
+            error_code="built_image_smoke_failed",
+            timeout_s=config.docker_smoke_timeout_s,
+        )
+        if started.stdout != BUILT_IMAGE_SMOKE_MARKER:
+            raise BuildError("built_image_smoke_output_invalid")
+        observed = evidence.docker(
+            "container",
+            "inspect",
+            container_id,
+            error_code="built_image_smoke_inspect_failed",
+        )
+        return _smoke_container_evidence(
+            observed.stdout,
+            expected_name=name,
+            expected_container_id=container_id,
+            expected_image_id=image_id,
+            expected_nonce=nonce,
+        )
+    finally:
+        if create_attempted:
+            _cleanup_smoke_container(
+                evidence,
+                name=name,
+                expected_image_id=image_id,
+                expected_nonce=nonce,
+            )
+
+
 def _atomic_write_receipt(path: Path, root: Path, data: bytes) -> None:
     root_fd = -1
     temp_fd = -1
@@ -1666,6 +2002,11 @@ def produce_build_receipt(
             expected_diff_ids=image_first["rootfs_diff_ids"],
             expected_labels=labels,
         )
+        built_image_smoke = _run_built_image_smoke(
+            config,
+            evidence,
+            image_id=image_id,
+        )
 
         image_second_object = _docker_inspect_object(
             evidence.docker(
@@ -1749,6 +2090,7 @@ def produce_build_receipt(
             "image_config_id": image_id,
             "oci_manifest_digest": oci_digest,
             "local_oci_manifest": local_oci,
+            "built_image_smoke": built_image_smoke,
             "authority": {
                 "local_only": True,
                 "performs_local_docker_build": True,

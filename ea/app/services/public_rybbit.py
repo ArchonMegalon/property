@@ -6,6 +6,8 @@ import os
 import urllib.parse
 from typing import Any
 
+from app.services.public_analytics_consent import analytics_consent_granted
+
 
 _LEGACY_SITE_ID_ENV_BY_HOST = {
     "propertyquarry.com": "RYBBIT_IO_PROPERTYQUARRY_SITE_ID",
@@ -128,6 +130,8 @@ def _script_url(base_url: str) -> str:
 
 
 def rybbit_head_snippet(request: Any | None = None) -> str:
+    if not analytics_consent_granted(request):
+        return ""
     if not _enabled():
         return ""
     if not _route_allowed(request):

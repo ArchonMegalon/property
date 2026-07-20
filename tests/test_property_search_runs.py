@@ -12362,6 +12362,7 @@ def test_property_search_run_preserves_restored_agent_commercial_when_raw_prefer
         max_results_per_source: int | None = None,
         dispatch_only: bool = False,
         dispatch_probe_ack_only: bool = False,
+        trace_context: dict[str, object] | None = None,
     ) -> dict[str, object]:
         observed["property_search_preferences"] = dict(property_search_preferences)
         return {

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -57,20 +58,22 @@ def test_generated_release_artifact_normalizer_preserves_semantic_status_drift()
     assert module._normalize({"status": "pass"}) != module._normalize({"status": "blocked"})
 
 
-def test_generated_release_artifact_normalizer_ignores_self_referential_git_identity() -> None:
+def test_generated_release_artifact_normalizer_preserves_release_identities() -> None:
     module = _load_module()
     head = {
         "source_binding": {"code_commit": "a" * 40},
         "browser_receipt_binding": {"git_blob_oid": "b" * 40},
+        "artifact": {"sha256": "c" * 64, "size_bytes": 123},
         "required_test_sources": [{"git_blob_oid": "c" * 40}],
     }
     materialized = {
         "source_binding": {"code_commit": "d" * 40},
         "browser_receipt_binding": {"git_blob_oid": "e" * 40},
+        "artifact": {"sha256": "f" * 64, "size_bytes": 456},
         "required_test_sources": [{"git_blob_oid": "c" * 40}],
     }
 
-    assert module._normalize(head) == module._normalize(materialized)
+    assert module._normalize(head) != module._normalize(materialized)
 
 
 def test_generated_release_artifact_normalizer_preserves_source_blob_drift() -> None:
@@ -257,3 +260,82 @@ def test_release_artifact_set_identity_changes_when_any_member_changes(tmp_path:
 
     assert initial.startswith(module.RELEASE_ARTIFACT_SET_PREFIX)
     assert module._release_artifact_set_identity(tmp_path) != initial
+
+
+def test_generated_release_artifact_exact_check_rejects_even_volatile_byte_drift(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_module()
+    monkeypatch.setattr(module, "_load_head_bytes", lambda path, *, root: b'{"generated_at":"old"}\n')
+    monkeypatch.setattr(
+        module,
+        "_load_worktree_bytes",
+        lambda path, *, root: b'{"generated_at":"new"}\n',
+    )
+
+    failures = module._exact_artifact_failures(root=Path("/unused"))
+
+    assert len(failures) == len(module.GENERATED_ARTIFACTS)
+    assert all("exact byte drift after materialization" in failure for failure in failures)
+
+
+def test_generated_release_artifact_main_never_invokes_git_restore(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_module()
+    monkeypatch.setattr(module, "_exact_artifact_failures", lambda **kwargs: [])
+    monkeypatch.setattr(module, "verify_release_manifest", lambda root: [])
+
+    def forbidden_subprocess(*args: object, **kwargs: object) -> object:
+        raise AssertionError("verification must not invoke a mutating git command")
+
+    monkeypatch.setattr(module.subprocess, "run", forbidden_subprocess)
+
+    assert module.main([]) == 0
+
+
+def test_detached_materialization_does_not_touch_the_caller_worktree(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _load_module()
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", repo.as_posix()], check=True)
+    subprocess.run(
+        ["git", "-C", repo.as_posix(), "config", "user.email", "test@example.invalid"],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", repo.as_posix(), "config", "user.name", "PropertyQuarry Test"],
+        check=True,
+    )
+    for path in module.GENERATED_ARTIFACTS:
+        target = repo / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("{}\n", encoding="utf-8")
+    manifest = repo / module.RELEASE_MANIFEST_PATH
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text("immutable manifest\n", encoding="utf-8")
+    materializer = repo / "scripts" / "noop_materializer.py"
+    materializer.parent.mkdir(parents=True, exist_ok=True)
+    materializer.write_text("raise SystemExit(0)\n", encoding="utf-8")
+    subprocess.run(["git", "-C", repo.as_posix(), "add", "."], check=True)
+    subprocess.run(["git", "-C", repo.as_posix(), "commit", "-qm", "fixture"], check=True)
+    before = {
+        path: (repo / path).read_bytes()
+        for path in (*module.GENERATED_ARTIFACTS, module.RELEASE_MANIFEST_PATH)
+    }
+    monkeypatch.setattr(module, "MATERIALIZER_SCRIPTS", (Path("scripts/noop_materializer.py"),))
+
+    assert module._run_materializers_in_detached_worktree(root=repo) == []
+    assert {
+        path: (repo / path).read_bytes()
+        for path in (*module.GENERATED_ARTIFACTS, module.RELEASE_MANIFEST_PATH)
+    } == before
+    assert subprocess.run(
+        ["git", "-C", repo.as_posix(), "status", "--porcelain"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout == ""

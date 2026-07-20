@@ -353,25 +353,16 @@ else
 fi
 
 if python3 - <<'PY'
-import json
 import subprocess
 from pathlib import Path
 
-from scripts.verify_generated_release_artifacts_clean import _normalize
 
-
-def _head_json(path: str) -> dict:
-    payload = subprocess.run(
+def _head_bytes(path: str) -> bytes:
+    return subprocess.run(
         ["git", "show", f"HEAD:{path}"],
         check=True,
         capture_output=True,
-        text=True,
     ).stdout
-    return json.loads(payload)
-
-
-def _worktree_json(path: str) -> dict:
-    return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
 paths = (
@@ -380,7 +371,7 @@ paths = (
     ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json",
 )
 for path in paths:
-    assert _normalize(_head_json(path)) == _normalize(_worktree_json(path)), path
+    assert _head_bytes(path) == Path(path).read_bytes(), path
 PY
 then
   echo "ok: generated release artifacts stay semantically aligned after materialization"

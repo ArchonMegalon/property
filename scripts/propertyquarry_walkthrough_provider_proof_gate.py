@@ -10,11 +10,18 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+try:
+    from property_magicfit_delivery_contract import accepted_sidecar_relpath
+    from property_magicfit_public_eligibility import evaluate_magicfit_public_eligibility
+except ModuleNotFoundError:
+    from scripts.property_magicfit_delivery_contract import accepted_sidecar_relpath
+    from scripts.property_magicfit_public_eligibility import evaluate_magicfit_public_eligibility
+
 
 REQUIRED_PROVIDERS = ("magicfit", "omagic")
 ORCHESTRATOR_KEY = "ea"
 SIDECAR_FILENAMES = {
-    "magicfit": "tour.magicfit.json",
+    "magicfit": ".magicfit-deliveries/<delivery-digest>.json",
     "omagic": "tour.omagic.json",
 }
 VIDEO_SUFFIXES = {".mp4", ".webm", ".mov", ".m4v"}
@@ -205,6 +212,76 @@ def _safe_int(value: object, *, default: int = 0) -> int:
         return int(default)
 
 
+def _verify_magicfit_exact_v4_provider_proof(
+    bundle_dir: Path,
+    *,
+    ffprobe_timeout_seconds: float = 20.0,
+    decode_timeout_seconds: float = 30.0,
+) -> dict[str, object]:
+    manifest_path = bundle_dir / "tour.json"
+    manifest = _load_json(manifest_path)
+    eligibility = evaluate_magicfit_public_eligibility(bundle_dir, manifest)
+    delivery_digest = str(eligibility.delivery_digest or "").strip().lower()
+    try:
+        sidecar_relpath = accepted_sidecar_relpath(delivery_digest) if delivery_digest else ""
+    except (TypeError, ValueError):
+        sidecar_relpath = ""
+    video_relpath = _safe_relpath(eligibility.video_relpath)
+    sidecar_path = bundle_dir / sidecar_relpath if sidecar_relpath else bundle_dir / "__missing__"
+    video_path = bundle_dir / video_relpath if video_relpath else bundle_dir / "__missing__"
+    sidecar = _load_json(sidecar_path) if sidecar_relpath else {}
+    metadata = (
+        _video_metadata(video_path, timeout_seconds=ffprobe_timeout_seconds)
+        if eligibility.eligible and video_path.is_file()
+        else {}
+    )
+    decode_ok, decode_error = (
+        _video_decodes(video_path, timeout_seconds=decode_timeout_seconds)
+        if metadata.get("ok") is True
+        else (False, "video_metadata_unavailable")
+    )
+    declared_video_sha256 = str(sidecar.get("video_sha256") or "").strip().lower()
+    actual_video_sha256 = (
+        _sha256(video_path)
+        if eligibility.eligible and video_path.is_file()
+        else ""
+    )
+    checks = [
+        _check("bundle_directory_not_symlink", not bundle_dir.is_symlink(), bundle_dir=str(bundle_dir)),
+        _check("manifest_present", manifest_path.is_file(), manifest_path=str(manifest_path)),
+        _check("magicfit_exact_v4_declared", eligibility.declared, reason=eligibility.reason),
+        _check("magicfit_exact_v4_public_eligible", eligibility.declared and eligibility.eligible, reason=eligibility.reason),
+        _check("accepted_delivery_digest_present", len(delivery_digest) == 64, delivery_digest=delivery_digest),
+        _check("accepted_sidecar_present", bool(sidecar_relpath) and sidecar_path.is_file(), sidecar_path=str(sidecar_path)),
+        _check("verified_video_relpath_present", bool(video_relpath), video_relpath=video_relpath),
+        _check("verified_video_file_present", bool(video_relpath) and video_path.is_file(), video_path=str(video_path)),
+        _check(
+            "verified_video_sha256_matches",
+            len(declared_video_sha256) == 64 and declared_video_sha256 == actual_video_sha256,
+            declared_video_sha256=declared_video_sha256,
+            actual_video_sha256=actual_video_sha256,
+        ),
+        _check("video_metadata_available", metadata.get("ok") is True, metadata=metadata),
+        _check("video_frame_decodes", decode_ok, error=decode_error),
+    ]
+    failed = [row for row in checks if not row.get("ok")]
+    return {
+        "provider": "magicfit",
+        "slug": bundle_dir.name,
+        "status": "pass" if not failed else "fail",
+        "failed_count": len(failed),
+        "check_count": len(checks),
+        "checks": checks,
+        "sidecar_path": str(sidecar_path) if sidecar_relpath else "",
+        "video_relpath": video_relpath,
+        "video_path": str(video_path) if video_relpath else "",
+        "video_sha256": actual_video_sha256,
+        "delivery_digest": delivery_digest,
+        "eligibility_reason": eligibility.reason,
+        "media_disqualified": not (eligibility.declared and eligibility.eligible),
+    }
+
+
 def _verify_bundle_provider_proof(
     bundle_dir: Path,
     *,
@@ -215,6 +292,12 @@ def _verify_bundle_provider_proof(
     decode_timeout_seconds: float = 30.0,
 ) -> dict[str, object]:
     provider_key = str(provider or "").strip().lower()
+    if provider_key == "magicfit":
+        return _verify_magicfit_exact_v4_provider_proof(
+            bundle_dir,
+            ffprobe_timeout_seconds=ffprobe_timeout_seconds,
+            decode_timeout_seconds=decode_timeout_seconds,
+        )
     sidecar_name = SIDECAR_FILENAMES[provider_key]
     sidecar_path = bundle_dir / sidecar_name
     manifest_path = bundle_dir / "tour.json"
@@ -370,19 +453,50 @@ def build_walkthrough_provider_proof_receipt(
         candidates: list[tuple[float, dict[str, object]]] = []
         if resolved_root.is_dir():
             for bundle_dir in sorted(resolved_root.iterdir(), key=lambda path: path.name):
-                sidecar_path = bundle_dir / SIDECAR_FILENAMES[provider]
-                if not bundle_dir.is_dir() or not sidecar_path.is_file():
+                if not bundle_dir.is_dir():
                     continue
-                result = _verify_bundle_provider_proof(
-                    bundle_dir,
-                    provider=provider,
-                    disqualified_video_hashes=disqualified_hashes,
-                    disqualified_family_fingerprints=disqualified_family_fingerprints,
-                    ffprobe_timeout_seconds=ffprobe_timeout_seconds,
-                    decode_timeout_seconds=decode_timeout_seconds,
-                )
+                if provider == "magicfit":
+                    manifest = _load_json(bundle_dir / "tour.json")
+                    provider_aliases = {
+                        str(manifest.get(key) or "").strip().lower()
+                        for key in (
+                            "video_provider",
+                            "video_provider_key",
+                            "video_provider_backend_key",
+                            "video_render_provider",
+                        )
+                    }
+                    magicfit_footprint = bool(
+                        "magicfit" in provider_aliases
+                        or isinstance(manifest.get("magicfit_import"), dict)
+                        or str(manifest.get("video_sidecar_relpath") or "").startswith(".magicfit-deliveries/")
+                        or str(manifest.get("video_relpath") or "").startswith("magicfit-media/")
+                        or (bundle_dir / "tour.magicfit.json").is_file()
+                    )
+                    if not magicfit_footprint:
+                        continue
+                    result = _verify_magicfit_exact_v4_provider_proof(
+                        bundle_dir,
+                        ffprobe_timeout_seconds=ffprobe_timeout_seconds,
+                        decode_timeout_seconds=decode_timeout_seconds,
+                    )
+                    evidence_path = Path(str(result.get("sidecar_path") or ""))
+                    timestamp_path = evidence_path if evidence_path.is_file() else bundle_dir / "tour.json"
+                else:
+                    sidecar_path = bundle_dir / SIDECAR_FILENAMES[provider]
+                    if not sidecar_path.is_file():
+                        continue
+                    result = _verify_bundle_provider_proof(
+                        bundle_dir,
+                        provider=provider,
+                        disqualified_video_hashes=disqualified_hashes,
+                        disqualified_family_fingerprints=disqualified_family_fingerprints,
+                        ffprobe_timeout_seconds=ffprobe_timeout_seconds,
+                        decode_timeout_seconds=decode_timeout_seconds,
+                    )
+                    timestamp_path = sidecar_path
                 try:
-                    modified_at = float(sidecar_path.stat().st_mtime)
+                    modified_at = float(timestamp_path.stat().st_mtime)
                 except OSError:
                     modified_at = 0.0
                 candidates.append((modified_at, result))
@@ -406,7 +520,11 @@ def build_walkthrough_provider_proof_receipt(
                     _check(
                         "provider_proof_sidecar_present",
                         False,
-                        sidecar_filename=SIDECAR_FILENAMES[provider],
+                        sidecar_filename=(
+                            "accepted-v4 digest sidecar"
+                            if provider == "magicfit"
+                            else SIDECAR_FILENAMES[provider]
+                        ),
                     )
                 ],
                 "sidecar_path": "",
@@ -460,7 +578,8 @@ def build_walkthrough_provider_proof_receipt(
         "provider_results": provider_results,
         "notes": [
             "Provider readiness is not walkthrough proof.",
-            "Pass requires provider-authored sidecar provenance, a manifest-linked hosted bundle video, and a decoded video frame.",
+            "MagicFit passes only through the shared exact accepted-v4 public-eligibility contract; tour.magicfit.json is never release authority.",
+            "Pass requires accepted provider provenance, a manifest-linked hosted bundle video, and a decoded video frame.",
             "EA is indexed only as the governance and verification orchestrator; it is not credited as the MagicFit or OMagic media author.",
             "An operator disqualification applies to every bundle carrying the same video SHA-256.",
             "A rejected walkthrough route family remains rejected across frame-rate, interpolation, and encoding variants.",
@@ -469,7 +588,7 @@ def build_walkthrough_provider_proof_receipt(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Hard EA-governed MagicFit and OMagic walkthrough provider proof gate.")
+    parser = argparse.ArgumentParser(description="Hard exact-v4 MagicFit and OMagic walkthrough provider proof gate.")
     parser.add_argument("--tour-root", default=os.getenv("EA_PUBLIC_TOUR_DIR", "state/public_property_tours"))
     parser.add_argument("--providers", default=",".join(REQUIRED_PROVIDERS))
     parser.add_argument("--ffprobe-timeout-seconds", type=float, default=20.0)

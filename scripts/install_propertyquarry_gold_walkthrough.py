@@ -8,13 +8,36 @@ import os
 import shutil
 import tempfile
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 
-DESKTOP_RELPATH = "magicfit-walkthrough-desktop-1080p60.mp4"
-MOBILE_RELPATH = "magicfit-walkthrough-mobile-720p60.mp4"
-SIDECAR_RELPATH = "tour.magicfit.json"
+DESKTOP_RELPATH = "walkthrough-desktop-1080p60.mp4"
+MOBILE_RELPATH = "walkthrough-mobile-720p60.mp4"
+SIDECAR_RELPATH = "tour.walkthrough.json"
+CORE_GOLD_PROVIDER_KEY = "propertyquarry_core_gold"
+LEGACY_WALKTHROUGH_RELPATH = "magicfit-walkthrough.mp4"
+LEGACY_DESKTOP_RELPATH = "magicfit-walkthrough-desktop-1080p60.mp4"
+LEGACY_MOBILE_RELPATH = "magicfit-walkthrough-mobile-720p60.mp4"
+LEGACY_SIDECAR_RELPATH = "tour.magicfit.json"
+LEGACY_MAGICFIT_ARTIFACT_NAMES = frozenset(
+    {
+        LEGACY_WALKTHROUGH_RELPATH,
+        LEGACY_DESKTOP_RELPATH,
+        LEGACY_MOBILE_RELPATH,
+        LEGACY_SIDECAR_RELPATH,
+    }
+)
+PROVIDER_CLAIM_FIELDS = frozenset(
+    {
+        "provider",
+        "provider_key",
+        "provider_backend_key",
+        "video_provider",
+        "video_provider_key",
+        "video_provider_backend_key",
+    }
+)
 
 
 def _utc_now() -> str:
@@ -34,6 +57,59 @@ def _load_json(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise RuntimeError(f"json_object_required:{path}")
     return dict(payload)
+
+
+def _manifest_walkthrough_path(bundle_dir: Path, manifest: dict[str, Any]) -> Path:
+    raw_relpath = manifest.get("video_relpath")
+    if (
+        not isinstance(raw_relpath, str)
+        or not raw_relpath
+        or raw_relpath != raw_relpath.strip()
+        or "\\" in raw_relpath
+    ):
+        raise RuntimeError("gold_walkthrough_rollback_video_relpath_invalid")
+    relpath = PurePosixPath(raw_relpath)
+    if (
+        relpath.is_absolute()
+        or relpath.as_posix() != raw_relpath
+        or any(part in {"", ".", ".."} for part in relpath.parts)
+    ):
+        raise RuntimeError("gold_walkthrough_rollback_video_relpath_invalid")
+    resolved_bundle = bundle_dir.resolve()
+    resolved_video = (bundle_dir / Path(*relpath.parts)).resolve()
+    try:
+        resolved_video.relative_to(resolved_bundle)
+    except ValueError as exc:
+        raise RuntimeError(
+            "gold_walkthrough_rollback_video_relpath_invalid"
+        ) from exc
+    return resolved_video
+
+
+def _contains_legacy_magicfit_claim(
+    value: object,
+    *,
+    field_name: str = "",
+) -> bool:
+    if isinstance(value, dict):
+        for raw_key, nested in value.items():
+            key = str(raw_key).strip().lower()
+            if key == "magicfit_import" or key.startswith("magicfit_"):
+                return True
+            if _contains_legacy_magicfit_claim(nested, field_name=key):
+                return True
+        return False
+    if isinstance(value, list):
+        return any(
+            _contains_legacy_magicfit_claim(item, field_name=field_name)
+            for item in value
+        )
+    if not isinstance(value, str):
+        return False
+    normalized = value.strip().lower()
+    if field_name in PROVIDER_CLAIM_FIELDS and normalized == "magicfit":
+        return True
+    return any(name in normalized for name in LEGACY_MAGICFIT_ARTIFACT_NAMES)
 
 
 def _delivery_variant(receipt_path: Path, *, expected_key: str) -> tuple[dict[str, Any], dict[str, Any], Path]:
@@ -64,7 +140,14 @@ def _delivery_variant(receipt_path: Path, *, expected_key: str) -> tuple[dict[st
 
 
 def updated_public_assets(payload: dict[str, Any]) -> list[dict[str, object]]:
-    replaced = {DESKTOP_RELPATH, MOBILE_RELPATH}
+    replaced = {
+        DESKTOP_RELPATH,
+        MOBILE_RELPATH,
+        LEGACY_WALKTHROUGH_RELPATH,
+        LEGACY_DESKTOP_RELPATH,
+        LEGACY_MOBILE_RELPATH,
+        LEGACY_SIDECAR_RELPATH,
+    }
     rows = [
         dict(row)
         for row in list(payload.get("public_assets") or [])
@@ -101,11 +184,13 @@ def build_sidecar(
     generated_at: str,
 ) -> dict[str, object]:
     return {
-        "provider": "MagicFit",
-        "provider_key": "magicfit",
-        "provider_backend_key": "magicfit",
-        "status": "rendered",
-        "render_status": "completed",
+        "contract_name": "propertyquarry.core_gold_walkthrough.v1",
+        "provider": "PropertyQuarry Core Gold",
+        "provider_key": CORE_GOLD_PROVIDER_KEY,
+        "provider_backend_key": CORE_GOLD_PROVIDER_KEY,
+        "status": "installed",
+        "delivery_status": "installed",
+        "launch_eligible": True,
         "composition": str(source_receipt.get("composition") or ""),
         "continuity_repair_status": str(source_receipt.get("continuity_repair_status") or ""),
         "continuity_repair_method": str(source_receipt.get("continuity_repair_method") or ""),
@@ -146,19 +231,24 @@ def updated_manifest(
 ) -> dict[str, Any]:
     desktop_metadata = dict(desktop_variant.get("metadata") or {})
     mobile_metadata = dict(mobile_variant.get("metadata") or {})
-    return {
-        **payload,
+    provider_neutral_payload = {
+        key: value
+        for key, value in payload.items()
+        if key != "magicfit_import" and not str(key).startswith("magicfit_")
+    }
+    updated = {
+        **provider_neutral_payload,
         "video_relpath": DESKTOP_RELPATH,
         "video_mobile_relpath": MOBILE_RELPATH,
         "flythrough_video_relpath": DESKTOP_RELPATH,
         "video_sidecar_relpath": SIDECAR_RELPATH,
-        "video_provider": "magicfit",
-        "video_provider_key": "magicfit",
+        "video_provider": CORE_GOLD_PROVIDER_KEY,
+        "video_provider_key": CORE_GOLD_PROVIDER_KEY,
         "video_coverage_proof": "boundary_verified_frame_continuation",
         "public_assets": updated_public_assets(payload),
-        "magicfit_import": {
+        "core_gold_walkthrough": {
             "source": "continuity_repaired_motion_interpolated_walkthrough",
-            "imported_at": generated_at,
+            "installed_at": generated_at,
             "desktop_target_relpath": DESKTOP_RELPATH,
             "desktop_sha256": str(desktop_variant.get("sha256") or ""),
             "desktop_size_bytes": int(desktop_metadata.get("size_bytes") or 0),
@@ -172,6 +262,9 @@ def updated_manifest(
             "frame_duplication_only": False,
         },
     }
+    if _contains_legacy_magicfit_claim(updated):
+        raise RuntimeError("core_gold_manifest_provider_claims_remain")
+    return updated
 
 
 def _atomic_copy(source: Path, destination: Path) -> None:
@@ -215,13 +308,14 @@ def install(
     manifest_path = bundle_dir / "tour.json"
     if not manifest_path.is_file():
         raise RuntimeError("gold_walkthrough_manifest_missing")
+    manifest = _load_json(manifest_path)
     rollback = _load_json(rollback_receipt_path)
     if str(rollback.get("status") or "").lower() != "pass":
         raise RuntimeError("gold_walkthrough_rollback_unverified")
     expected_manifest_sha = str(dict(rollback.get("manifest") or {}).get("sha256") or "")
     if _sha256(manifest_path) != expected_manifest_sha:
         raise RuntimeError("gold_walkthrough_manifest_changed_since_rollback_snapshot")
-    old_video_path = bundle_dir / "magicfit-walkthrough.mp4"
+    old_video_path = _manifest_walkthrough_path(bundle_dir, manifest)
     expected_old_video_sha = str(dict(rollback.get("walkthrough") or {}).get("sha256") or "")
     if not old_video_path.is_file() or _sha256(old_video_path) != expected_old_video_sha:
         raise RuntimeError("gold_walkthrough_rollback_video_mismatch")
@@ -244,7 +338,6 @@ def install(
         raise RuntimeError("gold_walkthrough_mobile_source_mismatch")
 
     generated_at = _utc_now()
-    manifest = _load_json(manifest_path)
     sidecar = build_sidecar(
         source_receipt=source_receipt,
         source_receipt_path=source_receipt_path,
@@ -266,7 +359,7 @@ def install(
     _atomic_write_json(bundle_dir / SIDECAR_RELPATH, sidecar)
     _atomic_write_json(manifest_path, updated)
     receipt: dict[str, object] = {
-        "contract_name": "propertyquarry.gold_walkthrough_install.v1",
+        "contract_name": "propertyquarry.core_gold_walkthrough_install.v1",
         "status": "pass",
         "generated_at": generated_at,
         "bundle_dir": str(bundle_dir),
@@ -286,7 +379,12 @@ def install(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Atomically install the PropertyQuarry Gold walkthrough.")
+    parser = argparse.ArgumentParser(
+        description=(
+            "Atomically install the provider-independent PropertyQuarry Core "
+            "Gold walkthrough."
+        )
+    )
     parser.add_argument("--bundle-dir", required=True)
     parser.add_argument("--source-receipt", required=True)
     parser.add_argument("--desktop-receipt", required=True)

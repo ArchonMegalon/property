@@ -208,7 +208,7 @@ def test_property_walkthrough_scene_video_context_uses_generated_reconstruction_
 def test_render_property_flythrough_does_not_silent_fallback_from_magicfit(monkeypatch) -> None:
     monkeypatch.setattr(
         product_service,
-        "_render_magicfit_property_flythrough_into_hosted_tour",
+        "_render_magicfit_property_flythrough_in_render_tools",
         lambda **kwargs: {
             "status": "failed",
             "reason": "magicfit_segment_render_failed",
@@ -221,7 +221,8 @@ def test_render_property_flythrough_does_not_silent_fallback_from_magicfit(monke
         lambda **kwargs: (_ for _ in ()).throw(AssertionError("unexpected_onemin_fallback")),
     )
 
-    result = product_service._render_property_flythrough_into_hosted_tour(
+    monkeypatch.setenv("EA_ROLE", "render-tools")
+    result = product_service._render_property_flythrough_in_render_tools(
         tour_url="/tours/sample-flat",
         title="Sample Flat",
         preferred_provider_key="magicfit",
@@ -263,11 +264,12 @@ def test_render_property_flythrough_routes_omagic_without_onemin_or_magicfit_fal
     )
     monkeypatch.setattr(
         product_service,
-        "_render_magicfit_property_flythrough_into_hosted_tour",
+        "_render_magicfit_property_flythrough_in_render_tools",
         lambda **kwargs: (_ for _ in ()).throw(AssertionError("unexpected_magicfit_fallback")),
     )
 
-    result = product_service._render_property_flythrough_into_hosted_tour(
+    monkeypatch.setenv("EA_ROLE", "render-tools")
+    result = product_service._render_property_flythrough_in_render_tools(
         tour_url="/tours/sample-flat",
         title="Sample Flat",
         preferred_provider_key="omagic",
@@ -340,11 +342,12 @@ print(json.dumps(state))
     )
     monkeypatch.setattr(
         product_service,
-        "_render_magicfit_property_flythrough_into_hosted_tour",
+        "_render_magicfit_property_flythrough_in_render_tools",
         lambda **kwargs: (_ for _ in ()).throw(AssertionError("unexpected_magicfit_fallback")),
     )
 
-    result = product_service._render_property_flythrough_into_hosted_tour(
+    monkeypatch.setenv("EA_ROLE", "render-tools")
+    result = product_service._render_property_flythrough_in_render_tools(
         tour_url="/tours/sample-flat",
         title="Sample Flat",
         preferred_provider_key="omagic",
@@ -391,7 +394,7 @@ def test_render_property_flythrough_blank_provider_uses_runtime_selected_magicfi
     )
     monkeypatch.setattr(
         product_service,
-        "_render_magicfit_property_flythrough_into_hosted_tour",
+        "_render_magicfit_property_flythrough_in_render_tools",
         lambda **kwargs: {
             "status": "rendered",
             "reason": "",
@@ -405,7 +408,8 @@ def test_render_property_flythrough_blank_provider_uses_runtime_selected_magicfi
         lambda **kwargs: (_ for _ in ()).throw(AssertionError("unexpected_omagic_path")),
     )
 
-    result = product_service._render_property_flythrough_into_hosted_tour(
+    monkeypatch.setenv("EA_ROLE", "render-tools")
+    result = product_service._render_property_flythrough_in_render_tools(
         tour_url="/tours/sample-flat",
         title="Sample Flat",
     )
@@ -446,7 +450,7 @@ def test_render_property_flythrough_blank_provider_fails_closed_when_no_runtime_
     )
     monkeypatch.setattr(
         product_service,
-        "_render_magicfit_property_flythrough_into_hosted_tour",
+        "_render_magicfit_property_flythrough_in_render_tools",
         lambda **kwargs: (_ for _ in ()).throw(AssertionError("unexpected_magicfit_path")),
     )
     monkeypatch.setattr(
@@ -460,7 +464,8 @@ def test_render_property_flythrough_blank_provider_fails_closed_when_no_runtime_
         lambda **kwargs: (_ for _ in ()).throw(AssertionError("unexpected_omagic_path")),
     )
 
-    result = product_service._render_property_flythrough_into_hosted_tour(
+    monkeypatch.setenv("EA_ROLE", "render-tools")
+    result = product_service._render_property_flythrough_in_render_tools(
         tour_url="/tours/sample-flat",
         title="Sample Flat",
     )
@@ -529,7 +534,7 @@ def test_render_property_flythrough_blank_provider_can_publish_with_runtime_sele
     )
     monkeypatch.setattr(
         product_service,
-        "_render_magicfit_property_flythrough_into_hosted_tour",
+        "_render_magicfit_property_flythrough_in_render_tools",
         lambda **kwargs: (_ for _ in ()).throw(AssertionError("unexpected_magicfit_path")),
     )
     monkeypatch.setattr(
@@ -538,7 +543,8 @@ def test_render_property_flythrough_blank_provider_can_publish_with_runtime_sele
         lambda **kwargs: (_ for _ in ()).throw(AssertionError("unexpected_omagic_path")),
     )
 
-    result = product_service._render_property_flythrough_into_hosted_tour(
+    monkeypatch.setenv("EA_ROLE", "render-tools")
+    result = product_service._render_property_flythrough_in_render_tools(
         tour_url="/tours/sample-flat",
         title="Sample Flat",
     )

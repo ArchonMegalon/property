@@ -60,6 +60,7 @@ REQUIRED_RELEASE_DOCS = (
     "RUNBOOK.md",
     "RELEASE_CHECKLIST.md",
     "PRODUCT_RELEASE_CHECKLIST.md",
+    "docs/PROPERTYQUARRY_GLOBAL_FLAGSHIP_GOAL.md",
 )
 MAX_RECEIPT_AGE_SECONDS = 86_400
 MAX_FUTURE_SKEW_SECONDS = 300
@@ -427,8 +428,10 @@ def verify_deploy_receipts(
                 issues.append("browser receipt SHA-256 binding does not match deploy HEAD")
 
     manifest_runtime_commit = str(release_manifest.get("release_commit_sha") or "").lower()
-    if manifest_runtime_commit != receipt_commit:
-        issues.append("release manifest Runtime commit SHA must equal the canonical receipt commit")
+    if manifest_runtime_commit != code_parent:
+        issues.append(
+            "release manifest Runtime commit SHA must equal the exact source/code commit"
+        )
     if str(pulse.get("contract_name") or "").strip() != "ea.weekly_product_pulse":
         issues.append("weekly product pulse has the wrong contract")
     if str(pulse.get("release_truth_source") or "").strip() != CANONICAL_FLAGSHIP_RECEIPT.as_posix():

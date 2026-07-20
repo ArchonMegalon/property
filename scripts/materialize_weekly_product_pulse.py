@@ -99,8 +99,6 @@ def _normalize_release_value(value: Any) -> Any:
                 "as_of",
                 "created_at",
                 "mtime_utc",
-                "size_bytes",
-                "sha256",
                 "duration_seconds",
                 "git_branch",
                 "git_head",

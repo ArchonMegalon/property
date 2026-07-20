@@ -376,6 +376,31 @@ def test_weekly_product_pulse_rewrites_when_disallowed_provenance_head_change_la
     assert json.loads(pulse_path.read_text(encoding="utf-8")) == fresh
 
 
+def test_weekly_product_pulse_stable_writer_heals_digest_and_size_drift(
+    tmp_path: Path,
+) -> None:
+    module = _load_materializer_module()
+    pulse_path = tmp_path / "pulse.json"
+    fresh = {
+        "contract_name": "ea.weekly_product_pulse",
+        "generated_at": "2026-07-18T10:00:00Z",
+        "release_truth_provenance": {
+            "git_head": "a" * 40,
+            "sha256": "b" * 64,
+            "size_bytes": 123,
+        },
+    }
+    stale = json.loads(json.dumps(fresh))
+    stale["generated_at"] = "2026-07-18T09:00:00Z"
+    stale["release_truth_provenance"]["sha256"] = "c" * 64
+    stale["release_truth_provenance"]["size_bytes"] = 456
+    pulse_path.write_text(json.dumps(stale), encoding="utf-8")
+
+    module._write_json_stable(pulse_path, fresh)
+
+    assert json.loads(pulse_path.read_text(encoding="utf-8")) == fresh
+
+
 def test_weekly_product_pulse_does_not_claim_missing_browser_proof_after_pass_receipt(tmp_path: Path) -> None:
     _seed_truth_sources(tmp_path)
 

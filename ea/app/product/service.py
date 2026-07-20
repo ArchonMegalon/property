@@ -182,6 +182,7 @@ from app.product.property_tour_hosting import (
     _is_branded_public_tour_url,
     _is_crezlo_tour_host,
     _load_hosted_property_tour_payload,
+    _owned_hosted_property_tour_private_receipt,
     _matterport_thumb_url,
     _normalize_generated_reconstruction_bundle_permissions,
     _prefer_hosted_live_360_embed,
@@ -4499,6 +4500,7 @@ def _normalize_property_flythrough_result(result: dict[str, object] | None) -> d
         payload["video_url"] = published_video_url
         payload["flythrough_url"] = published_video_url
     else:
+        payload.pop("video_url", None)
         payload.pop("flythrough_url", None)
     status = str(payload.get("status") or "").strip().lower()
     if published_video_url and status not in {"rendered", "existing", "ready"}:
@@ -17909,23 +17911,27 @@ def _write_generated_reconstruction_property_tour_bundle_unchecked(
 
 
 def _property_reconstruction_publication_lock_timeout_seconds() -> float:
-    raw = str(os.getenv("PROPERTYQUARRY_RECONSTRUCTION_PUBLICATION_LOCK_TIMEOUT_SECONDS") or "").strip()
-    try:
-        parsed = float(raw or "30")
-    except (TypeError, ValueError):
-        parsed = 30.0
-    if not math.isfinite(parsed):
-        parsed = 30.0
-    return max(0.05, min(parsed, 300.0))
+    from scripts.property_tour_publication_lock import (
+        property_tour_publication_lock_timeout_seconds,
+    )
+
+    return property_tour_publication_lock_timeout_seconds()
 
 
 def _property_reconstruction_publication_lock_directory(public_dir: Path) -> Path:
-    return public_dir.parent / ".propertyquarry-tour-publication-locks"
+    from scripts.property_tour_publication_lock import (
+        property_tour_publication_lock_directory,
+    )
+
+    return property_tour_publication_lock_directory(public_dir)
 
 
 def _property_reconstruction_publication_lock_name(*, slug: str) -> str:
-    digest = hashlib.sha256(str(slug or "").strip().encode("utf-8")).hexdigest()
-    return f"{digest}.lock"
+    from scripts.property_tour_publication_lock import (
+        property_tour_publication_lock_name,
+    )
+
+    return property_tour_publication_lock_name(slug=slug)
 
 
 @contextlib.contextmanager
@@ -17935,98 +17941,16 @@ def _property_reconstruction_publication_lock(
     slug: str,
     timeout_seconds: float | None = None,
 ) -> Iterator[None]:
-    lock_dir = _property_reconstruction_publication_lock_directory(public_dir)
-    created_lock_dir = False
-    try:
-        lock_dir.mkdir(mode=0o700)
-        created_lock_dir = True
-    except FileExistsError:
-        pass
-    except OSError as exc:
-        raise RuntimeError("property_reconstruction_publication_lock_directory_unavailable") from exc
-    if created_lock_dir:
-        try:
-            lock_dir.chmod(0o700)
-        except OSError as exc:
-            raise RuntimeError("property_reconstruction_publication_lock_directory_unsafe") from exc
+    from scripts.property_tour_publication_lock import (
+        property_tour_publication_lock,
+    )
 
-    directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
-    directory_flags |= getattr(os, "O_CLOEXEC", 0)
-    try:
-        lock_dir_fd = os.open(lock_dir, directory_flags)
-    except OSError as exc:
-        raise RuntimeError("property_reconstruction_publication_lock_directory_unsafe") from exc
-    lock_fd: int | None = None
-    acquired = False
-    try:
-        lock_dir_stat = os.fstat(lock_dir_fd)
-        if (
-            not stat.S_ISDIR(lock_dir_stat.st_mode)
-            or lock_dir_stat.st_uid != os.geteuid()
-            or stat.S_IMODE(lock_dir_stat.st_mode) != 0o700
-        ):
-            raise RuntimeError("property_reconstruction_publication_lock_directory_unsafe")
-
-        lock_name = _property_reconstruction_publication_lock_name(slug=slug)
-        lock_flags = os.O_RDWR | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
-        created_lock_file = False
-        try:
-            lock_fd = os.open(
-                lock_name,
-                lock_flags | os.O_CREAT | os.O_EXCL,
-                0o600,
-                dir_fd=lock_dir_fd,
-            )
-            created_lock_file = True
-        except FileExistsError:
-            try:
-                lock_fd = os.open(lock_name, lock_flags, dir_fd=lock_dir_fd)
-            except OSError as exc:
-                raise RuntimeError("property_reconstruction_publication_lock_file_unsafe") from exc
-        except OSError as exc:
-            raise RuntimeError("property_reconstruction_publication_lock_file_unavailable") from exc
-        if created_lock_file:
-            try:
-                os.fchmod(lock_fd, 0o600)
-            except OSError as exc:
-                raise RuntimeError("property_reconstruction_publication_lock_file_unsafe") from exc
-        lock_stat = os.fstat(lock_fd)
-        if (
-            not stat.S_ISREG(lock_stat.st_mode)
-            or lock_stat.st_uid != os.geteuid()
-            or stat.S_IMODE(lock_stat.st_mode) != 0o600
-            or lock_stat.st_nlink != 1
-        ):
-            raise RuntimeError("property_reconstruction_publication_lock_file_unsafe")
-
-        timeout = (
-            _property_reconstruction_publication_lock_timeout_seconds()
-            if timeout_seconds is None
-            else max(0.0, min(float(timeout_seconds), 300.0))
-        )
-        deadline = time.monotonic() + timeout
-        while True:
-            try:
-                fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                acquired = True
-                break
-            except OSError as exc:
-                if exc.errno not in {errno.EACCES, errno.EAGAIN}:
-                    raise RuntimeError("property_reconstruction_publication_lock_failed") from exc
-                remaining = deadline - time.monotonic()
-                if remaining <= 0.0:
-                    raise RuntimeError("property_reconstruction_publication_lock_timeout") from exc
-                time.sleep(min(0.01, remaining))
+    with property_tour_publication_lock(
+        public_dir=public_dir,
+        slug=slug,
+        timeout_seconds=timeout_seconds,
+    ):
         yield
-    finally:
-        if lock_fd is not None:
-            if acquired:
-                with contextlib.suppress(OSError):
-                    fcntl.flock(lock_fd, fcntl.LOCK_UN)
-            with contextlib.suppress(OSError):
-                os.close(lock_fd)
-        with contextlib.suppress(OSError):
-            os.close(lock_dir_fd)
 
 
 def _write_generated_reconstruction_property_tour_bundle_with_lock_held(
@@ -18339,6 +18263,34 @@ def _hosted_property_tour_video_delivery(tour_url: str) -> dict[str, object]:
         return {}
     if not isinstance(payload, dict):
         return {}
+    try:
+        from scripts.property_magicfit_public_eligibility import (
+            evaluate_magicfit_public_eligibility,
+            magicfit_provider_declared,
+        )
+    except ModuleNotFoundError:
+        from property_magicfit_public_eligibility import (  # type: ignore[no-redef]
+            evaluate_magicfit_public_eligibility,
+            magicfit_provider_declared,
+        )
+    magicfit_footprint = bool(
+        magicfit_provider_declared(payload)
+        or isinstance(payload.get("magicfit_import"), dict)
+        or str(payload.get("video_sidecar_relpath") or "").strip().startswith(".magicfit-deliveries/")
+        or str(payload.get("video_relpath") or "").strip().startswith("magicfit-media/")
+    )
+    magicfit_eligibility = (
+        evaluate_magicfit_public_eligibility(bundle_dir, payload)
+        if magicfit_footprint
+        else None
+    )
+    if magicfit_footprint and not (
+        magicfit_eligibility is not None
+        and magicfit_eligibility.declared
+        and magicfit_eligibility.eligible
+        and magicfit_eligibility.video_relpath
+    ):
+        return {}
     generated_reconstruction = (
         dict(payload.get("generated_reconstruction") or {})
         if isinstance(payload.get("generated_reconstruction"), dict)
@@ -18358,7 +18310,11 @@ def _hosted_property_tour_video_delivery(tour_url: str) -> dict[str, object]:
     generated_walkthrough_ready = bool(
         generated_walkthrough_relpath and str(generated_coverage.get("status") or "").strip().lower() == "pass"
     )
-    video_relpath = str(payload.get("video_relpath") or "").strip()
+    video_relpath = (
+        str(magicfit_eligibility.video_relpath)
+        if magicfit_eligibility is not None
+        else str(payload.get("video_relpath") or "").strip()
+    )
     if not video_relpath and generated_walkthrough_ready:
         video_relpath = generated_walkthrough_relpath
     if not video_relpath:
@@ -18374,7 +18330,13 @@ def _hosted_property_tour_video_delivery(tour_url: str) -> dict[str, object]:
         return {}
     if not local_video_path.exists() or not local_video_path.is_file():
         return {}
-    public_video_url = _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=video_relpath)
+    public_video_url = (
+        _hosted_property_tour_walkthrough_asset_url(normalized_url)
+        if magicfit_eligibility is not None
+        else _hosted_public_tour_asset_url(normalized_url, slug=slug, asset_relpath=video_relpath)
+    )
+    if magicfit_eligibility is not None and not public_video_url:
+        return {}
     scenes = list(payload.get("scenes") or []) if isinstance(payload.get("scenes"), list) else []
     scene_count = int(payload.get("scene_count") or len(scenes) or 0)
     sidecar_payload: dict[str, object] = {}
@@ -18445,8 +18407,8 @@ def _hosted_property_tour_video_delivery(tour_url: str) -> dict[str, object]:
         "slug": slug,
         "video_url": public_video_url,
         "flythrough_url": _hosted_property_tour_walkthrough_asset_url(normalized_url),
-        "video_file_path": str(local_video_path),
-        "audio_probe_ref": str(local_video_path),
+        "video_file_path": "" if magicfit_eligibility is not None else str(local_video_path),
+        "audio_probe_ref": public_video_url if magicfit_eligibility is not None else str(local_video_path),
         "provider_key": video_provider,
         "duration_seconds": duration_seconds,
         "tour_scene_count": scene_count,
@@ -18488,8 +18450,8 @@ def _hosted_property_tour_bundle_dir(tour_url: str) -> tuple[str, Path] | tuple[
     path_parts = [part for part in str(parsed.path or "").split("/") if part]
     if len(path_parts) < 2 or path_parts[-2] != "tours":
         return ("", None)
-    slug = str(path_parts[-1] or "").strip()
-    if not slug:
+    slug = str(path_parts[-1] or "").strip().lower()
+    if re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,126}[a-z0-9])?", slug) is None:
         return ("", None)
     public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/property/state/public_property_tours")).expanduser()
     bundle_dir = public_dir / slug
@@ -19220,7 +19182,7 @@ def _magicfit_segment_failure_reason(*, stdout_tail: str = "", stderr_tail: str 
     return "magicfit_segment_render_failed"
 
 
-def _render_magicfit_property_flythrough_into_hosted_tour(
+def _render_magicfit_property_flythrough_in_render_tools(
     *,
     tour_url: str,
     title: str,
@@ -19232,6 +19194,12 @@ def _render_magicfit_property_flythrough_into_hosted_tour(
     diorama_style_hint: str = "",
     tour_context_json: dict[str, object] | None = None,
 ) -> dict[str, object]:
+    if str(os.getenv("EA_ROLE") or "").strip().lower() != "render-tools":
+        return {
+            "status": "blocked",
+            "reason": "magicfit_direct_render_requires_render_tools_role",
+            "provider_key": "magicfit",
+        }
     slug, bundle_dir = _hosted_property_tour_bundle_dir(tour_url)
     if not slug or bundle_dir is None:
         return {"status": "missing", "reason": "hosted_tour_bundle_missing"}
@@ -19810,6 +19778,211 @@ def _render_magicfit_property_flythrough_into_hosted_tour(
         step_total=max(planned_segments, len(segment_paths)),
     )
     return render_log
+
+
+def _owned_governed_property_flythrough_binding(
+    *,
+    tour_url: str,
+    principal_id: object = "",
+    preferred_provider_key: str = "magicfit",
+) -> tuple[dict[str, str], str]:
+    from app.services.property_governed_render import (
+        governed_property_video_locale,
+        governed_property_video_work_item_id,
+    )
+
+    slug, bundle_dir = _hosted_property_tour_bundle_dir(tour_url)
+    normalized_provider = _normalize_provider_preference(preferred_provider_key) or "magicfit"
+    if not slug or bundle_dir is None:
+        return {}, "hosted_tour_bundle_missing"
+    normalized_principal = str(principal_id or "").strip()
+    if not normalized_principal:
+        return {}, "governed_render_principal_missing"
+    locale = governed_property_video_locale()
+    if not locale:
+        return {}, "governed_render_locale_invalid"
+    with _hosted_property_tour_publication_lock(
+        public_dir=bundle_dir.parent,
+        slug=slug,
+    ):
+        owner_receipt = _owned_hosted_property_tour_private_receipt(
+            bundle_dir,
+            principal_id=normalized_principal,
+        )
+        if not owner_receipt:
+            return {}, "governed_render_property_owner_mismatch"
+        public_manifest = _load_hosted_property_tour_payload(bundle_dir)
+        if not public_manifest or str(public_manifest.get("slug") or "").strip().lower() != slug:
+            return {}, "governed_render_property_manifest_invalid"
+        canonical_manifest = json.dumps(
+            public_manifest,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        canonical_private_packet = json.dumps(
+            owner_receipt,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        tour_revision = hashlib.sha256(
+            json.dumps(
+                {
+                    "private_packet_sha256": hashlib.sha256(
+                        canonical_private_packet
+                    ).hexdigest(),
+                    "public_manifest_sha256": hashlib.sha256(
+                        canonical_manifest
+                    ).hexdigest(),
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        work_item_id = governed_property_video_work_item_id(
+            slug=slug,
+            provider_key=normalized_provider,
+            tour_revision=tour_revision,
+        )
+    return {
+        "slug": slug,
+        "property_id": slug,
+        "tour_revision": tour_revision,
+        "provider_key": normalized_provider,
+        "work_item_id": work_item_id,
+        "locale": locale,
+        "principal_id": normalized_principal,
+    }, ""
+
+
+def _issue_owned_governed_property_flythrough_consent(
+    *,
+    tour_url: str,
+    principal_id: object = "",
+    preferred_provider_key: str = "magicfit",
+    external_processing_consent_granted: bool = False,
+) -> tuple[str, str]:
+    from app.services.property_governed_render import issue_governed_render_consent_receipt
+
+    binding, binding_error = _owned_governed_property_flythrough_binding(
+        tour_url=tour_url,
+        principal_id=principal_id,
+        preferred_provider_key=preferred_provider_key,
+    )
+    if binding_error:
+        return "", binding_error
+    return issue_governed_render_consent_receipt(
+        granted=external_processing_consent_granted,
+        principal_id=binding["principal_id"],
+        property_slug=binding["slug"],
+        property_id=binding["property_id"],
+        tour_revision=binding["tour_revision"],
+        provider_key=binding["provider_key"],
+        work_item_id=binding["work_item_id"],
+        locale=binding["locale"],
+    )
+
+
+def _submit_governed_property_flythrough_request(
+    *,
+    tour_url: str,
+    title: str,
+    principal_id: object = "",
+    actor: str = "",
+    preferred_provider_key: str = "magicfit",
+    tour_context_json: dict[str, object] | None = None,
+    external_processing_consent_receipt: str = "",
+) -> dict[str, object]:
+    from app.services.property_governed_render import submit_governed_property_video_request
+
+    # Context supplied through the generic tool contract is intentionally not
+    # trusted at this boundary. Property identity and revision come only from
+    # the owner-bound first-party publication bundle below.
+    del tour_context_json
+    binding, binding_error = _owned_governed_property_flythrough_binding(
+        tour_url=tour_url,
+        principal_id=principal_id,
+        preferred_provider_key=preferred_provider_key,
+    )
+    normalized_provider = _normalize_provider_preference(preferred_provider_key) or "magicfit"
+    if binding_error:
+        return {
+            "status": "missing" if binding_error == "hosted_tour_bundle_missing" else "blocked",
+            "reason": binding_error,
+            "provider_key": normalized_provider,
+            "execution_lane": "ea_governed_render",
+        }
+    consent_receipt = str(external_processing_consent_receipt or "").strip()
+    if not consent_receipt:
+        return {
+            "status": "blocked",
+            "reason": "governed_render_external_processing_consent_missing",
+            "provider_key": normalized_provider,
+            "execution_lane": "ea_governed_render",
+        }
+    result = submit_governed_property_video_request(
+        slug=binding["slug"],
+        title=title,
+        principal_id=binding["principal_id"],
+        actor=actor or "ea.propertyquarry",
+        preferred_provider_key=binding["provider_key"],
+        property_id=binding["property_id"],
+        tour_revision=binding["tour_revision"],
+        locale=binding["locale"],
+        external_processing_consent_receipt=consent_receipt,
+    )
+    payload = {
+        **result.as_dict(),
+        "slug": binding["slug"],
+        "tour_url": str(tour_url or "").strip(),
+    }
+    accepted = result.status == "pending" and bool(result.request_id)
+    _write_hosted_property_visual_progress(
+        tour_url=tour_url,
+        request_kind="flythrough",
+        status="pending" if accepted else "blocked",
+        progress_pct=18 if accepted else 0,
+        detail=(
+            "Walkthrough request accepted by the governed render lane. Publication remains pending review."
+            if accepted
+            else _property_visual_unavailable_detail(
+                request_kind="flythrough",
+                reason=result.reason,
+            )
+        ),
+        reason=result.reason,
+        provider_key="governed_render",
+    )
+    return payload
+
+
+def _render_magicfit_property_flythrough_into_hosted_tour(
+    *,
+    tour_url: str,
+    title: str,
+    principal_id: object = "",
+    property_facts: dict[str, object] | None = None,
+    actor: str = "",
+    birthday_party_request: bool = False,
+    person_motion_hint: str = "",
+    diorama_style_hint: str = "",
+    tour_context_json: dict[str, object] | None = None,
+    external_processing_consent_receipt: str = "",
+) -> dict[str, object]:
+    # The API/web role never handles provider credentials or provider output.
+    # Property facts and personal media stay behind first-party evidence refs;
+    # the shared Horizon lane produces a private request receipt only.
+    del property_facts, birthday_party_request, person_motion_hint, diorama_style_hint
+    return _submit_governed_property_flythrough_request(
+        tour_url=tour_url,
+        title=title,
+        principal_id=principal_id,
+        actor=actor,
+        preferred_provider_key="magicfit",
+        tour_context_json=tour_context_json,
+        external_processing_consent_receipt=external_processing_consent_receipt,
+    )
 
 
 def _render_onemin_property_flythrough_into_hosted_tour(
@@ -21267,7 +21440,7 @@ def _render_omagic_property_flythrough_into_hosted_tour(
     return render_log
 
 
-def _render_property_flythrough_into_hosted_tour(
+def _render_property_flythrough_in_render_tools(
     *,
     tour_url: str,
     title: str,
@@ -21281,6 +21454,11 @@ def _render_property_flythrough_into_hosted_tour(
     tour_context_json: dict[str, object] | None = None,
     mootion_remote_render_callback: Callable[[dict[str, object]], dict[str, object]] | None = None,
 ) -> dict[str, object]:
+    if str(os.getenv("EA_ROLE") or "").strip().lower() != "render-tools":
+        return {
+            "status": "blocked",
+            "reason": "direct_property_render_requires_render_tools_role",
+        }
     normalized_preferred_provider = _normalize_provider_preference(preferred_provider_key)
     explicit_provider_requested = bool(normalized_preferred_provider)
     auto_selected_provider_key = ""
@@ -21425,7 +21603,7 @@ def _render_property_flythrough_into_hosted_tour(
         )
         return {**route_payload, **dict(rendered or {})}
     if route.provider_key == "magicfit":
-        rendered = _render_magicfit_property_flythrough_into_hosted_tour(
+        rendered = _render_magicfit_property_flythrough_in_render_tools(
             tour_url=tour_url,
             title=title,
             principal_id=principal_id,
@@ -21450,6 +21628,43 @@ def _render_property_flythrough_into_hosted_tour(
         provider_key=route.provider_key or normalized_preferred_provider,
     )
     return {"status": "failed", "reason": "selected_flythrough_provider_not_implemented", **route_payload}
+
+
+def _render_property_flythrough_into_hosted_tour(
+    *,
+    tour_url: str,
+    title: str,
+    principal_id: object = "",
+    property_facts: dict[str, object] | None = None,
+    actor: str = "",
+    birthday_party_request: bool = False,
+    person_motion_hint: str = "",
+    diorama_style_hint: str = "",
+    preferred_provider_key: str = "",
+    tour_context_json: dict[str, object] | None = None,
+    external_processing_consent_receipt: str = "",
+    mootion_remote_render_callback: Callable[[dict[str, object]], dict[str, object]] | None = None,
+) -> dict[str, object]:
+    # All customer-facing apartment video requests cross the same governed
+    # boundary.  The API never invokes a provider binary, handles credentials,
+    # consumes provider output, or publishes a raw render.
+    del (
+        property_facts,
+        birthday_party_request,
+        person_motion_hint,
+        diorama_style_hint,
+        mootion_remote_render_callback,
+    )
+    requested_provider = _normalize_provider_preference(preferred_provider_key) or "magicfit"
+    return _submit_governed_property_flythrough_request(
+        tour_url=tour_url,
+        title=title,
+        principal_id=principal_id,
+        actor=actor,
+        preferred_provider_key=requested_provider,
+        tour_context_json=tour_context_json,
+        external_processing_consent_receipt=external_processing_consent_receipt,
+    )
 
 
 def _property_link_bundle_preview_image_url(
@@ -40736,8 +40951,16 @@ class ProductService:
         suppress_human_followup: bool = False,
         diorama_style_hint: str = "",
         walkthrough_provider_key: str = "",
+        external_processing_consent_granted: bool = False,
     ) -> dict[str, object]:
         normalized_kind = _normalize_property_visual_request_kind(request_kind)
+        if normalized_kind == "flythrough" and external_processing_consent_granted is not True:
+            raise ValueError("governed_render_external_processing_consent_required")
+        if normalized_kind == "flythrough":
+            # Keep the authenticated grant on the live request. Persisting a
+            # bare boolean in a repairable queue item would let retries mint
+            # fresh receipts after the first one-time receipt was consumed.
+            queue_async_request = False
         normalized_property_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
         normalized_source_ref = str(source_ref or normalized_property_url).strip()
         normalized_search_run_id = str(run_id or "").strip()
@@ -41318,6 +41541,7 @@ class ProductService:
                     allow_below_threshold=True,
                     diorama_style_hint=resolved_style_hint,
                     walkthrough_provider_key=walkthrough_provider_key,
+                    external_processing_consent_granted=external_processing_consent_granted,
                 ) or {})
                 flythrough_result = _normalize_property_flythrough_result(raw_flythrough_result)
                 flythrough_url = _hosted_property_tour_walkthrough_asset_url(payload.get("tour_url")) or _published_walkthrough_asset_url(
@@ -52326,6 +52550,7 @@ class ProductService:
         allow_below_threshold: bool = False,
         diorama_style_hint: str = "",
         walkthrough_provider_key: str = "",
+        external_processing_consent_granted: bool = False,
     ) -> dict[str, object]:
         if not allow_below_threshold and float(fit_score or 0.0) <= _PROPERTY_SCOUT_MAGICFIT_FLYTHROUGH_MIN_SCORE:
             return {"status": "skipped", "reason": "fit_below_threshold", "video_url": ""}
@@ -52361,26 +52586,63 @@ class ProductService:
                     "reason": "",
                 }
             existing_delivery["duration_gate_reason"] = duration_reason
-        try:
-            rendered = self._run_scene_video_skill(
-                title=title,
-                actor=actor,
-                provider_key=walkthrough_provider_key,
-                task_principal_id=principal_id,
-                input_json={
-                    "context_kind": "property_walkthrough",
-                    "tour_url": renderable_tour_url,
-                    "tour_context_json": tour_context_json,
-                    "property_facts_json": dict(facts or {}),
-                    "diorama_style_hint": diorama_style_hint,
-                },
+        from app.services.scene_video_contract import resolve_property_walkthrough_runtime_provider
+
+        provider_resolution = resolve_property_walkthrough_runtime_provider(
+            walkthrough_provider_key
+        )
+        runtime_readiness = dict(provider_resolution.get("runtime_readiness_json") or {})
+        effective_provider_key = str(
+            provider_resolution.get("provider_backend_key")
+            or provider_resolution.get("provider_key")
+            or walkthrough_provider_key
+            or "magicfit"
+        ).strip().lower()
+        consent_receipt = ""
+        consent_error = ""
+        if external_processing_consent_granted is not True:
+            consent_error = "governed_render_external_processing_consent_not_granted"
+        elif not bool(runtime_readiness.get("ready")):
+            blockers = [
+                str(value or "").strip()
+                for value in list(runtime_readiness.get("blockers") or [])
+                if str(value or "").strip()
+            ]
+            consent_error = ",".join(blockers) or "governed_render_runtime_not_ready"
+        else:
+            consent_receipt, consent_error = _issue_owned_governed_property_flythrough_consent(
+                tour_url=renderable_tour_url,
+                principal_id=principal_id,
+                preferred_provider_key=effective_provider_key,
+                external_processing_consent_granted=True,
             )
-        except Exception as exc:
+        if not consent_receipt:
             rendered = {
-                "status": "failed",
-                "reason": "property_scout_flythrough_render_exception",
-                "error": compact_text(str(exc or ""), fallback="", limit=240),
+                "status": "blocked",
+                "reason": consent_error or "governed_render_external_processing_consent_missing",
+                "provider_key": effective_provider_key,
+                "execution_lane": "ea_governed_render",
+                "runtime_readiness_json": runtime_readiness,
             }
+        else:
+            try:
+                rendered = _render_property_flythrough_into_hosted_tour(
+                    tour_url=renderable_tour_url,
+                    title=title,
+                    actor=actor,
+                    principal_id=principal_id,
+                    property_facts=dict(facts or {}),
+                    diorama_style_hint=diorama_style_hint,
+                    preferred_provider_key=effective_provider_key,
+                    tour_context_json=tour_context_json,
+                    external_processing_consent_receipt=consent_receipt,
+                )
+            except Exception as exc:
+                rendered = {
+                    "status": "failed",
+                    "reason": "property_scout_flythrough_render_exception",
+                    "error": compact_text(str(exc or ""), fallback="", limit=240),
+                }
         delivery_after_render = _hosted_property_tour_video_delivery(renderable_tour_url)
         result = {
             **dict(rendered or {}),

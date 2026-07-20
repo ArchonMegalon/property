@@ -14,9 +14,41 @@ from pathlib import Path
 from typing import Any, Iterable
 
 try:
-    from property_tour_host_safety import TourHostSafetyError, safe_extract_tour_zip
+    from property_magicfit_delivery_contract import (
+        MagicFitContractError,
+        strict_json_object_bytes,
+        validate_magicfit_source_receipt,
+    )
+    from property_magicfit_secure_io import (
+        MagicFitSecureIOError,
+        lexical_absolute_path,
+        read_stable_bounded_bytes,
+        read_stable_bounded_prefix,
+    )
+    from property_tour_host_safety import (
+        TourHostSafetyError,
+        bounded_env_int,
+        safe_extract_tour_zip,
+        tour_asset_max_bytes,
+    )
 except ModuleNotFoundError:
-    from scripts.property_tour_host_safety import TourHostSafetyError, safe_extract_tour_zip
+    from scripts.property_magicfit_delivery_contract import (
+        MagicFitContractError,
+        strict_json_object_bytes,
+        validate_magicfit_source_receipt,
+    )
+    from scripts.property_magicfit_secure_io import (
+        MagicFitSecureIOError,
+        lexical_absolute_path,
+        read_stable_bounded_bytes,
+        read_stable_bounded_prefix,
+    )
+    from scripts.property_tour_host_safety import (
+        TourHostSafetyError,
+        bounded_env_int,
+        safe_extract_tour_zip,
+        tour_asset_max_bytes,
+    )
 
 if __package__:
     from .property_tour_3dvista_provenance import (
@@ -52,11 +84,13 @@ REJECTION_ACTIONS = {
     "magicfit_video_missing": "copy the playable MagicFit walkthrough as magicfit-walkthrough.mp4/mov/webm or walkthrough.mp4/mov/webm",
     "magicfit_video_unverified": "replace the placeholder with a playable MagicFit video stream with positive duration",
     "magicfit_receipt_missing": "copy the matching MagicFit render receipt as magicfit-receipt.json or receipt.json",
-    "magicfit_receipt_invalid": "replace the MagicFit receipt with valid JSON containing provider=magicfit and the target slug/output",
+    "magicfit_receipt_invalid": "replace the MagicFit receipt with a bounded strict-JSON MagicFit source receipt",
     "magicfit_receipt_provider_mismatch": "use the MagicFit receipt for this walkthrough; provider must be magicfit",
+    "magicfit_receipt_status_invalid": "use a completed MagicFit render receipt whose render_status is completed, rendered, success, or succeeded",
+    "magicfit_receipt_url_invalid": "use one allowlisted HTTPS MagicFit video URL in hosted_walkthrough_video_url or video_output_url; when both aliases are present they must match",
     "magicfit_receipt_output_mismatch": "use the MagicFit receipt that names the exact walkthrough video file in this drop folder",
     "magicfit_receipt_output_invalid": "fix the MagicFit receipt output_file path so it resolves to the copied video",
-    "magicfit_receipt_target_mismatch": "use a MagicFit receipt whose target_slug, tour_slug, property_slug, slug, or hosted URL matches this tour slug",
+    "magicfit_receipt_target_mismatch": "use a MagicFit receipt whose every present target_slug, tour_slug, property_slug, or slug alias exactly matches this tour slug",
     "unsupported_provider": "use one of the supported providers: 3dvista, pano2vr, krpano, or magicfit",
 }
 MARKERS_BY_PROVIDER = {
@@ -410,38 +444,53 @@ def _public_bundle_provider_state(*, bundle_dir: Path, slug: str, provider: str)
     return {}
 
 
-def _receipt_target_matches_slug(payload: dict[str, object], *, slug: str) -> bool:
-    expected = str(slug or "").strip()
-    if not expected:
-        return False
-    for key in ("target_slug", "tour_slug", "property_slug", "slug"):
-        if str(payload.get(key) or "").strip() == expected:
-            return True
-    for key in ("property_url", "tour_url", "hosted_url", "public_url"):
-        value = str(payload.get(key) or "").strip().rstrip("/")
-        if value and value.rsplit("/", 1)[-1] == expected:
-            return True
-    return False
-
-
 def _magicfit_receipt_rejection_reason(receipt: Path, *, video: Path, slug: str) -> str:
     try:
-        payload = json.loads(receipt.read_text(encoding="utf-8"))
-    except Exception:
+        snapshot = read_stable_bounded_bytes(
+            receipt,
+            reason="magicfit_discovery_receipt",
+            maximum_bytes=bounded_env_int(
+                "PROPERTYQUARRY_MAGICFIT_RECEIPT_MAX_BYTES",
+                default=1024 * 1024,
+                minimum=1_024,
+                maximum=8 * 1024 * 1024,
+            ),
+        )
+        assert snapshot.body is not None
+        payload = strict_json_object_bytes(
+            snapshot.body,
+            reason="magicfit_source_receipt_invalid",
+        )
+    except MagicFitSecureIOError as exc:
+        return "magicfit_receipt_missing" if exc.missing else "magicfit_receipt_invalid"
+    except MagicFitContractError:
         return "magicfit_receipt_invalid"
-    if not isinstance(payload, dict):
-        return "magicfit_receipt_invalid"
-    if str(payload.get("provider") or "").strip().lower() != "magicfit":
-        return "magicfit_receipt_provider_mismatch"
-    output_file = str(payload.get("output_file") or "").strip()
+
+    try:
+        validate_magicfit_source_receipt(payload, slug=slug)
+    except MagicFitContractError as exc:
+        contract_reason = str(exc).split(":", 1)[0]
+        return {
+            "magicfit_source_receipt_provider_invalid": "magicfit_receipt_provider_mismatch",
+            "magicfit_source_receipt_status_invalid": "magicfit_receipt_status_invalid",
+            "magicfit_source_receipt_slug_invalid": "magicfit_receipt_target_mismatch",
+            "magicfit_source_receipt_url_invalid": "magicfit_receipt_url_invalid",
+        }.get(contract_reason, "magicfit_receipt_invalid")
+
+    output_file_value = payload.get("output_file")
+    if "output_file" in payload and (
+        not isinstance(output_file_value, str)
+        or not output_file_value
+        or output_file_value != output_file_value.strip()
+    ):
+        return "magicfit_receipt_output_invalid"
+    output_file = output_file_value if isinstance(output_file_value, str) else ""
     if output_file:
         try:
-            if Path(output_file).expanduser().resolve() != video.resolve():
+            if lexical_absolute_path(output_file) != lexical_absolute_path(video):
                 return "magicfit_receipt_output_mismatch"
-        except OSError:
+        except MagicFitSecureIOError:
             return "magicfit_receipt_output_invalid"
-    if not _receipt_target_matches_slug(payload, slug=slug):
-        return "magicfit_receipt_target_mismatch"
     return ""
 
 
@@ -605,8 +654,14 @@ def _video_has_playable_stream(path: Path) -> bool:
     if path.suffix.lower() not in VIDEO_EXTENSIONS:
         return False
     try:
-        header = path.read_bytes()[:64]
-    except OSError:
+        snapshot = read_stable_bounded_prefix(
+            path,
+            reason="magicfit_discovery_video",
+            maximum_bytes=tour_asset_max_bytes(),
+            prefix_bytes=64,
+        )
+        header = snapshot.prefix
+    except MagicFitSecureIOError:
         return False
     if path.suffix.lower() in {".mp4", ".m4v", ".mov"} and b"ftyp" not in header[:32]:
         return False
@@ -668,11 +723,11 @@ def _candidate_layouts(drop_dir: Path) -> list[tuple[str, str, Path]]:
         for provider in PROVIDERS:
             provider_dir = slug_dir / provider
             if provider_dir.is_dir() and not _is_documentation_only_export_dir(provider_dir):
-                rows.append((slug, provider, provider_dir.resolve()))
+                rows.append((slug, provider, provider_dir))
         for export_dir in sorted(path for path in slug_dir.iterdir() if path.is_dir()):
             provider = _provider_from_text(export_dir.name, allow_embedded=True)
             if provider and not _is_documentation_only_export_dir(export_dir):
-                rows.append((slug, provider, export_dir.resolve()))
+                rows.append((slug, provider, export_dir))
     for provider_dir in sorted(path for path in drop_dir.iterdir() if path.is_dir()):
         provider = _provider_from_text(provider_dir.name)
         if not provider:
@@ -680,7 +735,7 @@ def _candidate_layouts(drop_dir: Path) -> list[tuple[str, str, Path]]:
         for slug_dir in sorted(path for path in provider_dir.iterdir() if path.is_dir()):
             slug = _safe_slug(slug_dir.name)
             if slug and not _is_operator_drop_lane_slug(slug) and not _is_documentation_only_export_dir(slug_dir):
-                rows.append((slug, provider, slug_dir.resolve()))
+                rows.append((slug, provider, slug_dir))
     deduped: dict[tuple[str, str, str], tuple[str, str, Path]] = {}
     for slug, provider, export_dir in rows:
         deduped[(slug, provider, str(export_dir))] = (slug, provider, export_dir)

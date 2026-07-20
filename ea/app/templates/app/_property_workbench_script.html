@@ -66,17 +66,25 @@
     const activeRequestControllers = new Set();
     const inMemorySearchLaunchKeys = new Map();
     let pageRequestLifecycleEnded = false;
+    let pageRequestLifecycleGeneration = 0;
+    let resumeActiveRunPollAfterPageShow = () => {};
+    let resumePendingVisualPollsAfterPageShow = () => {};
+    let resumeQuietRepairPollAfterPageShow = () => {};
+    let resumeTerminalHydrationAfterPageShow = () => {};
     window.addEventListener('pagehide', () => {
       pageRequestLifecycleEnded = true;
+      pageRequestLifecycleGeneration += 1;
       activeRequestControllers.forEach((controller) => controller.abort());
       activeRequestControllers.clear();
     });
     window.addEventListener('pageshow', (event) => {
-      if (event.persisted && pageRequestLifecycleEnded) {
-        window.location.reload();
-        return;
-      }
       pageRequestLifecycleEnded = false;
+      if (event.persisted) {
+        resumeActiveRunPollAfterPageShow();
+        resumePendingVisualPollsAfterPageShow();
+        resumeQuietRepairPollAfterPageShow();
+        resumeTerminalHydrationAfterPageShow();
+      }
     });
     const fetchWithTimeout = async (resource, options = {}, timeoutMs = FETCH_TIMEOUT_MS) => {
       if (pageRequestLifecycleEnded) throw new Error('Request cancelled because this page closed.');
@@ -882,6 +890,7 @@
               }).join('')}
             </div>
             <p class="pqx-visual-style-current" data-pqx-visual-style-current>${escapeHtml(selectedFurnitureStyleLabel())} selected</p>
+            <p class="pqx-visual-processing-consent" data-pqx-visual-processing-consent hidden>By requesting this private walkthrough, you consent to sending the selected property packet to PropertyQuarry's governed external rendering service. The result remains private and requires approval before publication.</p>
             <div class="pqx-visual-style-actions">
               <button class="pqx-button" type="button" data-pqx-visual-style-cancel>Cancel</button>
               <button class="pqx-button pqx-primary" type="button" data-pqx-visual-style-confirm>Continue</button>
@@ -916,6 +925,7 @@
         .pqx-visual-style-option strong{font-size:.9rem;line-height:1.15}
         .pqx-visual-style-option small{margin-top:3px;color:var(--text-soft);font-size:.76rem;line-height:1.25}
         .pqx-visual-style-current{margin:0;min-height:34px;padding:8px 10px;border:1px solid color-mix(in srgb,var(--gold,#b88a2b) 32%,var(--line));border-radius:12px;background:color-mix(in srgb,var(--gold,#b88a2b) 9%,var(--panel));color:var(--text);font-size:.82rem;font-weight:760}
+        .pqx-visual-processing-consent{margin:0;padding:10px 12px;border:1px solid color-mix(in srgb,var(--gold,#b88a2b) 48%,var(--line));border-radius:12px;background:color-mix(in srgb,var(--gold,#b88a2b) 10%,var(--panel));color:var(--text);font-size:.82rem;line-height:1.4}
         .pqx-visual-style-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}
         @media(max-width:760px){.pqx-visual-style-dialog{width:calc(100vw - 12px);max-width:calc(100vw - 12px);margin:auto 6px max(6px,env(safe-area-inset-bottom,0px))}.pqx-visual-style-card{max-height:calc(100svh - 18px);overflow-y:auto;padding:12px}.pqx-visual-style-head p{display:none}.pqx-visual-style-options{grid-template-columns:1fr}.pqx-visual-style-option{min-height:58px;padding-right:84px}}
       `;
@@ -958,6 +968,9 @@
             value: selectedFurnitureStyleValue,
             label: selectedFurnitureStyleLabel(),
             prompt: selectedFurnitureStylePrompt(),
+            externalProcessingConsentGranted: (
+              visualStyleDialog?.getAttribute('data-pqx-visual-style-kind') === 'flythrough'
+            ),
           });
         }
       });
@@ -983,15 +996,22 @@
       if (!['tour', 'flythrough'].includes(normalizedKind)) return Promise.resolve(null);
       const dialog = ensureVisualStyleDialog();
       if (!dialog || typeof dialog.showModal !== 'function') {
+        if (
+          normalizedKind === 'flythrough'
+          && !window.confirm("Send this property's private packet to PropertyQuarry's governed external rendering service to create the walkthrough?")
+        ) return Promise.resolve(null);
         return Promise.resolve({
           value: selectedFurnitureStyleValue,
           label: selectedFurnitureStyleLabel(),
           prompt: selectedFurnitureStylePrompt(),
+          externalProcessingConsentGranted: normalizedKind === 'flythrough',
         });
       }
       const confirm = dialog.querySelector('[data-pqx-visual-style-confirm]');
+      const consent = dialog.querySelector('[data-pqx-visual-processing-consent]');
       dialog.setAttribute('data-pqx-visual-style-kind', normalizedKind);
       if (confirm) confirm.textContent = `${normalizedKind === 'flythrough' ? 'Request walkthrough' : 'Request 3D tour'} · ${selectedFurnitureStyleLabel()}`;
+      if (consent) consent.hidden = normalizedKind !== 'flythrough';
       setVisualRequestStatus(`Choose a style for this ${normalizedKind === 'flythrough' ? 'walkthrough' : '3D tour'}.`);
       if (visualStyleResolver) {
         visualStyleResolver(null);
@@ -1003,10 +1023,18 @@
           dialog.showModal();
         } catch (_error) {
           visualStyleResolver = null;
+          if (
+            normalizedKind === 'flythrough'
+            && !window.confirm("Send this property's private packet to PropertyQuarry's governed external rendering service to create the walkthrough?")
+          ) {
+            resolve(null);
+            return;
+          }
           resolve({
             value: selectedFurnitureStyleValue,
             label: selectedFurnitureStyleLabel(),
             prompt: selectedFurnitureStylePrompt(),
+            externalProcessingConsentGranted: normalizedKind === 'flythrough',
           });
         }
       });
@@ -1740,6 +1768,8 @@
     };
     const pauseVisualStatusPolling = (button) => {
       if (!button || !button.isConnected) return;
+      button._pqxVisualPollLifecyclePending = false;
+      button._pqxVisualPollGeneration = Number(button._pqxVisualPollGeneration || 0) + 1;
       if (button._pqxVisualPollTimer) {
         window.clearTimeout(button._pqxVisualPollTimer);
         button._pqxVisualPollTimer = 0;
@@ -1772,6 +1802,15 @@
       const firstPollDelaySeconds = requestedFirstPollDelaySeconds > 0
         ? requestedFirstPollDelaySeconds
         : Math.max(0.5, Math.min(pollSeconds, 1));
+      const visualPollGeneration = Number(button._pqxVisualPollGeneration || 0) + 1;
+      const visualPollLifecycleGeneration = pageRequestLifecycleGeneration;
+      button._pqxVisualPollGeneration = visualPollGeneration;
+      button._pqxVisualPollLifecycleGeneration = visualPollLifecycleGeneration;
+      button._pqxVisualPollLifecyclePending = true;
+      const visualPollIsCurrent = () => (
+        button._pqxVisualPollGeneration === visualPollGeneration
+        && pageRequestLifecycleGeneration === visualPollLifecycleGeneration
+      );
       if (options.resetDeadline || !Number(button._pqxVisualPollDeadline || 0)) {
         button._pqxVisualPollDeadline = Date.now() + VISUAL_POLL_WINDOW_MS;
         button._pqxVisualPollFailures = 0;
@@ -1781,7 +1820,11 @@
         window.clearTimeout(button._pqxVisualPollTimer);
       }
       const runRequest = async () => {
-        if (pageRequestLifecycleEnded || !button.isConnected) return;
+        if (
+          pageRequestLifecycleEnded
+          || !button.isConnected
+          || !visualPollIsCurrent()
+        ) return;
         if (Date.now() >= Number(button._pqxVisualPollDeadline || 0)) {
           pauseVisualStatusPolling(button);
           return;
@@ -1810,6 +1853,7 @@
           if (recoverExpiredSession(response)) return;
           if (!response.ok) throw new Error('visual_status_unavailable');
           const payload = await response.json().catch(() => ({}));
+          if (pageRequestLifecycleEnded || !visualPollIsCurrent()) return;
           const next = visualStateFromPayload(requestKind, payload, button.textContent);
           syncVisualButtonState(button, next);
           button._pqxVisualPollFailures = 0;
@@ -1819,10 +1863,15 @@
             button._pqxVisualPollTimer = window.setTimeout(runRequest, Math.min(delayMs, Math.max(0, Number(button._pqxVisualPollDeadline || 0) - Date.now())));
           } else {
             button._pqxVisualPollDeadline = 0;
+            button._pqxVisualPollLifecyclePending = false;
             button.removeAttribute('data-pw-visual-poll-paused');
           }
         } catch (_error) {
-          if (!button.isConnected || pageRequestLifecycleEnded) return;
+          if (
+            !button.isConnected
+            || pageRequestLifecycleEnded
+            || !visualPollIsCurrent()
+          ) return;
           button._pqxVisualPollFailures = Number(button._pqxVisualPollFailures || 0) + 1;
           if (
             button._pqxVisualPollFailures >= VISUAL_POLL_MAX_FAILURES
@@ -1902,6 +1951,10 @@
             auto_deliver: false,
             allow_floorplan_only: true,
             walkthrough_provider_key: requestKind === 'flythrough' ? getWalkthroughProviderFromButton(button) : '',
+            external_processing_consent_granted: (
+              requestKind === 'flythrough'
+              && visualStyleChoice?.externalProcessingConsentGranted === true
+            ),
             diorama_style_hint: dioramaStyleHint,
           }),
         });
@@ -2067,6 +2120,22 @@
     root.querySelectorAll('[data-pw-visual-request]').forEach((button) => {
       applyPendingVisualButtonState(button);
     });
+    const resumePendingVisualStatusPolls = () => {
+      root.querySelectorAll('[data-pw-visual-request]').forEach((button) => {
+        if (button._pqxVisualPollLifecyclePending !== true) return;
+        if (button._pqxVisualPollLifecycleGeneration === pageRequestLifecycleGeneration) return;
+        const state = String(button.getAttribute('data-pw-visual-state') || '').trim().toLowerCase();
+        if (!visualPendingStates.includes(state)) {
+          button._pqxVisualPollLifecyclePending = false;
+          return;
+        }
+        updateVisualButtonFromStatus(button, {
+          firstPollDelaySeconds: 0.1,
+          resetDeadline: true,
+        });
+      });
+    };
+    resumePendingVisualPollsAfterPageShow = resumePendingVisualStatusPolls;
     const resyncFocusedVisualButtons = () => {
       const buttons = [...root.querySelectorAll('[data-pw-review-content] [data-pw-visual-request], .pqx-context-actions [data-pw-visual-request]')];
       if (!buttons.length) return;
@@ -2077,7 +2146,8 @@
         updateVisualButtonFromStatus(button);
       });
     };
-    window.addEventListener('pageshow', () => {
+    window.addEventListener('pageshow', (event) => {
+      if (event.persisted) return;
       window.setTimeout(() => resyncFocusedVisualButtons(), 120);
     });
     document.addEventListener('visibilitychange', () => {
@@ -3877,15 +3947,38 @@
       host.appendChild(button);
     };
     let runPollActive = false;
+    let activeRunPollStatusUrl = '';
+    let activeRunPollResumeRequested = false;
+    let activeRunPollResumeTimer = 0;
+    const scheduleActiveRunPollResume = () => {
+      if (!activeRunPollStatusUrl) return;
+      activeRunPollResumeRequested = true;
+      if (activeRunPollResumeTimer) return;
+      activeRunPollResumeTimer = window.setTimeout(() => {
+        activeRunPollResumeTimer = 0;
+        if (!activeRunPollResumeRequested || pageRequestLifecycleEnded) return;
+        if (runPollActive) return;
+        const statusUrl = activeRunPollStatusUrl;
+        activeRunPollResumeRequested = false;
+        pollRun(statusUrl);
+      }, 0);
+    };
     const pollRun = async (statusUrl) => {
       const pollStatusUrl = compactRunStatusUrl(statusUrl);
-      if (!pollStatusUrl || runPollActive) return;
+      if (!pollStatusUrl) return;
+      activeRunPollStatusUrl = pollStatusUrl;
+      if (runPollActive) return;
       runPollActive = true;
+      const pollLifecycleGeneration = pageRequestLifecycleGeneration;
       let failedPolls = 0;
       const deadline = Date.now() + RUN_POLL_WINDOW_MS;
       clearPollingResumeAction();
       try {
-        while (!pageRequestLifecycleEnded && Date.now() < deadline) {
+        while (
+          !pageRequestLifecycleEnded
+          && pollLifecycleGeneration === pageRequestLifecycleGeneration
+          && Date.now() < deadline
+        ) {
           if (document.hidden || navigator.onLine === false) {
             await boundedDelay(1000, deadline);
             continue;
@@ -3899,6 +3992,10 @@
             if (!response.ok) throw new Error(String(body.detail || 'Search status is still updating.'));
             failedPolls = 0;
           } catch (err) {
+            if (
+              pageRequestLifecycleEnded
+              || pollLifecycleGeneration !== pageRequestLifecycleGeneration
+            ) return;
             failedPolls += 1;
             const message = pollRetryMessage(failedPolls);
             renderRun({
@@ -3919,8 +4016,15 @@
             await boundedDelay(failedPolls >= 3 ? 5000 : 1800, deadline);
             continue;
           }
+          if (
+            pageRequestLifecycleEnded
+            || pollLifecycleGeneration !== pageRequestLifecycleGeneration
+          ) return;
+          activeRunPollResumeRequested = false;
           renderRun(body);
           if (terminalStates.has(String(body.status || ''))) {
+            activeRunPollStatusUrl = '';
+            activeRunPollResumeRequested = false;
             const completedRunId = encodeURIComponent(body.run_id || '');
             const nextSurface = initialSurface === 'shortlist'
               ? '/app/shortlist'
@@ -3930,7 +4034,10 @@
           }
           await boundedDelay(1400, deadline);
         }
-        if (!pageRequestLifecycleEnded) {
+        if (
+          !pageRequestLifecycleEnded
+          && pollLifecycleGeneration === pageRequestLifecycleGeneration
+        ) {
           showPollingResumeAction({
             message: 'The search is still running. You can leave this page; your accepted search is unchanged.',
             label: 'Check search status',
@@ -3939,11 +4046,29 @@
         }
       } finally {
         runPollActive = false;
+        if (
+          activeRunPollResumeRequested
+          && activeRunPollStatusUrl
+          && !pageRequestLifecycleEnded
+        ) scheduleActiveRunPollResume();
       }
     };
+    resumeActiveRunPollAfterPageShow = scheduleActiveRunPollResume;
+    let activeQuietRepairPollSession = null;
+    let quietRepairResumeStatusUrl = '';
     const startQuietFailedRepairPolling = (statusUrl) => {
       const normalizedUrl = compactRunStatusUrl(statusUrl);
       if (!normalizedUrl) return;
+      quietRepairResumeStatusUrl = normalizedUrl;
+      if (pageRequestLifecycleEnded) return;
+      if (
+        activeQuietRepairPollSession
+        && !activeQuietRepairPollSession.stopped
+        && activeQuietRepairPollSession.statusUrl === normalizedUrl
+        && activeQuietRepairPollSession.lifecycleGeneration === pageRequestLifecycleGeneration
+      ) return;
+      activeQuietRepairPollSession?.stop?.();
+      const repairLifecycleGeneration = pageRequestLifecycleGeneration;
       const activeRepairStates = new Set(['repairing', 'queued', 'pending', 'assigned', 'retrying', 'existing']);
       const activeRepairTaskStates = new Set(['opened', 'assigned', 'running', 'repairing', 'pending', 'existing', 'queued']);
       let lastSignature = [
@@ -3957,7 +4082,14 @@
       let initialTimerId = 0;
       let failedPolls = 0;
       const deadline = Date.now() + REPAIR_POLL_WINDOW_MS;
-      const stopPolling = () => {
+      const pollSession = {
+        lifecycleGeneration: repairLifecycleGeneration,
+        statusUrl: normalizedUrl,
+        stopped: false,
+        stop: null,
+      };
+      const stopPolling = ({ clearResume = false } = {}) => {
+        pollSession.stopped = true;
         if (initialTimerId) {
           window.clearTimeout(initialTimerId);
           initialTimerId = 0;
@@ -3966,9 +4098,17 @@
           window.clearInterval(intervalId);
           intervalId = 0;
         }
+        if (activeQuietRepairPollSession === pollSession) {
+          activeQuietRepairPollSession = null;
+        }
+        if (clearResume && quietRepairResumeStatusUrl === normalizedUrl) {
+          quietRepairResumeStatusUrl = '';
+        }
       };
+      pollSession.stop = stopPolling;
+      activeQuietRepairPollSession = pollSession;
       const pauseRepairPolling = (message) => {
-        stopPolling();
+        stopPolling({ clearResume: true });
         showPollingResumeAction({
           message,
           label: 'Check repair status',
@@ -3976,7 +4116,11 @@
         });
       };
       const check = async () => {
-        if (pageRequestLifecycleEnded) {
+        if (
+          pageRequestLifecycleEnded
+          || repairLifecycleGeneration !== pageRequestLifecycleGeneration
+          || pollSession.stopped
+        ) {
           stopPolling();
           return;
         }
@@ -3988,6 +4132,11 @@
         inFlight = true;
         try {
           const response = await fetchWithTimeout(normalizedUrl, { credentials: 'same-origin', cache: 'no-store' });
+          if (
+            pageRequestLifecycleEnded
+            || repairLifecycleGeneration !== pageRequestLifecycleGeneration
+            || pollSession.stopped
+          ) return;
           if (recoverExpiredSession(response)) return;
           const payload = await response.json().catch(() => null);
           if (!response.ok || !payload || typeof payload !== 'object') throw new Error('repair_status_unavailable');
@@ -4002,13 +4151,14 @@
             String(payload.summary?.repair_last_updated_at || '').trim(),
           ].join('|');
           if (status && status !== 'failed') {
+            stopPolling({ clearResume: true });
             const target = rankedTotal > 0 ? '/app/shortlist' : '/app/properties';
             window.location.href = `${target}${runId ? `?run_id=${runId}` : ''}`;
             return;
           }
           const replacementRunId = encodeURIComponent(String(payload.summary?.repair_replacement_run_id || '').trim());
           if (status === 'failed' && replacementRunId) {
-            stopPolling();
+            stopPolling({ clearResume: true });
             window.location.href = `/app/properties?run_id=${replacementRunId}`;
             return;
           }
@@ -4023,11 +4173,15 @@
             renderRun(payload);
           }
           if (terminalRepairFailure) {
-            stopPolling();
+            stopPolling({ clearResume: true });
             return;
           }
         } catch (_error) {
-          if (pageRequestLifecycleEnded) return;
+          if (
+            pageRequestLifecycleEnded
+            || repairLifecycleGeneration !== pageRequestLifecycleGeneration
+            || pollSession.stopped
+          ) return;
           failedPolls += 1;
           if (failedPolls >= REPAIR_POLL_MAX_FAILURES) {
             pauseRepairPolling('Repair updates paused after repeated connection errors. The accepted repair is unchanged.');
@@ -4038,6 +4192,11 @@
       };
       initialTimerId = window.setTimeout(check, 900);
       intervalId = window.setInterval(check, 3000);
+    };
+    resumeQuietRepairPollAfterPageShow = () => {
+      if (quietRepairResumeStatusUrl) {
+        startQuietFailedRepairPolling(quietRepairResumeStatusUrl);
+      }
     };
     const form = root.querySelector('[data-console-form-variant="property_search"]');
     let mobileAccordionAutoCollapseSuppressedUntil = 0;
@@ -7805,29 +7964,88 @@
       renderRun(runPayload);
       return true;
     };
+    let terminalHydrationStatusUrl = '';
+    let terminalHydrationActive = false;
+    let terminalHydrationResumeRequested = false;
+    let terminalHydrationResumeTimer = 0;
+    const scheduleTerminalHydrationResume = () => {
+      if (!terminalHydrationStatusUrl) return;
+      terminalHydrationResumeRequested = true;
+      if (terminalHydrationResumeTimer) return;
+      terminalHydrationResumeTimer = window.setTimeout(() => {
+        terminalHydrationResumeTimer = 0;
+        if (
+          !terminalHydrationResumeRequested
+          || !terminalHydrationStatusUrl
+          || pageRequestLifecycleEnded
+        ) return;
+        if (terminalHydrationActive) return;
+        const statusUrl = terminalHydrationStatusUrl;
+        terminalHydrationResumeRequested = false;
+        hydrateTerminalRunOnce(statusUrl);
+      }, 0);
+    };
     const hydrateTerminalRunOnce = async (statusUrl) => {
       const pollStatusUrl = compactRunStatusUrl(statusUrl);
       if (!pollStatusUrl) return;
+      terminalHydrationStatusUrl = pollStatusUrl;
+      if (terminalHydrationActive) {
+        terminalHydrationResumeRequested = true;
+        return;
+      }
       const currentTotal = Array.isArray(data.results) ? data.results.length : 0;
       const expectedTotal = rankedTotalFromSummary(data.run?.summary || {});
       if (document.hidden || navigator.onLine === false) return;
+      terminalHydrationActive = true;
+      const hydrationLifecycleGeneration = pageRequestLifecycleGeneration;
       try {
         const response = await fetchWithTimeout(pollStatusUrl, { credentials: 'same-origin', cache: 'no-store' });
+        if (
+          pageRequestLifecycleEnded
+          || hydrationLifecycleGeneration !== pageRequestLifecycleGeneration
+        ) {
+          terminalHydrationResumeRequested = true;
+          return;
+        }
         if (recoverExpiredSession(response)) return;
         const body = await response.json().catch(() => ({}));
-        if (!response.ok || !body || typeof body !== 'object') return;
+        if (!response.ok || !body || typeof body !== 'object') {
+          terminalHydrationStatusUrl = '';
+          return;
+        }
         const authoritativeStatus = String(body.status || body.summary?.status || '').trim().toLowerCase();
         if (authoritativeStatus && !terminalStates.has(authoritativeStatus)) {
+          terminalHydrationStatusUrl = '';
           transitionTerminalSurfaceToLiveRun(body);
           pollRun(String(body.status_url || statusUrl));
           return;
         }
-        if (!expectedTotal || expectedTotal <= currentTotal) return;
+        if (!expectedTotal || expectedTotal <= currentTotal) {
+          terminalHydrationStatusUrl = '';
+          return;
+        }
         renderRun(body);
+        terminalHydrationStatusUrl = '';
       } catch (_error) {
+        if (
+          pageRequestLifecycleEnded
+          || hydrationLifecycleGeneration !== pageRequestLifecycleGeneration
+        ) {
+          terminalHydrationResumeRequested = true;
+          return;
+        }
+        terminalHydrationStatusUrl = '';
         return;
+      } finally {
+        terminalHydrationActive = false;
+        if (
+          terminalHydrationResumeRequested
+          && terminalHydrationStatusUrl
+          && !pageRequestLifecycleEnded
+        ) scheduleTerminalHydrationResume();
       }
     };
+    resumeTerminalHydrationAfterPageShow = scheduleTerminalHydrationResume;
     if (data.run && typeof data.run === 'object') {
       renderRun(data.run);
       const status = String(data.run.status || '').trim().toLowerCase();

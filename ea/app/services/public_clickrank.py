@@ -208,7 +208,14 @@ def _rybbit_script_attributes(site_id: str) -> list[str]:
     return attributes
 
 
-def clickrank_head_snippet(hostname: str | None, path: str | None = None) -> str:
+def clickrank_head_snippet(
+    hostname: str | None,
+    path: str | None = None,
+    *,
+    consent_granted: bool = False,
+) -> str:
+    if consent_granted is not True:
+        return ""
     if not clickrank_route_allowed(path):
         return ""
     snippets: list[str] = []

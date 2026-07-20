@@ -7,6 +7,8 @@ import io
 import json
 import os
 import stat
+import subprocess
+import sys
 import tarfile
 from pathlib import Path
 from typing import Any, Sequence
@@ -26,6 +28,27 @@ BASE_REFERENCE = "python:3.12-slim@" + BASE_DIGEST
 BASE_IMAGE_ID = "sha256:" + "6" * 64
 DAEMON_ID = "local-daemon-fixture"
 LOCAL_TAG = "propertyquarry-local-candidate:fixture"
+
+
+def test_direct_cli_help_does_not_require_pythonpath() -> None:
+    repository_root = Path(__file__).resolve().parents[1]
+    environment = dict(os.environ)
+    environment.pop("PYTHONPATH", None)
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(repository_root / "scripts" / "propertyquarry_local_candidate_build.py"),
+            "--help",
+        ],
+        cwd=repository_root,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert "Build one authenticated PropertyQuarry candidate" in completed.stdout
 
 
 def digest(data: bytes) -> str:
@@ -163,6 +186,12 @@ class World:
         self.build_input: bytes | None = None
         self.tamper_docker_config = False
         self.return_oversized_build_output = False
+        self.smoke_container: dict[str, Any] | None = None
+        self.smoke_container_id = "7" * 64
+        self.smoke_returncode = 0
+        self.smoke_stdout = build.BUILT_IMAGE_SMOKE_MARKER
+        self.smoke_create_stdout = (self.smoke_container_id + "\n").encode("ascii")
+        self.smoke_readonly_rootfs = True
         self.labels = {
             "org.opencontainers.image.revision": CANDIDATE,
             "com.propertyquarry.metadata-envelope": ENVELOPE,
@@ -300,6 +329,83 @@ class FakeExecutor:
         if arguments[:2] == ("image", "save"):
             assert arguments[2] == self.world.image_id
             return build.CommandResult(0, self.world.docker_archive, b"")
+        if arguments[:2] == ("container", "inspect"):
+            reference = arguments[2]
+            container = self.world.smoke_container
+            if container is None or reference not in {
+                container["Id"],
+                str(container["Name"]).removeprefix("/"),
+            }:
+                return build.CommandResult(1, b"", b"")
+            return build.CommandResult(0, canonical([container]), b"")
+        if arguments[:2] == ("container", "create"):
+            name = arguments[arguments.index("--name") + 1]
+            label = arguments[arguments.index("--label") + 1]
+            label_name, nonce = label.split("=", 1)
+            assert label_name == build.BUILT_IMAGE_SMOKE_LABEL
+            image_index = arguments.index(self.world.image_id)
+            environment = [
+                arguments[index + 1]
+                for index, value in enumerate(arguments)
+                if value == "--env"
+            ]
+            self.world.smoke_container = {
+                "Id": self.world.smoke_container_id,
+                "Name": f"/{name}",
+                "Image": self.world.image_id,
+                "Config": {
+                    "Image": self.world.image_id,
+                    "Labels": {build.BUILT_IMAGE_SMOKE_LABEL: nonce},
+                    "User": "10001:10001",
+                    "Entrypoint": list(build.BUILT_IMAGE_SMOKE_ENTRYPOINT),
+                    "Cmd": list(arguments[image_index + 1 :]),
+                    "Env": environment,
+                },
+                "HostConfig": {
+                    "NetworkMode": "none",
+                    "ReadonlyRootfs": self.world.smoke_readonly_rootfs,
+                    "Privileged": False,
+                    "AutoRemove": False,
+                    "CapAdd": None,
+                    "CapDrop": ["ALL"],
+                    "Binds": None,
+                    "Devices": [],
+                    "PidsLimit": 128,
+                    "Memory": 536_870_912,
+                    "MemorySwap": 536_870_912,
+                    "NanoCpus": 1_000_000_000,
+                    "SecurityOpt": ["no-new-privileges=true"],
+                    "Tmpfs": {
+                        "/tmp": "rw,noexec,nosuid,nodev,size=64m,uid=10001,gid=10001,mode=0700"
+                    },
+                },
+                "State": {
+                    "Running": False,
+                    "OOMKilled": False,
+                    "ExitCode": 0,
+                    "Error": "",
+                },
+                "Mounts": [{"Type": "tmpfs", "Destination": "/tmp"}],
+            }
+            return build.CommandResult(
+                0,
+                self.world.smoke_create_stdout,
+                b"",
+            )
+        if arguments[:2] == ("container", "start"):
+            assert arguments[2:] == ("--attach", self.world.smoke_container_id)
+            assert self.world.smoke_container is not None
+            self.world.smoke_container["State"]["ExitCode"] = self.world.smoke_returncode
+            return build.CommandResult(
+                self.world.smoke_returncode,
+                self.world.smoke_stdout,
+                b"",
+            )
+        if arguments[:2] == ("container", "rm"):
+            assert arguments[2:] == ("--force", self.world.smoke_container_id)
+            assert self.world.smoke_container is not None
+            self.world.smoke_container = None
+            return build.CommandResult(0, self.world.smoke_container_id.encode("ascii") + b"\n", b"")
         if arguments[:2] == ("image", "rm"):
             assert arguments[2:] == ("--no-prune", LOCAL_TAG)
             assert self.world.tag_present
@@ -348,6 +454,7 @@ class Harness:
         assert str(raised.value) == code
         assert not self.output.exists()
         assert not self.world.tag_present
+        assert self.world.smoke_container is None
 
 
 @pytest.fixture(autouse=True)
@@ -404,6 +511,29 @@ def test_happy_path_builds_only_from_authenticated_archive_and_writes_private_re
     assert receipt["local_build"]["docker_daemon_id_sha256"] == digest(
         DAEMON_ID.encode("ascii")
     )
+    smoke = receipt["built_image_smoke"]
+    assert smoke == {
+        "contract_name": build.BUILT_IMAGE_SMOKE_CONTRACT,
+        "image_reference": harness.world.image_id,
+        "container_id_sha256": digest(harness.world.smoke_container_id.encode("ascii")),
+        "script_sha256": digest(build.BUILT_IMAGE_SMOKE_SCRIPT.encode("utf-8")),
+        "entrypoint_enforced": True,
+        "application_imported": True,
+        "asgi_lifespan_completed": True,
+        "health_route_registered": True,
+        "runtime_mode": "test",
+        "storage_backend": "memory",
+        "network_mode": "none",
+        "root_filesystem": "read_only",
+        "capabilities": "none",
+        "no_new_privileges": True,
+        "pids_limit": 128,
+        "memory_limit_bytes": 536_870_912,
+        "memory_swap_limit_bytes": 536_870_912,
+        "nano_cpus": 1_000_000_000,
+        "external_authority": False,
+        "production_runtime_proof": False,
+    }
 
     build_call = next(
         call for call in harness.executor.calls if call["argv"][5:7] == ("image", "build")
@@ -433,6 +563,72 @@ def test_happy_path_builds_only_from_authenticated_archive_and_writes_private_re
         for call in docker_calls
     )
     assert not any(call["argv"][5:7] == ("image", "pull") for call in docker_calls)
+
+    create_call = next(
+        call
+        for call in docker_calls
+        if call["argv"][5:7] == ("container", "create")
+    )
+    create_arguments = create_call["argv"][5:]
+    assert "--network" in create_arguments
+    assert create_arguments[create_arguments.index("--network") + 1] == "none"
+    assert "--read-only" in create_arguments
+    assert create_arguments[create_arguments.index("--cap-drop") + 1] == "ALL"
+    assert (
+        create_arguments[create_arguments.index("--security-opt") + 1]
+        == "no-new-privileges=true"
+    )
+    assert "--privileged" not in create_arguments
+    assert "--volume" not in create_arguments
+    assert "--mount" not in create_arguments
+    assert all(item in create_arguments for item in build.BUILT_IMAGE_SMOKE_ENVIRONMENT)
+    assert harness.world.image_id in create_arguments
+    image_index = create_arguments.index(harness.world.image_id)
+    assert create_arguments[image_index + 1 :] == build.BUILT_IMAGE_SMOKE_COMMAND
+    start_call = next(
+        call
+        for call in docker_calls
+        if call["argv"][5:7] == ("container", "start")
+    )
+    assert start_call["timeout"] == harness.config().docker_smoke_timeout_s
+    assert harness.world.smoke_container is None
+
+
+def test_built_image_smoke_failure_cleans_container_tag_and_receipt(
+    harness: Harness,
+) -> None:
+    harness.world.smoke_returncode = 17
+
+    harness.fails("built_image_smoke_failed")
+
+    assert any(
+        call["argv"][5:7] == ("container", "rm")
+        for call in harness.executor.calls
+    )
+
+
+def test_built_image_smoke_rejects_wrong_marker_and_relaxed_runtime_policy(
+    harness: Harness,
+) -> None:
+    harness.world.smoke_stdout = b"optimistic pass\n"
+    harness.fails("built_image_smoke_output_invalid")
+
+    replacement = Harness(harness.repo.parent / "relaxed-smoke")
+    replacement.world.smoke_readonly_rootfs = False
+    replacement.fails("built_image_smoke_policy_invalid")
+
+
+def test_malformed_smoke_create_output_still_cleans_nonce_bound_container(
+    harness: Harness,
+) -> None:
+    harness.world.smoke_create_stdout = b"not-a-container-id\n"
+
+    harness.fails("built_image_smoke_container_id_invalid")
+
+    assert any(
+        call["argv"][5:7] == ("container", "rm")
+        for call in harness.executor.calls
+    )
 
 
 def test_registry_free_manifest_is_recomputed_from_config_and_uncompressed_layers(

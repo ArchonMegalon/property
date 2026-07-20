@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.services.public_analytics_consent import analytics_consent_granted
+
 
 _PRIVATE_PATH_PREFIXES = (
     "/app",
@@ -74,6 +76,8 @@ def heyy_live_chat_head_snippet(
     hostname: str | None = None,
     path: object | None = None,
 ) -> str:
+    if not analytics_consent_granted(request):
+        return ""
     _ = hostname
     resolved_path = _request_path(request) if path is None else _normalize_path(path)
     _ = resolved_path

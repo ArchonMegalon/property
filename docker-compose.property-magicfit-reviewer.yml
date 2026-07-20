@@ -1,0 +1,22 @@
+services:
+  propertyquarry-api:
+    environment:
+      PROPERTYQUARRY_MAGICFIT_REVIEWER_TRUST_STORE_FILE: /run/propertyquarry/magicfit-reviewer-trust/trust-store.json
+    volumes:
+      - type: bind
+        source: "${PROPERTYQUARRY_MAGICFIT_REVIEWER_TRUST_DIR:?Set the external root-owned reviewer trust directory}"
+        target: /run/propertyquarry/magicfit-reviewer-trust
+        read_only: true
+        bind:
+          create_host_path: false
+
+  propertyquarry-scheduler:
+    environment:
+      PROPERTYQUARRY_MAGICFIT_REVIEWER_TRUST_STORE_FILE: /run/propertyquarry/magicfit-reviewer-trust/trust-store.json
+    volumes:
+      - type: bind
+        source: "${PROPERTYQUARRY_MAGICFIT_REVIEWER_TRUST_DIR:?Set the external root-owned reviewer trust directory}"
+        target: /run/propertyquarry/magicfit-reviewer-trust
+        read_only: true
+        bind:
+          create_host_path: false

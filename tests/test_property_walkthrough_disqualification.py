@@ -76,7 +76,8 @@ def test_disqualified_walkthrough_is_removed_from_every_public_media_selector(
         "declared": True,
         "scope": "top_level",
         "asset_relpaths": ["walkthrough-desktop.mp4", "walkthrough-mobile.mp4"],
-        "status": "disqualified",
+        "status": "magicfit_acceptance_invalid",
+        "verified_video_relpath": "",
     }
     assert _public_tour_walkthrough_media_context(payload) == ("", "video/mp4")
     assert (
@@ -119,7 +120,7 @@ def test_disqualified_walkthrough_routes_fail_closed(
     assert mobile_response.headers["cache-control"] == "no-store"
 
 
-def test_declared_missing_sidecar_fails_closed_but_accepted_sidecar_plays(
+def test_declared_magicfit_requires_exact_v4_not_status_only_sidecar(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -131,7 +132,9 @@ def test_declared_missing_sidecar_fails_closed_but_accepted_sidecar_plays(
         write_sidecar=False,
     )
 
-    assert _public_tour_walkthrough_acceptance(missing_payload)["status"] == "sidecar_unavailable"
+    assert _public_tour_walkthrough_acceptance(missing_payload)["status"] == (
+        "magicfit_acceptance_invalid"
+    )
     assert _public_tour_walkthrough_media_context(missing_payload) == ("", "video/mp4")
 
     sidecar_path = tmp_path / str(missing_payload["slug"]) / "tour.magicfit.json"
@@ -147,8 +150,10 @@ def test_declared_missing_sidecar_fails_closed_but_accepted_sidecar_plays(
         encoding="utf-8",
     )
 
-    assert _public_tour_walkthrough_acceptance(missing_payload)["allowed"] is True
+    shallow = _public_tour_walkthrough_acceptance(missing_payload)
+    assert shallow["allowed"] is False
+    assert shallow["status"] == "magicfit_acceptance_invalid"
     assert _public_tour_walkthrough_media_context(missing_payload) == (
-        "/tours/disqualification-tour/walkthrough",
+        "",
         "video/mp4",
     )

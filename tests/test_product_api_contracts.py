@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -152,6 +153,121 @@ def test_property_runtime_images_package_tour_verifier_dependencies() -> None:
         "COPY scripts/property_tour_runtime_paths.py "
         "/app/scripts/property_tour_runtime_paths.py"
     ) in web_dockerfile
+    for shared_module in (
+        "browseract_ui_media.py",
+        "property_magicfit_delivery_contract.py",
+        "property_magicfit_secure_io.py",
+        "property_tour_publication_lock.py",
+        "property_scene_video_shared_env.py",
+    ):
+        module_copy = (
+            f"COPY scripts/{shared_module} /app/scripts/{shared_module}"
+        )
+        assert module_copy in web_dockerfile
+        assert module_copy not in render_dockerfile
+    playwright_runtime_copy = (
+        "COPY scripts/propertyquarry_playwright_runtime.py "
+        "/app/scripts/propertyquarry_playwright_runtime.py"
+    )
+    assert playwright_runtime_copy in web_dockerfile
+    assert playwright_runtime_copy in render_dockerfile
+
+
+def test_packaged_property_runtime_scripts_import_from_isolated_web_layout(
+    tmp_path: Path,
+) -> None:
+    repository_root = Path(__file__).resolve().parents[1]
+    dockerfile = (repository_root / "ea" / "Dockerfile.property-web").read_text(
+        encoding="utf-8"
+    )
+    copied_scripts = set(
+        re.findall(r"COPY\s+scripts/([^\s]+)\s+/app/scripts/", dockerfile)
+    )
+    required_scripts = {
+        "browseract_ui_media.py",
+        "import_magicfit_walkthrough.py",
+        "mootion_movie_worker.py",
+        "property_magicfit_contact_sheet.py",
+        "property_magicfit_delivery_contract.py",
+        "property_magicfit_public_eligibility.py",
+        "property_magicfit_reviewer_authority.py",
+        "property_magicfit_secure_io.py",
+        "property_tour_publication_lock.py",
+        "property_tour_3dvista_provenance.py",
+        "property_tour_host_safety.py",
+        "property_tour_panorama_provenance.py",
+        "property_tour_runtime_paths.py",
+        "property_scene_video_shared_env.py",
+        "propertyquarry_playwright_runtime.py",
+        "verify_property_tour_controls.py",
+    }
+    assert required_scripts <= copied_scripts
+
+    packaged_scripts = tmp_path / "app" / "scripts"
+    packaged_scripts.mkdir(parents=True)
+    for script_name in sorted(required_scripts):
+        shutil.copy2(
+            repository_root / "scripts" / script_name,
+            packaged_scripts / script_name,
+        )
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if key not in {"PYTHONHOME", "PYTHONPATH"}
+    }
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-S",
+            "-c",
+            (
+                "import import_magicfit_walkthrough; "
+                "import verify_property_tour_controls; "
+                "import property_magicfit_contact_sheet; "
+                "import property_magicfit_delivery_contract; "
+                    "import property_magicfit_public_eligibility; "
+                    "import property_magicfit_reviewer_authority; "
+                    "import property_magicfit_secure_io; "
+                "import property_tour_publication_lock; "
+                "import propertyquarry_playwright_runtime; "
+                "import browseract_ui_media; "
+                "import mootion_movie_worker; "
+                "import property_scene_video_shared_env"
+            ),
+        ],
+        cwd=packaged_scripts,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+
+    cli_help = subprocess.run(
+        [sys.executable, "-S", "property_scene_video_shared_env.py", "--help"],
+        cwd=packaged_scripts,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+    assert cli_help.returncode == 0, cli_help.stderr
+    assert "usage:" in cli_help.stdout.lower()
+
+    worker_cli_help = subprocess.run(
+        [sys.executable, "-S", "mootion_movie_worker.py", "--help"],
+        cwd=packaged_scripts,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+    assert worker_cli_help.returncode == 0, worker_cli_help.stderr
+    assert "usage:" in worker_cli_help.stdout.lower()
 
 
 def test_property_render_image_packages_magicfit_acceptance_cli_only() -> None:
@@ -16542,7 +16658,7 @@ def test_willhaben_property_tour_route_blocks_with_handoff_when_connector_missin
     assert any(item["id"] == body["human_task_id"] for item in handoffs.json())
 
 
-def test_willhaben_property_visual_user_request_queues_without_synchronous_render(monkeypatch) -> None:
+def test_willhaben_property_visual_request_rejects_missing_consent_without_synchronous_render(monkeypatch) -> None:
     monkeypatch.delenv("PROPERTYQUARRY_SYNC_USER_VISUAL_REQUESTS", raising=False)
     principal_id = "tour-user-queued-route"
     client = build_product_client(principal_id=principal_id)
@@ -16570,37 +16686,43 @@ def test_willhaben_property_visual_user_request_queues_without_synchronous_rende
             "source_ref": "willhaben:queued-001",
         },
     )
-    assert created.status_code == 200, created.text
-    body = created.json()
-    assert body["status"] == "queued"
-    assert body["blocked_reason"] == ""
-    assert body["tour_status"] == ""
-    assert body["flythrough_status"] == "queued"
-    assert body["status_label"] == "Walkthrough queued"
-    assert body["status_detail"] == "Queued."
-    assert body["eta_label"] == "about 10 min"
-    assert body["progress_pct"] == 18
-    assert body["poll_after_seconds"] == 10
-    assert body["run_id"] == "run-queued-001"
-    assert body["candidate_ref"] == "candidate-queued-001"
-    assert body["source_ref"] == "willhaben:queued-001"
-    assert body["human_task_id"].startswith("human_task:")
-    assert body["connector_binding_id"] == "browseract-binding-real-1"
+    assert created.status_code == 400, created.text
+    assert created.json()["error"]["code"] == "governed_render_external_processing_consent_required"
 
-    queued_task_id = body["human_task_id"].split(":", 1)[1]
-    queued_task = client.app.state.container.orchestrator.fetch_human_task(
-        queued_task_id,
-        principal_id=principal_id,
-    )
-    assert queued_task is not None
-    assert dict(queued_task.input_json or {}).get("connector_binding_id") == "browseract-binding-real-1"
 
-    events = client.get(
-        "/app/api/events",
-        params={"channel": "product", "event_type": "property_visual_request_queued"},
+def test_willhaben_property_visual_route_forwards_only_explicit_boolean_consent(monkeypatch) -> None:
+    principal_id = "tour-user-governed-consent-route"
+    client = build_product_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Property Tour Office")
+    observed: dict[str, object] = {}
+
+    def _request(self, **kwargs: object) -> dict[str, object]:
+        observed.update(kwargs)
+        return {
+            "generated_at": "2026-07-20T12:00:00+00:00",
+            "status": "pending",
+            "property_url": str(kwargs.get("property_url") or ""),
+            "request_kind": "flythrough",
+            "flythrough_status": "pending",
+        }
+
+    monkeypatch.setattr(ProductService, "request_property_visual_asset", _request)
+    payload = {
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/governed-consent-1",
+        "request_kind": "flythrough",
+        "external_processing_consent_granted": True,
+    }
+
+    accepted = client.post("/app/api/signals/willhaben/property-tour", json=payload)
+    coerced = client.post(
+        "/app/api/signals/willhaben/property-tour",
+        json={**payload, "external_processing_consent_granted": "true"},
     )
-    assert events.status_code == 200
-    assert any(item["payload"]["status"] == "queued" for item in events.json()["items"])
+
+    assert accepted.status_code == 200, accepted.text
+    assert observed["principal_id"] == principal_id
+    assert observed["external_processing_consent_granted"] is True
+    assert coerced.status_code == 422
 
 
 def test_willhaben_property_visual_user_request_reports_worker_start_failure(monkeypatch) -> None:
@@ -16798,7 +16920,7 @@ def test_property_visual_request_queue_preserves_original_requested_timestamp(mo
     assert persisted["tour_status_updated_at"] != persisted["tour_requested_at"]
 
 
-def test_property_visual_request_queue_walkthrough_preserves_existing_tour_state(monkeypatch) -> None:
+def test_property_visual_request_missing_consent_preserves_existing_tour_state(monkeypatch) -> None:
     principal_id = "property-visual-request-walkthrough-preserve-tour"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Tour Office")
@@ -16854,29 +16976,23 @@ def test_property_visual_request_queue_walkthrough_preserves_existing_tour_state
     monkeypatch.setattr(ProductService, "_start_property_tour_followup_worker", lambda self, **kwargs: None)
     monkeypatch.setattr(ProductService, "_record_product_event", lambda self, **kwargs: None)
 
-    response = service.request_property_visual_asset(
-        principal_id=principal_id,
-        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/walkthrough-preserve-tour-1",
-        request_kind="flythrough",
-        source_ref="willhaben:walkthrough-preserve-tour-1",
-        run_id="run-walkthrough-preserve-tour-1",
-        candidate_ref="candidate-walkthrough-preserve-tour-1",
-        auto_deliver=False,
-        allow_floorplan_only=True,
-        diorama_style_hint="Urban jungle with plants",
-    )
+    with pytest.raises(ValueError, match="governed_render_external_processing_consent_required"):
+        service.request_property_visual_asset(
+            principal_id=principal_id,
+            property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/walkthrough-preserve-tour-1",
+            request_kind="flythrough",
+            source_ref="willhaben:walkthrough-preserve-tour-1",
+            run_id="run-walkthrough-preserve-tour-1",
+            candidate_ref="candidate-walkthrough-preserve-tour-1",
+            auto_deliver=False,
+            allow_floorplan_only=True,
+            diorama_style_hint="Urban jungle with plants",
+        )
 
-    assert response["status"] == "queued"
-    assert response["tour_status"] == "ready"
-    assert response["flythrough_status"] == "queued"
-    assert persisted["tour_url"] == "https://propertyquarry.com/tours/ready-generated-tour"
-    assert persisted["tour_status"] == "ready"
-    assert persisted["tour_progress_pct"] == "100"
-    assert persisted["flythrough_status"] == "queued"
-    assert persisted["diorama_style_hint"] == "Urban jungle with plants"
+    assert persisted == {}
 
 
-def test_property_visual_request_queue_walkthrough_fails_closed_when_runtime_provider_is_blocked(monkeypatch) -> None:
+def test_property_visual_request_requires_consent_before_runtime_provider_resolution(monkeypatch) -> None:
     principal_id = "property-visual-request-walkthrough-runtime-blocked"
     client = build_product_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Tour Office")
@@ -16936,34 +17052,20 @@ def test_property_visual_request_queue_walkthrough_fails_closed_when_runtime_pro
         lambda self, **kwargs: (_ for _ in ()).throw(AssertionError("worker should not start for blocked runtime readiness")),
     )
 
-    response = service.request_property_visual_asset(
-        principal_id=principal_id,
-        property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/walkthrough-runtime-blocked-1",
-        request_kind="flythrough",
-        source_ref="willhaben:walkthrough-runtime-blocked-1",
-        run_id="run-walkthrough-runtime-blocked-1",
-        candidate_ref="candidate-walkthrough-runtime-blocked-1",
-        auto_deliver=False,
-        allow_floorplan_only=True,
-        diorama_style_hint="Urban jungle with plants",
-    )
+    with pytest.raises(ValueError, match="governed_render_external_processing_consent_required"):
+        service.request_property_visual_asset(
+            principal_id=principal_id,
+            property_url="https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/walkthrough-runtime-blocked-1",
+            request_kind="flythrough",
+            source_ref="willhaben:walkthrough-runtime-blocked-1",
+            run_id="run-walkthrough-runtime-blocked-1",
+            candidate_ref="candidate-walkthrough-runtime-blocked-1",
+            auto_deliver=False,
+            allow_floorplan_only=True,
+            diorama_style_hint="Urban jungle with plants",
+        )
 
-    assert response["status"] == "skipped"
-    assert response["tour_url"] == "https://propertyquarry.com/tours/runtime-blocked-tour"
-    assert response["tour_status"] == "ready"
-    assert response["flythrough_status"] == "skipped"
-    assert response["flythrough_reason"] == "magicfit_insufficient_credits"
-    assert response["status_label"] == "Walkthrough not ready"
-    assert response["status_detail"] == "Walkthrough rendering is paused until render credits are available."
-    assert response["human_task_id"] == ""
-    assert response["poll_after_seconds"] == 0
-    assert response["tour_media_mode"] == "runtime_readiness_blocked"
-    assert persisted["tour_url"] == "https://propertyquarry.com/tours/runtime-blocked-tour"
-    assert persisted["tour_status"] == "ready"
-    assert persisted["tour_progress_pct"] == "100"
-    assert persisted["flythrough_status"] == "skipped"
-    assert persisted["flythrough_reason"] == "magicfit_insufficient_credits"
-    assert persisted["diorama_style_hint"] == "Urban jungle with plants"
+    assert persisted == {}
 
 
 def test_request_property_visual_asset_defaults_to_floorplan_generation_for_explicit_request(monkeypatch) -> None:
@@ -17261,6 +17363,7 @@ def test_request_property_visual_asset_surfaces_terminal_walkthrough_render_fail
         auto_deliver=False,
         queue_async_request=False,
         allow_floorplan_only=True,
+        external_processing_consent_granted=True,
     )
 
     assert result["status"] == "created"
@@ -29968,6 +30071,7 @@ def test_magicfit_flythrough_render_uses_cache_safe_public_video_name(monkeypatc
     )
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     monkeypatch.setenv("EA_REPO_ROOT", str(Path(__file__).resolve().parents[1]))
+    monkeypatch.setenv("EA_ROLE", "render-tools")
     monkeypatch.setattr(product_service.time, "time", lambda: 1781083800)
     monkeypatch.setattr(product_service, "uuid4", lambda: SimpleNamespace(hex="abcdef1234567890"))
     monkeypatch.setattr(product_service, "_video_segment_boundary_gate", lambda paths, **_kwargs: (True, "", []))
@@ -29989,7 +30093,7 @@ def test_magicfit_flythrough_render_uses_cache_safe_public_video_name(monkeypatc
 
     monkeypatch.setattr(product_service.subprocess, "run", _fake_run)
 
-    result = product_service._render_magicfit_property_flythrough_into_hosted_tour(
+    result = product_service._render_magicfit_property_flythrough_in_render_tools(
         tour_url=f"https://propertyquarry.com/tours/{slug}",
         title="2 Zimmer Wohnung mit Balkon",
         property_facts={"room_count": 2},
@@ -30005,8 +30109,11 @@ def test_magicfit_flythrough_render_uses_cache_safe_public_video_name(monkeypatc
     assert not (bundle_dir / "tour.mp4").exists()
     manifest = json.loads((bundle_dir / "tour.json").read_text(encoding="utf-8"))
     assert manifest["video_relpath"] == "tour-magicfit-1781083800-abcdef1234.mp4"
-    delivery = product_service._hosted_property_tour_video_delivery(f"https://propertyquarry.com/tours/{slug}")
-    assert delivery["video_url"].endswith(f"/tours/files/{slug}/tour-magicfit-1781083800-abcdef1234.mp4")
+    # A raw operator render is intentionally not public until the pending-v2/accepted-v4
+    # importer, review and acceptance chain has completed.
+    assert product_service._hosted_property_tour_video_delivery(
+        f"https://propertyquarry.com/tours/{slug}"
+    ) == {}
 
 
 def test_magicfit_flythrough_render_concats_short_magicfit_segments(monkeypatch, tmp_path: Path) -> None:
@@ -30016,6 +30123,7 @@ def test_magicfit_flythrough_render_concats_short_magicfit_segments(monkeypatch,
     (bundle_dir / "tour.json").write_text(json.dumps({"slug": slug, "video_relpath": ""}), encoding="utf-8")
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     monkeypatch.setenv("EA_REPO_ROOT", str(Path(__file__).resolve().parents[1]))
+    monkeypatch.setenv("EA_ROLE", "render-tools")
     monkeypatch.setenv("PROPERTYQUARRY_MAGICFIT_MAX_SEGMENTS", "4")
     monkeypatch.setattr(product_service.time, "time", lambda: 1781083900)
     monkeypatch.setattr(product_service, "uuid4", lambda: SimpleNamespace(hex="fedcba9876543210"))
@@ -30045,7 +30153,7 @@ def test_magicfit_flythrough_render_concats_short_magicfit_segments(monkeypatch,
 
     monkeypatch.setattr(product_service.subprocess, "run", _fake_run)
 
-    result = product_service._render_magicfit_property_flythrough_into_hosted_tour(
+    result = product_service._render_magicfit_property_flythrough_in_render_tools(
         tour_url=f"https://propertyquarry.com/tours/{slug}",
         title="1 Zimmer Wohnung mit Balkon",
         property_facts={"room_count": 1, "description": "Balkon"},
@@ -30072,6 +30180,7 @@ def test_magicfit_flythrough_render_surfaces_credit_exhaustion(monkeypatch, tmp_
     (bundle_dir / "tour.json").write_text(json.dumps({"slug": slug, "video_relpath": ""}), encoding="utf-8")
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
     monkeypatch.setenv("EA_REPO_ROOT", str(Path(__file__).resolve().parents[1]))
+    monkeypatch.setenv("EA_ROLE", "render-tools")
     monkeypatch.setenv("PROPERTYQUARRY_MAGICFIT_MAX_SEGMENTS", "1")
     monkeypatch.setattr(product_service.time, "time", lambda: 1781084000)
     monkeypatch.setattr(product_service, "uuid4", lambda: SimpleNamespace(hex="abc123abc123abc1"))
@@ -30087,7 +30196,7 @@ def test_magicfit_flythrough_render_surfaces_credit_exhaustion(monkeypatch, tmp_
 
     monkeypatch.setattr(product_service.subprocess, "run", _fake_run)
 
-    result = product_service._render_magicfit_property_flythrough_into_hosted_tour(
+    result = product_service._render_magicfit_property_flythrough_in_render_tools(
         tour_url=f"https://propertyquarry.com/tours/{slug}",
         title="2 Zimmer Wohnung",
         property_facts={"rooms": 2},
@@ -30460,7 +30569,7 @@ def test_public_tour_control_embeds_external_matterport_url() -> None:
     assert exc_info.value.detail == "tour_control_provider_retired"
 
 
-def test_public_tour_control_links_walkthrough_without_embedding_provider_video() -> None:
+def test_public_tour_control_hides_unaccepted_magicfit_provider_video() -> None:
     from app.api.routes import public_tours
 
     slug = "3dvista-with-walkthrough"
@@ -30485,8 +30594,8 @@ def test_public_tour_control_links_walkthrough_without_embedding_provider_video(
         viewer_mode="3dvista",
     )
 
-    assert "Open walkthrough" in html
-    assert "/tours/3dvista-with-walkthrough/walkthrough" in html
+    assert "Open walkthrough" not in html
+    assert "/tours/3dvista-with-walkthrough/walkthrough" not in html
     assert "/tours/files/3dvista-with-walkthrough/tour-rendered-123.mp4" not in html
     assert "<video" not in html
     assert 'id="tour-video"' not in html
@@ -30515,7 +30624,1003 @@ def test_public_tour_walkable_control_hides_walkthrough_provider_source_names() 
     assert "/tours/files/walkthrough-still-control/still-01.jpg" in html
 
 
-def test_public_tour_walkthrough_route_serves_video_without_public_provider_filename(
+def test_public_tour_walkable_control_renders_real_connected_equirectangular_nodes() -> None:
+    from app.api.routes import public_tours
+
+    html = public_tours._tour_control_walkable_html(
+        {
+            "slug": "staatsoper-ai-360",
+            "display_title": "Staatsoper apartment 360",
+            "walkable_scene": {
+                "representation_kind": "ai_reconstruction",
+                "representation_disclosure": (
+                    "AI-reconstructed from listing photos; not a captured 360 or measured survey."
+                ),
+                "floorplan_relpath": "floorplan.jpg",
+                "initial_scene_id": "living",
+                "scenes": [
+                    {
+                        "id": "living",
+                        "label": "Living room",
+                        "projection": "equirectangular",
+                        "asset_relpath": "panoramas/living.jpg",
+                        "floorplan_x_pct": 30,
+                        "floorplan_y_pct": 35,
+                        "hotspots": [{"target_scene_id": "kitchen", "label": "Kitchen", "yaw": 96, "pitch": -12}],
+                    },
+                    {
+                        "id": "kitchen",
+                        "label": "Kitchen",
+                        "projection": "equirectangular",
+                        "asset_relpath": "panoramas/kitchen.jpg",
+                        "floorplan_x_pct": 67,
+                        "floorplan_y_pct": 35,
+                        "hotspots": [{"target_scene_id": "living", "label": "Living room", "yaw": -82, "pitch": -10}],
+                    },
+                ],
+            },
+        },
+        provider_label="PropertyQuarry 360",
+    )
+
+    assert "SphereGeometry(10, 96, 64)" in html
+    assert "/tours/files/staatsoper-ai-360/panoramas/living.jpg" in html
+    assert "/tours/files/staatsoper-ai-360/panoramas/kitchen.jpg" in html
+    assert "/tours/files/staatsoper-ai-360/floorplan.jpg" in html
+    assert "AI-reconstructed from listing photos; not a captured 360 or measured survey." in html
+    assert "import * as THREE from '/tours/runtime/three-0.167.1.module.js'" in html
+    assert "cdn.jsdelivr.net" not in html
+    assert '"target":"kitchen"' in html
+    assert "walkthrough-still-view" not in html
+    assert "person_body" not in html
+    assert "child_toys" not in html
+
+
+def test_hosted_tour_accepts_real_equirectangular_asset_in_nested_scene(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.product import property_tour_hosting
+
+    monkeypatch.setattr(
+        property_tour_hosting,
+        "_hosted_property_tour_is_equirectangular_image",
+        lambda bundle_dir, relpath: bundle_dir == tmp_path and relpath == "panoramas/living.jpg",
+    )
+
+    assert property_tour_hosting._hosted_property_tour_has_walkable_360_asset(
+        bundle_dir=tmp_path,
+        payload={
+            "walkable_scene": {
+                "scenes": [
+                    {
+                        "id": "living",
+                        "projection": "equirectangular",
+                        "asset_relpath": "panoramas/living.jpg",
+                    }
+                ]
+            }
+        },
+    ) is True
+
+
+def test_krpano_control_never_infers_provider_identity_from_ai_panorama(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.product import property_tour_hosting
+
+    def _unexpected_provider_probe(**_kwargs: object) -> bool:
+        raise AssertionError(
+            "AI panorama must be rejected before provider probing"
+        )
+
+    monkeypatch.setattr(
+        property_tour_hosting,
+        "_hosted_property_tour_payload_for_url",
+        lambda _url: {
+            "walkable_scene": {
+                "representation_kind": "ai_reconstruction",
+                "scenes": [
+                    {
+                        "id": "living",
+                        "projection": "equirectangular",
+                        "asset_relpath": "panoramas/living.jpg",
+                    }
+                ],
+            }
+        },
+    )
+    monkeypatch.setattr(
+        property_tour_hosting,
+        "_hosted_property_tour_slug_from_url",
+        lambda _url: "ai-panorama-not-krpano",
+    )
+    monkeypatch.setattr(
+        property_tour_hosting,
+        "_krpano_license_runtime_config",
+        lambda: {"domain": "propertyquarry.com", "key": "configured"},
+    )
+    monkeypatch.setattr(
+        property_tour_hosting,
+        "_hosted_property_tour_has_walkable_360_asset",
+        _unexpected_provider_probe,
+    )
+
+    assert (
+        property_tour_hosting._hosted_property_tour_has_krpano_control(
+            "https://propertyquarry.com/tours/ai-panorama-not-krpano"
+        )
+        is False
+    )
+
+
+def _write_test_ai_panorama_bundle(
+    bundle_dir: Path,
+    *,
+    slug: str = "accepted-ai-panorama",
+) -> dict[str, object]:
+    from PIL import Image
+
+    disclosure = (
+        "AI-reconstructed from listing photos; not a captured 360 or measured survey."
+    )
+    scene_rows = (
+        ("living-room", "Living room", 35, 42, ("hall", "terrace")),
+        ("hall", "Hall", 51, 52, ("living-room", "kitchen", "bedroom-large", "bedroom-small", "bathroom")),
+        ("kitchen", "Kitchen", 69, 27, ("hall",)),
+        ("bedroom-large", "Large bedroom", 76, 48, ("hall",)),
+        ("bedroom-small", "Small bedroom", 76, 72, ("hall",)),
+        ("bathroom", "Bathroom", 57, 73, ("hall",)),
+        ("terrace", "Terrace", 25, 16, ("living-room",)),
+    )
+    panorama_colors = (
+        (188, 181, 169),
+        (219, 215, 205),
+        (173, 184, 178),
+        (205, 190, 176),
+        (181, 196, 205),
+        (193, 202, 210),
+        (136, 170, 151),
+    )
+    panorama_dir = bundle_dir / "panoramas"
+    proof_dir = bundle_dir / "proof"
+    panorama_dir.mkdir(parents=True)
+    proof_dir.mkdir()
+
+    asset_hashes: dict[str, str] = {}
+    scenes: list[dict[str, object]] = []
+    hotspot_edges: list[str] = []
+    for index, (scene_id, label, floorplan_x, floorplan_y, targets) in enumerate(scene_rows):
+        asset_path = panorama_dir / f"{scene_id}.jpg"
+        Image.new("RGB", (4096, 2048), color=panorama_colors[index]).save(
+            asset_path,
+            format="JPEG",
+            quality=82,
+        )
+        asset_hashes[scene_id] = hashlib.sha256(asset_path.read_bytes()).hexdigest()
+        hotspots = []
+        for target_index, target in enumerate(targets):
+            hotspots.append(
+                {
+                    "target_scene_id": target,
+                    "label": f"Go to {target}",
+                    "yaw": -120 + target_index * 48,
+                    "pitch": -12,
+                }
+            )
+            hotspot_edges.append(f"{scene_id}->{target}")
+        scenes.append(
+            {
+                "id": scene_id,
+                "label": label,
+                "projection": "equirectangular",
+                "asset_relpath": f"panoramas/{scene_id}.jpg",
+                "floorplan_x_pct": floorplan_x,
+                "floorplan_y_pct": floorplan_y,
+                "hotspots": hotspots,
+            }
+        )
+
+    floorplan_path = bundle_dir / "floorplan.jpg"
+    Image.new("RGB", (1200, 1200), color=(242, 240, 234)).save(
+        floorplan_path,
+        format="JPEG",
+        quality=85,
+    )
+    floorplan_sha256 = hashlib.sha256(floorplan_path.read_bytes()).hexdigest()
+    scene_ids = [scene_id for scene_id, *_rest in scene_rows]
+    spatial_rooms = [
+        {"id": "living-room", "label": "Living room", "scene_id": "living-room", "kind": "interior", "x": 0.0, "z": 2.4, "width": 5.5, "depth": 4.5, "height": 2.7},
+        {"id": "hall", "label": "Hall", "scene_id": "hall", "kind": "interior", "x": 5.5, "z": 3.0, "width": 2.0, "depth": 3.0, "height": 2.7},
+        {"id": "kitchen", "label": "Kitchen", "scene_id": "kitchen", "kind": "interior", "x": 7.5, "z": 0.0, "width": 3.0, "depth": 3.0, "height": 2.7},
+        {"id": "bedroom-large", "label": "Large bedroom", "scene_id": "bedroom-large", "kind": "interior", "x": 7.5, "z": 3.0, "width": 4.0, "depth": 3.7, "height": 2.7},
+        {"id": "bedroom-small", "label": "Small bedroom", "scene_id": "bedroom-small", "kind": "interior", "x": 7.5, "z": 6.7, "width": 3.4, "depth": 3.2, "height": 2.7},
+        {"id": "bathroom", "label": "Bathroom", "scene_id": "bathroom", "kind": "interior", "x": 5.5, "z": 6.0, "width": 2.0, "depth": 2.0, "height": 2.7},
+        {"id": "terrace", "label": "Terrace", "scene_id": "terrace", "kind": "exterior", "x": 0.0, "z": 0.0, "width": 5.5, "depth": 2.4, "height": 2.7},
+        {"id": "wc", "label": "WC - no panorama", "kind": "unavailable", "x": 5.5, "z": 8.0, "width": 1.2, "depth": 1.3, "height": 2.7},
+    ]
+
+    property_sha256 = "9" * 64
+    provenance = {
+        "contract_name": "propertyquarry.ai_panorama_provenance.v1",
+        "generation_method": "ai_image_reconstruction",
+        "captured_360": False,
+        "measured_survey": False,
+        "representation_disclosure": disclosure,
+        "property_url_sha256": property_sha256,
+        "source_image_sha256": [
+            hashlib.sha256(f"source:{scene_id}".encode()).hexdigest()
+            for scene_id in scene_ids
+        ],
+        "floorplan_sha256": floorplan_sha256,
+        "panorama_asset_sha256": asset_hashes,
+        "spatial_model_basis": "floorplan_scaled_approximation",
+        "spatial_model_measured": False,
+        "spatial_scene_ids": scene_ids,
+    }
+    provenance_path = proof_dir / "provenance.json"
+    provenance_path.write_text(
+        json.dumps(provenance, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    screenshot_specs = {
+        "desktop": ((1440, 960), (48, 67, 73)),
+        "dollhouse": ((1440, 960), (58, 48, 73)),
+        "mobile": ((780, 1688), (73, 58, 48)),
+    }
+    screenshot_hashes: dict[str, str] = {}
+    for surface, (dimensions, color) in screenshot_specs.items():
+        screenshot_path = proof_dir / f"browser-{surface}.png"
+        Image.new("RGB", dimensions, color=color).save(screenshot_path, format="PNG")
+        screenshot_hashes[surface] = hashlib.sha256(
+            screenshot_path.read_bytes()
+        ).hexdigest()
+
+    panorama_sizes = [
+        (panorama_dir / f"{scene_id}.jpg").stat().st_size
+        for scene_id in scene_ids
+    ]
+    payload: dict[str, object] = {
+        "slug": slug,
+        "publication_status": "ready",
+        "control_mode": "ai_panorama_360",
+        "scene_count": len(scene_ids),
+        "property_url_sha256": property_sha256,
+        "walkable_scene": {
+            "representation_kind": "ai_reconstruction",
+            "representation_disclosure": disclosure,
+            "expected_scene_count": len(scene_ids),
+            "initial_scene_id": "living-room",
+            "floorplan_relpath": "floorplan.jpg",
+            "scenes": scenes,
+            "spatial_model": {
+                "source_basis": "floorplan_scaled_approximation",
+                "measured": False,
+                "rooms": spatial_rooms,
+            },
+            "acceptance": {
+                "contract_name": "propertyquarry.ai_panorama_acceptance.v1",
+                "proof_status": "pending",
+                "property_url_sha256": property_sha256,
+                "panorama_asset_sha256": asset_hashes,
+                "provenance_relpath": "proof/provenance.json",
+                "provenance_sha256": hashlib.sha256(
+                    provenance_path.read_bytes()
+                ).hexdigest(),
+            },
+        },
+    }
+    core_manifest_sha256 = (
+        property_tour_hosting._hosted_property_tour_ai_panorama_core_manifest_sha256(
+            payload
+        )
+    )
+    configured_tour_base = urllib.parse.urlsplit(
+        property_tour_hosting._property_public_tour_base_url()
+    )
+    tested_origin = urllib.parse.urlunsplit(
+        (
+            configured_tour_base.scheme,
+            configured_tour_base.netloc,
+            "",
+            "",
+            "",
+        )
+    )
+    tour_path = f"/tours/{urllib.parse.quote(slug, safe='')}/control"
+    browser_proof = {
+        "contract_name": "propertyquarry.ai_panorama_browser_proof.v1",
+        "proof_status": "pass",
+        "observed_at": datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z"),
+        "core_manifest_sha256": core_manifest_sha256,
+        "tested_url": f"{tested_origin}{tour_path}",
+        "tested_origin": tested_origin,
+        "tour_path": tour_path,
+        "route_stack": "fastapi_public_route",
+        "viewer_implementation": "app.api.routes.public_tours._tour_control_panorama_html",
+        "representation_disclosure": disclosure,
+        "scene_ids": scene_ids,
+        "anonymous_http_200": True,
+        "drag_navigation_verified": True,
+        "scene_navigation_verified": True,
+        "all_hotspots_verified": True,
+        "dollhouse_verified": True,
+        "desktop_verified": True,
+        "mobile_verified": True,
+        "touch_verified": True,
+        "first_party_viewer_verified": True,
+        "first_party_renderer_verified": True,
+        "slow_network_verified": True,
+        "performance_budget_verified": True,
+        "disclosure_verified": True,
+        "renderer_module_path": "/tours/runtime/three-0.167.1.module.js",
+        "renderer_module_sha256": "5289ca2dfde8572bd7715b9fa2ca929db12bae87e9a2cb53e431662df7039506",
+        "renderer_http_status": 200,
+        "external_script_requests": [],
+        "verified_hotspot_edges": hotspot_edges,
+        "dollhouse_room_count": len(spatial_rooms),
+        "performance": {
+            "initial_scene_loaded_ms": 1500.0,
+            "slow_network_initial_scene_loaded_ms": 6000.0,
+            "total_panorama_bytes": sum(panorama_sizes),
+            "largest_panorama_bytes": max(panorama_sizes),
+            "slow_network_profile": "150ms-latency-4mbps",
+            "slow_network_all_scenes_loaded": True,
+        },
+        "desktop": {
+            "viewport": "1440x960",
+            "canvas": "1440x960",
+            "scene_button_count": 7,
+            "floorplan_pin_count": 7,
+            "screenshot_relpath": "proof/browser-desktop.png",
+            "screenshot_sha256": screenshot_hashes["desktop"],
+            "page_errors": [],
+            "failed_requests": [],
+        },
+        "dollhouse": {
+            "viewport": "1440x960",
+            "canvas": "1440x960",
+            "room_count": len(spatial_rooms),
+            "screenshot_relpath": "proof/browser-dollhouse.png",
+            "screenshot_sha256": screenshot_hashes["dollhouse"],
+            "page_errors": [],
+            "failed_requests": [],
+        },
+        "mobile": {
+            "viewport": "390x844",
+            "canvas": "780x1688",
+            "scene_button_count": 7,
+            "floorplan_pin_count": 7,
+            "touch_navigation_verified": True,
+            "screenshot_relpath": "proof/browser-mobile.png",
+            "screenshot_sha256": screenshot_hashes["mobile"],
+            "page_errors": [],
+            "failed_requests": [],
+        },
+    }
+    browser_path = proof_dir / "browser-proof.json"
+    browser_path.write_text(
+        json.dumps(browser_proof, sort_keys=True),
+        encoding="utf-8",
+    )
+
+    walkable_scene = payload["walkable_scene"]
+    assert isinstance(walkable_scene, dict)
+    acceptance = walkable_scene["acceptance"]
+    assert isinstance(acceptance, dict)
+    acceptance.update(
+        {
+            "proof_status": "pass",
+            "browser_receipt_relpath": "proof/browser-proof.json",
+            "browser_receipt_sha256": hashlib.sha256(
+                browser_path.read_bytes()
+            ).hexdigest(),
+        }
+    )
+    assert (
+        property_tour_hosting._hosted_property_tour_ai_panorama_core_manifest_sha256(
+            payload
+        )
+        == core_manifest_sha256
+    )
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(payload, sort_keys=True),
+        encoding="utf-8",
+    )
+    return payload
+
+
+def _rewrite_test_ai_panorama_browser_proof(
+    bundle_dir: Path,
+    payload: dict[str, object],
+    updates: dict[str, object],
+) -> None:
+    browser_path = bundle_dir / "proof" / "browser-proof.json"
+    browser_proof = json.loads(browser_path.read_text(encoding="utf-8"))
+    assert isinstance(browser_proof, dict)
+    browser_proof.update(updates)
+    browser_path.write_text(
+        json.dumps(browser_proof, sort_keys=True),
+        encoding="utf-8",
+    )
+    walkable_scene = payload["walkable_scene"]
+    assert isinstance(walkable_scene, dict)
+    acceptance = walkable_scene["acceptance"]
+    assert isinstance(acceptance, dict)
+    acceptance["browser_receipt_sha256"] = hashlib.sha256(
+        browser_path.read_bytes()
+    ).hexdigest()
+
+
+def test_ai_panorama_contract_requires_immutable_assets_provenance_and_browser_proof(
+    tmp_path: Path,
+) -> None:
+    from app.product import property_tour_hosting
+
+    payload = _write_test_ai_panorama_bundle(tmp_path)
+    walkable_scene = payload["walkable_scene"]
+    assert isinstance(walkable_scene, dict)
+    scenes = walkable_scene["scenes"]
+    assert isinstance(scenes, list)
+
+    accepted = property_tour_hosting._hosted_property_tour_ai_panorama_contract(
+        bundle_dir=tmp_path,
+        payload=payload,
+    )
+    assert accepted["ready"] is True
+    assert accepted["representation_kind"] == "ai_panorama_360"
+    assert accepted["scene_count"] == 7
+    assert accepted["spatial_room_count"] == 8
+    assert accepted["hotspot_count"] == 12
+    assert accepted["preflight"] is False
+    assert accepted["preflight_ready"] is False
+    assert accepted["proof_pending"] is False
+    assert re.fullmatch(r"[0-9a-f]{64}", str(accepted["core_manifest_sha256"]))
+
+    scenes[0]["image_relpath"] = "panoramas/kitchen.jpg"
+    ambiguous_asset = (
+        property_tour_hosting._hosted_property_tour_ai_panorama_contract(
+            bundle_dir=tmp_path,
+            payload=payload,
+        )
+    )
+    assert ambiguous_asset == {
+        "ready": False,
+        "representation_kind": "ai_panorama_360",
+        "reason": "scene_asset_relpath_ambiguous",
+    }
+    scenes[0].pop("image_relpath")
+
+    mobile_screenshot_path = tmp_path / "proof" / "browser-mobile.png"
+    mobile_screenshot_bytes = mobile_screenshot_path.read_bytes()
+    mobile_screenshot_path.write_bytes(b"tampered")
+    rejected = property_tour_hosting._hosted_property_tour_ai_panorama_contract(
+        bundle_dir=tmp_path,
+        payload=payload,
+    )
+    assert rejected == {
+        "ready": False,
+        "representation_kind": "ai_panorama_360",
+        "reason": "browser_surface_proof_invalid",
+    }
+    mobile_screenshot_path.write_bytes(mobile_screenshot_bytes)
+
+    (tmp_path / "proof" / "browser-dollhouse.png").write_bytes(b"tampered")
+    dollhouse_rejected = (
+        property_tour_hosting._hosted_property_tour_ai_panorama_contract(
+            bundle_dir=tmp_path,
+            payload=payload,
+        )
+    )
+    assert dollhouse_rejected == {
+        "ready": False,
+        "representation_kind": "ai_panorama_360",
+        "reason": "browser_surface_proof_invalid",
+    }
+
+
+def test_ai_panorama_core_manifest_digest_is_stable_across_proof_sealing_and_binds_functional_changes(
+    tmp_path: Path,
+) -> None:
+    payload = _write_test_ai_panorama_bundle(tmp_path)
+    original_digest = (
+        property_tour_hosting._hosted_property_tour_ai_panorama_core_manifest_sha256(
+            payload
+        )
+    )
+    walkable_scene = payload["walkable_scene"]
+    assert isinstance(walkable_scene, dict)
+    acceptance = walkable_scene["acceptance"]
+    assert isinstance(acceptance, dict)
+    original_receipt_sha256 = acceptance["browser_receipt_sha256"]
+    acceptance["proof_status"] = "pending"
+    acceptance["browser_receipt_sha256"] = "0" * 64
+    assert (
+        property_tour_hosting._hosted_property_tour_ai_panorama_core_manifest_sha256(
+            payload
+        )
+        == original_digest
+    )
+    acceptance["proof_status"] = "pass"
+    acceptance["browser_receipt_sha256"] = original_receipt_sha256
+
+    scenes = walkable_scene["scenes"]
+    assert isinstance(scenes, list)
+    first_scene = scenes[0]
+    assert isinstance(first_scene, dict)
+    first_scene["label"] = "Living room with immutable change"
+    changed_digest = (
+        property_tour_hosting._hosted_property_tour_ai_panorama_core_manifest_sha256(
+            payload
+        )
+    )
+
+    assert changed_digest != original_digest
+    rejected = property_tour_hosting._hosted_property_tour_ai_panorama_contract(
+        bundle_dir=tmp_path,
+        payload=payload,
+    )
+    assert rejected["ready"] is False
+    assert rejected["reason"] == "browser_core_manifest_binding_invalid"
+
+
+@pytest.mark.parametrize(
+    ("case", "updates", "reason"),
+    (
+        (
+            "digest",
+            {"core_manifest_sha256": "0" * 64},
+            "browser_core_manifest_binding_invalid",
+        ),
+        (
+            "origin",
+            {"tested_origin": "https://wrong.example"},
+            "browser_tested_origin_invalid",
+        ),
+        (
+            "path",
+            {"tour_path": "/tours/wrong/control"},
+            "browser_tested_path_invalid",
+        ),
+        (
+            "url",
+            {
+                "tested_url": (
+                    "https://propertyquarry.com/tours/url-binding/control"
+                    "?preview=1"
+                )
+            },
+            "browser_tested_url_invalid",
+        ),
+    ),
+)
+def test_ai_panorama_browser_proof_binds_digest_and_exact_url_origin_path(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    case: str,
+    updates: dict[str, object],
+    reason: str,
+) -> None:
+    monkeypatch.setenv(
+        "PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL",
+        "https://propertyquarry.com/tours",
+    )
+    bundle_dir = tmp_path / case
+    payload = _write_test_ai_panorama_bundle(
+        bundle_dir,
+        slug="url-binding",
+    )
+    _rewrite_test_ai_panorama_browser_proof(bundle_dir, payload, updates)
+
+    rejected = property_tour_hosting._hosted_property_tour_ai_panorama_contract(
+        bundle_dir=bundle_dir,
+        payload=payload,
+    )
+
+    assert rejected["ready"] is False
+    assert rejected["reason"] == reason
+
+
+def test_ai_panorama_preflight_validates_media_and_provenance_without_publishing(
+    tmp_path: Path,
+) -> None:
+    payload = _write_test_ai_panorama_bundle(tmp_path)
+    sealed = property_tour_hosting._hosted_property_tour_ai_panorama_contract(
+        bundle_dir=tmp_path,
+        payload=payload,
+    )
+    assert sealed["ready"] is True
+    walkable_scene = payload["walkable_scene"]
+    assert isinstance(walkable_scene, dict)
+    acceptance = walkable_scene["acceptance"]
+    assert isinstance(acceptance, dict)
+    acceptance["proof_status"] = "pending"
+    acceptance.pop("browser_receipt_relpath")
+    acceptance.pop("browser_receipt_sha256")
+    (tmp_path / "proof" / "browser-proof.json").unlink()
+
+    preflight = property_tour_hosting._hosted_property_tour_ai_panorama_contract(
+        bundle_dir=tmp_path,
+        payload=payload,
+        mode="preflight",
+    )
+    strict = property_tour_hosting._hosted_property_tour_ai_panorama_contract(
+        bundle_dir=tmp_path,
+        payload=payload,
+    )
+
+    assert preflight["ready"] is False
+    assert preflight["preflight"] is True
+    assert preflight["preflight_ready"] is True
+    assert preflight["proof_pending"] is True
+    assert preflight["reason"] == "browser_proof_pending"
+    for key in (
+        "scene_count",
+        "scene_ids",
+        "panorama_asset_sha256",
+        "core_manifest_sha256",
+        "total_panorama_bytes",
+        "largest_panorama_bytes",
+    ):
+        assert preflight[key] == sealed[key]
+    assert strict == {
+        "ready": False,
+        "representation_kind": "ai_panorama_360",
+        "reason": "acceptance_invalid",
+    }
+
+
+def test_ai_panorama_cached_contract_expires_without_bundle_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    bundle_dir = tmp_path / "cached-proof-expiry"
+    payload = _write_test_ai_panorama_bundle(
+        bundle_dir,
+        slug="cached-proof-expiry",
+    )
+    observed_at = datetime.now(timezone.utc).replace(microsecond=0)
+    _rewrite_test_ai_panorama_browser_proof(
+        bundle_dir,
+        payload,
+        {
+            "observed_at": observed_at.isoformat().replace("+00:00", "Z"),
+        },
+    )
+    manifest_path = bundle_dir / "tour.json"
+    manifest_path.write_text(
+        json.dumps(payload, sort_keys=True),
+        encoding="utf-8",
+    )
+    original_manifest = manifest_path.read_bytes()
+    original_browser_proof = (bundle_dir / "proof" / "browser-proof.json").read_bytes()
+
+    clock = {"now": observed_at}
+    monkeypatch.setattr(
+        public_tour_routes,
+        "_public_tour_ai_panorama_now",
+        lambda: clock["now"],
+    )
+    real_contract = public_tour_routes._hosted_property_tour_ai_panorama_contract
+    contract_calls = 0
+
+    def tracked_contract(**kwargs: object) -> dict[str, object]:
+        nonlocal contract_calls
+        contract_calls += 1
+        return real_contract(**kwargs)
+
+    monkeypatch.setattr(
+        public_tour_routes,
+        "_hosted_property_tour_ai_panorama_contract",
+        tracked_contract,
+    )
+    public_tour_routes._public_tour_ai_panorama_contract_cached.cache_clear()
+    try:
+        accepted = public_tour_routes._require_public_tour_ai_panorama_release(
+            payload,
+            bundle_dir=bundle_dir,
+        )
+        assert accepted["ready"] is True
+        assert contract_calls == 1
+
+        clock["now"] = observed_at + timedelta(days=30, seconds=1)
+        with pytest.raises(HTTPException) as raised:
+            public_tour_routes._require_public_tour_ai_panorama_release(
+                payload,
+                bundle_dir=bundle_dir,
+            )
+        assert raised.value.status_code == 404
+        assert raised.value.detail == "tour_ai_panorama_acceptance_missing"
+        assert contract_calls == 1
+        assert manifest_path.read_bytes() == original_manifest
+        assert (
+            bundle_dir / "proof" / "browser-proof.json"
+        ).read_bytes() == original_browser_proof
+    finally:
+        public_tour_routes._public_tour_ai_panorama_contract_cached.cache_clear()
+
+
+def test_accepted_ai_panorama_route_uses_pinned_first_party_renderer_and_spatial_model(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = "accepted-seven-scene-ai-panorama"
+    bundle_dir = tmp_path / slug
+    payload = _write_test_ai_panorama_bundle(bundle_dir, slug=slug)
+    walkable_scene = payload["walkable_scene"]
+    assert isinstance(walkable_scene, dict)
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+
+    client = build_product_client(principal_id="public-tour-ai-panorama-release")
+    control = client.get(f"/tours/{slug}/control")
+    public_payload = client.get(f"/tours/{slug}.json")
+    renderer = client.get("/tours/runtime/three-0.167.1.module.js")
+
+    assert control.status_code == 200, control.text
+    assert "import * as THREE from '/tours/runtime/three-0.167.1.module.js'" in control.text
+    assert "cdn.jsdelivr.net" not in control.text
+    assert "Dollhouse" in control.text
+    assert 'id="zoom-in"' in control.text
+    assert 'id="zoom-out"' in control.text
+    assert "const activePointers = new Map()" in control.text
+    assert "dollhouseRaycaster.intersectObjects" in control.text
+    assert "addDollhouseWall" in control.text
+    assert str(walkable_scene["representation_disclosure"]) in control.text
+    control_csp = control.headers["content-security-policy"]
+    assert "frame-src 'none'" in control_csp
+    assert "img-src 'self' data: blob:" in control_csp
+    assert "cdn.jsdelivr.net" not in control_csp
+    assert "3dvista" not in control_csp
+    assert public_payload.status_code == 200, public_payload.text
+    public_walkable = public_payload.json()["walkable_scene"]
+    assert len(public_walkable["scenes"]) == 7
+    assert public_walkable["spatial_model"]["source_basis"] == "floorplan_scaled_approximation"
+    assert public_walkable["spatial_model"]["measured"] is False
+    assert len(public_walkable["spatial_model"]["rooms"]) == 8
+    assert "acceptance" not in public_walkable
+    scene_asset_url = public_walkable["scenes"][0]["image_url"]
+    floorplan_asset_url = public_walkable["floorplan_url"]
+    assert re.search(r"\?v=[0-9a-f]{64}$", scene_asset_url)
+    assert re.search(r"\?v=[0-9a-f]{64}$", floorplan_asset_url)
+    scene_asset = client.get(scene_asset_url)
+    floorplan_asset = client.get(floorplan_asset_url)
+    assert scene_asset.status_code == 200
+    assert floorplan_asset.status_code == 200
+    assert scene_asset.headers["cache-control"] == "public, max-age=31536000, immutable"
+    assert floorplan_asset.headers["cache-control"] == "public, max-age=31536000, immutable"
+    assert scene_asset.headers["cross-origin-resource-policy"] == "same-origin"
+    assert floorplan_asset.headers["cross-origin-resource-policy"] == "same-origin"
+    assert scene_asset.headers["x-propertyquarry-asset-sha256"] == scene_asset_url.rsplit("=", 1)[-1]
+    assert floorplan_asset.headers["x-propertyquarry-asset-sha256"] == floorplan_asset_url.rsplit("=", 1)[-1]
+    assert client.get(scene_asset_url.rsplit("=", 1)[0] + "=" + "0" * 64).status_code == 404
+    assert renderer.status_code == 200
+    assert hashlib.sha256(renderer.content).hexdigest() == (
+        "5289ca2dfde8572bd7715b9fa2ca929db12bae87e9a2cb53e431662df7039506"
+    )
+    assert renderer.headers["x-propertyquarry-asset-sha256"] == (
+        "5289ca2dfde8572bd7715b9fa2ca929db12bae87e9a2cb53e431662df7039506"
+    )
+    assert renderer.headers["cache-control"] == "public, max-age=31536000, immutable"
+    assert renderer.headers["cross-origin-resource-policy"] == "same-origin"
+
+
+def test_public_tour_redaction_keeps_panorama_navigation_but_hides_acceptance_receipts() -> None:
+    from app.api.routes.public_tour_payloads import redacted_public_tour_payload
+
+    payload = {
+        "slug": "redacted-ai-panorama",
+        "publication_status": "ready",
+        "walkable_scene": {
+            "representation_kind": "ai_reconstruction",
+            "representation_disclosure": "AI-reconstructed from listing photos; not a captured 360 or measured survey.",
+            "initial_scene_id": "living",
+            "floorplan_relpath": "floorplan.jpg",
+            "acceptance": {
+                "browser_receipt_relpath": "proof/browser-proof.json",
+                "property_url_sha256": "9" * 64,
+            },
+            "scenes": [
+                {
+                    "id": "living",
+                    "label": "Living room",
+                    "projection": "equirectangular",
+                    "asset_relpath": "panoramas/living.jpg",
+                    "privacy_class": "public",
+                    "role": "panorama",
+                    "hotspots": [
+                        {
+                            "target_scene_id": "kitchen",
+                            "label": "Kitchen",
+                            "yaw": 30,
+                            "pitch": -12,
+                        }
+                    ],
+                },
+                {
+                    "id": "kitchen",
+                    "label": "Kitchen",
+                    "projection": "equirectangular",
+                    "asset_relpath": "panoramas/kitchen.jpg",
+                    "privacy_class": "public",
+                    "role": "panorama",
+                    "hotspots": [
+                        {
+                            "target_scene_id": "living",
+                            "label": "Living room",
+                            "yaw": -30,
+                            "pitch": -12,
+                        }
+                    ],
+                },
+            ],
+        },
+    }
+
+    rendered = redacted_public_tour_payload(
+        payload,
+        url_allowed=lambda _value: False,
+        bundle_dir_resolver=lambda _slug: None,
+    )
+    walkable = rendered["walkable_scene"]
+    assert isinstance(walkable, dict)
+    assert "acceptance" not in walkable
+    assert "browser_receipt_relpath" not in json.dumps(rendered)
+    assert walkable["floorplan_url"] == "/tours/files/redacted-ai-panorama/floorplan.jpg"
+    assert [scene["id"] for scene in walkable["scenes"]] == ["living", "kitchen"]
+    assert walkable["scenes"][0]["hotspots"][0]["target"] == "kitchen"
+
+
+def test_unaccepted_ai_panorama_json_and_assets_fail_closed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    slug = "unaccepted-ai-panorama-publication"
+    bundle_dir = tmp_path / slug
+    panorama_dir = bundle_dir / "panoramas"
+    photo_dir = bundle_dir / "photos"
+    panorama_dir.mkdir(parents=True)
+    photo_dir.mkdir()
+    (panorama_dir / "living.jpg").write_bytes(b"unaccepted panorama")
+    (panorama_dir / "secondary.jpg").write_bytes(b"unverified secondary alias")
+    (bundle_dir / "floorplan.jpg").write_bytes(b"unaccepted floorplan")
+    (photo_dir / "listing.jpg").write_bytes(b"independent public listing photo")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "publication_status": "ready",
+                "control_mode": "ai_panorama_360",
+                "scenes": [
+                    {
+                        "id": "listing-photo",
+                        "role": "photo",
+                        "asset_relpath": "photos/listing.jpg",
+                    }
+                ],
+                "walkable_scene": {
+                    "representation_kind": "ai_reconstruction",
+                    "representation_disclosure": (
+                        "AI-reconstructed from listing photos; not a captured "
+                        "360 or measured survey."
+                    ),
+                    "initial_scene_id": "living",
+                    "floorplan_relpath": "floorplan.jpg",
+                    "scenes": [
+                        {
+                            "id": "living",
+                            "projection": "equirectangular",
+                            "asset_relpath": "panoramas/living.jpg",
+                            "image_relpath": "panoramas/secondary.jpg",
+                            "floorplan_x_pct": 50,
+                            "floorplan_y_pct": 50,
+                        }
+                    ],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+
+    client = build_product_client(principal_id="public-tour-ai-fail-closed")
+    payload_response = client.get(f"/tours/{slug}.json")
+    panorama_response = client.get(
+        f"/tours/files/{slug}/panoramas/living.jpg"
+    )
+    floorplan_response = client.get(f"/tours/files/{slug}/floorplan.jpg")
+    independent_photo_response = client.get(
+        f"/tours/files/{slug}/photos/listing.jpg"
+    )
+
+    assert payload_response.status_code == 404
+    assert (
+        payload_response.json()["error"]["code"]
+        == "tour_ai_panorama_acceptance_missing"
+    )
+    assert panorama_response.status_code == 404
+    assert floorplan_response.status_code == 404
+    assert independent_photo_response.status_code == 404
+
+
+def test_accepted_ai_panorama_does_not_publish_secondary_scene_alias(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from app.api.routes import public_tours
+
+    slug = "accepted-ai-panorama-secondary-alias"
+    bundle_dir = tmp_path / slug
+    panorama_dir = bundle_dir / "panoramas"
+    panorama_dir.mkdir(parents=True)
+    (panorama_dir / "living.jpg").write_bytes(b"accepted panorama")
+    (panorama_dir / "secondary.jpg").write_bytes(b"unverified secondary alias")
+    (bundle_dir / "tour.json").write_text(
+        json.dumps(
+            {
+                "slug": slug,
+                "publication_status": "ready",
+                "control_mode": "ai_panorama_360",
+                "walkable_scene": {
+                    "representation_kind": "ai_reconstruction",
+                    "representation_disclosure": (
+                        "AI-reconstructed from listing photos; not a captured "
+                        "360 or measured survey."
+                    ),
+                    "scenes": [
+                        {
+                            "id": "living",
+                            "projection": "equirectangular",
+                            "asset_relpath": "panoramas/living.jpg",
+                            "image_relpath": "panoramas/secondary.jpg",
+                        }
+                    ],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
+    monkeypatch.setattr(
+        public_tours,
+        "_hosted_property_tour_ai_panorama_contract",
+        lambda **_kwargs: {"ready": True},
+    )
+    monkeypatch.setattr(
+        public_tours,
+        "_public_tour_ai_panorama_browser_proof_current",
+        lambda *_args, **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        public_tours,
+        "_public_tour_ai_panorama_asset_digests",
+        lambda *_args, **_kwargs: {
+            "panoramas/living.jpg": hashlib.sha256(
+                b"accepted panorama"
+            ).hexdigest()
+        },
+    )
+
+    client = build_product_client(principal_id="public-tour-ai-secondary-alias")
+    accepted_response = client.get(
+        f"/tours/files/{slug}/panoramas/living.jpg"
+    )
+    secondary_response = client.get(
+        f"/tours/files/{slug}/panoramas/secondary.jpg"
+    )
+
+    assert accepted_response.status_code == 200
+    assert accepted_response.content == b"accepted panorama"
+    assert secondary_response.status_code == 404
+
+
+def test_public_tour_walkthrough_route_rejects_unaccepted_magicfit_video(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -30539,9 +31644,8 @@ def test_public_tour_walkthrough_route_serves_video_without_public_provider_file
     client = build_product_client(principal_id="public-tour-neutral-walkthrough")
     response = client.get(f"/tours/{slug}/walkthrough")
 
-    assert response.status_code == 200
-    assert response.content == b"video"
-    assert response.headers["content-type"].startswith("video/mp4")
+    assert response.status_code == 404
+    assert response.content != b"video"
 
 
 def test_public_tour_control_switches_between_provider_backed_matterport_layers() -> None:
@@ -30802,7 +31906,7 @@ def test_public_tour_landing_renderer_redacts_private_payload_fields() -> None:
     assert "viewer@example.com" not in html
 
 
-def test_public_tour_landing_links_magicfit_with_route_coverage_proof() -> None:
+def test_public_tour_landing_route_coverage_alone_does_not_accept_magicfit() -> None:
     from app.api.routes import public_tours
 
     html = public_tours._tour_html(
@@ -30817,8 +31921,8 @@ def test_public_tour_landing_links_magicfit_with_route_coverage_proof() -> None:
         }
     )
 
-    assert "Open walkthrough" in html
-    assert "/tours/verified-magicfit-tour/walkthrough" in html
+    assert "Open walkthrough" not in html
+    assert "/tours/verified-magicfit-tour/walkthrough" not in html
     assert "/tours/files/verified-magicfit-tour/tour.mp4" not in html
     assert "Open 3D Control" not in html
 
@@ -32270,7 +33374,7 @@ def test_hosted_property_tour_walkthrough_asset_url_requires_verified_published_
     ) == ""
     assert property_tour_hosting._hosted_property_tour_walkthrough_asset_url(
         f"https://propertyquarry.com/tours/{verified_slug}"
-    ) == f"https://propertyquarry.com/tours/files/{verified_slug}/tour.mp4"
+    ) == ""
     assert property_tour_hosting._published_walkthrough_asset_url(
         f"https://propertyquarry.com/tours/files/{unverified_slug}/tour.mp4"
     ) == ""
@@ -32279,7 +33383,7 @@ def test_hosted_property_tour_walkthrough_asset_url_requires_verified_published_
     ) == ""
     assert property_tour_hosting._published_walkthrough_asset_url(
         f"https://propertyquarry.com/tours/files/{verified_slug}/tour.mp4"
-    ) == f"https://propertyquarry.com/tours/files/{verified_slug}/tour.mp4"
+    ) == ""
 
 
 def test_hosted_property_tour_walkthrough_open_url_prefers_branded_autoplay_entry(monkeypatch, tmp_path: Path) -> None:
@@ -32291,7 +33395,7 @@ def test_hosted_property_tour_walkthrough_open_url_prefers_branded_autoplay_entr
         json.dumps(
             {
                 "slug": slug,
-                "video_provider": "magicfit",
+                "video_provider": "omagic",
                 "video_relpath": "tour.mp4",
                 "video_coverage_proof": "boundary_verified_frame_continuation",
             }
@@ -33331,7 +34435,7 @@ def test_public_tour_generated_layout_preview_route_surfaces_diorama_hero_for_re
     assert launch.status_code == 200
     assert preview.status_code == 200
     assert viewer.status_code == 200
-    assert viewer.headers["cache-control"] == "no-cache, max-age=0, must-revalidate"
+    assert viewer.headers["cache-control"] == "no-store"
     assert viewer.headers["cross-origin-resource-policy"] == "same-origin"
     assert viewer.headers["x-frame-options"] == "SAMEORIGIN"
     assert viewer.headers["x-propertyquarry-tour-asset-kind"] == "generated-reconstruction-viewer"
@@ -33668,7 +34772,7 @@ def test_hosted_property_tour_seed_image_path_accepts_generated_reconstruction_p
     ) == (reconstruction_dir / "photo-01.jpg").resolve()
 
 
-def test_normalize_property_flythrough_result_requires_published_video_asset(monkeypatch, tmp_path: Path) -> None:
+def test_normalize_property_flythrough_result_rejects_unaccepted_magicfit_video_asset(monkeypatch, tmp_path: Path) -> None:
     slug = "published-flythrough"
     bundle_dir = tmp_path / slug
     bundle_dir.mkdir(parents=True)
@@ -33695,15 +34799,15 @@ def test_normalize_property_flythrough_result_requires_published_video_asset(mon
     assert pending.get("flythrough_url", "") == ""
     assert pending["status"] == "processing"
 
-    rendered = product_service._normalize_property_flythrough_result(
+    unaccepted = product_service._normalize_property_flythrough_result(
         {
             "status": "processing",
             "video_url": f"https://propertyquarry.com/tours/files/{slug}/tour.mp4",
         }
     )
-    assert rendered["flythrough_url"] == f"https://propertyquarry.com/tours/files/{slug}/tour.mp4"
-    assert rendered["video_url"] == f"https://propertyquarry.com/tours/files/{slug}/tour.mp4"
-    assert rendered["status"] == "rendered"
+    assert unaccepted.get("flythrough_url", "") == ""
+    assert unaccepted.get("video_url", "") == ""
+    assert unaccepted["status"] == "processing"
 
 
 def test_matterport_thumb_url_rejects_lookalike_domain() -> None:

@@ -11,6 +11,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+try:
+    from property_magicfit_delivery_contract import validate_magicfit_source_receipt
+except ModuleNotFoundError:
+    from scripts.property_magicfit_delivery_contract import (
+        validate_magicfit_source_receipt,
+    )
+
+
+SOURCE_RECEIPT_HANDOFF_CONTRACT = (
+    "propertyquarry.magicfit_source_receipt_handoff.v1"
+)
+
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -158,6 +170,31 @@ def route_coverage_from_receipt(receipt: dict[str, Any]) -> tuple[list[str], lis
     raise RuntimeError("walkthrough_route_coverage_not_proven")
 
 
+def _strict_source_receipt_identity(
+    *, property_slug: str, hosted_walkthrough_video_url: str
+) -> dict[str, object]:
+    identity: dict[str, object] = {
+        "provider": "magicfit",
+        "provider_key": "magicfit",
+        "provider_backend_key": "magicfit",
+        "render_status": "completed",
+        "target_slug": str(property_slug or "").strip(),
+        "hosted_walkthrough_video_url": str(
+            hosted_walkthrough_video_url or ""
+        ).strip(),
+    }
+    try:
+        validate_magicfit_source_receipt(
+            identity,
+            slug=str(property_slug or "").strip(),
+        )
+    except ValueError as exc:
+        raise RuntimeError(
+            "magicfit_strict_source_receipt_handoff_required"
+        ) from exc
+    return identity
+
+
 def _validate_segment_receipt(receipt_path: Path, segment_path: Path) -> dict[str, Any]:
     receipt = _load_json(receipt_path)
     if str(receipt.get("contract_name") or "") == "propertyquarry.walkthrough_delivery_variants.v1":
@@ -220,7 +257,12 @@ def compose(
     output_fps: float,
     property_slug: str,
     property_title: str,
+    hosted_walkthrough_video_url: str,
 ) -> dict[str, object]:
+    source_identity = _strict_source_receipt_identity(
+        property_slug=property_slug,
+        hosted_walkthrough_video_url=hosted_walkthrough_video_url,
+    )
     if len(segments) != len(segment_receipts) or len(segments) < 2:
         raise RuntimeError("segment_and_receipt_count_mismatch")
     metadata = [_probe_video(path) for path in segments]
@@ -355,11 +397,27 @@ def compose(
     )
 
     payload: dict[str, object] = {
-        "provider": "MagicFit",
-        "provider_key": "magicfit",
-        "provider_backend_key": "magicfit",
-        "status": "rendered",
-        "render_status": "completed",
+        **source_identity,
+        "contract_name": SOURCE_RECEIPT_HANDOFF_CONTRACT,
+        "status": "source_receipt_ready_for_pending_import",
+        "acceptance_status": "pending",
+        "launch_eligible": False,
+        "operator_handoff_required": True,
+        "operator_handoff": {
+            "next_command": "import_magicfit_walkthrough.py",
+            "command_argv": [
+                "python",
+                "scripts/import_magicfit_walkthrough.py",
+                "--slug",
+                property_slug,
+                "--video-path",
+                str(output_path),
+                "--source-receipt",
+                str(state_path),
+            ],
+            "publishes_public_media": False,
+            "resulting_status": "staged_pending_delivery_acceptance",
+        },
         "property_slug": property_slug,
         "property_title": property_title,
         "composition": "boundary_verified_frame_continuation",
@@ -372,7 +430,6 @@ def compose(
                 "metadata": segment_metadata,
                 "receipt_path": str(receipt_path),
                 "receipt_sha256": _sha256(receipt_path),
-                "provider_session_url": str(receipt.get("page_url") or ""),
             }
             for index, (path, receipt_path, segment_metadata, receipt) in enumerate(
                 zip(segments, segment_receipts, metadata, validated_receipts, strict=True)
@@ -403,6 +460,7 @@ def compose(
         "route_coverage_source": coverage_source,
         "coverage_receipt_path": str(coverage_receipt_path) if coverage_receipt_path is not None else "",
         "coverage_receipt_sha256": _sha256(coverage_receipt_path) if coverage_receipt_path is not None else "",
+        "output_file": str(output_path),
         "video_output_path": str(output_path),
         "video_sha256": _sha256(output_path),
         "output_metadata": output_metadata,
@@ -411,6 +469,10 @@ def compose(
         "full_decode_verified": True,
         "generated_at": _utc_now(),
     }
+    try:
+        validate_magicfit_source_receipt(payload, slug=property_slug)
+    except ValueError as exc:
+        raise RuntimeError("magicfit_source_receipt_handoff_invalid") from exc
     state_path.parent.mkdir(parents=True, exist_ok=True)
     state_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return payload
@@ -430,8 +492,16 @@ def main() -> int:
     parser.add_argument("--encoder-preset", choices=("medium", "fast", "faster", "veryfast"), default="fast")
     parser.add_argument("--ffmpeg-timeout-seconds", type=float, default=1800.0)
     parser.add_argument("--output-fps", type=float, default=0.0, help="0 preserves the common native segment cadence")
-    parser.add_argument("--property-slug", default="")
+    parser.add_argument("--property-slug", required=True)
     parser.add_argument("--property-title", default="")
+    parser.add_argument(
+        "--hosted-walkthrough-video-url",
+        required=True,
+        help=(
+            "Approved MagicFit CDN URL for these exact composed bytes; this "
+            "does not publish or accept the walkthrough."
+        ),
+    )
     args = parser.parse_args()
     payload = compose(
         segments=[Path(value).expanduser().resolve() for value in args.segment],
@@ -448,6 +518,9 @@ def main() -> int:
         output_fps=max(0.0, float(args.output_fps)),
         property_slug=str(args.property_slug or "").strip(),
         property_title=str(args.property_title or "").strip(),
+        hosted_walkthrough_video_url=str(
+            args.hosted_walkthrough_video_url or ""
+        ).strip(),
     )
     print(json.dumps(payload, sort_keys=True))
     return 0

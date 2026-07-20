@@ -51,6 +51,8 @@ from app.services.tool_runtime import ToolRuntimeService, build_tool_runtime
 from app.settings import (
     RuntimeProfile,
     Settings,
+    SUPPORTED_RUNTIME_MODES,
+    SUPPORTED_RUNTIME_ROLES,
     ensure_storage_fallback_allowed,
     ensure_prod_api_token_configured,
     get_settings,
@@ -69,6 +71,115 @@ def _database_url(settings: Settings) -> str:
     if storage is None:
         return str(direct or "").strip()
     return str(getattr(storage, "database_url", "") or "").strip()
+
+
+class _ReadinessSettingsError(RuntimeError):
+    pass
+
+
+_MISSING_READINESS_SETTING = object()
+
+
+def _resolve_readiness_setting(
+    settings: Settings,
+    *,
+    direct_name: str,
+    nested_name: str,
+    nested_value_name: str,
+    default: str,
+    allowed_values: tuple[str, ...],
+    allow_undeclared_default: bool = False,
+) -> str:
+    direct_raw = getattr(
+        settings,
+        direct_name,
+        _MISSING_READINESS_SETTING,
+    )
+    nested_settings = getattr(
+        settings,
+        nested_name,
+        _MISSING_READINESS_SETTING,
+    )
+    nested_raw = (
+        _MISSING_READINESS_SETTING
+        if nested_settings is _MISSING_READINESS_SETTING
+        else getattr(
+            nested_settings,
+            nested_value_name,
+            _MISSING_READINESS_SETTING,
+        )
+    )
+    direct = str(
+        "" if direct_raw is _MISSING_READINESS_SETTING else direct_raw or ""
+    ).strip().lower()
+    nested = str(
+        "" if nested_raw is _MISSING_READINESS_SETTING else nested_raw or ""
+    ).strip().lower()
+    if direct and nested and direct != nested:
+        raise _ReadinessSettingsError(
+            f"readiness_settings_conflict:{direct_name}"
+        )
+    resolved = nested or direct
+    if resolved:
+        if resolved not in allowed_values:
+            raise _ReadinessSettingsError(
+                f"readiness_settings_invalid:{direct_name}"
+            )
+        return resolved
+    if (
+        allow_undeclared_default
+        and direct_raw is _MISSING_READINESS_SETTING
+        and nested_settings is _MISSING_READINESS_SETTING
+    ):
+        return default
+    raise _ReadinessSettingsError(f"readiness_settings_missing:{direct_name}")
+
+
+def _runtime_mode(settings: Settings) -> str:
+    return _resolve_readiness_setting(
+        settings,
+        direct_name="runtime_mode",
+        nested_name="runtime",
+        nested_value_name="mode",
+        default="dev",
+        allowed_values=SUPPORTED_RUNTIME_MODES,
+    )
+
+
+def _runtime_role(settings: Settings) -> str:
+    legacy_runtime = getattr(
+        settings,
+        "runtime",
+        _MISSING_READINESS_SETTING,
+    )
+    # Nested-only compatibility objects predate ``core.role``. Their only safe
+    # role default is API, which retains both schema and admission probes. A
+    # declared-but-blank flattened or nested role still fails as malformed.
+    legacy_nested_only = (
+        getattr(settings, "runtime_mode", _MISSING_READINESS_SETTING)
+        is _MISSING_READINESS_SETTING
+        and legacy_runtime is not _MISSING_READINESS_SETTING
+        and bool(str(getattr(legacy_runtime, "mode", "") or "").strip())
+    )
+    return _resolve_readiness_setting(
+        settings,
+        direct_name="role",
+        nested_name="core",
+        nested_value_name="role",
+        default="api",
+        allowed_values=SUPPORTED_RUNTIME_ROLES,
+        allow_undeclared_default=legacy_nested_only,
+    )
+
+
+def _runtime_authority(settings: Settings) -> tuple[str, str]:
+    runtime_mode = _runtime_mode(settings)
+    runtime_role = _runtime_role(settings)
+    if runtime_mode == "prod" and runtime_role == "operator-tools":
+        raise _ReadinessSettingsError(
+            "readiness_settings_invalid:operator_tools_prod"
+        )
+    return runtime_mode, runtime_role
 
 
 class ReadinessService:
@@ -99,6 +210,10 @@ class ReadinessService:
 
     def check(self) -> tuple[bool, str]:
         try:
+            _runtime_authority(self._settings)
+        except _ReadinessSettingsError as exc:
+            return False, str(exc)
+        try:
             profile = validate_startup_settings(self._settings)
         except RuntimeError as exc:
             message = str(exc)
@@ -126,17 +241,21 @@ class ReadinessService:
 
     def _probe_database(self) -> tuple[bool, str]:
         try:
+            runtime_mode, runtime_role = _runtime_authority(self._settings)
+        except _ReadinessSettingsError as exc:
+            return False, str(exc)
+        try:
             import psycopg
         except Exception:
             return False, "psycopg_missing"
         admission_database_url = ""
         if (
-            str(self._settings.runtime_mode or "").strip().lower() == "prod"
-            and str(self._settings.role or "api").strip().lower() == "api"
+            runtime_mode == "prod"
+            and runtime_role == "api"
         ):
             try:
                 admission_database_url = resolve_api_admission_database_url(
-                    runtime_mode=self._settings.runtime_mode,
+                    runtime_mode=runtime_mode,
                     primary_database_url=_database_url(self._settings),
                 )
             except RuntimeError as exc:
@@ -152,8 +271,8 @@ class ReadinessService:
                     )
 
                     if property_search_schema_readiness_required(
-                        runtime_mode=self._settings.runtime_mode,
-                        role=self._settings.role,
+                        runtime_mode=runtime_mode,
+                        role=runtime_role,
                         explicit=str(
                             os.environ.get(
                                 "PROPERTYQUARRY_SEARCH_SCHEMA_READINESS_REQUIRED"
@@ -190,10 +309,8 @@ class ReadinessService:
                         if str(erasure_key_row[0] or "").strip() != expected_erasure_key_id:
                             return False, "property_search_erasure_key_not_ready:key_id_mismatch"
                         if (
-                            str(self._settings.runtime_mode or "").strip().lower()
-                            == "prod"
-                            and str(self._settings.role or "api").strip().lower()
-                            == "api"
+                            runtime_mode == "prod"
+                            and runtime_role == "api"
                         ):
                             try:
                                 with psycopg.connect(

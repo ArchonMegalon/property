@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import builtins
+from dataclasses import replace
 import os
 import sys
 import types
@@ -9,7 +10,7 @@ import warnings
 import pytest
 
 from app.container import ReadinessService
-from app.settings import get_settings
+from app.settings import get_settings, validate_startup_settings
 
 
 def _clear_env() -> None:
@@ -155,11 +156,139 @@ def test_runtime_mode_prod_rejects_whitespace_api_token() -> None:
         _ = get_settings()
 
 
-def test_runtime_mode_unknown_defaults_to_dev() -> None:
+def test_runtime_mode_unknown_fails_closed() -> None:
     _clear_env()
-    os.environ["EA_RUNTIME_MODE"] = "unknown-mode"
-    s = get_settings()
-    assert s.runtime.mode == "dev"
+    os.environ["EA_RUNTIME_MODE"] = "production"
+    with pytest.raises(
+        RuntimeError,
+        match="EA_RUNTIME_MODE must be one of dev, test, prod",
+    ):
+        _ = get_settings()
+
+
+@pytest.mark.parametrize("blank_value", ("", " ", "\t\n"))
+@pytest.mark.parametrize(
+    ("environment_key", "expected_message"),
+    (
+        ("EA_RUNTIME_MODE", "EA_RUNTIME_MODE must be one of dev, test, prod"),
+        (
+            "EA_ROLE",
+            "EA_ROLE must be one of api, worker, scheduler, openvoice, "
+            "operator-tools, render-tools, property-search-migrate",
+        ),
+    ),
+)
+def test_explicitly_blank_runtime_authority_fails_closed(
+    environment_key: str,
+    expected_message: str,
+    blank_value: str,
+) -> None:
+    _clear_env()
+    os.environ[environment_key] = blank_value
+
+    with pytest.raises(RuntimeError, match=expected_message):
+        _ = get_settings()
+
+
+def test_runtime_role_unknown_fails_closed() -> None:
+    _clear_env()
+    os.environ["EA_RUNTIME_MODE"] = "prod"
+    os.environ["EA_ROLE"] = "appi"
+    os.environ["EA_API_TOKEN"] = "super-secret"
+    with pytest.raises(
+        RuntimeError,
+        match=(
+            "EA_ROLE must be one of api, worker, scheduler, openvoice, "
+            "operator-tools, render-tools, property-search-migrate"
+        ),
+    ):
+        _ = get_settings()
+
+
+@pytest.mark.parametrize("runtime_mode", ("dev", "test", "prod"))
+def test_every_supported_runtime_mode_is_accepted(runtime_mode: str) -> None:
+    _clear_env()
+    os.environ["EA_RUNTIME_MODE"] = runtime_mode
+    os.environ["EA_API_TOKEN"] = "super-secret"
+
+    assert get_settings().runtime.mode == runtime_mode
+
+
+@pytest.mark.parametrize(
+    "role",
+    (
+        "api",
+        "worker",
+        "scheduler",
+        "openvoice",
+        "operator-tools",
+        "render-tools",
+        "property-search-migrate",
+    ),
+)
+def test_every_supported_runtime_role_is_accepted(role: str) -> None:
+    _clear_env()
+    os.environ["EA_ROLE"] = role
+
+    assert get_settings().core.role == role
+
+
+@pytest.mark.parametrize(
+    ("invalid_field", "invalid_value", "expected_message"),
+    (
+        (
+            "runtime_mode",
+            "production",
+            "EA_RUNTIME_MODE must be one of dev, test, prod",
+        ),
+        (
+            "role",
+            "appi",
+            "EA_ROLE must be one of api, worker, scheduler, openvoice, "
+            "operator-tools, render-tools, property-search-migrate",
+        ),
+    ),
+)
+def test_validate_startup_settings_rejects_invalid_programmatic_authority(
+    invalid_field: str,
+    invalid_value: str,
+    expected_message: str,
+) -> None:
+    _clear_env()
+    settings = get_settings()
+    if invalid_field == "runtime_mode":
+        settings = replace(
+            settings,
+            runtime=replace(settings.runtime, mode=invalid_value),
+        )
+    else:
+        settings = replace(
+            settings,
+            core=replace(settings.core, role=invalid_value),
+        )
+
+    with pytest.raises(RuntimeError, match=expected_message):
+        _ = validate_startup_settings(settings)
+
+
+def test_operator_tools_role_is_explicitly_nonproduction() -> None:
+    _clear_env()
+    settings = get_settings()
+    settings = replace(
+        settings,
+        core=replace(settings.core, role="operator-tools"),
+    )
+    assert validate_startup_settings(settings).mode == "dev"
+
+    production_settings = replace(
+        settings,
+        runtime=replace(settings.runtime, mode="prod"),
+    )
+    with pytest.raises(
+        RuntimeError,
+        match="EA_ROLE=operator-tools requires EA_RUNTIME_MODE=dev or test",
+    ):
+        _ = validate_startup_settings(production_settings)
 
 
 def test_default_principal_override() -> None:
@@ -332,6 +461,11 @@ def test_readiness_service_rejects_missing_psycopg_dependency(monkeypatch: pytes
 def test_readiness_service_rejects_unavailable_postgres_dependency(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv(
+        "PROPERTYQUARRY_API_ADMISSION_DATABASE_URL",
+        "postgresql://propertyquarry_api_admission:secret@example/ea",
+    )
+
     class _BadPsycopg:
         @staticmethod
         def connect(*_args: object, **_kwargs: object) -> None:

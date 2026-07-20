@@ -468,6 +468,77 @@ def build_security_posture_receipt() -> dict[str, object]:
         failures.append("ea/Dockerfile.property-web must install with requirements.lock constraints")
     if "COPY scripts/willhaben_property_packet.py /app/scripts/willhaben_property_packet.py" not in web_dockerfile:
         failures.append("ea/Dockerfile.property-web must explicitly copy the Willhaben packet helper")
+    required_web_shared_copies = (
+        (
+            "COPY scripts/property_magicfit_contact_sheet.py "
+            "/app/scripts/property_magicfit_contact_sheet.py"
+        ),
+        (
+            "COPY scripts/property_magicfit_delivery_contract.py "
+            "/app/scripts/property_magicfit_delivery_contract.py"
+        ),
+        (
+            "COPY scripts/property_magicfit_public_eligibility.py "
+            "/app/scripts/property_magicfit_public_eligibility.py"
+        ),
+        (
+            "COPY scripts/property_magicfit_reviewer_authority.py "
+            "/app/scripts/property_magicfit_reviewer_authority.py"
+        ),
+        (
+            "COPY scripts/property_magicfit_secure_io.py "
+            "/app/scripts/property_magicfit_secure_io.py"
+        ),
+        (
+            "COPY scripts/property_tour_publication_lock.py "
+            "/app/scripts/property_tour_publication_lock.py"
+        ),
+        (
+            "COPY scripts/propertyquarry_playwright_runtime.py "
+            "/app/scripts/propertyquarry_playwright_runtime.py"
+        ),
+        (
+            "COPY scripts/browseract_ui_media.py "
+            "/app/scripts/browseract_ui_media.py"
+        ),
+        (
+            "COPY scripts/property_scene_video_shared_env.py "
+            "/app/scripts/property_scene_video_shared_env.py"
+        ),
+    )
+    if any(copy not in web_dockerfile for copy in required_web_shared_copies):
+        failures.append(
+            "ea/Dockerfile.property-web must explicitly copy the shared MagicFit "
+            "contact-sheet, delivery-contract, eligibility, reviewer-authority, "
+            "secure-I/O, publication-lock, browser runtime, media, and "
+            "scene-video environment helpers"
+        )
+    reviewer_overlay = _read("docker-compose.property-magicfit-reviewer.yml")
+    reviewer_trust_env = "PROPERTYQUARRY_MAGICFIT_REVIEWER_TRUST_STORE_FILE"
+    reviewer_trust_target = "/run/propertyquarry/magicfit-reviewer-trust"
+    reviewer_trust_source = "PROPERTYQUARRY_MAGICFIT_REVIEWER_TRUST_DIR"
+    if reviewer_trust_env in compose:
+        failures.append(
+            "base PropertyQuarry compose must keep optional reviewer trust out of Core Gold"
+        )
+    if (
+        reviewer_overlay.count("  propertyquarry-api:\n") != 1
+        or reviewer_overlay.count("  propertyquarry-scheduler:\n") != 1
+        or reviewer_overlay.count(reviewer_trust_env) != 2
+        or reviewer_overlay.count(reviewer_trust_target) != 4
+        or reviewer_overlay.count(reviewer_trust_source) != 2
+        or reviewer_overlay.count("read_only: true") != 2
+        or reviewer_overlay.count("create_host_path: false") != 2
+    ):
+        failures.append(
+            "MagicFit reviewer overlay must mount one explicit external trust "
+            "directory read-only without host-path creation in API and scheduler"
+        )
+    env_example = _read(".env.example")
+    if f"{reviewer_trust_source}=\n" not in env_example:
+        failures.append(
+            ".env.example must declare the optional MagicFit reviewer trust directory"
+        )
     if "for script in /tmp/src/scripts/*" in web_dockerfile or 'cp "$script" /app/scripts/' in web_dockerfile:
         failures.append("ea/Dockerfile.property-web must not bulk-copy scripts into the runtime image")
     for forbidden_native_tool in (

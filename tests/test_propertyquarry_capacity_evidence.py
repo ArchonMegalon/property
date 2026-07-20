@@ -18,7 +18,6 @@ from scripts import propertyquarry_capacity_evidence as capacity
 
 COMMIT_SHA = "a" * 40
 SOURCE_SHA = "b" * 64
-NOW = datetime.now(timezone.utc)
 
 
 def _source_identity(*, clean: bool = True) -> dict[str, object]:
@@ -40,7 +39,7 @@ def _sample(start: datetime, seconds: float) -> dict[str, object]:
     }
 
 
-def _host_measurement() -> dict[str, object]:
+def _host_measurement(*, generated_at: datetime) -> dict[str, object]:
     memory_current = 256 * 1024 * 1024
     memory_maximum = 2 * 1024 * 1024 * 1024
     pids_current = 8
@@ -49,7 +48,7 @@ def _host_measurement() -> dict[str, object]:
         "state": "measured",
         "reason": "",
         "workload": copy.deepcopy(capacity.PROFILE["host_sampler"]),
-        "sample": _sample(NOW, 1.0),
+        "sample": _sample(generated_at, 1.0),
         "cpu": {
             "logical_cpu_count": 4,
             "process_cpu_seconds": 0.2,
@@ -89,7 +88,7 @@ def _host_measurement() -> dict[str, object]:
     }
 
 
-def _postgres_measurement() -> dict[str, object]:
+def _postgres_measurement(*, generated_at: datetime) -> dict[str, object]:
     connect_samples = [5.0, 6.0, 7.0, 8.0]
     query_samples = [2.0] * int(capacity.PROFILE["postgres"]["query_count"])
     return {
@@ -102,7 +101,7 @@ def _postgres_measurement() -> dict[str, object]:
             "server_version_num": "160006",
         },
         "workload": copy.deepcopy(capacity.PROFILE["postgres"]),
-        "sample": _sample(NOW, 1.0),
+        "sample": _sample(generated_at, 1.0),
         "observations": {
             "connection_attempts": 4,
             "connected": 4,
@@ -157,14 +156,19 @@ def _complete_receipt() -> dict[str, object]:
     with _loopback_server() as url:
         api = capacity.measure_api(url)
     queue_measurement = capacity.measure_queue_scheduler_worker()
+    generated_at = datetime.now(timezone.utc)
     return capacity.build_capacity_receipt(
         source_identity=_source_identity(),
         api=api,
-        postgres=_postgres_measurement(),
+        postgres=_postgres_measurement(generated_at=generated_at),
         queue_scheduler_worker=queue_measurement,
-        host=_host_measurement(),
-        generated_at=NOW,
+        host=_host_measurement(generated_at=generated_at),
+        generated_at=generated_at,
     )
+
+
+def _receipt_time(receipt: dict[str, object]) -> datetime:
+    return capacity._parse_timestamp(receipt["generated_at"], field="generated_at")
 
 
 def _rehash(payload: dict[str, object]) -> None:
@@ -181,7 +185,7 @@ def test_loopback_api_queue_host_and_strict_receipt_verify() -> None:
         receipt,
         expected_commit_sha=COMMIT_SHA,
         expected_source_tree_sha256=SOURCE_SHA,
-        now=NOW + timedelta(minutes=1),
+        now=_receipt_time(receipt) + timedelta(minutes=1),
     )
     assert verification["status"] == "verified_local_measurement"
     assert verification["production_capacity_established"] is False
@@ -194,13 +198,14 @@ def test_missing_api_and_postgres_are_explicit_partial_states(tmp_path: Path) ->
     queue_measurement = capacity.measure_queue_scheduler_worker()
     sampler.stop()
     host = capacity.build_host_measurement(before, capacity._host_baseline(tmp_path), sampler)
+    generated_at = datetime.now(timezone.utc)
     receipt = capacity.build_capacity_receipt(
         source_identity=_source_identity(clean=False),
         api=capacity.measure_api(None),
         postgres=capacity.measure_postgres(None),
         queue_scheduler_worker=queue_measurement,
         host=host,
-        generated_at=NOW,
+        generated_at=generated_at,
     )
 
     assert receipt["summary"]["local_status"] == "partial_local_measurement"
@@ -211,7 +216,7 @@ def test_missing_api_and_postgres_are_explicit_partial_states(tmp_path: Path) ->
         receipt,
         expected_commit_sha=COMMIT_SHA,
         expected_source_tree_sha256=SOURCE_SHA,
-        now=NOW,
+        now=generated_at,
     )
 
 
@@ -338,13 +343,14 @@ def test_postgres_connection_failure_is_valid_failed_evidence_not_a_false_pass(
     dsn_file.chmod(0o600)
 
     measured = capacity.measure_postgres(dsn_file)
+    generated_at = datetime.now(timezone.utc)
     receipt = capacity.build_capacity_receipt(
         source_identity=_source_identity(),
         api=capacity._empty_api("loopback_api_url_not_supplied"),
         postgres=measured,
         queue_scheduler_worker=capacity.measure_queue_scheduler_worker(),
-        host=_host_measurement(),
-        generated_at=NOW,
+        host=_host_measurement(generated_at=generated_at),
+        generated_at=generated_at,
     )
 
     assert measured["state"] == "measured"
@@ -355,7 +361,7 @@ def test_postgres_connection_failure_is_valid_failed_evidence_not_a_false_pass(
         receipt,
         expected_commit_sha=COMMIT_SHA,
         expected_source_tree_sha256=SOURCE_SHA,
-        now=NOW,
+        now=generated_at,
     )
 
 
@@ -402,7 +408,7 @@ def test_validator_rejects_rehashed_measurement_aggregate_tampering() -> None:
             receipt,
             expected_commit_sha=COMMIT_SHA,
             expected_source_tree_sha256=SOURCE_SHA,
-            now=NOW,
+            now=_receipt_time(receipt),
         )
 
 
@@ -417,7 +423,7 @@ def test_validator_rejects_rehashed_stored_check_and_summary_tampering() -> None
             receipt,
             expected_commit_sha=COMMIT_SHA,
             expected_source_tree_sha256=SOURCE_SHA,
-            now=NOW,
+            now=_receipt_time(receipt),
         )
 
 
@@ -432,7 +438,7 @@ def test_validator_rejects_any_production_capacity_claim_even_when_rehashed() ->
             receipt,
             expected_commit_sha=COMMIT_SHA,
             expected_source_tree_sha256=SOURCE_SHA,
-            now=NOW,
+            now=_receipt_time(receipt),
         )
 
 
@@ -443,14 +449,14 @@ def test_validator_rejects_wrong_candidate_stale_receipt_and_bool_as_count() -> 
             receipt,
             expected_commit_sha="d" * 40,
             expected_source_tree_sha256=SOURCE_SHA,
-            now=NOW,
+            now=_receipt_time(receipt),
         )
     with pytest.raises(capacity.CapacityEvidenceError, match="stale"):
         capacity.validate_capacity_receipt(
             receipt,
             expected_commit_sha=COMMIT_SHA,
             expected_source_tree_sha256=SOURCE_SHA,
-            now=NOW + timedelta(days=2),
+            now=_receipt_time(receipt) + timedelta(days=2),
         )
     receipt["measurements"]["api"]["observations"]["response_bytes"] = True
     receipt["measurements"]["network"]["response_bytes"] = True
@@ -460,13 +466,14 @@ def test_validator_rejects_wrong_candidate_stale_receipt_and_bool_as_count() -> 
             receipt,
             expected_commit_sha=COMMIT_SHA,
             expected_source_tree_sha256=SOURCE_SHA,
-            now=NOW,
+            now=_receipt_time(receipt),
         )
 
 
 def test_validator_rejects_rehashed_old_measurement_under_fresh_receipt() -> None:
     receipt = _complete_receipt()
-    old_start = NOW - timedelta(hours=2)
+    receipt_time = _receipt_time(receipt)
+    old_start = receipt_time - timedelta(hours=2)
     receipt["measurements"]["api"]["sample"]["started_at"] = capacity._iso(old_start)
     receipt["measurements"]["api"]["sample"]["completed_at"] = capacity._iso(
         old_start
@@ -479,7 +486,7 @@ def test_validator_rejects_rehashed_old_measurement_under_fresh_receipt() -> Non
             receipt,
             expected_commit_sha=COMMIT_SHA,
             expected_source_tree_sha256=SOURCE_SHA,
-            now=NOW,
+            now=receipt_time,
         )
 
 

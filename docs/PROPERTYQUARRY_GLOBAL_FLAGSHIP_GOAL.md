@@ -49,6 +49,14 @@ for the same release commit and immutable image digest.
   binding all agree on the exact candidate.
 - Generated evidence is immutable, checksum-verifiable, time-bounded, and cannot
   self-attest its own authority.
+- The canonical repository envelope is exactly three single-parent commits:
+  `SOURCE_SHA` contains all release source/tests/docs, `RECEIPT_SHA` changes only
+  the canonical browser and flagship receipts, and `ENVELOPE_SHA` changes only
+  the weekly pulse and release manifest. The manifest's `release_commit_sha`,
+  runtime label, and deployment label name `SOURCE_SHA`; receipt source bindings
+  also name `SOURCE_SHA`; weekly-pulse provenance names `RECEIPT_SHA`; ancestry
+  and exact changed-path checks bind all three. No field is allowed to switch
+  between source and receipt semantics merely because it is generated later.
 
 ### 2. Complete customer value loop
 
@@ -220,10 +228,12 @@ No lower level can be relabelled as a higher one.
 
 ## Current baseline on 2026-07-19
 
-- The preserved integration tree is frozen in immutable local source commits. The
-  canonical generated release manifest and receipt-only envelope carry the exact
-  runtime SHA; this document deliberately does not self-reference the commit that
-  contains it.
+- The preserved integration tree is an uncommitted release-candidate worktree
+  under active hardening. It is not frozen, clean, or an exact release identity.
+  Existing generated receipts and the release manifest bind an earlier source
+  candidate and have no authority for the current bytes. A new canonical
+  `SOURCE_SHA` / `RECEIPT_SHA` / `ENVELOPE_SHA` sequence may be materialized only
+  after the source tree is complete, reviewed, tested, and clean.
 - Strong local Core evidence now includes real Chromium, Firefox, and WebKit
   operating-loop/public-tour journeys; an authenticated Chromium cold/warm probe
   with server-acknowledged nonces and observed subresource HTTP-cache reuse;
@@ -232,13 +242,16 @@ No lower level can be relabelled as a higher one.
 - The candidate and its release branch remain local. No branch has been pushed,
   no protected CI or independent controller has authorized this exact runtime,
   and no exact-candidate protected live launch evidence exists.
-- Critical search, shortlist, and research shells have explicit de-AT, de-DE, and
-  es-CR localization plus deterministic currency, number, timezone, address, and
-  postal contracts. The declared phase-one claim remains English-only because
-  public, authentication, account, billing, legal, provider, and dynamic content
-  are not fully translated or independently reviewed. Manual accessibility,
-  field performance, localized SEO, live provider, and protected operations
-  evidence must still be completed before widening the claim.
+- Thirty-two non-legal routes have deterministic de-AT, de-DE, and es-CR route
+  shells, locale-safe navigation/recovery copy, and the eight public indexable
+  routes have exact self-canonicals and reciprocal locale alternates. Seven legal
+  routes remain explicitly blocked on independently reviewed localized source
+  text. The declared phase-one claim remains English-only because public,
+  authentication, account, billing, legal, provider, notification, and dynamic
+  content are not fully translated or independently reviewed. Manual
+  accessibility, native-language review, field performance, live provider, and
+  protected operations evidence must still be completed before widening the
+  claim.
 - Bounded local capacity evidence is a lab receipt only. Even when bound to the
   clean runtime commit it cannot establish production capacity, provider quotas,
   staffing, or field traffic behavior.

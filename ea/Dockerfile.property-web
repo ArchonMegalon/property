@@ -16,14 +16,23 @@ COPY ea/requirements.lock /app/requirements.lock
 RUN python -m pip install --no-cache-dir --upgrade pip==26.1.2 && \
     pip install --no-cache-dir -r requirements.txt -c requirements.lock
 
-RUN mkdir -p /app/scripts /app/docs /data/artifacts /data/public_property_tours /data/provider-ledger /home/ea
+RUN mkdir -p /app/scripts /app/docs /data/artifacts /data/public_property_tours /data/provider-ledger /data/governed-render-consents /home/ea
 COPY scripts/willhaben_property_packet.py /app/scripts/willhaben_property_packet.py
 COPY scripts/property_magicfit_env.py /app/scripts/property_magicfit_env.py
+COPY scripts/propertyquarry_playwright_runtime.py /app/scripts/propertyquarry_playwright_runtime.py
+COPY scripts/property_magicfit_contact_sheet.py /app/scripts/property_magicfit_contact_sheet.py
+COPY scripts/property_magicfit_delivery_contract.py /app/scripts/property_magicfit_delivery_contract.py
+COPY scripts/property_magicfit_public_eligibility.py /app/scripts/property_magicfit_public_eligibility.py
+COPY scripts/property_magicfit_reviewer_authority.py /app/scripts/property_magicfit_reviewer_authority.py
+COPY scripts/property_magicfit_secure_io.py /app/scripts/property_magicfit_secure_io.py
+COPY scripts/property_tour_publication_lock.py /app/scripts/property_tour_publication_lock.py
+COPY scripts/browseract_ui_media.py /app/scripts/browseract_ui_media.py
 COPY scripts/mootion_movie_worker.py /app/scripts/mootion_movie_worker.py
 COPY scripts/render_magicfit_property_flythrough.py /app/scripts/render_magicfit_property_flythrough.py
 COPY scripts/render_onemin_property_i2v_segment.py /app/scripts/render_onemin_property_i2v_segment.py
 COPY scripts/render_omagic_property_model_walkthrough.py /app/scripts/render_omagic_property_model_walkthrough.py
 COPY scripts/render_magicai_model_upload_adapter.py /app/scripts/render_magicai_model_upload_adapter.py
+COPY scripts/property_scene_video_shared_env.py /app/scripts/property_scene_video_shared_env.py
 COPY scripts/property_scene_video_readiness_report.py /app/scripts/property_scene_video_readiness_report.py
 COPY scripts/property_scene_video_runtime_status.py /app/scripts/property_scene_video_runtime_status.py
 COPY scripts/propertyquarry_postgres_browser_bootstrap.py /app/scripts/propertyquarry_postgres_browser_bootstrap.py
@@ -54,7 +63,7 @@ COPY --chmod=0555 ea/property_web_elf_validator.py /usr/local/libexec/property_w
 COPY LTDs.md /app/LTDs.md
 
 RUN set -eu; \
-    mkdir -p /data/artifacts /data/public_property_tours /data/provider-ledger /home/ea; \
+    mkdir -p /data/artifacts /data/public_property_tours /data/provider-ledger /data/governed-render-consents /home/ea; \
     chown -R ea:ea /app /data /home/ea
 
 USER 0:0

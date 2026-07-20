@@ -9,9 +9,71 @@ from pathlib import Path
 import pytest
 import yaml
 
+from app.settings import SUPPORTED_RUNTIME_MODES, SUPPORTED_RUNTIME_ROLES
+
 
 ROOT = Path(__file__).resolve().parents[1]
 FLEET_ROOT = Path(str(os.environ.get("FLEET_ROOT") or "/docker/fleet"))
+
+
+def _compose_authority_declarations(key: str) -> dict[tuple[str, str], str]:
+    declarations: dict[tuple[str, str], str] = {}
+    for path in sorted(ROOT.glob("docker-compose*.yml")):
+        payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        for service_name, service in (payload.get("services") or {}).items():
+            environment = (service or {}).get("environment") or {}
+            raw_value: object | None = None
+            if isinstance(environment, dict):
+                raw_value = environment.get(key)
+            elif isinstance(environment, list):
+                prefix = f"{key}="
+                for item in environment:
+                    if isinstance(item, str) and item.startswith(prefix):
+                        raw_value = item[len(prefix) :]
+                        break
+            if raw_value is None:
+                continue
+            value = str(raw_value).strip()
+            interpolation = re.fullmatch(r"\$\{[A-Z0-9_]+:-([^}]*)\}", value)
+            if value.startswith("${"):
+                assert interpolation is not None, (
+                    f"{path.name}:{service_name}:{key} must declare a governed default"
+                )
+                value = interpolation.group(1).strip()
+            declarations[(path.name, str(service_name))] = value
+    return declarations
+
+
+def test_every_governed_compose_runtime_authority_is_allowlisted() -> None:
+    roles = _compose_authority_declarations("EA_ROLE")
+    modes = _compose_authority_declarations("EA_RUNTIME_MODE")
+
+    assert roles == {
+        ("docker-compose.host-tools.yml", "ea-operator-host-tools"): "operator-tools",
+        ("docker-compose.property.yml", "propertyquarry-api"): "api",
+        ("docker-compose.property.yml", "propertyquarry-migrate"): "property-search-migrate",
+        ("docker-compose.property.yml", "propertyquarry-render-tools"): "render-tools",
+        ("docker-compose.property.yml", "propertyquarry-scheduler"): "scheduler",
+        ("docker-compose.property.yml", "propertyquarry-worker"): "worker",
+        ("docker-compose.yml", "ea-api"): "api",
+        ("docker-compose.yml", "ea-openvoice"): "openvoice",
+        ("docker-compose.yml", "ea-responses-proxy"): "api",
+        ("docker-compose.yml", "ea-scheduler"): "scheduler",
+        ("docker-compose.yml", "ea-worker"): "worker",
+    }
+    assert modes == {
+        ("docker-compose.host-tools.yml", "ea-operator-host-tools"): "dev",
+        ("docker-compose.prod.yml", "ea-api"): "prod",
+        ("docker-compose.prod.yml", "ea-scheduler"): "prod",
+        ("docker-compose.prod.yml", "ea-worker"): "prod",
+        ("docker-compose.property.yml", "propertyquarry-api"): "prod",
+        ("docker-compose.property.yml", "propertyquarry-migrate"): "prod",
+        ("docker-compose.property.yml", "propertyquarry-render-tools"): "prod",
+        ("docker-compose.property.yml", "propertyquarry-scheduler"): "prod",
+        ("docker-compose.property.yml", "propertyquarry-worker"): "prod",
+    }
+    assert set(roles.values()) <= set(SUPPORTED_RUNTIME_ROLES)
+    assert set(modes.values()) <= set(SUPPORTED_RUNTIME_MODES)
 
 
 def _optional_text(path: Path) -> str:
@@ -253,7 +315,13 @@ def test_core_ci_gate_is_bounded_and_reports_slow_tests_without_reducing_coverag
     assert job["timeout-minutes"] == 120
     assert [
         step for step in job["steps"] if step.get("name") == "Run core CI gates"
-    ] == [{"name": "Run core CI gates", "run": "make ci-gates"}]
+    ] == [
+        {
+            "name": "Run core CI gates",
+            "env": {"PROPERTYQUARRY_REQUIRE_REAL_CHROMIUM_INTEGRATION": "1"},
+            "run": "make ci-gates",
+        }
+    ]
 
     test_api_body = makefile.split("test-api:\n", 1)[1].split("\n\n", 1)[0]
     assert (
@@ -264,11 +332,11 @@ def test_core_ci_gate_is_bounded_and_reports_slow_tests_without_reducing_coverag
 
     ci_gates_body = makefile.split("ci-gates:\n", 1)[1].split("\n\n", 1)[0]
     assert [
-        line.strip() for line in ci_gates_body.splitlines() if line.startswith("\t$(MAKE) ")
+        line.strip() for line in ci_gates_body.splitlines() if "$(MAKE) " in line
     ] == [
         "$(MAKE) smoke-help",
         "$(MAKE) ci-local",
-        "$(MAKE) test-api",
+        "PROPERTYQUARRY_REQUIRE_REAL_CHROMIUM_INTEGRATION=1 $(MAKE) test-api",
         "$(MAKE) verify-release-assets",
         "$(MAKE) verify-flagship-release-readiness",
         "$(MAKE) verify-generated-release-artifacts-clean",

@@ -21,8 +21,18 @@ from pathlib import Path
 from typing import Any, Mapping
 
 if __package__:
+    from scripts.propertyquarry_global_governance_attestation import (
+        GLOBAL_EXPERIENCE_GATE_ID,
+        GlobalGovernanceAttestationError,
+        verify_global_governance_attestation,
+    )
     from scripts.propertyquarry_strict_json import load_strict_json_object_snapshot
 else:
+    from propertyquarry_global_governance_attestation import (  # type: ignore[no-redef]
+        GLOBAL_EXPERIENCE_GATE_ID,
+        GlobalGovernanceAttestationError,
+        verify_global_governance_attestation,
+    )
     from propertyquarry_strict_json import load_strict_json_object_snapshot
 
 
@@ -813,7 +823,13 @@ def _validate_release_binding(
 
 
 def _validate_approvals_and_attestation(
-    receipt: Mapping[str, Any], *, expected_commit: str, expected_image: str, now: datetime, age: float
+    receipt: Mapping[str, Any],
+    *,
+    contract_sha256: str,
+    expected_commit: str,
+    expected_image: str,
+    now: datetime,
+    age: float,
 ) -> tuple[list[str], bool]:
     errors: list[str] = []
     approvals, valid = _rows_by(receipt.get("approvals"), "role")
@@ -826,17 +842,27 @@ def _validate_approvals_and_attestation(
         errors.extend(_evidence_errors(approval.get("evidence"), path=f"live_receipt.approvals.{role}.evidence", now=now, maximum_age_hours=age))
 
     attestation = _mapping(receipt.get("independent_attestation"))
-    independently_attested = (
-        attestation.get("independent") is True
-        and attestation.get("authority") == "independent_release_controller"
-        and attestation.get("subject_git_commit") == expected_commit
-        and attestation.get("subject_image_digest") == expected_image
-        and attestation.get("subject_payload_digest") == _attested_payload_digest(receipt)
-        and _opaque_ref(attestation.get("attestor_ref"))
-    )
+    try:
+        verify_global_governance_attestation(
+            attestation,
+            expected_subject={
+                "gate_id": GLOBAL_EXPERIENCE_GATE_ID,
+                "receipt_contract": LIVE_RECEIPT_SCHEMA,
+                "release_commit_sha": expected_commit,
+                "release_image_digest": expected_image,
+                "source_digests": {
+                    "global_experience_contract_sha256": f"sha256:{contract_sha256}",
+                },
+                "payload_sha256": _attested_payload_digest(receipt),
+            },
+            observed_at=now,
+        )
+    except GlobalGovernanceAttestationError:
+        independently_attested = False
+    else:
+        independently_attested = True
     if not independently_attested:
         _add(errors, "live_receipt.independent_attestation", "must independently attest the exact release")
-    errors.extend(_evidence_errors(attestation.get("evidence"), path="live_receipt.independent_attestation.evidence", now=now, maximum_age_hours=age))
     return errors, independently_attested
 
 
@@ -930,6 +956,7 @@ def build_global_experience_gate_receipt(
 
         attestation_errors, independently_attested = _validate_approvals_and_attestation(
             receipt,
+            contract_sha256=contract_sha256,
             expected_commit=expected_commit,
             expected_image=expected_image,
             now=evaluated_at,

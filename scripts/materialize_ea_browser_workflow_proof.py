@@ -48,7 +48,6 @@ VOLATILE_EXECUTION_KEYS = frozenset(
         "python_bin",
         "resolved_path",
         "review_due",
-        "size_bytes",
         "source_path",
     }
 )

@@ -13,8 +13,18 @@ from typing import Any, Mapping
 from urllib.parse import urlparse
 
 if __package__:
+    from scripts.propertyquarry_global_governance_attestation import (
+        JURISDICTION_PRIVACY_RIGHTS_GATE_ID,
+        GlobalGovernanceAttestationError,
+        verify_global_governance_attestation,
+    )
     from scripts.propertyquarry_strict_json import load_strict_json_object_snapshot
 else:
+    from propertyquarry_global_governance_attestation import (  # type: ignore[no-redef]
+        JURISDICTION_PRIVACY_RIGHTS_GATE_ID,
+        GlobalGovernanceAttestationError,
+        verify_global_governance_attestation,
+    )
     from propertyquarry_strict_json import load_strict_json_object_snapshot
 
 
@@ -67,6 +77,18 @@ def _load_json_with_sha256(path: Path) -> tuple[dict[str, Any], str]:
         field="jurisdiction privacy rights artifact",
     )
     return payload, f"sha256:{digest}"
+
+
+def _attested_payload_digest(receipt: Mapping[str, Any]) -> str:
+    payload = dict(receipt)
+    payload.pop("attestation_verification", None)
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 
 
 def _timestamp(value: object) -> datetime | None:
@@ -405,19 +427,23 @@ def build_gate(
                 blockers.append(f"provider {provider_id} lacks exact technical enforcement for prohibited capabilities")
 
         attestation = live.get("attestation_verification")
-        if (
-            not _recent_proof_record(
-                attestation,
-                now=now,
-                max_age_hours=max_age_hours,
+        try:
+            verify_global_governance_attestation(
+                attestation if isinstance(attestation, Mapping) else {},
+                expected_subject={
+                    "gate_id": JURISDICTION_PRIVACY_RIGHTS_GATE_ID,
+                    "receipt_contract": LIVE_RECEIPT_SCHEMA,
+                    "release_commit_sha": expected_release_sha,
+                    "release_image_digest": expected_image_digest,
+                    "source_digests": {
+                        "jurisdiction_privacy_rights_contract_sha256": contract_digest,
+                        "market_envelope_sha256": envelope_digest,
+                    },
+                    "payload_sha256": _attested_payload_digest(live),
+                },
+                observed_at=now,
             )
-            or not isinstance(attestation, Mapping)
-            or attestation.get("authority") != "independent_compliance_controller"
-            or attestation.get("independent_of_implementation") is not True
-            or not _opaque_ref(attestation.get("workflow_run_ref"))
-            or str(attestation.get("subject_commit_sha") or "").strip().casefold() != expected_release_sha
-            or str(attestation.get("subject_image_digest") or "").strip().casefold() != expected_image_digest
-        ):
+        except GlobalGovernanceAttestationError:
             blockers.append("live compliance receipt lacks independent exact-release attestation verification")
 
     blockers = list(dict.fromkeys(blockers))

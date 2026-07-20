@@ -57,6 +57,18 @@ services:
       PROPERTYQUARRY_SEARCH_SCHEMA_READINESS_REQUIRED: "1"
       PROPERTYQUARRY_RECONSTRUCTION_RENDER_BRIDGE_URL: "${PROPERTYQUARRY_RECONSTRUCTION_RENDER_BRIDGE_URL:-http://propertyquarry-render-tools:8091/generate-reconstruction}"
       PROPERTYQUARRY_RECONSTRUCTION_RENDER_BRIDGE_TOKEN: "${PROPERTYQUARRY_RECONSTRUCTION_RENDER_BRIDGE_TOKEN:?Set PROPERTYQUARRY_RECONSTRUCTION_RENDER_BRIDGE_TOKEN for the render bridge}"
+      # Optional paid apartment videos are composed by the shared Horizon lane.
+      # The API receives only dedicated compose authority, never provider logins.
+      # Empty values keep Core Gold deployable while governed-video readiness
+      # fails closed until the full consent/origin boundary is configured.
+      PROPERTYQUARRY_GOVERNED_RENDER_API_URL: "${PROPERTYQUARRY_GOVERNED_RENDER_API_URL:-}"
+      PROPERTYQUARRY_GOVERNED_RENDER_API_TOKEN: "${PROPERTYQUARRY_GOVERNED_RENDER_API_TOKEN:-}"
+      PROPERTYQUARRY_GOVERNED_RENDER_API_TOKEN_FILE: ""
+      PROPERTYQUARRY_GOVERNED_RENDER_ALLOWED_ORIGIN: "${PROPERTYQUARRY_GOVERNED_RENDER_ALLOWED_ORIGIN:-}"
+      PROPERTYQUARRY_GOVERNED_RENDER_CONSENT_SIGNING_SECRET: "${PROPERTYQUARRY_GOVERNED_RENDER_CONSENT_SIGNING_SECRET:-}"
+      PROPERTYQUARRY_GOVERNED_RENDER_CONSENT_SIGNING_SECRET_FILE: ""
+      PROPERTYQUARRY_GOVERNED_RENDER_CONSENT_STORE_DIR: /data/governed-render-consents
+      PROPERTYQUARRY_GOVERNED_RENDER_LOCALE: "${PROPERTYQUARRY_GOVERNED_RENDER_LOCALE:-en-US}"
       DATABASE_URL: "${PROPERTYQUARRY_API_DATABASE_URL:?Set a non-owner PROPERTYQUARRY_API_DATABASE_URL for the API runtime}"
       PROPERTYQUARRY_ADMISSION_BACKEND: "postgres"
       PROPERTYQUARRY_API_ADMISSION_DATABASE_URL: "${PROPERTYQUARRY_API_ADMISSION_DATABASE_URL:?Set a dedicated least-privilege PROPERTYQUARRY_API_ADMISSION_DATABASE_URL}"
@@ -132,6 +144,7 @@ services:
       - ./config:/app/config:ro
       - ./state/incoming_property_tours:/data/incoming_property_tours
       - propertyquarry_artifacts:/data/artifacts
+      - propertyquarry_governed_render_consents:/data/governed-render-consents
       - propertyquarry_public_tours:/data/public_property_tours
       - propertyquarry_provider_ledger:/data/provider-ledger
     networks:
@@ -206,6 +219,14 @@ services:
       # This consumer is limited to durable property-search work. It neither
       # receives the optional advanced-visual env bundle nor joins the render
       # network, so Core Gold cannot acquire a paid-render dependency here.
+      PROPERTYQUARRY_GOVERNED_RENDER_API_URL: ""
+      PROPERTYQUARRY_GOVERNED_RENDER_API_TOKEN: ""
+      PROPERTYQUARRY_GOVERNED_RENDER_API_TOKEN_FILE: ""
+      PROPERTYQUARRY_GOVERNED_RENDER_ALLOWED_ORIGIN: ""
+      PROPERTYQUARRY_GOVERNED_RENDER_CONSENT_SIGNING_SECRET: ""
+      PROPERTYQUARRY_GOVERNED_RENDER_CONSENT_SIGNING_SECRET_FILE: ""
+      PROPERTYQUARRY_GOVERNED_RENDER_CONSENT_STORE_DIR: ""
+      PROPERTYQUARRY_GOVERNED_RENDER_LOCALE: ""
       THREEDVISTA_LOGIN_EMAIL: ""
       THREEDVISTA_LOGIN_PASSWORD: ""
       THREEDVISTA_LICENSE_EMAIL: ""
@@ -290,6 +311,14 @@ services:
       PROPERTYQUARRY_RENDER_DATABASE_URL: ""
       PROPERTYQUARRY_MIGRATION_DATABASE_URL: ""
       # The scheduler never registers desktop vendor software.
+      PROPERTYQUARRY_GOVERNED_RENDER_API_URL: ""
+      PROPERTYQUARRY_GOVERNED_RENDER_API_TOKEN: ""
+      PROPERTYQUARRY_GOVERNED_RENDER_API_TOKEN_FILE: ""
+      PROPERTYQUARRY_GOVERNED_RENDER_ALLOWED_ORIGIN: ""
+      PROPERTYQUARRY_GOVERNED_RENDER_CONSENT_SIGNING_SECRET: ""
+      PROPERTYQUARRY_GOVERNED_RENDER_CONSENT_SIGNING_SECRET_FILE: ""
+      PROPERTYQUARRY_GOVERNED_RENDER_CONSENT_STORE_DIR: ""
+      PROPERTYQUARRY_GOVERNED_RENDER_LOCALE: ""
       THREEDVISTA_LOGIN_EMAIL: ""
       THREEDVISTA_LOGIN_PASSWORD: ""
       THREEDVISTA_LICENSE_EMAIL: ""
@@ -400,6 +429,14 @@ services:
       EA_RUNTIME_MODE: "${EA_RUNTIME_MODE:-prod}"
       # Long-lived render bridges do not receive reusable desktop-login
       # credentials; a future activation/export job needs a one-shot scope.
+      PROPERTYQUARRY_GOVERNED_RENDER_API_URL: ""
+      PROPERTYQUARRY_GOVERNED_RENDER_API_TOKEN: ""
+      PROPERTYQUARRY_GOVERNED_RENDER_API_TOKEN_FILE: ""
+      PROPERTYQUARRY_GOVERNED_RENDER_ALLOWED_ORIGIN: ""
+      PROPERTYQUARRY_GOVERNED_RENDER_CONSENT_SIGNING_SECRET: ""
+      PROPERTYQUARRY_GOVERNED_RENDER_CONSENT_SIGNING_SECRET_FILE: ""
+      PROPERTYQUARRY_GOVERNED_RENDER_CONSENT_STORE_DIR: ""
+      PROPERTYQUARRY_GOVERNED_RENDER_LOCALE: ""
       THREEDVISTA_LOGIN_EMAIL: ""
       THREEDVISTA_LOGIN_PASSWORD: ""
       THREEDVISTA_LICENSE_EMAIL: ""
@@ -499,6 +536,7 @@ services:
 
 volumes:
   propertyquarry_artifacts: {}
+  propertyquarry_governed_render_consents: {}
   propertyquarry_pgdata: {}
   propertyquarry_public_tours: {}
   propertyquarry_provider_ledger: {}

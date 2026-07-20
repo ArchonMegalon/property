@@ -8,6 +8,13 @@ from pathlib import Path
 
 import pytest
 
+from propertyquarry_global_governance_test_support import (
+    install_test_authority,
+    signed_attestation,
+)
+from scripts.propertyquarry_global_governance_attestation import (
+    GLOBAL_EXPERIENCE_GATE_ID,
+)
 from scripts.propertyquarry_global_experience_gate import (
     CONTRACT_SCHEMA,
     GATE_RECEIPT_SCHEMA,
@@ -91,6 +98,11 @@ CRITICAL_SCENARIOS = (
     "tour_unavailable",
     "tour_revoked",
 )
+
+
+@pytest.fixture(autouse=True)
+def _global_governance_authority(tmp_path: Path, monkeypatch) -> None:
+    install_test_authority(tmp_path, monkeypatch)
 
 
 def _stamp(value: datetime) -> str:
@@ -343,16 +355,18 @@ def _live_receipt() -> dict[str, object]:
             _market("CR", "es-CR"),
         ],
         "approvals": approvals,
-        "independent_attestation": {
-            "independent": True,
-            "authority": "independent_release_controller",
-            "subject_git_commit": COMMIT,
-            "subject_image_digest": IMAGE,
-            "attestor_ref": "attestor:release-control:517e9a",
-            "evidence": _evidence("independent-attestation"),
-        },
     }
-    receipt["independent_attestation"]["subject_payload_digest"] = _attested_payload_digest(receipt)
+    receipt["independent_attestation"] = signed_attestation(
+        gate_id=GLOBAL_EXPERIENCE_GATE_ID,
+        receipt_contract=LIVE_RECEIPT_SCHEMA,
+        release_commit_sha=COMMIT,
+        release_image_digest=IMAGE,
+        source_digests={
+            "global_experience_contract_sha256": f"sha256:{contract_sha}",
+        },
+        payload_sha256=_attested_payload_digest(receipt),
+        issued_at=NOW - timedelta(minutes=2),
+    )
     return receipt
 
 
@@ -476,7 +490,10 @@ def test_stale_placeholder_and_non_independent_evidence_are_rejected(tmp_path: P
     live["markets"][0]["native_content_review"]["evidence"]["observed_at"] = _stamp(
         NOW - timedelta(hours=25)
     )
-    live["independent_attestation"]["independent"] = False
+    live["independent_attestation"] = {
+        "independent": False,
+        "authority": "independent_release_controller",
+    }
     receipt = _evaluate(tmp_path, live)
     assert receipt["status"] == "blocked"
     assert any("non-placeholder" in blocker for blocker in receipt["blockers"])
@@ -572,7 +589,7 @@ def test_independent_attestation_binds_the_complete_asserted_payload(tmp_path: P
 def test_exact_release_binding_and_contract_digest_are_required(tmp_path: Path) -> None:
     live = _live_receipt()
     live["release_identity"]["git_commit"] = "4" * 40
-    live["independent_attestation"]["subject_image_digest"] = "sha256:" + "5" * 64
+    live["independent_attestation"]["subject"]["release_image_digest"] = "sha256:" + "5" * 64
     live["contract_sha256"] = "6" * 64
     receipt = _evaluate(tmp_path, live)
     assert receipt["status"] == "blocked"
