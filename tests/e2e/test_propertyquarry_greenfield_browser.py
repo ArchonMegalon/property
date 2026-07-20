@@ -6167,7 +6167,20 @@ def test_propertyquarry_3d_tour_request_is_user_initiated_in_real_browser(
     page: Page = context.new_page()
     visual_requests: list[dict[str, object]] = []
     visual_status_polls = 0
+    visual_status_queries: list[dict[str, str]] = []
     console_errors: list[str] = []
+    post_identity = {
+        "run_id": "run-42-canonical",
+        "candidate_ref": "family-tiergarten-canonical",
+        "source_ref": "immobilienscout24:family-tiergarten-canonical",
+        "property_url": "https://canonical.example.test/properties/family-tiergarten",
+    }
+    pending_identity = {
+        "run_id": "run-42-rendering",
+        "candidate_ref": "family-tiergarten-rendering",
+        "source_ref": "immobilienscout24:family-tiergarten-rendering",
+        "property_url": "https://canonical.example.test/properties/family-tiergarten-rendering",
+    }
 
     page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
 
@@ -6181,7 +6194,7 @@ def test_propertyquarry_3d_tour_request_is_user_initiated_in_real_browser(
                 {
                     "generated_at": "2026-07-02T10:00:00+00:00",
                     "status": "created",
-                    "property_url": visual_requests[-1].get("property_url", ""),
+                    "property_url": post_identity["property_url"],
                     "title": "Family flat near Tiergarten",
                     "request_kind": "tour",
                     "tour_url": "",
@@ -6195,9 +6208,9 @@ def test_propertyquarry_3d_tour_request_is_user_initiated_in_real_browser(
                     "poll_after_seconds": 1,
                     "delivery_status": "queued",
                     "blocked_reason": "",
-                    "source_ref": visual_requests[-1].get("source_ref", ""),
-                    "run_id": visual_requests[-1].get("run_id", ""),
-                    "candidate_ref": visual_requests[-1].get("candidate_ref", ""),
+                    "source_ref": post_identity["source_ref"],
+                    "run_id": post_identity["run_id"],
+                    "candidate_ref": post_identity["candidate_ref"],
                 }
             ),
         )
@@ -6207,6 +6220,35 @@ def test_propertyquarry_3d_tour_request_is_user_initiated_in_real_browser(
     def _capture_visual_status(route) -> None:
         nonlocal visual_status_polls
         visual_status_polls += 1
+        parsed_query = urllib.parse.parse_qs(urllib.parse.urlparse(route.request.url).query)
+        visual_status_queries.append({key: str(values[-1]) for key, values in parsed_query.items() if values})
+        if visual_status_polls == 1:
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps(
+                    {
+                        "generated_at": "2026-07-02T10:00:02+00:00",
+                        "status": "processing",
+                        "property_url": pending_identity["property_url"],
+                        "title": "Family flat near Tiergarten",
+                        "request_kind": "tour",
+                        "tour_url": "",
+                        "tour_status": "processing",
+                        "flythrough_url": "",
+                        "flythrough_status": "",
+                        "status_label": "3D tour rendering",
+                        "status_detail": "3D tour is rendering.",
+                        "eta_label": "about 5 min",
+                        "progress_pct": 58,
+                        "poll_after_seconds": 1,
+                        "source_ref": pending_identity["source_ref"],
+                        "run_id": pending_identity["run_id"],
+                        "candidate_ref": pending_identity["candidate_ref"],
+                    }
+                ),
+            )
+            return
         route.fulfill(
             status=200,
             content_type="application/json",
@@ -6214,7 +6256,7 @@ def test_propertyquarry_3d_tour_request_is_user_initiated_in_real_browser(
                 {
                     "generated_at": "2026-07-02T10:00:03+00:00",
                     "status": "ready",
-                    "property_url": "https://www.immobilienscout24.de/expose/family-tiergarten",
+                    "property_url": pending_identity["property_url"],
                     "title": "Family flat near Tiergarten",
                     "request_kind": "tour",
                     "tour_url": f"{base_url}/tours/altbau-u6/control/3dvista",
@@ -6226,9 +6268,9 @@ def test_propertyquarry_3d_tour_request_is_user_initiated_in_real_browser(
                     "eta_label": "",
                     "progress_pct": 100,
                     "poll_after_seconds": 0,
-                    "source_ref": "immobilienscout24:family-tiergarten",
-                    "run_id": "run-42",
-                    "candidate_ref": "family-tiergarten",
+                    "source_ref": pending_identity["source_ref"],
+                    "run_id": pending_identity["run_id"],
+                    "candidate_ref": pending_identity["candidate_ref"],
                 }
             ),
         )
@@ -6267,7 +6309,21 @@ def test_propertyquarry_3d_tour_request_is_user_initiated_in_real_browser(
         assert "16%" in rail_fill or "100%" in rail_fill
 
         expect(page.locator("[data-prd-visual-status]")).to_contain_text("3D tour is ready.", timeout=15_000)
-        assert visual_status_polls >= 1
+        assert visual_status_polls >= 2
+        assert visual_status_queries[0] == {
+            "run_id": post_identity["run_id"],
+            "request_kind": "tour",
+            "candidate_ref": post_identity["candidate_ref"],
+            "source_ref": post_identity["source_ref"],
+            "property_url": post_identity["property_url"],
+        }
+        assert visual_status_queries[1] == {
+            "run_id": pending_identity["run_id"],
+            "request_kind": "tour",
+            "candidate_ref": pending_identity["candidate_ref"],
+            "source_ref": pending_identity["source_ref"],
+            "property_url": pending_identity["property_url"],
+        }
         updated_button = page.get_by_role("button", name="Open 3D tour").first
         expect(updated_button).to_be_visible()
         updated_href = str(updated_button.get_attribute("data-pw-visual-href") or "").strip()
@@ -6300,6 +6356,91 @@ def test_propertyquarry_3d_tour_request_is_user_initiated_in_real_browser(
             and not _is_expected_vendor_report_only_inline_script_console_error(message)
         ]
         assert not noisy_console_errors, noisy_console_errors
+    finally:
+        context.close()
+
+
+def test_propertyquarry_visual_status_poll_stops_and_refreshes_without_duplicate_request(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False)
+    page: Page = context.new_page()
+    visual_requests: list[dict[str, object]] = []
+    visual_status_polls = 0
+
+    def _capture_visual_request(route) -> None:
+        payload = route.request.post_data_json or {}
+        visual_requests.append(payload if isinstance(payload, dict) else {})
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(
+                {
+                    "generated_at": "2026-07-02T10:00:00+00:00",
+                    "status": "created",
+                    "property_url": visual_requests[-1].get("property_url", ""),
+                    "title": "Family flat near Tiergarten",
+                    "request_kind": "tour",
+                    "tour_url": "",
+                    "tour_status": "pending",
+                    "flythrough_url": "",
+                    "flythrough_status": "",
+                    "status_label": "3D tour queued",
+                    "status_detail": "3D tour is queued after your request.",
+                    "eta_label": "about 10 min",
+                    "progress_pct": 16,
+                    "poll_after_seconds": 1,
+                    "source_ref": visual_requests[-1].get("source_ref", ""),
+                    "run_id": visual_requests[-1].get("run_id", ""),
+                    "candidate_ref": visual_requests[-1].get("candidate_ref", ""),
+                }
+            ),
+        )
+
+    def _fail_visual_status(route) -> None:
+        nonlocal visual_status_polls
+        visual_status_polls += 1
+        route.fulfill(
+            status=503,
+            content_type="application/json",
+            body=json.dumps({"detail": "visual status temporarily unavailable"}),
+        )
+
+    page.route("**/app/api/signals/willhaben/property-tour", _capture_visual_request)
+    page.route("**/app/api/signals/property/visual-status?**", _fail_visual_status)
+    try:
+        response = page.goto(f"{base_url}/app/shortlist?run_id=run-42&full=1", wait_until="networkidle")
+        assert response is not None and response.ok
+        family_row = page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").first
+        expect(family_row).to_be_visible()
+        packet_href = str(family_row.get_attribute("data-candidate-packet-url") or "").strip()
+        assert packet_href
+        packet_url = packet_href if packet_href.startswith("http") else f"{base_url}{packet_href}"
+
+        response = page.goto(packet_url, wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        request_button = page.get_by_role("button", name="Request 3D tour").first
+        expect(request_button).to_be_visible()
+        request_button.click()
+        _choose_research_visual_style(page)
+
+        status = page.locator("[data-prd-visual-status]")
+        expect(status).to_contain_text("Could not refresh 3D tour status", timeout=8_000)
+        refresh_button = page.get_by_role("button", name="Refresh 3D tour status").first
+        expect(refresh_button).to_be_visible()
+        expect(refresh_button).to_be_enabled()
+        assert len(visual_requests) == 1
+        assert visual_status_polls == 3
+
+        page.wait_for_timeout(1_200)
+        assert visual_status_polls == 3
+        with page.expect_response("**/app/api/signals/property/visual-status?**"):
+            refresh_button.click()
+        expect(status).to_contain_text("Could not refresh 3D tour status", timeout=3_000)
+        assert visual_status_polls == 4
+        assert len(visual_requests) == 1
     finally:
         context.close()
 
