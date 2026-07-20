@@ -123,6 +123,13 @@
     margin: 0.75rem;
   }
 
+  .pq-locale-panel[data-pq-localization-placement="floating"] .pq-locale-menu {
+    position: static;
+    inset: auto;
+    inline-size: min(30rem, 100%);
+    margin-block-start: 0.4rem;
+  }
+
   .pq-locale-current {
     max-inline-size: 7.5rem;
     overflow: hidden;

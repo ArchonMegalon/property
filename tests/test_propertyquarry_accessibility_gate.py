@@ -39,6 +39,7 @@ def _passing_metrics(*, engine: str, dialog_applicable: bool) -> dict[str, objec
         "live_progress_semantics_valid": True,
         "zoom_percent": 200,
         "reflow_without_horizontal_scroll": True,
+        "reflow_clipped_interactive_count": 0,
         "zoom_400_percent": 400,
         "zoom_400_viewport_width": 320,
         "zoom_400_scroll_width": 320,
@@ -58,6 +59,224 @@ def _flagship_routes() -> tuple[str, ...]:
         "/app/shortlist/run/run-a11y",
         "/tours/tour-a11y",
     )
+
+
+def _reflow_sample(
+    *,
+    viewport_width: int,
+    scroll_width: int,
+    clipped_count: int,
+) -> dict[str, object]:
+    return {
+        "reflow_viewport_width": viewport_width,
+        "reflow_scroll_width": scroll_width,
+        "reflow_without_horizontal_scroll": (
+            scroll_width <= viewport_width + 2
+        ),
+        "reflow_clipped_interactive_count": clipped_count,
+        "reflow_clipped_interactives": [
+            {
+                "tag": "button",
+                "role": "",
+                "type": "button",
+                "class_name": "object-feedback-button",
+                "parent_class_name": "object-feedback-row",
+                "left": 314.5,
+                "right": 609.0,
+                "width": 294.5,
+            }
+            for _ in range(clipped_count)
+        ],
+    }
+
+
+class _FakeReflowPage:
+    def __init__(self, samples: list[dict[str, object]]) -> None:
+        self.samples = iter(samples)
+        self.evaluate_count = 0
+        self.waits: list[int] = []
+
+    def evaluate(self, script: str) -> dict[str, object]:
+        assert script == gate._REFLOW_MEASUREMENT_SCRIPT
+        self.evaluate_count += 1
+        return next(self.samples)
+
+    def wait_for_timeout(self, milliseconds: int) -> None:
+        self.waits.append(milliseconds)
+
+
+def test_reflow_settle_uses_final_passing_signature_after_full_window() -> None:
+    overflow = _reflow_sample(
+        viewport_width=320,
+        scroll_width=624,
+        clipped_count=5,
+    )
+    settled = _reflow_sample(
+        viewport_width=320,
+        scroll_width=320,
+        clipped_count=0,
+    )
+    page = _FakeReflowPage([overflow] * 4 + [settled] * 7)
+
+    measurement = gate._settled_reflow_measurement(
+        page,
+        expected_viewport_width=320,
+        required_stable_samples=3,
+        sample_interval_ms=50,
+        settle_timeout_ms=500,
+    )
+
+    assert measurement["reflow_measurement_settled"] is True
+    assert measurement["reflow_measurement_sample_count"] == 11
+    assert measurement["reflow_measurement_stable_sample_count"] == 7
+    assert measurement["reflow_measurement_waited_ms"] == 500
+    assert measurement["reflow_scroll_width"] == 320
+    assert measurement["reflow_clipped_interactive_count"] == 0
+    assert measurement["reflow_without_horizontal_scroll"] is True
+    assert page.evaluate_count == 11
+    assert page.waits == [50] * 10
+
+
+def test_reflow_settle_rejects_pass_then_persistent_final_overflow() -> None:
+    passing = _reflow_sample(
+        viewport_width=320,
+        scroll_width=320,
+        clipped_count=0,
+    )
+    overflow = _reflow_sample(
+        viewport_width=320,
+        scroll_width=624,
+        clipped_count=5,
+    )
+    page = _FakeReflowPage([passing] * 4 + [overflow] * 7)
+
+    measurement = gate._settled_reflow_measurement(
+        page,
+        expected_viewport_width=320,
+        required_stable_samples=3,
+        sample_interval_ms=50,
+        settle_timeout_ms=500,
+    )
+    zoom_metrics = gate._zoom_reflow_metrics(
+        measurement,
+        zoom_percent=400,
+    )
+    metrics = _passing_metrics(engine="webkit", dialog_applicable=False)
+    metrics.update(zoom_metrics)
+    zoom_check = next(
+        check
+        for check in gate.evaluate_accessibility_metrics(metrics)
+        if check["name"] == "zoom_400_reflow"
+    )
+
+    assert measurement["reflow_measurement_settled"] is True
+    assert measurement["reflow_measurement_sample_count"] == 11
+    assert measurement["reflow_measurement_stable_sample_count"] == 7
+    assert measurement["reflow_measurement_waited_ms"] == 500
+    assert zoom_metrics["zoom_400_scroll_width"] == 624
+    assert zoom_metrics["zoom_400_clipped_interactive_count"] == 5
+    assert zoom_check["ok"] is False
+
+
+def test_reflow_settle_preserves_persistent_overflow_and_fails_closed() -> None:
+    overflow = _reflow_sample(
+        viewport_width=320,
+        scroll_width=624,
+        clipped_count=5,
+    )
+    page = _FakeReflowPage([overflow] * 11)
+
+    measurement = gate._settled_reflow_measurement(
+        page,
+        expected_viewport_width=320,
+        required_stable_samples=3,
+        sample_interval_ms=50,
+        settle_timeout_ms=500,
+    )
+    zoom_metrics = gate._zoom_reflow_metrics(
+        measurement,
+        zoom_percent=400,
+    )
+    metrics = _passing_metrics(engine="webkit", dialog_applicable=False)
+    metrics.update(zoom_metrics)
+    zoom_check = next(
+        check
+        for check in gate.evaluate_accessibility_metrics(metrics)
+        if check["name"] == "zoom_400_reflow"
+    )
+
+    assert measurement["reflow_measurement_settled"] is True
+    assert measurement["reflow_measurement_sample_count"] == 11
+    assert measurement["reflow_measurement_stable_sample_count"] == 11
+    assert measurement["reflow_measurement_waited_ms"] == 500
+    assert zoom_metrics["zoom_400_scroll_width"] == 624
+    assert zoom_metrics["zoom_400_clipped_interactive_count"] == 5
+    assert len(zoom_metrics["zoom_400_clipped_interactives"]) == 5
+    assert zoom_check["ok"] is False
+
+
+def test_200_percent_reflow_rejects_stable_clipped_only_controls() -> None:
+    clipped_only = _reflow_sample(
+        viewport_width=640,
+        scroll_width=640,
+        clipped_count=2,
+    )
+    page = _FakeReflowPage([clipped_only] * 11)
+
+    measurement = gate._settled_reflow_measurement(
+        page,
+        expected_viewport_width=640,
+        required_stable_samples=3,
+        sample_interval_ms=50,
+        settle_timeout_ms=500,
+    )
+    zoom_metrics = gate._zoom_reflow_metrics(
+        measurement,
+        zoom_percent=200,
+    )
+    metrics = _passing_metrics(engine="webkit", dialog_applicable=False)
+    metrics.update(zoom_metrics)
+    zoom_check = next(
+        check
+        for check in gate.evaluate_accessibility_metrics(metrics)
+        if check["name"] == "zoom_200_reflow"
+    )
+
+    assert measurement["reflow_measurement_settled"] is True
+    assert measurement["reflow_measurement_sample_count"] == 11
+    assert measurement["reflow_measurement_waited_ms"] == 500
+    assert zoom_metrics["reflow_without_horizontal_scroll"] is True
+    assert zoom_metrics["reflow_clipped_interactive_count"] == 2
+    assert zoom_check["ok"] is False
+
+
+def test_reflow_settle_timeout_cannot_promote_an_unstable_passing_sample() -> None:
+    overflow = _reflow_sample(
+        viewport_width=320,
+        scroll_width=624,
+        clipped_count=5,
+    )
+    passing = _reflow_sample(
+        viewport_width=320,
+        scroll_width=320,
+        clipped_count=0,
+    )
+    page = _FakeReflowPage([overflow, passing] * 5 + [passing])
+
+    measurement = gate._settled_reflow_measurement(
+        page,
+        expected_viewport_width=320,
+        required_stable_samples=3,
+        sample_interval_ms=50,
+        settle_timeout_ms=500,
+    )
+
+    assert measurement["reflow_measurement_settled"] is False
+    assert measurement["reflow_measurement_sample_count"] == 11
+    assert measurement["reflow_measurement_stable_sample_count"] == 2
+    assert measurement["reflow_observed_without_horizontal_scroll"] is True
+    assert measurement["reflow_without_horizontal_scroll"] is False
+    assert measurement["reflow_measurement_waited_ms"] == 500
 
 
 def test_research_detail_reflow_tracks_its_containing_block_not_viewport_units() -> None:

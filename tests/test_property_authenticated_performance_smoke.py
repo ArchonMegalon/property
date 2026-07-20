@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import subprocess
 import sys
 from pathlib import Path
 
 import yaml
 
+from scripts import propertyquarry_authenticated_performance_smoke as performance_smoke
 from scripts.propertyquarry_authenticated_performance_smoke import (
     AUTHENTICATED_PERFORMANCE_SCHEMA,
     PERFORMANCE_SMOKE_MAX_PRICE_EUR,
@@ -20,6 +22,37 @@ from scripts.propertyquarry_authenticated_performance_smoke import (
 
 SMOKE_SUBPROCESS_TIMEOUT_SECONDS = 120
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _performance_failure_diagnostics(receipt: dict[str, object]) -> str:
+    failed_routes = []
+    for route in list(receipt.get("routes") or []):
+        if not isinstance(route, dict) or route.get("ok") is True:
+            continue
+        failed_routes.append(
+            {
+                "path": route.get("path"),
+                "status_code": route.get("status_code"),
+                "first_duration_ms": route.get("first_duration_ms"),
+                "duration_ms": route.get("duration_ms"),
+                "budget_ms": route.get("budget_ms"),
+                "cold_budget_ms": route.get("cold_budget_ms"),
+                "failed_checks": [
+                    check
+                    for check in list(route.get("checks") or [])
+                    if isinstance(check, dict) and check.get("ok") is not True
+                ],
+            }
+        )
+    return json.dumps(
+        {
+            "status": receipt.get("status"),
+            "failed_count": receipt.get("failed_count"),
+            "failed_routes": failed_routes,
+        },
+        ensure_ascii=True,
+        sort_keys=True,
+    )
 
 
 def _performance_subprocess_environment() -> dict[str, str]:
@@ -66,29 +99,117 @@ def test_property_authenticated_performance_synthetic_candidate_preseeds_locatio
 def test_property_authenticated_performance_smoke_ignores_release_provider_env(
     monkeypatch,
 ) -> None:
-    monkeypatch.setenv("EA_RUNTIME_MODE", "prod")
-    monkeypatch.setenv("TEABLE_BASE_URL", "https://app.teable.ai")
-    monkeypatch.setenv("TEABLE_API_KEY", "teable-test-key")
-    monkeypatch.setenv("PROPERTYQUARRY_TEABLE_API_KEY", "propertyquarry-teable-test-key")
-    monkeypatch.setenv("EA_ENV_TEABLE_BASE_ID", "base-test")
-    monkeypatch.setenv("ONEMIN_AI_API_KEY", "onemin-live-key")
-    monkeypatch.setenv("ONEMIN_AI_API_KEY_FALLBACK_1", "onemin-live-fallback")
-    monkeypatch.setenv("GOOGLE_API_KEY_FALLBACK_1", "vertex-live-fallback")
-    monkeypatch.setenv("BROWSERACT_API_KEY", "browseract-live-key")
-    monkeypatch.setenv("EA_RESPONSES_MAGICX_API_KEY", "magicx-live-key")
-    monkeypatch.setenv("EA_GEMINI_VORTEX_COMMAND", "sh")
+    provider_environment = {
+        "EA_RUNTIME_MODE": "prod",
+        "TEABLE_BASE_URL": "https://app.teable.ai",
+        "TEABLE_API_KEY": "teable-test-key",
+        "PROPERTYQUARRY_TEABLE_API_KEY": "propertyquarry-teable-test-key",
+        "EA_ENV_TEABLE_BASE_ID": "base-test",
+        "ONEMIN_AI_API_KEY": "onemin-live-key",
+        "ONEMIN_AI_API_KEY_FALLBACK_1": "onemin-live-fallback",
+        "GOOGLE_API_KEY_FALLBACK_1": "vertex-live-fallback",
+        "BROWSERACT_API_KEY": "browseract-live-key",
+        "EA_RESPONSES_MAGICX_API_KEY": "magicx-live-key",
+        "EA_GEMINI_VORTEX_COMMAND": "sh",
+    }
+    for name, value in provider_environment.items():
+        monkeypatch.setenv(name, value)
 
-    receipt = build_authenticated_performance_receipt(route_budget_ms=1200)
+    reset_environment = performance_smoke._reset_authenticated_performance_smoke_env
+    scrubbed_environment_snapshots: list[dict[str, str]] = []
 
-    assert receipt["status"] == "pass"
-    assert receipt["failed_count"] == 0
+    def _audit_scrubbed_environment() -> None:
+        scrubbed_environment_snapshots.append(dict(os.environ))
+        reset_environment()
+
+    monkeypatch.setattr(
+        performance_smoke,
+        "_reset_authenticated_performance_smoke_env",
+        _audit_scrubbed_environment,
+    )
+
+    route_budget_requests: list[tuple[str, int]] = []
+
+    def _provider_isolation_route_budget(
+        path: str,
+        *,
+        route_budget_ms: int,
+    ) -> int:
+        route_budget_requests.append((path, route_budget_ms))
+        return route_budget_ms
+
+    monkeypatch.setattr(
+        performance_smoke,
+        "_route_budget_for",
+        _provider_isolation_route_budget,
+    )
+
+    ip_connect_attempts: list[int] = []
+    socket_connect = socket.socket.connect
+
+    def _deny_ip_connect(self: socket.socket, address: object) -> object:
+        if self.family in {socket.AF_INET, socket.AF_INET6}:
+            ip_connect_attempts.append(self.family)
+            raise AssertionError("provider_isolation_external_network_invocation")
+        return socket_connect(self, address)
+
+    monkeypatch.setattr(socket.socket, "connect", _deny_ip_connect)
+
+    process_attempts: list[str] = []
+
+    def _deny_process(*_args: object, **_kwargs: object) -> object:
+        # Keep failure receipts secret-safe: provider commands may contain
+        # credentials, so record only that a process launch was attempted.
+        process_attempts.append("popen")
+        raise AssertionError("provider_isolation_external_process_invocation")
+
+    monkeypatch.setattr(subprocess, "Popen", _deny_process)
+
+    receipt = build_authenticated_performance_receipt(
+        route_budget_ms=60_000,
+        cold_route_budget_ms=60_000,
+    )
+    diagnostics = _performance_failure_diagnostics(receipt)
+    durations_ms = [
+        int(measurement["duration_ms"])
+        for route in list(receipt.get("routes") or [])
+        if isinstance(route, dict)
+        for measurement in list((route.get("measurements") or {}).values())
+        if isinstance(measurement, dict)
+    ]
+
+    assert receipt["status"] == "pass", diagnostics
+    assert receipt["failed_count"] == 0, diagnostics
+    assert len(scrubbed_environment_snapshots) == 1
+    scrubbed_environment = scrubbed_environment_snapshots[0]
+    assert set(provider_environment).isdisjoint(scrubbed_environment)
+    assert not any(
+        name in performance_smoke.PROVIDER_FREE_ENV_NAMES
+        or any(
+            name.startswith(prefix)
+            for prefix in performance_smoke.PROVIDER_FREE_ENV_PREFIXES
+        )
+        for name in scrubbed_environment
+    )
+    assert route_budget_requests
+    assert all(budget_ms == 60_000 for _path, budget_ms in route_budget_requests)
+    assert not ip_connect_attempts
+    assert not process_attempts
+    assert len(durations_ms) == int(receipt["route_count"]) * 2
+    assert all(duration_ms >= 0 for duration_ms in durations_ms)
+    assert any(duration_ms > 0 for duration_ms in durations_ms)
+    assert {
+        name: os.environ.get(name)
+        for name in provider_environment
+    } == provider_environment
 
 
 def test_property_authenticated_performance_smoke_receipt_passes() -> None:
     receipt = build_authenticated_performance_receipt(route_budget_ms=1200)
+    diagnostics = _performance_failure_diagnostics(receipt)
 
-    assert receipt["status"] == "pass"
-    assert receipt["failed_count"] == 0
+    assert receipt["status"] == "pass", diagnostics
+    assert receipt["failed_count"] == 0, diagnostics
     assert receipt["schema"] == AUTHENTICATED_PERFORMANCE_SCHEMA
     assert receipt["flagship_status"] == "blocked"
     assert receipt["flagship_blockers"] == [

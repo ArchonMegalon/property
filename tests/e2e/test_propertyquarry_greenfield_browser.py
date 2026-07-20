@@ -1215,7 +1215,7 @@ def test_propertyquarry_research_market_formats_are_visible_in_declared_locales(
             market_key = str(case["country_code"]).lower()
             response = page.goto(
                 f"{base_url}/app/research/market-{market_key}?run_id=run-market-{market_key}&lang={case['locale']}",
-                wait_until="networkidle",
+                wait_until="commit",
             )
             assert response is not None and response.ok
             assert page.locator("html").get_attribute("lang") == case["locale"]
@@ -3285,7 +3285,7 @@ def test_propertyquarry_packet_tracks_followup_state_in_browser(
             answered_button.click()
         update_response = update_response_info.value
         assert update_response.ok, update_response.text()
-        assert page.locator("body", has_text="Follow-up marked answered").is_visible()
+        expect(page.locator("[data-object-followup-status]")).to_have_text("Follow-up marked answered.")
         page.reload(wait_until="networkidle")
         page.locator("[data-object-feedback-open-advanced]").click()
         expect(page.locator("[data-object-followups]")).to_contain_text("Answered")
@@ -7062,7 +7062,7 @@ def test_propertyquarry_blocked_3d_tour_can_be_retried_from_research_packet_in_r
         assert packet_href
         packet_url = packet_href if packet_href.startswith("http") else f"{base_url}{packet_href}"
 
-        response = page.goto(packet_url, wait_until="domcontentloaded")
+        response = page.goto(packet_url, wait_until="commit")
         assert response is not None and response.ok
         retry_button = page.get_by_role("button", name="Retry 3D tour").first
         expect(retry_button).to_be_visible()

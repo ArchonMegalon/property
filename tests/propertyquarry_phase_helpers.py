@@ -64,6 +64,10 @@ def property_client_with_workspace(*, principal_id: str, tmp_path: Path):
 
     os.environ["EA_STORAGE_BACKEND"] = "memory"
     os.environ["EA_ARTIFACTS_DIR"] = str(tmp_path)
+    public_tour_dir = tmp_path / "public_property_tours"
+    public_tour_dir.mkdir(mode=0o700, exist_ok=True)
+    public_tour_dir.chmod(0o700)
+    os.environ["EA_PUBLIC_TOUR_DIR"] = str(public_tour_dir)
     os.environ["PROPERTYQUARRY_LEGACY_PDF_RENDERER_ALLOW"] = "1"
     client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="PropertyQuarry")

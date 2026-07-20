@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import functools
 import hashlib
 import html
@@ -12,13 +13,14 @@ import re
 import secrets
 import stat
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Iterator, Mapping, Sequence
 from urllib.parse import urlparse, urlsplit
 
 from fastapi.testclient import TestClient
@@ -2945,6 +2947,44 @@ def _with_scrubbed_performance_environment(function: Callable[..., Any]) -> Call
     return wrapped
 
 
+@contextlib.contextmanager
+def _provider_free_landing_view_model_boundaries() -> Iterator[None]:
+    from app.api.routes import landing_view_models
+
+    boundary_record = landing_view_models._nominatim_boundary_record
+    geocode_point = landing_view_models._forward_geocode_preview_point
+
+    def _offline_boundary_record(_query: str) -> dict[str, object]:
+        return {}
+
+    def _offline_geocode_point(_query: str) -> tuple[float, float] | None:
+        return None
+
+    landing_view_models._nominatim_boundary_record = _offline_boundary_record
+    landing_view_models._forward_geocode_preview_point = _offline_geocode_point
+    try:
+        yield
+    finally:
+        landing_view_models._nominatim_boundary_record = boundary_record
+        landing_view_models._forward_geocode_preview_point = geocode_point
+
+
+@contextlib.contextmanager
+def _provider_free_public_tour_directory() -> Iterator[None]:
+    environment_name = "EA_PUBLIC_TOUR_DIR"
+    original_value = os.environ.get(environment_name)
+    with tempfile.TemporaryDirectory(prefix="propertyquarry-performance-tours-") as directory:
+        Path(directory).chmod(0o700)
+        os.environ[environment_name] = directory
+        try:
+            yield
+        finally:
+            if original_value is None:
+                os.environ.pop(environment_name, None)
+            else:
+                os.environ[environment_name] = original_value
+
+
 def _seed_workspace(client: TestClient) -> None:
     response = client.post(
         "/v1/onboarding/start",
@@ -3701,60 +3741,67 @@ def build_authenticated_performance_receipt(
     os.environ["PROPERTYQUARRY_MAP_TILE_NETWORK_ENABLED"] = "0"
     os.environ["PROPERTYQUARRY_ENABLE_LEGACY_RUNTIME_SURFACES"] = "1"
     os.environ["EA_TRUST_AUTHENTICATED_PRINCIPAL_HEADER"] = "1"
-    os.environ["PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED"] = "1"
-    os.environ["PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_ENABLED"] = "1"
-    os.environ["PROPERTYQUARRY_BRILLIANT_DIRECTORIES_DISABLED"] = "0"
-    os.environ["PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BASE_URL"] = "https://billing.propertyquarry.test"
-    os.environ["PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS"] = "billing.propertyquarry.test"
-    os.environ["PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL"] = "https://billing.propertyquarry.test/account"
-    os.environ["PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY"] = "performance-smoke-local-key"
+    os.environ["PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ENABLED"] = "0"
+    os.environ["PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_ENABLED"] = "0"
+    os.environ["PROPERTYQUARRY_BRILLIANT_DIRECTORIES_DISABLED"] = "1"
+    for name in (
+        "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BASE_URL",
+        "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_ALLOWED_HOSTS",
+        "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_BILLING_URL",
+        "PROPERTYQUARRY_BRILLIANT_DIRECTORIES_API_KEY",
+    ):
+        os.environ.pop(name, None)
     api_token = str(os.environ.get("EA_API_TOKEN") or "").strip()
     principal_id = "pq-auth-performance-smoke"
     from app.api.app import create_app
 
-    app = create_app()
-    with TestClient(app, base_url="https://propertyquarry.com") as client:
-        client.headers.update(
-            {
-                "X-EA-Principal-ID": principal_id,
-                "X-EA-API-Token": api_token,
-                "Authorization": f"Bearer {api_token}",
-                "host": "propertyquarry.com",
-            }
-        )
-        _seed_workspace(client)
-        _seed_saved_agents(client)
-        run_id = _start_synthetic_run(client)
-        _open_workspace_access_session(client)
-        routes = [
-            "/sign-in",
-            "/app/search",
-            "/app/agents",
-            f"/app/properties?run_id={run_id}",
-            f"/app/shortlist?run_id={run_id}",
-            f"/app/research/perf-candidate-1020?run_id={run_id}",
-            f"/app/alerts?run_id={run_id}",
-            "/app/account",
-            "/app/billing",
-            "/app/settings/google",
-            "/app/settings/access",
-            "/app/settings/usage",
-            "/app/settings/support",
-            "/app/settings/trust",
-            "/app/settings/invitations",
-        ]
-        rows = [
-            _measure_route(
-                client,
-                route,
-                budget_ms=_route_budget_for(
-                    route,
-                    route_budget_ms=warm_budget,
-                ),
-                cold_budget_ms=cold_budget,
+    with (
+        _provider_free_landing_view_model_boundaries(),
+        _provider_free_public_tour_directory(),
+    ):
+        app = create_app()
+        with TestClient(app, base_url="https://propertyquarry.com") as client:
+            client.headers.update(
+                {
+                    "X-EA-Principal-ID": principal_id,
+                    "X-EA-API-Token": api_token,
+                    "Authorization": f"Bearer {api_token}",
+                    "host": "propertyquarry.com",
+                }
             )
-            for route in routes
-        ]
+            _seed_workspace(client)
+            _seed_saved_agents(client)
+            run_id = _start_synthetic_run(client)
+            _open_workspace_access_session(client)
+            routes = [
+                "/sign-in",
+                "/app/search",
+                "/app/agents",
+                f"/app/properties?run_id={run_id}",
+                f"/app/shortlist?run_id={run_id}",
+                f"/app/research/perf-candidate-1020?run_id={run_id}",
+                f"/app/alerts?run_id={run_id}",
+                "/app/account",
+                "/app/billing",
+                "/app/settings/google",
+                "/app/settings/access",
+                "/app/settings/usage",
+                "/app/settings/support",
+                "/app/settings/trust",
+                "/app/settings/invitations",
+            ]
+            rows = [
+                _measure_route(
+                    client,
+                    route,
+                    budget_ms=_route_budget_for(
+                        route,
+                        route_budget_ms=warm_budget,
+                    ),
+                    cold_budget_ms=cold_budget,
+                )
+                for route in routes
+            ]
     failed = [row for row in rows if not row.get("ok")]
     if target_url:
         browser_parent_environment = _scrub_performance_subprocess_environment()

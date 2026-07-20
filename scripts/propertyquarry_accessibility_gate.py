@@ -74,6 +74,66 @@ REQUIRED_ACCESSIBILITY_CHECKS = (
     "reduced_motion_honored",
 )
 
+_REFLOW_STABLE_SAMPLE_COUNT = 3
+_REFLOW_SAMPLE_INTERVAL_MS = 50
+_REFLOW_SETTLE_TIMEOUT_MS = 500
+_REFLOW_MEASUREMENT_SCRIPT = """
+() => {
+  const visible = (node) => {
+    if (node.closest('[hidden], [aria-hidden="true"], details:not([open])')) return false;
+    const style = getComputedStyle(node);
+    const rect = node.getBoundingClientRect();
+    return style.display !== 'none' && style.visibility !== 'hidden'
+      && rect.width > 0 && rect.height > 0;
+  };
+  const insideHorizontalScrollRegion = (node) => {
+    let current = node.parentElement;
+    while (current && current !== document.body) {
+      const style = getComputedStyle(current);
+      if (['auto', 'scroll'].includes(style.overflowX)
+          && current.scrollWidth > current.clientWidth + 2) return true;
+      current = current.parentElement;
+    }
+    return false;
+  };
+  const rounded = (value) => Math.round(value * 100) / 100;
+  const viewportWidth = document.documentElement.clientWidth;
+  const scrollWidth = document.documentElement.scrollWidth;
+  const interactive = Array.from(document.querySelectorAll(
+    'a[href], button, input, select, textarea, summary, [role="button"]'
+  )).filter(visible);
+  const clippedInteractive = interactive.filter((node) => {
+    const rect = node.getBoundingClientRect();
+    return (rect.left < -2 || rect.right > viewportWidth + 2)
+      && !insideHorizontalScrollRegion(node);
+  });
+  return {
+    reflow_viewport_width: viewportWidth,
+    reflow_scroll_width: scrollWidth,
+    reflow_without_horizontal_scroll: scrollWidth <= viewportWidth + 2,
+    reflow_clipped_interactive_count: clippedInteractive.length,
+    reflow_clipped_interactives: clippedInteractive.slice(0, 25).map((node) => {
+      const rect = node.getBoundingClientRect();
+      const className = typeof node.className === 'string' ? node.className : '';
+      const parentClassName = node.parentElement
+        && typeof node.parentElement.className === 'string'
+        ? node.parentElement.className
+        : '';
+      return {
+        tag: String(node.tagName || '').toLowerCase(),
+        role: String(node.getAttribute('role') || ''),
+        type: String(node.getAttribute('type') || ''),
+        class_name: className.slice(0, 120),
+        parent_class_name: parentClassName.slice(0, 120),
+        left: rounded(rect.left),
+        right: rounded(rect.right),
+        width: rounded(rect.width),
+      };
+    }),
+  };
+}
+"""
+
 
 def normalize_browser_engines(engines: tuple[str, ...] | list[str] | None) -> tuple[str, ...]:
     normalized: list[str] = []
@@ -588,6 +648,192 @@ def _page_semantic_metrics(page: Any) -> dict[str, Any]:
     )
 
 
+def _valid_reflow_measurement(
+    measurement: dict[str, Any],
+    *,
+    expected_viewport_width: int,
+) -> bool:
+    viewport_width = measurement.get("reflow_viewport_width")
+    scroll_width = measurement.get("reflow_scroll_width")
+    clipped_count = measurement.get("reflow_clipped_interactive_count")
+    clipped = measurement.get("reflow_clipped_interactives")
+    without_horizontal_scroll = measurement.get(
+        "reflow_without_horizontal_scroll"
+    )
+    if (
+        type(viewport_width) is not int
+        or viewport_width != expected_viewport_width
+        or type(scroll_width) is not int
+        or scroll_width <= 0
+        or type(clipped_count) is not int
+        or clipped_count < 0
+        or type(without_horizontal_scroll) is not bool
+        or not isinstance(clipped, list)
+        or len(clipped) != min(clipped_count, 25)
+        or any(not isinstance(row, dict) for row in clipped)
+    ):
+        return False
+    return without_horizontal_scroll is (
+        scroll_width <= viewport_width + 2
+    )
+
+
+def _reflow_measurement_signature(measurement: dict[str, Any]) -> str:
+    return json.dumps(
+        {
+            "reflow_viewport_width": measurement.get("reflow_viewport_width"),
+            "reflow_scroll_width": measurement.get("reflow_scroll_width"),
+            "reflow_without_horizontal_scroll": measurement.get(
+                "reflow_without_horizontal_scroll"
+            ),
+            "reflow_clipped_interactive_count": measurement.get(
+                "reflow_clipped_interactive_count"
+            ),
+            "reflow_clipped_interactives": measurement.get(
+                "reflow_clipped_interactives"
+            ),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def _settled_reflow_measurement(
+    page: Any,
+    *,
+    expected_viewport_width: int,
+    required_stable_samples: int = _REFLOW_STABLE_SAMPLE_COUNT,
+    sample_interval_ms: int = _REFLOW_SAMPLE_INTERVAL_MS,
+    settle_timeout_ms: int = _REFLOW_SETTLE_TIMEOUT_MS,
+) -> dict[str, Any]:
+    if expected_viewport_width <= 0:
+        raise ValueError("reflow_expected_viewport_width_invalid")
+    if required_stable_samples < 2:
+        raise ValueError("reflow_required_stable_samples_invalid")
+    if sample_interval_ms <= 0:
+        raise ValueError("reflow_sample_interval_ms_invalid")
+    if settle_timeout_ms < sample_interval_ms:
+        raise ValueError("reflow_settle_timeout_ms_invalid")
+
+    previous_signature = ""
+    stable_sample_count = 0
+    sample_count = 0
+    waited_ms = 0
+    settled = False
+    measurement: dict[str, Any] = {}
+    while True:
+        raw_measurement = page.evaluate(_REFLOW_MEASUREMENT_SCRIPT)
+        measurement = (
+            dict(raw_measurement) if isinstance(raw_measurement, dict) else {}
+        )
+        sample_count += 1
+        if _valid_reflow_measurement(
+            measurement,
+            expected_viewport_width=expected_viewport_width,
+        ):
+            signature = _reflow_measurement_signature(measurement)
+            if signature == previous_signature:
+                stable_sample_count += 1
+            else:
+                previous_signature = signature
+                stable_sample_count = 1
+        else:
+            previous_signature = ""
+            stable_sample_count = 0
+
+        if waited_ms >= settle_timeout_ms:
+            # Settlement is symmetric: only the final consecutive signature
+            # at the end of the full observation window counts.  Its geometry
+            # decides pass/fail; invalid or oscillating measurements fail.
+            settled = stable_sample_count >= required_stable_samples
+            break
+        wait_ms = min(sample_interval_ms, settle_timeout_ms - waited_ms)
+        page.wait_for_timeout(wait_ms)
+        waited_ms += wait_ms
+
+    observed_without_horizontal_scroll = (
+        measurement.get("reflow_without_horizontal_scroll") is True
+    )
+    return {
+        "reflow_viewport_width": measurement.get("reflow_viewport_width", 0),
+        "reflow_scroll_width": measurement.get("reflow_scroll_width", 0),
+        "reflow_without_horizontal_scroll": (
+            settled and observed_without_horizontal_scroll
+        ),
+        "reflow_observed_without_horizontal_scroll": (
+            observed_without_horizontal_scroll
+        ),
+        "reflow_clipped_interactive_count": measurement.get(
+            "reflow_clipped_interactive_count", -1
+        ),
+        "reflow_clipped_interactives": list(
+            measurement.get("reflow_clipped_interactives") or []
+        ),
+        "reflow_measurement_settled": settled,
+        "reflow_measurement_sample_count": sample_count,
+        "reflow_measurement_stable_sample_count": stable_sample_count,
+        "reflow_measurement_required_stable_sample_count": (
+            required_stable_samples
+        ),
+        "reflow_measurement_waited_ms": waited_ms,
+        "reflow_measurement_timeout_ms": settle_timeout_ms,
+    }
+
+
+def _zoom_reflow_metrics(
+    measurement: dict[str, Any],
+    *,
+    zoom_percent: int,
+) -> dict[str, Any]:
+    if zoom_percent == 200:
+        return {
+            "zoom_percent": zoom_percent,
+            **measurement,
+        }
+    if zoom_percent != 400:
+        raise ValueError("reflow_zoom_percent_unsupported")
+    return {
+        "zoom_400_percent": zoom_percent,
+        "zoom_400_viewport_width": measurement.get(
+            "reflow_viewport_width", 0
+        ),
+        "zoom_400_scroll_width": measurement.get("reflow_scroll_width", 0),
+        "zoom_400_reflow_without_horizontal_scroll": measurement.get(
+            "reflow_without_horizontal_scroll"
+        )
+        is True,
+        "zoom_400_reflow_observed_without_horizontal_scroll": measurement.get(
+            "reflow_observed_without_horizontal_scroll"
+        )
+        is True,
+        "zoom_400_clipped_interactive_count": measurement.get(
+            "reflow_clipped_interactive_count", -1
+        ),
+        "zoom_400_clipped_interactives": list(
+            measurement.get("reflow_clipped_interactives") or []
+        ),
+        "zoom_400_measurement_settled": measurement.get(
+            "reflow_measurement_settled"
+        )
+        is True,
+        "zoom_400_measurement_sample_count": measurement.get(
+            "reflow_measurement_sample_count", 0
+        ),
+        "zoom_400_measurement_stable_sample_count": measurement.get(
+            "reflow_measurement_stable_sample_count", 0
+        ),
+        "zoom_400_measurement_required_stable_sample_count": measurement.get(
+            "reflow_measurement_required_stable_sample_count", 0
+        ),
+        "zoom_400_measurement_waited_ms": measurement.get(
+            "reflow_measurement_waited_ms", 0
+        ),
+        "zoom_400_measurement_timeout_ms": measurement.get(
+            "reflow_measurement_timeout_ms", 0
+        ),
+    }
+
+
 def _axe_row_is_wcag_tagged(row: dict[str, Any]) -> bool:
     return any(
         str(tag or "").strip().lower().startswith("wcag")
@@ -757,68 +1003,23 @@ def collect_accessibility_engine_rows(
                         metrics.update(_dialog_focus_metrics(page))
                         metrics.update(_page_semantic_metrics(page))
                         page.set_viewport_size({"width": 640, "height": 900})
-                        page.wait_for_timeout(100)
                         metrics.update(
-                            dict(
-                                page.evaluate(
-                                    """
-                                    () => ({
-                                      zoom_percent: 200,
-                                      reflow_viewport_width: document.documentElement.clientWidth,
-                                      reflow_scroll_width: document.documentElement.scrollWidth,
-                                      reflow_without_horizontal_scroll:
-                                        document.documentElement.scrollWidth <= document.documentElement.clientWidth + 2,
-                                    })
-                                    """
-                                )
-                                or {}
+                            _zoom_reflow_metrics(
+                                _settled_reflow_measurement(
+                                    page,
+                                    expected_viewport_width=640,
+                                ),
+                                zoom_percent=200,
                             )
                         )
                         page.set_viewport_size({"width": 320, "height": 900})
-                        page.wait_for_timeout(100)
                         metrics.update(
-                            dict(
-                                page.evaluate(
-                                    """
-                                    () => {
-                                      const visible = (node) => {
-                                        if (node.closest('[hidden], [aria-hidden="true"], details:not([open])')) return false;
-                                        const style = getComputedStyle(node);
-                                        const rect = node.getBoundingClientRect();
-                                        return style.display !== 'none' && style.visibility !== 'hidden'
-                                          && rect.width > 0 && rect.height > 0;
-                                      };
-                                      const insideHorizontalScrollRegion = (node) => {
-                                        let current = node.parentElement;
-                                        while (current && current !== document.body) {
-                                          const style = getComputedStyle(current);
-                                          if (['auto', 'scroll'].includes(style.overflowX)
-                                              && current.scrollWidth > current.clientWidth + 2) return true;
-                                          current = current.parentElement;
-                                        }
-                                        return false;
-                                      };
-                                      const viewportWidth = document.documentElement.clientWidth;
-                                      const interactive = Array.from(document.querySelectorAll(
-                                        'a[href], button, input, select, textarea, summary, [role="button"]'
-                                      )).filter(visible);
-                                      const clippedInteractive = interactive.filter((node) => {
-                                        const rect = node.getBoundingClientRect();
-                                        return (rect.left < -2 || rect.right > viewportWidth + 2)
-                                          && !insideHorizontalScrollRegion(node);
-                                      });
-                                      return {
-                                        zoom_400_percent: 400,
-                                        zoom_400_viewport_width: viewportWidth,
-                                        zoom_400_scroll_width: document.documentElement.scrollWidth,
-                                        zoom_400_reflow_without_horizontal_scroll:
-                                          document.documentElement.scrollWidth <= viewportWidth + 2,
-                                        zoom_400_clipped_interactive_count: clippedInteractive.length,
-                                      };
-                                    }
-                                    """
-                                )
-                                or {}
+                            _zoom_reflow_metrics(
+                                _settled_reflow_measurement(
+                                    page,
+                                    expected_viewport_width=320,
+                                ),
+                                zoom_percent=400,
                             )
                         )
                     except Exception as exc:
@@ -894,7 +1095,9 @@ def evaluate_accessibility_metrics(metrics: dict[str, Any]) -> list[dict[str, An
         {
             "name": "zoom_200_reflow",
             "ok": int(metrics.get("zoom_percent") or 0) == 200
-            and metrics.get("reflow_without_horizontal_scroll") is True,
+            and metrics.get("reflow_without_horizontal_scroll") is True
+            and type(metrics.get("reflow_clipped_interactive_count")) is int
+            and metrics.get("reflow_clipped_interactive_count") == 0,
         },
         {
             "name": "zoom_400_reflow",

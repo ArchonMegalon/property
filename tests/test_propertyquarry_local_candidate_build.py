@@ -1174,7 +1174,7 @@ def test_owned_buildx_client_state_is_audited_and_removed(
 ) -> None:
     docker_config = build._create_docker_config(harness.receipts)
     for relative in build._DOCKER_BUILDX_DIRECTORY_LAYOUT:
-        (docker_config / relative).mkdir(exist_ok=True)
+        (docker_config / relative).mkdir(mode=0o700, exist_ok=True)
     generated_files = {
         "buildx/.buildNodeID": b"builder-node-id\n",
         "buildx/.lock": b"",
@@ -1197,7 +1197,7 @@ def test_unexpected_or_unsafe_buildx_client_state_is_rejected(
 ) -> None:
     docker_config = build._create_docker_config(harness.receipts)
     buildx = docker_config / "buildx"
-    buildx.mkdir()
+    buildx.mkdir(mode=0o700)
     (buildx / "remote-builder").write_text("untrusted", encoding="utf-8")
 
     with pytest.raises(build.BuildError) as raised:

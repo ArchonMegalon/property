@@ -89,9 +89,39 @@ def test_localized_route_and_pseudo_expansion_are_mobile_safe_in_real_browser() 
             assert "[!!" in page.locator("body").inner_text()
             pseudo_panel = page.locator("[data-pq-localization-status]")
             assert pseudo_panel.get_attribute("data-pq-localization-placement") == "floating"
-            assert pseudo_panel.evaluate("panel => getComputedStyle(panel).position") == "fixed"
+            flow_metrics = pseudo_panel.evaluate(
+                """panel => {
+                  const rect = panel.getBoundingClientRect();
+                  const previous = panel.previousElementSibling;
+                  const previousRect = previous ? previous.getBoundingClientRect() : null;
+                  return {
+                    position: getComputedStyle(panel).position,
+                    previousTag: previous ? previous.tagName : '',
+                    panelTop: rect.top,
+                    previousBottom: previousRect ? previousRect.bottom : null,
+                  };
+                }"""
+            )
+            assert flow_metrics["position"] == "relative"
+            assert flow_metrics["previousTag"] == "MAIN"
+            assert flow_metrics["panelTop"] >= flow_metrics["previousBottom"] - 1
             pseudo_panel.locator("summary").click()
-            assert pseudo_panel.locator("[data-pq-locale-selector]").is_visible()
+            pseudo_menu = pseudo_panel.locator("[data-pq-locale-selector]")
+            assert pseudo_menu.is_visible()
+            expanded_metrics = pseudo_panel.evaluate(
+                """panel => {
+                  const panelRect = panel.getBoundingClientRect();
+                  const menuRect = panel.querySelector('[data-pq-locale-selector]').getBoundingClientRect();
+                  return {
+                    panelTop: panelRect.top,
+                    panelBottom: panelRect.bottom,
+                    menuTop: menuRect.top,
+                    menuBottom: menuRect.bottom,
+                  };
+                }"""
+            )
+            assert expanded_metrics["menuTop"] >= expanded_metrics["panelTop"] - 1
+            assert expanded_metrics["menuBottom"] <= expanded_metrics["panelBottom"] + 1
             pseudo_metrics = _locale_panel_metrics(page)
             assert pseudo_metrics["right"] <= pseudo_metrics["viewportWidth"] + 1
             assert pseudo_metrics["scrollWidth"] <= pseudo_metrics["clientWidth"] + 1
