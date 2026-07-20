@@ -115,6 +115,25 @@ _IMAGE_TAG_RE = re.compile(
 _CONTAINER_ID_RE = re.compile(r"[0-9a-f]{64}\Z")
 _REPO_DIGEST_RE = re.compile(r"[^@\s]+@sha256:[0-9a-f]{64}\Z")
 _DOCKER_CONFIG_NAME_RE = re.compile(r"\.pq-build-docker-[A-Za-z0-9_-]+\Z")
+_DOCKER_BUILDX_DIRECTORY_LAYOUT: Mapping[str, frozenset[str]] = {
+    "buildx": frozenset(
+        {".buildNodeID", ".lock", "activity", "defaults", "instances", "refs"}
+    ),
+    "buildx/activity": frozenset({"default"}),
+    "buildx/defaults": frozenset(),
+    "buildx/instances": frozenset(),
+    "buildx/refs": frozenset({"default"}),
+    "buildx/refs/default": frozenset({"default"}),
+    "buildx/refs/default/default": frozenset(),
+}
+_DOCKER_BUILDX_FILE_PATHS = (
+    "buildx/.buildNodeID",
+    "buildx/.lock",
+    "buildx/activity/default",
+)
+_DOCKER_BUILDX_MAX_FILE_BYTES = 4_096
+_DOCKER_BUILDX_REF_ID_RE = re.compile(r"[a-z0-9]{20,64}\Z")
+_DOCKER_BUILDX_MAX_REF_FILES = 8
 _FROM_RE = re.compile(
     r"FROM[ \t]+(?P<reference>[^ \t]+@sha256:[0-9a-f]{64})"
     r"(?:[ \t]+AS[ \t]+(?P<alias>[A-Za-z0-9_.-]+))?[ \t]*\Z",
@@ -1408,7 +1427,7 @@ def _create_docker_config(root: Path) -> Path:
 def _audit_docker_config(path: Path) -> None:
     try:
         top = os.lstat(path)
-        names = os.listdir(path)
+        names = set(os.listdir(path))
         config = os.lstat(path / "config.json")
         raw = (path / "config.json").read_bytes()
     except OSError:
@@ -1419,7 +1438,7 @@ def _audit_docker_config(path: Path) -> None:
         or not stat.S_ISDIR(top.st_mode)
         or stat.S_IMODE(top.st_mode) != 0o700
         or top.st_uid != os.geteuid()
-        or names != ["config.json"]
+        or not {"config.json"} <= names <= {"config.json", "buildx"}
         or stat.S_ISLNK(config.st_mode)
         or not stat.S_ISREG(config.st_mode)
         or stat.S_IMODE(config.st_mode) != 0o600
@@ -1428,13 +1447,98 @@ def _audit_docker_config(path: Path) -> None:
         or raw != b"{}\n"
     ):
         raise BuildError("docker_config_mutated")
+    if "buildx" not in names:
+        return
+    for relative, allowed_names in _DOCKER_BUILDX_DIRECTORY_LAYOUT.items():
+        directory = path / relative
+        try:
+            metadata = os.lstat(directory)
+            children = set(os.listdir(directory))
+        except OSError:
+            raise BuildError("docker_config_mutated") from None
+        dynamic_refs = relative == "buildx/refs/default/default"
+        unexpected_children = (
+            len(children) > _DOCKER_BUILDX_MAX_REF_FILES
+            or any(_DOCKER_BUILDX_REF_ID_RE.fullmatch(name) is None for name in children)
+            if dynamic_refs
+            else bool(children.difference(allowed_names))
+        )
+        if (
+            stat.S_ISLNK(metadata.st_mode)
+            or not stat.S_ISDIR(metadata.st_mode)
+            or stat.S_IMODE(metadata.st_mode) != 0o700
+            or metadata.st_uid != os.geteuid()
+            or unexpected_children
+        ):
+            raise BuildError("docker_config_mutated")
+    for relative in _DOCKER_BUILDX_FILE_PATHS:
+        candidate = path / relative
+        try:
+            metadata = os.lstat(candidate)
+        except FileNotFoundError:
+            continue
+        except OSError:
+            raise BuildError("docker_config_mutated") from None
+        if (
+            stat.S_ISLNK(metadata.st_mode)
+            or not stat.S_ISREG(metadata.st_mode)
+            or stat.S_IMODE(metadata.st_mode) != 0o600
+            or metadata.st_uid != os.geteuid()
+            or metadata.st_nlink != 1
+            or metadata.st_size > _DOCKER_BUILDX_MAX_FILE_BYTES
+        ):
+            raise BuildError("docker_config_mutated")
+    ref_directory = path / "buildx/refs/default/default"
+    try:
+        ref_names = os.listdir(ref_directory)
+    except OSError:
+        raise BuildError("docker_config_mutated") from None
+    for name in ref_names:
+        candidate = ref_directory / name
+        try:
+            metadata = os.lstat(candidate)
+        except OSError:
+            raise BuildError("docker_config_mutated") from None
+        if (
+            _DOCKER_BUILDX_REF_ID_RE.fullmatch(name) is None
+            or stat.S_ISLNK(metadata.st_mode)
+            or not stat.S_ISREG(metadata.st_mode)
+            or stat.S_IMODE(metadata.st_mode) not in {0o600, 0o644}
+            or metadata.st_uid != os.geteuid()
+            or metadata.st_nlink != 1
+            or metadata.st_size > _DOCKER_BUILDX_MAX_FILE_BYTES
+        ):
+            raise BuildError("docker_config_mutated")
+
+
+def _unlink_docker_config_tree(path: Path) -> None:
+    ref_directory = path / "buildx/refs/default/default"
+    try:
+        ref_names = os.listdir(ref_directory)
+    except FileNotFoundError:
+        ref_names = []
+    for name in ref_names:
+        os.unlink(ref_directory / name)
+    for relative in reversed(_DOCKER_BUILDX_FILE_PATHS):
+        candidate = path / relative
+        try:
+            os.unlink(candidate)
+        except FileNotFoundError:
+            pass
+    for relative in reversed(tuple(_DOCKER_BUILDX_DIRECTORY_LAYOUT)):
+        candidate = path / relative
+        try:
+            os.rmdir(candidate)
+        except FileNotFoundError:
+            pass
+    os.unlink(path / "config.json")
+    os.rmdir(path)
 
 
 def _remove_docker_config(path: Path) -> None:
     _audit_docker_config(path)
     try:
-        os.unlink(path / "config.json")
-        os.rmdir(path)
+        _unlink_docker_config_tree(path)
     except OSError:
         raise BuildError("docker_config_cleanup_failed") from None
 
@@ -1443,28 +1547,8 @@ def _discard_owned_docker_config(path: Path) -> None:
     """Remove only the still-private config directory created by this process."""
 
     try:
-        top = os.lstat(path)
-        names = os.listdir(path)
-        if (
-            not _DOCKER_CONFIG_NAME_RE.fullmatch(path.name)
-            or stat.S_ISLNK(top.st_mode)
-            or not stat.S_ISDIR(top.st_mode)
-            or stat.S_IMODE(top.st_mode) != 0o700
-            or top.st_uid != os.geteuid()
-            or set(names).difference({"config.json"})
-        ):
-            raise BuildError("docker_config_cleanup_failed")
-        if "config.json" in names:
-            leaf = os.lstat(path / "config.json")
-            if (
-                stat.S_ISLNK(leaf.st_mode)
-                or not stat.S_ISREG(leaf.st_mode)
-                or leaf.st_uid != os.geteuid()
-                or leaf.st_nlink != 1
-            ):
-                raise BuildError("docker_config_cleanup_failed")
-            os.unlink(path / "config.json")
-        os.rmdir(path)
+        _audit_docker_config(path)
+        _unlink_docker_config_tree(path)
     except BuildError:
         raise
     except OSError:

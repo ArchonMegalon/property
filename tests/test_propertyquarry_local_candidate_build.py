@@ -1019,6 +1019,46 @@ def test_partial_docker_config_creation_is_removed(
     assert not any(path.name.startswith(".pq-build-docker-") for path in harness.receipts.iterdir())
 
 
+def test_owned_buildx_client_state_is_audited_and_removed(
+    harness: Harness,
+) -> None:
+    docker_config = build._create_docker_config(harness.receipts)
+    for relative in build._DOCKER_BUILDX_DIRECTORY_LAYOUT:
+        (docker_config / relative).mkdir(exist_ok=True)
+    generated_files = {
+        "buildx/.buildNodeID": b"builder-node-id\n",
+        "buildx/.lock": b"",
+        "buildx/activity/default": b"2026-07-20T09:00:00Z",
+        "buildx/refs/default/default/09gncdjwovka2u742clk5jp7g": b"build reference",
+    }
+    for relative, raw in generated_files.items():
+        candidate = docker_config / relative
+        candidate.write_bytes(raw)
+        candidate.chmod(0o644 if "refs/default/default/" in relative else 0o600)
+
+    build._audit_docker_config(docker_config)
+    build._remove_docker_config(docker_config)
+
+    assert not docker_config.exists()
+
+
+def test_unexpected_or_unsafe_buildx_client_state_is_rejected(
+    harness: Harness,
+) -> None:
+    docker_config = build._create_docker_config(harness.receipts)
+    buildx = docker_config / "buildx"
+    buildx.mkdir()
+    (buildx / "remote-builder").write_text("untrusted", encoding="utf-8")
+
+    with pytest.raises(build.BuildError) as raised:
+        build._audit_docker_config(docker_config)
+    assert raised.value.code == "docker_config_mutated"
+
+    (buildx / "remote-builder").unlink()
+    buildx.rmdir()
+    build._remove_docker_config(docker_config)
+
+
 def test_receipt_publication_failure_removes_exact_built_tag_and_allows_retry(
     harness: Harness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
