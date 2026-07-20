@@ -122,6 +122,9 @@ def docker_archive(
     layer_source_size_delta: int = 0,
     containerd_legacy_config_path: bool = False,
     containerd_legacy_layer_paths: bool = False,
+    containerd_omit_layer_sources: bool = False,
+    layer_source_override: dict[str, Any] | None = None,
+    extra_layer_source: bool = False,
 ) -> tuple[bytes, str, list[str]]:
     diff_ids = [digest(layer) for layer in layers]
     config: dict[str, Any] = {
@@ -148,11 +151,11 @@ def docker_archive(
     )
     manifest_record: dict[str, Any] = {
         "Config": config_path,
-        "RepoTags": [LOCAL_TAG],
+        "RepoTags": None if containerd_layout else [LOCAL_TAG],
         "Layers": layer_paths,
     }
-    if containerd_layout:
-        manifest_record["LayerSources"] = {
+    if containerd_layout and not containerd_omit_layer_sources:
+        layer_sources: dict[str, Any] = {
             diff_id: {
                 "mediaType": build.OCI_LAYER_MEDIA_TYPE,
                 "size": len(layer) + layer_source_size_delta,
@@ -160,6 +163,16 @@ def docker_archive(
             }
             for diff_id, layer in zip(diff_ids, layers, strict=True)
         }
+        if layer_source_override:
+            layer_sources[diff_ids[0]].update(copy.deepcopy(layer_source_override))
+        if extra_layer_source:
+            foreign_digest = "sha256:" + "9" * 64
+            layer_sources[foreign_digest] = {
+                "mediaType": build.OCI_LAYER_MEDIA_TYPE,
+                "size": 1,
+                "digest": foreign_digest,
+            }
+        manifest_record["LayerSources"] = layer_sources
     manifest = [manifest_record]
     files: dict[str, bytes] = {
         "manifest.json": canonical(manifest),
@@ -167,6 +180,11 @@ def docker_archive(
     }
     for index, (path, payload) in enumerate(zip(layer_paths, layers, strict=True)):
         files[path] = layer_payload_mutation if index == 0 and layer_payload_mutation else payload
+    if containerd_layout:
+        unrelated = b"unrelated valid content-addressed metadata blob"
+        files[f"blobs/sha256/{digest(unrelated).removeprefix('sha256:')}"] = unrelated
+        files["index.json"] = canonical({"schemaVersion": 2, "manifests": []})
+        files["oci-layout"] = canonical({"imageLayoutVersion": "1.0.0"})
     return (
         tar_bytes(files, symlink=("unsafe", "../../outside") if unsafe_symlink else None),
         image_id,
@@ -711,6 +729,57 @@ def test_containerd_layer_source_metadata_must_match_verified_layer_bytes(
     harness.world.docker_archive = archive
 
     harness.fails("docker_archive_layer_source_invalid")
+
+
+@pytest.mark.parametrize(
+    "layer_source_override",
+    [
+        {"digest": "sha256:" + "9" * 64},
+        {"mediaType": "application/vnd.oci.image.layer.v1.tar+gzip"},
+        {"size": True},
+        {"urls": ["https://example.invalid/foreign-layer"]},
+    ],
+)
+def test_containerd_layer_sources_reject_unbound_or_foreign_descriptors(
+    harness: Harness,
+    layer_source_override: dict[str, Any],
+) -> None:
+    archive, _image_id, _diff_ids = docker_archive(
+        layers=harness.world.layers,
+        labels=harness.world.labels,
+        containerd_layout=True,
+        layer_source_override=layer_source_override,
+    )
+    harness.world.docker_archive = archive
+
+    harness.fails("docker_archive_layer_source_invalid")
+
+
+@pytest.mark.parametrize(
+    "profile_override",
+    [
+        {"containerd_omit_layer_sources": True},
+        {"extra_layer_source": True},
+    ],
+)
+def test_containerd_manifest_requires_the_exact_layer_source_key_set(
+    harness: Harness,
+    profile_override: dict[str, bool],
+) -> None:
+    archive, _image_id, _diff_ids = docker_archive(
+        layers=harness.world.layers,
+        labels=harness.world.labels,
+        containerd_layout=True,
+        **profile_override,
+    )
+    harness.world.docker_archive = archive
+
+    expected = (
+        "docker_archive_config_mismatch"
+        if profile_override.get("containerd_omit_layer_sources")
+        else "docker_archive_layer_source_invalid"
+    )
+    harness.fails(expected)
 
 
 @pytest.mark.parametrize(
