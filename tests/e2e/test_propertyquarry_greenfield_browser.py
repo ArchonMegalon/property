@@ -5394,6 +5394,19 @@ def test_propertyquarry_desktop_what_matters_select_changes_preserve_open_groups
               ?.getAttribute('data-keyword-distance-enabled') === 'true'
             """
         )
+        # The anchor restorer intentionally completes through two animation frames
+        # and a final 64 ms correction after the control-state marker flips.
+        page.evaluate(
+            """
+            () => new Promise((resolve) => {
+              window.requestAnimationFrame(() => {
+                window.requestAnimationFrame(() => {
+                  window.setTimeout(resolve, 80);
+                });
+              });
+            })
+            """
+        )
         after_state = page.evaluate(
             """
             () => {
