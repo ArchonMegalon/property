@@ -222,6 +222,7 @@ RUN mkdir -p \
 COPY scripts/property_tour_runtime_paths.py /app/scripts/property_tour_runtime_paths.py
 COPY scripts/verify_property_tour_controls.py /app/scripts/verify_property_tour_controls.py
 COPY scripts/property_tour_3dvista_provenance.py /app/scripts/property_tour_3dvista_provenance.py
+COPY scripts/property_render_video_probe.py /app/scripts/property_render_video_probe.py
 COPY scripts/accept_magicfit_delivery.py /app/scripts/accept_magicfit_delivery.py
 COPY scripts/propertyquarry_playwright_runtime.py /app/scripts/propertyquarry_playwright_runtime.py
 COPY scripts/generate_property_reconstruction.py /app/scripts/generate_property_reconstruction.py
@@ -237,6 +238,7 @@ RUN chown -R 10001:10001 /data /home/ea && \
     chmod 0444 \
         /app/scripts/generate_property_reconstruction.py \
         /app/scripts/accept_magicfit_delivery.py \
+        /app/scripts/property_render_video_probe.py \
         /app/scripts/property_reconstruction_render_bridge.py \
         /app/scripts/property_tour_3dvista_provenance.py \
         /app/scripts/property_tour_runtime_paths.py \

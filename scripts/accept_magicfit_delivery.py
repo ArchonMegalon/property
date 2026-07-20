@@ -8,13 +8,22 @@ import hashlib
 import json
 import os
 import re
-import shutil
 import stat
-import subprocess
+import sys
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
+
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts.property_render_video_probe import (  # noqa: E402
+    PropertyRenderVideoProbeError,
+    probe_local_video,
+)
 
 
 DELIVERY_CONTRACT = "propertyquarry.magicfit_delivery_acceptance.v1"
@@ -239,44 +248,14 @@ def _video_probe(path: Path) -> dict[str, object]:
     suffix = path.suffix.lower()
     if suffix not in PUBLIC_VIDEO_EXTENSIONS:
         raise SystemExit("magicfit_acceptance_video_extension_invalid")
-    ffprobe = shutil.which("ffprobe")
-    if not ffprobe:
-        raise SystemExit("magicfit_acceptance_ffprobe_missing")
     try:
-        completed = subprocess.run(
-            [
-                ffprobe,
-                "-v",
-                "error",
-                "-select_streams",
-                "v:0",
-                "-show_entries",
-                "stream=codec_type,duration:format=duration,size",
-                "-of",
-                "json",
-                str(path),
-            ],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-    except Exception as exc:
-        raise SystemExit(f"magicfit_acceptance_video_probe_failed:{type(exc).__name__}") from exc
-    if completed.returncode != 0:
-        raise SystemExit("magicfit_acceptance_video_probe_failed")
-    try:
-        payload = json.loads(completed.stdout or "{}")
-        streams = [row for row in list(payload.get("streams") or []) if isinstance(row, dict)]
-        duration = float(dict(payload.get("format") or {}).get("duration") or 0.0)
-        size_bytes = int(dict(payload.get("format") or {}).get("size") or 0)
-    except Exception as exc:
-        raise SystemExit(f"magicfit_acceptance_video_probe_invalid:{type(exc).__name__}") from exc
-    if not any(str(row.get("codec_type") or "").lower() == "video" for row in streams):
-        raise SystemExit("magicfit_acceptance_video_stream_missing")
-    if duration <= 0.0 or size_bytes != path.stat().st_size:
-        raise SystemExit("magicfit_acceptance_video_probe_invalid")
-    return {"duration_seconds": duration, "size_bytes": size_bytes}
+        probe = probe_local_video(path)
+    except PropertyRenderVideoProbeError as exc:
+        raise SystemExit(f"magicfit_acceptance_video_probe_failed:{exc}") from exc
+    return {
+        "duration_seconds": probe["duration_seconds"],
+        "size_bytes": probe["size_bytes"],
+    }
 
 
 def _source_receipt_valid(payload: dict[str, Any], *, slug: str) -> bool:
