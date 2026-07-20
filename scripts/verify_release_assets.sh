@@ -93,6 +93,7 @@ required_files=(
   "scripts/materialize_ea_browser_workflow_proof.py"
   "scripts/materialize_weekly_product_pulse.py"
   "scripts/verify_generated_release_artifacts_clean.py"
+  "scripts/verify_propertyquarry_python_wheelhouse.py"
   "scripts/verify_flagship_release_readiness.py"
   "scripts/verify_design_mirror_bundle.py"
   "scripts/repair_design_mirror_bundle.sh"
@@ -130,6 +131,7 @@ required_files=(
   "ea/schema/20260305_v0_29_human_task_assignment_source.sql"
   "ea/schema/20260305_v0_30_human_task_assignment_provenance.sql"
   "ea/schema/20260305_v0_31_artifact_principal_scope.sql"
+  "ea/requirements.wheelhouse.lock"
 )
 
 echo "== verify release assets =="
@@ -141,6 +143,16 @@ if [[ -f "${f}" ]]; then
     missing=1
   fi
 done
+
+if python3 scripts/verify_propertyquarry_python_wheelhouse.py \
+  --requirements-lock ea/requirements.lock \
+  --hash-lock ea/requirements.wheelhouse.lock \
+  --wheelhouse vendor/propertyquarry-python-wheels; then
+  echo "ok: PropertyQuarry offline Python wheelhouse is exact and hash locked"
+else
+  echo "missing: PropertyQuarry offline Python wheelhouse is invalid" >&2
+  missing=1
+fi
 
 if python3 scripts/verify_propertyquarry_global_governance_assets.py; then
   echo "ok: PropertyQuarry global-governance release assets and fail-closed semantics"
