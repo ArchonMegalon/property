@@ -761,7 +761,6 @@ def test_release_manifest_is_bound_to_candidate_and_exact_authority_shape(
         f"#syntax=docker/dockerfile:1\nFROM {BASE_REFERENCE}\n".encode(),
         f"#  syntax = docker/dockerfile:1\nFROM {BASE_REFERENCE}\n".encode(),
         f"# ChEcK=skip=JSONArgsRecommended\nFROM {BASE_REFERENCE}\n".encode(),
-        f"FROM {BASE_REFERENCE} AS base\nCOPY --from=base /tmp/a /tmp/a\n".encode(),
         f"FROM {BASE_REFERENCE}\nADD\thttps://example.invalid/payload /tmp/payload\n".encode(),
         f"FROM {BASE_REFERENCE}\nCOPY\t--from=remote/image /a /a\n".encode(),
         f"FROM {BASE_REFERENCE}\nRUN --mount=type=secret echo unsafe\n".encode(),
@@ -790,6 +789,34 @@ def test_dockerfile_requires_digest_pinned_local_only_build_contract(
         else "dockerfile_local_only_contract_invalid"
     )
     harness.fails(expected)
+
+
+def test_dockerfile_allows_scratch_runtime_copied_from_prior_local_stage() -> None:
+    dockerfile = (
+        f"FROM {BASE_REFERENCE} AS prepared\n"
+        "RUN echo prepared\n"
+        "FROM scratch AS runtime\n"
+        "COPY --from=prepared / /\n"
+    ).encode("ascii")
+
+    assert build._dockerfile_base_references(dockerfile) == (BASE_REFERENCE,)
+
+
+@pytest.mark.parametrize(
+    "dockerfile",
+    (
+        f"FROM {BASE_REFERENCE} AS prepared\nFROM scratch AS runtime\nCOPY --from=missing / /\n".encode(),
+        f"FROM {BASE_REFERENCE} AS prepared\nFROM scratch AS runtime\nCOPY --from=python:3.12-slim / /\n".encode(),
+        f"FROM {BASE_REFERENCE} AS prepared\nFROM scratch AS prepared\n".encode(),
+    ),
+)
+def test_dockerfile_rejects_nonlocal_or_ambiguous_multistage_sources(
+    dockerfile: bytes,
+) -> None:
+    with pytest.raises(build.BuildError) as raised:
+        build._dockerfile_base_references(dockerfile)
+
+    assert raised.value.code == "dockerfile_local_only_contract_invalid"
 
 
 @pytest.mark.parametrize(

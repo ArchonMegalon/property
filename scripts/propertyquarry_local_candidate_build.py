@@ -117,7 +117,15 @@ _REPO_DIGEST_RE = re.compile(r"[^@\s]+@sha256:[0-9a-f]{64}\Z")
 _DOCKER_CONFIG_NAME_RE = re.compile(r"\.pq-build-docker-[A-Za-z0-9_-]+\Z")
 _FROM_RE = re.compile(
     r"FROM[ \t]+(?P<reference>[^ \t]+@sha256:[0-9a-f]{64})"
-    r"(?:[ \t]+AS[ \t]+[A-Za-z0-9_.-]+)?[ \t]*\Z",
+    r"(?:[ \t]+AS[ \t]+(?P<alias>[A-Za-z0-9_.-]+))?[ \t]*\Z",
+    flags=re.IGNORECASE,
+)
+_FROM_SCRATCH_RE = re.compile(
+    r"FROM[ \t]+scratch(?:[ \t]+AS[ \t]+(?P<alias>[A-Za-z0-9_.-]+))?[ \t]*\Z",
+    flags=re.IGNORECASE,
+)
+_COPY_FROM_LOCAL_STAGE_RE = re.compile(
+    r"--from=(?P<source>[A-Za-z0-9_.-]+)[ \t]+.+\Z",
     flags=re.IGNORECASE,
 )
 _RFC3339_UTC_SECONDS_RE = re.compile(
@@ -1014,6 +1022,7 @@ def _dockerfile_base_references(dockerfile: bytes) -> tuple[str, ...]:
     except UnicodeDecodeError:
         raise BuildError("dockerfile_invalid") from None
     references: list[str] = []
+    stage_aliases: set[str] = set()
     logical = ""
     for raw_line in text.splitlines():
         line = raw_line.strip()
@@ -1035,13 +1044,35 @@ def _dockerfile_base_references(dockerfile: bytes) -> tuple[str, ...]:
         body = parsed.group("body") or ""
         if instruction == "FROM":
             match = _FROM_RE.fullmatch(logical)
-            if match is None:
+            scratch_match = _FROM_SCRATCH_RE.fullmatch(logical)
+            if match is None and scratch_match is None:
                 raise BuildError("dockerfile_base_not_digest_pinned")
-            references.append(match.group("reference"))
+            alias = (
+                match.group("alias")
+                if match is not None
+                else scratch_match.group("alias")
+            )
+            normalized_alias = str(alias or "").strip().lower()
+            if normalized_alias:
+                if normalized_alias == "scratch" or normalized_alias in stage_aliases:
+                    raise BuildError("dockerfile_local_only_contract_invalid")
+                stage_aliases.add(normalized_alias)
+            if match is not None:
+                references.append(match.group("reference"))
+        copy_from_present = instruction == "COPY" and re.search(
+            r"(?:^|[ \t])--FROM(?:=|[ \t])",
+            body.upper(),
+        )
+        if copy_from_present:
+            local_copy = _COPY_FROM_LOCAL_STAGE_RE.fullmatch(body)
+            if (
+                local_copy is None
+                or local_copy.group("source").lower() not in stage_aliases
+            ):
+                raise BuildError("dockerfile_local_only_contract_invalid")
         upper = body.upper()
         if (
             instruction == "ADD"
-            or instruction == "COPY" and re.search(r"(?:^|[ \t])--FROM(?:=|[ \t])", upper)
             or instruction == "RUN" and re.search(r"(?:^|[ \t])--MOUNT(?:=|[ \t])", upper)
             or instruction == "RUN" and re.search(r"(?:^|[ \t])--DEVICE(?:=|[ \t])", upper)
             or instruction == "RUN" and re.search(r"(?:^|[ \t])--SECURITY(?:=|[ \t])", upper)
