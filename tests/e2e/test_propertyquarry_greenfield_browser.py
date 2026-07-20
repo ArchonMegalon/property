@@ -1195,7 +1195,6 @@ def test_propertyquarry_research_market_formats_are_visible_in_declared_locales(
 
     monkeypatch.setattr(ProductService, "get_property_search_run_status", _market_run_status)
     context = _new_context(browser, mobile=False, width=1280, height=900)
-    page = context.new_page()
     try:
         _issue_browser_workspace_session(client=client, context=context, base_url=base_url)
         for index, case in enumerate(cases):
@@ -1213,26 +1212,34 @@ def test_propertyquarry_research_market_formats_are_visible_in_declared_locales(
             )
             assert stored.status_code == 200, stored.text
             market_key = str(case["country_code"]).lower()
-            response = page.goto(
-                f"{base_url}/app/research/market-{market_key}?run_id=run-market-{market_key}&lang={case['locale']}",
-                wait_until="commit",
-            )
-            assert response is not None and response.ok
-            assert page.locator("html").get_attribute("lang") == case["locale"]
-            market_context = page.locator("[data-property-market-context]")
-            expect(market_context).to_be_visible()
-            assert market_context.get_attribute("data-property-market-country") == case["country_code"]
-            assert market_context.get_attribute("data-property-market-locale") == case["locale"]
-            assert market_context.get_attribute("data-property-market-currency") == case["currency_code"]
-            assert market_context.get_attribute("data-property-market-timezone") == case["timezone"]
-            expect(page.locator("[data-property-market-locale-label]")).to_have_text(str(case["locale_label"]))
-            expect(page.locator("[data-property-market-updated]")).to_have_text(str(case["updated"]))
-            expect(market_context).to_contain_text(str(case["updated_label"]))
-            assert page.locator(".prd-price").inner_text().replace("\u00a0", " ") == case["price"]
-            hero_facts = page.locator(".prd-headline-panel .prd-facts").inner_text().replace("\u00a0", " ")
-            assert "78,5 m²" in hero_facts
-            assert "3,5" in hero_facts
-            assert "1,234,567" not in page.locator("[data-property-research-detail]").inner_text()
+            page = context.new_page()
+            try:
+                response = page.goto(
+                    f"{base_url}/app/research/market-{market_key}?run_id=run-market-{market_key}&lang={case['locale']}",
+                    wait_until="commit",
+                )
+                assert response is not None and response.ok
+                assert page.locator("html").get_attribute("lang") == case["locale"]
+                market_context = page.locator("[data-property-market-context]")
+                expect(market_context).to_be_visible()
+                assert market_context.get_attribute("data-property-market-country") == case["country_code"]
+                assert market_context.get_attribute("data-property-market-locale") == case["locale"]
+                assert market_context.get_attribute("data-property-market-currency") == case["currency_code"]
+                assert market_context.get_attribute("data-property-market-timezone") == case["timezone"]
+                expect(page.locator("[data-property-market-locale-label]")).to_have_text(
+                    str(case["locale_label"])
+                )
+                expect(page.locator("[data-property-market-updated]")).to_have_text(str(case["updated"]))
+                expect(market_context).to_contain_text(str(case["updated_label"]))
+                assert page.locator(".prd-price").inner_text().replace("\u00a0", " ") == case["price"]
+                hero_facts = page.locator(".prd-headline-panel .prd-facts").inner_text().replace(
+                    "\u00a0", " "
+                )
+                assert "78,5 m²" in hero_facts
+                assert "3,5" in hero_facts
+                assert "1,234,567" not in page.locator("[data-property-research-detail]").inner_text()
+            finally:
+                page.close()
     finally:
         context.close()
 
