@@ -133,6 +133,67 @@ def test_source_binding_walks_consecutive_metadata_only_refresh_commits(tmp_path
     assert _binding(tmp_path, evidence_sources)["code_commit"] == source_commit
 
 
+def test_source_binding_walks_transparent_synthetic_merge_and_metadata_envelope(
+    tmp_path: Path,
+) -> None:
+    evidence_sources, initial = _initialize_repository(tmp_path)
+    _git(tmp_path, "switch", "-c", "feature")
+    _write(tmp_path, "app.txt", "source-v2\n")
+    source_commit = _commit(tmp_path, "change source")
+    for path in (
+        ".codex-design/product/EA_FLAGSHIP_RELEASE_GATE.generated.json",
+        ".codex-design/product/WEEKLY_PRODUCT_PULSE.generated.json",
+        ".codex-studio/published/EA_BROWSER_WORKFLOW_PROOF.generated.json",
+        "docs/PROPERTYQUARRY_RELEASE_MANIFEST.md",
+    ):
+        _write(tmp_path, path, f"metadata for {source_commit}\n")
+    feature_head = _commit(tmp_path, "refresh release metadata")
+
+    _git(tmp_path, "switch", "main")
+    merge_commit = _git(
+        tmp_path,
+        "merge",
+        "--no-ff",
+        "-m",
+        "synthetic pull request merge",
+        feature_head,
+    )
+    merge_head = _git(tmp_path, "rev-parse", "HEAD")
+
+    assert merge_commit
+    assert merge_head not in {initial, feature_head}
+    assert _git(tmp_path, "rev-parse", f"{merge_head}^{{tree}}") == _git(
+        tmp_path,
+        "rev-parse",
+        f"{feature_head}^{{tree}}",
+    )
+    assert _binding(tmp_path, evidence_sources)["code_commit"] == source_commit
+
+
+def test_source_binding_keeps_merge_commit_when_integration_changes_the_tree(
+    tmp_path: Path,
+) -> None:
+    evidence_sources, _initial = _initialize_repository(tmp_path)
+    _git(tmp_path, "switch", "-c", "feature")
+    _write(tmp_path, "app.txt", "source-v2\n")
+    feature_head = _commit(tmp_path, "change feature source")
+
+    _git(tmp_path, "switch", "main")
+    _write(tmp_path, "main-only.txt", "integrated source\n")
+    _commit(tmp_path, "change main source")
+    _git(
+        tmp_path,
+        "merge",
+        "--no-ff",
+        "-m",
+        "merge feature with integration source",
+        feature_head,
+    )
+    merge_head = _git(tmp_path, "rev-parse", "HEAD")
+
+    assert _binding(tmp_path, evidence_sources)["code_commit"] == merge_head
+
+
 def test_source_binding_does_not_hide_evidence_changes_in_metadata_commit(tmp_path: Path) -> None:
     evidence_sources, _initial = _initialize_repository(tmp_path)
     _write(tmp_path, SOURCE_CASES[0], "# changed evidence source\n")
