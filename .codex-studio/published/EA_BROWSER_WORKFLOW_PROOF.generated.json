@@ -5,10 +5,10 @@
   "proof_target": "propertyquarry",
   "version": 1,
   "kind": "proof_receipt",
-  "generated_at": "2026-07-21T08:52:34Z",
+  "generated_at": "2026-07-21T16:54:05Z",
   "generated_by": "scripts/materialize_ea_browser_workflow_proof.py",
-  "status": "blocked",
-  "operator_summary": "PropertyQuarry browser workflow proof is published, but it is blocked by failing or unavailable proof lanes.",
+  "status": "pass",
+  "operator_summary": "PropertyQuarry browser workflow proof is published and green across the required journey matrix, source-backed contracts, and real-browser E2E.",
   "seed_source": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
   "release_claim_summary": "The standalone PropertyQuarry surface can only claim flagship-grade release truth when its browser workflow proof and release asset verification agree with this gate seed.",
   "expected_browser_signals": [
@@ -31,7 +31,7 @@
       "id": "propertyquarry.release-proof.v1",
       "sha256": "c9403bfba909e95ef8e0ded9c2c915c586e448db55f0e98f466d3ba3a166dcc9"
     },
-    "code_commit": "b23670531be99469b64284cbca8c5e3389516485",
+    "code_commit": "ebf1aba3d7ec0ada620c45c2a7771445fba4f9ac",
     "seed": {
       "path": ".codex-design/repo/EA_FLAGSHIP_RELEASE_GATE.json",
       "sha256": "0221c24194de3b63ee42ce5ae77424183794da9cc8a08d0b38690cfaf5087d8f",
@@ -40,13 +40,13 @@
     "required_test_sources": [
       {
         "path": "tests/test_propertyquarry_workspace_redesign.py",
-        "sha256": "b9fca727e31ca6bc58f6c289040c2c272ce5a05ab44ce5d8ec66b3b060cceba5",
-        "git_blob_oid": "b3c36c45fa4a204c00def95c4c03e55de7775b6a"
+        "sha256": "89960ff11fa177875c1ebe6e45a5b5e8cbd27287b89fd83c47fae9168e525496",
+        "git_blob_oid": "984c3fec74e678943ef7be27d7539b3a49ef8e97"
       },
       {
         "path": "tests/e2e/test_propertyquarry_greenfield_browser.py",
-        "sha256": "5cf3dda7110404bbd66e90584584517f6cc0a3ef29d99e8e623e28673fb0bdc7",
-        "git_blob_oid": "2832c8e3aec0c64064e5bb7d02cc7c25ae4b4d18"
+        "sha256": "95809e1984cdbcb58ab80ef8590d6df0faa7467411a52adf8964439439f51f6c",
+        "git_blob_oid": "effbacb5d8bf41b025c54527aafc29eac7de123f"
       },
       {
         "path": "tests/test_property_evidence_overlays.py",
@@ -56,7 +56,7 @@
     ]
   },
   "source_backed_journey_proof": {
-    "status": "blocked",
+    "status": "pass",
     "command": "/docker/property/.venv/bin/python -m pytest -q tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_workspace_routes_render_greenfield_surfaces tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_failed_run_stays_on_activity_surface tests/test_propertyquarry_workspace_redesign.py::test_property_workspace_sign_out_clears_workspace_session_cookie tests/test_propertyquarry_workspace_redesign.py::test_property_saved_shortlist_candidates_persist_across_runs tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_account_exposes_working_lifecycle_controls tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_pricing_checkout_failure_copy_is_safe_and_accessible tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_public_home_survives_unreadable_optional_tour_media",
     "cwd": "/tmp/property-final-integration-v3-fa7",
     "python_bin": "/docker/property/.venv/bin/python",
@@ -70,56 +70,16 @@
       "test_propertyquarry_pricing_checkout_failure_copy_is_safe_and_accessible",
       "test_propertyquarry_public_home_survives_unreadable_optional_tour_media"
     ],
-    "exit_code": 1,
-    "duration_seconds": 24.075,
+    "exit_code": 0,
+    "duration_seconds": 25.891,
     "output_excerpt": [
-      "F......                                                                  [100%]",
-      "=================================== FAILURES ===================================",
-      "_______ test_propertyquarry_workspace_routes_render_greenfield_surfaces ________",
-      "monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7bcef13dd8e0>",
-      "    def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch) -> None:",
-      "        principal_id = \"pq-redesign-browser\"",
-      "        client = build_property_client(principal_id=principal_id)",
-      "        start_workspace(client, mode=\"personal\", workspace_name=\"Property Office\")",
-      "        monkeypatch.setenv(\"PROPERTYQUARRY_ENABLE_PAYPAL_CHECKOUT\", \"1\")",
-      "        monkeypatch.setenv(\"PAYPAL_CLIENT_ID\", \"paypal-client\")",
-      "        monkeypatch.setenv(\"PAYPAL_SECRET\", \"paypal-secret\")",
-      "        stored = client.post(",
-      "            \"/v1/onboarding/property-search/preferences\",",
-      "            json={",
-      "                \"country_code\": \"DE\",",
-      "                \"language_code\": \"de\",",
-      "                \"listing_mode\": \"buy\",",
-      "                \"property_type\": \"apartment\",",
-      "                \"investment_research_mode\": \"auto\",",
-      "                \"location_query\": \"Berlin\",",
-      "                \"keywords\": \"lift family balcony\",",
-      "                \"selected_platforms\": [\"immoscout_de\", \"immowelt\"],",
-      "                \"preference_person_id\": \"elisabeth\",",
-      "                \"max_results_per_source\": 4,",
-      "                \"enable_commute_research\": True,",
-      "                \"commute_destination\": \"Berlin Hauptbahnhof\",",
-      "                \"max_commute_minutes_transit\": 25,",
-      "            },",
-      "        )",
-      "        assert stored.status_code == 200, stored.text",
-      "        profile_node = client.post(",
-      "            \"/app/api/people/elisabeth/preference-profile/nodes\",",
-      "            json={",
-      "                \"domain\": \"willhaben\",",
-      "                \"category\": \"soft_preference\",",
-      "                \"key\": \"prefer_balcony\",",
-      "                \"value_json\": True,",
-      "                \"strength\": \"medium\",",
-      "                \"confidence\": 0.9,",
-      "            },"
+      ".......                                                                  [100%]",
+      "7 passed in 24.36s"
     ],
-    "limitations": [
-      "source-backed browser journey proof did not run to completion"
-    ],
+    "limitations": [],
     "outcome_counts": {
-      "passed": 6,
-      "failed": 1,
+      "passed": 7,
+      "failed": 0,
       "skipped": 0,
       "errors": 0,
       "xfailed": 0,
@@ -131,7 +91,7 @@
   },
   "source_backed_journey_proofs": [
     {
-      "status": "blocked",
+      "status": "pass",
       "command": "/docker/property/.venv/bin/python -m pytest -q tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_workspace_routes_render_greenfield_surfaces tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_failed_run_stays_on_activity_surface tests/test_propertyquarry_workspace_redesign.py::test_property_workspace_sign_out_clears_workspace_session_cookie tests/test_propertyquarry_workspace_redesign.py::test_property_saved_shortlist_candidates_persist_across_runs tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_account_exposes_working_lifecycle_controls tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_pricing_checkout_failure_copy_is_safe_and_accessible tests/test_propertyquarry_workspace_redesign.py::test_propertyquarry_public_home_survives_unreadable_optional_tour_media",
       "cwd": "/tmp/property-final-integration-v3-fa7",
       "python_bin": "/docker/property/.venv/bin/python",
@@ -145,56 +105,16 @@
         "test_propertyquarry_pricing_checkout_failure_copy_is_safe_and_accessible",
         "test_propertyquarry_public_home_survives_unreadable_optional_tour_media"
       ],
-      "exit_code": 1,
-      "duration_seconds": 24.075,
+      "exit_code": 0,
+      "duration_seconds": 25.891,
       "output_excerpt": [
-        "F......                                                                  [100%]",
-        "=================================== FAILURES ===================================",
-        "_______ test_propertyquarry_workspace_routes_render_greenfield_surfaces ________",
-        "monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7bcef13dd8e0>",
-        "    def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch) -> None:",
-        "        principal_id = \"pq-redesign-browser\"",
-        "        client = build_property_client(principal_id=principal_id)",
-        "        start_workspace(client, mode=\"personal\", workspace_name=\"Property Office\")",
-        "        monkeypatch.setenv(\"PROPERTYQUARRY_ENABLE_PAYPAL_CHECKOUT\", \"1\")",
-        "        monkeypatch.setenv(\"PAYPAL_CLIENT_ID\", \"paypal-client\")",
-        "        monkeypatch.setenv(\"PAYPAL_SECRET\", \"paypal-secret\")",
-        "        stored = client.post(",
-        "            \"/v1/onboarding/property-search/preferences\",",
-        "            json={",
-        "                \"country_code\": \"DE\",",
-        "                \"language_code\": \"de\",",
-        "                \"listing_mode\": \"buy\",",
-        "                \"property_type\": \"apartment\",",
-        "                \"investment_research_mode\": \"auto\",",
-        "                \"location_query\": \"Berlin\",",
-        "                \"keywords\": \"lift family balcony\",",
-        "                \"selected_platforms\": [\"immoscout_de\", \"immowelt\"],",
-        "                \"preference_person_id\": \"elisabeth\",",
-        "                \"max_results_per_source\": 4,",
-        "                \"enable_commute_research\": True,",
-        "                \"commute_destination\": \"Berlin Hauptbahnhof\",",
-        "                \"max_commute_minutes_transit\": 25,",
-        "            },",
-        "        )",
-        "        assert stored.status_code == 200, stored.text",
-        "        profile_node = client.post(",
-        "            \"/app/api/people/elisabeth/preference-profile/nodes\",",
-        "            json={",
-        "                \"domain\": \"willhaben\",",
-        "                \"category\": \"soft_preference\",",
-        "                \"key\": \"prefer_balcony\",",
-        "                \"value_json\": True,",
-        "                \"strength\": \"medium\",",
-        "                \"confidence\": 0.9,",
-        "            },"
+        ".......                                                                  [100%]",
+        "7 passed in 24.36s"
       ],
-      "limitations": [
-        "source-backed browser journey proof did not run to completion"
-      ],
+      "limitations": [],
       "outcome_counts": {
-        "passed": 6,
-        "failed": 1,
+        "passed": 7,
+        "failed": 0,
         "skipped": 0,
         "errors": 0,
         "xfailed": 0,
@@ -214,10 +134,10 @@
         "test_property_research_rows_preserve_evidence_states_and_original_article_link"
       ],
       "exit_code": 0,
-      "duration_seconds": 2.024,
+      "duration_seconds": 1.966,
       "output_excerpt": [
         ".                                                                        [100%]",
-        "1 passed in 1.08s"
+        "1 passed in 1.07s"
       ],
       "limitations": [],
       "outcome_counts": {
@@ -234,7 +154,7 @@
     }
   ],
   "real_browser_e2e_proof": {
-    "status": "blocked",
+    "status": "pass",
     "command": "/docker/property/.venv/bin/python -m pytest -q tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_greenfield_workspace_in_real_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_greenfield_workspace_is_mobile_usable tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_expired_session_next_action_moves_keyboard_focus_to_sign_in_options tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_workbench_candidate_history_stays_in_place tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_flagship_operating_loop_in_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_best_match_opens_hosted_3d_tour_and_flythrough_in_real_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_blocked_3d_tour_can_be_retried_from_research_packet_in_real_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_research_detail_never_shows_fake_open_tour_for_generated_reconstruction_status tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_generated_reconstruction_public_launch_renders_honest_shell_in_real_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_generated_reconstruction_public_launch_is_mobile_safe tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_expired_flat_preview_explains_3d_unavailable_in_real_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_packet_tracks_followup_state_in_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_account_notifications_save_multi_channel_preferences_in_real_browser tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_browser_alert_button_toggles_enabled_state tests/e2e/test_propertyquarry_greenfield_browser.py::test_propertyquarry_research_evidence_states_and_links_render_in_real_browser -rs",
     "cwd": "/tmp/property-final-integration-v3-fa7",
     "python_bin": "/docker/property/.venv/bin/python",
@@ -257,54 +177,16 @@
       "test_propertyquarry_browser_alert_button_toggles_enabled_state",
       "test_propertyquarry_research_evidence_states_and_links_render_in_real_browser"
     ],
-    "exit_code": 1,
-    "duration_seconds": 119.797,
+    "exit_code": 0,
+    "duration_seconds": 130.066,
     "output_excerpt": [
-      "......F.........                                                         [100%]",
-      "=================================== FAILURES ===================================",
-      "_ test_propertyquarry_blocked_3d_tour_can_be_retried_from_research_packet_in_real_browser _",
-      "browser = <Browser type=<BrowserType name=chromium executable_path=/tmp/propertyquarry-playwright-cache/chromium-1223/chrome-linux64/chrome> version=148.0.7778.96>",
-      "propertyquarry_browser_server = {'base_url': 'http://propertyquarry.localhost:40111', 'bundle_root': PosixPath('/tmp/pytest-of-tibor/pytest-4649/test_propertyquarry_blocked_3d0/public_tours'), 'client': <starlette.testclient.TestClient object at 0x7a3be5b8a000>}",
-      "monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7a3be55c1d90>",
-      "    def test_propertyquarry_blocked_3d_tour_can_be_retried_from_research_packet_in_real_browser(",
-      "        browser: Browser,",
-      "        propertyquarry_browser_server: dict[str, object],",
-      "        monkeypatch: pytest.MonkeyPatch,",
-      "    ) -> None:",
-      "        base_url = str(propertyquarry_browser_server[\"base_url\"])",
-      "        original_get_run_status = ProductService.get_property_search_run_status",
-      "        blocked_candidate = {",
-      "            \"title\": \"Retryable tour loft\",",
-      "            \"summary\": \"EUR 1,890 · 73 m² · 1070 Wien\",",
-      "            \"property_url\": \"https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/retryable-tour-loft\",",
-      "            \"source_ref\": \"willhaben:retryable-tour-loft\",",
-      "            \"tour_status\": \"blocked\",",
-      "            \"blocked_reason\": \"property_tour_execution_failed\",",
-      "            \"tour_url\": \"\",",
-      "            \"flythrough_status\": \"\",",
-      "            \"flythrough_url\": \"\",",
-      "            \"fit_summary\": \"Personal fit 82/100 · shortlist · Floorplan and light fit.\",",
-      "            \"recommendation\": \"shortlist\",",
-      "            \"match_reasons\": [\"Floorplan and light fit.\"],",
-      "            \"mismatch_reasons\": [],",
-      "            \"property_facts\": {",
-      "                \"price_display\": \"EUR 1,890\",",
-      "                \"price_eur\": 1890.0,",
-      "                \"rooms\": 3,",
-      "                \"area_m2\": 73.0,",
-      "                \"postal_name\": \"1070 Wien\",",
-      "                \"has_floorplan\": True,",
-      "                \"floorplan_urls_json\": [",
-      "                    \"https://assets.example.test/retryable-tour-loft-floorplan.png\"",
-      "                ],",
-      "            },",
-      "        }",
-      "        def _fake_retryable_run_status(self, *, principal_id: str, run_id: str):"
+      "................                                                         [100%]",
+      "16 passed in 127.88s (0:02:07)"
     ],
     "limitations": [],
     "outcome_counts": {
-      "passed": 15,
-      "failed": 1,
+      "passed": 16,
+      "failed": 0,
       "skipped": 0,
       "errors": 0,
       "xfailed": 0,
@@ -316,9 +198,9 @@
   },
   "journey_evidence_matrix": {
     "version": 1,
-    "status": "blocked",
+    "status": "pass",
     "readiness_scope": "candidate_source_and_browser_proof",
-    "runtime_commit_sha": "b23670531be99469b64284cbca8c5e3389516485",
+    "runtime_commit_sha": "ebf1aba3d7ec0ada620c45c2a7771445fba4f9ac",
     "required_journey_ids": [
       "public_entry",
       "onboarding_auth",
@@ -333,14 +215,14 @@
       {
         "journey_id": "public_entry",
         "label": "Public entry and optional media recovery",
-        "proof_status": "blocked",
+        "proof_status": "pass",
         "evidence_sources": [
           {
             "file": "tests/test_propertyquarry_workspace_redesign.py",
             "cases": [
               "test_propertyquarry_public_home_survives_unreadable_optional_tour_media"
             ],
-            "lane_status": "blocked"
+            "lane_status": "pass"
           }
         ],
         "live_requirement": {
@@ -353,21 +235,21 @@
       {
         "journey_id": "onboarding_auth",
         "label": "Onboarding, authentication, session return, and sign-out",
-        "proof_status": "blocked",
+        "proof_status": "pass",
         "evidence_sources": [
           {
             "file": "tests/test_propertyquarry_workspace_redesign.py",
             "cases": [
               "test_property_workspace_sign_out_clears_workspace_session_cookie"
             ],
-            "lane_status": "blocked"
+            "lane_status": "pass"
           },
           {
             "file": "tests/e2e/test_propertyquarry_greenfield_browser.py",
             "cases": [
               "test_propertyquarry_expired_session_next_action_moves_keyboard_focus_to_sign_in_options"
             ],
-            "lane_status": "blocked"
+            "lane_status": "pass"
           }
         ],
         "live_requirement": {
@@ -380,7 +262,7 @@
       {
         "journey_id": "search_ranking",
         "label": "Search setup, ranked results, and failed-run recovery",
-        "proof_status": "blocked",
+        "proof_status": "pass",
         "evidence_sources": [
           {
             "file": "tests/test_propertyquarry_workspace_redesign.py",
@@ -388,14 +270,14 @@
               "test_propertyquarry_workspace_routes_render_greenfield_surfaces",
               "test_propertyquarry_failed_run_stays_on_activity_surface"
             ],
-            "lane_status": "blocked"
+            "lane_status": "pass"
           },
           {
             "file": "tests/e2e/test_propertyquarry_greenfield_browser.py",
             "cases": [
               "test_propertyquarry_greenfield_workspace_in_real_browser"
             ],
-            "lane_status": "blocked"
+            "lane_status": "pass"
           }
         ],
         "live_requirement": {
@@ -408,14 +290,14 @@
       {
         "journey_id": "shortlist_research_revisit",
         "label": "Shortlist, research detail, persistence, and revisit",
-        "proof_status": "blocked",
+        "proof_status": "pass",
         "evidence_sources": [
           {
             "file": "tests/test_propertyquarry_workspace_redesign.py",
             "cases": [
               "test_property_saved_shortlist_candidates_persist_across_runs"
             ],
-            "lane_status": "blocked"
+            "lane_status": "pass"
           },
           {
             "file": "tests/e2e/test_propertyquarry_greenfield_browser.py",
@@ -424,7 +306,7 @@
               "test_propertyquarry_workbench_candidate_history_stays_in_place",
               "test_propertyquarry_research_evidence_states_and_links_render_in_real_browser"
             ],
-            "lane_status": "blocked"
+            "lane_status": "pass"
           },
           {
             "file": "tests/test_property_evidence_overlays.py",
@@ -444,7 +326,7 @@
       {
         "journey_id": "account_pricing_privacy_recovery",
         "label": "Account, pricing, privacy lifecycle, and recovery",
-        "proof_status": "blocked",
+        "proof_status": "pass",
         "evidence_sources": [
           {
             "file": "tests/test_propertyquarry_workspace_redesign.py",
@@ -452,7 +334,7 @@
               "test_propertyquarry_account_exposes_working_lifecycle_controls",
               "test_propertyquarry_pricing_checkout_failure_copy_is_safe_and_accessible"
             ],
-            "lane_status": "blocked"
+            "lane_status": "pass"
           }
         ],
         "live_requirement": {
@@ -465,7 +347,7 @@
       {
         "journey_id": "packets_tours",
         "label": "Decision packets, sharing, tours, and recovery",
-        "proof_status": "blocked",
+        "proof_status": "pass",
         "evidence_sources": [
           {
             "file": "tests/e2e/test_propertyquarry_greenfield_browser.py",
@@ -478,7 +360,7 @@
               "test_propertyquarry_generated_reconstruction_public_launch_is_mobile_safe",
               "test_propertyquarry_expired_flat_preview_explains_3d_unavailable_in_real_browser"
             ],
-            "lane_status": "blocked"
+            "lane_status": "pass"
           }
         ],
         "live_requirement": {
@@ -491,7 +373,7 @@
       {
         "journey_id": "feedback",
         "label": "Decision feedback and packet follow-up",
-        "proof_status": "blocked",
+        "proof_status": "pass",
         "evidence_sources": [
           {
             "file": "tests/e2e/test_propertyquarry_greenfield_browser.py",
@@ -499,7 +381,7 @@
               "test_propertyquarry_decision_to_clippy_to_packet_followup_flow_in_browser",
               "test_propertyquarry_packet_tracks_followup_state_in_browser"
             ],
-            "lane_status": "blocked"
+            "lane_status": "pass"
           }
         ],
         "live_requirement": {
@@ -512,7 +394,7 @@
       {
         "journey_id": "notifications",
         "label": "Alert controls, channel preferences, and external Telegram delivery",
-        "proof_status": "blocked",
+        "proof_status": "pass",
         "evidence_sources": [
           {
             "file": "tests/e2e/test_propertyquarry_greenfield_browser.py",
@@ -520,7 +402,7 @@
               "test_propertyquarry_account_notifications_save_multi_channel_preferences_in_real_browser",
               "test_propertyquarry_browser_alert_button_toggles_enabled_state"
             ],
-            "lane_status": "blocked"
+            "lane_status": "pass"
           }
         ],
         "live_requirement": {
@@ -532,11 +414,6 @@
       }
     ]
   },
-  "blocking_reasons": [
-    "source-backed browser journey proof is not passing: tests/test_propertyquarry_workspace_redesign.py",
-    "real browser E2E proof is not passing"
-  ],
-  "current_limitations": [
-    "source-backed browser journey proof did not run to completion"
-  ]
+  "blocking_reasons": [],
+  "current_limitations": []
 }
