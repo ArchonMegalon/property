@@ -5380,12 +5380,22 @@ def test_propertyquarry_desktop_what_matters_select_changes_preserve_open_groups
               const home = document.querySelector('details[data-what-matters-group="home_basics"]');
               const dailyLife = document.querySelector('details[data-what-matters-group="daily_life"]');
               const risk = document.querySelector('details[data-what-matters-group="risk_evidence"]');
+              const panel = row?.closest?.('[data-property-what-matters-panel]');
+              const form = row?.closest?.('form');
+              const overflowAnchorFor = (node) => node instanceof Element
+                ? window.getComputedStyle(node).getPropertyValue('overflow-anchor').trim()
+                : '';
               return {
                 rowTop: row?.getBoundingClientRect().top || 0,
                 scrollY: Number(window.scrollY || window.pageYOffset || 0),
                 homeOpen: Boolean(home?.open),
                 dailyLifeOpen: Boolean(dailyLife?.open),
                 riskOpen: Boolean(risk?.open),
+                supportsOverflowAnchor: window.CSS?.supports?.('overflow-anchor', 'none') === true,
+                panelOverflowAnchor: overflowAnchorFor(panel),
+                htmlOverflowAnchor: overflowAnchorFor(document.documentElement),
+                bodyOverflowAnchor: overflowAnchorFor(document.body),
+                formOverflowAnchor: overflowAnchorFor(form),
               };
             }
             """
@@ -5393,6 +5403,11 @@ def test_propertyquarry_desktop_what_matters_select_changes_preserve_open_groups
         assert before_state["homeOpen"] is False, before_state
         assert before_state["dailyLifeOpen"] is True, before_state
         assert before_state["riskOpen"] is False, before_state
+        if before_state["supportsOverflowAnchor"]:
+            assert before_state["panelOverflowAnchor"] == "none", before_state
+            assert before_state["htmlOverflowAnchor"] != "none", before_state
+            assert before_state["bodyOverflowAnchor"] != "none", before_state
+            assert before_state["formOverflowAnchor"] != "none", before_state
 
         playground_row.locator("[data-keyword-preference-select]").select_option("nice_to_have")
         page.wait_for_function(
