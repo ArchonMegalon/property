@@ -5642,10 +5642,10 @@ def test_propertyquarry_what_matters_distance_comboboxes_expand_without_clipping
             }
         keyword_states = (
             ("playground nearby", "nice_to_have"),
-            ("Baumarkt nearby", "important"),
-            ("shopping center nearby", "important"),
-            ("flaniermeile nearby", "important"),
-            ("theatre nearby", "important"),
+            ("Baumarkt nearby", "strong_wish"),
+            ("shopping center nearby", "strong_wish"),
+            ("flaniermeile nearby", "strong_wish"),
+            ("theatre nearby", "strong_wish"),
         )
         for keyword, state in keyword_states:
             row = page.locator(f'[data-keyword-priority-row][data-keyword-value="{keyword}"]')
@@ -5655,20 +5655,20 @@ def test_propertyquarry_what_matters_distance_comboboxes_expand_without_clipping
             expect(row).to_have_attribute("data-preference-state", state)
         school_parent = page.locator('[data-school-priority-row][data-school-value="volksschule"]')
         school_parent.evaluate("node => node.closest('details[data-what-matters-group]')?.setAttribute('open', '')")
-        school_parent.locator("[data-school-preference-select]").select_option("important")
-        expect(school_parent).to_have_attribute("data-preference-state", "important")
+        school_parent.locator("[data-school-preference-select]").select_option("strong_wish")
+        expect(school_parent).to_have_attribute("data-preference-state", "strong_wish")
         school_child = page.locator('[data-school-priority-row][data-school-value="ganztags_volksschule"]')
         expect(school_child).to_be_visible()
         expect(school_child).to_have_attribute("data-school-parent-active", "true")
         expect(school_parent).to_have_attribute("data-school-family-active", "true")
         school_distance_rows = (
             ("kindergarten", "nice_to_have", ""),
-            ("ganztags_volksschule", "important", "volksschule"),
+            ("ganztags_volksschule", "strong_wish", "volksschule"),
             ("halbtags_volksschule", "nice_to_have", "volksschule"),
         )
         kindergarten_parent = page.locator('[data-school-priority-row][data-school-value="kindergarten"]')
         kindergarten_parent.evaluate("node => node.closest('details[data-what-matters-group]')?.setAttribute('open', '')")
-        kindergarten_parent.locator("[data-school-preference-select]").select_option("important")
+        kindergarten_parent.locator("[data-school-preference-select]").select_option("strong_wish")
         for value, state, parent_value in school_distance_rows:
             row = page.locator(f'[data-school-priority-row][data-school-value="{value}"]')
             row.evaluate("node => node.closest('details[data-what-matters-group]')?.setAttribute('open', '')")
@@ -6022,7 +6022,7 @@ def test_propertyquarry_mobile_what_matters_select_changes_keep_current_group_st
         expect(kindergarten_row).to_be_visible()
         before_school = page.evaluate(capture_school_state, "kindergarten")
         kindergarten_preference = kindergarten_row.locator("[data-school-preference-select]")
-        kindergarten_preference.select_option("important")
+        kindergarten_preference.select_option("strong_wish")
         page.wait_for_function(
             """
             () => document.querySelector('[data-school-priority-row][data-school-value="kindergarten"]')
@@ -6280,7 +6280,7 @@ def test_propertyquarry_mobile_repeated_what_matters_combo_changes_keep_one_stab
         after_playground_pref_1 = page.evaluate(capture_state, '[data-keyword-priority-row][data-keyword-value="playground nearby"]')
         _assert_daily_group_stable(before_playground, after_playground_pref_1)
 
-        playground_preference.select_option("important")
+        playground_preference.select_option("strong_wish")
         after_playground_pref_2 = page.evaluate(capture_state, '[data-keyword-priority-row][data-keyword-value="playground nearby"]')
         _assert_daily_group_stable(after_playground_pref_1, after_playground_pref_2)
 
@@ -6296,7 +6296,7 @@ def test_propertyquarry_mobile_repeated_what_matters_combo_changes_keep_one_stab
         kindergarten_preference = kindergarten_row.locator("[data-school-preference-select]")
         kindergarten_distance = kindergarten_row.locator("[data-school-distance-select]")
 
-        kindergarten_preference.select_option("important")
+        kindergarten_preference.select_option("strong_wish")
         page.wait_for_function(
             """
             () => document.querySelector('[data-school-priority-row][data-school-value="kindergarten"]')
@@ -6414,7 +6414,7 @@ def test_propertyquarry_what_matters_summary_counts_follow_live_changes(
 
         kindergarten_row = page.locator('[data-school-priority-row][data-school-value="kindergarten"]')
         kindergarten_row.evaluate("node => node.closest('details[data-what-matters-group]')?.setAttribute('open', '')")
-        kindergarten_row.locator("[data-school-preference-select]").select_option("important")
+        kindergarten_row.locator("[data-school-preference-select]").select_option("strong_wish")
         expect(header_chip).to_have_text("2 active")
 
         page.locator('[data-pqx-what-matters-more] summary').click()
@@ -6487,7 +6487,7 @@ def test_propertyquarry_mobile_what_matters_load_keeps_current_group_and_scroll(
         expect(playground_row).to_be_visible()
         preference = playground_row.locator("[data-keyword-preference-select]")
         distance = playground_row.locator("[data-keyword-distance-select]")
-        preference.select_option("important")
+        preference.select_option("strong_wish")
         distance.select_option("2000")
         expect(distance).to_have_value("2000")
         before_load = page.evaluate(capture_keyword_state, "playground nearby")
@@ -10911,22 +10911,22 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         page.locator('details[data-what-matters-group]').evaluate_all(
             "groups => groups.forEach((group) => { group.open = true; })"
         )
-        page.locator('[data-keyword-priority-row][data-keyword-value="good air quality"] [data-keyword-preference-select]').select_option("important")
-        page.locator('[data-keyword-priority-row][data-keyword-value="low crime area"] [data-keyword-preference-select]').select_option("important")
+        page.locator('[data-keyword-priority-row][data-keyword-value="good air quality"] [data-keyword-preference-select]').select_option("strong_wish")
+        page.locator('[data-keyword-priority-row][data-keyword-value="low crime area"] [data-keyword-preference-select]').select_option("strong_wish")
         page.locator('[data-keyword-priority-row][data-keyword-value="parking pressure check"] [data-keyword-preference-select]').select_option("high")
         page.locator('[data-keyword-priority-row][data-keyword-value="water and groundwater check"] [data-keyword-preference-select]').select_option("must_have")
         page.locator('[data-keyword-priority-row][data-keyword-value="avoid septic risk"] [data-keyword-preference-select]').select_option("avoid")
         page.locator('[data-keyword-priority-row][data-keyword-value="winter driving check"] [data-keyword-preference-select]').select_option("must_have")
         page.locator('[data-keyword-priority-row][data-keyword-value="avoid flood-risk area"] [data-keyword-preference-select]').select_option("avoid")
-        page.locator('[data-keyword-priority-row][data-keyword-value="market nearby"] [data-keyword-preference-select]').select_option("important")
+        page.locator('[data-keyword-priority-row][data-keyword-value="market nearby"] [data-keyword-preference-select]').select_option("strong_wish")
         page.locator('[data-keyword-priority-row][data-keyword-value="market nearby"] [data-keyword-distance-select]').select_option("1000")
-        page.locator('[data-keyword-priority-row][data-keyword-value="Baumarkt nearby"] [data-keyword-preference-select]').select_option("important")
+        page.locator('[data-keyword-priority-row][data-keyword-value="Baumarkt nearby"] [data-keyword-preference-select]').select_option("strong_wish")
         page.locator('[data-keyword-priority-row][data-keyword-value="Baumarkt nearby"] [data-keyword-distance-select]').select_option("2000")
         page.locator('[data-keyword-priority-row][data-keyword-value="shopping center nearby"] [data-keyword-preference-select]').select_option("avoid")
         page.locator('[data-keyword-priority-row][data-keyword-value="shopping center nearby"] [data-keyword-distance-select]').select_option("500")
         page.locator('[data-keyword-priority-row][data-keyword-value="library nearby"] [data-keyword-preference-select]').select_option("nice_to_have")
         page.locator('[data-keyword-priority-row][data-keyword-value="library nearby"] [data-keyword-distance-select]').select_option("1000")
-        page.locator('[data-keyword-priority-row][data-keyword-value="medical care nearby"] [data-keyword-preference-select]').select_option("important")
+        page.locator('[data-keyword-priority-row][data-keyword-value="medical care nearby"] [data-keyword-preference-select]').select_option("strong_wish")
         page.locator('[data-keyword-priority-row][data-keyword-value="medical care nearby"] [data-keyword-distance-select]').select_option("1000")
         page.locator('[data-property-step-trigger="providers"]').click()
         page.wait_for_function("document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'providers'")
@@ -10995,13 +10995,13 @@ def test_propertyquarry_launch_posts_real_start_payload_and_shows_run_status(
         assert preferences["require_winter_access_research"] is True
         assert preferences["avoid_flood_risk_area"] is True
         assert preferences["max_distance_to_market_m"] == 1000
-        assert preferences["max_distance_to_market_importance"] == "important"
+        assert preferences["max_distance_to_market_importance"] == "strong_wish"
         assert preferences["max_distance_to_hardware_store_m"] == 2000
-        assert preferences["max_distance_to_hardware_store_importance"] == "important"
+        assert preferences["max_distance_to_hardware_store_importance"] == "strong_wish"
         assert preferences["max_distance_to_shopping_center_m"] == 500
         assert preferences["max_distance_to_shopping_center_importance"] == "avoid"
         assert preferences["max_distance_to_medical_care_m"] == 1000
-        assert preferences["max_distance_to_medical_care_importance"] == "important"
+        assert preferences["max_distance_to_medical_care_importance"] == "strong_wish"
         assert preferences["max_distance_to_library_m"] == 1000
         assert preferences["max_distance_to_library_importance"] == "nice_to_have"
         assert preferences.get("min_match_score", 0) in {0, 0.0}
