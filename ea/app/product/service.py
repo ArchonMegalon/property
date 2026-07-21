@@ -4842,6 +4842,15 @@ def _property_fact_coordinate_snapshot(property_url: str) -> dict[str, object]:
             else "postal_area"
         )
         facts["map_location_source"] = "nominatim_forward_geocode"
+        if _property_fact_geocode_is_exact(query, geocoded):
+            facts["map_coordinate_evidence"] = {
+                "exact": True,
+                "trusted": True,
+                "provider": "nominatim_structured_result",
+                "result_type": str(
+                    geocoded.get("addresstype") or geocoded.get("type") or ""
+                ).strip().lower(),
+            }
         display_name = str(geocoded.get("display_name") or "").strip()
         if display_name:
             facts["map_location_label"] = display_name
@@ -4864,15 +4873,27 @@ def _property_fact_coordinates_valid(latitude: object, longitude: object) -> boo
     )
 
 
-def _property_fact_coordinate_is_exact(precision: object) -> bool:
-    return str(precision or "").strip().casefold() in {
-        "address",
-        "building",
-        "exact",
-        "parcel",
-        "property",
-        "rooftop",
-    }
+def _property_fact_coordinates_have_exact_provenance(
+    facts: Mapping[str, object],
+) -> bool:
+    coordinate_source = str(facts.get("map_location_source") or "").strip().casefold()
+    if any(marker in coordinate_source for marker in ("area", "centroid", "estimate", "postal")):
+        return False
+    for key in ("house_number", "map_house_number"):
+        if str(facts.get(key) or "").strip():
+            return True
+    structured_address = facts.get("address") or facts.get("map_address")
+    if isinstance(structured_address, Mapping) and str(
+        structured_address.get("house_number") or ""
+    ).strip():
+        return True
+    raw_evidence = facts.get("map_coordinate_evidence")
+    evidence = dict(raw_evidence) if isinstance(raw_evidence, Mapping) else {}
+    return bool(
+        evidence.get("exact") is True
+        and evidence.get("trusted") is True
+        and str(evidence.get("provider") or "").strip()
+    )
 
 
 def _property_fact_location_query_is_exact(query: object) -> bool:
@@ -4909,6 +4930,7 @@ def _property_fact_fresh_geo_snapshot(
     coordinate_observed_at = ""
     coordinate_precision = str(facts.get("map_location_precision") or "").strip().lower()
     coordinate_source = str(facts.get("map_location_source") or "").strip()
+    coordinate_facts: Mapping[str, object] = facts
     if not _property_fact_coordinates_valid(latitude, longitude):
         # Resolve coordinates only. Nearby POIs are fetched exactly once below.
         coordinate_snapshot = _property_fact_coordinate_snapshot(property_url)
@@ -4921,6 +4943,7 @@ def _property_fact_fresh_geo_snapshot(
         coordinate_source = str(
             coordinate_snapshot.get("map_location_source") or ""
         ).strip()
+        coordinate_facts = coordinate_snapshot
     if not _property_fact_coordinates_valid(latitude, longitude):
         return {}, {
             "coordinate_basis": coordinate_basis,
@@ -4938,7 +4961,9 @@ def _property_fact_fresh_geo_snapshot(
             "coordinate_observed_at": coordinate_observed_at,
             "coordinate_precision": coordinate_precision or "unknown",
             "coordinate_source": coordinate_source,
-            "coordinate_exact": _property_fact_coordinate_is_exact(coordinate_precision),
+            "coordinate_exact": _property_fact_coordinates_have_exact_provenance(
+                coordinate_facts
+            ),
         },
     )
 

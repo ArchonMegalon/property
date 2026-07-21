@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 import copy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi import HTTPException
@@ -19,6 +19,7 @@ from app.product.property_fact_enrichment import (
 )
 from app.product.service import (
     ProductService,
+    _property_fact_fresh_geo_snapshot,
     _property_fact_location_query_is_exact,
     _property_fact_safe_job_payload,
     _property_search_ranked_candidates_from_sources,
@@ -146,6 +147,55 @@ def test_rank_projection_excludes_evaluating_candidate() -> None:
     assert ranked[0]["rank"] == 1
 
 
+def test_query_inferred_address_coordinates_cannot_finalize_required_distance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed_at = datetime.now(timezone.utc)
+    facts: dict[str, object] = {
+        "map_lat": 48.2082,
+        "map_lng": 16.3738,
+        "map_location_precision": "address",
+        "map_location_source": "nominatim_query_inferred",
+    }
+    monkeypatch.setattr(
+        product_service,
+        "_property_research_nearby_pois",
+        lambda _lat, _lng: {"nearest_supermarket_m": 240},
+    )
+
+    nearby, coordinate_meta = _property_fact_fresh_geo_snapshot(
+        property_url="https://www.willhaben.at/iad/immobilien/d/example-1234567890/",
+        facts=facts,
+    )
+    facts.update(nearby)
+    facts["property_fact_evidence"] = {
+        "nearest_supermarket_m": {
+            "provider": "openstreetmap_overpass",
+            "observed_at": observed_at.isoformat(),
+            "expires_at": (observed_at + timedelta(hours=24)).isoformat(),
+            "source_fingerprint": "sha256:" + "a" * 64,
+            **coordinate_meta,
+        }
+    }
+    plan = property_fact_requirement_plan(
+        facts=facts,
+        preferences={"max_distance_to_supermarket_m": 800},
+    )
+    supermarket = next(row for row in plan if row["key"] == "nearest_supermarket_m")
+    projection = property_fact_score_projection(
+        candidate={"fit_score": 91.0},
+        plan=plan,
+        preferences={"max_distance_to_supermarket_m": 800},
+    )
+
+    assert coordinate_meta["coordinate_exact"] is False
+    assert supermarket["state"] == "stale"
+    assert supermarket["priority"] == "required"
+    assert projection["state"] == "evaluating"
+    assert projection["current"] is None
+    assert projection["ranking_eligible"] is False
+
+
 def test_fact_enrichment_job_is_idempotent_persistent_and_recomputes_score(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -157,6 +207,7 @@ def test_fact_enrichment_job_is_idempotent_persistent_and_recomputes_score(
         "map_lng": 16.3738,
         "map_location_precision": "address",
         "map_location_source": "listing",
+        "house_number": "12",
     }
     client = build_property_operator_client(principal_id=principal_id)
     service = ProductService(client.app.state.container)
