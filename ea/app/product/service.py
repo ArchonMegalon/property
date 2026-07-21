@@ -36823,14 +36823,23 @@ class ProductService:
         if replacement_run_id:
             receipt["replacement_run_id"] = replacement_run_id
             receipt["replacement_status_url"] = f"/app/api/signals/property/search/run/{replacement_run_id}"
+        persisted_fallback: dict[str, object] | None = None
+        with _PROPERTY_SEARCH_RUN_LOCK:
+            registry_state_present = isinstance(
+                _PROPERTY_SEARCH_RUN_REGISTRY.get(normalized_run_id),
+                dict,
+            )
+        if not registry_state_present:
+            persisted = _load_property_search_run_record(
+                run_id=normalized_run_id,
+                principal_id=normalized_principal,
+            )
+            if isinstance(persisted, dict):
+                persisted_fallback = dict(persisted)
         with _PROPERTY_SEARCH_RUN_LOCK:
             state = _PROPERTY_SEARCH_RUN_REGISTRY.get(normalized_run_id)
-            if not isinstance(state, dict):
-                persisted = _load_property_search_run_record(
-                    run_id=normalized_run_id,
-                    principal_id=normalized_principal,
-                )
-                state = dict(persisted or {}) if isinstance(persisted, dict) else {}
+            if not isinstance(state, dict) and isinstance(persisted_fallback, dict):
+                state = persisted_fallback
                 if state:
                     _PROPERTY_SEARCH_RUN_REGISTRY[normalized_run_id] = state
             if not isinstance(state, dict) or str(state.get("principal_id") or "").strip() != normalized_principal:
@@ -46687,14 +46696,23 @@ class ProductService:
             "updated_at": _now_iso(),
             "action": normalized_action,
         }
+        persisted_fallback: dict[str, object] | None = None
+        with _PROPERTY_SEARCH_RUN_LOCK:
+            registry_state_present = isinstance(
+                _PROPERTY_SEARCH_RUN_REGISTRY.get(normalized_run_id),
+                dict,
+            )
+        if not registry_state_present:
+            persisted = _load_property_search_run_record(
+                run_id=normalized_run_id,
+                principal_id=normalized_principal,
+            )
+            if isinstance(persisted, dict):
+                persisted_fallback = dict(persisted)
         with _PROPERTY_SEARCH_RUN_LOCK:
             state = _PROPERTY_SEARCH_RUN_REGISTRY.get(normalized_run_id)
-            if not isinstance(state, dict):
-                persisted = _load_property_search_run_record(
-                    run_id=normalized_run_id,
-                    principal_id=normalized_principal,
-                )
-                state = dict(persisted or {}) if isinstance(persisted, dict) else {}
+            if not isinstance(state, dict) and isinstance(persisted_fallback, dict):
+                state = persisted_fallback
                 if state:
                     _PROPERTY_SEARCH_RUN_REGISTRY[normalized_run_id] = state
             if not isinstance(state, dict) or str(state.get("principal_id") or "").strip() != normalized_principal:

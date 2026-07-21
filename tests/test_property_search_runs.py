@@ -6239,6 +6239,60 @@ def test_existing_returned_provider_repair_records_receipt_for_new_run() -> None
     assert summary["sources"][0]["repair_status"] == "returned"
 
 
+def test_repair_receipt_loads_registry_fallback_without_holding_run_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-property-repair-unlocked-load"
+    run_id = f"repair-unlocked-{uuid.uuid4().hex}"
+    persisted = {
+        "run_id": run_id,
+        "principal_id": principal_id,
+        "status": "in_progress",
+        "summary": {"sources": []},
+    }
+    calls = {"load": 0}
+
+    def _load_unlocked(**kwargs: object) -> dict[str, object]:
+        calls["load"] += 1
+        assert kwargs == {"run_id": run_id, "principal_id": principal_id}
+        acquired = product_service._PROPERTY_SEARCH_RUN_LOCK.acquire(blocking=False)
+        assert acquired, "durable run loading must happen outside the registry lock"
+        product_service._PROPERTY_SEARCH_RUN_LOCK.release()
+        return dict(persisted)
+
+    monkeypatch.setattr(product_service, "_load_property_search_run_record", _load_unlocked)
+    monkeypatch.setattr(product_service, "_store_property_search_run_record", lambda _record: True)
+    service = ProductService.__new__(ProductService)
+    task = SimpleNamespace(
+        human_task_id="repair-unlocked-task",
+        input_json={
+            "run_id": run_id,
+            "source_label": "Property source",
+            "filter_key": "source_fetch",
+        },
+        returned_payload_json={},
+    )
+
+    try:
+        service._record_property_search_run_repair_receipt(
+            principal_id=principal_id,
+            run_id=run_id,
+            task=task,
+            resolution="retry",
+            reason="Provider recovered.",
+            actor="test",
+        )
+
+        assert calls["load"] == 1
+        with product_service._PROPERTY_SEARCH_RUN_LOCK:
+            state = dict(product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id])
+        receipts = list(dict(state.get("summary") or {}).get("repair_receipts") or [])
+        assert receipts[0]["human_task_id"] == "human_task:repair-unlocked-task"
+    finally:
+        with product_service._PROPERTY_SEARCH_RUN_LOCK:
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY.pop(run_id, None)
+
+
 def test_old_willhaben_repair_receipt_does_not_contaminate_costa_rica_run() -> None:
     principal_id = "exec-property-provider-repair-country-isolation"
     run_id = f"costa-rica-repair-{uuid.uuid4().hex}"
@@ -11856,6 +11910,63 @@ def test_property_search_run_surfaces_and_updates_missing_fact_research_tasks() 
     assert updated_task["display_value"] == "4 rooms"
     assert updated_task["owner_note"] == "Read from the valuation PDF."
     assert any(event["step"] == "research_task_updated" for event in updated["events"])
+
+
+def test_research_task_update_loads_registry_fallback_without_holding_run_lock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-property-research-task-unlocked-load"
+    run_id = f"research-task-unlocked-{uuid.uuid4().hex}"
+    task_id = "mf_rooms_unlocked"
+    snapshot = {
+        "run_id": run_id,
+        "principal_id": principal_id,
+        "status": "processed",
+        "research_tasks": [{"task_id": task_id, "status": "queued"}],
+    }
+    persisted = {
+        "run_id": run_id,
+        "principal_id": principal_id,
+        "status": "processed",
+        "summary": {},
+        "events": [],
+    }
+    calls = {"load": 0}
+
+    def _load_unlocked(**kwargs: object) -> dict[str, object]:
+        calls["load"] += 1
+        assert kwargs == {"run_id": run_id, "principal_id": principal_id}
+        acquired = product_service._PROPERTY_SEARCH_RUN_LOCK.acquire(blocking=False)
+        assert acquired, "durable run loading must happen outside the registry lock"
+        product_service._PROPERTY_SEARCH_RUN_LOCK.release()
+        return dict(persisted)
+
+    service = ProductService.__new__(ProductService)
+    monkeypatch.setattr(service, "_snapshot_property_search_run", lambda **_kwargs: dict(snapshot))
+    monkeypatch.setattr(service, "_record_property_search_run_event", lambda **_kwargs: True)
+    monkeypatch.setattr(service, "_best_effort_propertyquarry_teable_sync", lambda **_kwargs: None)
+    monkeypatch.setattr(product_service, "_load_property_search_run_record", _load_unlocked)
+    monkeypatch.setattr(product_service, "_store_property_search_run_record", lambda _record: True)
+
+    try:
+        result = service.update_property_search_research_task(
+            principal_id=principal_id,
+            run_id=run_id,
+            task_id=task_id,
+            action="fill",
+            value="4 rooms",
+        )
+
+        assert result == snapshot
+        assert calls["load"] == 1
+        with product_service._PROPERTY_SEARCH_RUN_LOCK:
+            state = dict(product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id])
+        override = dict(dict(state.get("research_task_overrides") or {})[task_id])
+        assert override["status"] == "filled"
+        assert override["value"] == "4 rooms"
+    finally:
+        with product_service._PROPERTY_SEARCH_RUN_LOCK:
+            product_service._PROPERTY_SEARCH_RUN_REGISTRY.pop(run_id, None)
 
 
 def test_property_alert_personal_fit_snapshot_times_out_fast(monkeypatch) -> None:

@@ -17182,8 +17182,14 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert "More from this search" not in packet.text
     assert "Other homes" not in packet.text
     assert 'data-research-ranking-list' not in packet.text
-    assert "Nearby distances" not in packet.text
-    assert 'data-research-selected-distances' not in packet.text
+    assert "Nearby distances" in packet.text
+    assert 'data-research-selected-distances' in packet.text
+    assert 'data-property-fact-enrichment' in packet.text
+    assert 'data-property-fact-priority="lazy"' in packet.text
+    assert 'data-property-fact-state="queued"' in packet.text
+    assert 'aria-busy="true"' in packet.text
+    assert "Provisional score" in packet.text
+    assert "Can rank while nice-to-have facts are checked" in packet.text
     assert " · Score " not in packet.text
     assert "Family flat near Tiergarten" not in packet.text
     assert "Facts" in packet.text
