@@ -32,11 +32,36 @@ from app.product.property_tour_hosting import (
 )
 
 
-AI_PANORAMA_INSTALL_REQUEST_CONTRACT = (
+AI_PANORAMA_INSTALL_REQUEST_CONTRACT_V1 = (
     "propertyquarry.ai_panorama_sealed_install_request.v1"
 )
+AI_PANORAMA_INSTALL_REQUEST_CONTRACT_V2 = (
+    "propertyquarry.ai_panorama_sealed_install_request.v2"
+)
+# Backward-compatible name for existing private v1 requests. New governed
+# release handoffs must use AI_PANORAMA_INSTALL_REQUEST_CONTRACT_V2.
+AI_PANORAMA_INSTALL_REQUEST_CONTRACT = AI_PANORAMA_INSTALL_REQUEST_CONTRACT_V1
 AI_PANORAMA_INSTALL_RECEIPT_CONTRACT = (
     "propertyquarry.ai_panorama_sealed_install_receipt.v1"
+)
+AI_PANORAMA_INSTALL_SOURCE_IDENTITY_CONTRACT = (
+    "propertyquarry.ai_panorama_installer_source_identity.v1"
+)
+AI_PANORAMA_INSTALL_SOURCE_TREE_ALGORITHM = (
+    "sha256-canonical-json-sorted-file-records.v1"
+)
+AI_PANORAMA_INSTALL_SOURCE_RELATIVE_ROOT = "."
+AI_PANORAMA_INSTALL_SOURCE_RELATIVE_PATH_SEMANTICS = (
+    "sealed-bundle-root-relative-posix-paths"
+)
+AI_PANORAMA_MATERIALIZATION_RECEIPT_CONTRACT = (
+    "propertyquarry.ai_panorama_materialization_receipt.v1"
+)
+AI_PANORAMA_CANDIDATE_MARKER_CONTRACT = (
+    "propertyquarry.ai_panorama_candidate_copy.v1"
+)
+AI_PANORAMA_CANDIDATE_MARKER_RELPATH = (
+    ".propertyquarry-ai-panorama-candidate.json"
 )
 _PRIVATE_REQUEST_MAX_BYTES = 64 * 1024
 _SOURCE_MANIFEST_MAX_BYTES = 1024 * 1024
@@ -45,6 +70,13 @@ _SOURCE_MAX_BYTES = 64 * 1024 * 1024
 _DIGEST_PATTERN = re.compile(r"[0-9a-f]{64}")
 _SAFE_SLUG_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,159}")
 _SAFE_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.:@+-]{0,255}")
+_MATERIALIZATION_LINEAGE_REQUEST_KEYS = frozenset(
+    {
+        "materialization_receipt_path",
+        "expected_materialization_receipt_sha256",
+        "expected_candidate_marker_sha256",
+    }
+)
 _PRIVATE_MANIFEST_KEYS = frozenset(
     {
         "principal_id",
@@ -84,14 +116,41 @@ class _SourceSnapshot:
     total_bytes: int
 
 
+@dataclass(frozen=True)
+class AiPanoramaInstallerSourceIdentity:
+    """Exact file identity consumed by the sealed-bundle installer.
+
+    Paths are canonical POSIX paths relative to the sealed bundle directory.
+    Directory entries are intentionally excluded; the materializer retains its
+    separate directory-aware audit identity in addition to this handoff identity.
+    """
+
+    contract_name: str
+    tree_algorithm: str
+    relative_root: str
+    relative_path_semantics: str
+    tree_sha256: str
+    tour_sha256: str
+    file_count: int
+    total_bytes: int
+
+
 def _fail(code: str) -> None:
     raise AiPanoramaIntakeError(code)
 
 
 def _require_digest(value: object, *, code: str, required: bool) -> str:
-    digest = str(value or "").strip().lower()
-    if not digest and not required:
-        return ""
+    if value is None:
+        if not required:
+            return ""
+        _fail(code)
+    if type(value) is not str:
+        _fail(code)
+    digest = value.strip().lower()
+    if not digest:
+        if not required:
+            return ""
+        _fail(code)
     if not _DIGEST_PATTERN.fullmatch(digest):
         _fail(code)
     return digest
@@ -144,6 +203,7 @@ def _open_regular_nofollow(
     code: str,
     required_uid: int | None = None,
     forbidden_mode_bits: int = 0,
+    expected_identity: tuple[int, int, int, int] | None = None,
 ) -> bytes:
     descriptor = -1
     try:
@@ -153,12 +213,22 @@ def _open_regular_nofollow(
             _fail("ai_panorama_nofollow_unavailable")
         descriptor = os.open(path, flags | nofollow)
         details = os.fstat(descriptor)
+        opened_identity = (
+            int(details.st_dev),
+            int(details.st_ino),
+            int(details.st_size),
+            int(details.st_mtime_ns),
+        )
         if (
             not stat.S_ISREG(details.st_mode)
             or details.st_size <= 0
             or details.st_size > maximum_bytes
             or (required_uid is not None and details.st_uid != required_uid)
             or stat.S_IMODE(details.st_mode) & forbidden_mode_bits
+            or (
+                expected_identity is not None
+                and opened_identity != expected_identity
+            )
         ):
             _fail(code)
         chunks: list[bytes] = []
@@ -206,13 +276,38 @@ def load_private_ai_panorama_install_request(path: Path) -> dict[str, object]:
         or stat.S_IMODE(details.st_mode) & 0o077
     ):
         _fail("ai_panorama_request_permissions_invalid")
+    request_identity = (
+        int(details.st_dev),
+        int(details.st_ino),
+        int(details.st_size),
+        int(details.st_mtime_ns),
+    )
     encoded = _open_regular_nofollow(
         request_path,
         maximum_bytes=_PRIVATE_REQUEST_MAX_BYTES,
         code="ai_panorama_request_permissions_invalid",
         required_uid=os.geteuid(),
         forbidden_mode_bits=0o077,
+        expected_identity=request_identity,
     )
+    try:
+        after_details = request_path.stat(follow_symlinks=False)
+    except OSError as exc:
+        raise AiPanoramaIntakeError("ai_panorama_request_permissions_invalid") from exc
+    if (
+        stat.S_ISLNK(after_details.st_mode)
+        or not stat.S_ISREG(after_details.st_mode)
+        or after_details.st_uid != os.geteuid()
+        or stat.S_IMODE(after_details.st_mode) & 0o077
+        or (
+        int(after_details.st_dev),
+        int(after_details.st_ino),
+        int(after_details.st_size),
+        int(after_details.st_mtime_ns),
+        )
+        != request_identity
+    ):
+        _fail("ai_panorama_request_permissions_invalid")
     try:
         payload = json.loads(encoded.decode("utf-8"))
     except (UnicodeError, ValueError) as exc:
@@ -220,7 +315,10 @@ def load_private_ai_panorama_install_request(path: Path) -> dict[str, object]:
     if not isinstance(payload, dict):
         _fail("ai_panorama_request_invalid")
     request = dict(payload)
-    if request.get("contract") != AI_PANORAMA_INSTALL_REQUEST_CONTRACT:
+    if request.get("contract") not in {
+        AI_PANORAMA_INSTALL_REQUEST_CONTRACT_V1,
+        AI_PANORAMA_INSTALL_REQUEST_CONTRACT_V2,
+    }:
         _fail("ai_panorama_request_contract_invalid")
     return request
 
@@ -412,6 +510,31 @@ def _scan_source_bundle(source_bundle: Path) -> _SourceSnapshot:
     )
 
 
+def snapshot_ai_panorama_installer_source_bundle(
+    source_bundle: Path,
+) -> AiPanoramaInstallerSourceIdentity:
+    """Return the authoritative installer-facing identity for a sealed bundle.
+
+    This is the sole public implementation of the installer file-manifest hash.
+    Callers that hand a candidate to ``install_sealed_ai_panorama_bundle`` must
+    bind this identity, rather than independently reproducing its serialization.
+    The snapshot is content identity only; it does not confer install or release
+    authority.
+    """
+
+    snapshot = _scan_source_bundle(Path(source_bundle))
+    return AiPanoramaInstallerSourceIdentity(
+        contract_name=AI_PANORAMA_INSTALL_SOURCE_IDENTITY_CONTRACT,
+        tree_algorithm=AI_PANORAMA_INSTALL_SOURCE_TREE_ALGORITHM,
+        relative_root=AI_PANORAMA_INSTALL_SOURCE_RELATIVE_ROOT,
+        relative_path_semantics=AI_PANORAMA_INSTALL_SOURCE_RELATIVE_PATH_SEMANTICS,
+        tree_sha256=snapshot.tree_sha256,
+        tour_sha256=snapshot.tour_sha256,
+        file_count=len(snapshot.files),
+        total_bytes=snapshot.total_bytes,
+    )
+
+
 def _load_source_manifest(source_bundle: Path) -> dict[str, object]:
     encoded = _open_regular_nofollow(
         source_bundle / "tour.json",
@@ -425,6 +548,345 @@ def _load_source_manifest(source_bundle: Path) -> dict[str, object]:
     if not isinstance(payload, dict):
         _fail("ai_panorama_source_manifest_invalid")
     return dict(payload)
+
+
+def _canonical_lineage_json_bytes(value: Mapping[str, object], *, code: str) -> bytes:
+    try:
+        return (
+            json.dumps(
+                dict(value),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            )
+            + "\n"
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise AiPanoramaIntakeError(code) from exc
+
+
+def _exact_json_value(actual: object, expected: object) -> bool:
+    """Compare receipt scalars without JSON bool/int equivalence."""
+
+    return type(actual) is type(expected) and actual == expected
+
+
+def _lineage_file_identity(path: Path, *, code: str) -> tuple[int, int, int, int]:
+    try:
+        details = path.stat(follow_symlinks=False)
+    except OSError as exc:
+        raise AiPanoramaIntakeError(code) from exc
+    if stat.S_ISLNK(details.st_mode) or not stat.S_ISREG(details.st_mode):
+        _fail(code)
+    return (
+        int(details.st_dev),
+        int(details.st_ino),
+        int(details.st_size),
+        int(details.st_mtime_ns),
+    )
+
+
+def _load_lineage_json(
+    path: Path,
+    *,
+    code: str,
+) -> tuple[dict[str, object], bytes, tuple[int, int, int, int]]:
+    before_identity = _lineage_file_identity(path, code=code)
+    encoded = _open_regular_nofollow(
+        path,
+        maximum_bytes=_SOURCE_MANIFEST_MAX_BYTES,
+        code=code,
+        forbidden_mode_bits=0o022,
+        expected_identity=before_identity,
+    )
+
+    def _strict_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                _fail(code)
+            result[key] = value
+        return result
+
+    def _reject_nonfinite(_value: str) -> None:
+        _fail(code)
+
+    try:
+        payload = json.loads(
+            encoded.decode("utf-8"),
+            object_pairs_hook=_strict_object,
+            parse_constant=_reject_nonfinite,
+        )
+    except AiPanoramaIntakeError:
+        raise
+    except (UnicodeError, ValueError) as exc:
+        raise AiPanoramaIntakeError(code) from exc
+    if not isinstance(payload, dict):
+        _fail(code)
+    normalized = dict(payload)
+    if encoded != _canonical_lineage_json_bytes(normalized, code=code):
+        _fail(code)
+    after_identity = _lineage_file_identity(path, code=code)
+    if before_identity != after_identity:
+        _fail(code)
+    return normalized, encoded, after_identity
+
+
+def _validate_materialization_lineage(
+    *,
+    request: Mapping[str, object],
+    source_bundle: Path,
+    snapshot: _SourceSnapshot,
+    slug: str,
+    core_manifest_sha256: str,
+) -> dict[str, str]:
+    request_contract = str(request.get("contract") or "").strip()
+    release_eligible = request_contract == AI_PANORAMA_INSTALL_REQUEST_CONTRACT_V2
+    supplied = {key for key in _MATERIALIZATION_LINEAGE_REQUEST_KEYS if key in request}
+    if not supplied:
+        if release_eligible:
+            _fail("ai_panorama_materialization_lineage_required")
+        return {
+            "install_request_contract": request_contract,
+            "release_eligible": "false",
+        }
+    if supplied != _MATERIALIZATION_LINEAGE_REQUEST_KEYS:
+        _fail(
+            "ai_panorama_materialization_lineage_required"
+            if release_eligible
+            else "ai_panorama_materialization_lineage_incomplete"
+        )
+
+    candidate_directory_identity = _directory_identity(
+        source_bundle,
+        code="ai_panorama_materialization_candidate_binding_mismatch",
+    )
+
+    expected_receipt_sha256 = _require_digest(
+        request.get("expected_materialization_receipt_sha256"),
+        code="ai_panorama_materialization_receipt_sha256_invalid",
+        required=True,
+    )
+    expected_marker_sha256 = _require_digest(
+        request.get("expected_candidate_marker_sha256"),
+        code="ai_panorama_candidate_marker_sha256_invalid",
+        required=True,
+    )
+    receipt_path = _request_path(
+        request.get("materialization_receipt_path"),
+        code="ai_panorama_materialization_receipt_path_invalid",
+    )
+    _require_no_symlink_components(
+        receipt_path,
+        code="ai_panorama_materialization_receipt_path_invalid",
+    )
+    receipt, receipt_bytes, receipt_file_identity = _load_lineage_json(
+        receipt_path,
+        code="ai_panorama_materialization_receipt_invalid",
+    )
+    if not hmac.compare_digest(
+        expected_receipt_sha256,
+        hashlib.sha256(receipt_bytes).hexdigest(),
+    ):
+        _fail("ai_panorama_materialization_receipt_sha256_mismatch")
+
+    candidate_root = _request_path(
+        receipt.get("candidate_public_root"),
+        code="ai_panorama_materialization_candidate_root_invalid",
+    )
+    _require_no_symlink_components(
+        candidate_root,
+        code="ai_panorama_materialization_candidate_root_invalid",
+    )
+    candidate_relpath = _safe_relpath(receipt.get("candidate_bundle_relpath"))
+    candidate_bundle = candidate_root / candidate_relpath
+    if (
+        candidate_relpath != slug
+        or candidate_root != source_bundle.parent
+        or candidate_bundle != source_bundle
+    ):
+        _fail("ai_panorama_materialization_candidate_binding_mismatch")
+    candidate_root_identity = _directory_identity(
+        candidate_root,
+        code="ai_panorama_materialization_candidate_root_invalid",
+    )
+    source_parent_identity = _directory_identity(
+        source_bundle.parent,
+        code="ai_panorama_source_path_unsafe",
+    )
+    candidate_bundle_identity = _directory_identity(
+        candidate_bundle,
+        code="ai_panorama_materialization_candidate_binding_mismatch",
+    )
+    if (
+        candidate_root_identity != source_parent_identity
+        or candidate_bundle_identity != candidate_directory_identity
+    ):
+        _fail("ai_panorama_materialization_candidate_binding_mismatch")
+
+    expected_receipt_fields: dict[str, object] = {
+        "contract_name": AI_PANORAMA_MATERIALIZATION_RECEIPT_CONTRACT,
+        "status": "pass",
+        "slug": slug,
+        "candidate_public_root": str(source_bundle.parent),
+        "candidate_bundle_relpath": slug,
+        "candidate_marker_relpath": AI_PANORAMA_CANDIDATE_MARKER_RELPATH,
+        "candidate_marker_sha256": expected_marker_sha256,
+        "tree_snapshot_algorithm": "regular-files-and-directories.sorted.v2",
+        "candidate_file_count": len(snapshot.files),
+        "candidate_size_bytes": snapshot.total_bytes,
+        "installer_source_identity_contract": AI_PANORAMA_INSTALL_SOURCE_IDENTITY_CONTRACT,
+        "installer_source_tree_algorithm": AI_PANORAMA_INSTALL_SOURCE_TREE_ALGORITHM,
+        "installer_source_relative_root": AI_PANORAMA_INSTALL_SOURCE_RELATIVE_ROOT,
+        "installer_source_relative_path_semantics": AI_PANORAMA_INSTALL_SOURCE_RELATIVE_PATH_SEMANTICS,
+        "installer_source_tree_sha256": snapshot.tree_sha256,
+        "installer_source_tour_sha256": snapshot.tour_sha256,
+        "installer_source_file_count": len(snapshot.files),
+        "installer_source_total_bytes": snapshot.total_bytes,
+        "tour_manifest_sha256": snapshot.tour_sha256,
+        "core_manifest_sha256": core_manifest_sha256,
+        "source_copy_identity_verified": True,
+        "source_bundle_unchanged": True,
+        "source_unchanged_after_candidate_seal": True,
+        "candidate_identity_rechecked_after_receipt_write": True,
+        "production_mutation_performed": False,
+        "controller_bypass_performed": False,
+    }
+    if (
+        any(
+            not _exact_json_value(receipt.get(key), value)
+            for key, value in expected_receipt_fields.items()
+        )
+        or any(
+            type(receipt.get(key)) is not str
+            or _DIGEST_PATTERN.fullmatch(receipt[key]) is None
+            for key in (
+                "candidate_tree_sha256",
+                "source_tree_sha256",
+                "bundle_material_sha256",
+            )
+        )
+        or type(receipt.get("source_file_count")) is not int
+        or int(receipt.get("source_file_count") or 0) <= 0
+        or type(receipt.get("source_size_bytes")) is not int
+        or int(receipt.get("source_size_bytes") or 0) <= 0
+    ):
+        _fail("ai_panorama_materialization_receipt_binding_mismatch")
+    external_receipt = receipt.get("external_receipt")
+    if (
+        not isinstance(external_receipt, Mapping)
+        or external_receipt.get("written") is not True
+        or external_receipt.get("source_unchanged_post_write") is not True
+        or external_receipt.get("candidate_unchanged_post_write") is not True
+    ):
+        _fail("ai_panorama_materialization_receipt_binding_mismatch")
+
+    marker_path = candidate_root / AI_PANORAMA_CANDIDATE_MARKER_RELPATH
+    marker, marker_bytes, marker_file_identity = _load_lineage_json(
+        marker_path,
+        code="ai_panorama_candidate_marker_invalid",
+    )
+    actual_marker_sha256 = hashlib.sha256(marker_bytes).hexdigest()
+    if not hmac.compare_digest(expected_marker_sha256, actual_marker_sha256):
+        _fail("ai_panorama_candidate_marker_sha256_mismatch")
+    expected_marker_fields: dict[str, object] = {
+        "contract_name": AI_PANORAMA_CANDIDATE_MARKER_CONTRACT,
+        "tree_snapshot_algorithm": "regular-files-and-directories.sorted.v2",
+        "slug": slug,
+        "source_tree_sha256": receipt.get("source_tree_sha256"),
+        "source_file_count": receipt.get("source_file_count"),
+        "source_size_bytes": receipt.get("source_size_bytes"),
+        "core_manifest_sha256": core_manifest_sha256,
+        "bundle_material_sha256": receipt.get("bundle_material_sha256"),
+    }
+    if any(
+        not _exact_json_value(marker.get(key), value)
+        for key, value in expected_marker_fields.items()
+    ):
+        _fail("ai_panorama_candidate_marker_binding_mismatch")
+    if {
+        "installer_source_tree_sha256",
+        "installer_source_tour_sha256",
+    }.intersection(marker):
+        _fail("ai_panorama_candidate_marker_binding_mismatch")
+
+    rechecked_snapshot = _scan_source_bundle(source_bundle)
+    if (
+        _directory_identity(
+            candidate_root,
+            code="ai_panorama_materialization_candidate_root_invalid",
+        )
+        != candidate_root_identity
+        or _directory_identity(
+            source_bundle.parent,
+            code="ai_panorama_source_path_unsafe",
+        )
+        != candidate_root_identity
+        or _directory_identity(
+            source_bundle,
+            code="ai_panorama_materialization_candidate_binding_mismatch",
+        )
+        != candidate_directory_identity
+        or rechecked_snapshot.tree_sha256 != snapshot.tree_sha256
+        or rechecked_snapshot.tour_sha256 != snapshot.tour_sha256
+        or len(rechecked_snapshot.files) != len(snapshot.files)
+        or rechecked_snapshot.total_bytes != snapshot.total_bytes
+    ):
+        _fail("ai_panorama_materialization_candidate_changed")
+    rechecked_receipt, rechecked_receipt_bytes, rechecked_receipt_identity = (
+        _load_lineage_json(
+            receipt_path,
+            code="ai_panorama_materialization_receipt_invalid",
+        )
+    )
+    rechecked_marker, rechecked_marker_bytes, rechecked_marker_identity = (
+        _load_lineage_json(
+            marker_path,
+            code="ai_panorama_candidate_marker_invalid",
+        )
+    )
+    if (
+        rechecked_receipt != receipt
+        or rechecked_receipt_bytes != receipt_bytes
+        or rechecked_receipt_identity != receipt_file_identity
+    ):
+        _fail("ai_panorama_materialization_receipt_changed")
+    if (
+        rechecked_marker != marker
+        or rechecked_marker_bytes != marker_bytes
+        or rechecked_marker_identity != marker_file_identity
+    ):
+        _fail("ai_panorama_candidate_marker_changed")
+    final_snapshot = _scan_source_bundle(source_bundle)
+    if (
+        _directory_identity(
+            candidate_root,
+            code="ai_panorama_materialization_candidate_root_invalid",
+        )
+        != candidate_root_identity
+        or _directory_identity(
+            source_bundle.parent,
+            code="ai_panorama_source_path_unsafe",
+        )
+        != candidate_root_identity
+        or _directory_identity(
+            source_bundle,
+            code="ai_panorama_materialization_candidate_binding_mismatch",
+        )
+        != candidate_directory_identity
+        or final_snapshot.tree_sha256 != snapshot.tree_sha256
+        or final_snapshot.tour_sha256 != snapshot.tour_sha256
+        or len(final_snapshot.files) != len(snapshot.files)
+        or final_snapshot.total_bytes != snapshot.total_bytes
+    ):
+        _fail("ai_panorama_materialization_candidate_changed")
+    return {
+        "install_request_contract": request_contract,
+        "release_eligible": "true" if release_eligible else "false",
+        "materialization_receipt_sha256": expected_receipt_sha256,
+        "candidate_marker_sha256": expected_marker_sha256,
+    }
 
 
 def _declared_public_files(
@@ -610,7 +1072,7 @@ def _validate_source_identity(
         != property_url_sha256
     ):
         _fail("ai_panorama_provider_qualified_provenance_mismatch")
-    return {
+    identity = {
         "principal_id": principal_id,
         "search_run_id": search_run_id,
         "candidate_ref": candidate_ref,
@@ -621,6 +1083,16 @@ def _validate_source_identity(
         "property_url_sha256": property_url_sha256,
         "core_manifest_sha256": str(contract.get("core_manifest_sha256") or ""),
     }
+    identity.update(
+        _validate_materialization_lineage(
+            request=request,
+            source_bundle=source_bundle,
+            snapshot=snapshot,
+            slug=expected_slug,
+            core_manifest_sha256=identity["core_manifest_sha256"],
+        )
+    )
+    return identity
 
 
 def _copy_snapshot(source: Path, stage: Path, snapshot: _SourceSnapshot) -> None:
@@ -822,7 +1294,7 @@ def _receipt(
     snapshot: _SourceSnapshot,
     identity: Mapping[str, str],
 ) -> dict[str, object]:
-    return {
+    receipt: dict[str, object] = {
         "contract": AI_PANORAMA_INSTALL_RECEIPT_CONTRACT,
         "status": status,
         "mode": "apply" if applied else "dry_run",
@@ -834,6 +1306,10 @@ def _receipt(
         "provider_key": identity["provider_key"],
         "property_url_sha256": identity["property_url_sha256"],
         "core_manifest_sha256": identity["core_manifest_sha256"],
+        "source_identity_contract": AI_PANORAMA_INSTALL_SOURCE_IDENTITY_CONTRACT,
+        "source_tree_algorithm": AI_PANORAMA_INSTALL_SOURCE_TREE_ALGORITHM,
+        "source_relative_root": AI_PANORAMA_INSTALL_SOURCE_RELATIVE_ROOT,
+        "source_relative_path_semantics": AI_PANORAMA_INSTALL_SOURCE_RELATIVE_PATH_SEMANTICS,
         "source_tree_sha256": snapshot.tree_sha256,
         "source_tour_sha256": snapshot.tour_sha256,
         "source_file_count": len(snapshot.files),
@@ -842,8 +1318,22 @@ def _receipt(
         "run_binding_verified": True,
         "candidate_binding_verified": True,
         "listing_identity_verified": True,
+        "install_request_contract": identity["install_request_contract"],
+        "materialization_lineage_verified": bool(
+            identity.get("materialization_receipt_sha256")
+            and identity.get("candidate_marker_sha256")
+        ),
+        "release_eligible": identity.get("release_eligible") == "true",
         "private_values_redacted": True,
     }
+    if identity.get("materialization_receipt_sha256"):
+        receipt["materialization_receipt_sha256"] = identity[
+            "materialization_receipt_sha256"
+        ]
+        receipt["candidate_marker_sha256"] = identity[
+            "candidate_marker_sha256"
+        ]
+    return receipt
 
 
 def install_sealed_ai_panorama_bundle(
@@ -858,7 +1348,10 @@ def install_sealed_ai_panorama_bundle(
     contains no principal, run, candidate, source-ref, external-id, or URL.
     """
 
-    if request.get("contract") != AI_PANORAMA_INSTALL_REQUEST_CONTRACT:
+    if request.get("contract") not in {
+        AI_PANORAMA_INSTALL_REQUEST_CONTRACT_V1,
+        AI_PANORAMA_INSTALL_REQUEST_CONTRACT_V2,
+    }:
         _fail("ai_panorama_request_contract_invalid")
     source_bundle = _confined_source_bundle(
         _request_path(
@@ -1041,9 +1534,20 @@ def install_sealed_ai_panorama_bundle(
 
 
 __all__ = [
+    "AI_PANORAMA_CANDIDATE_MARKER_CONTRACT",
+    "AI_PANORAMA_CANDIDATE_MARKER_RELPATH",
     "AI_PANORAMA_INSTALL_RECEIPT_CONTRACT",
     "AI_PANORAMA_INSTALL_REQUEST_CONTRACT",
+    "AI_PANORAMA_INSTALL_REQUEST_CONTRACT_V1",
+    "AI_PANORAMA_INSTALL_REQUEST_CONTRACT_V2",
+    "AI_PANORAMA_INSTALL_SOURCE_IDENTITY_CONTRACT",
+    "AI_PANORAMA_INSTALL_SOURCE_RELATIVE_PATH_SEMANTICS",
+    "AI_PANORAMA_INSTALL_SOURCE_RELATIVE_ROOT",
+    "AI_PANORAMA_INSTALL_SOURCE_TREE_ALGORITHM",
+    "AI_PANORAMA_MATERIALIZATION_RECEIPT_CONTRACT",
+    "AiPanoramaInstallerSourceIdentity",
     "AiPanoramaIntakeError",
     "install_sealed_ai_panorama_bundle",
     "load_private_ai_panorama_install_request",
+    "snapshot_ai_panorama_installer_source_bundle",
 ]

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import shutil
 from pathlib import Path
 
 import pytest
@@ -42,8 +44,13 @@ def _write(path: Path, value: bytes) -> None:
     path.chmod(0o644)
 
 
-def _make_bundle(root: Path, *, slug: str = SLUG) -> Path:
-    bundle = root / "sealed-bundle"
+def _make_bundle(
+    root: Path,
+    *,
+    slug: str = SLUG,
+    directory_name: str = "sealed-bundle",
+) -> Path:
+    bundle = root / directory_name
     bundle.mkdir(parents=True, mode=0o755)
     property_url_sha256 = property_search_source_url_sha256(LISTING_URL)
     browser_receipt = {
@@ -118,6 +125,98 @@ def _hash_bound_request(bundle: Path, public_dir: Path, **overrides: object) -> 
     return request
 
 
+def _canonical(value: dict[str, object]) -> bytes:
+    return (
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+        + "\n"
+    ).encode("utf-8")
+
+
+def _v2_lineage_request(
+    bundle: Path,
+    public_dir: Path,
+) -> tuple[dict[str, object], Path, Path]:
+    payload = json.loads((bundle / "tour.json").read_text(encoding="utf-8"))
+    core_manifest_sha256 = intake._semantic_manifest_sha256(payload)
+    source_tree_sha256 = "a" * 64
+    bundle_material_sha256 = "b" * 64
+    marker = {
+        "contract_name": intake.AI_PANORAMA_CANDIDATE_MARKER_CONTRACT,
+        "tree_snapshot_algorithm": "regular-files-and-directories.sorted.v2",
+        "slug": SLUG,
+        "source_tree_sha256": source_tree_sha256,
+        "source_file_count": 5,
+        "source_size_bytes": 1234,
+        "core_manifest_sha256": core_manifest_sha256,
+        "bundle_material_sha256": bundle_material_sha256,
+    }
+    marker_path = bundle.parent / intake.AI_PANORAMA_CANDIDATE_MARKER_RELPATH
+    marker_path.write_bytes(_canonical(marker))
+    marker_path.chmod(0o600)
+    marker_sha256 = hashlib.sha256(marker_path.read_bytes()).hexdigest()
+    installer_identity = intake.snapshot_ai_panorama_installer_source_bundle(bundle)
+    receipt: dict[str, object] = {
+        "contract_name": intake.AI_PANORAMA_MATERIALIZATION_RECEIPT_CONTRACT,
+        "status": "pass",
+        "slug": SLUG,
+        "candidate_public_root": str(bundle.parent),
+        "candidate_bundle_relpath": SLUG,
+        "candidate_marker_relpath": intake.AI_PANORAMA_CANDIDATE_MARKER_RELPATH,
+        "candidate_marker_sha256": marker_sha256,
+        "candidate_tree_sha256": "c" * 64,
+        "candidate_file_count": installer_identity.file_count,
+        "candidate_size_bytes": installer_identity.total_bytes,
+        "tree_snapshot_algorithm": "regular-files-and-directories.sorted.v2",
+        "core_manifest_sha256": core_manifest_sha256,
+        "bundle_material_sha256": bundle_material_sha256,
+        "source_tree_sha256": source_tree_sha256,
+        "source_file_count": 5,
+        "source_size_bytes": 1234,
+        "source_copy_identity_verified": True,
+        "source_bundle_unchanged": True,
+        "source_unchanged_after_candidate_seal": True,
+        "production_mutation_performed": False,
+        "controller_bypass_performed": False,
+        "candidate_identity_rechecked_after_receipt_write": True,
+        "installer_source_identity_contract": installer_identity.contract_name,
+        "installer_source_tree_algorithm": installer_identity.tree_algorithm,
+        "installer_source_relative_root": installer_identity.relative_root,
+        "installer_source_relative_path_semantics": (
+            installer_identity.relative_path_semantics
+        ),
+        "installer_source_tree_sha256": installer_identity.tree_sha256,
+        "installer_source_tour_sha256": installer_identity.tour_sha256,
+        "installer_source_file_count": installer_identity.file_count,
+        "installer_source_total_bytes": installer_identity.total_bytes,
+        "tour_manifest_sha256": installer_identity.tour_sha256,
+        "external_receipt": {
+            "written": True,
+            "source_unchanged_post_write": True,
+            "candidate_unchanged_post_write": True,
+        },
+    }
+    receipt_path = bundle.parent.parent / "materialization-receipt.json"
+    receipt_path.write_bytes(_canonical(receipt))
+    receipt_path.chmod(0o600)
+    request = _request(
+        bundle,
+        public_dir,
+        contract=intake.AI_PANORAMA_INSTALL_REQUEST_CONTRACT_V2,
+        materialization_receipt_path=str(receipt_path),
+        expected_materialization_receipt_sha256=hashlib.sha256(
+            receipt_path.read_bytes()
+        ).hexdigest(),
+        expected_candidate_marker_sha256=marker_sha256,
+    )
+    return request, receipt_path, marker_path
+
+
 def test_private_request_loader_requires_owner_only_regular_file(tmp_path: Path) -> None:
     request_path = tmp_path / "request.json"
     request_path.write_text(
@@ -149,8 +248,11 @@ def test_private_request_revalidates_the_opened_descriptor(
     )
     request_path.write_text(payload, encoding="utf-8")
     request_path.chmod(0o600)
-    replacement_path.write_text(payload, encoding="utf-8")
-    replacement_path.chmod(0o644)
+    replacement_path.write_text(
+        json.dumps({"contract": intake.AI_PANORAMA_INSTALL_REQUEST_CONTRACT_V2}),
+        encoding="utf-8",
+    )
+    replacement_path.chmod(0o600)
     original_open = os.open
 
     def _swapped_open(path: object, flags: int, *args: object, **kwargs: object) -> int:
@@ -171,12 +273,411 @@ def test_dry_run_is_default_hash_discovery_and_redacts_private_values(tmp_path: 
     assert receipt["status"] == "validated"
     assert receipt["mode"] == "dry_run"
     assert receipt["applied"] is False
+    assert receipt["install_request_contract"] == (
+        intake.AI_PANORAMA_INSTALL_REQUEST_CONTRACT_V1
+    )
+    assert receipt["materialization_lineage_verified"] is False
+    assert receipt["release_eligible"] is False
     assert receipt["source_file_count"] == 8
     assert len(str(receipt["source_tree_sha256"])) == 64
     rendered = json.dumps(receipt, sort_keys=True)
     for private_value in (PRINCIPAL, RUN_ID, CANDIDATE_REF, LISTING_URL, SOURCE_REF, EXTERNAL_ID):
         assert private_value not in rendered
     assert not (public_dir / SLUG).exists()
+
+
+def test_v1_optional_hash_whitespace_remains_backward_compatible(
+    tmp_path: Path,
+) -> None:
+    bundle = _make_bundle(tmp_path / "source")
+    public_dir = tmp_path / "public"
+    public_dir.mkdir()
+    receipt = intake.install_sealed_ai_panorama_bundle(
+        _request(
+            bundle,
+            public_dir,
+            expected_source_tree_sha256="   ",
+            expected_tour_sha256="\t",
+        )
+    )
+
+    assert receipt["status"] == "validated"
+    assert receipt["release_eligible"] is False
+
+
+@pytest.mark.parametrize("lineage_fields", (0, 1))
+def test_v2_requires_complete_materialization_lineage(
+    tmp_path: Path,
+    lineage_fields: int,
+) -> None:
+    bundle = _make_bundle(
+        tmp_path / "source",
+        directory_name=SLUG,
+    )
+    public_dir = tmp_path / "public"
+    public_dir.mkdir()
+    overrides: dict[str, object] = {
+        "contract": intake.AI_PANORAMA_INSTALL_REQUEST_CONTRACT_V2,
+    }
+    if lineage_fields:
+        overrides["expected_candidate_marker_sha256"] = "0" * 64
+
+    with pytest.raises(
+        intake.AiPanoramaIntakeError,
+        match="materialization_lineage_required",
+    ):
+        intake.install_sealed_ai_panorama_bundle(
+            _request(bundle, public_dir, **overrides)
+        )
+
+
+def test_v2_exact_materialization_lineage_is_release_eligible(tmp_path: Path) -> None:
+    bundle = _make_bundle(
+        tmp_path / "source",
+        directory_name=SLUG,
+    )
+    public_dir = tmp_path / "public"
+    public_dir.mkdir()
+    request, receipt_path, marker_path = _v2_lineage_request(bundle, public_dir)
+
+    receipt = intake.install_sealed_ai_panorama_bundle(request)
+    identity = intake.snapshot_ai_panorama_installer_source_bundle(bundle)
+
+    assert receipt["install_request_contract"] == (
+        intake.AI_PANORAMA_INSTALL_REQUEST_CONTRACT_V2
+    )
+    assert receipt["materialization_lineage_verified"] is True
+    assert receipt["release_eligible"] is True
+    assert receipt["source_tree_sha256"] == identity.tree_sha256
+    assert receipt["source_tour_sha256"] == identity.tour_sha256
+    assert receipt["materialization_receipt_sha256"] == hashlib.sha256(
+        receipt_path.read_bytes()
+    ).hexdigest()
+    assert receipt["candidate_marker_sha256"] == hashlib.sha256(
+        marker_path.read_bytes()
+    ).hexdigest()
+    assert not (public_dir / SLUG).exists()
+
+
+def test_v2_release_eligible_lineage_applies_with_exact_cas_hashes(
+    tmp_path: Path,
+) -> None:
+    bundle = _make_bundle(
+        tmp_path / "source",
+        directory_name=SLUG,
+    )
+    public_dir = tmp_path / "public"
+    public_dir.mkdir()
+    request, _receipt_path, _marker_path = _v2_lineage_request(bundle, public_dir)
+    plan = intake.install_sealed_ai_panorama_bundle(request)
+    request.update(
+        {
+            "expected_source_tree_sha256": plan["source_tree_sha256"],
+            "expected_tour_sha256": plan["source_tour_sha256"],
+        }
+    )
+
+    receipt = intake.install_sealed_ai_panorama_bundle(request, apply=True)
+
+    assert receipt["status"] == "installed"
+    assert receipt["applied"] is True
+    assert receipt["materialization_lineage_verified"] is True
+    assert receipt["release_eligible"] is True
+    assert (public_dir / SLUG / "tour.json").is_file()
+
+
+def test_v1_with_complete_lineage_remains_non_release_eligible(
+    tmp_path: Path,
+) -> None:
+    bundle = _make_bundle(
+        tmp_path / "source",
+        directory_name=SLUG,
+    )
+    public_dir = tmp_path / "public"
+    public_dir.mkdir()
+    request, _receipt_path, _marker_path = _v2_lineage_request(bundle, public_dir)
+    request["contract"] = intake.AI_PANORAMA_INSTALL_REQUEST_CONTRACT_V1
+
+    receipt = intake.install_sealed_ai_panorama_bundle(request)
+
+    assert receipt["materialization_lineage_verified"] is True
+    assert receipt["release_eligible"] is False
+
+
+@pytest.mark.parametrize(
+    ("digest_field", "reason"),
+    (
+        (
+            "expected_materialization_receipt_sha256",
+            "materialization_receipt_sha256_mismatch",
+        ),
+        (
+            "expected_candidate_marker_sha256",
+            "materialization_receipt_binding_mismatch",
+        ),
+    ),
+)
+def test_v2_rejects_mismatched_lineage_digest(
+    tmp_path: Path,
+    digest_field: str,
+    reason: str,
+) -> None:
+    bundle = _make_bundle(
+        tmp_path / "source",
+        directory_name=SLUG,
+    )
+    public_dir = tmp_path / "public"
+    public_dir.mkdir()
+    request, _receipt_path, _marker_path = _v2_lineage_request(bundle, public_dir)
+    request[digest_field] = "0" * 64
+
+    with pytest.raises(intake.AiPanoramaIntakeError, match=reason):
+        intake.install_sealed_ai_panorama_bundle(request)
+
+
+@pytest.mark.parametrize(
+    ("digest_field", "reason"),
+    (
+        (
+            "expected_materialization_receipt_sha256",
+            "materialization_receipt_sha256_invalid",
+        ),
+        (
+            "expected_candidate_marker_sha256",
+            "candidate_marker_sha256_invalid",
+        ),
+    ),
+)
+def test_v2_rejects_non_string_request_digest(
+    tmp_path: Path,
+    digest_field: str,
+    reason: str,
+) -> None:
+    bundle = _make_bundle(
+        tmp_path / "source",
+        directory_name=SLUG,
+    )
+    public_dir = tmp_path / "public"
+    public_dir.mkdir()
+    request, _receipt_path, _marker_path = _v2_lineage_request(bundle, public_dir)
+    request[digest_field] = int("1" * 64)
+
+    with pytest.raises(intake.AiPanoramaIntakeError, match=reason):
+        intake.install_sealed_ai_panorama_bundle(request)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("source_copy_identity_verified", 1),
+        ("production_mutation_performed", 0),
+    ),
+)
+def test_v2_rejects_non_boolean_lineage_assertions(
+    tmp_path: Path,
+    field: str,
+    value: int,
+) -> None:
+    bundle = _make_bundle(
+        tmp_path / "source",
+        directory_name=SLUG,
+    )
+    public_dir = tmp_path / "public"
+    public_dir.mkdir()
+    request, receipt_path, _marker_path = _v2_lineage_request(bundle, public_dir)
+    payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+    payload[field] = value
+    encoded = _canonical(payload)
+    receipt_path.write_bytes(encoded)
+    receipt_path.chmod(0o600)
+    request["expected_materialization_receipt_sha256"] = hashlib.sha256(
+        encoded
+    ).hexdigest()
+
+    with pytest.raises(
+        intake.AiPanoramaIntakeError,
+        match="materialization_receipt_binding_mismatch",
+    ):
+        intake.install_sealed_ai_panorama_bundle(request)
+
+
+@pytest.mark.parametrize(
+    "field",
+    (
+        "candidate_tree_sha256",
+        "source_tree_sha256",
+        "bundle_material_sha256",
+    ),
+)
+def test_v2_rejects_non_string_lineage_digests(
+    tmp_path: Path,
+    field: str,
+) -> None:
+    bundle = _make_bundle(
+        tmp_path / "source",
+        directory_name=SLUG,
+    )
+    public_dir = tmp_path / "public"
+    public_dir.mkdir()
+    request, receipt_path, _marker_path = _v2_lineage_request(bundle, public_dir)
+    payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+    payload[field] = int("1" * 64)
+    encoded = _canonical(payload)
+    receipt_path.write_bytes(encoded)
+    receipt_path.chmod(0o600)
+    request["expected_materialization_receipt_sha256"] = hashlib.sha256(
+        encoded
+    ).hexdigest()
+
+    with pytest.raises(
+        intake.AiPanoramaIntakeError,
+        match="materialization_receipt_binding_mismatch",
+    ):
+        intake.install_sealed_ai_panorama_bundle(request)
+
+
+@pytest.mark.parametrize("encoding", ("pretty", "duplicate", "nonfinite"))
+def test_v2_rejects_noncanonical_or_ambiguous_materialization_receipt(
+    tmp_path: Path,
+    encoding: str,
+) -> None:
+    bundle = _make_bundle(
+        tmp_path / "source",
+        directory_name=SLUG,
+    )
+    public_dir = tmp_path / "public"
+    public_dir.mkdir()
+    request, receipt_path, _marker_path = _v2_lineage_request(bundle, public_dir)
+    payload = json.loads(receipt_path.read_text(encoding="utf-8"))
+    if encoding == "pretty":
+        encoded = (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    elif encoding == "duplicate":
+        encoded = b'{"status":"pass",' + _canonical(payload)[1:]
+    else:
+        encoded = b'{"nonfinite":NaN,' + _canonical(payload)[1:]
+    receipt_path.write_bytes(encoded)
+    receipt_path.chmod(0o600)
+    request["expected_materialization_receipt_sha256"] = hashlib.sha256(
+        encoded
+    ).hexdigest()
+
+    with pytest.raises(
+        intake.AiPanoramaIntakeError,
+        match="materialization_receipt_invalid",
+    ):
+        intake.install_sealed_ai_panorama_bundle(request)
+
+
+@pytest.mark.parametrize(
+    ("swap_kind", "reason"),
+    (
+        ("receipt", "materialization_receipt_invalid"),
+        ("marker", "candidate_marker_invalid"),
+    ),
+)
+def test_v2_rejects_lineage_file_swap_between_path_check_and_open(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    swap_kind: str,
+    reason: str,
+) -> None:
+    bundle = _make_bundle(
+        tmp_path / "source",
+        directory_name=SLUG,
+    )
+    public_dir = tmp_path / "public"
+    public_dir.mkdir()
+    request, receipt_path, marker_path = _v2_lineage_request(bundle, public_dir)
+    target_path = receipt_path if swap_kind == "receipt" else marker_path
+    replacement_path = target_path.with_name(f".{target_path.name}.replacement")
+    replacement_path.write_bytes(target_path.read_bytes())
+    replacement_path.chmod(0o600)
+    original_open = intake.os.open
+
+    def open_replacement(
+        path: object,
+        flags: int,
+        *args: object,
+        **kwargs: object,
+    ) -> int:
+        target = replacement_path if Path(path) == target_path else path
+        return original_open(target, flags, *args, **kwargs)
+
+    monkeypatch.setattr(intake.os, "open", open_replacement)
+    with pytest.raises(intake.AiPanoramaIntakeError, match=reason):
+        intake.install_sealed_ai_panorama_bundle(request)
+
+
+@pytest.mark.parametrize(
+    ("swap_kind", "reason"),
+    (
+        ("receipt", "materialization_receipt_changed"),
+        ("marker", "candidate_marker_changed"),
+        ("candidate", "materialization_candidate_changed"),
+        ("root", "materialization_candidate_changed"),
+        ("root_final", "materialization_candidate_changed"),
+    ),
+)
+def test_v2_rejects_lineage_inode_or_candidate_swaps_during_validation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    swap_kind: str,
+    reason: str,
+) -> None:
+    bundle = _make_bundle(
+        tmp_path / "source",
+        directory_name=SLUG,
+    )
+    public_dir = tmp_path / "public"
+    public_dir.mkdir()
+    request, receipt_path, marker_path = _v2_lineage_request(bundle, public_dir)
+    original_load = intake._load_lineage_json
+    swapped = False
+    marker_load_count = 0
+
+    def load_then_swap(
+        path: Path,
+        *,
+        code: str,
+    ) -> tuple[dict[str, object], bytes, tuple[int, int, int, int]]:
+        nonlocal marker_load_count, swapped
+        result = original_load(path, code=code)
+        if path == marker_path:
+            marker_load_count += 1
+        trigger = receipt_path if swap_kind == "receipt" else marker_path
+        should_replace = not swapped and path == trigger
+        if swap_kind == "root_final":
+            should_replace = should_replace and marker_load_count == 2
+        if should_replace:
+            swapped = True
+            if swap_kind == "candidate":
+                backup = bundle.parent / f".{SLUG}.swapped"
+                bundle.rename(backup)
+                shutil.copytree(backup, bundle, copy_function=shutil.copy2)
+            elif swap_kind in {"root", "root_final"}:
+                candidate_root = bundle.parent
+                moved_root = candidate_root.with_name(
+                    f".{candidate_root.name}.swapped"
+                )
+                candidate_root.rename(moved_root)
+                candidate_root.mkdir()
+                (moved_root / bundle.name).rename(candidate_root / bundle.name)
+                (
+                    moved_root / intake.AI_PANORAMA_CANDIDATE_MARKER_RELPATH
+                ).rename(
+                    candidate_root / intake.AI_PANORAMA_CANDIDATE_MARKER_RELPATH
+                )
+                moved_root.rmdir()
+            else:
+                replacement = path.with_name(f".{path.name}.replacement")
+                replacement.write_bytes(result[1])
+                replacement.chmod(0o600)
+                os.replace(replacement, path)
+        return result
+
+    monkeypatch.setattr(intake, "_load_lineage_json", load_then_swap)
+    with pytest.raises(intake.AiPanoramaIntakeError, match=reason):
+        intake.install_sealed_ai_panorama_bundle(request)
 
 
 def test_apply_requires_both_exact_source_hashes(tmp_path: Path) -> None:
