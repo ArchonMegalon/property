@@ -4136,7 +4136,7 @@
           {% if fact_fields %}
           {% for field in fact_fields %}
           {% set raw_fact_state = (field.get('state') or 'unknown')|lower %}
-          {% set visible_fact_state = 'queued' if raw_fact_state == 'unknown' and fact_enrichment.get('start_url') else raw_fact_state %}
+          {% set visible_fact_state = 'queued' if raw_fact_state in ['unknown', 'stale'] and fact_enrichment.get('start_url') else raw_fact_state %}
           {% set field_pending = visible_fact_state in ['queued', 'running'] %}
           {% set field_error = field.get('error') or {} %}
           {% set field_provenance = field.get('provenance') or {} %}
@@ -4750,7 +4750,7 @@
     let queued = 0;
     fieldStore.forEach((field, key) => {
       const state = normalizedState(field.state);
-      const shouldQueue = retry ? state === 'retryable_error' : state === 'unknown';
+      const shouldQueue = retry ? state === 'retryable_error' : ['unknown', 'stale'].includes(state);
       if (!shouldQueue) return;
       const projected = { ...field, key, state: 'queued', error: {} };
       fieldStore.set(key, projected);

@@ -12170,8 +12170,14 @@ def test_property_research_detail_replaces_other_homes_with_selected_distance_ch
     assert "Selected daily-life flat" in page.text
     assert "Nearby distances" in page.text
     assert 'data-research-selected-distances' in page.text
+    assert 'data-property-fact-enrichment' in page.text
     assert "Supermarket distance from this search." in page.text
-    assert "Nearest supermarket: BILLA Praterstern is 280 m away; selected limit 500 m" in page.text
+    assert 'data-property-fact-key="nearest_supermarket_m"' in page.text
+    assert 'data-property-fact-state="queued"' in page.text
+    assert 'data-property-fact-priority="required"' in page.text
+    assert "Checking distance…" in page.text
+    assert "Evaluating score" in page.text
+    assert "Rank pending until required facts are checked" in page.text
     assert "Nearest playground distance is not listed yet; selected limit 450 m." not in page.text
     assert "Nearest pharmacy distance is not listed yet; selected limit 300 m." not in page.text
     assert "Other homes" not in page.text
@@ -12338,7 +12344,7 @@ def test_property_enriched_candidate_facts_retry_missing_nearby_rows_after_locat
     assert facts["nearest_supermarket_name"] == "Billa"
 
 
-def test_property_research_detail_hides_nearby_distance_panel_when_no_filters_selected(monkeypatch) -> None:
+def test_property_research_detail_starts_lazy_nearby_fact_enrichment_when_no_filters_selected(monkeypatch) -> None:
     principal_id = "pq-research-detail-generic-nearby-distances"
     client = build_property_client(principal_id=principal_id)
     headers = {"host": "propertyquarry.com"}
@@ -12432,12 +12438,16 @@ def test_property_research_detail_hides_nearby_distance_panel_when_no_filters_se
     )
 
     assert page.status_code == 200
-    assert len(calls) <= 1
-    if calls:
-        assert calls[0][0] == "https://example.test/generic-nearby-flat"
-    assert "Nearby distances" not in page.text
+    assert calls == []
+    assert "Nearby distances" in page.text
     assert "Closest nearby places we could verify for this home." not in page.text
-    assert 'data-research-selected-distances' not in page.text
+    assert 'data-research-selected-distances' in page.text
+    assert 'data-property-fact-enrichment' in page.text
+    assert 'data-property-fact-priority="lazy"' in page.text
+    assert 'data-property-fact-state="queued"' in page.text
+    assert 'aria-busy="true"' in page.text
+    assert "Provisional score" in page.text
+    assert "Can rank while nice-to-have facts are checked" in page.text
     assert "Other homes" not in page.text
     assert 'data-research-ranking-list' not in page.text
 

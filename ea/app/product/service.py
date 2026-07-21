@@ -5361,6 +5361,124 @@ def _property_fact_safe_job_payload(job: Mapping[str, object]) -> dict[str, obje
     }
 
 
+def _property_fact_full_snapshot_payload(
+    *,
+    job: Mapping[str, object],
+    plan: list[dict[str, object]],
+) -> dict[str, object]:
+    """Project sparse execution rows onto the current complete public fact plan."""
+    job_fields = {
+        str(row.get("key") or "").strip(): dict(row)
+        for row in list(job.get("fields") or [])
+        if isinstance(row, dict) and str(row.get("key") or "").strip()
+    }
+    raw_status = str(job.get("status") or "idle").strip().lower()
+    try:
+        raw_attempt = int(job.get("attempt") or 0)
+    except (TypeError, ValueError):
+        raw_attempt = 0
+    if raw_status == "completed":
+        job_status = "succeeded"
+    elif raw_status == "failed":
+        job_status = (
+            "retryable_error"
+            if bool(job.get("retryable"))
+            and raw_attempt < _PROPERTY_FACT_ENRICHMENT_MAX_ATTEMPTS
+            else "terminal_error"
+        )
+    elif raw_status in {
+        "idle",
+        "queued",
+        "running",
+        "succeeded",
+        "retryable_error",
+        "terminal_error",
+    }:
+        job_status = raw_status
+    else:
+        job_status = "retryable_error"
+    projected_fields: list[dict[str, object]] = []
+    for raw_plan_row in plan:
+        plan_row = dict(raw_plan_row)
+        key = str(plan_row.get("key") or "").strip()
+        if not key:
+            continue
+        job_row = job_fields.get(key)
+        if not isinstance(job_row, dict):
+            plan_state = str(plan_row.get("state") or "unknown").strip().lower()
+            if plan_state != "resolved" and job_status in {
+                "queued",
+                "running",
+                "retryable_error",
+                "terminal_error",
+            }:
+                projected_state = {
+                    "queued": "queued",
+                    "running": "running",
+                    "retryable_error": "retryable_error",
+                    "terminal_error": "unavailable",
+                }[job_status]
+                projected_error: dict[str, object] = {}
+                if projected_state == "retryable_error":
+                    projected_error = {
+                        "code": "fact_enrichment_requires_retry",
+                        "message": "Nearby facts need a fresh verification pass.",
+                        "retry_after_seconds": 0,
+                    }
+                elif projected_state == "unavailable":
+                    projected_error = {
+                        "code": "fact_enrichment_unavailable",
+                        "message": "Nearby facts are unavailable from the current sources.",
+                        "retry_after_seconds": 0,
+                    }
+                projected_fields.append(
+                    {
+                        **plan_row,
+                        "state": projected_state,
+                        "error": projected_error,
+                    }
+                )
+            else:
+                projected_fields.append(plan_row)
+            continue
+        plan_state = str(plan_row.get("state") or "unknown").strip().lower()
+        job_state = str(job_row.get("state") or plan_state).strip().lower()
+        if job_state in {"queued", "running"}:
+            if job_status in {"idle", "succeeded"}:
+                job_state = plan_state
+            elif job_status == "retryable_error":
+                job_state = "retryable_error"
+            elif job_status == "terminal_error":
+                job_state = "unavailable"
+        if plan_state == "resolved":
+            # Persisted candidate facts are the current truth even when an older
+            # sparse execution row still carries an in-flight or failure state.
+            job_state = "resolved"
+        plan_provenance = (
+            dict(plan_row.get("provenance") or {})
+            if isinstance(plan_row.get("provenance"), dict)
+            else {}
+        )
+        job_provenance = (
+            dict(job_row.get("provenance") or {})
+            if isinstance(job_row.get("provenance"), dict)
+            else {}
+        )
+        projected = {
+            **plan_row,
+            "state": job_state,
+            "provenance": {**job_provenance, **plan_provenance},
+            "error": (
+                dict(job_row.get("error") or {})
+                if job_state in {"retryable_error", "unavailable"}
+                and isinstance(job_row.get("error"), dict)
+                else {}
+            ),
+        }
+        projected_fields.append(projected)
+    return _property_fact_safe_job_payload({**dict(job), "fields": projected_fields})
+
+
 def bind_property_search_candidate_generated_reconstruction(
     *,
     principal_id: str,
@@ -26915,7 +27033,7 @@ class ProductService:
                         preferences=preferences,
                     ),
                 }
-        payload = _property_fact_safe_job_payload(job)
+        payload = _property_fact_full_snapshot_payload(job=job, plan=plan)
         payload.update(
             {
                 "run_id": normalized_run_id,
@@ -27205,7 +27323,10 @@ class ProductService:
                 candidate_ref=normalized_candidate_ref,
                 job_id=launch_job_id,
             )
-        payload = _property_fact_safe_job_payload(dict(outcome.get("job") or {}))
+        payload = _property_fact_full_snapshot_payload(
+            job=dict(outcome.get("job") or {}),
+            plan=initial_plan,
+        )
         payload.update(
             {
                 "run_id": normalized_run_id,

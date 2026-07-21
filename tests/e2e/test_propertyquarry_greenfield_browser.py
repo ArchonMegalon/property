@@ -1529,18 +1529,21 @@ def _property_fact_browser_fields(
         "nearest_supermarket_m": "required" if required else "lazy",
         "nearest_playground_m": "required" if required else "lazy",
         "nearest_pharmacy_m": "lazy",
+        "nearest_medical_care_m": "required" if required else "lazy",
         "nearest_subway_m": "lazy",
     }
     values = {
         "nearest_supermarket_m": 280,
         "nearest_playground_m": 420,
         "nearest_pharmacy_m": 510,
+        "nearest_medical_care_m": 640,
         "nearest_subway_m": 760,
     }
     labels = {
         "nearest_supermarket_m": "Supermarket distance",
         "nearest_playground_m": "Playground distance",
         "nearest_pharmacy_m": "Pharmacy distance",
+        "nearest_medical_care_m": "Medical-care distance",
         "nearest_subway_m": "Underground distance",
     }
     return [

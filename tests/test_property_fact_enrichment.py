@@ -76,6 +76,41 @@ def _clear_run(run_id: str) -> None:
         product_service._PROPERTY_SEARCH_RUN_REGISTRY.pop(run_id, None)
 
 
+def _resolved_geo_facts(*, include_playground: bool = True) -> dict[str, object]:
+    observed_at = datetime.now(timezone.utc)
+    facts: dict[str, object] = {
+        "map_lat": 48.2082,
+        "map_lng": 16.3738,
+        "map_location_precision": "address",
+        "map_location_source": "listing",
+        "house_number": "12",
+        "nearest_supermarket_m": 280,
+        "nearest_pharmacy_m": 530,
+        "nearest_medical_care_m": 570,
+        "nearest_subway_m": 640,
+        "property_fact_evidence": {
+            "nearest_supermarket_m": {
+                "provider": "openstreetmap_overpass",
+                "method": "straight_line_osm",
+                "observed_at": observed_at.isoformat(),
+                "expires_at": (observed_at + timedelta(hours=24)).isoformat(),
+                "freshness": "fresh",
+                "confidence": 0.95,
+                "source_key": "nearest_supermarket_m",
+                "source_fingerprint": "sha256:" + "b" * 64,
+                "coordinate_basis": "candidate_listing_coordinates",
+                "coordinate_observed_at": observed_at.isoformat(),
+                "coordinate_precision": "address",
+                "coordinate_source": "listing",
+                "coordinate_exact": True,
+            }
+        },
+    }
+    if include_playground:
+        facts["nearest_playground_m"] = 410
+    return facts
+
+
 def test_fact_priority_preserves_unknown_and_holds_required_facts_out_of_ranking() -> None:
     required_plan = property_fact_requirement_plan(
         facts={},
@@ -291,6 +326,196 @@ def test_fact_enrichment_job_is_idempotent_persistent_and_recomputes_score(
         assert joined["job_id"] == first["job_id"]
         assert joined["status"] == "succeeded"
         assert calls["research"] == 1
+    finally:
+        _clear_run(run_id)
+
+
+def test_fact_enrichment_no_work_returns_complete_resolved_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-property-facts-no-work"
+    run_id = "run-property-facts-no-work"
+    candidate = _candidate(candidate_ref="candidate-no-work")
+    candidate["property_facts"] = _resolved_geo_facts()
+    client = build_property_operator_client(principal_id=principal_id)
+    service = ProductService(client.app.state.container)
+    _seed_run(_run_record(principal_id=principal_id, run_id=run_id, candidate=candidate))
+    monkeypatch.setattr(product_service, "_property_fact_validated_source_url", lambda url: str(url))
+    launched: list[str] = []
+    monkeypatch.setattr(
+        ProductService,
+        "_launch_property_candidate_fact_enrichment",
+        lambda self, **kwargs: launched.append(str(kwargs.get("job_id") or "")),
+    )
+    try:
+        started = service.start_property_candidate_fact_enrichment(
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref="candidate-no-work",
+        )
+        polled = service.get_property_candidate_fact_enrichment(
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref="candidate-no-work",
+        )
+
+        assert launched == []
+        assert started["status"] == "succeeded"
+        assert polled is not None
+        assert polled["status"] == "succeeded"
+        expected_keys = {
+            "nearest_supermarket_m",
+            "nearest_playground_m",
+            "nearest_pharmacy_m",
+            "nearest_medical_care_m",
+            "nearest_subway_m",
+        }
+        for payload in (started, polled):
+            assert {row["key"] for row in payload["fields"]} == expected_keys
+            assert len(payload["fields"]) == 5
+            assert all(row["state"] == "resolved" for row in payload["fields"])
+            assert PropertyFactEnrichmentOut(**payload).status == "succeeded"
+
+        with product_service._PROPERTY_SEARCH_RUN_LOCK:
+            record = product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id]
+            stale_candidate = dict(candidate)
+            stale_facts = copy.deepcopy(candidate["property_facts"])
+            supermarket_evidence = dict(
+                dict(stale_facts["property_fact_evidence"])["nearest_supermarket_m"]
+            )
+            supermarket_evidence["expires_at"] = (
+                datetime.now(timezone.utc) - timedelta(minutes=1)
+            ).isoformat()
+            stale_facts["property_fact_evidence"] = {
+                "nearest_supermarket_m": supermarket_evidence,
+            }
+            stale_candidate["property_facts"] = stale_facts
+            assert product_service._property_fact_update_candidate_copies(
+                record,
+                candidate_ref="candidate-no-work",
+                updated_candidate=stale_candidate,
+            )
+
+        stale = service.get_property_candidate_fact_enrichment(
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref="candidate-no-work",
+        )
+        assert stale is not None
+        assert stale["status"] == "retryable_error"
+        assert stale["retryable"] is True
+        assert len(stale["fields"]) == 5
+        stale_supermarket = next(
+            row for row in stale["fields"] if row["key"] == "nearest_supermarket_m"
+        )
+        assert stale_supermarket["state"] == "retryable_error"
+        assert stale_supermarket["error"]["code"] == "fact_enrichment_requires_retry"
+        assert not any(
+            row["state"] in {"unknown", "stale", "queued", "running"}
+            for row in stale["fields"]
+        )
+        assert PropertyFactEnrichmentOut(**stale).status == "retryable_error"
+    finally:
+        _clear_run(run_id)
+
+
+def test_fact_enrichment_partial_retry_api_preserves_complete_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-property-facts-partial-retry"
+    run_id = "run-property-facts-partial-retry"
+    candidate = _candidate(candidate_ref="candidate-partial-retry")
+    candidate["property_facts"] = _resolved_geo_facts(include_playground=False)
+    client = build_property_operator_client(principal_id=principal_id)
+    _seed_run(_run_record(principal_id=principal_id, run_id=run_id, candidate=candidate))
+    monkeypatch.setattr(product_service, "_property_fact_validated_source_url", lambda url: str(url))
+    monkeypatch.setattr(ProductService, "_launch_property_candidate_fact_enrichment", lambda self, **kwargs: None)
+    endpoint = (
+        f"/app/api/signals/property/search/run/{run_id}/candidates/"
+        "candidate-partial-retry/fact-enrichment"
+    )
+    same_origin_headers = {
+        "origin": "https://propertyquarry.com",
+        "sec-fetch-site": "same-origin",
+    }
+    try:
+        started = client.post(
+            endpoint,
+            json={"retry_failed": False},
+            headers=same_origin_headers,
+        )
+        assert started.status_code == 202, started.text
+        started_payload = started.json()
+        assert len(started_payload["fields"]) == 5
+        assert next(
+            row for row in started_payload["fields"] if row["key"] == "nearest_playground_m"
+        )["state"] == "queued"
+
+        with product_service._PROPERTY_SEARCH_RUN_LOCK:
+            record = product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id]
+            summary = dict(record.get("summary") or {})
+            jobs = dict(summary.get("fact_enrichment_jobs") or {})
+            job = dict(jobs[started_payload["job_id"]])
+            playground = next(
+                dict(row)
+                for row in list(job.get("fields") or [])
+                if isinstance(row, dict) and row.get("key") == "nearest_playground_m"
+            )
+            playground.update(
+                {
+                    "state": "retryable_error",
+                    "error": {
+                        "code": "provider_timeout",
+                        "message": "Nearby provider timed out.",
+                        "retry_after_seconds": 0,
+                    },
+                }
+            )
+            job.update(
+                {
+                    "status": "retryable_error",
+                    "retryable": True,
+                    "fields": [playground],
+                    "result_facts_digest": job["facts_digest"],
+                }
+            )
+            jobs[started_payload["job_id"]] = job
+            summary["fact_enrichment_jobs"] = jobs
+            record["summary"] = summary
+
+        failed_payload = client.get(endpoint).json()
+        assert len(failed_payload["fields"]) == 5
+        failed_supermarket = next(
+            row for row in failed_payload["fields"] if row["key"] == "nearest_supermarket_m"
+        )
+        failed_playground = next(
+            row for row in failed_payload["fields"] if row["key"] == "nearest_playground_m"
+        )
+        assert failed_supermarket["state"] == "resolved"
+        assert failed_supermarket["value"] == 280
+        assert failed_supermarket["provenance"]["provider"] == "openstreetmap_overpass"
+        assert failed_playground["state"] == "retryable_error"
+        assert failed_playground["error"]["code"] == "provider_timeout"
+
+        retried = client.post(
+            endpoint,
+            json={"retry_failed": True},
+            headers=same_origin_headers,
+        )
+        assert retried.status_code == 202, retried.text
+        retried_payload = retried.json()
+        assert len(retried_payload["fields"]) == 5
+        retried_supermarket = next(
+            row for row in retried_payload["fields"] if row["key"] == "nearest_supermarket_m"
+        )
+        retried_playground = next(
+            row for row in retried_payload["fields"] if row["key"] == "nearest_playground_m"
+        )
+        assert retried_supermarket["state"] == "resolved"
+        assert retried_supermarket["value"] == 280
+        assert retried_supermarket["provenance"]["provider"] == "openstreetmap_overpass"
+        assert retried_playground["state"] == "queued"
+        assert retried_playground["error"]["code"] == ""
     finally:
         _clear_run(run_id)
 
