@@ -4510,6 +4510,7 @@
   let pollController = null;
   let requestGeneration = 0;
   let lastAnnouncement = '';
+  let optionalAutoStartIssued = false;
 
   const normalizedText = (value) => String(value || '').trim();
   const normalizedState = (value, fallback = 'unknown') => normalizedText(value).toLowerCase() || fallback;
@@ -4810,6 +4811,14 @@
       (field) => pendingStates.has(normalizedState(field?.state)),
     );
   };
+  const hasStartableUnknownWork = (payload = currentPayload) => {
+    const status = normalizedState(payload?.status, 'idle');
+    const fields = Array.isArray(payload?.fields) ? payload.fields : [];
+    return status === 'idle'
+      && !optionalAutoStartIssued
+      && Boolean(sameOriginUrl(root.getAttribute('data-start-url')))
+      && fields.some((field) => ['unknown', 'stale'].includes(normalizedState(field?.state)));
+  };
   const showLocalRetryableError = (message) => {
     fieldStore.forEach((field, key) => {
       if (!pendingStates.has(normalizedState(field.state))) return;
@@ -4874,6 +4883,10 @@
       pollFailures = 0;
       applyPayload(payload);
       if (hasPendingWork()) schedulePoll(generation, pollDelay(payload));
+      else if (hasStartableUnknownWork(payload)) {
+        optionalAutoStartIssued = true;
+        void startEnrichment(false);
+      }
       else scheduleAutoRetry(payload);
     } catch (error) {
       if (generation !== requestGeneration) return;
@@ -4964,6 +4977,9 @@
     });
     updateBusyState();
     schedulePoll(requestGeneration, pollDelay(currentPayload));
+  } else if (hasStartableUnknownWork(currentPayload)) {
+    optionalAutoStartIssued = true;
+    void startEnrichment(false);
   } else if (canAutoRetry(currentPayload)) {
     scheduleAutoRetry(currentPayload);
   } else if (!terminalStatuses.has(initialStatus) && sameOriginUrl(root.getAttribute('data-start-url'))) {

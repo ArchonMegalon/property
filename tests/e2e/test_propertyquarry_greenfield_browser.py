@@ -1570,11 +1570,13 @@ def _property_fact_browser_payload(
     delta: int | None,
     ranking_eligible: bool,
     retryable: bool = False,
+    bundle_kind: str = "optional-geo-v1",
+    job_id: str = "pfe_browser_proof",
 ) -> dict[str, object]:
     return {
         "schema_version": "propertyquarry.fact-enrichment.v1",
-        "job_id": "pfe_browser_proof",
-        "bundle_kind": "optional-geo-v1",
+        "job_id": job_id,
+        "bundle_kind": bundle_kind,
         "run_id": "run-42",
         "candidate_ref": "browser-candidate",
         "status": status,
@@ -1751,6 +1753,261 @@ def test_propertyquarry_missing_required_distances_resolve_in_place_and_finalize
         )
         assert focus_target.evaluate("node => document.activeElement === node") is True
         assert poll_count["value"] >= 1
+    finally:
+        context.close()
+
+
+@pytest.mark.parametrize(
+    ("optional_terminal_status", "optional_terminal_field_state"),
+    (
+        ("succeeded", "resolved"),
+        ("terminal_error", "unavailable"),
+    ),
+    ids=("optional-success", "optional-exhausted"),
+)
+def test_propertyquarry_required_to_optional_fact_transition_is_single_flight(
+    monkeypatch: pytest.MonkeyPatch,
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+    optional_terminal_status: str,
+    optional_terminal_field_state: str,
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False)
+    page: Page = context.new_page()
+    release_required = {"value": False}
+    optional_started = {"value": False}
+    optional_poll_count = {"value": 0}
+    get_count = {"value": 0}
+    observed_posts: list[dict[str, object]] = []
+
+    def _mixed_fields(
+        *,
+        required_state: str,
+        lazy_state: str,
+        lazy_error: str = "",
+    ) -> list[dict[str, object]]:
+        templates = _property_fact_browser_fields(
+            state="unknown",
+            required=True,
+        )
+        resolved_by_key = {
+            str(row["key"]): row
+            for row in _property_fact_browser_fields(
+                state="resolved",
+                required=True,
+                resolved=True,
+            )
+        }
+        fields: list[dict[str, object]] = []
+        for template in templates:
+            priority = str(template["priority"])
+            state = required_state if priority == "required" else lazy_state
+            resolved = resolved_by_key[str(template["key"])]
+            fields.append(
+                _property_fact_browser_field(
+                    key=str(template["key"]),
+                    label=str(template["label"]),
+                    state=state,
+                    priority=priority,
+                    value=(
+                        int(resolved["value"])
+                        if state == "resolved"
+                        else None
+                    ),
+                    error_message=(
+                        lazy_error
+                        if priority == "lazy" and state == "unavailable"
+                        else ""
+                    ),
+                )
+            )
+        return fields
+
+    def _payload(
+        *,
+        status_url: str,
+        status: str,
+        fields: list[dict[str, object]],
+        bundle_kind: str,
+    ) -> dict[str, object]:
+        required_active = bundle_kind == "required-geo-v1" and status in {
+            "queued",
+            "running",
+        }
+        return _property_fact_browser_payload(
+            status_url=status_url,
+            status=status,
+            fields=fields,
+            score_state="evaluating" if required_active else "provisional",
+            previous_score=72,
+            current_score=None if required_active else 76,
+            delta=None if required_active else 4,
+            ranking_eligible=not required_active,
+            bundle_kind=bundle_kind,
+            job_id=(
+                "pfe_browser_required"
+                if bundle_kind == "required-geo-v1"
+                else "pfe_browser_optional"
+            ),
+        )
+
+    def _initial_required(
+        self,
+        *,
+        principal_id: str,
+        run_id: str,
+        candidate_ref: str,
+    ) -> dict[str, object]:
+        assert principal_id == "pq-greenfield-browser"
+        status_url = (
+            f"/app/api/signals/property/search/run/{run_id}/candidates/"
+            f"{candidate_ref}/fact-enrichment"
+        )
+        return _payload(
+            status_url=status_url,
+            status="running",
+            fields=_mixed_fields(required_state="running", lazy_state="unknown"),
+            bundle_kind="required-geo-v1",
+        )
+
+    monkeypatch.setattr(
+        ProductService,
+        "get_property_candidate_fact_enrichment",
+        _initial_required,
+    )
+
+    def _fact_route(route) -> None:
+        request = route.request
+        status_url = request.url
+        if request.method == "POST":
+            posted = request.post_data_json
+            observed_posts.append(posted if isinstance(posted, dict) else {})
+            optional_started["value"] = True
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps(
+                    _payload(
+                        status_url=status_url,
+                        status="queued",
+                        fields=_mixed_fields(
+                            required_state="resolved",
+                            lazy_state="queued",
+                        ),
+                        bundle_kind="optional-geo-v1",
+                    )
+                ),
+            )
+            return
+
+        get_count["value"] += 1
+        if not release_required["value"]:
+            payload = _payload(
+                status_url=status_url,
+                status="running",
+                fields=_mixed_fields(required_state="running", lazy_state="unknown"),
+                bundle_kind="required-geo-v1",
+            )
+        elif not optional_started["value"]:
+            payload = _payload(
+                status_url=status_url,
+                status="idle",
+                fields=_mixed_fields(required_state="resolved", lazy_state="unknown"),
+                bundle_kind="optional-geo-v1",
+            )
+        else:
+            optional_poll_count["value"] += 1
+            if optional_poll_count["value"] == 1:
+                payload = _payload(
+                    status_url=status_url,
+                    status="running",
+                    fields=_mixed_fields(
+                        required_state="resolved",
+                        lazy_state="running",
+                    ),
+                    bundle_kind="optional-geo-v1",
+                )
+            else:
+                payload = _payload(
+                    status_url=status_url,
+                    status=optional_terminal_status,
+                    fields=_mixed_fields(
+                        required_state="resolved",
+                        lazy_state=optional_terminal_field_state,
+                        lazy_error="Current map sources exhausted all three checks.",
+                    ),
+                    bundle_kind="optional-geo-v1",
+                )
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=json.dumps(payload),
+        )
+
+    page.route("**/fact-enrichment", _fact_route)
+    try:
+        _open_authenticated_property_fact_session(
+            page,
+            base_url=base_url,
+            propertyquarry_browser_server=propertyquarry_browser_server,
+        )
+        _open_family_research_packet(page, base_url=base_url)
+        root = page.locator("[data-property-fact-enrichment]")
+        supermarket = root.locator(
+            '[data-property-fact-key="nearest_supermarket_m"]'
+        )
+        pharmacy = root.locator(
+            '[data-property-fact-key="nearest_pharmacy_m"]'
+        )
+
+        expect(root).to_have_attribute("aria-busy", "true")
+        expect(supermarket).to_have_attribute(
+            "data-property-fact-state",
+            "running",
+        )
+        expect(supermarket.locator("[data-property-fact-spinner]")).to_be_visible()
+        supermarket.evaluate(
+            "node => { node.dataset.browserIdentity = 'required-to-optional'; }"
+        )
+        assert observed_posts == []
+
+        release_required["value"] = True
+        expect(pharmacy).to_have_attribute(
+            "data-property-fact-state",
+            re.compile(r"queued|running|resolved|unavailable"),
+            timeout=5000,
+        )
+        expect(pharmacy).to_have_attribute(
+            "data-property-fact-state",
+            optional_terminal_field_state,
+            timeout=5000,
+        )
+        expect(supermarket).to_have_attribute(
+            "data-browser-identity",
+            "required-to-optional",
+        )
+        expect(supermarket).to_have_attribute(
+            "data-property-fact-state",
+            "resolved",
+        )
+        expect(root).to_have_attribute("aria-busy", "false")
+        expect(pharmacy.locator("[data-property-fact-spinner]")).to_be_hidden()
+        assert observed_posts == [{"retry_failed": False}]
+
+        if optional_terminal_status == "succeeded":
+            expect(pharmacy.locator("[data-property-fact-value]")).to_have_text(
+                "510 m"
+            )
+        else:
+            expect(pharmacy.locator("[data-property-fact-status]")).to_contain_text(
+                "exhausted all three checks"
+            )
+
+        settled_get_count = get_count["value"]
+        page.wait_for_timeout(700)
+        assert get_count["value"] == settled_get_count
+        assert observed_posts == [{"retry_failed": False}]
     finally:
         context.close()
 

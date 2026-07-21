@@ -27,7 +27,7 @@ from app.product.property_research_packet_links import (
 _PROPERTY_SEARCH_RUN_TTL_SECONDS = 90 * 24 * 60 * 60
 _PROPERTY_SEARCH_RUN_DB_CONNECT_RETRY_SECONDS = 45.0
 _PROPERTY_SEARCH_RUN_DB_CONNECT_TIMEOUT_SECONDS = 3
-_PROPERTY_SEARCH_RUN_COMPACT_SCHEMA_VERSION = 2
+_PROPERTY_SEARCH_RUN_COMPACT_SCHEMA_VERSION = 3
 _PROPERTY_SEARCH_RUN_COMPACT_DELIVERY_CANDIDATE_LIMIT = 256
 _PROPERTY_SEARCH_RUN_COMPACT_UI_CANDIDATE_LIMIT = 40
 _PROPERTY_SEARCH_RUN_COMPACT_SOURCE_LIMIT = 64
@@ -200,6 +200,22 @@ _PROPERTY_SEARCH_RUN_COMPACT_SUMMARY_KEYS = (
     "location_mismatch_total",
     "min_score",
     "score_demoted_total",
+    "evaluating_candidate_total",
+    "required_fact_research_candidate_total",
+    "required_fact_research_attempted_total",
+    "required_fact_research_resolved_total",
+    "required_fact_research_pending_total",
+    "required_fact_resolution_pending",
+    "required_fact_resolution_exhausted",
+    "required_fact_resolution_attempts",
+    "required_fact_resolution_reason",
+    "completion_reason",
+    "status_without_required_fact_hold",
+    "required_fact_hold_applied",
+    "results_delivery_semantically_blocked",
+    "results_delivery_blocked_reason",
+    "blocked_required_facts",
+    "required_fact_resolution_receipts",
     "eta_label",
     "eta_confidence_label",
     "started_at",
@@ -380,7 +396,52 @@ _PROPERTY_SEARCH_RUN_COMPACT_UI_CANDIDATE_KEYS = (
     "tour_status",
     "blocked_reason",
     "property_facts",
+    "property_facts_json",
+    "assessment",
+    "ranking_score",
+    "score_projection",
+    "score_state",
+    "ranking_eligible",
+    "evaluation_state",
+    "fact_requirement_plan",
+    "search_score_context",
+    "score_provenance",
 )
+
+_PROPERTY_SEARCH_RUN_COMPACT_FACT_JOB_KEYS = (
+    "job_id",
+    "bundle_kind",
+    "status",
+    "attempt",
+    "poll_after_ms",
+    "created_at",
+    "updated_at",
+    "lease_token",
+    "lease_expires_at",
+    "retryable",
+    "required_only",
+    "score_recompute_required",
+    "candidate_ref",
+    "root_job_id",
+    "source_fingerprint",
+    "facts_digest",
+    "preference_digest",
+    "requirement_digest",
+    "request_digest",
+    "result_facts_digest",
+    "all_facts_resolved",
+    "fields",
+    "score",
+    "error",
+    "provider_receipts",
+)
+
+
+def _coerce_non_negative_int(value: object, *, default: int = 0) -> int:
+    try:
+        return max(0, int(float(str(value or "").strip())))
+    except Exception:
+        return default
 
 
 def _now_iso() -> str:
@@ -620,6 +681,23 @@ def _property_search_run_canonicalize_record(record: dict[str, object]) -> dict[
     }
 
     def _candidate_is_rankable(candidate: dict[str, object]) -> bool:
+        ranking_eligible = candidate.get("ranking_eligible")
+        if ranking_eligible is False or str(ranking_eligible or "").strip().lower() in {
+            "0",
+            "false",
+            "no",
+            "off",
+        }:
+            return False
+        if str(candidate.get("score_state") or "").strip().lower() == "evaluating":
+            return False
+        evaluation_state = str(
+            candidate.get("evaluation_state") or ""
+        ).strip().lower()
+        if evaluation_state.startswith("evaluating") or evaluation_state.startswith(
+            "excluded"
+        ):
+            return False
         for field in ("status", "review_status", "candidate_status", "filter_status", "repair_status"):
             if str(candidate.get(field) or "").strip().lower() in blocked_statuses:
                 return False
@@ -685,9 +763,15 @@ def _property_search_run_canonicalize_record(record: dict[str, object]) -> dict[
         source_candidate_order: list[str] = []
         for source in sources:
             source_label = str(source.get("source_label") or source.get("label") or "").strip()
+            source_top_candidates = source.get("top_candidates")
+            source_candidate_values = (
+                source_top_candidates
+                if isinstance(source_top_candidates, (list, tuple))
+                else source.get("research_candidates") or []
+            )
             candidate_rows = [
                 dict(row)
-                for row in list(source.get("research_candidates") or source.get("top_candidates") or [])
+                for row in list(source_candidate_values)
                 if isinstance(row, dict)
             ]
             candidate_total = 0
@@ -823,6 +907,8 @@ def _property_search_run_canonicalize_record(record: dict[str, object]) -> dict[
 
 
 def _compact_property_search_run_record(record: dict[str, object]) -> dict[str, object]:
+    preserve_fact_candidate_state = False
+
     def _bounded_compact_value(value: object, *, depth: int = 0) -> object:
         if isinstance(value, str):
             return value[:_PROPERTY_SEARCH_RUN_COMPACT_TEXT_LIMIT]
@@ -884,11 +970,36 @@ def _compact_property_search_run_record(record: dict[str, object]) -> dict[str, 
             for key in _PROPERTY_SEARCH_RUN_COMPACT_UI_CANDIDATE_KEYS
             if payload.get(key) not in (None, "", [], {})
         }
+        for facts_key in ("property_facts", "property_facts_json"):
+            raw_facts = payload.get(facts_key)
+            if not isinstance(raw_facts, dict):
+                compact_candidate.pop(facts_key, None)
+                continue
+            compact_facts = {
+                str(key)[:160]: _bounded_compact_value(item)
+                for key, item in list(raw_facts.items())[
+                    :_PROPERTY_SEARCH_RUN_COMPACT_NESTED_LIST_LIMIT
+                ]
+                if "diagnostic" not in str(key).strip().lower()
+                and item not in (None, "", [], {})
+            }
+            if compact_facts:
+                compact_candidate[facts_key] = compact_facts
+            else:
+                compact_candidate.pop(facts_key, None)
         if not str(compact_candidate.get("preview_image_url") or "").strip():
             preview_url = _property_search_compact_candidate_preview_url(payload)
             if preview_url:
                 compact_candidate["preview_image_url"] = _bounded_compact_value(preview_url)
         return compact_candidate
+
+    def _compact_fact_job_row(value: object) -> dict[str, object]:
+        payload = dict(value or {}) if isinstance(value, dict) else {}
+        return {
+            key: _bounded_compact_value(payload[key])
+            for key in _PROPERTY_SEARCH_RUN_COMPACT_FACT_JOB_KEYS
+            if payload.get(key) not in (None, "", [], {})
+        }
 
     def _candidate_has_delivery_signal(value: object) -> bool:
         payload = dict(value or {}) if isinstance(value, dict) else {}
@@ -941,6 +1052,19 @@ def _compact_property_search_run_record(record: dict[str, object]) -> dict[str, 
                 for item in compact_row.get("filter_near_misses") or []
                 if isinstance(item, dict)
             ]
+        if preserve_fact_candidate_state:
+            for candidate_key in (
+                "research_candidates",
+                "top_candidates",
+                "evaluating_candidates",
+            ):
+                candidate_rows = payload.get(candidate_key)
+                if isinstance(candidate_rows, (list, tuple)):
+                    compact_row[candidate_key] = [
+                        _compact_ui_candidate_row(row)
+                        for row in list(candidate_rows)[:_PROPERTY_SEARCH_RUN_COMPACT_UI_CANDIDATE_LIMIT]
+                        if isinstance(row, dict)
+                    ]
         return compact_row
 
     payload = _property_search_run_canonicalize_record(dict(record or {}))
@@ -956,13 +1080,40 @@ def _compact_property_search_run_record(record: dict[str, object]) -> dict[str, 
                 preferences.pop(drop_key, None)
             compact[preference_key] = preferences
     summary = dict(payload.get("summary") or {}) if isinstance(payload.get("summary"), dict) else {}
+    preserve_fact_candidate_state = bool(
+        summary.get("fact_enrichment_jobs")
+        or summary.get("optional_fact_enrichment_candidate_jobs")
+        or summary.get("required_fact_enrichment_candidate_jobs")
+        or summary.get("fact_enrichment_candidate_jobs")
+        or summary.get("required_fact_resolution_pending") is True
+        or summary.get("required_fact_resolution_exhausted") is True
+        or _coerce_non_negative_int(summary.get("evaluating_candidate_total")) > 0
+    )
     if summary:
         compact_summary = {
             key: _bounded_compact_value(summary[key])
             for key in _PROPERTY_SEARCH_RUN_COMPACT_SUMMARY_KEYS
             if key in summary
         }
-        for candidate_key in ("ranked_candidates", "results", "top_candidates"):
+        compact_summary.setdefault(
+            "required_fact_resolution_pending",
+            bool(summary.get("required_fact_resolution_pending")),
+        )
+        compact_summary.setdefault(
+            "required_fact_resolution_exhausted",
+            bool(summary.get("required_fact_resolution_exhausted")),
+        )
+        compact_summary.setdefault(
+            "evaluating_candidate_total",
+            _coerce_non_negative_int(summary.get("evaluating_candidate_total")),
+        )
+        for candidate_key in (
+            "ranked_candidates",
+            "results",
+            "top_candidates",
+            "evaluating_candidates",
+            "research_candidates",
+        ):
             candidate_rows = summary.get(candidate_key)
             if isinstance(candidate_rows, (list, tuple)):
                 compact_summary[candidate_key] = [
@@ -970,6 +1121,25 @@ def _compact_property_search_run_record(record: dict[str, object]) -> dict[str, 
                     for row in list(candidate_rows)[:_PROPERTY_SEARCH_RUN_COMPACT_UI_CANDIDATE_LIMIT]
                     if isinstance(row, dict)
                 ]
+        raw_jobs = summary.get("fact_enrichment_jobs")
+        if isinstance(raw_jobs, dict):
+            compact_summary["fact_enrichment_jobs"] = {
+                str(job_id)[:160]: _compact_fact_job_row(job)
+                for job_id, job in list(raw_jobs.items())[:_PROPERTY_SEARCH_RUN_COMPACT_UI_CANDIDATE_LIMIT]
+                if isinstance(job, dict)
+            }
+        for candidate_jobs_key in (
+            "optional_fact_enrichment_candidate_jobs",
+            "required_fact_enrichment_candidate_jobs",
+            "fact_enrichment_candidate_jobs",
+        ):
+            raw_candidate_jobs = summary.get(candidate_jobs_key)
+            if isinstance(raw_candidate_jobs, dict):
+                compact_summary[candidate_jobs_key] = {
+                    str(candidate_ref)[:160]: str(job_id)[:160]
+                    for candidate_ref, job_id in list(raw_candidate_jobs.items())[:_PROPERTY_SEARCH_RUN_COMPACT_UI_CANDIDATE_LIMIT]
+                    if str(candidate_ref or "").strip() and str(job_id or "").strip()
+                }
         if isinstance(summary.get("sources"), list):
             compact_summary["sources"] = [
                 _compact_source_row(row)
@@ -1066,7 +1236,8 @@ def _compact_property_search_run_record(record: dict[str, object]) -> dict[str, 
     blocked_tour_total = _summary_count("blocked_tour_total")
     delivery_projection_total = _summary_count("_delivery_projection_total")
     compact["delivery_pending"] = bool(
-        pending_tour_total > 0
+        bool(compact_summary.get("required_fact_resolution_pending"))
+        or pending_tour_total > 0
         or ready_tour_total + blocked_tour_total < eligible_tour_total
         or (
             bool(compact_summary.get("_delivery_projection_truncated"))
@@ -1095,6 +1266,9 @@ def _property_search_run_compact_supports_delivery(record: object) -> bool:
             "pending_tour_total",
             "ready_tour_total",
             "blocked_tour_total",
+            "required_fact_resolution_pending",
+            "required_fact_resolution_exhausted",
+            "evaluating_candidate_total",
         )
     )
 

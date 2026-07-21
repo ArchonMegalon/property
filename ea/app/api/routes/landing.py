@@ -7420,6 +7420,14 @@ def property_research_packet(
         facts=facts,
         preferences=fact_preferences,
         include_resolved=True,
+        property_url=(
+            candidate.get("property_url")
+            or candidate.get("url")
+            or candidate.get("source_url")
+            or facts.get("property_url")
+            or facts.get("source_url")
+            or ""
+        ),
     )
     fact_candidate = {
         **dict(candidate),

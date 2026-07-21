@@ -5141,6 +5141,37 @@ def app_section_payload(
             },
             {
                 "type": "range",
+                "name": "max_distance_to_pharmacy_m",
+                "label": "Pharmacy radius",
+                "value": str(property_preferences.get("max_distance_to_pharmacy_m") or 0),
+                "min": "0",
+                "max": "5000",
+                "visual_max": "5000",
+                "range_step": "50",
+                "format": "meters_cap",
+                "empty_label": "Any distance",
+                "scale_min_label": "Any",
+                "scale_max_label": "5 km",
+                "tooltip": "Distance preference for pharmacy access.",
+                "step": "children",
+                "hidden": True,
+            },
+            {
+                "type": "select",
+                "name": "max_distance_to_pharmacy_importance",
+                "label": "Pharmacy importance",
+                "value": str(property_preferences.get("max_distance_to_pharmacy_importance") or "nice_to_have"),
+                "options": [
+                    {"value": "must_have", "label": "Must have"},
+                    {"value": "important", "label": "Important"},
+                    {"value": "nice_to_have", "label": "Nice to have"},
+                ],
+                "tooltip": "Controls how strongly pharmacy distance affects ranking and adaptive radius relaxation.",
+                "step": "children",
+                "hidden": True,
+            },
+            {
+                "type": "range",
                 "name": "max_distance_to_zoo_m",
                 "label": "Max distance to zoo",
                 "value": str(property_preferences.get("max_distance_to_zoo_m") or 0),
@@ -5351,6 +5382,45 @@ def app_section_payload(
             },
             {
                 "type": "range",
+                "name": "max_distance_to_subway_m",
+                "label": "Underground radius",
+                "value": str(
+                    property_preferences.get("max_distance_to_subway_m")
+                    or property_preferences.get("max_distance_to_underground_m")
+                    or 0
+                ),
+                "min": "0",
+                "max": "5000",
+                "visual_max": "5000",
+                "range_step": "50",
+                "format": "meters_cap",
+                "empty_label": "Any distance",
+                "scale_min_label": "Any",
+                "scale_max_label": "5 km",
+                "tooltip": "Distance preference for the nearest underground or subway entrance.",
+                "step": "children",
+                "hidden": True,
+            },
+            {
+                "type": "select",
+                "name": "max_distance_to_subway_importance",
+                "label": "Underground importance",
+                "value": str(
+                    property_preferences.get("max_distance_to_subway_importance")
+                    or property_preferences.get("max_distance_to_underground_importance")
+                    or "nice_to_have"
+                ),
+                "options": [
+                    {"value": "must_have", "label": "Must have"},
+                    {"value": "important", "label": "Important"},
+                    {"value": "nice_to_have", "label": "Nice to have"},
+                ],
+                "tooltip": "Controls whether underground distance must be verified during search or may be filled on opening the property.",
+                "step": "children",
+                "hidden": True,
+            },
+            {
+                "type": "range",
                 "name": "max_distance_to_university_m",
                 "label": "Max distance to university",
                 "value": str(property_preferences.get("max_distance_to_university_m") or 0),
@@ -5363,6 +5433,23 @@ def app_section_payload(
                 "scale_min_label": "Any",
                 "scale_max_label": "5 km",
                 "tooltip": "Keep university proximity visible as a livability and investment signal. Use the university name above for a target campus or institution.",
+                "step": "children",
+                "hidden": not show_lifestyle_research_controls,
+            },
+            {
+                "type": "select",
+                "name": "max_distance_to_university_importance",
+                "label": "University importance",
+                "value": str(
+                    property_preferences.get("max_distance_to_university_importance")
+                    or "nice_to_have"
+                ),
+                "options": [
+                    {"value": "must_have", "label": "Must have"},
+                    {"value": "important", "label": "Important"},
+                    {"value": "nice_to_have", "label": "Nice to have"},
+                ],
+                "tooltip": "Controls whether university distance must be verified during search or may be filled on opening the property.",
                 "step": "children",
                 "hidden": not show_lifestyle_research_controls,
             },

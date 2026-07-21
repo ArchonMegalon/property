@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import time
 import urllib.parse
 from datetime import datetime, timedelta, timezone
@@ -10,6 +11,7 @@ from fastapi import HTTPException
 from starlette.requests import Request
 
 import app.product.property_location_research as property_location_research
+import app.product.property_search_storage as property_search_storage
 import app.product.service as product_service
 from app.api.dependencies import RequestContext
 from app.api.routes.product_api_contracts import PropertyFactEnrichmentOut
@@ -20,6 +22,7 @@ from app.product.property_fact_enrichment import (
     property_fact_distance_specs,
     property_fact_requirement_plan,
     property_fact_score_projection,
+    property_fact_source_fingerprint,
 )
 from app.product.service import (
     ProductService,
@@ -29,7 +32,7 @@ from app.product.service import (
     _property_fact_safe_job_payload,
     _property_search_ranked_candidates_from_sources,
 )
-from tests.product_test_helpers import build_property_operator_client
+from tests.product_test_helpers import build_property_operator_client, start_workspace
 
 
 def _candidate(*, candidate_ref: str = "candidate-facts") -> dict[str, object]:
@@ -81,38 +84,286 @@ def _clear_run(run_id: str) -> None:
         product_service._PROPERTY_SEARCH_RUN_REGISTRY.pop(run_id, None)
 
 
-def _resolved_geo_facts(*, include_playground: bool = True) -> dict[str, object]:
-    observed_at = datetime.now(timezone.utc)
+def _required_fact_run_record(
+    *,
+    principal_id: str,
+    run_id: str,
+    candidate_ref: str = "candidate-required-durable",
+    distance_preference_key: str = "max_distance_to_supermarket_m",
+    distance_importance_key: str = "max_distance_to_supermarket_importance",
+    fact_key: str = "nearest_supermarket_m",
+) -> dict[str, object]:
+    now = datetime.now(timezone.utc).isoformat()
+    property_url = (
+        "https://www.willhaben.at/iad/immobilien/d/"
+        "required-durable-home-1234567890/"
+    )
+    preferences = {
+        distance_preference_key: 500,
+        distance_importance_key: "must_have",
+        "use_stored_feedback_preferences": False,
+    }
     facts: dict[str, object] = {
         "map_lat": 48.2082,
         "map_lng": 16.3738,
         "map_location_precision": "address",
         "map_location_source": "listing",
         "house_number": "12",
+        "required_fact_research": {
+            "status": "partial",
+            "attempt": 1,
+            "requested_keys": [fact_key],
+            "resolved_keys": [],
+            "unresolved_keys": [fact_key],
+            "provider_receipts": [],
+        },
+    }
+    plan = property_fact_requirement_plan(
+        facts=facts,
+        preferences=preferences,
+        include_resolved=True,
+        property_url=property_url,
+    )
+    projection = property_fact_score_projection(
+        candidate={"fit_score": 60.0},
+        plan=plan,
+        preferences=preferences,
+    )
+    candidate: dict[str, object] = {
+        "candidate_ref": candidate_ref,
+        "title": "Durable required-fact home",
+        "listing_id": "required-durable-home-1234567890",
+        "property_url": property_url,
+        "source_ref": "property-scout:required-durable-home-1234567890",
+        "source_label": "Willhaben",
+        "fit_score": 60.0,
+        "ranking_score": 60.0,
+        "assessment": {
+            "domain": "willhaben",
+            "fit_score": 60.0,
+            "recommendation": "review",
+        },
+        "property_facts": facts,
+        "fact_requirement_plan": plan,
+        "score_projection": projection,
+        "score_state": "evaluating",
+        "ranking_eligible": False,
+        "evaluation_state": "evaluating_missing_required_facts",
+    }
+    source = {
+        "source_label": "Willhaben",
+        "source_url": "https://www.willhaben.at/iad/immobilien/",
+        "status": "completed_partial",
+        "top_candidates": [],
+        "research_candidates": [copy.deepcopy(candidate)],
+        "evaluating_candidates": [copy.deepcopy(candidate)],
+        "evaluating_candidate_total": 1,
+    }
+    return {
+        "run_id": run_id,
+        "principal_id": principal_id,
+        "status": "completed_partial",
+        "created_at": now,
+        "updated_at": now,
+        "property_search_preferences": preferences,
+        "summary": {
+            "status": "completed_partial",
+            "status_without_required_fact_hold": "processed",
+            "required_fact_hold_applied": True,
+            "required_fact_resolution_pending": True,
+            "required_fact_resolution_exhausted": False,
+            "required_fact_resolution_attempts": 1,
+            "required_fact_research_pending_total": 1,
+            "evaluating_candidate_total": 1,
+            "completion_reason": "required_fact_resolution_pending",
+            "results_delivery_blocked_reason": (
+                "required_property_facts_unresolved"
+            ),
+            "results_delivery_semantically_blocked": False,
+            "ranked_candidates": [],
+            "evaluating_candidates": [copy.deepcopy(candidate)],
+            "sources": [source],
+        },
+        "events": [],
+    }
+
+
+def _install_durable_required_fact_store(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    record: dict[str, object],
+) -> dict[str, object]:
+    store: dict[str, object] = {
+        "record": copy.deepcopy(record),
+        "compact_writes": [],
+    }
+
+    def _load(*, run_id: str, principal_id: str) -> dict[str, object] | None:
+        persisted = dict(store["record"])
+        if (
+            str(persisted.get("run_id") or "") != run_id
+            or str(persisted.get("principal_id") or "") != principal_id
+        ):
+            return None
+        return copy.deepcopy(persisted)
+
+    def _compare_and_swap(**kwargs: object) -> dict[str, object]:
+        updated = copy.deepcopy(dict(kwargs["updated_record"]))
+        store["record"] = updated
+        return {
+            "status": "applied",
+            "record": copy.deepcopy(updated),
+            "record_sha256": "durable-test-applied",
+        }
+
+    def _list_records(**_kwargs: object) -> tuple[dict[str, object], ...]:
+        return (
+            property_search_storage._compact_property_search_run_record(
+                copy.deepcopy(dict(store["record"]))
+            ),
+        )
+
+    def _store_compact(record_to_store: dict[str, object]) -> bool:
+        compact_writes = list(store["compact_writes"])
+        compact_writes.append(
+            property_search_storage._compact_property_search_run_record(
+                copy.deepcopy(record_to_store)
+            )
+        )
+        store["compact_writes"] = compact_writes
+        return True
+
+    monkeypatch.setattr(
+        product_service,
+        "_property_search_run_database_url",
+        lambda: "postgresql://durable.test/property",
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_load_property_search_run_record_storage",
+        _load,
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_compare_and_swap_property_search_run_record",
+        _compare_and_swap,
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_list_property_search_run_records",
+        _list_records,
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_store_property_search_run_compact_record",
+        _store_compact,
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_property_search_tour_events_by_source",
+        lambda self, **kwargs: {},
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_refresh_property_search_results_delivery_state",
+        lambda self, **kwargs: dict(kwargs.get("result") or {}),
+    )
+    return store
+
+
+def _active_required_fact_job(
+    store: dict[str, object],
+    *,
+    candidate_ref: str,
+) -> tuple[str, dict[str, object]]:
+    record = dict(store["record"])
+    summary = dict(record.get("summary") or {})
+    candidate_jobs = dict(
+        summary.get("required_fact_enrichment_candidate_jobs") or {}
+    )
+    job_id = str(candidate_jobs[candidate_ref])
+    job = dict(dict(summary.get("fact_enrichment_jobs") or {})[job_id])
+    return job_id, job
+
+
+def _age_required_fact_job_retry(
+    store: dict[str, object],
+    *,
+    candidate_ref: str,
+) -> None:
+    record = copy.deepcopy(dict(store["record"]))
+    summary = dict(record.get("summary") or {})
+    candidate_jobs = dict(
+        summary.get("required_fact_enrichment_candidate_jobs") or {}
+    )
+    job_id = str(candidate_jobs[candidate_ref])
+    jobs = dict(summary.get("fact_enrichment_jobs") or {})
+    job = dict(jobs[job_id])
+    job["updated_at"] = (
+        datetime.now(timezone.utc) - timedelta(minutes=10)
+    ).isoformat()
+    jobs[job_id] = job
+    summary["fact_enrichment_jobs"] = jobs
+    record["summary"] = summary
+    store["record"] = record
+
+
+def _resolved_geo_facts(
+    *,
+    include_playground: bool = True,
+    property_url: str = (
+        "https://www.willhaben.at/iad/immobilien/d/"
+        "family-home-1234567890/"
+    ),
+) -> dict[str, object]:
+    observed_at = datetime.now(timezone.utc)
+    source_fingerprint = property_fact_source_fingerprint(property_url)
+    facts: dict[str, object] = {
+        "map_lat": 48.2082,
+        "map_lng": 16.3738,
+        "map_location_precision": "address",
+        "map_location_source": "listing",
+        "house_number": "12",
+        "map_coordinate_evidence": {
+            "exact": True,
+            "trusted": True,
+            "provider": "listing_preview",
+            "source_fingerprint": source_fingerprint,
+        },
         "nearest_supermarket_m": 280,
         "nearest_pharmacy_m": 530,
         "nearest_medical_care_m": 570,
         "nearest_subway_m": 640,
         "property_fact_evidence": {
-            "nearest_supermarket_m": {
+            key: {
                 "provider": "openstreetmap_overpass",
                 "method": "straight_line_osm",
                 "observed_at": observed_at.isoformat(),
                 "expires_at": (observed_at + timedelta(hours=24)).isoformat(),
                 "freshness": "fresh",
                 "confidence": 0.95,
-                "source_key": "nearest_supermarket_m",
-                "source_fingerprint": "sha256:" + "b" * 64,
+                "source_key": key,
+                "source_fingerprint": source_fingerprint,
                 "coordinate_basis": "candidate_listing_coordinates",
                 "coordinate_observed_at": observed_at.isoformat(),
                 "coordinate_precision": "address",
                 "coordinate_source": "listing",
                 "coordinate_exact": True,
             }
+            for key in (
+                "nearest_supermarket_m",
+                "nearest_pharmacy_m",
+                "nearest_medical_care_m",
+                "nearest_subway_m",
+            )
         },
     }
     if include_playground:
         facts["nearest_playground_m"] = 410
+        facts["property_fact_evidence"]["nearest_playground_m"] = {
+            **dict(facts["property_fact_evidence"]["nearest_supermarket_m"]),
+            "source_key": "nearest_playground_m",
+        }
     return facts
 
 
@@ -169,6 +420,8 @@ def test_distance_fact_registry_exhaustively_covers_search_preferences() -> None
         "max_distance_to_supermarket_m",
         "max_distance_to_pharmacy_m",
         "max_distance_to_subway_m",
+        "max_distance_to_underground_m",
+        "max_distance_to_university_m",
         "max_distance_to_kindergarten_m",
         "max_distance_to_ganztags_volksschule_m",
         "max_distance_to_halbtags_volksschule_m",
@@ -198,13 +451,15 @@ def test_distance_fact_registry_exhaustively_covers_search_preferences() -> None
     }
 
     assert actual_preferences == expected_search_preferences
-    assert len(actual_preferences) == len(registry)
+    assert len(actual_preferences) == len(registry) + 1
     assert len({str(spec["key"]) for spec in registry}) == len(registry)
     assert all(spec["aliases"] for spec in registry)
     assert all(str(spec["label"]).strip() for spec in registry)
     assert all(str(spec["search_label"]).strip() for spec in registry)
     assert all(spec["poi_keys"] for spec in registry)
     assert all(str(spec["provider"]).strip() for spec in registry)
+    assert all(spec["evidence_providers"] for spec in registry)
+    assert all(spec["evidence_source_keys_by_provider"] for spec in registry)
 
 
 def test_every_search_distance_preference_maps_to_required_or_lazy_plan() -> None:
@@ -246,14 +501,52 @@ def test_distance_fact_registry_accessor_returns_defensive_copies() -> None:
 def test_quality_cafe_and_school_classification_require_honest_provenance() -> None:
     observed_at = datetime.now(timezone.utc)
 
-    def _evidence(provider: str) -> dict[str, object]:
+    def _evidence(provider: str, *, source_key: str = "") -> dict[str, object]:
         return {
             "provider": provider,
             "observed_at": observed_at.isoformat(),
             "expires_at": (observed_at + timedelta(hours=24)).isoformat(),
             "source_fingerprint": "sha256:" + "c" * 64,
+            "source_key": source_key,
             "coordinate_exact": True,
         }
+
+    kindergarten_preferences = {"max_distance_to_kindergarten_m": 700}
+    exact_osm_kindergarten = property_fact_requirement_plan(
+        facts={
+            "nearest_kindergarten_m": 260,
+            "property_fact_evidence": {
+                "nearest_kindergarten_m": _evidence(
+                    "openstreetmap_overpass",
+                    source_key="nearest_kindergarten_m",
+                ),
+            },
+        },
+        preferences=kindergarten_preferences,
+    )
+    assert next(
+        row
+        for row in exact_osm_kindergarten
+        if row["key"] == "nearest_kindergarten_m"
+    )["state"] == "resolved"
+
+    generic_osm_school = property_fact_requirement_plan(
+        facts={
+            "nearest_school_m": 260,
+            "property_fact_evidence": {
+                "nearest_school_m": _evidence(
+                    "openstreetmap_overpass",
+                    source_key="nearest_school_m",
+                ),
+            },
+        },
+        preferences=kindergarten_preferences,
+    )
+    assert next(
+        row
+        for row in generic_osm_school
+        if row["key"] == "nearest_kindergarten_m"
+    )["state"] == "stale"
 
     school_preferences = {"max_distance_to_ganztags_volksschule_m": 900}
     school_from_osm = property_fact_requirement_plan(
@@ -274,7 +567,10 @@ def test_quality_cafe_and_school_classification_require_honest_provenance() -> N
         facts={
             "nearest_full_day_primary_school_m": 420,
             "property_fact_evidence": {
-                "nearest_full_day_primary_school_m": _evidence("schoolatlas"),
+                "nearest_full_day_primary_school_m": _evidence(
+                    "schoolatlas",
+                    source_key="nearest_full_day_primary_school_m",
+                ),
             },
         },
         preferences=school_preferences,
@@ -301,7 +597,10 @@ def test_quality_cafe_and_school_classification_require_honest_provenance() -> N
         facts={
             "nearest_good_cafe_m": 180,
             "property_fact_evidence": {
-                "nearest_good_cafe_m": _evidence("quality_verified_cafe_source"),
+                "nearest_good_cafe_m": _evidence(
+                    "quality_verified_cafe_source",
+                    source_key="nearest_good_cafe_m",
+                ),
             },
         },
         preferences=cafe_preferences,
@@ -309,6 +608,345 @@ def test_quality_cafe_and_school_classification_require_honest_provenance() -> N
     assert next(
         row for row in verified_cafe if row["key"] == "nearest_good_cafe_m"
     )["state"] == "resolved"
+
+
+def test_distance_evidence_is_bound_to_the_exact_listing_url() -> None:
+    observed_at = datetime.now(timezone.utc)
+    original_url = (
+        "https://www.willhaben.at/iad/immobilien/d/"
+        "exact-source-home-1234567890/"
+    )
+    different_url = (
+        "https://www.willhaben.at/iad/immobilien/d/"
+        "different-source-home-1234567891/"
+    )
+    facts = {
+        "nearest_supermarket_m": 240,
+        "property_fact_evidence": {
+            "nearest_supermarket_m": {
+                "provider": "openstreetmap_overpass",
+                "observed_at": observed_at.isoformat(),
+                "expires_at": (observed_at + timedelta(hours=24)).isoformat(),
+                "source_key": "nearest_supermarket_m",
+                "source_fingerprint": property_fact_source_fingerprint(original_url),
+                "coordinate_exact": True,
+            }
+        },
+    }
+    preferences = {"max_distance_to_supermarket_m": 500}
+
+    matching = property_fact_requirement_plan(
+        facts=facts,
+        preferences=preferences,
+        property_url=original_url,
+    )
+    mismatched = property_fact_requirement_plan(
+        facts=facts,
+        preferences=preferences,
+        property_url=different_url,
+    )
+
+    assert next(
+        row for row in matching if row["key"] == "nearest_supermarket_m"
+    )["state"] == "resolved"
+    assert next(
+        row for row in mismatched if row["key"] == "nearest_supermarket_m"
+    )["state"] == "stale"
+
+
+def test_lazy_distance_cannot_borrow_another_listing_or_alias_evidence() -> None:
+    observed_at = datetime.now(timezone.utc)
+    original_url = (
+        "https://www.willhaben.at/iad/immobilien/d/"
+        "lazy-source-home-1234567890/"
+    )
+    different_url = (
+        "https://www.willhaben.at/iad/immobilien/d/"
+        "lazy-source-home-1234567891/"
+    )
+    facts = {
+        "distance_supermarket_m": 240,
+        "property_fact_evidence": {
+            # Evidence for the canonical value must not authenticate the alias
+            # value that was actually observed.
+            "nearest_supermarket_m": {
+                "provider": "openstreetmap_overpass",
+                "observed_at": observed_at.isoformat(),
+                "expires_at": (observed_at + timedelta(hours=24)).isoformat(),
+                "source_key": "nearest_supermarket_m",
+                "source_fingerprint": property_fact_source_fingerprint(original_url),
+                "coordinate_exact": True,
+            },
+            "distance_supermarket_m": {
+                "provider": "openstreetmap_overpass",
+                "observed_at": observed_at.isoformat(),
+                "expires_at": (observed_at + timedelta(hours=24)).isoformat(),
+                "source_key": "distance_supermarket_m",
+                "source_fingerprint": property_fact_source_fingerprint(original_url),
+                "coordinate_exact": True,
+            },
+        },
+    }
+    preferences = {
+        "max_distance_to_supermarket_m": 500,
+        "max_distance_to_supermarket_importance": "nice_to_have",
+    }
+
+    original_plan = property_fact_requirement_plan(
+        facts=facts,
+        preferences=preferences,
+        property_url=original_url,
+    )
+    different_plan = property_fact_requirement_plan(
+        facts=facts,
+        preferences=preferences,
+        property_url=different_url,
+    )
+    different_adjustment, different_notes = (
+        product_service._property_distance_preference_score_adjustment(
+            preferences=preferences,
+            property_facts=facts,
+            property_url=different_url,
+        )
+    )
+
+    assert next(
+        row for row in original_plan if row["key"] == "nearest_supermarket_m"
+    )["state"] == "resolved"
+    assert next(
+        row for row in different_plan if row["key"] == "nearest_supermarket_m"
+    )["state"] == "stale"
+    assert different_adjustment == 0
+    assert different_notes == ()
+
+    alias_evidence = dict(facts["property_fact_evidence"])
+    alias_evidence.pop("distance_supermarket_m")
+    alias_only_plan = property_fact_requirement_plan(
+        facts={**facts, "property_fact_evidence": alias_evidence},
+        preferences=preferences,
+        property_url=original_url,
+    )
+    alias_row = next(
+        row for row in alias_only_plan if row["key"] == "nearest_supermarket_m"
+    )
+    assert alias_row["state"] == "stale"
+    assert alias_row["provenance"] == {}
+
+
+@pytest.mark.parametrize(
+    ("provider", "source_key"),
+    (
+        ("wrong_provider", "nearest_supermarket_m"),
+        ("openstreetmap_overpass", "nearest_playground_m"),
+    ),
+)
+def test_ordinary_osm_fact_rejects_wrong_provider_or_wrong_classification(
+    provider: str,
+    source_key: str,
+) -> None:
+    observed_at = datetime.now(timezone.utc)
+    facts = {
+        "nearest_supermarket_m": 240,
+        "property_fact_evidence": {
+            "nearest_supermarket_m": {
+                "provider": provider,
+                "observed_at": observed_at.isoformat(),
+                "expires_at": (observed_at + timedelta(hours=24)).isoformat(),
+                "source_key": source_key,
+                "source_fingerprint": "sha256:" + "6" * 64,
+                "coordinate_exact": True,
+            }
+        },
+    }
+    preferences = {"max_distance_to_supermarket_m": 500}
+    plan = property_fact_requirement_plan(facts=facts, preferences=preferences)
+    supermarket = next(
+        row for row in plan if row["key"] == "nearest_supermarket_m"
+    )
+
+    assert supermarket["state"] == "stale"
+    assert property_fact_score_projection(
+        candidate={"fit_score": 80.0},
+        plan=plan,
+        preferences=preferences,
+    )["ranking_eligible"] is False
+
+
+def test_required_resolution_receipt_names_unavailable_strict_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    property_url = (
+        "https://www.willhaben.at/iad/immobilien/d/"
+        "strict-school-home-1234567890/"
+    )
+    facts = {
+        "map_lat": 48.2082,
+        "map_lng": 16.3738,
+        "map_location_precision": "address",
+        "map_location_source": "listing",
+        "house_number": "12",
+    }
+    preferences = {
+        "max_distance_to_ganztags_volksschule_m": 900,
+        "max_distance_to_ganztags_volksschule_importance": "must_have",
+    }
+    plan = property_fact_requirement_plan(
+        facts=facts,
+        preferences=preferences,
+        property_url=property_url,
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_fact_fresh_geo_snapshot",
+        lambda **kwargs: (
+            {"nearest_school_m": 420},
+            {
+                "coordinate_basis": "candidate_listing_coordinates",
+                "coordinate_observed_at": "",
+                "coordinate_precision": "address",
+                "coordinate_source": "listing",
+                "coordinate_exact": True,
+            },
+        ),
+    )
+
+    merged, receipt = product_service._property_search_resolve_required_facts(
+        property_url=property_url,
+        facts=facts,
+        plan=plan,
+        preferences=preferences,
+    )
+    refreshed = property_fact_requirement_plan(
+        facts=merged,
+        preferences=preferences,
+        property_url=property_url,
+    )
+    strict_field = next(
+        row
+        for row in refreshed
+        if row["key"] == "nearest_full_day_primary_school_m"
+    )
+    provider_receipt = next(
+        row
+        for row in receipt["provider_receipts"]
+        if row["field_key"] == "nearest_full_day_primary_school_m"
+    )
+
+    assert strict_field["state"] == "stale"
+    assert receipt["status"] == "partial"
+    assert provider_receipt["provider"] == "schoolatlas"
+    assert provider_receipt["status"] == "pending"
+
+
+def test_legacy_underground_preference_canonicalizes_to_subway_hard_gate() -> None:
+    observed_at = datetime.now(timezone.utc)
+    preferences = {
+        "max_distance_to_underground_m": 500,
+        "max_distance_to_underground_importance": "must_have",
+    }
+    normalized = product_service._property_search_canonical_distance_preferences(
+        preferences
+    )
+    facts = {
+        "nearest_subway_m": 720,
+        "property_fact_evidence": {
+            "nearest_subway_m": {
+                "provider": "openstreetmap_overpass",
+                "observed_at": observed_at.isoformat(),
+                "expires_at": (observed_at + timedelta(hours=24)).isoformat(),
+                "source_key": "nearest_subway_m",
+                "source_fingerprint": "sha256:" + "7" * 64,
+                "coordinate_exact": True,
+            }
+        },
+    }
+    plan = property_fact_requirement_plan(
+        facts=facts,
+        preferences=normalized,
+        include_resolved=True,
+    )
+
+    assert normalized["max_distance_to_subway_m"] == 500
+    assert normalized["max_distance_to_subway_importance"] == "must_have"
+    assert next(row for row in plan if row["key"] == "nearest_subway_m")[
+        "state"
+    ] == "resolved"
+    assert product_service._property_candidate_passes_resolved_distance_gates(
+        facts=facts,
+        preferences=normalized,
+        plan=plan,
+    ) is False
+
+
+@pytest.mark.parametrize(
+    ("preferences", "facts", "canonical_key", "preference_key"),
+    (
+        (
+            {
+                "max_distance_to_ganztags_volksschule_m": 900,
+                "max_distance_to_ganztags_volksschule_importance": "strong_wish",
+            },
+            {"nearest_school_m": 1_800},
+            "nearest_full_day_primary_school_m",
+            "max_distance_to_ganztags_volksschule_m",
+        ),
+        (
+            {
+                "max_distance_to_good_cafe_m": 700,
+                "max_distance_to_good_cafe_importance": "nice_to_have",
+            },
+            {"nearest_cafe_m": 120},
+            "nearest_good_cafe_m",
+            "max_distance_to_good_cafe_m",
+        ),
+    ),
+)
+def test_strict_evidence_raw_aliases_cannot_gate_or_score(
+    preferences: dict[str, object],
+    facts: dict[str, object],
+    canonical_key: str,
+    preference_key: str,
+) -> None:
+    observed_at = datetime.now(timezone.utc)
+    source_key = next(iter(facts))
+    facts["property_fact_evidence"] = {
+        source_key: {
+            "provider": "openstreetmap_overpass",
+            "observed_at": observed_at.isoformat(),
+            "expires_at": (observed_at + timedelta(hours=24)).isoformat(),
+            "source_fingerprint": "sha256:" + "e" * 64,
+            "source_key": source_key,
+            "coordinate_exact": True,
+        }
+    }
+    plan = property_fact_requirement_plan(facts=facts, preferences=preferences)
+    row = next(item for item in plan if item["key"] == canonical_key)
+
+    adjustment, notes = product_service._property_distance_preference_score_adjustment(
+        preferences=preferences,
+        property_facts=facts,
+    )
+    gate_result = product_service._property_apply_distance_gate(
+        facts,
+        request_preferences=preferences,
+        preference_key=preference_key,
+        fact_key=source_key,
+        label=str(row["label"]),
+        fact_is_resolved=row["state"] == "resolved",
+    )
+    projection = property_fact_score_projection(
+        candidate={"fit_score": 75},
+        plan=plan,
+        preferences=preferences,
+    )
+
+    assert row["state"] == "stale"
+    assert gate_result is True
+    assert adjustment == 0
+    assert notes == ()
+    assert projection["state"] == (
+        "evaluating" if row["priority"] == "required" else "provisional"
+    )
 
 
 def test_nearby_provider_queries_supported_specialty_pois_but_not_unverified_good_cafes(
@@ -433,12 +1071,21 @@ def test_query_inferred_address_coordinates_cannot_finalize_required_distance(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     observed_at = datetime.now(timezone.utc)
+    property_url = (
+        "https://www.willhaben.at/iad/immobilien/d/example-1234567890/"
+    )
     facts: dict[str, object] = {
         "map_lat": 48.2082,
         "map_lng": 16.3738,
         "map_location_precision": "address",
         "map_location_source": "nominatim_query_inferred",
+        "house_number": "12",
     }
+    monkeypatch.setattr(
+        product_service,
+        "_property_fact_coordinate_snapshot",
+        lambda _property_url: dict(facts),
+    )
     monkeypatch.setattr(
         product_service,
         "_property_research_nearby_pois",
@@ -446,7 +1093,7 @@ def test_query_inferred_address_coordinates_cannot_finalize_required_distance(
     )
 
     nearby, coordinate_meta = _property_fact_fresh_geo_snapshot(
-        property_url="https://www.willhaben.at/iad/immobilien/d/example-1234567890/",
+        property_url=property_url,
         facts=facts,
     )
     facts.update(nearby)
@@ -455,13 +1102,15 @@ def test_query_inferred_address_coordinates_cannot_finalize_required_distance(
             "provider": "openstreetmap_overpass",
             "observed_at": observed_at.isoformat(),
             "expires_at": (observed_at + timedelta(hours=24)).isoformat(),
-            "source_fingerprint": "sha256:" + "a" * 64,
+            "source_key": "nearest_supermarket_m",
+            "source_fingerprint": property_fact_source_fingerprint(property_url),
             **coordinate_meta,
         }
     }
     plan = property_fact_requirement_plan(
         facts=facts,
         preferences={"max_distance_to_supermarket_m": 800},
+        property_url=property_url,
     )
     supermarket = next(row for row in plan if row["key"] == "nearest_supermarket_m")
     projection = property_fact_score_projection(
@@ -476,6 +1125,1809 @@ def test_query_inferred_address_coordinates_cannot_finalize_required_distance(
     assert projection["state"] == "evaluating"
     assert projection["current"] is None
     assert projection["ranking_eligible"] is False
+
+
+def test_coordinate_snapshot_improves_valid_but_inexact_preview_coordinates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    property_url = (
+        "https://www.willhaben.at/iad/immobilien/d/"
+        "coordinate-refresh-home-1234567890/"
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview",
+        lambda *_args, **_kwargs: {
+            "title": "Apartment at Example Street 12",
+            "summary": "1020 Vienna",
+            "property_facts_json": {
+                "map_lat": 48.20,
+                "map_lng": 16.37,
+                "map_location_precision": "postal_area",
+                "map_location_source": "postal_area_centroid",
+                "house_number": "12",
+            },
+        },
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_research_location_hint_queries",
+        lambda **_kwargs: ["Example Street 12, 1020 Vienna"],
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_research_forward_geocode",
+        lambda _query: {
+            "lat": "48.211",
+            "lon": "16.381",
+            "addresstype": "house",
+            "address": {"house_number": "12"},
+            "display_name": "Example Street 12, 1020 Vienna",
+        },
+    )
+
+    snapshot = product_service._property_fact_coordinate_snapshot(property_url)
+
+    assert snapshot["map_lat"] == 48.211
+    assert snapshot["map_lng"] == 16.381
+    assert snapshot["map_location_precision"] == "address"
+    assert dict(snapshot["map_coordinate_evidence"]) == {
+        "exact": True,
+        "trusted": True,
+        "provider": "nominatim_structured_result",
+        "source_fingerprint": property_fact_source_fingerprint(property_url),
+        "result_type": "house",
+    }
+
+
+def test_fresh_geo_snapshot_never_relabels_coordinates_from_another_listing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original_url = (
+        "https://www.willhaben.at/iad/immobilien/d/"
+        "coordinate-source-home-1234567890/"
+    )
+    current_url = (
+        "https://www.willhaben.at/iad/immobilien/d/"
+        "coordinate-source-home-1234567891/"
+    )
+    facts = {
+        "map_lat": 48.20,
+        "map_lng": 16.37,
+        "map_location_precision": "address",
+        "map_location_source": "listing_preview",
+        "map_coordinate_evidence": {
+            "exact": True,
+            "trusted": True,
+            "provider": "listing_preview",
+            "source_fingerprint": property_fact_source_fingerprint(original_url),
+        },
+    }
+    refresh_calls: list[str] = []
+    refreshed = {
+        "map_lat": 48.22,
+        "map_lng": 16.39,
+        "map_location_precision": "address",
+        "map_location_source": "listing_preview",
+        "map_coordinate_evidence": {
+            "exact": True,
+            "trusted": True,
+            "provider": "listing_preview",
+            "source_fingerprint": property_fact_source_fingerprint(current_url),
+        },
+    }
+    observed_coordinates: list[tuple[float, float]] = []
+    monkeypatch.setattr(
+        product_service,
+        "_property_fact_coordinate_snapshot",
+        lambda property_url: refresh_calls.append(property_url) or dict(refreshed),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_research_nearby_pois",
+        lambda latitude, longitude: (
+            observed_coordinates.append((latitude, longitude))
+            or {"nearest_supermarket_m": 220}
+        ),
+    )
+
+    nearby, meta = _property_fact_fresh_geo_snapshot(
+        property_url=current_url,
+        facts=facts,
+    )
+
+    assert nearby == {"nearest_supermarket_m": 220}
+    assert refresh_calls == [current_url]
+    assert observed_coordinates == [(48.22, 16.39)]
+    assert meta["coordinate_exact"] is True
+    assert dict(meta["coordinate_updates"])["map_coordinate_evidence"] == (
+        refreshed["map_coordinate_evidence"]
+    )
+
+
+def test_fresh_geo_snapshot_reuses_current_url_bound_exact_coordinates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    property_url = (
+        "https://www.willhaben.at/iad/immobilien/d/"
+        "coordinate-reuse-home-1234567890/"
+    )
+    facts = {
+        "map_lat": 48.2082,
+        "map_lng": 16.3738,
+        "map_location_precision": "address",
+        "map_location_source": "listing_preview",
+        "map_coordinate_evidence": {
+            "exact": True,
+            "trusted": True,
+            "provider": "listing_preview",
+            "source_fingerprint": property_fact_source_fingerprint(property_url),
+        },
+    }
+    observed_coordinates: list[tuple[float, float]] = []
+    monkeypatch.setattr(
+        product_service,
+        "_property_fact_coordinate_snapshot",
+        lambda _property_url: pytest.fail("bound coordinates must be reused"),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_research_nearby_pois",
+        lambda latitude, longitude: (
+            observed_coordinates.append((latitude, longitude)) or {}
+        ),
+    )
+
+    _nearby, meta = _property_fact_fresh_geo_snapshot(
+        property_url=property_url,
+        facts=facts,
+    )
+
+    assert observed_coordinates == [(48.2082, 16.3738)]
+    assert meta["coordinate_exact"] is True
+    assert meta["coordinate_updates"] == {}
+
+
+@pytest.mark.parametrize("importance", ("must_have", "strong_wish", "avoid"))
+def test_unknown_required_distance_never_hard_fails_before_research(
+    importance: str,
+) -> None:
+    facts: dict[str, object] = {}
+
+    accepted = product_service._property_apply_distance_gate(
+        facts,
+        request_preferences={
+            "max_distance_to_supermarket_m": 500,
+            "max_distance_to_supermarket_importance": importance,
+        },
+        preference_key="max_distance_to_supermarket_m",
+        fact_key="nearest_supermarket_m",
+        label="supermarket",
+    )
+
+    assert accepted is True
+    assert facts["distance_unknowns_json"] == [
+        {"label": "supermarket", "requested_m": 500}
+    ]
+
+
+def test_shared_search_score_is_two_call_idempotent_and_reproducible() -> None:
+    candidate = {
+        "title": "Quiet family apartment",
+        "summary": "82 m2 with floorplan in Vienna",
+        "property_url": "https://www.willhaben.at/iad/immobilien/d/example-1234567890/",
+    }
+    assessment = {
+        "fit_score": 61.0,
+        "recommendation": "review",
+        "unknowns_json": ["Energy certificate pending"],
+        "upstream_personalization": {"adjusted_fit_score": 66.0},
+    }
+    preferences = {
+        "max_distance_to_supermarket_m": 500,
+        "max_distance_to_supermarket_importance": "strong_wish",
+        "apply_unknowns_penalty": True,
+    }
+    facts = {
+        "area_sqm": 82,
+        "has_floorplan": True,
+        "postal_name": "1020 Wien",
+        "nearest_supermarket_m": 220,
+        "discovery_soft_penalty_points": 1.5,
+    }
+
+    first = product_service._property_search_score_candidate(
+        candidate=candidate,
+        assessment=assessment,
+        property_facts=facts,
+        preferences=preferences,
+        preview={
+            "title": candidate["title"],
+            "summary": candidate["summary"],
+            "property_facts_json": dict(facts),
+        },
+        ordinal=3,
+        location_penalty_points=0.0,
+        apply_unknowns_penalty=True,
+    )
+    first_facts = copy.deepcopy(facts)
+    second = product_service._property_search_score_candidate(
+        candidate={**candidate, **first},
+        assessment=assessment,
+        property_facts=facts,
+        preferences=preferences,
+    )
+
+    assert second == first
+    assert facts == first_facts
+    assert first["score_provenance"]["algorithm_version"] == (
+        product_service._PROPERTY_SEARCH_SCORE_ALGORITHM_VERSION
+    )
+    assert first["score_provenance"]["facts_digest"] == second["score_provenance"][
+        "facts_digest"
+    ]
+
+
+@pytest.mark.parametrize("provider_resolves", (True, False))
+def test_required_fact_search_pass_blocks_terminal_ranking_until_resolved(
+    monkeypatch: pytest.MonkeyPatch,
+    provider_resolves: bool,
+) -> None:
+    principal_id = f"exec-required-fact-search-{provider_resolves}"
+    client = build_property_operator_client(principal_id=principal_id)
+    start_workspace(
+        client,
+        mode="personal",
+        workspace_name="Required Fact Search Office",
+    )
+    service = ProductService(client.app.state.container)
+    source_url = (
+        "https://www.willhaben.at/iad/immobilien/mietwohnungen/wien/"
+        "wien-1020-leopoldstadt"
+    )
+    listing_url = (
+        "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/"
+        "wien-1020-leopoldstadt/required-fact-home-1234567890/"
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_merged_property_scout_source_specs",
+        lambda **kwargs: [
+            {
+                "url": source_url,
+                "label": "Willhaben | Austria | Rent | 1020 Vienna",
+                "platform": "willhaben",
+                "provider_family": "marketplace",
+                "country_code": "AT",
+                "max_results": 1,
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_search_interleave_by_provider_group",
+        lambda specs: list(specs),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_search_prefetch_listing_urls",
+        lambda **kwargs: {
+            ("willhaben", source_url): {
+                "listing_urls": [listing_url],
+                "provider_cache_state": {
+                    "status": "miss",
+                    "cache_key": "willhaben:required-fact",
+                },
+                "timing_ms": {"provider_fetch": 1.0},
+            }
+        },
+    )
+    preview = {
+        "listing_id": "required-fact-home-1234567890",
+        "title": "Mietwohnung in 1020 Wien mit Balkon",
+        "summary": "82 m2, 3 Zimmer, Gesamtmiete EUR 1.650, Balkon.",
+        "property_facts_json": {
+            "postal_name": "1020 Wien",
+            "area_sqm": 82,
+            "rooms": 3,
+            "total_rent_eur": 1650,
+            "map_lat": 48.2082,
+            "map_lng": 16.3738,
+            "map_location_precision": "address",
+            "map_location_source": "listing",
+            "house_number": "12",
+        },
+    }
+    monkeypatch.setattr(
+        product_service,
+        "_property_scout_page_preview_with_timeout",
+        lambda property_url, *, prefer_fast=False: copy.deepcopy(preview),
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_warm_property_public_preview_cache_for_sources",
+        lambda self, **kwargs: {},
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_fact_validated_source_url",
+        lambda url: str(url),
+    )
+    provider_calls: list[str] = []
+
+    def _fresh_required_facts(*, property_url: str, facts: dict[str, object]):
+        provider_calls.append(property_url)
+        return (
+            ({"nearest_supermarket_m": 280} if provider_resolves else {}),
+            {
+                "coordinate_basis": "candidate_listing_coordinates",
+                "coordinate_observed_at": "",
+                "coordinate_precision": "address",
+                "coordinate_source": "listing",
+                "coordinate_exact": True,
+            },
+        )
+
+    monkeypatch.setattr(
+        product_service,
+        "_property_fact_fresh_geo_snapshot",
+        _fresh_required_facts,
+    )
+    score_calls: list[str] = []
+
+    def _fit(**kwargs) -> dict[str, object]:
+        score_calls.append(str(kwargs.get("property_url") or ""))
+        return {
+            "fit_score": 62.0,
+            "recommendation": "review",
+            "match_reasons_json": ["Core brief matches."],
+            "mismatch_reasons_json": [],
+            "unknowns_json": [],
+        }
+
+    monkeypatch.setattr(
+        product_service,
+        "_property_alert_personal_fit_from_facts",
+        _fit,
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_open_property_alert_review_with_timeout",
+        lambda self, **kwargs: {
+            "status": "deferred",
+            "reason": "test",
+            "review_reused": False,
+        },
+    )
+
+    result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("willhaben",),
+        property_search_preferences={
+            "country_code": "AT",
+            "listing_mode": "rent",
+            "property_type": "apartment",
+            "max_distance_to_supermarket_m": 500,
+            "max_distance_to_supermarket_importance": "must_have",
+            "use_stored_feedback_preferences": False,
+        },
+        max_results_per_source=1,
+        force_refresh=True,
+    )
+
+    assert provider_calls == [listing_url]
+    source = dict(result["sources"][0])
+    if provider_resolves:
+        assert result["status"] == "processed"
+        assert result["required_fact_research_resolved_total"] == 1
+        assert result["required_fact_research_pending_total"] == 0
+        assert result["evaluating_candidate_total"] == 0
+        assert score_calls == [listing_url]
+        candidate = dict(source["top_candidates"][0])
+        assert candidate["ranking_eligible"] is True
+        assert dict(candidate["property_facts"])["nearest_supermarket_m"] == 280
+        assert dict(candidate["score_projection"])["current"] is not None
+    else:
+        assert result["status"] == "completed_partial"
+        assert result["required_fact_research_pending_total"] == 1
+        assert result["required_fact_resolution_pending"] is True
+        assert result["results_delivery_blocked_reason"] == (
+            "required_property_facts_unresolved"
+        )
+        assert source["top_candidates"] == []
+        assert source["evaluating_candidate_total"] == 1
+        assert score_calls == []
+        evaluating = dict(source["evaluating_candidates"][0])
+        assert evaluating["ranking_eligible"] is False
+        assert evaluating["score_state"] == "evaluating"
+        assert service._property_search_results_delivery_pending(result=result) is True
+
+
+def test_required_fact_scheduler_survives_restart_and_unblocks_ranking(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-required-fact-durable-success"
+    run_id = "run-required-fact-durable-success"
+    candidate_ref = "candidate-required-durable"
+    record = _required_fact_run_record(
+        principal_id=principal_id,
+        run_id=run_id,
+        candidate_ref=candidate_ref,
+    )
+    store = _install_durable_required_fact_store(
+        monkeypatch,
+        record=record,
+    )
+    client = build_property_operator_client(principal_id=principal_id)
+    provider_calls: list[str] = []
+    provider_results = [{}, {"nearest_supermarket_m": 280}]
+
+    def _provider(*, property_url: str, facts: dict[str, object]):
+        provider_calls.append(property_url)
+        return (
+            provider_results.pop(0),
+            {
+                "coordinate_basis": "candidate_listing_coordinates",
+                "coordinate_observed_at": "",
+                "coordinate_precision": "address",
+                "coordinate_source": "listing",
+                "coordinate_exact": True,
+            },
+        )
+
+    monkeypatch.setattr(
+        product_service,
+        "_property_fact_fresh_geo_snapshot",
+        _provider,
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_alert_personal_fit_from_facts",
+        lambda **kwargs: {
+            "domain": "willhaben",
+            "fit_score": 68.0,
+            "recommendation": "shortlist",
+            "match_reasons_json": ["Required distance verified."],
+        },
+    )
+    notification_calls: list[str] = []
+    monkeypatch.setattr(
+        ProductService,
+        "_notify_property_search_results_ready",
+        lambda self, **kwargs: notification_calls.append(str(kwargs.get("run_id") or "")),
+    )
+    try:
+        first_service = ProductService(client.app.state.container)
+        first_result = first_service.reconcile_property_search_results_delivery(
+            principal_id=principal_id,
+            allow_notifications=False,
+        )
+        _, first_job = _active_required_fact_job(
+            store,
+            candidate_ref=candidate_ref,
+        )
+        first_summary = dict(dict(store["record"]).get("summary") or {})
+        first_compact = property_search_storage._compact_property_search_run_record(
+            copy.deepcopy(dict(store["record"]))
+        )
+
+        assert first_result["pending"] == 1
+        assert first_job["attempt"] == 2
+        assert first_job["status"] == "retryable_error"
+        assert first_job["retryable"] is True
+        assert first_summary["required_fact_resolution_pending"] is True
+        assert first_compact["summary"]["results_delivery_blocked_reason"] == (
+            "required_property_facts_unresolved"
+        )
+        assert property_search_storage._property_search_run_compact_supports_delivery(
+            first_compact
+        ) is True
+
+        _age_required_fact_job_retry(store, candidate_ref=candidate_ref)
+        _clear_run(run_id)
+        restarted_service = ProductService(client.app.state.container)
+        second_result = restarted_service.reconcile_property_search_results_delivery(
+            principal_id=principal_id,
+            allow_notifications=False,
+        )
+        _, final_job = _active_required_fact_job(
+            store,
+            candidate_ref=candidate_ref,
+        )
+        persisted = dict(store["record"])
+        summary = dict(persisted.get("summary") or {})
+        ranked = [
+            dict(row)
+            for row in list(summary.get("ranked_candidates") or [])
+            if isinstance(row, dict)
+        ]
+
+        assert second_result["pending"] == 0
+        assert provider_calls == [
+            str(record["summary"]["sources"][0]["research_candidates"][0]["property_url"]),
+            str(record["summary"]["sources"][0]["research_candidates"][0]["property_url"]),
+        ]
+        assert final_job["attempt"] == 3
+        assert final_job["status"] == "succeeded"
+        assert persisted["status"] == "processed"
+        assert summary["required_fact_resolution_pending"] is False
+        assert summary["required_fact_resolution_exhausted"] is False
+        assert summary["evaluating_candidate_total"] == 0
+        assert [row["candidate_ref"] for row in ranked] == [candidate_ref]
+        assert ranked[0]["ranking_eligible"] is True
+        assert notification_calls == []
+    finally:
+        _clear_run(run_id)
+
+
+def test_required_fact_exhaustion_is_terminal_partial_and_never_notifies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-required-fact-durable-exhausted"
+    run_id = "run-required-fact-durable-exhausted"
+    candidate_ref = "candidate-required-durable"
+    store = _install_durable_required_fact_store(
+        monkeypatch,
+        record=_required_fact_run_record(
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref=candidate_ref,
+        ),
+    )
+    client = build_property_operator_client(principal_id=principal_id)
+    provider_calls: list[str] = []
+    monkeypatch.setattr(
+        product_service,
+        "_property_fact_fresh_geo_snapshot",
+        lambda **kwargs: (
+            provider_calls.append(str(kwargs.get("property_url") or "")) or {},
+            {
+                "coordinate_basis": "candidate_listing_coordinates",
+                "coordinate_observed_at": "",
+                "coordinate_precision": "address",
+                "coordinate_source": "listing",
+                "coordinate_exact": True,
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_alert_personal_fit_from_facts",
+        lambda **kwargs: {"fit_score": 64.0, "recommendation": "review"},
+    )
+    notification_calls: list[str] = []
+    monkeypatch.setattr(
+        ProductService,
+        "_notify_property_search_results_ready",
+        lambda self, **kwargs: notification_calls.append(str(kwargs.get("run_id") or "")),
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_recent_product_event_exists",
+        lambda self, **kwargs: False,
+    )
+    try:
+        service = ProductService(client.app.state.container)
+        service.reconcile_property_search_results_delivery(
+            principal_id=principal_id,
+            allow_notifications=False,
+        )
+        _age_required_fact_job_retry(store, candidate_ref=candidate_ref)
+        _clear_run(run_id)
+        restarted_service = ProductService(client.app.state.container)
+        restarted_service.reconcile_property_search_results_delivery(
+            principal_id=principal_id,
+            allow_notifications=False,
+        )
+        _, job = _active_required_fact_job(store, candidate_ref=candidate_ref)
+        persisted = dict(store["record"])
+        summary = dict(persisted.get("summary") or {})
+        provider_receipt = next(
+            row
+            for row in job["provider_receipts"]
+            if row["field_key"] == "nearest_supermarket_m"
+        )
+
+        assert len(provider_calls) == 2
+        assert job["attempt"] == 3
+        assert job["status"] == "terminal_error"
+        assert job["retryable"] is False
+        assert provider_receipt["provider"] == "openstreetmap_overpass"
+        assert provider_receipt["status"] == "unavailable"
+        assert provider_receipt["reason_code"] == (
+            "fact_enrichment_attempts_exhausted"
+        )
+        assert persisted["status"] == "completed_partial"
+        assert summary["required_fact_resolution_pending"] is False
+        assert summary["required_fact_resolution_exhausted"] is True
+        assert summary["results_delivery_semantically_blocked"] is True
+        assert summary["results_delivery_blocked_reason"] == (
+            "required_property_facts_unresolved"
+        )
+        assert summary["completion_reason"] == (
+            "required_fact_resolution_exhausted"
+        )
+        assert restarted_service._property_search_results_delivery_pending(
+            result=summary
+        ) is False
+        assert restarted_service._property_search_results_delivery_semantically_blocked(
+            result=summary
+        ) is True
+
+        restarted_service.reconcile_property_search_results_delivery(
+            principal_id=principal_id,
+            allow_notifications=True,
+        )
+        assert notification_calls == []
+    finally:
+        _clear_run(run_id)
+
+
+def test_resolved_required_fact_outside_must_have_limit_is_excluded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-required-fact-hard-gate"
+    run_id = "run-required-fact-hard-gate"
+    candidate_ref = "candidate-required-durable"
+    store = _install_durable_required_fact_store(
+        monkeypatch,
+        record=_required_fact_run_record(
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref=candidate_ref,
+        ),
+    )
+    client = build_property_operator_client(principal_id=principal_id)
+    monkeypatch.setattr(
+        product_service,
+        "_property_fact_fresh_geo_snapshot",
+        lambda **kwargs: (
+            {"nearest_supermarket_m": 900},
+            {
+                "coordinate_basis": "candidate_listing_coordinates",
+                "coordinate_observed_at": "",
+                "coordinate_precision": "address",
+                "coordinate_source": "listing",
+                "coordinate_exact": True,
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_alert_personal_fit_from_facts",
+        lambda **kwargs: {"fit_score": 72.0, "recommendation": "shortlist"},
+    )
+    try:
+        service = ProductService(client.app.state.container)
+        service.reconcile_property_search_results_delivery(
+            principal_id=principal_id,
+            allow_notifications=False,
+        )
+        persisted = dict(store["record"])
+        summary = dict(persisted.get("summary") or {})
+        source = dict(summary["sources"][0])
+        research_candidate = dict(source["research_candidates"][0])
+
+        assert persisted["status"] == "processed"
+        assert summary["required_fact_resolution_pending"] is False
+        assert summary["evaluating_candidate_total"] == 0
+        assert summary["ranked_candidates"] == []
+        assert source["top_candidates"] == []
+        assert research_candidate["ranking_eligible"] is False
+        assert research_candidate["evaluation_state"] == (
+            "excluded_required_fact_mismatch"
+        )
+    finally:
+        _clear_run(run_id)
+
+
+def test_score_recompute_failure_keeps_required_hold_across_restart(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-required-fact-score-retry"
+    run_id = "run-required-fact-score-retry"
+    candidate_ref = "candidate-required-durable"
+    store = _install_durable_required_fact_store(
+        monkeypatch,
+        record=_required_fact_run_record(
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref=candidate_ref,
+        ),
+    )
+    client = build_property_operator_client(principal_id=principal_id)
+    provider_calls: list[str] = []
+    monkeypatch.setattr(
+        product_service,
+        "_property_fact_fresh_geo_snapshot",
+        lambda **kwargs: (
+            provider_calls.append(str(kwargs.get("property_url") or ""))
+            or {"nearest_supermarket_m": 280},
+            {
+                "coordinate_basis": "candidate_listing_coordinates",
+                "coordinate_observed_at": "",
+                "coordinate_precision": "address",
+                "coordinate_source": "listing",
+                "coordinate_exact": True,
+            },
+        ),
+    )
+    assessment_results = [
+        {},
+        {"fit_score": 70.0, "recommendation": "shortlist"},
+    ]
+    monkeypatch.setattr(
+        product_service,
+        "_property_alert_personal_fit_from_facts",
+        lambda **kwargs: assessment_results.pop(0),
+    )
+    try:
+        service = ProductService(client.app.state.container)
+        service.reconcile_property_search_results_delivery(
+            principal_id=principal_id,
+            allow_notifications=False,
+        )
+        _, first_job = _active_required_fact_job(
+            store,
+            candidate_ref=candidate_ref,
+        )
+        first_summary = dict(dict(store["record"]).get("summary") or {})
+
+        assert first_job["status"] == "retryable_error"
+        assert first_job["score_recompute_required"] is True
+        assert first_summary["required_fact_resolution_pending"] is True
+        assert first_summary["evaluating_candidate_total"] == 1
+        assert first_summary["blocked_required_facts"][0]["field_keys"] == [
+            "required_score_recompute"
+        ]
+
+        _age_required_fact_job_retry(store, candidate_ref=candidate_ref)
+        _clear_run(run_id)
+        restarted_service = ProductService(client.app.state.container)
+        restarted_service.reconcile_property_search_results_delivery(
+            principal_id=principal_id,
+            allow_notifications=False,
+        )
+        _, final_job = _active_required_fact_job(
+            store,
+            candidate_ref=candidate_ref,
+        )
+        final_summary = dict(dict(store["record"]).get("summary") or {})
+
+        assert len(provider_calls) == 1
+        assert final_job["attempt"] == 3
+        assert final_job["status"] == "succeeded"
+        assert final_job["score_recompute_required"] is False
+        assert final_summary["required_fact_resolution_pending"] is False
+        assert final_summary["evaluating_candidate_total"] == 0
+        assert len(final_summary["ranked_candidates"]) == 1
+    finally:
+        _clear_run(run_id)
+
+
+def test_stale_succeeded_required_job_requeues_with_bounded_attempt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-required-fact-stale-success"
+    run_id = "run-required-fact-stale-success"
+    candidate_ref = "candidate-required-durable"
+    store = _install_durable_required_fact_store(
+        monkeypatch,
+        record=_required_fact_run_record(
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref=candidate_ref,
+        ),
+    )
+    client = build_property_operator_client(principal_id=principal_id)
+    service = ProductService(client.app.state.container)
+    started = service.start_property_candidate_fact_enrichment(
+        principal_id=principal_id,
+        run_id=run_id,
+        candidate_ref=candidate_ref,
+        required_only=True,
+        launch_worker=False,
+        attempt_floor=1,
+    )
+    record = copy.deepcopy(dict(store["record"]))
+    summary = dict(record.get("summary") or {})
+    jobs = dict(summary.get("fact_enrichment_jobs") or {})
+    stale_job = dict(jobs[started["job_id"]])
+    stale_job.update(
+        {
+            "status": "succeeded",
+            "retryable": False,
+            "result_facts_digest": stale_job["facts_digest"],
+        }
+    )
+    jobs[started["job_id"]] = stale_job
+    summary["fact_enrichment_jobs"] = jobs
+    record["summary"] = summary
+    store["record"] = record
+    provider_calls: list[str] = []
+    monkeypatch.setattr(
+        product_service,
+        "_property_fact_fresh_geo_snapshot",
+        lambda **kwargs: (
+            provider_calls.append(str(kwargs.get("property_url") or ""))
+            or {"nearest_supermarket_m": 260},
+            {
+                "coordinate_basis": "candidate_listing_coordinates",
+                "coordinate_observed_at": "",
+                "coordinate_precision": "address",
+                "coordinate_source": "listing",
+                "coordinate_exact": True,
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_alert_personal_fit_from_facts",
+        lambda **kwargs: {"fit_score": 69.0, "recommendation": "shortlist"},
+    )
+    try:
+        _clear_run(run_id)
+        restarted_service = ProductService(client.app.state.container)
+        restarted_service.reconcile_property_search_results_delivery(
+            principal_id=principal_id,
+            allow_notifications=False,
+        )
+        _, final_job = _active_required_fact_job(
+            store,
+            candidate_ref=candidate_ref,
+        )
+        final_summary = dict(dict(store["record"]).get("summary") or {})
+
+        assert len(provider_calls) == 1
+        assert final_job["attempt"] == 3
+        assert final_job["status"] == "succeeded"
+        assert final_summary["required_fact_resolution_pending"] is False
+        assert final_summary["evaluating_candidate_total"] == 0
+    finally:
+        _clear_run(run_id)
+
+
+@pytest.mark.parametrize(
+    ("expired_attempt", "expected_status", "expected_provider_calls"),
+    (
+        (2, "succeeded", 1),
+        (3, "terminal_error", 0),
+    ),
+)
+def test_expired_running_lease_consumes_attempt_and_never_runs_a_fourth_time(
+    monkeypatch: pytest.MonkeyPatch,
+    expired_attempt: int,
+    expected_status: str,
+    expected_provider_calls: int,
+) -> None:
+    principal_id = f"exec-required-fact-expired-{expired_attempt}"
+    run_id = f"run-required-fact-expired-{expired_attempt}"
+    candidate_ref = "candidate-required-durable"
+    store = _install_durable_required_fact_store(
+        monkeypatch,
+        record=_required_fact_run_record(
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref=candidate_ref,
+        ),
+    )
+    client = build_property_operator_client(principal_id=principal_id)
+    service = ProductService(client.app.state.container)
+    started = service.start_property_candidate_fact_enrichment(
+        principal_id=principal_id,
+        run_id=run_id,
+        candidate_ref=candidate_ref,
+        required_only=True,
+        launch_worker=False,
+        attempt_floor=1,
+    )
+    record = copy.deepcopy(dict(store["record"]))
+    summary = dict(record.get("summary") or {})
+    jobs = dict(summary.get("fact_enrichment_jobs") or {})
+    running_job = dict(jobs[started["job_id"]])
+    running_job.update(
+        {
+            "status": "running",
+            "attempt": expired_attempt,
+            "lease_token": "abandoned-worker-lease",
+            "lease_expires_at": (
+                datetime.now(timezone.utc) - timedelta(minutes=5)
+            ).isoformat(),
+            "retryable": False,
+            "fields": [
+                {**dict(row), "state": "running"}
+                for row in list(running_job.get("fields") or [])
+                if isinstance(row, dict)
+            ],
+        }
+    )
+    jobs[started["job_id"]] = running_job
+    summary["fact_enrichment_jobs"] = jobs
+    record["summary"] = summary
+    store["record"] = record
+    provider_calls: list[str] = []
+    monkeypatch.setattr(
+        product_service,
+        "_property_fact_fresh_geo_snapshot",
+        lambda **kwargs: (
+            provider_calls.append(str(kwargs.get("property_url") or ""))
+            or {"nearest_supermarket_m": 250},
+            {
+                "coordinate_basis": "candidate_listing_coordinates",
+                "coordinate_observed_at": "",
+                "coordinate_precision": "address",
+                "coordinate_source": "listing",
+                "coordinate_exact": True,
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_alert_personal_fit_from_facts",
+        lambda **kwargs: {"fit_score": 67.0, "recommendation": "shortlist"},
+    )
+    try:
+        _clear_run(run_id)
+        restarted_service = ProductService(client.app.state.container)
+        restarted_service.reconcile_property_search_results_delivery(
+            principal_id=principal_id,
+            allow_notifications=False,
+        )
+        _, final_job = _active_required_fact_job(
+            store,
+            candidate_ref=candidate_ref,
+        )
+
+        assert final_job["attempt"] == 3
+        assert final_job["status"] == expected_status
+        assert len(provider_calls) == expected_provider_calls
+        if expired_attempt == 3:
+            final_summary = dict(dict(store["record"]).get("summary") or {})
+            assert final_summary["required_fact_resolution_exhausted"] is True
+    finally:
+        _clear_run(run_id)
+
+
+def test_required_and_optional_fact_jobs_keep_independent_mode_pointers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-required-optional-concurrent"
+    run_id = "run-required-optional-concurrent"
+    candidate_ref = "candidate-required-durable"
+    store = _install_durable_required_fact_store(
+        monkeypatch,
+        record=_required_fact_run_record(
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref=candidate_ref,
+        ),
+    )
+    client = build_property_operator_client(principal_id=principal_id)
+    service = ProductService(client.app.state.container)
+    monkeypatch.setattr(
+        product_service,
+        "_property_fact_fresh_geo_snapshot",
+        lambda **kwargs: (
+            {"nearest_supermarket_m": 240},
+            {
+                "coordinate_basis": "candidate_listing_coordinates",
+                "coordinate_observed_at": "",
+                "coordinate_precision": "address",
+                "coordinate_source": "listing",
+                "coordinate_exact": True,
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_alert_personal_fit_from_facts",
+        lambda **kwargs: {"fit_score": 71.0, "recommendation": "shortlist"},
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_launch_property_candidate_fact_enrichment",
+        lambda self, **kwargs: False,
+    )
+    try:
+        required = service.start_property_candidate_fact_enrichment(
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref=candidate_ref,
+            required_only=True,
+            launch_worker=False,
+            attempt_floor=1,
+        )
+        optional = service.start_property_candidate_fact_enrichment(
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref=candidate_ref,
+            required_only=False,
+            launch_worker=False,
+        )
+        before = dict(dict(store["record"]).get("summary") or {})
+        polled = service.get_property_candidate_fact_enrichment(
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref=candidate_ref,
+        )
+
+        assert required["job_id"] != optional["job_id"]
+        assert before["required_fact_enrichment_candidate_jobs"][candidate_ref] == (
+            required["job_id"]
+        )
+        assert before["optional_fact_enrichment_candidate_jobs"][candidate_ref] == (
+            optional["job_id"]
+        )
+        assert polled is not None
+        assert polled["job_id"] == required["job_id"]
+        assert polled["status"] == "queued"
+
+        service._run_property_candidate_fact_enrichment(
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref=candidate_ref,
+            job_id=required["job_id"],
+        )
+        after = dict(dict(store["record"]).get("summary") or {})
+        assert after["required_fact_enrichment_candidate_jobs"][candidate_ref] == (
+            required["job_id"]
+        )
+        assert after["optional_fact_enrichment_candidate_jobs"][candidate_ref] == (
+            optional["job_id"]
+        )
+        assert after["fact_enrichment_jobs"][required["job_id"]]["status"] == (
+            "succeeded"
+        )
+        assert after["fact_enrichment_jobs"][optional["job_id"]]["status"] == (
+            "queued"
+        )
+    finally:
+        _clear_run(run_id)
+
+
+def test_required_success_projects_optional_idle_for_lazy_detail_handoff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-required-optional-handoff"
+    run_id = "run-required-optional-handoff"
+    candidate_ref = "candidate-required-durable"
+    store = _install_durable_required_fact_store(
+        monkeypatch,
+        record=_required_fact_run_record(
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref=candidate_ref,
+        ),
+    )
+    client = build_property_operator_client(principal_id=principal_id)
+    service = ProductService(client.app.state.container)
+    monkeypatch.setattr(
+        product_service,
+        "_property_fact_fresh_geo_snapshot",
+        lambda **kwargs: (
+            {"nearest_supermarket_m": 240},
+            {
+                "coordinate_basis": "candidate_listing_coordinates",
+                "coordinate_observed_at": "",
+                "coordinate_precision": "address",
+                "coordinate_source": "listing",
+                "coordinate_exact": True,
+                "coordinate_updates": {},
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_alert_personal_fit_from_facts",
+        lambda **kwargs: {"fit_score": 71.0, "recommendation": "shortlist"},
+    )
+    monkeypatch.setattr(
+        ProductService,
+        "_launch_property_candidate_fact_enrichment",
+        lambda self, **kwargs: False,
+    )
+    try:
+        required = service.start_property_candidate_fact_enrichment(
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref=candidate_ref,
+            required_only=True,
+            launch_worker=False,
+            attempt_floor=1,
+        )
+        service._run_property_candidate_fact_enrichment(
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref=candidate_ref,
+            job_id=required["job_id"],
+        )
+
+        persisted_summary = dict(dict(store["record"]).get("summary") or {})
+        assert persisted_summary["fact_enrichment_jobs"][required["job_id"]][
+            "status"
+        ] == "succeeded"
+
+        polled = service.get_property_candidate_fact_enrichment(
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref=candidate_ref,
+        )
+
+        assert polled is not None
+        assert polled["status"] == "idle"
+        assert polled["bundle_kind"] == "optional-geo-v1"
+        assert next(
+            row
+            for row in polled["fields"]
+            if row["key"] == "nearest_supermarket_m"
+        )["state"] == "resolved"
+        assert any(
+            row["priority"] == "lazy" and row["state"] in {"unknown", "stale"}
+            for row in polled["fields"]
+        )
+    finally:
+        _clear_run(run_id)
+
+
+def test_optional_queued_job_poll_retries_dispatch_after_capacity_miss_and_restart(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-optional-dispatch-watchdog"
+    run_id = "run-optional-dispatch-watchdog"
+    candidate_ref = "candidate-required-durable"
+    store = _install_durable_required_fact_store(
+        monkeypatch,
+        record=_required_fact_run_record(
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref=candidate_ref,
+        ),
+    )
+    client = build_property_operator_client(principal_id=principal_id)
+    service = ProductService(client.app.state.container)
+    dispatch_attempts: list[str] = []
+    monkeypatch.setattr(
+        ProductService,
+        "_launch_property_candidate_fact_enrichment",
+        lambda self, **kwargs: (
+            dispatch_attempts.append(str(kwargs.get("job_id") or "")) or False
+        ),
+    )
+    try:
+        started = service.start_property_candidate_fact_enrichment(
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref=candidate_ref,
+            required_only=False,
+            launch_worker=True,
+        )
+        assert started["status"] == "queued"
+        assert dispatch_attempts == [started["job_id"]]
+
+        _clear_run(run_id)
+        restarted_service = ProductService(client.app.state.container)
+        polled = restarted_service.get_property_candidate_fact_enrichment(
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref=candidate_ref,
+        )
+
+        assert polled is not None
+        assert polled["status"] == "queued"
+        assert polled["job_id"] == started["job_id"]
+        assert dispatch_attempts == [started["job_id"], started["job_id"]]
+        assert dict(store["record"])["summary"][
+            "optional_fact_enrichment_candidate_jobs"
+        ][candidate_ref] == started["job_id"]
+    finally:
+        _clear_run(run_id)
+
+
+def test_legacy_candidate_job_pointer_is_read_and_migrated_as_optional(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-property-fact-legacy-pointer"
+    run_id = "run-property-fact-legacy-pointer"
+    candidate_ref = "candidate-required-durable"
+    store = _install_durable_required_fact_store(
+        monkeypatch,
+        record=_required_fact_run_record(
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref=candidate_ref,
+        ),
+    )
+    client = build_property_operator_client(principal_id=principal_id)
+    service = ProductService(client.app.state.container)
+    try:
+        started = service.start_property_candidate_fact_enrichment(
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref=candidate_ref,
+            required_only=False,
+            launch_worker=False,
+        )
+        record = copy.deepcopy(dict(store["record"]))
+        summary = dict(record.get("summary") or {})
+        summary["fact_enrichment_candidate_jobs"] = {
+            candidate_ref: started["job_id"]
+        }
+        summary.pop("optional_fact_enrichment_candidate_jobs", None)
+        record["summary"] = summary
+        store["record"] = record
+        _clear_run(run_id)
+
+        restarted_service = ProductService(client.app.state.container)
+        joined = restarted_service.start_property_candidate_fact_enrichment(
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref=candidate_ref,
+            required_only=False,
+            launch_worker=False,
+        )
+        migrated_summary = dict(dict(store["record"]).get("summary") or {})
+
+        assert joined["job_id"] == started["job_id"]
+        assert "fact_enrichment_candidate_jobs" not in migrated_summary
+        assert migrated_summary["optional_fact_enrichment_candidate_jobs"] == {
+            candidate_ref: started["job_id"]
+        }
+    finally:
+        _clear_run(run_id)
+
+
+def test_legacy_candidate_job_pointer_uses_persisted_required_job_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-property-fact-legacy-required-pointer"
+    run_id = "run-property-fact-legacy-required-pointer"
+    candidate_ref = "candidate-required-durable"
+    store = _install_durable_required_fact_store(
+        monkeypatch,
+        record=_required_fact_run_record(
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref=candidate_ref,
+        ),
+    )
+    client = build_property_operator_client(principal_id=principal_id)
+    service = ProductService(client.app.state.container)
+    try:
+        started = service.start_property_candidate_fact_enrichment(
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref=candidate_ref,
+            required_only=True,
+            launch_worker=False,
+            attempt_floor=1,
+        )
+        record = copy.deepcopy(dict(store["record"]))
+        summary = dict(record.get("summary") or {})
+        summary["fact_enrichment_candidate_jobs"] = {
+            candidate_ref: started["job_id"]
+        }
+        summary.pop("required_fact_enrichment_candidate_jobs", None)
+        record["summary"] = summary
+        store["record"] = record
+        _clear_run(run_id)
+
+        restarted_service = ProductService(client.app.state.container)
+        joined = restarted_service.start_property_candidate_fact_enrichment(
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref=candidate_ref,
+            required_only=True,
+            launch_worker=False,
+            attempt_floor=1,
+        )
+        migrated_summary = dict(dict(store["record"]).get("summary") or {})
+
+        assert joined["job_id"] == started["job_id"]
+        assert "fact_enrichment_candidate_jobs" not in migrated_summary
+        assert migrated_summary["required_fact_enrichment_candidate_jobs"] == {
+            candidate_ref: started["job_id"]
+        }
+        assert "optional_fact_enrichment_candidate_jobs" not in migrated_summary
+    finally:
+        _clear_run(run_id)
+
+
+def test_required_scheduler_work_budget_skips_terminal_and_backoff_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-required-fact-fairness"
+    run_id = "run-required-fact-fairness"
+    base = _required_fact_run_record(
+        principal_id=principal_id,
+        run_id=run_id,
+    )
+    candidates: list[dict[str, object]] = []
+    for index in range(12):
+        candidate_ref = f"candidate-fair-{index:02d}"
+        candidate_record = _required_fact_run_record(
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref=candidate_ref,
+        )
+        candidate = copy.deepcopy(
+            candidate_record["summary"]["sources"][0]["research_candidates"][0]
+        )
+        candidate["property_url"] = (
+            "https://www.willhaben.at/iad/immobilien/d/"
+            f"fairness-home-{1234567800 + index}/"
+        )
+        facts = dict(candidate["property_facts"])
+        preferences = dict(base["property_search_preferences"])
+        plan = property_fact_requirement_plan(
+            facts=facts,
+            preferences=preferences,
+            include_resolved=True,
+            property_url=candidate["property_url"],
+        )
+        candidate["fact_requirement_plan"] = plan
+        candidate["score_projection"] = property_fact_score_projection(
+            candidate=candidate,
+            plan=plan,
+            preferences=preferences,
+        )
+        candidates.append(candidate)
+    source = dict(base["summary"]["sources"][0])
+    source.update(
+        {
+            "research_candidates": copy.deepcopy(candidates),
+            "evaluating_candidates": copy.deepcopy(candidates),
+            "top_candidates": [],
+            "evaluating_candidate_total": len(candidates),
+        }
+    )
+    base_summary = dict(base["summary"])
+    base_summary.update(
+        {
+            "sources": [source],
+            "evaluating_candidates": copy.deepcopy(candidates),
+            "evaluating_candidate_total": len(candidates),
+        }
+    )
+    jobs: dict[str, dict[str, object]] = {}
+    candidate_jobs: dict[str, str] = {}
+    now = datetime.now(timezone.utc).isoformat()
+    for index, candidate in enumerate(candidates[:8]):
+        candidate_ref = str(candidate["candidate_ref"])
+        job_id = "pfe_" + f"{index + 1:024x}"
+        plan_field = next(
+            dict(row)
+            for row in list(candidate["fact_requirement_plan"])
+            if row["key"] == "nearest_supermarket_m"
+        )
+        terminal = index < 4
+        jobs[job_id] = {
+            "job_id": job_id,
+            "candidate_ref": candidate_ref,
+            "required_only": True,
+            "status": "terminal_error" if terminal else "retryable_error",
+            "attempt": 3 if terminal else 2,
+            "updated_at": now,
+            "retryable": not terminal,
+            "fields": [
+                {
+                    **plan_field,
+                    "state": "unavailable" if terminal else "retryable_error",
+                    "error": {
+                        "code": (
+                            "fact_enrichment_attempts_exhausted"
+                            if terminal
+                            else "fact_provider_temporarily_unavailable"
+                        ),
+                        "message": "Provider not ready.",
+                        "retry_after_seconds": 0 if terminal else 3600,
+                    },
+                }
+            ],
+            "score": dict(candidate["score_projection"]),
+        }
+        candidate_jobs[candidate_ref] = job_id
+    base_summary["fact_enrichment_jobs"] = jobs
+    base_summary["required_fact_enrichment_candidate_jobs"] = candidate_jobs
+    base["summary"] = base_summary
+    store = _install_durable_required_fact_store(monkeypatch, record=base)
+    client = build_property_operator_client(principal_id=principal_id)
+    provider_calls: list[str] = []
+    monkeypatch.setattr(
+        product_service,
+        "_property_fact_fresh_geo_snapshot",
+        lambda **kwargs: (
+            provider_calls.append(str(kwargs.get("property_url") or ""))
+            or {"nearest_supermarket_m": 220},
+            {
+                "coordinate_basis": "candidate_listing_coordinates",
+                "coordinate_observed_at": "",
+                "coordinate_precision": "address",
+                "coordinate_source": "listing",
+                "coordinate_exact": True,
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_alert_personal_fit_from_facts",
+        lambda **kwargs: {"fit_score": 66.0, "recommendation": "shortlist"},
+    )
+    try:
+        service = ProductService(client.app.state.container)
+        service._advance_property_search_required_fact_jobs(
+            principal_id=principal_id,
+            run_id=run_id,
+            max_candidates=2,
+        )
+        first_summary = dict(dict(store["record"]).get("summary") or {})
+        first_pointers = dict(
+            first_summary["required_fact_enrichment_candidate_jobs"]
+        )
+
+        assert len(provider_calls) == 2
+        assert "candidate-fair-08" in first_pointers
+        assert "candidate-fair-09" in first_pointers
+        assert "candidate-fair-10" not in first_pointers
+
+        service._advance_property_search_required_fact_jobs(
+            principal_id=principal_id,
+            run_id=run_id,
+            max_candidates=2,
+        )
+        second_summary = dict(dict(store["record"]).get("summary") or {})
+        second_pointers = dict(
+            second_summary["required_fact_enrichment_candidate_jobs"]
+        )
+
+        assert len(provider_calls) == 4
+        assert "candidate-fair-10" in second_pointers
+        assert "candidate-fair-11" in second_pointers
+    finally:
+        _clear_run(run_id)
+
+
+def test_required_scheduler_isolates_start_failure_and_advances_next_candidate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-required-fact-start-isolation"
+    run_id = "run-required-fact-start-isolation"
+    first_ref = "candidate-start-failure"
+    second_ref = "candidate-start-success"
+    record = _required_fact_run_record(
+        principal_id=principal_id,
+        run_id=run_id,
+        candidate_ref=first_ref,
+    )
+    first_candidate = copy.deepcopy(
+        record["summary"]["sources"][0]["research_candidates"][0]
+    )
+    second_candidate = copy.deepcopy(first_candidate)
+    second_candidate.update(
+        {
+            "candidate_ref": second_ref,
+            "listing_id": "required-start-success-1234567891",
+            "property_url": (
+                "https://www.willhaben.at/iad/immobilien/d/"
+                "required-start-success-1234567891/"
+            ),
+            "source_ref": "property-scout:required-start-success-1234567891",
+        }
+    )
+    preferences = dict(record["property_search_preferences"])
+    second_plan = property_fact_requirement_plan(
+        facts=dict(second_candidate["property_facts"]),
+        preferences=preferences,
+        include_resolved=True,
+        property_url=second_candidate["property_url"],
+    )
+    second_candidate["fact_requirement_plan"] = second_plan
+    second_candidate["score_projection"] = property_fact_score_projection(
+        candidate=second_candidate,
+        plan=second_plan,
+        preferences=preferences,
+    )
+    source = dict(record["summary"]["sources"][0])
+    source["research_candidates"] = [first_candidate, second_candidate]
+    source["evaluating_candidates"] = [first_candidate, second_candidate]
+    source["evaluating_candidate_total"] = 2
+    record["summary"]["sources"] = [source]
+    record["summary"]["evaluating_candidates"] = [
+        copy.deepcopy(first_candidate),
+        copy.deepcopy(second_candidate),
+    ]
+    record["summary"]["evaluating_candidate_total"] = 2
+    record["summary"]["required_fact_research_pending_total"] = 2
+    store = _install_durable_required_fact_store(monkeypatch, record=record)
+    client = build_property_operator_client(principal_id=principal_id)
+    service = ProductService(client.app.state.container)
+    original_start = service.start_property_candidate_fact_enrichment
+
+    def _start_with_one_failure(**kwargs: object) -> dict[str, object]:
+        if str(kwargs.get("candidate_ref") or "") == first_ref:
+            raise ValueError("unsupported listing URL must stay sanitized")
+        return original_start(**kwargs)
+
+    monkeypatch.setattr(
+        service,
+        "start_property_candidate_fact_enrichment",
+        _start_with_one_failure,
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_fact_fresh_geo_snapshot",
+        lambda **kwargs: (
+            {"nearest_supermarket_m": 240},
+            {
+                "coordinate_basis": "candidate_listing_coordinates",
+                "coordinate_observed_at": "",
+                "coordinate_precision": "address",
+                "coordinate_source": "listing",
+                "coordinate_exact": True,
+                "coordinate_updates": {},
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_alert_personal_fit_from_facts",
+        lambda **kwargs: {"fit_score": 71.0, "recommendation": "shortlist"},
+    )
+    try:
+        service._advance_property_search_required_fact_jobs(
+            principal_id=principal_id,
+            run_id=run_id,
+            max_candidates=2,
+        )
+        summary = dict(dict(store["record"]).get("summary") or {})
+        pointers = dict(summary["required_fact_enrichment_candidate_jobs"])
+        jobs = dict(summary["fact_enrichment_jobs"])
+        failed_job = dict(jobs[pointers[first_ref]])
+        succeeded_job = dict(jobs[pointers[second_ref]])
+
+        assert failed_job["status"] == "retryable_error"
+        assert failed_job["attempt"] == 2
+        assert failed_job["error"] == {
+            "code": "fact_enrichment_start_failed",
+            "message": (
+                "Required property facts could not be queued from the current "
+                "listing source."
+            ),
+        }
+        assert "unsupported listing URL" not in json.dumps(failed_job)
+        assert succeeded_job["status"] == "succeeded"
+        assert succeeded_job["attempt"] == 2
+    finally:
+        _clear_run(run_id)
+
+
+def test_event_cas_retry_preserves_concurrently_acquired_fact_lease(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-required-fact-event-race"
+    run_id = "run-required-fact-event-race"
+    candidate_ref = "candidate-required-durable"
+    store = _install_durable_required_fact_store(
+        monkeypatch,
+        record=_required_fact_run_record(
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref=candidate_ref,
+        ),
+    )
+    client = build_property_operator_client(principal_id=principal_id)
+    cas_calls = 0
+    job_id = "pfe_" + "f" * 24
+    stale_event_state = copy.deepcopy(dict(store["record"]))
+    stale_event_candidate = product_service._property_fact_find_candidate(
+        stale_event_state,
+        candidate_ref=candidate_ref,
+    )
+    assert stale_event_candidate is not None
+    stale_event_candidate = {
+        **stale_event_candidate,
+        "tour_url": "/tours/concurrent-visual-refresh",
+        "tour_status": "ready",
+    }
+    assert product_service._property_fact_update_candidate_copies(
+        stale_event_state,
+        candidate_ref=candidate_ref,
+        updated_candidate=stale_event_candidate,
+    )
+    stale_summary_updates = copy.deepcopy(stale_event_state["summary"])
+
+    def _racing_cas(**kwargs: object) -> dict[str, object]:
+        nonlocal cas_calls
+        cas_calls += 1
+        if cas_calls == 1:
+            live = copy.deepcopy(dict(store["record"]))
+            summary = dict(live.get("summary") or {})
+            jobs = dict(summary.get("fact_enrichment_jobs") or {})
+            jobs[job_id] = {
+                "job_id": job_id,
+                "candidate_ref": candidate_ref,
+                "required_only": True,
+                "status": "running",
+                "attempt": 2,
+                "lease_token": "concurrent-lease",
+                "lease_expires_at": (
+                    datetime.now(timezone.utc) + timedelta(minutes=2)
+                ).isoformat(),
+            }
+            summary["fact_enrichment_jobs"] = jobs
+            summary["required_fact_enrichment_candidate_jobs"] = {
+                candidate_ref: job_id
+            }
+            summary["blocked_required_facts"] = [
+                {
+                    "candidate_ref": candidate_ref,
+                    "key": "nearest_supermarket_m",
+                }
+            ]
+            live["summary"] = summary
+            live_candidate = product_service._property_fact_find_candidate(
+                live,
+                candidate_ref=candidate_ref,
+            )
+            assert live_candidate is not None
+            live_candidate = {
+                **live_candidate,
+                "property_facts": {
+                    **dict(live_candidate.get("property_facts") or {}),
+                    "nearest_supermarket_m": 333,
+                },
+                "fit_score": 91.0,
+                "assessment_fit_score": 90.0,
+                "adjusted_fit_score": 91.0,
+                "ranking_score": 91.0,
+                "search_score_context": {"source": "live-fact-completion"},
+                "score_provenance": {"facts_digest": "sha256:live"},
+                "score_state": "final",
+                "ranking_eligible": True,
+            }
+            assert product_service._property_fact_update_candidate_copies(
+                live,
+                candidate_ref=candidate_ref,
+                updated_candidate=live_candidate,
+            )
+            store["record"] = live
+            return {"status": "record_changed", "record_sha256": "raced"}
+        updated = copy.deepcopy(dict(kwargs["updated_record"]))
+        store["record"] = updated
+        return {
+            "status": "applied",
+            "record": copy.deepcopy(updated),
+            "record_sha256": "event-applied",
+        }
+
+    monkeypatch.setattr(
+        product_service,
+        "_compare_and_swap_property_search_run_record",
+        _racing_cas,
+    )
+    try:
+        service = ProductService(client.app.state.container)
+        stored = service._record_property_search_run_event(
+            run_id=run_id,
+            principal_id=principal_id,
+            step="results_finalizing",
+            message="Result state refreshed.",
+            status="completed_partial",
+            steps_delta=0,
+            summary_updates=stale_summary_updates,
+        )
+        persisted = dict(store["record"])
+        summary = dict(persisted.get("summary") or {})
+        job = dict(summary["fact_enrichment_jobs"][job_id])
+
+        assert stored is True
+        assert cas_calls == 2
+        assert job["status"] == "running"
+        assert job["lease_token"] == "concurrent-lease"
+        assert summary["blocked_required_facts"] == [
+            {
+                "candidate_ref": candidate_ref,
+                "key": "nearest_supermarket_m",
+            }
+        ]
+        persisted_candidate = product_service._property_fact_find_candidate(
+            persisted,
+            candidate_ref=candidate_ref,
+        )
+        assert persisted_candidate is not None
+        assert dict(persisted_candidate["property_facts"])[
+            "nearest_supermarket_m"
+        ] == 333
+        assert persisted_candidate["fit_score"] == 91.0
+        assert persisted_candidate["assessment_fit_score"] == 90.0
+        assert persisted_candidate["adjusted_fit_score"] == 91.0
+        assert persisted_candidate["search_score_context"] == {
+            "source": "live-fact-completion"
+        }
+        assert persisted_candidate["score_provenance"] == {
+            "facts_digest": "sha256:live"
+        }
+        assert persisted_candidate["tour_url"] == (
+            "/tours/concurrent-visual-refresh"
+        )
+        assert persisted_candidate["tour_status"] == "ready"
+        assert any(
+            str(event.get("step") or "") == "results_finalizing"
+            for event in list(persisted.get("events") or [])
+            if isinstance(event, dict)
+        )
+    finally:
+        _clear_run(run_id)
+
+
+def test_required_fact_research_counter_does_not_block_first_result_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-required-fact-counter-event"
+    run_id = "run-required-fact-counter-event"
+    candidate = _candidate(candidate_ref="candidate-first-result")
+    record = _run_record(
+        principal_id=principal_id,
+        run_id=run_id,
+        candidate=candidate,
+    )
+    record["summary"] = {"required_fact_research_attempted_total": 1}
+    store = _install_durable_required_fact_store(
+        monkeypatch,
+        record=record,
+    )
+    client = build_property_operator_client(principal_id=principal_id)
+    service = ProductService(client.app.state.container)
+    incoming_source = {
+        "source_label": "Willhaben",
+        "source_url": "https://www.willhaben.at/iad/immobilien/",
+        "top_candidates": [copy.deepcopy(candidate)],
+        "research_candidates": [copy.deepcopy(candidate)],
+    }
+    try:
+        assert service._record_property_search_run_event(
+            run_id=run_id,
+            principal_id=principal_id,
+            step="results_ready",
+            message="First ranked result ready.",
+            status="processed",
+            steps_delta=0,
+            summary_updates={
+                "sources": [incoming_source],
+                "ranked_candidates": [copy.deepcopy(candidate)],
+                "ranked_candidate_total": 1,
+            },
+            force_status="processed",
+        )
+        summary = dict(dict(store["record"]).get("summary") or {})
+
+        assert summary["sources"][0]["source_url"] == incoming_source["source_url"]
+        assert summary["ranked_candidates"][0]["candidate_ref"] == (
+            "candidate-first-result"
+        )
+        assert summary["ranked_candidate_total"] == 1
+    finally:
+        _clear_run(run_id)
+
+
+def test_compact_v3_smoke_preserves_required_blocker_without_promoting_evaluating() -> None:
+    record = _required_fact_run_record(
+        principal_id="exec-required-fact-compact-smoke",
+        run_id="run-required-fact-compact-smoke",
+    )
+
+    compact = property_search_storage._compact_property_search_run_record(record)
+    summary = dict(compact["summary"])
+
+    assert compact["compact_schema_version"] == 3
+    assert compact["delivery_pending"] is True
+    assert summary["results_delivery_blocked_reason"] == (
+        "required_property_facts_unresolved"
+    )
+    assert summary["required_fact_resolution_pending"] is True
+    assert summary["required_fact_resolution_exhausted"] is False
+    assert summary["ranked_candidates"] == []
+    assert summary["evaluating_candidate_total"] == 1
 
 
 def test_fact_enrichment_job_is_idempotent_persistent_and_recomputes_score(
@@ -495,9 +2947,11 @@ def test_fact_enrichment_job_is_idempotent_persistent_and_recomputes_score(
     service = ProductService(client.app.state.container)
     _seed_run(_run_record(principal_id=principal_id, run_id=run_id, candidate=candidate))
     calls = {"research": 0}
+    observed_coordinates: list[tuple[float, float]] = []
 
     def _research(_latitude: float, _longitude: float) -> dict[str, object]:
         calls["research"] += 1
+        observed_coordinates.append((_latitude, _longitude))
         return {
             "nearest_supermarket_m": 280,
             "nearest_supermarket_name": "Daily Market",
@@ -507,6 +2961,28 @@ def test_fact_enrichment_job_is_idempotent_persistent_and_recomputes_score(
             "nearest_subway_m": 640,
         }
 
+    refreshed_latitude = 48.215
+    refreshed_longitude = 16.385
+    source_fingerprint = property_fact_source_fingerprint(
+        str(candidate["property_url"])
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_fact_coordinate_snapshot",
+        lambda _property_url: {
+            "map_lat": refreshed_latitude,
+            "map_lng": refreshed_longitude,
+            "map_location_precision": "address",
+            "map_location_source": "listing_preview",
+            "house_number": "22",
+            "map_coordinate_evidence": {
+                "exact": True,
+                "trusted": True,
+                "provider": "listing_preview",
+                "source_fingerprint": source_fingerprint,
+            },
+        },
+    )
     monkeypatch.setattr(product_service, "_property_research_nearby_pois", _research)
     monkeypatch.setattr(
         product_service,
@@ -514,9 +2990,9 @@ def test_fact_enrichment_job_is_idempotent_persistent_and_recomputes_score(
         lambda url: str(url),
     )
     monkeypatch.setattr(
-        ProductService,
-        "preview_preference_candidate",
-        lambda self, **kwargs: {
+        product_service,
+        "_property_alert_personal_fit_from_facts",
+        lambda **kwargs: {
             "domain": "willhaben",
             "fit_score": 68.0,
             "recommendation": "shortlist",
@@ -552,6 +3028,7 @@ def test_fact_enrichment_job_is_idempotent_persistent_and_recomputes_score(
         assert status["schema_version"] == PROPERTY_FACT_ENRICHMENT_SCHEMA_VERSION
         assert status["status"] == "succeeded"
         assert calls["research"] == 1
+        assert observed_coordinates == [(refreshed_latitude, refreshed_longitude)]
         assert status["score"]["state"] == "final"
         assert status["score"]["previous"] == 60.0
         assert status["score"]["current"] == 68.0
@@ -564,6 +3041,22 @@ def test_fact_enrichment_job_is_idempotent_persistent_and_recomputes_score(
         assert supermarket["provenance"]["observed_at"]
         assert supermarket["provenance"]["expires_at"]
         assert PropertyFactEnrichmentOut(**status).status == "succeeded"
+
+        with product_service._PROPERTY_SEARCH_RUN_LOCK:
+            persisted = copy.deepcopy(
+                product_service._PROPERTY_SEARCH_RUN_REGISTRY[run_id]
+            )
+        persisted_candidate = product_service._property_fact_find_candidate(
+            persisted,
+            candidate_ref="candidate-facts",
+        )
+        assert persisted_candidate is not None
+        persisted_facts = dict(persisted_candidate["property_facts"])
+        assert persisted_facts["map_lat"] == refreshed_latitude
+        assert persisted_facts["map_lng"] == refreshed_longitude
+        assert dict(persisted_facts["map_coordinate_evidence"])[
+            "source_fingerprint"
+        ] == source_fingerprint
 
         joined = service.start_property_candidate_fact_enrichment(
             principal_id=principal_id,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import urllib.parse
 from datetime import datetime, timedelta, timezone
 from types import MappingProxyType
 from typing import Mapping, Sequence
@@ -10,6 +11,15 @@ from typing import Mapping, Sequence
 PROPERTY_FACT_ENRICHMENT_SCHEMA_VERSION = "propertyquarry.fact-enrichment.v1"
 PROPERTY_FACT_SCORE_ALGORITHM_VERSION = "propertyquarry.fact-score-state.v1"
 PROPERTY_FACT_GEO_BUNDLE_KIND = "optional-geo-v1"
+PROPERTY_FACT_REQUIRED_GEO_BUNDLE_KIND = "required-geo-v1"
+
+_PROPERTY_FACT_PROVIDER_LABELS = MappingProxyType(
+    {
+        "openstreetmap_overpass": "OpenStreetMap nearby places",
+        "schoolatlas": "official school atlas",
+        "quality_verified_cafe_source": "quality-verified café source",
+    }
+)
 
 
 def _distance_fact_spec(
@@ -22,26 +32,48 @@ def _distance_fact_spec(
     poi_keys: Sequence[str] = (),
     provider: str = "openstreetmap_overpass",
     evidence_providers: Sequence[str] = (),
+    evidence_source_keys_by_provider: Mapping[str, Sequence[str]] | None = None,
     strict_evidence_provider: bool = False,
     default_lazy: bool = False,
     search_supported: bool = True,
 ) -> Mapping[str, object]:
     """Build one immutable row in the shared distance-fact registry."""
+    normalized_provider = str(provider).strip()
+    normalized_aliases = tuple(
+        dict.fromkeys((key, *(str(value) for value in aliases)))
+    )
     normalized_preferences = tuple(str(value) for value in preference_keys)
     required_preferences = tuple(
         value for value in normalized_preferences if value.startswith("max_distance_to_")
     )
+    normalized_evidence_providers = tuple(
+        dict.fromkeys(
+            str(value).strip()
+            for value in (evidence_providers or (normalized_provider,))
+            if str(value).strip()
+        )
+    )
+    normalized_source_keys_by_provider = {
+        str(provider_key): tuple(str(value) for value in source_keys)
+        for provider_key, source_keys in dict(
+            evidence_source_keys_by_provider
+            or {normalized_provider: normalized_aliases}
+        ).items()
+    }
     return MappingProxyType(
         {
             "key": key,
-            "aliases": tuple(dict.fromkeys((key, *(str(value) for value in aliases)))),
+            "aliases": normalized_aliases,
             "label": label,
             "search_label": search_label,
             "preference_keys": normalized_preferences,
             "required_preference_keys": required_preferences,
             "poi_keys": tuple(str(value) for value in poi_keys),
-            "provider": provider,
-            "evidence_providers": tuple(str(value) for value in evidence_providers),
+            "provider": normalized_provider,
+            "evidence_providers": normalized_evidence_providers,
+            "evidence_source_keys_by_provider": MappingProxyType(
+                normalized_source_keys_by_provider
+            ),
             "strict_evidence_provider": bool(strict_evidence_provider),
             "default_lazy": bool(default_lazy),
             "search_supported": bool(search_supported),
@@ -94,9 +126,21 @@ PROPERTY_FACT_DISTANCE_SPECS: tuple[Mapping[str, object], ...] = (
         aliases=("nearest_transit_m", "distance_underground_m", "distance_subway_m"),
         label="Underground distance",
         search_label="underground",
-        preference_keys=("max_distance_to_subway_m", "prefer_subway_nearby"),
+        preference_keys=(
+            "max_distance_to_subway_m",
+            "max_distance_to_underground_m",
+            "prefer_subway_nearby",
+        ),
         poi_keys=("railway=subway_entrance",),
         default_lazy=True,
+    ),
+    _distance_fact_spec(
+        key="nearest_university_m",
+        aliases=("distance_university_m",),
+        label="University distance",
+        search_label="university",
+        preference_keys=("max_distance_to_university_m",),
+        poi_keys=("amenity=university",),
     ),
     _distance_fact_spec(
         key="nearest_kindergarten_m",
@@ -104,9 +148,16 @@ PROPERTY_FACT_DISTANCE_SPECS: tuple[Mapping[str, object], ...] = (
         label="Kindergarten distance",
         search_label="kindergarten",
         preference_keys=("max_distance_to_kindergarten_m",),
-        poi_keys=("schoolatlas=kindergarten",),
+        poi_keys=("amenity=kindergarten", "schoolatlas=kindergarten"),
         provider="schoolatlas",
-        evidence_providers=("schoolatlas",),
+        evidence_providers=("schoolatlas", "openstreetmap_overpass"),
+        evidence_source_keys_by_provider={
+            "schoolatlas": (
+                "nearest_kindergarten_m",
+                "distance_kindergarten_m",
+            ),
+            "openstreetmap_overpass": ("nearest_kindergarten_m",),
+        },
         strict_evidence_provider=True,
     ),
     _distance_fact_spec(
@@ -118,6 +169,12 @@ PROPERTY_FACT_DISTANCE_SPECS: tuple[Mapping[str, object], ...] = (
         poi_keys=("schoolatlas=full_day_primary_school",),
         provider="schoolatlas",
         evidence_providers=("schoolatlas",),
+        evidence_source_keys_by_provider={
+            "schoolatlas": (
+                "nearest_full_day_primary_school_m",
+                "distance_full_day_primary_school_m",
+            ),
+        },
         strict_evidence_provider=True,
     ),
     _distance_fact_spec(
@@ -129,6 +186,12 @@ PROPERTY_FACT_DISTANCE_SPECS: tuple[Mapping[str, object], ...] = (
         poi_keys=("schoolatlas=half_day_primary_school",),
         provider="schoolatlas",
         evidence_providers=("schoolatlas",),
+        evidence_source_keys_by_provider={
+            "schoolatlas": (
+                "nearest_half_day_primary_school_m",
+                "distance_half_day_primary_school_m",
+            ),
+        },
         strict_evidence_provider=True,
     ),
     _distance_fact_spec(
@@ -244,6 +307,12 @@ PROPERTY_FACT_DISTANCE_SPECS: tuple[Mapping[str, object], ...] = (
         poi_keys=("amenity=cafe+independent_quality_evidence",),
         provider="quality_verified_cafe_source",
         evidence_providers=("quality_verified_cafe_source",),
+        evidence_source_keys_by_provider={
+            "quality_verified_cafe_source": (
+                "nearest_good_cafe_m",
+                "distance_good_cafe_m",
+            ),
+        },
         strict_evidence_provider=True,
     ),
     _distance_fact_spec(
@@ -272,7 +341,18 @@ def property_fact_distance_specs(
     """Return defensive copies of the shared bounded distance-fact registry."""
     return tuple(
         {
-            key: list(value) if isinstance(value, tuple) else value
+            key: (
+                list(value)
+                if isinstance(value, tuple)
+                else {
+                    nested_key: list(nested_value)
+                    if isinstance(nested_value, tuple)
+                    else nested_value
+                    for nested_key, nested_value in value.items()
+                }
+                if isinstance(value, Mapping)
+                else value
+            )
             for key, value in spec.items()
         }
         for spec in PROPERTY_FACT_DISTANCE_SPECS
@@ -331,6 +411,12 @@ def property_fact_candidate_ref(candidate: Mapping[str, object]) -> str:
         for key in ("title", "property_url", "review_url", "source_ref", "source_label")
     )
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def property_fact_source_fingerprint(property_url: object) -> str:
+    """Bind evidence to the exact defragmented listing URL it describes."""
+    normalized = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+    return "sha256:" + hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
 def _explicit_priority_keys(preferences: Mapping[str, object], priority: str) -> set[str]:
@@ -505,10 +591,15 @@ def _evidence_for_fact(
     facts: Mapping[str, object],
     key: str,
     aliases: Sequence[str] = (),
+    *,
+    observed_source_key: str = "",
 ) -> dict[str, object]:
     evidence_map = facts.get("property_fact_evidence")
     if not isinstance(evidence_map, Mapping):
         return {}
+    if str(observed_source_key or "").strip():
+        raw = evidence_map.get(str(observed_source_key).strip())
+        return dict(raw) if isinstance(raw, Mapping) else {}
     for evidence_key in tuple(dict.fromkeys((key, *(str(value) for value in aliases)))):
         raw = evidence_map.get(evidence_key)
         if isinstance(raw, Mapping):
@@ -532,24 +623,54 @@ def _evidence_is_stale(evidence: Mapping[str, object]) -> bool:
 def _evidence_provider_is_allowed(
     evidence: Mapping[str, object],
     spec: Mapping[str, object],
+    *,
+    observed_source_key: str = "",
 ) -> bool:
     allowed = {
         _normalized_text(value)
         for value in tuple(spec.get("evidence_providers") or ())
         if _normalized_text(value)
     }
-    return not allowed or _normalized_text(evidence.get("provider")) in allowed
+    provider = _normalized_text(evidence.get("provider"))
+    if allowed and provider not in allowed:
+        return False
+    source_keys_by_provider = spec.get("evidence_source_keys_by_provider")
+    if not isinstance(source_keys_by_provider, Mapping):
+        return True
+    allowed_source_keys = {
+        _normalized_text(value)
+        for value in tuple(source_keys_by_provider.get(provider) or ())
+        if _normalized_text(value)
+    }
+    if not allowed_source_keys:
+        return True
+    return bool(
+        _normalized_text(evidence.get("source_key")) in allowed_source_keys
+        and _normalized_text(observed_source_key) in allowed_source_keys
+    )
 
 
 def _required_evidence_is_fresh(
     evidence: Mapping[str, object],
     spec: Mapping[str, object],
+    *,
+    observed_source_key: str,
+    expected_source_fingerprint: str = "",
 ) -> bool:
+    evidence_source_fingerprint = str(evidence.get("source_fingerprint") or "").strip()
     if (
         evidence.get("coordinate_exact") is not True
         or not str(evidence.get("provider") or "").strip()
-        or not str(evidence.get("source_fingerprint") or "").startswith("sha256:")
-        or not _evidence_provider_is_allowed(evidence, spec)
+        or not evidence_source_fingerprint.startswith("sha256:")
+        or (
+            expected_source_fingerprint
+            and evidence_source_fingerprint != expected_source_fingerprint
+        )
+        or not _evidence_provider_is_allowed(
+            evidence,
+            spec,
+            observed_source_key=observed_source_key,
+        )
     ):
         return False
     observed_at = str(evidence.get("observed_at") or "").strip()
@@ -601,8 +722,14 @@ def property_fact_requirement_plan(
     preferences: Mapping[str, object] | None = None,
     preference_nodes: Sequence[Mapping[str, object]] = (),
     include_resolved: bool = True,
+    property_url: object = "",
 ) -> list[dict[str, object]]:
     normalized_preferences = dict(preferences or {})
+    expected_source_fingerprint = (
+        property_fact_source_fingerprint(property_url)
+        if str(property_url or "").strip()
+        else ""
+    )
     plan: list[dict[str, object]] = []
     for spec in PROPERTY_FACT_DISTANCE_SPECS:
         if not _fact_spec_is_relevant(
@@ -615,7 +742,12 @@ def property_fact_requirement_plan(
         aliases = tuple(str(value) for value in tuple(spec.get("aliases") or ()))
         value, source_key = property_fact_value(facts, aliases)
         key = str(spec.get("key") or "").strip()
-        evidence = _evidence_for_fact(facts, key, aliases)
+        evidence = _evidence_for_fact(
+            facts,
+            key,
+            aliases,
+            observed_source_key=source_key,
+        )
         priority = _fact_priority(
             spec=spec,
             preferences=normalized_preferences,
@@ -625,13 +757,37 @@ def property_fact_requirement_plan(
         if (
             value is not None
             and priority == "required"
-            and not _required_evidence_is_fresh(evidence, spec)
+            and not _required_evidence_is_fresh(
+                evidence,
+                spec,
+                observed_source_key=source_key,
+                expected_source_fingerprint=expected_source_fingerprint,
+            )
         ):
             state = "stale"
         elif (
             value is not None
-            and bool(spec.get("strict_evidence_provider"))
-            and not _evidence_provider_is_allowed(evidence, spec)
+            and bool(expected_source_fingerprint)
+            and (
+                not evidence
+                or str(evidence.get("source_fingerprint") or "").strip()
+                != expected_source_fingerprint
+                or not _evidence_provider_is_allowed(
+                    evidence,
+                    spec,
+                    observed_source_key=source_key,
+                )
+            )
+        ):
+            state = "stale"
+        elif (
+            value is not None
+            and (bool(evidence) or bool(spec.get("strict_evidence_provider")))
+            and not _evidence_provider_is_allowed(
+                evidence,
+                spec,
+                observed_source_key=source_key,
+            )
         ):
             state = "stale"
         elif value is not None and _distance_is_coordinate_estimate(facts, evidence):
@@ -651,6 +807,31 @@ def property_fact_requirement_plan(
                 "value": value,
                 "display_value": f"{value:,} m".replace(",", " ") if value is not None else "",
                 "source_key": source_key,
+                "provider": str(spec.get("provider") or "").strip(),
+                "evidence_providers": [
+                    str(value)
+                    for value in tuple(spec.get("evidence_providers") or ())
+                    if str(value).strip()
+                ],
+                "evidence_source_keys_by_provider": {
+                    str(provider_key): [
+                        str(value)
+                        for value in tuple(source_keys or ())
+                        if str(value).strip()
+                    ]
+                    for provider_key, source_keys in dict(
+                        spec.get("evidence_source_keys_by_provider") or {}
+                    ).items()
+                },
+                "provider_label": str(
+                    _PROPERTY_FACT_PROVIDER_LABELS.get(
+                        str(spec.get("provider") or "").strip(),
+                        str(spec.get("provider") or "fact provider").strip(),
+                    )
+                ),
+                "strict_evidence_provider": bool(
+                    spec.get("strict_evidence_provider")
+                ),
                 "provenance": evidence,
                 "error": {},
             }

@@ -333,7 +333,9 @@ def test_property_search_compact_record_keeps_bounded_delivery_projection() -> N
 
     summary = dict(compact["summary"])
     projection = [dict(row) for row in list(summary["_delivery_candidates"])]
-    assert compact["compact_schema_version"] == 2
+    assert compact["compact_schema_version"] == (
+        property_search_storage._PROPERTY_SEARCH_RUN_COMPACT_SCHEMA_VERSION
+    )
     assert summary["eligible_tour_total"] == 1
     assert summary["pending_tour_total"] == 1
     assert summary["ready_tour_total"] == 0
@@ -545,7 +547,11 @@ def test_property_search_delivery_work_query_prioritizes_schema_then_durable_cur
         "ORDER BY compact_schema_version ASC, delivery_checked_at ASC NULLS FIRST, updated_at ASC"
         in normalized_query
     )
-    assert observed["params"] == [["processed"], 2, 40]
+    assert observed["params"] == [
+        ["processed"],
+        property_search_storage._PROPERTY_SEARCH_RUN_COMPACT_SCHEMA_VERSION,
+        40,
+    ]
 
 
 def test_property_search_compact_backfill_uses_updated_at_compare_and_swap(
@@ -4392,6 +4398,27 @@ def test_property_distance_gate_treats_non_hard_preferences_as_score_only() -> N
 
 
 def test_property_distance_preference_score_adjustment_rewards_and_penalizes_soft_matches() -> None:
+    observed_at = datetime.now(timezone.utc)
+
+    def _with_exact_distance_evidence(
+        facts: dict[str, object],
+    ) -> dict[str, object]:
+        return {
+            **facts,
+            "property_fact_evidence": {
+                key: {
+                    "provider": "openstreetmap_overpass",
+                    "observed_at": observed_at.isoformat(),
+                    "expires_at": (observed_at + timedelta(hours=24)).isoformat(),
+                    "source_fingerprint": "sha256:" + "d" * 64,
+                    "source_key": key,
+                    "coordinate_exact": True,
+                }
+                for key in facts
+                if str(key).startswith("nearest_") and str(key).endswith("_m")
+            },
+        }
+
     positive_adjustment, positive_notes = product_service._property_distance_preference_score_adjustment(
         preferences={
             "max_distance_to_library_m": 500,
@@ -4399,10 +4426,12 @@ def test_property_distance_preference_score_adjustment_rewards_and_penalizes_sof
             "max_distance_to_playground_m": 800,
             "max_distance_to_playground_importance": "nice_to_have",
         },
-        property_facts={
-            "nearest_library_m": 240,
-            "nearest_playground_m": 620,
-        },
+        property_facts=_with_exact_distance_evidence(
+            {
+                "nearest_library_m": 240,
+                "nearest_playground_m": 620,
+            }
+        ),
     )
 
     assert positive_adjustment > 0
@@ -4416,9 +4445,11 @@ def test_property_distance_preference_score_adjustment_rewards_and_penalizes_sof
             "max_distance_to_playground_m": 500,
             "max_distance_to_playground_importance": "nice_to_have",
         },
-        property_facts={
-            "nearest_library_m": 1800,
-        },
+        property_facts=_with_exact_distance_evidence(
+            {
+                "nearest_library_m": 1800,
+            }
+        ),
     )
 
     assert negative_adjustment < 0
@@ -4445,10 +4476,12 @@ def test_property_distance_preference_score_adjustment_rewards_and_penalizes_sof
             "max_distance_to_theatre_m": 700,
             "max_distance_to_theatre_importance": "strong_wish",
         },
-        property_facts={
-            "nearest_shopping_center_m": 220,
-            "nearest_theatre_m": 360,
-        },
+        property_facts=_with_exact_distance_evidence(
+            {
+                "nearest_shopping_center_m": 220,
+                "nearest_theatre_m": 360,
+            }
+        ),
     )
 
     assert avoid_adjustment < 0
@@ -9206,6 +9239,22 @@ def test_property_search_soft_filters_do_not_change_discovered_hit_set(monkeypat
 
     def _fake_preview(property_url: str, *, prefer_fast: bool = False) -> dict[str, object]:
         facts = dict(facts_by_url[property_url])
+        observed_at = datetime.now(timezone.utc)
+        source_fingerprint = product_service._property_fact_source_fingerprint(
+            property_url
+        )
+        facts["property_fact_evidence"] = {
+            key: {
+                "provider": "openstreetmap_overpass",
+                "observed_at": observed_at.isoformat(),
+                "expires_at": (observed_at + timedelta(hours=24)).isoformat(),
+                "source_key": key,
+                "source_fingerprint": source_fingerprint,
+                "coordinate_exact": True,
+            }
+            for key in facts
+            if str(key).startswith("nearest_") and str(key).endswith("_m")
+        }
         return {
             "listing_id": property_url.rsplit("/", 2)[-2],
             "title": f"Mietwohnung in 1020 Wien {property_url.rsplit('/', 2)[-2]}",
@@ -15118,6 +15167,12 @@ def test_property_search_preferences_round_trip_all_hidden_what_matters_distance
     importance_fields = [name for name in hidden_field_names if name.endswith("_importance")]
     assert numeric_fields, "Expected hidden What matters distance fields"
     assert importance_fields, "Expected hidden What matters importance fields"
+    assert "max_distance_to_pharmacy_m" in numeric_fields
+    assert "max_distance_to_pharmacy_importance" in importance_fields
+    assert "max_distance_to_subway_m" in numeric_fields
+    assert "max_distance_to_subway_importance" in importance_fields
+    assert "max_distance_to_university_m" in numeric_fields
+    assert "max_distance_to_university_importance" in importance_fields
 
     importance_cycle = ("important", "nice_to_have", "must_have")
     payload = {
@@ -15161,6 +15216,24 @@ def test_property_search_preferences_round_trip_all_hidden_what_matters_distance
         assert preferences[name] == payload[name], name
     for name in importance_fields:
         assert preferences[name] == payload[name], name
+    assert preferences["max_distance_to_pharmacy_m"] == payload[
+        "max_distance_to_pharmacy_m"
+    ]
+    assert preferences["max_distance_to_pharmacy_importance"] == payload[
+        "max_distance_to_pharmacy_importance"
+    ]
+    assert preferences["max_distance_to_subway_m"] == payload[
+        "max_distance_to_subway_m"
+    ]
+    assert preferences["max_distance_to_subway_importance"] == payload[
+        "max_distance_to_subway_importance"
+    ]
+    assert preferences["max_distance_to_university_m"] == payload[
+        "max_distance_to_university_m"
+    ]
+    assert preferences["max_distance_to_university_importance"] == payload[
+        "max_distance_to_university_importance"
+    ]
 
     status_snapshot = client.get("/v1/onboarding/property-search/preferences")
     assert status_snapshot.status_code == 200, status_snapshot.text
@@ -15173,6 +15246,24 @@ def test_property_search_preferences_round_trip_all_hidden_what_matters_distance
         assert persisted[name] == payload[name], name
     for name in importance_fields:
         assert persisted[name] == payload[name], name
+    assert persisted["max_distance_to_pharmacy_m"] == payload[
+        "max_distance_to_pharmacy_m"
+    ]
+    assert persisted["max_distance_to_pharmacy_importance"] == payload[
+        "max_distance_to_pharmacy_importance"
+    ]
+    assert persisted["max_distance_to_subway_m"] == payload[
+        "max_distance_to_subway_m"
+    ]
+    assert persisted["max_distance_to_subway_importance"] == payload[
+        "max_distance_to_subway_importance"
+    ]
+    assert persisted["max_distance_to_university_m"] == payload[
+        "max_distance_to_university_m"
+    ]
+    assert persisted["max_distance_to_university_importance"] == payload[
+        "max_distance_to_university_importance"
+    ]
 
 
 def test_agent_property_search_preferences_drop_stale_result_cap_when_saved() -> None:
@@ -16988,13 +17079,16 @@ def test_scheduler_reconcile_persists_compact_delivery_refresh_without_full_payl
         "principal_id": principal_id,
         "status": "processed",
         "updated_at": "2026-07-15T10:00:00+00:00",
-        "compact_schema_version": 2,
+        "compact_schema_version": property_search_storage._PROPERTY_SEARCH_RUN_COMPACT_SCHEMA_VERSION,
         "delivery_pending": True,
         "summary": {
             "eligible_tour_total": 1,
             "pending_tour_total": 1,
             "ready_tour_total": 0,
             "blocked_tour_total": 0,
+            "required_fact_resolution_pending": False,
+            "required_fact_resolution_exhausted": False,
+            "evaluating_candidate_total": 0,
             "_delivery_candidates": [
                 {
                     "candidate_ref": "candidate-compact-finalization",
@@ -17075,6 +17169,9 @@ def test_scheduler_reconcile_skips_ready_runs_and_reuses_principal_tour_events(m
         "pending_tour_total": 1,
         "ready_tour_total": 0,
         "blocked_tour_total": 0,
+        "required_fact_resolution_pending": False,
+        "required_fact_resolution_exhausted": False,
+        "evaluating_candidate_total": 0,
         "_delivery_candidates": [{"source_ref": "source-1", "tour_status": "pending"}],
     }
     ready_summary = {
@@ -17082,6 +17179,9 @@ def test_scheduler_reconcile_skips_ready_runs_and_reuses_principal_tour_events(m
         "pending_tour_total": 0,
         "ready_tour_total": 1,
         "blocked_tour_total": 0,
+        "required_fact_resolution_pending": False,
+        "required_fact_resolution_exhausted": False,
+        "evaluating_candidate_total": 0,
         "sources": [{"source_ref": "source-ready", "top_candidates": []}],
     }
     records = tuple(
@@ -17089,7 +17189,7 @@ def test_scheduler_reconcile_skips_ready_runs_and_reuses_principal_tour_events(m
             "run_id": f"run-ready-{index}",
             "principal_id": principal_id,
             "status": "processed",
-            "compact_schema_version": 2,
+            "compact_schema_version": property_search_storage._PROPERTY_SEARCH_RUN_COMPACT_SCHEMA_VERSION,
             "summary": ready_summary,
         }
         for index in range(18)
@@ -17098,7 +17198,7 @@ def test_scheduler_reconcile_skips_ready_runs_and_reuses_principal_tour_events(m
             "run_id": f"run-pending-{index}",
             "principal_id": principal_id,
             "status": "processed",
-            "compact_schema_version": 2,
+            "compact_schema_version": property_search_storage._PROPERTY_SEARCH_RUN_COMPACT_SCHEMA_VERSION,
             "summary": pending_summary,
         }
         for index in range(22)
@@ -17205,16 +17305,26 @@ def test_scheduler_reconcile_separates_legacy_and_truncated_hydration_budgets(
             "principal_id": principal_id,
             "status": "processed",
             "updated_at": "2026-07-15T10:00:00+00:00",
-            "compact_schema_version": 2,
-            "summary": {"_delivery_projection_truncated": True},
+            "compact_schema_version": property_search_storage._PROPERTY_SEARCH_RUN_COMPACT_SCHEMA_VERSION,
+            "summary": {
+                "_delivery_projection_truncated": True,
+                "required_fact_resolution_pending": False,
+                "required_fact_resolution_exhausted": False,
+                "evaluating_candidate_total": 0,
+            },
         },
         {
             "run_id": "run-truncated-1",
             "principal_id": principal_id,
             "status": "processed",
             "updated_at": "2026-07-15T10:01:00+00:00",
-            "compact_schema_version": 2,
-            "summary": {"_delivery_projection_truncated": True},
+            "compact_schema_version": property_search_storage._PROPERTY_SEARCH_RUN_COMPACT_SCHEMA_VERSION,
+            "summary": {
+                "_delivery_projection_truncated": True,
+                "required_fact_resolution_pending": False,
+                "required_fact_resolution_exhausted": False,
+                "evaluating_candidate_total": 0,
+            },
         },
         {
             "run_id": "run-legacy-0",
@@ -17278,9 +17388,14 @@ def test_scheduler_reconcile_refreshes_truncated_state_before_failed_compact_cas
         "principal_id": principal_id,
         "status": "processed",
         "updated_at": "2026-07-15T10:00:00+00:00",
-        "compact_schema_version": 2,
+        "compact_schema_version": property_search_storage._PROPERTY_SEARCH_RUN_COMPACT_SCHEMA_VERSION,
         "delivery_pending": True,
-        "summary": {"_delivery_projection_truncated": True},
+        "summary": {
+            "_delivery_projection_truncated": True,
+            "required_fact_resolution_pending": False,
+            "required_fact_resolution_exhausted": False,
+            "evaluating_candidate_total": 0,
+        },
     }
     stored: list[dict[str, object]] = []
     event_loads: list[str] = []
@@ -17362,13 +17477,16 @@ def test_scheduler_reconcile_touches_fairness_cursor_when_projection_is_unchange
         "status": "processed",
         "updated_at": "2026-07-15T10:00:00+00:00",
         "delivery_checked_at": "2026-07-15T10:05:00+00:00",
-        "compact_schema_version": 2,
+        "compact_schema_version": property_search_storage._PROPERTY_SEARCH_RUN_COMPACT_SCHEMA_VERSION,
         "delivery_pending": True,
         "summary": {
             "eligible_tour_total": 1,
             "pending_tour_total": 1,
             "ready_tour_total": 0,
             "blocked_tour_total": 0,
+            "required_fact_resolution_pending": False,
+            "required_fact_resolution_exhausted": False,
+            "evaluating_candidate_total": 0,
             "_delivery_candidates": [{"source_ref": "source-delivery-cursor", "tour_status": "pending"}],
         },
     }

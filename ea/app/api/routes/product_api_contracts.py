@@ -2111,6 +2111,9 @@ class PropertyFactFieldOut(BaseModel):
 
     key: str = Field(min_length=1, max_length=80, pattern=r"^[a-z0-9_]+$")
     label: str = Field(min_length=1, max_length=120)
+    provider: str = Field(default="", max_length=80)
+    provider_label: str = Field(default="", max_length=120)
+    strict_evidence_provider: StrictBool = False
     state: Literal["unknown", "stale", "queued", "running", "resolved", "retryable_error", "unavailable"]
     priority: Literal["required", "lazy"]
     affects_score: StrictBool
@@ -2152,12 +2155,24 @@ class PropertyFactScoreOut(BaseModel):
         return value
 
 
+class PropertyFactProviderReceiptOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    field_key: str = Field(min_length=1, max_length=80, pattern=r"^[a-z0-9_]+$")
+    provider: str = Field(default="", max_length=80)
+    provider_label: str = Field(default="", max_length=120)
+    status: Literal["verified", "pending", "unavailable"]
+    evidence_source_key: str = Field(default="", max_length=80)
+    source_fingerprint: str = Field(default="", pattern=r"^(|sha256:[0-9a-f]{64})$")
+    reason_code: str = Field(default="", pattern=r"^[a-z0-9_]{0,96}$")
+
+
 class PropertyFactEnrichmentOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     schema_version: Literal["propertyquarry.fact-enrichment.v1"]
     job_id: str = Field(min_length=5, max_length=40, pattern=r"^pfe_[0-9a-f]{24}$")
-    bundle_kind: Literal["optional-geo-v1"]
+    bundle_kind: Literal["optional-geo-v1", "required-geo-v1"]
     run_id: str = Field(min_length=1, max_length=160)
     candidate_ref: str = Field(min_length=1, max_length=160)
     status: Literal["idle", "queued", "running", "succeeded", "retryable_error", "terminal_error"]
@@ -2168,6 +2183,10 @@ class PropertyFactEnrichmentOut(BaseModel):
     retryable: StrictBool
     fields: list[PropertyFactFieldOut] = Field(default_factory=list, max_length=32)
     score: PropertyFactScoreOut
+    provider_receipts: list[PropertyFactProviderReceiptOut] = Field(
+        default_factory=list,
+        max_length=32,
+    )
 
     @field_validator("updated_at")
     @classmethod

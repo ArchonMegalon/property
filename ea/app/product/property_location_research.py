@@ -595,6 +595,10 @@ def _property_research_nearby_pois(lat: float, lon: float) -> dict[str, object]:
   way["amenity"="library"](around:5000,{lat:.8f},{lon:.8f});
   node["leisure"="playground"](around:5000,{lat:.8f},{lon:.8f});
   way["leisure"="playground"](around:5000,{lat:.8f},{lon:.8f});
+  node["amenity"="kindergarten"](around:5000,{lat:.8f},{lon:.8f});
+  way["amenity"="kindergarten"](around:5000,{lat:.8f},{lon:.8f});
+  node["amenity"="university"](around:7000,{lat:.8f},{lon:.8f});
+  way["amenity"="university"](around:7000,{lat:.8f},{lon:.8f});
   node["tourism"="zoo"](around:7000,{lat:.8f},{lon:.8f});
   way["tourism"="zoo"](around:7000,{lat:.8f},{lon:.8f});
   node["shop"="doityourself"](around:7000,{lat:.8f},{lon:.8f});
@@ -688,6 +692,10 @@ out center tags;
             metric_key, name_key = "nearest_library_m", "nearest_library_name"
         elif tags.get("leisure") == "playground":
             metric_key, name_key = "nearest_playground_m", "nearest_playground_name"
+        elif tags.get("amenity") == "kindergarten":
+            metric_key, name_key = "nearest_kindergarten_m", "nearest_kindergarten_name"
+        elif tags.get("amenity") == "university":
+            metric_key, name_key = "nearest_university_m", "nearest_university_name"
         elif tags.get("tourism") == "zoo":
             metric_key, name_key = "nearest_zoo_m", "nearest_zoo_name"
         elif tags.get("shop") in {"doityourself", "hardware"}:

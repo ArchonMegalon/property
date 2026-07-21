@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import time
 
@@ -48,6 +49,31 @@ def _candidate_fact_rows(status: dict[str, object]) -> list[dict[str, object]]:
         if isinstance(row, dict):
             rows.append(row)
     return rows
+
+
+def _with_fresh_exact_distance_evidence(
+    *,
+    property_url: str,
+    facts: dict[str, object],
+) -> dict[str, object]:
+    observed_at = datetime.now(timezone.utc)
+    return {
+        **facts,
+        "property_fact_evidence": {
+            key: {
+                "provider": "openstreetmap_overpass",
+                "observed_at": observed_at.isoformat(),
+                "expires_at": (observed_at + timedelta(hours=24)).isoformat(),
+                "source_fingerprint": product_service._property_fact_source_fingerprint(
+                    property_url
+                ),
+                "source_key": key,
+                "coordinate_exact": True,
+            }
+            for key in facts
+            if str(key).startswith("nearest_") and str(key).endswith("_m")
+        },
+    }
 
 
 def test_propertyquarry_live_soft_filter_ablation_fixture_preserves_diagnostic_truth() -> None:
@@ -145,7 +171,10 @@ def test_propertyquarry_e2e_soft_preferences_preserve_search_hits(monkeypatch) -
     )
 
     def _fake_preview(property_url: str, *, prefer_fast: bool = False) -> dict[str, object]:
-        facts = dict(facts_by_url[property_url])
+        facts = _with_fresh_exact_distance_evidence(
+            property_url=property_url,
+            facts=dict(facts_by_url[property_url]),
+        )
         return {
             "listing_id": property_url.rsplit("/", 2)[-2],
             "title": f"Mietwohnung in 1020 Wien {property_url.rsplit('/', 2)[-2]}",
@@ -326,7 +355,10 @@ def test_propertyquarry_e2e_targeted_listing_survives_strict_and_soft_runs(monke
     )
 
     def _fake_preview(property_url: str, *, prefer_fast: bool = False) -> dict[str, object]:
-        facts = dict(facts_by_url[property_url])
+        facts = _with_fresh_exact_distance_evidence(
+            property_url=property_url,
+            facts=dict(facts_by_url[property_url]),
+        )
         listing_id = property_url.rstrip("/").rsplit("/", 1)[-1]
         return {
             "listing_id": listing_id,
