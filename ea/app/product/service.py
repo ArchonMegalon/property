@@ -10,6 +10,7 @@ import hashlib
 import hmac
 import html
 import io
+import ipaddress
 import json
 import math
 import mimetypes
@@ -36,7 +37,7 @@ from functools import lru_cache
 from html import escape as html_escape
 from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, Any, Callable, Iterator
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Mapping
 from uuid import uuid4
 
 import requests
@@ -147,6 +148,17 @@ from app.product.property_search_stage_receipts import (
     mark_property_search_stage_receipt,
     new_property_search_stage_receipts,
     property_search_stage_receipt_summary,
+)
+from app.product.property_fact_enrichment import (
+    PROPERTY_FACT_ENRICHMENT_SCHEMA_VERSION,
+    PROPERTY_FACT_GEO_BUNDLE_KIND,
+    property_fact_candidate_ref,
+    property_fact_expiry,
+    property_fact_input_digest,
+    property_fact_job_id,
+    property_fact_requirement_plan,
+    property_fact_score_projection,
+    property_fact_value,
 )
 from app.product.property_tour_hosting import (
     _configured_public_tour_hosts,
@@ -682,6 +694,19 @@ _PROPERTY_SEARCH_RUN_STALE_DEFAULT_SECONDS = 20 * 60
 _PROPERTY_SEARCH_RUN_STAGES = 8
 _PROPERTY_SEARCH_RUN_REGISTRY: dict[str, dict[str, object]] = {}
 _PROPERTY_SEARCH_RUN_LOCK = threading.Lock()
+_PROPERTY_FACT_ENRICHMENT_ACTIVE_LOCK = threading.Lock()
+_PROPERTY_FACT_ENRICHMENT_ACTIVE_JOBS: set[str] = set()
+_PROPERTY_FACT_ENRICHMENT_LEASE_SECONDS = 90
+_PROPERTY_FACT_ENRICHMENT_MAX_ATTEMPTS = 3
+_PROPERTY_FACT_ENRICHMENT_MAX_WORKERS = 2
+_PROPERTY_FACT_ENRICHMENT_MAX_INFLIGHT = 8
+_PROPERTY_FACT_ENRICHMENT_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=_PROPERTY_FACT_ENRICHMENT_MAX_WORKERS,
+    thread_name_prefix="pq-fact",
+)
+_PROPERTY_FACT_ENRICHMENT_CAPACITY = threading.BoundedSemaphore(
+    _PROPERTY_FACT_ENRICHMENT_MAX_INFLIGHT
+)
 _PROPERTY_SEARCH_RUN_PRINCIPAL_CACHE_LOCK = threading.Lock()
 _PROPERTY_SEARCH_RUN_PRINCIPAL_CACHE: dict[tuple[str, str], tuple[float, tuple[str, ...]]] = {}
 _PROPERTY_SEARCH_RUN_PRINCIPAL_CACHE_TTL_SECONDS = 60.0
@@ -4621,8 +4646,16 @@ def _list_property_search_run_records(
 def _load_property_search_run_record(*, run_id: str, principal_id: str) -> dict[str, object] | None:
     normalized_run_id = str(run_id or "").strip()
     normalized_principal = str(principal_id or "").strip()
+    durable_storage_configured = bool(_property_search_run_database_url())
     try:
-        return _load_property_search_run_record_storage(run_id=normalized_run_id, principal_id=normalized_principal)
+        persisted = _load_property_search_run_record_storage(
+            run_id=normalized_run_id,
+            principal_id=normalized_principal,
+        )
+        if isinstance(persisted, dict):
+            return persisted
+        if durable_storage_configured:
+            return None
     except Exception as exc:
         if not _property_search_storage._property_search_run_db_pressure_error(exc):  # type: ignore[attr-defined]
             raise
@@ -4631,6 +4664,676 @@ def _load_property_search_run_record(*, run_id: str, principal_id: str) -> dict[
     if state and str(state.get("principal_id") or "").strip() == normalized_principal:
         return state
     return None
+
+
+def _property_fact_json_copy(value: object) -> object:
+    return json.loads(json.dumps(value, ensure_ascii=True, default=str))
+
+
+def _property_fact_source_fingerprint(property_url: object) -> str:
+    normalized = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+    return "sha256:" + hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _property_fact_validated_source_url(property_url: object) -> str:
+    normalized = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+    parsed = urllib.parse.urlsplit(normalized)
+    hostname = str(parsed.hostname or "").strip().lower().rstrip(".")
+    if (
+        parsed.scheme.lower() not in {"http", "https"}
+        or not hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or not _property_scout_is_supported_listing_url(normalized)
+    ):
+        raise ValueError("property_fact_source_not_supported")
+    try:
+        address = ipaddress.ip_address(hostname)
+    except ValueError:
+        address = None
+    if address is not None and not address.is_global:
+        raise ValueError("property_fact_source_not_supported")
+    from app.product.outbound_url_security import validate_outbound_url
+
+    try:
+        validate_outbound_url(normalized)
+    except Exception as exc:
+        raise ValueError("property_fact_source_not_supported") from exc
+    return normalized
+
+
+def _property_fact_run_preferences(record: Mapping[str, object]) -> dict[str, object]:
+    raw = record.get("property_search_preferences") or record.get("preferences")
+    if isinstance(raw, dict):
+        return dict(raw)
+    summary = record.get("summary")
+    if isinstance(summary, dict):
+        nested = summary.get("property_search_preferences") or summary.get("preferences")
+        if isinstance(nested, dict):
+            return dict(nested)
+    return {}
+
+
+def _property_fact_preferences_for_candidate(
+    record: Mapping[str, object],
+    candidate: Mapping[str, object],
+) -> dict[str, object]:
+    preferences = _property_fact_run_preferences(record)
+    requirement_plan = candidate.get("fact_requirement_plan")
+    if not isinstance(requirement_plan, list):
+        return preferences
+    required = [
+        str(row.get("key") or "").strip()
+        for row in requirement_plan
+        if isinstance(row, dict)
+        and str(row.get("priority") or "").strip().lower() == "required"
+        and str(row.get("key") or "").strip()
+    ]
+    if required:
+        preferences["required_fact_keys"] = required
+    return preferences
+
+
+def _property_fact_candidate_facts(candidate: Mapping[str, object]) -> dict[str, object]:
+    for key in ("property_facts", "property_facts_json", "facts"):
+        raw = candidate.get(key)
+        if isinstance(raw, dict):
+            return dict(raw)
+    return {}
+
+
+def _property_fact_request_binding(
+    *,
+    candidate: Mapping[str, object],
+    preferences: Mapping[str, object],
+    plan: list[dict[str, object]],
+    source_fingerprint: str,
+) -> dict[str, str]:
+    facts_digest = property_fact_input_digest(_property_fact_candidate_facts(candidate))
+    preference_digest = property_fact_input_digest(dict(preferences))
+    requirement_digest = property_fact_input_digest(
+        [
+            {
+                "key": str(row.get("key") or "").strip(),
+                "priority": str(row.get("priority") or "lazy").strip(),
+                "affects_score": bool(row.get("affects_score")),
+            }
+            for row in plan
+        ]
+    )
+    request_digest = property_fact_input_digest(
+        {
+            "source_fingerprint": source_fingerprint,
+            "facts_digest": facts_digest,
+            "preference_digest": preference_digest,
+            "requirement_digest": requirement_digest,
+            "contract": PROPERTY_FACT_ENRICHMENT_SCHEMA_VERSION,
+        }
+    )
+    return {
+        "source_fingerprint": source_fingerprint,
+        "facts_digest": facts_digest,
+        "preference_digest": preference_digest,
+        "requirement_digest": requirement_digest,
+        "request_digest": request_digest,
+    }
+
+
+def _property_fact_job_evidence_is_fresh(job: Mapping[str, object]) -> bool:
+    resolved_fields = [
+        row
+        for row in list(job.get("fields") or [])
+        if isinstance(row, dict) and str(row.get("state") or "").strip().lower() == "resolved"
+    ]
+    if not resolved_fields:
+        if job.get("all_facts_resolved") is True:
+            return True
+        return bool(list(job.get("fields") or [])) and all(
+            isinstance(row, dict) and str(row.get("priority") or "lazy").strip().lower() != "required"
+            for row in list(job.get("fields") or [])
+        )
+    now = datetime.now(timezone.utc)
+    for field in resolved_fields:
+        provenance = field.get("provenance")
+        expires_at = _parse_utcish(str(provenance.get("expires_at") or "")) if isinstance(provenance, dict) else None
+        if not isinstance(expires_at, datetime) or expires_at <= now:
+            return False
+    return True
+
+
+def _property_fact_coordinate_snapshot(property_url: str) -> dict[str, object]:
+    """Resolve listing coordinates without running the nearby-POI provider."""
+    try:
+        preview = _property_scout_page_preview(property_url, prefer_fast=True)
+    except Exception:
+        preview = {}
+    facts = (
+        dict(preview.get("property_facts_json") or {})
+        if isinstance(preview, dict)
+        else {}
+    )
+    latitude = _float_or_none(facts.get("map_lat"))
+    longitude = _float_or_none(facts.get("map_lng"))
+    if _property_fact_coordinates_valid(latitude, longitude):
+        return facts
+    title = str(preview.get("title") or "").strip() if isinstance(preview, dict) else ""
+    summary = str(preview.get("summary") or "").strip() if isinstance(preview, dict) else ""
+    queries = _property_research_location_hint_queries(
+        facts=facts,
+        title=title,
+        summary=summary,
+    )
+    for query in tuple(dict.fromkeys(queries))[:4]:
+        try:
+            geocoded = _property_research_forward_geocode(query)
+        except Exception:
+            geocoded = {}
+        if not isinstance(geocoded, dict):
+            continue
+        latitude = _float_or_none(geocoded.get("lat"))
+        longitude = _float_or_none(geocoded.get("lon"))
+        if not _property_fact_coordinates_valid(latitude, longitude):
+            continue
+        facts["map_lat"] = latitude
+        facts["map_lng"] = longitude
+        facts["map_location_precision"] = (
+            "address"
+            if _property_fact_geocode_is_exact(query, geocoded)
+            else "postal_area"
+        )
+        facts["map_location_source"] = "nominatim_forward_geocode"
+        display_name = str(geocoded.get("display_name") or "").strip()
+        if display_name:
+            facts["map_location_label"] = display_name
+        if _property_fact_coordinates_valid(
+            _float_or_none(facts.get("map_lat")),
+            _float_or_none(facts.get("map_lng")),
+        ):
+            break
+    return facts
+
+
+def _property_fact_coordinates_valid(latitude: object, longitude: object) -> bool:
+    return bool(
+        isinstance(latitude, float)
+        and isinstance(longitude, float)
+        and math.isfinite(latitude)
+        and math.isfinite(longitude)
+        and -90.0 <= latitude <= 90.0
+        and -180.0 <= longitude <= 180.0
+    )
+
+
+def _property_fact_coordinate_is_exact(precision: object) -> bool:
+    return str(precision or "").strip().casefold() in {
+        "address",
+        "building",
+        "exact",
+        "parcel",
+        "property",
+        "rooftop",
+    }
+
+
+def _property_fact_location_query_is_exact(query: object) -> bool:
+    street_component = str(query or "").split(",", 1)[0].strip()
+    return bool(
+        re.search(r"[A-Za-zÀ-ž]", street_component)
+        and re.search(r"(?:^|\s)\d{1,4}[A-Za-z]?(?:\s|$)", street_component)
+    )
+
+
+def _property_fact_geocode_is_exact(
+    query: object,
+    geocoded: Mapping[str, object],
+) -> bool:
+    if not _property_fact_location_query_is_exact(query):
+        return False
+    address = geocoded.get("address")
+    if isinstance(address, Mapping) and str(address.get("house_number") or "").strip():
+        return True
+    result_type = str(
+        geocoded.get("addresstype") or geocoded.get("type") or ""
+    ).strip().casefold()
+    return result_type in {"address", "apartments", "building", "house", "residential"}
+
+
+def _property_fact_fresh_geo_snapshot(
+    *,
+    property_url: str,
+    facts: Mapping[str, object],
+) -> tuple[dict[str, object], dict[str, object]]:
+    latitude = _float_or_none(facts.get("map_lat"))
+    longitude = _float_or_none(facts.get("map_lng"))
+    coordinate_basis = "candidate_listing_coordinates"
+    coordinate_observed_at = ""
+    coordinate_precision = str(facts.get("map_location_precision") or "").strip().lower()
+    coordinate_source = str(facts.get("map_location_source") or "").strip()
+    if not _property_fact_coordinates_valid(latitude, longitude):
+        # Resolve coordinates only. Nearby POIs are fetched exactly once below.
+        coordinate_snapshot = _property_fact_coordinate_snapshot(property_url)
+        latitude = _float_or_none(coordinate_snapshot.get("map_lat"))
+        longitude = _float_or_none(coordinate_snapshot.get("map_lng"))
+        coordinate_basis = "listing_preview_coordinates"
+        coordinate_precision = str(
+            coordinate_snapshot.get("map_location_precision") or ""
+        ).strip().lower()
+        coordinate_source = str(
+            coordinate_snapshot.get("map_location_source") or ""
+        ).strip()
+    if not _property_fact_coordinates_valid(latitude, longitude):
+        return {}, {
+            "coordinate_basis": coordinate_basis,
+            "coordinate_observed_at": coordinate_observed_at,
+            "coordinate_precision": coordinate_precision or "unknown",
+            "coordinate_source": coordinate_source,
+            "coordinate_exact": False,
+        }
+    fresh_fetcher = getattr(_property_research_nearby_pois, "__wrapped__", _property_research_nearby_pois)
+    nearby = fresh_fetcher(latitude, longitude)
+    return (
+        dict(nearby) if isinstance(nearby, dict) else {},
+        {
+            "coordinate_basis": coordinate_basis,
+            "coordinate_observed_at": coordinate_observed_at,
+            "coordinate_precision": coordinate_precision or "unknown",
+            "coordinate_source": coordinate_source,
+            "coordinate_exact": _property_fact_coordinate_is_exact(coordinate_precision),
+        },
+    )
+
+
+def _property_fact_find_candidate(
+    record: Mapping[str, object],
+    *,
+    candidate_ref: str,
+) -> dict[str, object] | None:
+    normalized_ref = str(candidate_ref or "").strip()
+    summary = record.get("summary")
+    if not normalized_ref or not isinstance(summary, dict):
+        return None
+    candidates: list[dict[str, object]] = []
+    for key in ("ranked_candidates", "evaluating_candidates", "research_candidates"):
+        candidates.extend(dict(row) for row in list(summary.get(key) or []) if isinstance(row, dict))
+    for source in list(summary.get("sources") or []):
+        if not isinstance(source, dict):
+            continue
+        source_label = str(source.get("source_label") or source.get("source_url") or "Property scout").strip()
+        for key in ("top_candidates", "research_candidates", "evaluating_candidates"):
+            for raw in list(source.get(key) or []):
+                if not isinstance(raw, dict):
+                    continue
+                row = dict(raw)
+                row.setdefault("source_label", source_label)
+                candidates.append(row)
+    for candidate in candidates:
+        if hmac.compare_digest(property_fact_candidate_ref(candidate), normalized_ref):
+            return candidate
+    return None
+
+
+def _property_fact_update_candidate_copies(
+    record: dict[str, object],
+    *,
+    candidate_ref: str,
+    updated_candidate: Mapping[str, object],
+) -> bool:
+    summary = dict(record.get("summary") or {})
+    changed = False
+
+    def _updated_rows(rows: object, *, source_label: str = "") -> list[dict[str, object]]:
+        nonlocal changed
+        projected: list[dict[str, object]] = []
+        for raw in list(rows or []):
+            if not isinstance(raw, dict):
+                continue
+            row = dict(raw)
+            identity_row = dict(row)
+            if source_label:
+                identity_row.setdefault("source_label", source_label)
+            if property_fact_candidate_ref(identity_row) == candidate_ref:
+                row = {**row, **dict(updated_candidate)}
+                changed = True
+            projected.append(row)
+        return projected
+
+    for key in ("ranked_candidates", "evaluating_candidates", "research_candidates"):
+        if isinstance(summary.get(key), list):
+            summary[key] = _updated_rows(summary.get(key))
+    projected_sources: list[dict[str, object]] = []
+    for raw_source in list(summary.get("sources") or []):
+        if not isinstance(raw_source, dict):
+            continue
+        source = dict(raw_source)
+        source_label = str(source.get("source_label") or source.get("source_url") or "Property scout").strip()
+        for key in ("top_candidates", "research_candidates", "evaluating_candidates"):
+            if isinstance(source.get(key), list):
+                source[key] = _updated_rows(source.get(key), source_label=source_label)
+        projected_sources.append(source)
+    if projected_sources:
+        summary["sources"] = projected_sources
+    if changed:
+        record["summary"] = summary
+    return changed
+
+
+def _property_fact_rebuild_run_rankings(
+    record: dict[str, object],
+    *,
+    candidate_ref: str,
+    updated_candidate: Mapping[str, object],
+) -> None:
+    summary = dict(record.get("summary") or {})
+    sources: list[dict[str, object]] = []
+    for raw_source in list(summary.get("sources") or []):
+        if not isinstance(raw_source, dict):
+            continue
+        source = dict(raw_source)
+        source_label = str(source.get("source_label") or source.get("source_url") or "Property scout").strip()
+        research = [dict(row) for row in list(source.get("research_candidates") or []) if isinstance(row, dict)]
+        source_candidates = [
+            dict(row)
+            for key in ("research_candidates", "top_candidates", "evaluating_candidates")
+            for row in list(source.get(key) or [])
+            if isinstance(row, dict)
+        ]
+        source_contains_candidate = any(
+            property_fact_candidate_ref({**row, "source_label": source_label}) == candidate_ref
+            for row in source_candidates
+        )
+        if not source_contains_candidate:
+            sources.append(source)
+            continue
+        if not research:
+            research = source_candidates
+        elif not any(
+            property_fact_candidate_ref({**row, "source_label": source_label}) == candidate_ref
+            for row in research
+        ):
+            research.append(dict(updated_candidate))
+        research = [
+            dict(updated_candidate) if property_fact_candidate_ref({**row, "source_label": source_label}) == candidate_ref else row
+            for row in research
+        ]
+        source["research_candidates"] = research
+        rankable = [row for row in research if row.get("ranking_eligible") is not False and str(row.get("score_state") or "") != "evaluating"]
+        rankable.sort(key=lambda row: float(row.get("ranking_score") or row.get("fit_score") or 0.0), reverse=True)
+        evaluating = [row for row in research if row.get("ranking_eligible") is False or str(row.get("score_state") or "") == "evaluating"]
+        source["top_candidates"] = rankable
+        source["evaluating_candidates"] = evaluating
+        source["evaluating_candidate_total"] = len(evaluating)
+        source["top_fit_score"] = max((float(row.get("fit_score") or 0.0) for row in rankable), default=0.0)
+        sources.append(source)
+    if sources:
+        summary["sources"] = sources
+        ranked = _property_search_ranked_candidates_from_sources(sources)
+        summary["ranked_candidates"] = ranked
+        summary["ranked_candidate_total"] = len(ranked)
+        summary["evaluating_candidates"] = [
+            dict(row)
+            for source in sources
+            for row in list(source.get("evaluating_candidates") or [])
+            if isinstance(row, dict)
+        ]
+        summary["evaluating_candidate_total"] = len(summary["evaluating_candidates"])
+    record["summary"] = summary
+
+
+def _property_fact_mutate_run_record(
+    *,
+    principal_id: str,
+    run_id: str,
+    mutate: Callable[[dict[str, object]], object],
+) -> object:
+    normalized_principal = str(principal_id or "").strip()
+    normalized_run_id = str(run_id or "").strip()
+    if not normalized_principal or not normalized_run_id:
+        raise ValueError("property_fact_run_identity_required")
+    if _property_search_run_database_url():
+        from app.product.property_search_tour_binding import property_search_run_record_sha256
+
+        for _attempt in range(5):
+            current = _load_property_search_run_record_storage(
+                run_id=normalized_run_id,
+                principal_id=normalized_principal,
+            )
+            if not isinstance(current, dict):
+                raise LookupError("property_search_run_not_found")
+            working = dict(_property_fact_json_copy(current) or {})
+            result = mutate(working)
+            working["updated_at"] = _now_iso()
+            stored = _compare_and_swap_property_search_run_record(
+                principal_id=normalized_principal,
+                run_id=normalized_run_id,
+                expected_record_sha256=property_search_run_record_sha256(current),
+                updated_record=working,
+            )
+            status = str(stored.get("status") or "").strip().lower()
+            if status == "record_changed":
+                continue
+            if status != "applied" or not isinstance(stored.get("record"), dict):
+                raise RuntimeError(f"property_fact_run_store_{status or 'failed'}")
+            persisted = dict(stored.get("record") or {})
+            with _PROPERTY_SEARCH_RUN_LOCK:
+                _PROPERTY_SEARCH_RUN_REGISTRY[normalized_run_id] = persisted
+            return result
+        raise RuntimeError("property_fact_run_store_conflict")
+
+    loaded = _load_property_search_run_record(
+        run_id=normalized_run_id,
+        principal_id=normalized_principal,
+    )
+    with _PROPERTY_SEARCH_RUN_LOCK:
+        current = _PROPERTY_SEARCH_RUN_REGISTRY.get(normalized_run_id)
+        if not isinstance(current, dict):
+            current = dict(loaded or {})
+        if str(current.get("principal_id") or "").strip() != normalized_principal:
+            raise LookupError("property_search_run_not_found")
+        working = dict(_property_fact_json_copy(current) or {})
+        result = mutate(working)
+        working["updated_at"] = _now_iso()
+        _PROPERTY_SEARCH_RUN_REGISTRY[normalized_run_id] = working
+        persisted = dict(working)
+    stored = _store_property_search_run_record(persisted)
+    if stored is False:
+        _discard_property_search_run_registry_state(
+            run_id=normalized_run_id,
+            principal_id=normalized_principal,
+        )
+        raise RuntimeError("property_fact_run_store_rejected")
+    return result
+
+
+def _property_fact_job_from_record(
+    record: Mapping[str, object],
+    *,
+    job_id: str,
+) -> dict[str, object] | None:
+    summary = record.get("summary")
+    jobs = summary.get("fact_enrichment_jobs") if isinstance(summary, dict) else None
+    job = jobs.get(job_id) if isinstance(jobs, dict) else None
+    return dict(job) if isinstance(job, dict) else None
+
+
+def _property_fact_safe_job_payload(job: Mapping[str, object]) -> dict[str, object]:
+    def _safe_timestamp(value: object) -> str:
+        normalized = str(value or "").strip()[:64]
+        if not normalized:
+            return ""
+        parsed = _parse_utcish(normalized)
+        return normalized if isinstance(parsed, datetime) and parsed.tzinfo is not None else ""
+
+    allowed_field_states = {
+        "unknown",
+        "stale",
+        "queued",
+        "running",
+        "resolved",
+        "retryable_error",
+        "unavailable",
+    }
+    fields: list[dict[str, object]] = []
+    for raw_row in list(job.get("fields") or [])[:16]:
+        if not isinstance(raw_row, dict):
+            continue
+        key = re.sub(r"[^a-z0-9_]", "_", str(raw_row.get("key") or "").strip().lower())[:80]
+        if not key:
+            continue
+        raw_provenance = raw_row.get("provenance")
+        provenance = dict(raw_provenance) if isinstance(raw_provenance, dict) else {}
+        raw_error = raw_row.get("error")
+        error = dict(raw_error) if isinstance(raw_error, dict) else {}
+        state = str(raw_row.get("state") or "unknown").strip().lower()
+        if state not in allowed_field_states:
+            state = "unknown"
+        priority = str(raw_row.get("priority") or "lazy").strip().lower()
+        if priority not in {"required", "lazy"}:
+            priority = "lazy"
+        confidence = _float_or_none(provenance.get("confidence"))
+        if not isinstance(confidence, float) or not math.isfinite(confidence):
+            confidence = 0.0
+        value = raw_row.get("value")
+        if isinstance(value, float) and not math.isfinite(value):
+            value = None
+        method = str(provenance.get("method") or "").strip()
+        if method not in {"", "straight_line_osm"}:
+            method = ""
+        freshness = str(provenance.get("freshness") or "").strip().lower()
+        if freshness not in {"", "fresh", "stale", "unknown"}:
+            freshness = "unknown"
+        coordinate_basis = str(provenance.get("coordinate_basis") or "").strip()
+        if coordinate_basis not in {
+            "",
+            "candidate_listing_coordinates",
+            "listing_preview_coordinates",
+        }:
+            coordinate_basis = ""
+        error_code = re.sub(
+            r"[^a-z0-9_]",
+            "_",
+            str(error.get("code") or "").strip().lower(),
+        )[:96]
+        try:
+            retry_after_seconds = max(0, min(int(error.get("retry_after_seconds") or 0), 86_400))
+        except (TypeError, ValueError):
+            retry_after_seconds = 0
+        fields.append(
+            {
+                "key": key,
+                "label": (str(raw_row.get("label") or key).strip() or key)[:120],
+                "state": state,
+                "priority": priority,
+                "affects_score": bool(raw_row.get("affects_score")),
+                "value": value,
+                "display_value": str(raw_row.get("display_value") or "").strip()[:120],
+                "provenance": {
+                    "provider": str(provenance.get("provider") or "").strip()[:80],
+                    "method": method,
+                    "observed_at": _safe_timestamp(provenance.get("observed_at")),
+                    "expires_at": _safe_timestamp(provenance.get("expires_at")),
+                    "freshness": freshness,
+                    "confidence": max(0.0, min(confidence, 1.0)),
+                    "source_key": str(provenance.get("source_key") or "").strip()[:80],
+                    "source_fingerprint": (
+                        str(provenance.get("source_fingerprint") or "").strip()
+                        if re.fullmatch(r"sha256:[0-9a-f]{64}", str(provenance.get("source_fingerprint") or "").strip())
+                        else ""
+                    ),
+                    "coordinate_basis": coordinate_basis,
+                    "coordinate_observed_at": _safe_timestamp(
+                        provenance.get("coordinate_observed_at")
+                    ),
+                    "coordinate_precision": str(
+                        provenance.get("coordinate_precision") or "unknown"
+                    ).strip()[:40],
+                    "coordinate_source": str(
+                        provenance.get("coordinate_source") or ""
+                    ).strip()[:120],
+                    "coordinate_exact": provenance.get("coordinate_exact") is True,
+                },
+                "error": {
+                    "code": error_code,
+                    "message": str(error.get("message") or "").strip()[:240],
+                    "retry_after_seconds": retry_after_seconds,
+                },
+            }
+        )
+    raw_score = dict(job.get("score") or {}) if isinstance(job.get("score"), dict) else {}
+
+    def _score_number(key: str, *, minimum: float, maximum: float) -> float | None:
+        value = _float_or_none(raw_score.get(key))
+        if not isinstance(value, float) or not math.isfinite(value):
+            return None
+        return max(minimum, min(value, maximum))
+
+    score_state = str(raw_score.get("state") or "evaluating").strip().lower()
+    if score_state not in {"evaluating", "provisional", "final"}:
+        score_state = "evaluating"
+    fallback_digest = property_fact_input_digest({})
+    facts_digest = str(raw_score.get("facts_digest") or "").strip()
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", facts_digest):
+        facts_digest = fallback_digest
+    preference_digest = str(raw_score.get("preference_digest") or "").strip()
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", preference_digest):
+        preference_digest = fallback_digest
+    raw_status = str(job.get("status") or "idle").strip().lower()
+    try:
+        raw_attempt = int(job.get("attempt") or 0)
+    except (TypeError, ValueError):
+        raw_attempt = 0
+    if raw_status == "completed":
+        status = "succeeded"
+    elif raw_status == "failed":
+        status = (
+            "retryable_error"
+            if bool(job.get("retryable")) and raw_attempt < _PROPERTY_FACT_ENRICHMENT_MAX_ATTEMPTS
+            else "terminal_error"
+        )
+    elif raw_status in {
+        "idle",
+        "queued",
+        "running",
+        "succeeded",
+        "retryable_error",
+        "terminal_error",
+    }:
+        status = raw_status
+    else:
+        status = "retryable_error"
+    try:
+        attempt = max(0, min(raw_attempt, _PROPERTY_FACT_ENRICHMENT_MAX_ATTEMPTS))
+    except (TypeError, ValueError):
+        attempt = 0
+    try:
+        poll_after_ms = max(500, min(int(job.get("poll_after_ms") or 1200), 10_000))
+    except (TypeError, ValueError):
+        poll_after_ms = 1200
+    return {
+        "schema_version": PROPERTY_FACT_ENRICHMENT_SCHEMA_VERSION,
+        "job_id": str(job.get("job_id") or "").strip(),
+        "bundle_kind": PROPERTY_FACT_GEO_BUNDLE_KIND,
+        "status": status,
+        "attempt": attempt,
+        "poll_after_ms": poll_after_ms,
+        "updated_at": _safe_timestamp(job.get("updated_at")),
+        "fields": fields,
+        "score": {
+            "state": score_state,
+            "previous": _score_number("previous", minimum=0.0, maximum=100.0),
+            "current": _score_number("current", minimum=0.0, maximum=100.0),
+            "delta": _score_number("delta", minimum=-100.0, maximum=100.0),
+            "changed_reasons": [
+                str(value).strip()[:240]
+                for value in list(raw_score.get("changed_reasons") or [])[:8]
+                if str(value).strip()
+            ],
+            "ranking_eligible": bool(raw_score.get("ranking_eligible")),
+            "algorithm_version": "propertyquarry.fact-score-state.v1",
+            "facts_digest": facts_digest,
+            "preference_digest": preference_digest,
+        },
+        "retryable": bool(job.get("retryable")),
+    }
 
 
 def bind_property_search_candidate_generated_reconstruction(
@@ -10598,6 +11301,10 @@ def _property_search_ranked_candidates_from_sources(sources: object, *, limit: i
     }
 
     def _candidate_is_rankable(candidate: dict[str, object]) -> bool:
+        if candidate.get("ranking_eligible") is False:
+            return False
+        if str(candidate.get("score_state") or "").strip().lower() == "evaluating":
+            return False
         status_fields = (
             "status",
             "review_status",
@@ -26060,6 +26767,1075 @@ class ProductService:
             require_existing_profile=require_existing_profile,
         )
 
+    def get_property_candidate_fact_enrichment(
+        self,
+        *,
+        principal_id: str,
+        run_id: str,
+        candidate_ref: str,
+    ) -> dict[str, object] | None:
+        normalized_principal = str(principal_id or "").strip()
+        normalized_run_id = str(run_id or "").strip()
+        normalized_candidate_ref = str(candidate_ref or "").strip()
+        if not normalized_principal or not normalized_run_id or not normalized_candidate_ref:
+            return None
+        record = _load_property_search_run_record(
+            run_id=normalized_run_id,
+            principal_id=normalized_principal,
+        )
+        if not isinstance(record, dict):
+            return None
+        candidate = _property_fact_find_candidate(record, candidate_ref=normalized_candidate_ref)
+        if not isinstance(candidate, dict):
+            return None
+        property_url = urllib.parse.urldefrag(
+            str(candidate.get("property_url") or candidate.get("listing_url") or "").strip()
+        )[0]
+        source_fingerprint = _property_fact_source_fingerprint(property_url)
+        facts = _property_fact_candidate_facts(candidate)
+        preferences = _property_fact_preferences_for_candidate(record, candidate)
+        plan = property_fact_requirement_plan(
+            facts=facts,
+            preferences=preferences,
+            include_resolved=True,
+        )
+        binding = _property_fact_request_binding(
+            candidate=candidate,
+            preferences=preferences,
+            plan=plan,
+            source_fingerprint=source_fingerprint,
+        )
+        summary = dict(record.get("summary") or {})
+        candidate_jobs = dict(summary.get("fact_enrichment_candidate_jobs") or {})
+        computed_job_id = property_fact_job_id(
+            principal_id=normalized_principal,
+            run_id=normalized_run_id,
+            candidate_ref=normalized_candidate_ref,
+            source_fingerprint=source_fingerprint,
+            request_digest=binding["request_digest"],
+        )
+        job_id = str(candidate_jobs.get(normalized_candidate_ref) or computed_job_id).strip()
+        job = _property_fact_job_from_record(record, job_id=job_id)
+        if not isinstance(job, dict):
+            job_id = computed_job_id
+            job = {
+                "job_id": job_id,
+                "status": "idle",
+                "attempt": 0,
+                "poll_after_ms": 1200,
+                "updated_at": str(record.get("updated_at") or ""),
+                "fields": [row for row in plan if str(row.get("state") or "") != "resolved"],
+                "score": property_fact_score_projection(
+                    candidate=candidate,
+                    plan=plan,
+                    preferences=preferences,
+                ),
+                "retryable": False,
+            }
+        else:
+            status = str(job.get("status") or "").strip().lower()
+            invalid_binding = (
+                not hmac.compare_digest(str(job.get("source_fingerprint") or ""), source_fingerprint)
+                or not hmac.compare_digest(str(job.get("preference_digest") or ""), binding["preference_digest"])
+                or not hmac.compare_digest(str(job.get("requirement_digest") or ""), binding["requirement_digest"])
+            )
+            if status in {"succeeded", "completed"}:
+                invalid_binding = invalid_binding or not hmac.compare_digest(
+                    str(job.get("result_facts_digest") or ""),
+                    binding["facts_digest"],
+                ) or not _property_fact_job_evidence_is_fresh(job) or any(
+                    str(row.get("state") or "").strip().lower() == "stale"
+                    for row in plan
+                )
+            lease_expires = _parse_utcish(str(job.get("lease_expires_at") or ""))
+            expired_running = status == "running" and (
+                not isinstance(lease_expires, datetime) or lease_expires <= datetime.now(timezone.utc)
+            )
+            if not invalid_binding and status == "queued":
+                self._launch_property_candidate_fact_enrichment(
+                    principal_id=normalized_principal,
+                    run_id=normalized_run_id,
+                    candidate_ref=normalized_candidate_ref,
+                    job_id=job_id,
+                )
+            if not invalid_binding and expired_running:
+                return self.start_property_candidate_fact_enrichment(
+                    principal_id=normalized_principal,
+                    run_id=normalized_run_id,
+                    candidate_ref=normalized_candidate_ref,
+                    retry_failed=True,
+                )
+            if invalid_binding or expired_running:
+                reason_code = "fact_enrichment_inputs_changed" if invalid_binding else "fact_enrichment_lease_expired"
+                job = {
+                    **job,
+                    "status": "retryable_error",
+                    "retryable": True,
+                    "fields": [
+                        {
+                            **dict(row),
+                            "state": "retryable_error" if str(row.get("state") or "") != "resolved" or invalid_binding else "resolved",
+                            "error": {
+                                "code": reason_code,
+                                "message": "Nearby facts need a fresh verification pass.",
+                                "retry_after_seconds": 0,
+                            },
+                        }
+                        for row in list(job.get("fields") or [])
+                        if isinstance(row, dict)
+                    ],
+                    "score": property_fact_score_projection(
+                        candidate=candidate,
+                        plan=plan,
+                        preferences=preferences,
+                    ),
+                }
+        payload = _property_fact_safe_job_payload(job)
+        payload.update(
+            {
+                "run_id": normalized_run_id,
+                "candidate_ref": normalized_candidate_ref,
+                "status_url": (
+                    f"/app/api/signals/property/search/run/{urllib.parse.quote(normalized_run_id, safe='')}"
+                    f"/candidates/{urllib.parse.quote(normalized_candidate_ref, safe='')}/fact-enrichment"
+                ),
+            }
+        )
+        return payload
+
+    def start_property_candidate_fact_enrichment(
+        self,
+        *,
+        principal_id: str,
+        run_id: str,
+        candidate_ref: str,
+        retry_failed: bool = False,
+    ) -> dict[str, object]:
+        normalized_principal = str(principal_id or "").strip()
+        normalized_run_id = str(run_id or "").strip()
+        normalized_candidate_ref = str(candidate_ref or "").strip()
+        if not normalized_principal or not normalized_run_id or not normalized_candidate_ref:
+            raise ValueError("property_fact_run_identity_required")
+        initial_record = _load_property_search_run_record(
+            run_id=normalized_run_id,
+            principal_id=normalized_principal,
+        )
+        if not isinstance(initial_record, dict):
+            raise LookupError("property_search_run_not_found")
+        initial_candidate = _property_fact_find_candidate(
+            initial_record,
+            candidate_ref=normalized_candidate_ref,
+        )
+        if not isinstance(initial_candidate, dict):
+            raise LookupError("property_candidate_not_found")
+        property_url = _property_fact_validated_source_url(
+            initial_candidate.get("property_url") or initial_candidate.get("listing_url")
+        )
+        source_fingerprint = _property_fact_source_fingerprint(property_url)
+        initial_preferences = _property_fact_preferences_for_candidate(initial_record, initial_candidate)
+        initial_plan = property_fact_requirement_plan(
+            facts=_property_fact_candidate_facts(initial_candidate),
+            preferences=initial_preferences,
+            include_resolved=True,
+        )
+        initial_binding = _property_fact_request_binding(
+            candidate=initial_candidate,
+            preferences=initial_preferences,
+            plan=initial_plan,
+            source_fingerprint=source_fingerprint,
+        )
+        job_id = property_fact_job_id(
+            principal_id=normalized_principal,
+            run_id=normalized_run_id,
+            candidate_ref=normalized_candidate_ref,
+            source_fingerprint=source_fingerprint,
+            request_digest=initial_binding["request_digest"],
+        )
+
+        def _start_or_join(record: dict[str, object]) -> dict[str, object]:
+            candidate = _property_fact_find_candidate(record, candidate_ref=normalized_candidate_ref)
+            if not isinstance(candidate, dict):
+                raise LookupError("property_candidate_not_found")
+            current_url = _property_fact_validated_source_url(
+                candidate.get("property_url") or candidate.get("listing_url")
+            )
+            if not hmac.compare_digest(_property_fact_source_fingerprint(current_url), source_fingerprint):
+                raise RuntimeError("property_fact_candidate_source_changed")
+            preferences = _property_fact_preferences_for_candidate(record, candidate)
+            plan = property_fact_requirement_plan(
+                facts=_property_fact_candidate_facts(candidate),
+                preferences=preferences,
+                include_resolved=True,
+            )
+            binding = _property_fact_request_binding(
+                candidate=candidate,
+                preferences=preferences,
+                plan=plan,
+                source_fingerprint=source_fingerprint,
+            )
+            if not hmac.compare_digest(binding["request_digest"], initial_binding["request_digest"]):
+                raise RuntimeError("property_fact_inputs_changed")
+            missing = [row for row in plan if str(row.get("state") or "") != "resolved"]
+            summary = dict(record.get("summary") or {})
+            jobs = dict(summary.get("fact_enrichment_jobs") or {})
+            candidate_jobs = dict(summary.get("fact_enrichment_candidate_jobs") or {})
+            active_job_id = str(candidate_jobs.get(normalized_candidate_ref) or "").strip()
+            active_job = dict(jobs.get(active_job_id) or {}) if active_job_id and isinstance(jobs.get(active_job_id), dict) else {}
+            active_status = str(active_job.get("status") or "").strip().lower()
+            active_binding_valid = (
+                bool(active_job)
+                and hmac.compare_digest(str(active_job.get("source_fingerprint") or ""), source_fingerprint)
+                and hmac.compare_digest(str(active_job.get("preference_digest") or ""), binding["preference_digest"])
+                and hmac.compare_digest(str(active_job.get("requirement_digest") or ""), binding["requirement_digest"])
+            )
+            retry_partial = False
+            retry_lineage = False
+            if active_status in {"succeeded", "completed"}:
+                active_binding_valid = (
+                    active_binding_valid
+                    and hmac.compare_digest(str(active_job.get("result_facts_digest") or ""), binding["facts_digest"])
+                    and _property_fact_job_evidence_is_fresh(active_job)
+                    and not any(str(row.get("state") or "").strip().lower() == "stale" for row in plan)
+                )
+                if active_binding_valid and not (retry_failed and bool(active_job.get("retryable"))):
+                    return {"job": active_job, "launch": False, "job_id": active_job_id}
+                if active_binding_valid and retry_failed and bool(active_job.get("retryable")):
+                    retry_partial = True
+            else:
+                retry_lineage = bool(
+                    active_binding_valid
+                    and retry_failed
+                    and bool(active_job.get("retryable"))
+                    and active_status in {"retryable_error", "failed"}
+                    and hmac.compare_digest(
+                        str(active_job.get("result_facts_digest") or ""),
+                        binding["facts_digest"],
+                    )
+                )
+                if not retry_lineage:
+                    active_binding_valid = (
+                        active_binding_valid
+                        and hmac.compare_digest(str(active_job.get("facts_digest") or ""), binding["facts_digest"])
+                        and hmac.compare_digest(str(active_job.get("request_digest") or ""), binding["request_digest"])
+                    )
+            if retry_partial or retry_lineage:
+                existing = active_job
+                if active_job_id and active_job_id != job_id:
+                    jobs.pop(active_job_id, None)
+                candidate_jobs[normalized_candidate_ref] = job_id
+            elif active_job_id == job_id and active_binding_valid:
+                existing = active_job
+            else:
+                existing = {}
+                if active_job_id and active_job_id != job_id:
+                    jobs.pop(active_job_id, None)
+                candidate_jobs[normalized_candidate_ref] = job_id
+            now = datetime.now(timezone.utc)
+            status = str(existing.get("status") or "").strip().lower()
+            lease_expires = _parse_utcish(str(existing.get("lease_expires_at") or ""))
+            lease_expired = not isinstance(lease_expires, datetime) or lease_expires <= now
+            should_launch = False
+            if existing:
+                if status in {"succeeded", "completed"} and not (
+                    retry_partial and bool(existing.get("retryable"))
+                ):
+                    return {"job": existing, "launch": False, "job_id": job_id}
+                if status == "running" and not lease_expired:
+                    return {"job": existing, "launch": False, "job_id": job_id}
+                if status == "queued":
+                    return {"job": existing, "launch": True, "job_id": job_id}
+                if status == "running" and lease_expired:
+                    retry_failed_local = True
+                else:
+                    retry_failed_local = bool(retry_failed)
+                if status in {"retryable_error", "failed", "terminal_error"} and not retry_failed_local:
+                    return {"job": existing, "launch": False, "job_id": job_id}
+                attempt = max(0, int(existing.get("attempt") or 0)) + 1
+            else:
+                attempt = 1
+            if attempt > _PROPERTY_FACT_ENRICHMENT_MAX_ATTEMPTS:
+                terminal = {
+                    **existing,
+                    "job_id": job_id,
+                    "status": "terminal_error",
+                    "attempt": _PROPERTY_FACT_ENRICHMENT_MAX_ATTEMPTS,
+                    "retryable": False,
+                    "updated_at": _now_iso(),
+                    "fields": [
+                        {
+                            **dict(row),
+                            "state": "unavailable" if str(row.get("state") or "") != "resolved" else "resolved",
+                            "error": (
+                                {
+                                    "code": "fact_enrichment_attempts_exhausted",
+                                    "message": "Nearby facts are unavailable from the current sources.",
+                                    "retry_after_seconds": 0,
+                                }
+                                if str(row.get("state") or "") != "resolved"
+                                else {}
+                            ),
+                        }
+                        for row in list(existing.get("fields") or [])
+                        if isinstance(row, dict)
+                    ],
+                }
+                jobs[job_id] = terminal
+                candidate_jobs[normalized_candidate_ref] = job_id
+                summary["fact_enrichment_jobs"] = jobs
+                summary["fact_enrichment_candidate_jobs"] = candidate_jobs
+                record["summary"] = summary
+                return {"job": terminal, "launch": False, "job_id": job_id}
+            requested_plan = missing
+            zero_work_score = property_fact_score_projection(
+                candidate=candidate,
+                plan=plan,
+                preferences=preferences,
+            )
+            assessment_only = not requested_plan and not bool(
+                zero_work_score.get("ranking_eligible")
+            )
+            assessment_only = assessment_only or bool(
+                not requested_plan and existing.get("score_recompute_required")
+            )
+            if not requested_plan and not assessment_only:
+                completed = {
+                    "job_id": job_id,
+                    "bundle_kind": PROPERTY_FACT_GEO_BUNDLE_KIND,
+                    "status": "succeeded",
+                    "attempt": max(0, int(existing.get("attempt") or 0)),
+                    "poll_after_ms": 1200,
+                    "updated_at": _now_iso(),
+                    "fields": [],
+                    "all_facts_resolved": True,
+                    "score": zero_work_score,
+                    "retryable": False,
+                    "result_facts_digest": binding["facts_digest"],
+                    "candidate_ref": normalized_candidate_ref,
+                    "source_fingerprint": source_fingerprint,
+                    **binding,
+                }
+                jobs[job_id] = completed
+                candidate_jobs[normalized_candidate_ref] = job_id
+                summary["fact_enrichment_jobs"] = jobs
+                summary["fact_enrichment_candidate_jobs"] = candidate_jobs
+                record["summary"] = summary
+                return {"job": completed, "launch": False, "job_id": job_id}
+            fields: list[dict[str, object]] = []
+            existing_fields = {
+                str(row.get("key") or "").strip(): dict(row)
+                for row in list(existing.get("fields") or [])
+                if isinstance(row, dict) and str(row.get("key") or "").strip()
+            }
+            for row in requested_plan:
+                field = dict(row)
+                previous = existing_fields.get(str(row.get("key") or "").strip(), {})
+                field["state"] = "queued"
+                field["error"] = {}
+                if str(previous.get("state") or "") == "resolved":
+                    field = previous
+                fields.append(field)
+            queued = {
+                "job_id": job_id,
+                "bundle_kind": PROPERTY_FACT_GEO_BUNDLE_KIND,
+                "status": "queued",
+                "attempt": attempt,
+                "poll_after_ms": 900,
+                "created_at": str(existing.get("created_at") or _now_iso()),
+                "updated_at": _now_iso(),
+                "fields": fields,
+                "score": property_fact_score_projection(
+                    candidate=candidate,
+                    plan=plan,
+                    preferences=preferences,
+                ),
+                "retryable": False,
+                "score_recompute_required": assessment_only,
+                "candidate_ref": normalized_candidate_ref,
+                "root_job_id": str(existing.get("root_job_id") or active_job_id or job_id).strip(),
+                "source_fingerprint": source_fingerprint,
+                **binding,
+                "lease_token": "",
+                "lease_expires_at": "",
+            }
+            jobs[job_id] = queued
+            candidate_jobs[normalized_candidate_ref] = job_id
+            summary["fact_enrichment_jobs"] = jobs
+            summary["fact_enrichment_candidate_jobs"] = candidate_jobs
+            record["summary"] = summary
+            should_launch = True
+            return {"job": queued, "launch": should_launch, "job_id": job_id}
+
+        outcome = _property_fact_mutate_run_record(
+            principal_id=normalized_principal,
+            run_id=normalized_run_id,
+            mutate=_start_or_join,
+        )
+        if not isinstance(outcome, dict) or not isinstance(outcome.get("job"), dict):
+            raise RuntimeError("property_fact_job_state_invalid")
+        if bool(outcome.get("launch")):
+            launch_job_id = str(outcome.get("job_id") or dict(outcome.get("job") or {}).get("job_id") or "").strip()
+            self._launch_property_candidate_fact_enrichment(
+                principal_id=normalized_principal,
+                run_id=normalized_run_id,
+                candidate_ref=normalized_candidate_ref,
+                job_id=launch_job_id,
+            )
+        payload = _property_fact_safe_job_payload(dict(outcome.get("job") or {}))
+        payload.update(
+            {
+                "run_id": normalized_run_id,
+                "candidate_ref": normalized_candidate_ref,
+                "status_url": (
+                    f"/app/api/signals/property/search/run/{urllib.parse.quote(normalized_run_id, safe='')}"
+                    f"/candidates/{urllib.parse.quote(normalized_candidate_ref, safe='')}/fact-enrichment"
+                ),
+            }
+        )
+        return payload
+
+    def _launch_property_candidate_fact_enrichment(
+        self,
+        *,
+        principal_id: str,
+        run_id: str,
+        candidate_ref: str,
+        job_id: str,
+    ) -> bool:
+        with _PROPERTY_FACT_ENRICHMENT_ACTIVE_LOCK:
+            if job_id in _PROPERTY_FACT_ENRICHMENT_ACTIVE_JOBS:
+                return False
+        if not _PROPERTY_FACT_ENRICHMENT_CAPACITY.acquire(blocking=False):
+            return False
+        with _PROPERTY_FACT_ENRICHMENT_ACTIVE_LOCK:
+            if job_id in _PROPERTY_FACT_ENRICHMENT_ACTIVE_JOBS:
+                _PROPERTY_FACT_ENRICHMENT_CAPACITY.release()
+                return False
+            _PROPERTY_FACT_ENRICHMENT_ACTIVE_JOBS.add(job_id)
+        try:
+            future = _PROPERTY_FACT_ENRICHMENT_EXECUTOR.submit(
+                self._run_property_candidate_fact_enrichment,
+                **{
+                    "principal_id": principal_id,
+                    "run_id": run_id,
+                    "candidate_ref": candidate_ref,
+                    "job_id": job_id,
+                },
+            )
+        except Exception:
+            with _PROPERTY_FACT_ENRICHMENT_ACTIVE_LOCK:
+                _PROPERTY_FACT_ENRICHMENT_ACTIVE_JOBS.discard(job_id)
+            _PROPERTY_FACT_ENRICHMENT_CAPACITY.release()
+            raise
+
+        def _release(_future: concurrent.futures.Future[object]) -> None:
+            with _PROPERTY_FACT_ENRICHMENT_ACTIVE_LOCK:
+                _PROPERTY_FACT_ENRICHMENT_ACTIVE_JOBS.discard(job_id)
+            _PROPERTY_FACT_ENRICHMENT_CAPACITY.release()
+
+        future.add_done_callback(_release)
+        return True
+
+    def _run_property_candidate_fact_enrichment(
+        self,
+        *,
+        principal_id: str,
+        run_id: str,
+        candidate_ref: str,
+        job_id: str,
+    ) -> None:
+        lease_token = uuid4().hex
+        claimed_attempt = 0
+        try:
+            def _claim(record: dict[str, object]) -> dict[str, object]:
+                summary = dict(record.get("summary") or {})
+                jobs = dict(summary.get("fact_enrichment_jobs") or {})
+                job = dict(jobs.get(job_id) or {}) if isinstance(jobs.get(job_id), dict) else {}
+                if not job:
+                    return {"claimed": False}
+                candidate_jobs = dict(summary.get("fact_enrichment_candidate_jobs") or {})
+                if not hmac.compare_digest(str(candidate_jobs.get(candidate_ref) or ""), job_id):
+                    return {"claimed": False}
+                candidate = _property_fact_find_candidate(record, candidate_ref=candidate_ref)
+                if not isinstance(candidate, dict):
+                    return {"claimed": False}
+                current_url = urllib.parse.urldefrag(
+                    str(candidate.get("property_url") or candidate.get("listing_url") or "").strip()
+                )[0]
+                current_source_fingerprint = _property_fact_source_fingerprint(current_url)
+                preferences = _property_fact_preferences_for_candidate(record, candidate)
+                plan = property_fact_requirement_plan(
+                    facts=_property_fact_candidate_facts(candidate),
+                    preferences=preferences,
+                    include_resolved=True,
+                )
+                binding = _property_fact_request_binding(
+                    candidate=candidate,
+                    preferences=preferences,
+                    plan=plan,
+                    source_fingerprint=current_source_fingerprint,
+                )
+                if any(
+                    not hmac.compare_digest(str(job.get(key) or ""), binding[binding_key])
+                    for key, binding_key in (
+                        ("source_fingerprint", "source_fingerprint"),
+                        ("facts_digest", "facts_digest"),
+                        ("preference_digest", "preference_digest"),
+                        ("requirement_digest", "requirement_digest"),
+                        ("request_digest", "request_digest"),
+                    )
+                ):
+                    return {"claimed": False}
+                status = str(job.get("status") or "").strip().lower()
+                lease_expires = _parse_utcish(str(job.get("lease_expires_at") or ""))
+                if status == "running" and isinstance(lease_expires, datetime) and lease_expires > datetime.now(timezone.utc):
+                    return {"claimed": False}
+                if status not in {"queued", "running"}:
+                    return {"claimed": False}
+                now = datetime.now(timezone.utc)
+                attempt = max(1, int(job.get("attempt") or 1))
+                job.update(
+                    {
+                        "status": "running",
+                        "updated_at": now.isoformat(),
+                        "lease_token": lease_token,
+                        "lease_expires_at": (now + timedelta(seconds=_PROPERTY_FACT_ENRICHMENT_LEASE_SECONDS)).isoformat(),
+                        "retryable": False,
+                        "fields": [
+                            {**dict(row), "state": "running", "error": {}}
+                            if isinstance(row, dict) and str(row.get("state") or "") != "resolved"
+                            else dict(row)
+                            for row in list(job.get("fields") or [])
+                            if isinstance(row, dict)
+                        ],
+                    }
+                )
+                jobs[job_id] = job
+                summary["fact_enrichment_jobs"] = jobs
+                record["summary"] = summary
+                return {"claimed": True, "attempt": attempt}
+
+            claimed = _property_fact_mutate_run_record(
+                principal_id=principal_id,
+                run_id=run_id,
+                mutate=_claim,
+            )
+            if not isinstance(claimed, dict) or claimed.get("claimed") is not True:
+                return
+            claimed_attempt = max(1, int(claimed.get("attempt") or 1))
+            record = _load_property_search_run_record(run_id=run_id, principal_id=principal_id)
+            candidate = _property_fact_find_candidate(record or {}, candidate_ref=candidate_ref)
+            if not isinstance(candidate, dict):
+                raise LookupError("property_candidate_not_found")
+            property_url = _property_fact_validated_source_url(
+                candidate.get("property_url") or candidate.get("listing_url")
+            )
+            source_fingerprint = _property_fact_source_fingerprint(property_url)
+            preferences = _property_fact_preferences_for_candidate(record or {}, candidate)
+            before_facts = _property_fact_candidate_facts(candidate)
+            current_job = _property_fact_job_from_record(record or {}, job_id=job_id) or {}
+            requested_fields = [
+                dict(row)
+                for row in list(current_job.get("fields") or [])
+                if isinstance(row, dict)
+            ]
+            if (
+                str(current_job.get("status") or "").strip().lower() != "running"
+                or not lease_token
+                or not hmac.compare_digest(str(current_job.get("lease_token") or ""), lease_token)
+                or int(current_job.get("attempt") or 0) != claimed_attempt
+                or not hmac.compare_digest(str(current_job.get("source_fingerprint") or ""), source_fingerprint)
+            ):
+                return
+            if requested_fields:
+                research, geo_source_meta = _property_fact_fresh_geo_snapshot(
+                    property_url=property_url,
+                    facts=before_facts,
+                )
+            else:
+                research, geo_source_meta = {}, {}
+            merged_facts = dict(before_facts)
+            evidence = dict(merged_facts.get("property_fact_evidence") or {}) if isinstance(merged_facts.get("property_fact_evidence"), dict) else {}
+            observed = datetime.now(timezone.utc)
+            changed_labels: list[str] = []
+            observed_keys: set[str] = set()
+            for field in requested_fields:
+                key = str(field.get("key") or "").strip()
+                aliases = tuple(str(value) for value in list(field.get("aliases") or []) if str(value).strip())
+                if not aliases:
+                    aliases = (key,)
+                value, source_key = property_fact_value(research, aliases)
+                if value is None:
+                    continue
+                coordinate_exact = geo_source_meta.get("coordinate_exact") is True
+                if (
+                    str(field.get("priority") or "lazy").strip().lower() == "required"
+                    and not coordinate_exact
+                ):
+                    continue
+                observed_keys.add(key)
+                merged_facts[key] = value
+                prefix = key.removesuffix("_m")
+                for research_key, research_value in research.items():
+                    if str(research_key).startswith(prefix + "_") and research_value not in (None, "", (), [], {}):
+                        merged_facts[str(research_key)] = research_value
+                evidence[key] = {
+                    "provider": "openstreetmap_overpass",
+                    "method": "straight_line_osm",
+                    "observed_at": observed.isoformat(),
+                    "expires_at": property_fact_expiry(observed_at=observed, hours=24),
+                    "freshness": "fresh",
+                    "confidence": 0.74 if coordinate_exact else 0.45,
+                    "source_key": source_key,
+                    "source_fingerprint": source_fingerprint,
+                    "coordinate_basis": str(geo_source_meta.get("coordinate_basis") or "").strip(),
+                    "coordinate_observed_at": str(geo_source_meta.get("coordinate_observed_at") or "").strip(),
+                    "coordinate_precision": str(geo_source_meta.get("coordinate_precision") or "unknown").strip(),
+                    "coordinate_source": str(geo_source_meta.get("coordinate_source") or "").strip(),
+                    "coordinate_exact": coordinate_exact,
+                }
+                changed_labels.append(str(field.get("label") or key).strip())
+            if evidence:
+                merged_facts["property_fact_evidence"] = evidence
+            plan_after = property_fact_requirement_plan(
+                facts=merged_facts,
+                preferences=preferences,
+                include_resolved=True,
+            )
+            requested_keys = {
+                str(row.get("key") or "").strip()
+                for row in requested_fields
+                if str(row.get("key") or "").strip()
+            }
+            assessment_facts = dict(merged_facts)
+            assessment_evidence = (
+                dict(assessment_facts.get("property_fact_evidence") or {})
+                if isinstance(assessment_facts.get("property_fact_evidence"), dict)
+                else {}
+            )
+            for plan_row in plan_after:
+                key = str(plan_row.get("key") or "").strip()
+                if key not in requested_keys or str(plan_row.get("state") or "") == "resolved":
+                    continue
+                for alias in list(plan_row.get("aliases") or ()):
+                    assessment_facts.pop(str(alias), None)
+                assessment_facts.pop(key, None)
+                assessment_evidence.pop(key, None)
+            if assessment_evidence:
+                assessment_facts["property_fact_evidence"] = assessment_evidence
+            else:
+                assessment_facts.pop("property_fact_evidence", None)
+            assessment = dict(candidate.get("assessment") or {}) if isinstance(candidate.get("assessment"), dict) else {}
+            use_profile_value = preferences.get("use_stored_feedback_preferences", True)
+            use_profile_preferences = not (
+                use_profile_value is False
+                or str(use_profile_value or "").strip().lower() in {"0", "false", "no", "off"}
+            )
+            if use_profile_preferences:
+                refreshed_assessment = self.preview_preference_candidate(
+                    principal_id=principal_id,
+                    person_id=str(preferences.get("preference_person_id") or "self").strip() or "self",
+                    domain="willhaben",
+                    object_type="listing",
+                    object_id=str(candidate.get("listing_id") or property_url).strip(),
+                    object_payload=assessment_facts,
+                    require_existing_profile=True,
+                )
+            else:
+                neutral_assess = getattr(self._preference_profiles, "_assess_willhaben", None)
+                if callable(neutral_assess):
+                    try:
+                        refreshed_assessment = dict(
+                            neutral_assess(
+                                object_id=str(candidate.get("listing_id") or property_url).strip(),
+                                object_payload=assessment_facts,
+                                nodes=[],
+                            )
+                            or {}
+                        )
+                    except Exception:
+                        refreshed_assessment = {}
+                else:
+                    refreshed_assessment = {}
+                if not refreshed_assessment:
+                    refreshed_assessment = {
+                        "domain": "willhaben",
+                        "fit_score": 50.0,
+                        "recommendation": "mention",
+                        "match_reasons_json": [],
+                        "mismatch_reasons_json": [],
+                        "unknowns_json": ["Stored feedback preferences were disabled for this search."],
+                        "blocking_constraints_json": [],
+                        "stored_feedback_preferences_used": False,
+                    }
+            refreshed_score = (
+                _float_or_none(refreshed_assessment.get("fit_score"))
+                if isinstance(refreshed_assessment, dict)
+                else None
+            )
+            assessment_refresh_succeeded = bool(
+                isinstance(refreshed_score, float) and math.isfinite(refreshed_score)
+            )
+            assessment_recompute_required = bool(requested_fields) or bool(
+                current_job.get("score_recompute_required")
+            ) or not isinstance(_float_or_none(candidate.get("fit_score")), float)
+            assessment_failed = assessment_recompute_required and not assessment_refresh_succeeded
+            if assessment_refresh_succeeded and isinstance(refreshed_assessment, dict):
+                assessment = dict(refreshed_assessment)
+            previous_score: float | None
+            try:
+                previous_score = float(candidate.get("fit_score"))
+            except (TypeError, ValueError):
+                try:
+                    previous_score = float(dict(candidate.get("assessment") or {}).get("fit_score"))
+                except (TypeError, ValueError):
+                    previous_score = None
+            updated_candidate = dict(candidate)
+            updated_candidate["property_facts"] = merged_facts
+            if "property_facts_json" in updated_candidate:
+                updated_candidate["property_facts_json"] = merged_facts
+            if assessment:
+                updated_candidate["assessment"] = assessment
+                try:
+                    updated_candidate["fit_score"] = round(float(assessment.get("fit_score")), 2)
+                    updated_candidate["ranking_score"] = updated_candidate["fit_score"]
+                except (TypeError, ValueError):
+                    pass
+            score = property_fact_score_projection(
+                candidate=updated_candidate,
+                plan=plan_after,
+                preferences=preferences,
+                previous_score=previous_score,
+                changed_reasons=[f"Verified {label}." for label in changed_labels],
+            )
+            updated_candidate["score_projection"] = score
+            updated_candidate["score_state"] = str(score.get("state") or "provisional")
+            updated_candidate["ranking_eligible"] = bool(score.get("ranking_eligible"))
+            updated_candidate["evaluation_state"] = (
+                "ready" if bool(score.get("ranking_eligible")) else "evaluating_missing_required_facts"
+            )
+            plan_by_key = {str(row.get("key") or "").strip(): dict(row) for row in plan_after}
+            response_fields: list[dict[str, object]] = []
+            for requested in requested_fields:
+                key = str(requested.get("key") or "").strip()
+                field = dict(plan_by_key.get(key) or requested)
+                if key not in observed_keys or str(field.get("state") or "") != "resolved":
+                    field.update(
+                        {
+                            "state": "retryable_error",
+                            "error": {
+                                "code": "fact_not_available_from_current_sources",
+                                "message": "Could not verify this distance from the current listing and map sources.",
+                                "retry_after_seconds": 30,
+                            },
+                        }
+                    )
+                response_fields.append(field)
+            changed_labels = [
+                str(row.get("label") or row.get("key") or "").strip()
+                for row in response_fields
+                if str(row.get("state") or "") == "resolved"
+                and str(row.get("label") or row.get("key") or "").strip()
+            ]
+            unresolved = [row for row in response_fields if str(row.get("state") or "") != "resolved"]
+            unresolved_required = [
+                row
+                for row in unresolved
+                if str(row.get("priority") or "lazy").strip().lower() == "required"
+            ]
+            terminal_status = (
+                "retryable_error"
+                if unresolved_required or assessment_failed
+                else "succeeded"
+            )
+
+            def _complete(record_to_update: dict[str, object]) -> bool:
+                summary = dict(record_to_update.get("summary") or {})
+                jobs = dict(summary.get("fact_enrichment_jobs") or {})
+                job = dict(jobs.get(job_id) or {}) if isinstance(jobs.get(job_id), dict) else {}
+                candidate_jobs = dict(summary.get("fact_enrichment_candidate_jobs") or {})
+                latest_candidate = _property_fact_find_candidate(
+                    record_to_update,
+                    candidate_ref=candidate_ref,
+                )
+                exact_lease = bool(lease_token) and bool(str(job.get("lease_token") or "")) and hmac.compare_digest(
+                    str(job.get("lease_token") or ""),
+                    lease_token,
+                )
+                exact_attempt = int(job.get("attempt") or 0) == claimed_attempt
+                active_job = hmac.compare_digest(str(candidate_jobs.get(candidate_ref) or ""), job_id)
+                if (
+                    not isinstance(latest_candidate, dict)
+                    or str(job.get("status") or "").strip().lower() != "running"
+                    or not exact_lease
+                    or not exact_attempt
+                    or not active_job
+                ):
+                    return False
+                latest_url = urllib.parse.urldefrag(
+                    str(latest_candidate.get("property_url") or latest_candidate.get("listing_url") or "").strip()
+                )[0]
+                latest_source_fingerprint = _property_fact_source_fingerprint(latest_url)
+                latest_preferences = _property_fact_preferences_for_candidate(
+                    record_to_update,
+                    latest_candidate,
+                )
+                latest_plan = property_fact_requirement_plan(
+                    facts=_property_fact_candidate_facts(latest_candidate),
+                    preferences=latest_preferences,
+                    include_resolved=True,
+                )
+                latest_binding = _property_fact_request_binding(
+                    candidate=latest_candidate,
+                    preferences=latest_preferences,
+                    plan=latest_plan,
+                    source_fingerprint=latest_source_fingerprint,
+                )
+                input_binding_matches = all(
+                    hmac.compare_digest(str(job.get(job_key) or ""), latest_binding[binding_key])
+                    for job_key, binding_key in (
+                        ("source_fingerprint", "source_fingerprint"),
+                        ("facts_digest", "facts_digest"),
+                        ("preference_digest", "preference_digest"),
+                        ("requirement_digest", "requirement_digest"),
+                        ("request_digest", "request_digest"),
+                    )
+                )
+                if not input_binding_matches:
+                    retryable = claimed_attempt < _PROPERTY_FACT_ENRICHMENT_MAX_ATTEMPTS
+                    job.update(
+                        {
+                            "status": "retryable_error" if retryable else "terminal_error",
+                            "updated_at": _now_iso(),
+                            "lease_token": "",
+                            "lease_expires_at": "",
+                            "retryable": retryable,
+                            "fields": [
+                                {
+                                    **dict(row),
+                                    "state": "retryable_error" if retryable else "unavailable",
+                                    "error": {
+                                        "code": "fact_enrichment_inputs_changed",
+                                        "message": "The property changed while nearby facts were being checked.",
+                                        "retry_after_seconds": 0,
+                                    },
+                                }
+                                for row in list(job.get("fields") or [])
+                                if isinstance(row, dict) and str(row.get("state") or "") != "resolved"
+                            ],
+                        }
+                    )
+                    jobs[job_id] = job
+                    summary["fact_enrichment_jobs"] = jobs
+                    record_to_update["summary"] = summary
+                    return False
+                rebased_facts = _property_fact_candidate_facts(latest_candidate)
+                rebased_evidence = dict(rebased_facts.get("property_fact_evidence") or {}) if isinstance(rebased_facts.get("property_fact_evidence"), dict) else {}
+                for field in response_fields:
+                    if str(field.get("state") or "") != "resolved":
+                        continue
+                    key = str(field.get("key") or "").strip()
+                    if key and merged_facts.get(key) not in (None, "", (), [], {}):
+                        rebased_facts[key] = merged_facts[key]
+                    prefix = key.removesuffix("_m")
+                    for research_key, research_value in merged_facts.items():
+                        if str(research_key).startswith(prefix + "_") and research_value not in (None, "", (), [], {}):
+                            rebased_facts[str(research_key)] = research_value
+                    if key and isinstance(evidence.get(key), dict):
+                        rebased_evidence[key] = dict(evidence[key])
+                if rebased_evidence:
+                    rebased_facts["property_fact_evidence"] = rebased_evidence
+                rebased_candidate = dict(latest_candidate)
+                rebased_candidate["property_facts"] = rebased_facts
+                if "property_facts_json" in rebased_candidate:
+                    rebased_candidate["property_facts_json"] = rebased_facts
+                if assessment:
+                    rebased_candidate["assessment"] = assessment
+                    try:
+                        rebased_candidate["fit_score"] = round(float(assessment.get("fit_score")), 2)
+                        rebased_candidate["ranking_score"] = rebased_candidate["fit_score"]
+                    except (TypeError, ValueError):
+                        pass
+                rebased_plan = property_fact_requirement_plan(
+                    facts=rebased_facts,
+                    preferences=latest_preferences,
+                    include_resolved=True,
+                )
+                try:
+                    latest_previous_score = float(latest_candidate.get("fit_score"))
+                except (TypeError, ValueError):
+                    latest_previous_score = None
+                rebased_score = property_fact_score_projection(
+                    candidate=rebased_candidate,
+                    plan=rebased_plan,
+                    preferences=latest_preferences,
+                    previous_score=latest_previous_score,
+                    changed_reasons=[f"Verified {label}." for label in changed_labels],
+                )
+                if assessment_failed:
+                    rebased_score.update(
+                        {
+                            "state": "evaluating",
+                            "current": None,
+                            "delta": None,
+                            "ranking_eligible": False,
+                            "changed_reasons": ["Score recomputation pending."],
+                        }
+                    )
+                rebased_candidate["score_projection"] = rebased_score
+                rebased_candidate["fact_requirement_plan"] = rebased_plan
+                rebased_candidate["score_state"] = str(rebased_score.get("state") or "provisional")
+                rebased_candidate["ranking_eligible"] = bool(rebased_score.get("ranking_eligible"))
+                rebased_candidate["evaluation_state"] = (
+                    "ready" if bool(rebased_score.get("ranking_eligible")) else "evaluating_missing_required_facts"
+                )
+                _property_fact_update_candidate_copies(
+                    record_to_update,
+                    candidate_ref=candidate_ref,
+                    updated_candidate=rebased_candidate,
+                )
+                _property_fact_rebuild_run_rankings(
+                    record_to_update,
+                    candidate_ref=candidate_ref,
+                    updated_candidate=rebased_candidate,
+                )
+                summary = dict(record_to_update.get("summary") or {})
+                jobs = dict(summary.get("fact_enrichment_jobs") or jobs)
+                final_status = terminal_status
+                final_fields = response_fields
+                retryable = bool(unresolved or assessment_failed) and claimed_attempt < _PROPERTY_FACT_ENRICHMENT_MAX_ATTEMPTS
+                if (unresolved or assessment_failed) and not retryable:
+                    final_status = "terminal_error" if unresolved_required or assessment_failed else "succeeded"
+                    final_fields = [
+                        {
+                            **dict(row),
+                            "state": "unavailable" if str(row.get("state") or "") != "resolved" else "resolved",
+                            "error": (
+                                {
+                                    "code": "fact_enrichment_attempts_exhausted",
+                                    "message": "Nearby facts are unavailable from the current sources.",
+                                    "retry_after_seconds": 0,
+                                }
+                                if str(row.get("state") or "") != "resolved"
+                                else {}
+                            ),
+                        }
+                        for row in response_fields
+                    ]
+                job.update(
+                    {
+                        "status": final_status,
+                        "updated_at": _now_iso(),
+                        "lease_token": "",
+                        "lease_expires_at": "",
+                        "fields": final_fields,
+                        "score": rebased_score,
+                        "retryable": retryable,
+                        "score_recompute_required": assessment_failed,
+                        "result_facts_digest": property_fact_input_digest(rebased_facts),
+                        "poll_after_ms": 1500,
+                    }
+                )
+                jobs[job_id] = job
+                summary["fact_enrichment_jobs"] = jobs
+                record_to_update["summary"] = summary
+                return True
+
+            _property_fact_mutate_run_record(
+                principal_id=principal_id,
+                run_id=run_id,
+                mutate=_complete,
+            )
+        except Exception:
+            def _fail(record: dict[str, object]) -> bool:
+                summary = dict(record.get("summary") or {})
+                jobs = dict(summary.get("fact_enrichment_jobs") or {})
+                job = dict(jobs.get(job_id) or {}) if isinstance(jobs.get(job_id), dict) else {}
+                candidate_jobs = dict(summary.get("fact_enrichment_candidate_jobs") or {})
+                current_candidate = _property_fact_find_candidate(record, candidate_ref=candidate_ref)
+                current_lease = str(job.get("lease_token") or "")
+                exact_lease = bool(lease_token) and bool(current_lease) and hmac.compare_digest(current_lease, lease_token)
+                if (
+                    not job
+                    or str(job.get("status") or "").strip().lower() != "running"
+                    or not exact_lease
+                    or int(job.get("attempt") or 0) != claimed_attempt
+                    or not hmac.compare_digest(str(candidate_jobs.get(candidate_ref) or ""), job_id)
+                    or not isinstance(current_candidate, dict)
+                ):
+                    return False
+                current_url = urllib.parse.urldefrag(
+                    str(current_candidate.get("property_url") or current_candidate.get("listing_url") or "").strip()
+                )[0]
+                current_source_fingerprint = _property_fact_source_fingerprint(current_url)
+                current_preferences = _property_fact_preferences_for_candidate(record, current_candidate)
+                current_plan = property_fact_requirement_plan(
+                    facts=_property_fact_candidate_facts(current_candidate),
+                    preferences=current_preferences,
+                    include_resolved=True,
+                )
+                current_binding = _property_fact_request_binding(
+                    candidate=current_candidate,
+                    preferences=current_preferences,
+                    plan=current_plan,
+                    source_fingerprint=current_source_fingerprint,
+                )
+                binding_matches = all(
+                    hmac.compare_digest(str(job.get(job_key) or ""), current_binding[binding_key])
+                    for job_key, binding_key in (
+                        ("source_fingerprint", "source_fingerprint"),
+                        ("facts_digest", "facts_digest"),
+                        ("preference_digest", "preference_digest"),
+                        ("requirement_digest", "requirement_digest"),
+                        ("request_digest", "request_digest"),
+                    )
+                )
+                retryable = claimed_attempt < _PROPERTY_FACT_ENRICHMENT_MAX_ATTEMPTS
+                failure_code = "fact_provider_temporarily_unavailable" if retryable else "fact_provider_unavailable"
+                failure_message = "The nearby-facts check could not finish safely."
+                if not binding_matches:
+                    failure_code = "fact_enrichment_inputs_changed"
+                    failure_message = "The property changed while nearby facts were being checked."
+                job.update(
+                    {
+                        "status": "retryable_error" if retryable else "terminal_error",
+                        "updated_at": _now_iso(),
+                        "lease_token": "",
+                        "lease_expires_at": "",
+                        "retryable": retryable,
+                        "fields": [
+                            {
+                                **dict(row),
+                                "state": (
+                                    str(row.get("state") or "resolved")
+                                    if str(row.get("state") or "") == "resolved"
+                                    else ("retryable_error" if retryable else "unavailable")
+                                ),
+                                "error": (
+                                    {}
+                                    if str(row.get("state") or "") == "resolved"
+                                    else {
+                                        "code": failure_code,
+                                        "message": failure_message,
+                                        "retry_after_seconds": 30 if retryable else 0,
+                                    }
+                                ),
+                            }
+                            for row in list(job.get("fields") or [])
+                            if isinstance(row, dict)
+                        ],
+                    }
+                )
+                jobs[job_id] = job
+                summary["fact_enrichment_jobs"] = jobs
+                record["summary"] = summary
+                return True
+
+            with contextlib.suppress(Exception):
+                _property_fact_mutate_run_record(
+                    principal_id=principal_id,
+                    run_id=run_id,
+                    mutate=_fail,
+                )
     def property_feedback_suggestions(
         self,
         *,
@@ -47620,7 +49396,44 @@ class ProductService:
                     status="in_progress",
                     steps_delta=1,
                 )
+            fact_preference_nodes: list[dict[str, object]] = []
+            try:
+                fact_preference_bundle = self._preference_profiles.get_profile_bundle(
+                    principal_id=principal_id,
+                    person_id=source_preference_person_id,
+                )
+                fact_preference_nodes = [
+                    dict(node)
+                    for node in list(dict(fact_preference_bundle or {}).get("preference_nodes") or [])
+                    if isinstance(node, dict)
+                    and str(node.get("status") or "active").strip().lower() == "active"
+                    and str(node.get("domain") or "willhaben").strip().lower()
+                    in {"willhaben", "property_scout"}
+                ]
+            except Exception:
+                fact_preference_nodes = (
+                    [
+                        {
+                            "key": key,
+                            "category": "constraint",
+                            "strength": "high",
+                            "value_json": True,
+                            "status": "active",
+                            "domain": "property_scout",
+                        }
+                        for key in (
+                            "prefer_supermarket_nearby",
+                            "prefer_playgrounds_nearby",
+                            "prefer_pharmacy_nearby",
+                            "prefer_medical_care_nearby",
+                            "prefer_subway_nearby",
+                        )
+                    ]
+                    if use_stored_feedback_preferences
+                    else []
+                )
             ranked_rows: list[dict[str, object]] = []
+            evaluating_rows: list[dict[str, object]] = []
             top_watch_candidate_for_source: dict[str, object] | None = None
             for ordinal, row in enumerate(preliminary_rows[:enrichment_limit], start=1):
                 property_url = str(row.get("property_url") or "").strip()
@@ -48284,6 +50097,56 @@ class ProductService:
                         summary_updates={"filtered_listing_mode_total": filtered_listing_mode_total},
                     )
                     continue
+                fact_plan = property_fact_requirement_plan(
+                    facts=detailed_facts,
+                    preferences=request_preferences,
+                    preference_nodes=fact_preference_nodes,
+                    include_resolved=True,
+                )
+                pre_rank_score = property_fact_score_projection(
+                    candidate={"property_facts": detailed_facts},
+                    plan=fact_plan,
+                    preferences=request_preferences,
+                )
+                if str(pre_rank_score.get("state") or "") == "evaluating":
+                    evaluating_rows.append(
+                        _property_candidate_search_page_display(
+                            {
+                                "property_url": property_url,
+                                "listing_id": str(preview.get("listing_id") or property_url).strip() or property_url,
+                                "title": compact_text(detailed_title, fallback=property_url, limit=160),
+                                "summary": compact_text(detailed_summary, fallback="", limit=240),
+                                **_willhaben_candidate_tour_source_fields(
+                                    property_url=property_url,
+                                    preview=preview,
+                                    property_facts=detailed_facts,
+                                ),
+                                "property_facts": detailed_facts,
+                                "fact_requirement_plan": fact_plan,
+                                "assessment": {},
+                                "score_state": "evaluating",
+                                "score_projection": pre_rank_score,
+                                "ranking_eligible": False,
+                                "evaluation_state": "evaluating_missing_required_facts",
+                                "recommendation": "",
+                                "source_platform": str(source_spec.get("platform") or "").strip().lower(),
+                                "source_family": str(source_spec.get("provider_family") or "").strip().lower(),
+                                "source_trust_tier": str(source_spec.get("provider_trust_tier") or "").strip().lower(),
+                                "source_access_level": str(source_spec.get("source_access_level") or "").strip().lower(),
+                                "verification_required": bool(source_spec.get("verification_required")),
+                                "match_reasons": [],
+                                "mismatch_reasons": [],
+                            }
+                        )
+                    )
+                    _report(
+                        step="source_fact_evaluating",
+                        message=f"Keeping {candidate_label} in evaluation until required facts are verified.",
+                        status="in_progress",
+                        steps_delta=0,
+                        summary_updates={"evaluating_candidate_total": len(evaluating_rows)},
+                    )
+                    continue
                 assessment = fit_from_facts(
                     preference_profiles=self._preference_profiles,
                     principal_id=principal_id,
@@ -48442,7 +50305,7 @@ class ProductService:
                         steps_delta=1,
                     )
 
-            if not ranked_rows and preliminary_rows:
+            if not ranked_rows and preliminary_rows and not evaluating_rows:
                 fallback_reason = (
                     "Kept as a review candidate while stronger investment screens were unavailable."
                     if search_goal == "investment"
@@ -48515,6 +50378,24 @@ class ProductService:
                         steps_delta=0,
                     )
 
+            for ranked_row in ranked_rows:
+                ranked_facts = dict(ranked_row.get("property_facts") or {}) if isinstance(ranked_row.get("property_facts"), dict) else {}
+                ranked_plan = property_fact_requirement_plan(
+                    facts=ranked_facts,
+                    preferences=request_preferences,
+                    preference_nodes=fact_preference_nodes,
+                    include_resolved=True,
+                )
+                ranked_projection = property_fact_score_projection(
+                    candidate=ranked_row,
+                    plan=ranked_plan,
+                    preferences=request_preferences,
+                )
+                ranked_row["score_projection"] = ranked_projection
+                ranked_row["fact_requirement_plan"] = ranked_plan
+                ranked_row["score_state"] = str(ranked_projection.get("state") or "provisional")
+                ranked_row["ranking_eligible"] = bool(ranked_projection.get("ranking_eligible"))
+                ranked_row["evaluation_state"] = "ready"
             ranked_rows.sort(key=lambda item: float(item.get("fit_score") or 0.0), reverse=True)
             if source_location_hints:
                 matching_rows = [row for row in ranked_rows if bool(row.get("location_match"))]
@@ -48787,6 +50668,15 @@ class ProductService:
                         "summary": summary,
                         "fit_score": fit_score,
                         "ranking_score": ranking_score,
+                        "score_state": str(row.get("score_state") or "provisional").strip(),
+                        "score_projection": dict(row.get("score_projection") or {}) if isinstance(row.get("score_projection"), dict) else {},
+                        "fact_requirement_plan": [
+                            dict(item)
+                            for item in list(row.get("fact_requirement_plan") or [])
+                            if isinstance(item, dict)
+                        ],
+                        "ranking_eligible": bool(row.get("ranking_eligible", True)),
+                        "evaluation_state": str(row.get("evaluation_state") or "ready").strip(),
                         "investment_score": investment_score,
                         "assessment_fit_score": assessment_fit_score,
                         "score_demoted": bool(row.get("score_demoted")),
@@ -49116,7 +51006,9 @@ class ProductService:
                     "filter_near_misses": filter_near_misses_for_source[:5],
                     "top_fit_score": visible_top_fit_score_for_source,
                     "top_candidates": sorted_top_candidates_for_source,
-                    "research_candidates": sorted_top_candidates_for_source,
+                    "research_candidates": sorted_top_candidates_for_source + evaluating_rows,
+                    "evaluating_candidates": evaluating_rows,
+                    "evaluating_candidate_total": len(evaluating_rows),
                     "status": "completed",
                     "timing_ms": {
                         "provider_fetch": round(provider_fetch_ms, 2),

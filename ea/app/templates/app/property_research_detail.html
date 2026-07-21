@@ -18,6 +18,111 @@
     --prd-gold-soft: color-mix(in srgb, var(--prd-gold) 14%, transparent);
     --prd-gold-line: color-mix(in srgb, var(--prd-gold) 38%, var(--line));
   }
+  .prd-fact-enrichment {
+    display: grid;
+    gap: 12px;
+  }
+  .prd-fact-score {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 4px 12px;
+    padding: 11px 12px;
+    border: 1px solid color-mix(in srgb, var(--prd-gold) 26%, var(--line));
+    border-radius: 14px;
+    background: color-mix(in srgb, var(--prd-gold) 7%, var(--panel));
+  }
+  .prd-fact-score-copy {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+  }
+  .prd-fact-score-copy span,
+  .prd-fact-score-meta,
+  .prd-fact-provenance {
+    color: var(--text-soft);
+    font-size: 0.76rem;
+  }
+  .prd-fact-score-value {
+    color: var(--text);
+    font-size: 0.92rem;
+    font-weight: 800;
+    white-space: nowrap;
+  }
+  .prd-fact-score-meta {
+    grid-column: 1 / -1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 8px;
+  }
+  .prd-fact-score-delta {
+    color: color-mix(in srgb, var(--text) 76%, var(--prd-gold-deep));
+    font-weight: 760;
+  }
+  .prd-fact-live {
+    min-height: 1.15em;
+    margin: 0;
+    color: var(--text-soft);
+    font-size: 0.78rem;
+  }
+  .prd-fact-list {
+    gap: 8px;
+  }
+  .prd-fact-row {
+    position: relative;
+    align-items: flex-start;
+    min-width: 0;
+  }
+  .prd-fact-copy {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+  }
+  .prd-fact-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .prd-fact-title strong {
+    overflow-wrap: anywhere;
+  }
+  .prd-fact-spinner {
+    flex: 0 0 auto;
+    width: 15px;
+    height: 15px;
+    border: 2px solid color-mix(in srgb, var(--prd-gold) 26%, var(--line));
+    border-top-color: var(--prd-gold-deep);
+    border-radius: 50%;
+    animation: prd-fact-spin 0.85s linear infinite;
+  }
+  .prd-fact-status {
+    color: var(--text-soft);
+    font-size: 0.78rem;
+    line-height: 1.35;
+  }
+  .prd-fact-retry {
+    min-width: 44px;
+    min-height: 44px;
+    align-self: center;
+  }
+  .prd-fact-row[data-property-fact-state="resolved"] {
+    border-color: color-mix(in srgb, #43845c 30%, var(--line));
+  }
+  .prd-fact-row[data-property-fact-state="retryable_error"],
+  .prd-fact-row[data-property-fact-state="unavailable"] {
+    border-color: color-mix(in srgb, #a95c4a 34%, var(--line));
+  }
+  @keyframes prd-fact-spin {
+    to { transform: rotate(360deg); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .prd-fact-spinner {
+      animation: none;
+      border-top-color: color-mix(in srgb, var(--prd-gold) 26%, var(--line));
+      background: radial-gradient(circle, var(--prd-gold-deep) 0 32%, transparent 36%);
+    }
+  }
   .pq-shell[data-property-app-shell] {
     grid-template-columns: minmax(0, 1fr);
     background: var(--bg);
@@ -3975,11 +4080,99 @@
     </section>
 
     <aside class="prd-side-stack">
-      {% if research_selected_distance_rows %}
-      <section class="prd-panel prd-related-homes" data-research-selected-distances aria-label="Nearby distances for this home">
+      {% set fact_enrichment = research_fact_enrichment|default({}, true) %}
+      {% set fact_fields = fact_enrichment.get('fields') or [] %}
+      {% set fact_score = fact_enrichment.get('score') or {} %}
+      {% set fact_score_state = (fact_score.get('state') or 'final')|lower %}
+      {% set fact_job_status = (fact_enrichment.get('status') or 'idle')|lower %}
+      {% set fact_job_pending = fact_job_status in ['queued', 'running'] or (fact_job_status == 'idle' and fact_enrichment.get('start_url') and fact_fields) %}
+      {% if fact_fields or research_selected_distance_rows %}
+      <section
+        class="prd-panel prd-related-homes prd-fact-enrichment"
+        data-research-selected-distances
+        data-property-fact-enrichment
+        data-start-url="{{ fact_enrichment.get('start_url') or '' }}"
+        data-status-url="{{ fact_enrichment.get('status_url') or '' }}"
+        data-property-fact-job-status="{{ fact_job_status }}"
+        aria-label="Nearby distances for this home"
+        aria-busy="{% if fact_job_pending %}true{% else %}false{% endif %}"
+      >
         <h2>Nearby distances</h2>
         <p class="prd-section-copy">{{ research_selected_distance_copy or 'Distances for the nearby filters in this search.' }}</p>
-        <div class="object-list">
+        <div
+          class="prd-fact-score"
+          data-property-score-state
+          data-score-state="{{ fact_score_state }}"
+          data-ranking-eligible="{% if fact_score.get('ranking_eligible', fact_score_state != 'evaluating') %}true{% else %}false{% endif %}"
+        >
+          <div class="prd-fact-score-copy">
+            <strong data-property-score-label>
+              {% if fact_score_state == 'evaluating' %}Evaluating score{% elif fact_score_state == 'provisional' %}Provisional score{% else %}Final score{% endif %}
+            </strong>
+            <span data-property-ranking-state>
+              {% if not fact_score.get('ranking_eligible', fact_score_state != 'evaluating') %}Rank pending until required facts are checked{% elif fact_score_state == 'provisional' %}Can rank while nice-to-have facts are checked{% else %}Ready for ranking{% endif %}
+            </span>
+          </div>
+          <strong class="prd-fact-score-value" data-property-score-value>
+            {% if fact_score.get('current') is not none %}{{ fact_score.get('current') }} / 100{% elif fact_score_state == 'evaluating' %}Waiting{% else %}Pending{% endif %}
+          </strong>
+          <div class="prd-fact-score-meta">
+            <span class="prd-fact-score-delta" data-property-score-delta{% if fact_score.get('delta') is none %} hidden{% endif %}>
+              {% if fact_score.get('delta') is not none %}{% if fact_score.get('delta') > 0 %}+{% endif %}{{ fact_score.get('delta') }} from {{ fact_score.get('previous') }}{% endif %}
+            </span>
+            <span data-property-score-reason>
+              {% if fact_score.get('changed_reasons') %}{{ fact_score.get('changed_reasons')|join(' ') }}{% endif %}
+            </span>
+          </div>
+        </div>
+        <p
+          class="prd-fact-live"
+          data-property-fact-live
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >{% if fact_job_pending %}Checking {{ fact_fields|length }} nearby fact{% if fact_fields|length != 1 %}s{% endif %}.{% endif %}</p>
+        <div class="object-list prd-fact-list" data-property-fact-list>
+          {% if fact_fields %}
+          {% for field in fact_fields %}
+          {% set raw_fact_state = (field.get('state') or 'unknown')|lower %}
+          {% set visible_fact_state = 'queued' if raw_fact_state == 'unknown' and fact_enrichment.get('start_url') else raw_fact_state %}
+          {% set field_pending = visible_fact_state in ['queued', 'running'] %}
+          {% set field_error = field.get('error') or {} %}
+          {% set field_provenance = field.get('provenance') or {} %}
+          <article
+            class="object-row prd-fact-row"
+            data-property-fact-key="{{ field.get('key') }}"
+            data-property-fact-state="{{ visible_fact_state }}"
+            data-property-fact-priority="{{ field.get('priority') or 'lazy' }}"
+            aria-busy="{% if field_pending %}true{% else %}false{% endif %}"
+          >
+            <div class="prd-fact-copy">
+              <div class="prd-fact-title">
+                <span class="prd-fact-spinner" data-property-fact-spinner aria-hidden="true"{% if not field_pending %} hidden{% endif %}></span>
+                <strong data-property-fact-label>{{ field.get('label') or field.get('key') }}</strong>
+              </div>
+              <small data-property-fact-value>
+                {% if visible_fact_state == 'resolved' %}{{ field.get('display_value') or field.get('value') }}{% elif visible_fact_state in ['queued', 'running'] %}Checking distance…{% elif visible_fact_state == 'retryable_error' %}Could not verify yet{% elif visible_fact_state == 'unavailable' %}Not available from current sources{% else %}Not checked yet{% endif %}
+              </small>
+              <span class="prd-fact-status" data-property-fact-status>
+                {% if visible_fact_state == 'queued' %}Queued{% elif visible_fact_state == 'running' %}Checking map sources{% elif visible_fact_state == 'retryable_error' %}{{ field_error.get('message') or 'The check did not finish. You can retry.' }}{% elif visible_fact_state == 'unavailable' %}{{ field_error.get('message') or 'The current sources could not verify this distance.' }}{% elif visible_fact_state == 'resolved' %}Verified{% else %}Waiting to start{% endif %}
+                · {% if field.get('priority') == 'required' %}Required for ranking{% else %}Nice to have{% endif %}
+              </span>
+              <span class="prd-fact-provenance" data-property-fact-provenance{% if visible_fact_state != 'resolved' %} hidden{% endif %}>
+                {% if field_provenance.get('method') == 'straight_line_osm' %}Straight-line estimate{% endif %}{% if field_provenance.get('provider') %}{% if field_provenance.get('method') %} · {% endif %}{{ field_provenance.get('provider')|replace('_', ' ')|title }}{% endif %}
+              </span>
+            </div>
+            <button
+              class="console-action prd-fact-retry"
+              type="button"
+              data-property-fact-retry
+              aria-label="Retry {{ field.get('label') or field.get('key') }}"
+              {% if visible_fact_state != 'retryable_error' or not fact_enrichment.get('retryable') %}hidden{% endif %}
+            >Retry</button>
+          </article>
+          {% endfor %}
+          {% else %}
           {% for row in research_selected_distance_rows[:10] %}
           <div class="object-row">
             <div>
@@ -3989,7 +4182,9 @@
             <span class="prd-tag">{{ prd_tag_label(row.get('tag')) }}</span>
           </div>
           {% endfor %}
+          {% endif %}
         </div>
+        <script type="application/json" data-property-fact-initial>{{ fact_enrichment|tojson }}</script>
       </section>
       {% endif %}
     </aside>
@@ -4289,6 +4484,454 @@
   </div>
 </dialog>
 {% endif %}
+
+<script>
+(() => {
+  const root = document.querySelector('[data-property-fact-enrichment]');
+  if (!(root instanceof HTMLElement)) return;
+
+  const initialNode = root.querySelector('[data-property-fact-initial]');
+  const listNode = root.querySelector('[data-property-fact-list]');
+  const liveNode = root.querySelector('[data-property-fact-live]');
+  const scoreNode = root.querySelector('[data-property-score-state]');
+  const scoreLabelNode = root.querySelector('[data-property-score-label]');
+  const scoreValueNode = root.querySelector('[data-property-score-value]');
+  const scoreDeltaNode = root.querySelector('[data-property-score-delta]');
+  const scoreReasonNode = root.querySelector('[data-property-score-reason]');
+  const rankingStateNode = root.querySelector('[data-property-ranking-state]');
+  const pendingStates = new Set(['queued', 'running']);
+  const terminalStatuses = new Set(['succeeded', 'retryable_error', 'terminal_error']);
+  const fieldStore = new Map();
+  let currentPayload = {};
+  let pollTimer = 0;
+  let pollFailures = 0;
+  let pollDeferred = false;
+  let pollController = null;
+  let requestGeneration = 0;
+  let lastAnnouncement = '';
+
+  const normalizedText = (value) => String(value || '').trim();
+  const normalizedState = (value, fallback = 'unknown') => normalizedText(value).toLowerCase() || fallback;
+  const numericValue = (value) => {
+    if (value === null || value === undefined || value === '') return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  const formatNumber = (value) => {
+    const parsed = numericValue(value);
+    if (parsed === null) return '';
+    return Number.isInteger(parsed) ? String(parsed) : parsed.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+  };
+  const sameOriginUrl = (value) => {
+    const raw = normalizedText(value);
+    if (!raw) return '';
+    try {
+      const parsed = new URL(raw, window.location.href);
+      return parsed.origin === window.location.origin ? parsed.href : '';
+    } catch (_error) {
+      return '';
+    }
+  };
+  const parseInitialPayload = () => {
+    try {
+      const parsed = JSON.parse(String(initialNode?.textContent || '{}'));
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (_error) {
+      return {};
+    }
+  };
+  const fieldRow = (key) => Array.from(root.querySelectorAll('[data-property-fact-key]')).find(
+    (row) => normalizedText(row.getAttribute('data-property-fact-key')) === key,
+  ) || null;
+  const providerLabel = (value) => {
+    const provider = normalizedText(value).toLowerCase();
+    if (provider === 'openstreetmap_overpass') return 'OpenStreetMap';
+    return provider
+      .split('_')
+      .filter(Boolean)
+      .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+      .join(' ');
+  };
+  const priorityLabel = (field) => (
+    normalizedState(field?.priority, 'lazy') === 'required' ? 'Required for ranking' : 'Nice to have'
+  );
+  const fieldValueLabel = (field) => {
+    const state = normalizedState(field?.state);
+    if (state === 'resolved') {
+      const explicit = normalizedText(field?.display_value);
+      if (explicit) return explicit;
+      const value = numericValue(field?.value);
+      return value === null ? 'Verified' : `${formatNumber(value)} m`;
+    }
+    if (state === 'queued') return 'Checking distance…';
+    if (state === 'running') return 'Checking distance…';
+    if (state === 'retryable_error') return 'Could not verify yet';
+    if (state === 'unavailable') return 'Not available from current sources';
+    return 'Not checked yet';
+  };
+  const fieldStatusLabel = (field) => {
+    const state = normalizedState(field?.state);
+    const error = field?.error && typeof field.error === 'object' ? field.error : {};
+    let status = 'Waiting to start';
+    if (state === 'queued') status = 'Queued';
+    if (state === 'running') status = 'Checking map sources';
+    if (state === 'resolved') status = 'Verified';
+    if (state === 'retryable_error') status = normalizedText(error.message) || 'The check did not finish. You can retry.';
+    if (state === 'unavailable') status = normalizedText(error.message) || 'The current sources could not verify this distance.';
+    return `${status} · ${priorityLabel(field)}`;
+  };
+  const fieldProvenanceLabel = (field) => {
+    const provenance = field?.provenance && typeof field.provenance === 'object' ? field.provenance : {};
+    const parts = [];
+    if (normalizedText(provenance.method) === 'straight_line_osm') parts.push('Straight-line estimate');
+    const provider = providerLabel(provenance.provider);
+    if (provider) parts.push(provider);
+    return parts.join(' · ');
+  };
+  const createFieldRow = (key) => {
+    if (!(listNode instanceof HTMLElement)) return null;
+    const row = document.createElement('article');
+    row.className = 'object-row prd-fact-row';
+    row.setAttribute('data-property-fact-key', key);
+    row.innerHTML = [
+      '<div class="prd-fact-copy">',
+      '<div class="prd-fact-title">',
+      '<span class="prd-fact-spinner" data-property-fact-spinner aria-hidden="true" hidden></span>',
+      '<strong data-property-fact-label></strong>',
+      '</div>',
+      '<small data-property-fact-value></small>',
+      '<span class="prd-fact-status" data-property-fact-status></span>',
+      '<span class="prd-fact-provenance" data-property-fact-provenance hidden></span>',
+      '</div>',
+      '<button class="console-action prd-fact-retry" type="button" data-property-fact-retry hidden>Retry</button>',
+    ].join('');
+    listNode.appendChild(row);
+    return row;
+  };
+  const renderField = (field, retryable) => {
+    const key = normalizedText(field?.key);
+    if (!key) return;
+    const row = fieldRow(key) || createFieldRow(key);
+    if (!(row instanceof HTMLElement)) return;
+    const state = normalizedState(field.state);
+    const pending = pendingStates.has(state);
+    const label = normalizedText(field.label) || key;
+    row.setAttribute('data-property-fact-state', state);
+    row.setAttribute('data-property-fact-priority', normalizedState(field.priority, 'lazy'));
+    row.setAttribute('aria-busy', pending ? 'true' : 'false');
+    const labelNode = row.querySelector('[data-property-fact-label]');
+    const valueNode = row.querySelector('[data-property-fact-value]');
+    const statusNode = row.querySelector('[data-property-fact-status]');
+    const spinnerNode = row.querySelector('[data-property-fact-spinner]');
+    const provenanceNode = row.querySelector('[data-property-fact-provenance]');
+    const retryNode = row.querySelector('[data-property-fact-retry]');
+    if (labelNode) labelNode.textContent = label;
+    if (valueNode) valueNode.textContent = fieldValueLabel(field);
+    if (statusNode) statusNode.textContent = fieldStatusLabel(field);
+    if (spinnerNode instanceof HTMLElement) spinnerNode.hidden = !pending;
+    if (provenanceNode instanceof HTMLElement) {
+      const provenance = state === 'resolved' ? fieldProvenanceLabel(field) : '';
+      provenanceNode.textContent = provenance;
+      provenanceNode.hidden = !provenance;
+    }
+    if (retryNode instanceof HTMLButtonElement) {
+      retryNode.hidden = !(state === 'retryable_error' && retryable);
+      retryNode.setAttribute('aria-label', `Retry ${label}`);
+    }
+  };
+  const renderScore = (score) => {
+    const normalized = score && typeof score === 'object' ? score : {};
+    const state = normalizedState(normalized.state, 'final');
+    const rankingEligible = normalized.ranking_eligible !== false && state !== 'evaluating';
+    const current = numericValue(normalized.current);
+    const previous = numericValue(normalized.previous);
+    const delta = numericValue(normalized.delta);
+    if (scoreNode instanceof HTMLElement) {
+      scoreNode.setAttribute('data-score-state', state);
+      scoreNode.setAttribute('data-ranking-eligible', rankingEligible ? 'true' : 'false');
+    }
+    if (scoreLabelNode) {
+      scoreLabelNode.textContent = state === 'evaluating'
+        ? 'Evaluating score'
+        : state === 'provisional'
+          ? 'Provisional score'
+          : 'Final score';
+    }
+    if (scoreValueNode) {
+      scoreValueNode.textContent = current !== null
+        ? `${formatNumber(current)} / 100`
+        : state === 'evaluating'
+          ? 'Waiting'
+          : 'Pending';
+    }
+    if (rankingStateNode) {
+      rankingStateNode.textContent = !rankingEligible
+        ? 'Rank pending until required facts are checked'
+        : state === 'provisional'
+          ? 'Can rank while nice-to-have facts are checked'
+          : 'Ready for ranking';
+    }
+    if (scoreDeltaNode instanceof HTMLElement) {
+      const hasDelta = delta !== null && previous !== null;
+      scoreDeltaNode.hidden = !hasDelta;
+      scoreDeltaNode.textContent = hasDelta
+        ? `${delta > 0 ? '+' : ''}${formatNumber(delta)} from ${formatNumber(previous)}`
+        : '';
+    }
+    if (scoreReasonNode) {
+      const reasons = Array.isArray(normalized.changed_reasons) ? normalized.changed_reasons : [];
+      scoreReasonNode.textContent = reasons.map(normalizedText).filter(Boolean).join(' ');
+    }
+  };
+  const announce = (message) => {
+    const next = normalizedText(message);
+    if (!next || next === lastAnnouncement || !liveNode) return;
+    lastAnnouncement = next;
+    liveNode.textContent = '';
+    window.setTimeout(() => {
+      if (liveNode) liveNode.textContent = next;
+    }, 20);
+  };
+  const transitionAnnouncement = (previousFields, nextFields, previousScore, nextScore) => {
+    const messages = [];
+    nextFields.forEach((field) => {
+      const key = normalizedText(field?.key);
+      const before = previousFields.get(key);
+      if (!before) return;
+      const beforeState = normalizedState(before.state);
+      const nextState = normalizedState(field.state);
+      const beforeValue = numericValue(before.value);
+      const nextValue = numericValue(field.value);
+      if (nextState === beforeState && nextValue === beforeValue) return;
+      const label = normalizedText(field.label) || key;
+      if (nextState === 'resolved') messages.push(`${label} verified: ${fieldValueLabel(field)}.`);
+      if (nextState === 'retryable_error') messages.push(`Could not verify ${label}. Retry is available.`);
+      if (nextState === 'unavailable') messages.push(`${label} is not available from the current sources.`);
+    });
+    const oldCurrent = numericValue(previousScore?.current) ?? numericValue(nextScore?.previous);
+    const newCurrent = numericValue(nextScore?.current);
+    if (oldCurrent !== null && newCurrent !== null && oldCurrent !== newCurrent) {
+      const delta = numericValue(nextScore?.delta) ?? (newCurrent - oldCurrent);
+      messages.push(`Score updated from ${formatNumber(oldCurrent)} to ${formatNumber(newCurrent)}, ${delta >= 0 ? 'up' : 'down'} ${formatNumber(Math.abs(delta))} points.`);
+    }
+    return messages.join(' ');
+  };
+  const updateBusyState = () => {
+    const busy = Array.from(fieldStore.values()).some((field) => pendingStates.has(normalizedState(field?.state)));
+    root.setAttribute('aria-busy', busy ? 'true' : 'false');
+  };
+  const applyPayload = (payload, { announceTransitions = true } = {}) => {
+    if (!payload || typeof payload !== 'object') return;
+    const previousFields = new Map(fieldStore);
+    const previousScore = currentPayload?.score && typeof currentPayload.score === 'object' ? currentPayload.score : {};
+    const fields = Array.isArray(payload.fields) ? payload.fields.filter((field) => field && typeof field === 'object') : [];
+    const retryable = Boolean(payload.retryable);
+    fields.forEach((field) => {
+      const key = normalizedText(field.key);
+      if (!key) return;
+      const projected = { ...(fieldStore.get(key) || {}), ...field, key };
+      fieldStore.set(key, projected);
+      renderField(projected, retryable);
+    });
+    const score = payload.score && typeof payload.score === 'object' ? payload.score : previousScore;
+    renderScore(score);
+    const status = normalizedState(payload.status, normalizedState(currentPayload.status, 'idle'));
+    root.setAttribute('data-property-fact-job-status', status);
+    const statusUrl = sameOriginUrl(payload.status_url);
+    if (statusUrl) root.setAttribute('data-status-url', statusUrl);
+    currentPayload = { ...currentPayload, ...payload, status, fields: Array.from(fieldStore.values()), score };
+    updateBusyState();
+    if (announceTransitions) {
+      const message = transitionAnnouncement(previousFields, fields, previousScore, score);
+      if (message) announce(message);
+    }
+  };
+  const queueFields = ({ retry = false } = {}) => {
+    let queued = 0;
+    fieldStore.forEach((field, key) => {
+      const state = normalizedState(field.state);
+      const shouldQueue = retry ? state === 'retryable_error' : state === 'unknown';
+      if (!shouldQueue) return;
+      const projected = { ...field, key, state: 'queued', error: {} };
+      fieldStore.set(key, projected);
+      renderField(projected, false);
+      queued += 1;
+    });
+    if (queued) {
+      currentPayload = { ...currentPayload, status: 'queued', fields: Array.from(fieldStore.values()), retryable: false };
+      root.setAttribute('data-property-fact-job-status', 'queued');
+      updateBusyState();
+      announce(`${retry ? 'Retrying' : 'Checking'} ${queued} nearby fact${queued === 1 ? '' : 's'}.`);
+    }
+    return queued;
+  };
+  const pollDelay = (payload = currentPayload, failureCount = 0) => {
+    const requested = Number(payload?.poll_after_ms || 1200);
+    const base = Number.isFinite(requested) ? Math.max(250, Math.min(requested, 10_000)) : 1200;
+    return Math.min(10_000, Math.round(base * (2 ** Math.max(0, failureCount))));
+  };
+  const clearPollTimer = () => {
+    if (pollTimer) window.clearTimeout(pollTimer);
+    pollTimer = 0;
+  };
+  const hasPendingWork = () => {
+    const status = normalizedState(currentPayload.status, normalizedState(root.getAttribute('data-property-fact-job-status'), 'idle'));
+    return !terminalStatuses.has(status) && Array.from(fieldStore.values()).some(
+      (field) => pendingStates.has(normalizedState(field?.state)),
+    );
+  };
+  const showLocalRetryableError = (message) => {
+    fieldStore.forEach((field, key) => {
+      if (!pendingStates.has(normalizedState(field.state))) return;
+      const projected = {
+        ...field,
+        key,
+        state: 'retryable_error',
+        error: { code: 'fact_status_unavailable', message },
+      };
+      fieldStore.set(key, projected);
+      renderField(projected, true);
+    });
+    currentPayload = {
+      ...currentPayload,
+      status: 'retryable_error',
+      retryable: true,
+      fields: Array.from(fieldStore.values()),
+    };
+    root.setAttribute('data-property-fact-job-status', 'retryable_error');
+    updateBusyState();
+    announce(`${message} Retry is available.`);
+  };
+  const readJsonResponse = async (response) => {
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const detail = normalizedText(payload?.detail || payload?.error);
+      throw new Error(detail || 'The nearby-facts check could not finish.');
+    }
+    return payload;
+  };
+  const schedulePoll = (generation, delay = pollDelay()) => {
+    clearPollTimer();
+    if (!hasPendingWork()) return;
+    if (document.visibilityState === 'hidden') {
+      pollDeferred = true;
+      return;
+    }
+    pollDeferred = false;
+    pollTimer = window.setTimeout(() => void pollStatus(generation), Math.max(0, delay));
+  };
+  const pollStatus = async (generation) => {
+    if (generation !== requestGeneration || !hasPendingWork()) return;
+    if (document.visibilityState === 'hidden') {
+      pollDeferred = true;
+      return;
+    }
+    const statusUrl = sameOriginUrl(root.getAttribute('data-status-url') || currentPayload.status_url);
+    if (!statusUrl) {
+      showLocalRetryableError('The nearby-facts status link is unavailable.');
+      return;
+    }
+    pollController = new AbortController();
+    try {
+      const response = await fetch(statusUrl, {
+        method: 'GET',
+        credentials: 'same-origin',
+        headers: { accept: 'application/json' },
+        signal: pollController.signal,
+      });
+      const payload = await readJsonResponse(response);
+      if (generation !== requestGeneration) return;
+      pollFailures = 0;
+      applyPayload(payload);
+      if (hasPendingWork()) schedulePoll(generation, pollDelay(payload));
+    } catch (error) {
+      if (generation !== requestGeneration) return;
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        if (document.visibilityState === 'hidden') pollDeferred = true;
+        return;
+      }
+      pollFailures += 1;
+      if (pollFailures >= 3) {
+        showLocalRetryableError('Could not refresh the nearby-facts check.');
+        return;
+      }
+      schedulePoll(generation, pollDelay(currentPayload, pollFailures));
+    } finally {
+      pollController = null;
+    }
+  };
+  const startEnrichment = async (retryFailed) => {
+    const startUrl = sameOriginUrl(root.getAttribute('data-start-url'));
+    if (!startUrl) return;
+    const generation = ++requestGeneration;
+    clearPollTimer();
+    pollFailures = 0;
+    queueFields({ retry: retryFailed });
+    try {
+      const response = await fetch(startUrl, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          accept: 'application/json',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ retry_failed: Boolean(retryFailed) }),
+      });
+      const payload = await readJsonResponse(response);
+      if (generation !== requestGeneration) return;
+      applyPayload(payload);
+      if (hasPendingWork()) schedulePoll(generation, pollDelay(payload));
+    } catch (error) {
+      if (generation !== requestGeneration) return;
+      showLocalRetryableError(error instanceof Error ? error.message : 'The nearby-facts check could not finish.');
+    }
+  };
+
+  currentPayload = parseInitialPayload();
+  const initialFields = Array.isArray(currentPayload.fields) ? currentPayload.fields : [];
+  initialFields.forEach((field) => {
+    const key = normalizedText(field?.key);
+    if (key) fieldStore.set(key, { ...field, key });
+  });
+  renderScore(currentPayload.score || {});
+  updateBusyState();
+
+  root.addEventListener('click', (event) => {
+    const target = event.target instanceof Element ? event.target.closest('[data-property-fact-retry]') : null;
+    if (!(target instanceof HTMLButtonElement) || !root.contains(target)) return;
+    void startEnrichment(true);
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      clearPollTimer();
+      if (pollController) pollController.abort();
+      pollDeferred = hasPendingWork();
+      return;
+    }
+    if (pollDeferred && hasPendingWork()) schedulePoll(requestGeneration, 0);
+  });
+  window.addEventListener('pagehide', () => {
+    clearPollTimer();
+    if (pollController) pollController.abort();
+    pollDeferred = hasPendingWork();
+  });
+  window.addEventListener('pageshow', () => {
+    if (pollDeferred && hasPendingWork()) schedulePoll(requestGeneration, 0);
+  });
+
+  const initialStatus = normalizedState(currentPayload.status, 'idle');
+  if (pendingStates.has(initialStatus)) {
+    fieldStore.forEach((field, key) => {
+      if (normalizedState(field.state) === 'unknown') fieldStore.set(key, { ...field, state: initialStatus });
+      renderField(fieldStore.get(key), Boolean(currentPayload.retryable));
+    });
+    updateBusyState();
+    schedulePoll(requestGeneration, pollDelay(currentPayload));
+  } else if (!terminalStatuses.has(initialStatus) && sameOriginUrl(root.getAttribute('data-start-url'))) {
+    void startEnrichment(false);
+  }
+})();
+</script>
 
 <script>
 (() => {

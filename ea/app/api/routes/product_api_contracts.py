@@ -2062,6 +2062,128 @@ class PropertySearchResearchTaskUpdateIn(BaseModel):
     note: str = Field(default="", max_length=500)
 
 
+class PropertyFactEnrichmentStartIn(StrictMutationIn):
+    retry_failed: StrictBool = False
+
+
+class PropertyFactProvenanceOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider: str = Field(default="", max_length=80)
+    method: Literal["", "straight_line_osm"] = ""
+    observed_at: str = Field(default="", max_length=64)
+    expires_at: str = Field(default="", max_length=64)
+    freshness: Literal["", "fresh", "stale", "unknown"] = ""
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0, allow_inf_nan=False)
+    source_key: str = Field(default="", max_length=80)
+    source_fingerprint: str = Field(default="", pattern=r"^(|sha256:[0-9a-f]{64})$")
+    coordinate_basis: Literal["", "candidate_listing_coordinates", "listing_preview_coordinates"] = ""
+    coordinate_observed_at: str = Field(default="", max_length=64)
+    coordinate_precision: str = Field(default="unknown", min_length=1, max_length=40)
+    coordinate_source: str = Field(default="", max_length=120)
+    coordinate_exact: StrictBool = False
+
+    @field_validator("observed_at", "expires_at", "coordinate_observed_at")
+    @classmethod
+    def _validate_optional_timestamp(cls, value: str) -> str:
+        normalized = str(value or "").strip()
+        if not normalized:
+            return ""
+        try:
+            parsed = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("invalid_fact_timestamp") from exc
+        if parsed.tzinfo is None:
+            raise ValueError("fact_timestamp_timezone_required")
+        return normalized
+
+
+class PropertyFactErrorOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = Field(default="", pattern=r"^[a-z0-9_]{0,96}$")
+    message: str = Field(default="", max_length=240)
+    retry_after_seconds: int = Field(default=0, ge=0, le=86_400)
+
+
+class PropertyFactFieldOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(min_length=1, max_length=80, pattern=r"^[a-z0-9_]+$")
+    label: str = Field(min_length=1, max_length=120)
+    state: Literal["unknown", "stale", "queued", "running", "resolved", "retryable_error", "unavailable"]
+    priority: Literal["required", "lazy"]
+    affects_score: StrictBool
+    value: int | float | str | StrictBool | None = None
+    display_value: str = Field(default="", max_length=120)
+    provenance: PropertyFactProvenanceOut = Field(default_factory=PropertyFactProvenanceOut)
+    error: PropertyFactErrorOut = Field(default_factory=PropertyFactErrorOut)
+
+    @field_validator("value")
+    @classmethod
+    def _validate_fact_value(cls, value: object) -> object:
+        if isinstance(value, float) and (not math.isfinite(value) or abs(value) > 5_000_000):
+            raise ValueError("fact_numeric_value_out_of_range")
+        if isinstance(value, int) and not isinstance(value, bool) and abs(value) > 5_000_000:
+            raise ValueError("fact_numeric_value_out_of_range")
+        if isinstance(value, str) and len(value) > 240:
+            raise ValueError("fact_string_value_too_long")
+        return value
+
+
+class PropertyFactScoreOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    state: Literal["evaluating", "provisional", "final"]
+    previous: float | None = Field(default=None, ge=0.0, le=100.0, allow_inf_nan=False)
+    current: float | None = Field(default=None, ge=0.0, le=100.0, allow_inf_nan=False)
+    delta: float | None = Field(default=None, ge=-100.0, le=100.0, allow_inf_nan=False)
+    changed_reasons: list[str] = Field(default_factory=list, max_length=8)
+    ranking_eligible: StrictBool
+    algorithm_version: Literal["propertyquarry.fact-score-state.v1"]
+    facts_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    preference_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+
+    @field_validator("changed_reasons")
+    @classmethod
+    def _validate_changed_reasons(cls, value: list[str]) -> list[str]:
+        if any(not str(reason).strip() or len(str(reason)) > 240 for reason in value):
+            raise ValueError("invalid_score_changed_reason")
+        return value
+
+
+class PropertyFactEnrichmentOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["propertyquarry.fact-enrichment.v1"]
+    job_id: str = Field(min_length=5, max_length=40, pattern=r"^pfe_[0-9a-f]{24}$")
+    bundle_kind: Literal["optional-geo-v1"]
+    run_id: str = Field(min_length=1, max_length=160)
+    candidate_ref: str = Field(min_length=1, max_length=160)
+    status: Literal["idle", "queued", "running", "succeeded", "retryable_error", "terminal_error"]
+    status_url: str = Field(min_length=1, max_length=500)
+    attempt: int = Field(ge=0, le=3)
+    poll_after_ms: int = Field(ge=500, le=10_000)
+    updated_at: str = Field(default="", max_length=64)
+    retryable: StrictBool
+    fields: list[PropertyFactFieldOut] = Field(default_factory=list, max_length=16)
+    score: PropertyFactScoreOut
+
+    @field_validator("updated_at")
+    @classmethod
+    def _validate_updated_at(cls, value: str) -> str:
+        normalized = str(value or "").strip()
+        if not normalized:
+            return ""
+        try:
+            parsed = datetime.fromisoformat(normalized.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("invalid_fact_job_timestamp") from exc
+        if parsed.tzinfo is None:
+            raise ValueError("fact_job_timestamp_timezone_required")
+        return normalized
+
+
 class PropertySearchRunStatusOut(BaseModel):
     generated_at: str
     created_at: str = ""

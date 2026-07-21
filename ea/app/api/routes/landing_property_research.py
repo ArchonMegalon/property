@@ -459,7 +459,7 @@ def _property_shortlist_candidates_from_context(property_context: dict[str, obje
         if not isinstance(source, dict):
             continue
         source_label = str(source.get("source_label") or source.get("source_url") or "Source").strip()
-        for key in ("top_candidates", "research_candidates"):
+        for key in ("top_candidates", "research_candidates", "evaluating_candidates"):
             for candidate in list(source.get(key) or []):
                 if not isinstance(candidate, dict):
                     continue
@@ -525,6 +525,7 @@ def _property_enriched_candidate_facts(
     preferences: dict[str, object] | None = None,
     market_preferences: dict[str, object] | None = None,
     force_source_research_for_selected_distances: bool = False,
+    allow_source_research: bool = True,
 ) -> dict[str, object]:
     facts = _property_candidate_display_facts(candidate)
     title = str(candidate.get("title") or "").strip()
@@ -634,6 +635,8 @@ def _property_enriched_candidate_facts(
         force_source_research_for_selected_distances and selected_distance_rows
     )
     if (
+        allow_source_research
+        and
         property_url
         and (
             should_force_selected_distance_refresh

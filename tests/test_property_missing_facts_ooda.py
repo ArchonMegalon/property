@@ -66,6 +66,15 @@ def test_packet_missing_rows_surface_missing_fact_ooda() -> None:
     assert any(row["title"] == "Rooms" and row["tag"] == "To check" for row in rows)
 
 
+def test_packet_missing_rows_treats_nearest_supermarket_alias_as_known() -> None:
+    rows = _property_packet_missing_rows(
+        facts={"nearest_supermarket_m": 340},
+        preferences={"max_distance_to_supermarket_m": 700},
+    )
+
+    assert not any(row["title"] == "Supermarket distance" for row in rows)
+
+
 def test_family_only_distance_rows_stay_hidden_without_family_context() -> None:
     facts = {
         "nearest_playground_m": 250,

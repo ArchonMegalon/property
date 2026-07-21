@@ -128,6 +128,11 @@ from app.product.property_score_methodology import (
     build_property_score_methodology,
     resolve_property_score_methodology_language,
 )
+from app.product.property_fact_enrichment import (
+    PROPERTY_FACT_ENRICHMENT_SCHEMA_VERSION,
+    property_fact_requirement_plan,
+    property_fact_score_projection,
+)
 from app.product.projections.common import compact_text
 from app.product.service import (
     _hosted_property_visual_progress_snapshot,
@@ -7387,7 +7392,78 @@ def property_research_packet(
         # unless the listing facts themselves carry an explicit country.
         market_preferences=run_preferences_payload,
         force_source_research_for_selected_distances=bool(recent_run_distance_overlay),
+        allow_source_research=False,
     )
+    fact_preferences = dict(preferences)
+    candidate_requirement_plan = [
+        dict(row)
+        for row in list(candidate.get("fact_requirement_plan") or [])
+        if isinstance(row, dict)
+    ]
+    required_fact_keys = [
+        str(row.get("key") or "").strip()
+        for row in candidate_requirement_plan
+        if str(row.get("priority") or "").strip().lower() == "required"
+        and str(row.get("key") or "").strip()
+    ]
+    lazy_fact_keys = [
+        str(row.get("key") or "").strip()
+        for row in candidate_requirement_plan
+        if str(row.get("priority") or "lazy").strip().lower() != "required"
+        and str(row.get("key") or "").strip()
+    ]
+    if required_fact_keys:
+        fact_preferences["required_fact_keys"] = required_fact_keys
+    if lazy_fact_keys:
+        fact_preferences["lazy_fact_keys"] = lazy_fact_keys
+    fact_plan = property_fact_requirement_plan(
+        facts=facts,
+        preferences=fact_preferences,
+        include_resolved=True,
+    )
+    fact_candidate = {
+        **dict(candidate),
+        "property_facts": facts,
+    }
+    fact_enrichment: dict[str, object] = {
+        "schema_version": PROPERTY_FACT_ENRICHMENT_SCHEMA_VERSION,
+        "job_id": "",
+        "bundle_kind": "optional-geo-v1",
+        "status": "idle",
+        "attempt": 0,
+        "poll_after_ms": 1200,
+        "updated_at": "",
+        "fields": [row for row in fact_plan if str(row.get("state") or "") != "resolved"],
+        "score": property_fact_score_projection(
+            candidate=fact_candidate,
+            plan=fact_plan,
+            preferences=fact_preferences,
+        ),
+        "retryable": False,
+        "run_id": effective_run_id,
+        "candidate_ref": normalized_candidate_ref,
+        "status_url": "",
+        "start_url": "",
+    }
+    if effective_run_id:
+        fact_endpoint = (
+            f"/app/api/signals/property/search/run/{urllib.parse.quote(effective_run_id, safe='')}"
+            f"/candidates/{urllib.parse.quote(normalized_candidate_ref, safe='')}/fact-enrichment"
+        )
+        if not release_probe_read_only:
+            fact_enrichment["status_url"] = fact_endpoint
+            fact_enrichment["start_url"] = fact_endpoint
+        try:
+            persisted_fact_enrichment = product.get_property_candidate_fact_enrichment(
+                principal_id=context.principal_id,
+                run_id=effective_run_id,
+                candidate_ref=normalized_candidate_ref,
+            )
+        except Exception:
+            persisted_fact_enrichment = None
+        if isinstance(persisted_fact_enrichment, dict):
+            fact_enrichment.update(persisted_fact_enrichment)
+            fact_enrichment["start_url"] = "" if release_probe_read_only else fact_endpoint
     commercial = dict(property_context.get("commercial") or {})
     match_reasons = [
         _clean_property_candidate_detail_copy(item)
@@ -8155,6 +8231,7 @@ def property_research_packet(
             "research_selected_distance_rows": selected_distance_rows,
             "research_selected_distance_copy": selected_distance_copy,
             "research_route_recovery": research_route_recovery,
+            "research_fact_enrichment": fact_enrichment,
             "research_market": market_display,
             "research_visual_style_catalog": [dict(row) for row in PROPERTY_FURNITURE_STYLE_CATALOG],
             "research_default_visual_style": research_visual_default_style,

@@ -1474,6 +1474,340 @@ def test_propertyquarry_ai_panorama_mobile_hotspot_labels_stay_inside_viewport(
         context.close()
 
 
+def _property_fact_browser_field(
+    *,
+    key: str,
+    label: str,
+    state: str,
+    priority: str,
+    value: int | None = None,
+    error_message: str = "",
+) -> dict[str, object]:
+    resolved = state == "resolved" and value is not None
+    return {
+        "key": key,
+        "label": label,
+        "state": state,
+        "priority": priority,
+        "affects_score": True,
+        "value": value if resolved else None,
+        "display_value": f"{value} m" if resolved else "",
+        "provenance": (
+            {
+                "provider": "openstreetmap_overpass",
+                "method": "straight_line_osm",
+                "observed_at": "2026-07-21T10:00:00+00:00",
+                "expires_at": "2026-07-22T10:00:00+00:00",
+                "freshness": "fresh",
+                "confidence": 0.74,
+                "source_key": key,
+                "source_fingerprint": "sha256:browser-proof",
+            }
+            if resolved
+            else {}
+        ),
+        "error": (
+            {
+                "code": "fact_not_available_from_current_sources",
+                "message": error_message,
+                "retry_after_seconds": 1,
+            }
+            if error_message
+            else {}
+        ),
+    }
+
+
+def _property_fact_browser_fields(
+    *,
+    state: str,
+    required: bool,
+    resolved: bool = False,
+    error_message: str = "",
+) -> list[dict[str, object]]:
+    priorities = {
+        "nearest_supermarket_m": "required" if required else "lazy",
+        "nearest_playground_m": "required" if required else "lazy",
+        "nearest_pharmacy_m": "lazy",
+        "nearest_subway_m": "lazy",
+    }
+    values = {
+        "nearest_supermarket_m": 280,
+        "nearest_playground_m": 420,
+        "nearest_pharmacy_m": 510,
+        "nearest_subway_m": 760,
+    }
+    labels = {
+        "nearest_supermarket_m": "Supermarket distance",
+        "nearest_playground_m": "Playground distance",
+        "nearest_pharmacy_m": "Pharmacy distance",
+        "nearest_subway_m": "Underground distance",
+    }
+    return [
+        _property_fact_browser_field(
+            key=key,
+            label=labels[key],
+            state="resolved" if resolved else state,
+            priority=priority,
+            value=values[key] if resolved else None,
+            error_message=error_message,
+        )
+        for key, priority in priorities.items()
+    ]
+
+
+def _property_fact_browser_payload(
+    *,
+    status_url: str,
+    status: str,
+    fields: list[dict[str, object]],
+    score_state: str,
+    previous_score: int | None,
+    current_score: int | None,
+    delta: int | None,
+    ranking_eligible: bool,
+    retryable: bool = False,
+) -> dict[str, object]:
+    return {
+        "schema_version": "propertyquarry.fact-enrichment.v1",
+        "job_id": "pfe_browser_proof",
+        "bundle_kind": "optional-geo-v1",
+        "run_id": "run-42",
+        "candidate_ref": "browser-candidate",
+        "status": status,
+        "status_url": status_url,
+        "attempt": 1,
+        "poll_after_ms": 250,
+        "updated_at": "2026-07-21T10:00:00+00:00",
+        "retryable": retryable,
+        "fields": fields,
+        "score": {
+            "state": score_state,
+            "previous": previous_score,
+            "current": current_score,
+            "delta": delta,
+            "changed_reasons": ["Verified nearby necessities."] if delta else [],
+            "ranking_eligible": ranking_eligible,
+            "algorithm_version": "propertyquarry.fact-score-state.v1",
+            "facts_digest": "sha256:browser-facts",
+            "preference_digest": "sha256:browser-preferences",
+        },
+    }
+
+
+def _open_family_research_packet(page: Page, *, base_url: str) -> None:
+    response = page.goto(
+        f"{base_url}/app/properties?run_id=run-42&full=1",
+        wait_until="domcontentloaded",
+    )
+    assert response is not None and response.ok
+    row = page.locator("[data-workbench-row]", has_text="Family flat near Tiergarten").first
+    expect(row).to_be_visible(timeout=5000)
+    row.click()
+    selected_panel = page.get_by_role("region", name="Selected property")
+    open_property = selected_panel.get_by_role("link", name="Open property").first
+    expect(open_property).to_be_visible(timeout=5000)
+    href = str(open_property.get_attribute("href") or "").strip()
+    assert href
+    response = page.goto(urllib.parse.urljoin(base_url, href), wait_until="domcontentloaded")
+    assert response is not None and response.ok
+
+
+def test_propertyquarry_missing_required_distances_resolve_in_place_and_finalize_score(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False)
+    page: Page = context.new_page()
+    allow_resolution = {"value": False}
+    observed_posts: list[dict[str, object]] = []
+    poll_count = {"value": 0}
+
+    def _fact_route(route) -> None:
+        request = route.request
+        status_url = request.url
+        if request.method == "POST":
+            payload = request.post_data_json
+            observed_posts.append(payload if isinstance(payload, dict) else {})
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps(
+                    _property_fact_browser_payload(
+                        status_url=status_url,
+                        status="queued",
+                        fields=_property_fact_browser_fields(state="queued", required=True),
+                        score_state="evaluating",
+                        previous_score=72,
+                        current_score=None,
+                        delta=None,
+                        ranking_eligible=False,
+                    )
+                ),
+            )
+            return
+        poll_count["value"] += 1
+        if not allow_resolution["value"]:
+            payload = _property_fact_browser_payload(
+                status_url=status_url,
+                status="running",
+                fields=_property_fact_browser_fields(state="running", required=True),
+                score_state="evaluating",
+                previous_score=72,
+                current_score=None,
+                delta=None,
+                ranking_eligible=False,
+            )
+        else:
+            payload = _property_fact_browser_payload(
+                status_url=status_url,
+                status="succeeded",
+                fields=_property_fact_browser_fields(state="resolved", required=True, resolved=True),
+                score_state="final",
+                previous_score=72,
+                current_score=76,
+                delta=4,
+                ranking_eligible=True,
+            )
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(payload))
+
+    page.route("**/fact-enrichment", _fact_route)
+    try:
+        _open_family_research_packet(page, base_url=base_url)
+        root = page.locator("[data-property-fact-enrichment]")
+        supermarket = root.locator('[data-property-fact-key="nearest_supermarket_m"]')
+        playground = root.locator('[data-property-fact-key="nearest_playground_m"]')
+        score = root.locator("[data-property-score-state]")
+
+        expect(root).to_have_attribute("aria-busy", "true")
+        expect(supermarket).to_have_attribute("data-property-fact-priority", "required")
+        expect(supermarket).to_have_attribute("data-property-fact-state", re.compile(r"queued|running"))
+        expect(playground).to_have_attribute("data-property-fact-state", re.compile(r"queued|running"))
+        expect(supermarket.locator("[data-property-fact-spinner]")).to_be_visible()
+        expect(score).to_have_attribute("data-score-state", "evaluating")
+        expect(score).to_have_attribute("data-ranking-eligible", "false")
+        expect(score).to_contain_text("Evaluating score")
+        expect(score).to_contain_text("Rank pending until required facts are checked")
+        assert observed_posts == [{"retry_failed": False}]
+
+        supermarket.evaluate("node => { node.dataset.browserIdentity = 'stable-row'; }")
+        focus_target = page.locator("[data-object-feedback-save]")
+        focus_target.focus()
+        assert focus_target.evaluate("node => document.activeElement === node") is True
+        allow_resolution["value"] = True
+
+        expect(supermarket).to_have_attribute("data-property-fact-state", "resolved", timeout=5000)
+        expect(playground).to_have_attribute("data-property-fact-state", "resolved", timeout=5000)
+        expect(supermarket).to_have_attribute("data-browser-identity", "stable-row")
+        expect(supermarket.locator("[data-property-fact-value]")).to_have_text("280 m")
+        expect(playground.locator("[data-property-fact-value]")).to_have_text("420 m")
+        expect(supermarket.locator("[data-property-fact-spinner]")).to_be_hidden()
+        expect(supermarket.locator("[data-property-fact-provenance]")).to_contain_text(
+            "Straight-line estimate · OpenStreetMap"
+        )
+        expect(root).to_have_attribute("aria-busy", "false")
+        expect(score).to_have_attribute("data-score-state", "final")
+        expect(score).to_have_attribute("data-ranking-eligible", "true")
+        expect(score.locator("[data-property-score-value]")).to_have_text("76 / 100")
+        expect(score.locator("[data-property-score-delta]")).to_have_text("+4 from 72")
+        expect(score.locator("[data-property-score-reason]")).to_contain_text("Verified nearby necessities")
+        expect(root.locator("[data-property-fact-live]")).to_contain_text(
+            "Score updated from 72 to 76, up 4 points",
+            timeout=5000,
+        )
+        assert focus_target.evaluate("node => document.activeElement === node") is True
+        assert poll_count["value"] >= 1
+    finally:
+        context.close()
+
+
+def test_propertyquarry_lazy_distance_error_retries_without_blocking_provisional_rank(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False)
+    page: Page = context.new_page()
+    page.emulate_media(reduced_motion="reduce")
+    allow_resolution = {"value": False}
+    observed_posts: list[dict[str, object]] = []
+
+    def _fact_route(route) -> None:
+        request = route.request
+        status_url = request.url
+        if request.method == "POST":
+            posted = request.post_data_json
+            observed_posts.append(posted if isinstance(posted, dict) else {})
+            retrying = bool(observed_posts[-1].get("retry_failed"))
+            payload = _property_fact_browser_payload(
+                status_url=status_url,
+                status="queued" if retrying else "retryable_error",
+                fields=_property_fact_browser_fields(
+                    state="queued" if retrying else "retryable_error",
+                    required=False,
+                    error_message="Map sources timed out. Try again." if not retrying else "",
+                ),
+                score_state="provisional",
+                previous_score=72,
+                current_score=72,
+                delta=0,
+                ranking_eligible=True,
+                retryable=not retrying,
+            )
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(payload))
+            return
+        payload = _property_fact_browser_payload(
+            status_url=status_url,
+            status="succeeded" if allow_resolution["value"] else "running",
+            fields=_property_fact_browser_fields(
+                state="resolved" if allow_resolution["value"] else "running",
+                required=False,
+                resolved=allow_resolution["value"],
+            ),
+            score_state="final" if allow_resolution["value"] else "provisional",
+            previous_score=72,
+            current_score=74 if allow_resolution["value"] else 72,
+            delta=2 if allow_resolution["value"] else 0,
+            ranking_eligible=True,
+        )
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(payload))
+
+    page.route("**/fact-enrichment", _fact_route)
+    try:
+        _open_family_research_packet(page, base_url=base_url)
+        root = page.locator("[data-property-fact-enrichment]")
+        supermarket = root.locator('[data-property-fact-key="nearest_supermarket_m"]')
+        score = root.locator("[data-property-score-state]")
+        retry = supermarket.locator("[data-property-fact-retry]")
+
+        expect(supermarket).to_have_attribute("data-property-fact-state", "retryable_error")
+        expect(supermarket.locator("[data-property-fact-status]")).to_contain_text("Map sources timed out")
+        expect(retry).to_be_visible()
+        expect(retry).to_have_attribute("aria-label", "Retry Supermarket distance")
+        expect(score).to_have_attribute("data-score-state", "provisional")
+        expect(score).to_have_attribute("data-ranking-eligible", "true")
+        expect(score).to_contain_text("Can rank while nice-to-have facts are checked")
+        expect(root.locator("[data-property-fact-live]")).to_contain_text("Retry is available")
+
+        retry.click()
+        expect(supermarket).to_have_attribute("data-property-fact-state", re.compile(r"queued|running"))
+        spinner = supermarket.locator("[data-property-fact-spinner]")
+        expect(spinner).to_be_visible()
+        assert spinner.evaluate("node => getComputedStyle(node).animationName") == "none"
+        assert observed_posts == [{"retry_failed": False}, {"retry_failed": True}]
+
+        allow_resolution["value"] = True
+        expect(supermarket).to_have_attribute("data-property-fact-state", "resolved", timeout=5000)
+        expect(retry).to_be_hidden()
+        expect(root).to_have_attribute("aria-busy", "false")
+        expect(score).to_have_attribute("data-score-state", "final")
+        expect(score.locator("[data-property-score-value]")).to_have_text("74 / 100")
+        expect(score.locator("[data-property-score-delta]")).to_have_text("+2 from 72")
+    finally:
+        context.close()
+
+
 def _assert_propertyquarry_billing_redirect_lands_on_account(page: Page) -> None:
     expect(page.locator("body", has_text="Billing portal unavailable")).to_have_count(0)
     assert "/app/account" in page.url

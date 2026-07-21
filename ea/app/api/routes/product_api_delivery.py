@@ -46,6 +46,8 @@ from app.api.routes.product_api_contracts import (
     PropertyBillingCaptureOut,
     PropertyBillingCheckoutCreateIn,
     PropertyBillingCheckoutOut,
+    PropertyFactEnrichmentOut,
+    PropertyFactEnrichmentStartIn,
     PropertyScoutSyncOut,
     PropertySearchResearchTaskUpdateIn,
     PropertySearchRunStartIn,
@@ -2242,6 +2244,66 @@ def cancel_property_billing_order_return(
     return RedirectResponse(f"/app/properties?billing=cancelled&plan={plan_key}", status_code=303)
 
 
+def _require_property_fact_enrichment_context(
+    *,
+    context: RequestContext,
+) -> None:
+    principal_id = str(context.principal_id or "").strip()
+    auth_source = str(context.auth_source or "").strip().lower()
+    if (
+        not principal_id
+        or context.authenticated is not True
+        or auth_source in {"", "anonymous", "loopback_no_auth"}
+    ):
+        raise HTTPException(status_code=401, detail="authentication_required")
+
+
+def _require_property_fact_same_origin(
+    request: Request,
+    *,
+    context: RequestContext,
+) -> None:
+    content_type = str(request.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
+    if content_type != "application/json":
+        raise HTTPException(status_code=415, detail="application_json_required")
+    fetch_site = str(request.headers.get("sec-fetch-site") or "").strip().lower()
+    if fetch_site == "cross-site":
+        raise HTTPException(status_code=403, detail="same_origin_required")
+    origin = str(request.headers.get("origin") or "").strip()
+    auth_source = str(context.auth_source or "").strip().lower()
+    non_ambient_auth = auth_source == "api_token" or "service" in auth_source
+    if not origin and non_ambient_auth:
+        return
+    if not origin:
+        raise HTTPException(status_code=403, detail="same_origin_required")
+    supplied = urllib.parse.urlsplit(origin)
+    configured_base_url = next(
+        (
+            str(os.environ.get(key) or "").strip()
+            for key in (
+                "PROPERTYQUARRY_PUBLIC_BASE_URL",
+                "EA_PUBLIC_BASE_URL",
+                "EA_APP_PUBLIC_BASE_URL",
+            )
+            if str(os.environ.get(key) or "").strip()
+        ),
+        str(request.base_url),
+    )
+    expected = urllib.parse.urlsplit(configured_base_url)
+    supplied_origin = (supplied.scheme.lower(), supplied.netloc.lower())
+    expected_origin = (expected.scheme.lower(), expected.netloc.lower())
+    if (
+        supplied.username is not None
+        or supplied.password is not None
+        or supplied.path not in {"", "/"}
+        or supplied.query
+        or supplied.fragment
+        or supplied.scheme.lower() not in {"http", "https"}
+        or supplied_origin != expected_origin
+    ):
+        raise HTTPException(status_code=403, detail="same_origin_required")
+
+
 @router.get("/signals/property/search/run/{run_id}", response_model=PropertySearchRunStatusOut)
 def property_search_run_status(
     run_id: str,
@@ -2256,6 +2318,58 @@ def property_search_run_status(
         lightweight=lightweight,
     )
     return PropertySearchRunStatusOut(**_property_search_payload_with_status_url(payload, canonical=False))
+
+
+@router.get(
+    "/signals/property/search/run/{run_id}/candidates/{candidate_ref}/fact-enrichment",
+    response_model=PropertyFactEnrichmentOut,
+)
+def property_candidate_fact_enrichment_status(
+    run_id: str,
+    candidate_ref: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PropertyFactEnrichmentOut:
+    _require_property_fact_enrichment_context(context=context)
+    payload = build_product_service(container).get_property_candidate_fact_enrichment(
+        principal_id=context.principal_id,
+        run_id=run_id,
+        candidate_ref=candidate_ref,
+    )
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=404, detail="property_candidate_not_found")
+    return PropertyFactEnrichmentOut(**payload)
+
+
+@router.post(
+    "/signals/property/search/run/{run_id}/candidates/{candidate_ref}/fact-enrichment",
+    response_model=PropertyFactEnrichmentOut,
+    status_code=202,
+)
+def start_property_candidate_fact_enrichment(
+    run_id: str,
+    candidate_ref: str,
+    body: PropertyFactEnrichmentStartIn,
+    request: Request,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> PropertyFactEnrichmentOut:
+    _require_property_fact_enrichment_context(context=context)
+    _require_property_fact_same_origin(request, context=context)
+    try:
+        payload = build_product_service(container).start_property_candidate_fact_enrichment(
+            principal_id=context.principal_id,
+            run_id=run_id,
+            candidate_ref=candidate_ref,
+            retry_failed=bool(body.retry_failed),
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="property_candidate_not_found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="property_fact_enrichment_unavailable") from exc
+    return PropertyFactEnrichmentOut(**payload)
 
 
 @router.get("/property/search-runs/{run_id}", response_model=PropertySearchRunStatusOut)
