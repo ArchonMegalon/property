@@ -4156,7 +4156,7 @@
                 {% if visible_fact_state == 'resolved' %}{{ field.get('display_value') or field.get('value') }}{% elif visible_fact_state in ['queued', 'running'] %}Checking distance…{% elif visible_fact_state == 'retryable_error' %}Could not verify yet{% elif visible_fact_state == 'unavailable' %}Not available from current sources{% else %}Not checked yet{% endif %}
               </small>
               <span class="prd-fact-status" data-property-fact-status>
-                {% if visible_fact_state == 'queued' %}Queued{% elif visible_fact_state == 'running' %}Checking map sources{% elif visible_fact_state == 'retryable_error' %}{{ field_error.get('message') or 'The check did not finish. You can retry.' }}{% elif visible_fact_state == 'unavailable' %}{{ field_error.get('message') or 'The current sources could not verify this distance.' }}{% elif visible_fact_state == 'resolved' %}Verified{% else %}Waiting to start{% endif %}
+                {% if visible_fact_state == 'queued' %}Queued{% elif visible_fact_state == 'running' %}Checking map sources{% elif visible_fact_state == 'retryable_error' %}{{ field_error.get('message') or 'The check did not finish. You can retry.' }}{% elif visible_fact_state == 'unavailable' %}{{ field_error.get('message') or 'The current sources could not verify this distance.' }}{% elif visible_fact_state == 'resolved' %}Available{% else %}Waiting to start{% endif %}
                 · {% if field.get('priority') == 'required' %}Required for ranking{% else %}Nice to have{% endif %}
               </span>
               <span class="prd-fact-provenance" data-property-fact-provenance{% if visible_fact_state != 'resolved' %} hidden{% endif %}>
@@ -4561,7 +4561,7 @@
       const explicit = normalizedText(field?.display_value);
       if (explicit) return explicit;
       const value = numericValue(field?.value);
-      return value === null ? 'Verified' : `${formatNumber(value)} m`;
+      return value === null ? 'Available' : `${formatNumber(value)} m`;
     }
     if (state === 'queued') return 'Checking distance…';
     if (state === 'running') return 'Checking distance…';
@@ -4575,7 +4575,7 @@
     let status = 'Waiting to start';
     if (state === 'queued') status = 'Queued';
     if (state === 'running') status = 'Checking map sources';
-    if (state === 'resolved') status = 'Verified';
+    if (state === 'resolved') status = 'Available';
     if (state === 'retryable_error') status = normalizedText(error.message) || 'The check did not finish. You can retry.';
     if (state === 'unavailable') status = normalizedText(error.message) || 'The current sources could not verify this distance.';
     return `${status} · ${priorityLabel(field)}`;
@@ -4704,7 +4704,7 @@
       const nextValue = numericValue(field.value);
       if (nextState === beforeState && nextValue === beforeValue) return;
       const label = normalizedText(field.label) || key;
-      if (nextState === 'resolved') messages.push(`${label} verified: ${fieldValueLabel(field)}.`);
+      if (nextState === 'resolved') messages.push(`${label} updated: ${fieldValueLabel(field)}.`);
       if (nextState === 'retryable_error') messages.push(`Could not verify ${label}. Retry is available.`);
       if (nextState === 'unavailable') messages.push(`${label} is not available from the current sources.`);
     });

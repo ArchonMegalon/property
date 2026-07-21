@@ -1589,7 +1589,7 @@ def _property_fact_browser_payload(
             "previous": previous_score,
             "current": current_score,
             "delta": delta,
-            "changed_reasons": ["Verified nearby necessities."] if delta else [],
+            "changed_reasons": ["Nearby necessities updated from current map sources."] if delta else [],
             "ranking_eligible": ranking_eligible,
             "algorithm_version": "propertyquarry.fact-score-state.v1",
             "facts_digest": "sha256:browser-facts",
@@ -1613,6 +1613,29 @@ def _open_family_research_packet(page: Page, *, base_url: str) -> None:
     href = str(open_property.get_attribute("href") or "").strip()
     assert href
     response = page.goto(urllib.parse.urljoin(base_url, href), wait_until="domcontentloaded")
+    assert response is not None and response.ok
+
+
+def _open_authenticated_property_fact_session(
+    page: Page,
+    *,
+    base_url: str,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    client = propertyquarry_browser_server["client"]
+    issued = client.post(
+        "/app/api/access-sessions",
+        json={
+            "email": "property-fact-browser@example.com",
+            "role": "principal",
+            "display_name": "Property fact browser",
+            "expires_in_hours": 1,
+        },
+    )
+    assert issued.status_code == 200, issued.text
+    access_url = str(issued.json().get("access_url") or "").strip()
+    assert access_url.startswith("/workspace-access/")
+    response = page.goto(urllib.parse.urljoin(base_url, access_url), wait_until="domcontentloaded")
     assert response is not None and response.ok
 
 
@@ -1677,6 +1700,11 @@ def test_propertyquarry_missing_required_distances_resolve_in_place_and_finalize
 
     page.route("**/fact-enrichment", _fact_route)
     try:
+        _open_authenticated_property_fact_session(
+            page,
+            base_url=base_url,
+            propertyquarry_browser_server=propertyquarry_browser_server,
+        )
         _open_family_research_packet(page, base_url=base_url)
         root = page.locator("[data-property-fact-enrichment]")
         supermarket = root.locator('[data-property-fact-key="nearest_supermarket_m"]')
@@ -1714,7 +1742,9 @@ def test_propertyquarry_missing_required_distances_resolve_in_place_and_finalize
         expect(score).to_have_attribute("data-ranking-eligible", "true")
         expect(score.locator("[data-property-score-value]")).to_have_text("76 / 100")
         expect(score.locator("[data-property-score-delta]")).to_have_text("+4 from 72")
-        expect(score.locator("[data-property-score-reason]")).to_contain_text("Verified nearby necessities")
+        expect(score.locator("[data-property-score-reason]")).to_contain_text(
+            "Nearby necessities updated from current map sources"
+        )
         expect(root.locator("[data-property-fact-live]")).to_contain_text(
             "Score updated from 72 to 76, up 4 points",
             timeout=5000,
@@ -1778,6 +1808,11 @@ def test_propertyquarry_lazy_distance_error_retries_without_blocking_provisional
 
     page.route("**/fact-enrichment", _fact_route)
     try:
+        _open_authenticated_property_fact_session(
+            page,
+            base_url=base_url,
+            propertyquarry_browser_server=propertyquarry_browser_server,
+        )
         _open_family_research_packet(page, base_url=base_url)
         root = page.locator("[data-property-fact-enrichment]")
         supermarket = root.locator('[data-property-fact-key="nearest_supermarket_m"]')

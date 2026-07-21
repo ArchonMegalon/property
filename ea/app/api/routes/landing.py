@@ -7445,12 +7445,18 @@ def property_research_packet(
         "status_url": "",
         "start_url": "",
     }
+    fact_enrichment_requests_allowed = (
+        context.authenticated is True
+        and str(context.auth_source or "").strip().lower()
+        not in {"", "anonymous", "loopback_no_auth"}
+        and not release_probe_read_only
+    )
     if effective_run_id:
         fact_endpoint = (
             f"/app/api/signals/property/search/run/{urllib.parse.quote(effective_run_id, safe='')}"
             f"/candidates/{urllib.parse.quote(normalized_candidate_ref, safe='')}/fact-enrichment"
         )
-        if not release_probe_read_only:
+        if fact_enrichment_requests_allowed:
             fact_enrichment["status_url"] = fact_endpoint
             fact_enrichment["start_url"] = fact_endpoint
         try:
@@ -7463,7 +7469,8 @@ def property_research_packet(
             persisted_fact_enrichment = None
         if isinstance(persisted_fact_enrichment, dict):
             fact_enrichment.update(persisted_fact_enrichment)
-            fact_enrichment["start_url"] = "" if release_probe_read_only else fact_endpoint
+            fact_enrichment["status_url"] = fact_endpoint if fact_enrichment_requests_allowed else ""
+            fact_enrichment["start_url"] = fact_endpoint if fact_enrichment_requests_allowed else ""
     commercial = dict(property_context.get("commercial") or {})
     match_reasons = [
         _clean_property_candidate_detail_copy(item)

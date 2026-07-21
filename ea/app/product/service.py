@@ -27651,7 +27651,7 @@ class ProductService:
                 plan=plan_after,
                 preferences=preferences,
                 previous_score=previous_score,
-                changed_reasons=[f"Verified {label}." for label in changed_labels],
+                changed_reasons=[f"Updated {label} from current map sources." for label in changed_labels],
             )
             updated_candidate["score_projection"] = score
             updated_candidate["score_state"] = str(score.get("state") or "provisional")
