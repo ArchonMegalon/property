@@ -159,6 +159,56 @@ def test_nice_to_have_unknown_is_provisional_and_distance_alias_resolves() -> No
     assert projection["ranking_eligible"] is True
 
 
+@pytest.mark.parametrize("importance", ("must_have", "strong_wish", "avoid"))
+def test_explicit_blocking_distance_importance_holds_ranking(
+    importance: str,
+) -> None:
+    preferences = {
+        "max_distance_to_supermarket_m": 300,
+        "max_distance_to_supermarket_importance": importance,
+    }
+    plan = property_fact_requirement_plan(facts={}, preferences=preferences)
+    supermarket = next(row for row in plan if row["key"] == "nearest_supermarket_m")
+    projection = property_fact_score_projection(
+        candidate={"fit_score": 75},
+        plan=plan,
+        preferences=preferences,
+    )
+
+    assert supermarket["priority"] == "required"
+    assert projection["state"] == "evaluating"
+    assert projection["ranking_eligible"] is False
+
+
+def test_explicit_nice_to_have_distance_stays_lazy_over_stored_profile_default() -> None:
+    preferences = {
+        "max_distance_to_supermarket_m": 300,
+        "max_distance_to_supermarket_importance": "nice_to_have",
+    }
+    plan = property_fact_requirement_plan(
+        facts={},
+        preferences=preferences,
+        preference_nodes=(
+            {
+                "category": "constraint",
+                "key": "prefer_supermarket_nearby",
+                "strength": "high",
+                "value": True,
+            },
+        ),
+    )
+    supermarket = next(row for row in plan if row["key"] == "nearest_supermarket_m")
+    projection = property_fact_score_projection(
+        candidate={"fit_score": 75},
+        plan=plan,
+        preferences=preferences,
+    )
+
+    assert supermarket["priority"] == "lazy"
+    assert projection["state"] == "provisional"
+    assert projection["ranking_eligible"] is True
+
+
 def test_rank_projection_excludes_evaluating_candidate() -> None:
     ready = {**_candidate(candidate_ref="ready"), "score_state": "provisional", "ranking_eligible": True}
     evaluating = {

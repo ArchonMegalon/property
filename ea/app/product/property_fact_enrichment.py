@@ -154,6 +154,48 @@ def _node_priority(
     return "lazy"
 
 
+def _explicit_importance_priority(
+    *,
+    preference_keys: Sequence[str],
+    preferences: Mapping[str, object],
+) -> str | None:
+    """Map the current request's importance selector before stored-profile defaults."""
+    required_importance = {
+        "avoid",
+        "critical",
+        "high",
+        "must",
+        "must_have",
+        "required",
+        "strong",
+        "strong_wish",
+        "3",
+    }
+    lazy_importance = {
+        "lazy",
+        "low",
+        "nice",
+        "nice_to_have",
+        "optional",
+        "1",
+    }
+    for preference_key in preference_keys:
+        if not _active_preference(preferences.get(preference_key)):
+            continue
+        importance_keys = [f"{preference_key}_importance"]
+        if preference_key.endswith("_m"):
+            importance_keys.insert(0, f"{preference_key[:-2]}_importance")
+        for importance_key in importance_keys:
+            if importance_key not in preferences:
+                continue
+            importance = _normalized_text(preferences.get(importance_key))
+            if importance in required_importance:
+                return "required"
+            if importance in lazy_importance:
+                return "lazy"
+    return None
+
+
 def _fact_priority(
     *,
     spec: Mapping[str, object],
@@ -170,6 +212,12 @@ def _fact_priority(
         return "required"
     if lazy_keys.intersection(all_keys):
         return "lazy"
+    importance_priority = _explicit_importance_priority(
+        preference_keys=preference_keys,
+        preferences=preferences,
+    )
+    if importance_priority is not None:
+        return importance_priority
     for preference_key in tuple(spec.get("required_preference_keys") or ()):
         if _active_preference(preferences.get(str(preference_key))):
             return "required"
