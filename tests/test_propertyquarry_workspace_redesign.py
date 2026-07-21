@@ -15255,6 +15255,362 @@ def test_property_research_media_does_not_embed_stale_hosted_tour_record(monkeyp
     assert retired_payload["tour_status"] == "unavailable"
 
 
+def test_property_tour_local_bundle_helpers_reject_untrusted_origins_before_lookup(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    slug = "origin-confusion-ready"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.json").write_text("{}", encoding="utf-8")
+    (bundle_dir / "tour.walkthrough.progress.json").write_text(
+        json.dumps(
+            {
+                "request_kind": "flythrough",
+                "status": "running",
+                "progress_pct": 73,
+                "detail": "This local receipt must stay origin-bound.",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+
+    hostile_urls = (
+        f"https://evil.example/tours/{slug}",
+        f"https://propertyquarry.com.evil.example/tours/{slug}",
+        f"https://propertyquarry.com@evil.example/tours/{slug}",
+        f"https://propertyquarry.com:444/tours/{slug}",
+        f"//propertyquarry.com/tours/{slug}",
+        f"http://propertyquarry.com/tours/{slug}",
+    )
+    for hostile_url in hostile_urls:
+        assert property_tour_hosting._hosted_property_tour_slug_from_url(hostile_url) == ""
+        assert property_tour_hosting._hosted_property_tour_payload_for_url(hostile_url) == {}
+        assert property_tour_hosting._hosted_property_tour_control_url(hostile_url, viewer="3dvista") == ""
+        assert property_tour_hosting._hosted_property_tour_first_party_open_url(hostile_url) == ""
+        assert property_tour_hosting._hosted_property_tour_walkthrough_asset_url(hostile_url) == ""
+        assert property_tour_hosting._hosted_property_tour_generated_reconstruction_open_url(hostile_url) == ""
+        assert property_tour_hosting._hosted_property_tour_generated_reconstruction_bundle_ready(hostile_url) is False
+        assert property_tour_hosting._hosted_property_tour_preview_image_url(hostile_url) == ""
+        assert property_tour_hosting._hosted_property_tour_direct_360_url(hostile_url) == ""
+        assert product_service._hosted_property_visual_progress_snapshot(hostile_url) == {}
+
+        media = landing_property_research._property_tour_media_payload(
+            {
+                "tour_url": hostile_url,
+                "tour_status": "ready",
+                "flythrough_status": "running",
+            }
+        )
+        assert media["canonical_tour_url"] == ""
+        assert media["embed_href"] == ""
+        assert media["primary_href"] == ""
+        assert media["walkthrough_href"] == ""
+        assert media["hosted_ready"] is False
+        assert media["generated_reconstruction_ready"] is False
+        assert media["walkthrough_progress_pct"] == 0
+
+    assert property_tour_hosting._hosted_property_tour_slug_from_url(f"/tours/{slug}") == slug
+    assert property_tour_hosting._hosted_property_tour_slug_from_url(
+        f"https://propertyquarry.com/tours/{slug}/control/3dvista"
+    ) == slug
+    assert property_tour_hosting._hosted_property_tour_slug_from_url(
+        f"https://tours.myexternalbrain.com/tours/{slug}"
+    ) == slug
+
+
+@pytest.mark.parametrize(
+    "tour_url",
+    (
+        "https://propertyquarry.com/tours/retired/control/%6datterport",
+        "https://propertyquarry.com/tours/retired/%63ontrol/matterport",
+        "https://propertyquarry.com/tours/retired/control/%252fmatterport",
+        "https://propertyquarry.com/tours/retired/./control/matterport",
+        "https://propertyquarry.com/tours/retired/preview/../control/matterport",
+        "https://propertyquarry.com/tours/retired/control/%2e%2e/control/matterport",
+    ),
+)
+def test_property_tour_encoded_or_dot_segment_matterport_controls_retire_fail_closed(
+    tour_url: str,
+) -> None:
+    assert landing_property_research._property_tour_retired_control_target(tour_url) is True
+    assert property_tour_hosting._hosted_property_tour_slug_from_url(tour_url) == ""
+    assert property_tour_hosting._hosted_property_tour_first_party_open_url(tour_url) == ""
+
+
+def test_property_tour_stale_matterport_control_rewrites_only_to_verified_3dvista(monkeypatch) -> None:
+    stale_url = "https://propertyquarry.com/tours/provider-upgrade/control/matterport"
+    monkeypatch.setattr(
+        property_tour_hosting,
+        "_hosted_property_tour_verified_provider",
+        lambda _url, *, principal_id="": "3dvista",
+    )
+
+    rewritten = property_tour_hosting._hosted_property_tour_verified_open_url(stale_url)
+
+    assert rewritten == "https://propertyquarry.com/tours/provider-upgrade/control/3dvista"
+    assert landing_property_research._property_tour_verified_open_url(stale_url) == rewritten
+    assert landing_property_research._property_tour_retired_control_target(rewritten) is False
+
+
+def test_property_tour_matterport_only_bundle_stays_unavailable(monkeypatch) -> None:
+    local_url = "https://propertyquarry.com/tours/matterport-only"
+    matterport_url = "https://my.matterport.com/show?m=ABCdef12"
+    monkeypatch.setattr(
+        property_tour_hosting,
+        "_hosted_property_tour_payload_for_url",
+        lambda _url, *, principal_id="": {"matterport_url": matterport_url},
+    )
+    monkeypatch.setattr(
+        property_tour_hosting,
+        "_hosted_property_tour_has_3dvista_export",
+        lambda _url, *, principal_id="": False,
+    )
+
+    assert property_tour_hosting._hosted_property_tour_has_matterport_export(local_url) is True
+    assert property_tour_hosting._hosted_property_tour_verified_provider(local_url) == ""
+    assert property_tour_hosting._hosted_property_tour_verified_open_url(local_url) == ""
+    payload = landing_property_research._property_tour_media_payload(
+        {"tour_url": local_url, "tour_status": "ready"}
+    )
+    assert payload["hosted_ready"] is False
+    assert payload["canonical_tour_url"] == ""
+    assert payload["primary_href"] == ""
+    assert payload["tour_status"] == "unavailable"
+
+
+def test_property_research_media_normalizes_active_walkthrough_receipt_for_ready_3dvista(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    slug = "ready-3dvista-active-walkthrough"
+    bundle_dir = tmp_path / slug
+    bundle_dir.mkdir(parents=True)
+    (bundle_dir / "tour.walkthrough.progress.json").write_text(
+        json.dumps(
+            {
+                "request_kind": "flythrough",
+                "status": "running",
+                "progress_pct": 67,
+                "detail": "Rendering room transitions.",
+                "provider_key": "magicfit",
+                "step_index": 2,
+                "step_total": 4,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    tour_url = f"https://propertyquarry.com/tours/{slug}"
+    verified_url = f"{tour_url}/control/3dvista"
+    monkeypatch.setattr(
+        property_tour_hosting,
+        "_hosted_property_tour_verified_open_url",
+        lambda _url, *, principal_id="": verified_url,
+    )
+    monkeypatch.setattr(
+        property_tour_hosting,
+        "_hosted_property_tour_verified_provider",
+        lambda _url, *, principal_id="": "3dvista",
+    )
+    monkeypatch.setattr(
+        property_tour_hosting,
+        "_hosted_property_tour_walkthrough_open_url",
+        lambda _tour_url, _walkthrough_url="": "",
+    )
+
+    payload = landing_property_research._property_tour_media_payload(
+        {
+            "tour_url": tour_url,
+            "tour_status": "ready",
+            "flythrough_status": "queued",
+            "flythrough_eta_minutes": 12,
+            "property_url": "https://example.test/ready-3dvista",
+        },
+        principal_id="pq-active-walkthrough",
+    )
+
+    assert payload["canonical_tour_url"] == verified_url
+    assert payload["hosted_ready"] is True
+    assert payload["provider_key"] == "3dvista"
+    assert payload["walkthrough_href"] == ""
+    assert payload["walkthrough_status"] == "running"
+    assert payload["walkthrough_progress_pct"] == 67
+    assert payload["walkthrough_eta_label"] == "segment 2 of 4"
+    assert payload["walkthrough_status_detail"] == "Rendering room transitions."
+
+
+def test_property_research_packet_keeps_same_candidate_ref_scoped_to_requested_run(monkeypatch) -> None:
+    principal_id = "pq-research-run-scoped-candidate"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Run scoped research")
+    shared_ref = "same-candidate-across-runs"
+
+    def _candidate(run_id: str) -> dict[str, object]:
+        suffix = "A" if run_id == "run-scope-a" else "B"
+        return {
+            "candidate_ref": shared_ref,
+            "title": f"Run {suffix} scoped home",
+            "summary": f"Only the {suffix} run should render this record.",
+            "property_url": f"https://example.test/run-{suffix.lower()}-home",
+            "source_ref": f"source:run-{suffix.lower()}",
+            "property_facts": {
+                "price_eur": 2100 if suffix == "A" else 2300,
+                "area_m2": 78 if suffix == "A" else 83,
+                "postal_name": "1070 Wien",
+                "market_country_code": "AT",
+            },
+        }
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str, **_kwargs):
+        candidate = _candidate(run_id)
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "processed",
+            "progress": 100,
+            "summary": {
+                "status": "processed",
+                "ranked_candidates": [candidate],
+                "sources": [
+                    {
+                        "source_label": f"Source {run_id}",
+                        "listing_total": 1,
+                        "top_candidates": [candidate],
+                    }
+                ],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(landing_property_research, "_property_investment_research_snapshot", lambda **kwargs: {})
+
+    run_a = client.get(
+        f"/app/research/{shared_ref}",
+        params={"run_id": "run-scope-a"},
+        headers={"host": "propertyquarry.com"},
+    )
+    run_b = client.get(
+        f"/app/research/{shared_ref}",
+        params={"run_id": "run-scope-b"},
+        headers={"host": "propertyquarry.com"},
+    )
+
+    assert run_a.status_code == 200
+    assert run_b.status_code == 200
+    assert "Run A scoped home" in run_a.text
+    assert "Run B scoped home" not in run_a.text
+    assert "Run B scoped home" in run_b.text
+    assert "Run A scoped home" not in run_b.text
+
+
+def test_property_research_packet_consumes_media_walkthrough_progress_without_control_url_reread(
+    monkeypatch,
+) -> None:
+    principal_id = "pq-research-media-progress-boundary"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Media progress boundary")
+    tour_url = "https://propertyquarry.com/tours/media-progress-boundary"
+    verified_url = f"{tour_url}/control/3dvista"
+    candidate = {
+        "candidate_ref": "media-progress-boundary-ref",
+        "title": "Ready 3DVista home with active walkthrough",
+        "summary": "The tour is ready while the walkthrough is rendering.",
+        "property_url": "https://example.test/media-progress-boundary",
+        "source_ref": "source:media-progress-boundary",
+        "tour_url": tour_url,
+        "tour_status": "ready",
+        "flythrough_status": "queued",
+        "flythrough_eta_minutes": 18,
+        "property_facts": {
+            "price_eur": 2450,
+            "area_m2": 86,
+            "postal_name": "1070 Wien",
+            "market_country_code": "AT",
+        },
+    }
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str, **_kwargs):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "processed",
+            "progress": 100,
+            "summary": {
+                "status": "processed",
+                "ranked_candidates": [candidate],
+                "sources": [
+                    {
+                        "source_label": "Progress source",
+                        "listing_total": 1,
+                        "top_candidates": [candidate],
+                    }
+                ],
+            },
+            "events": [],
+        }
+
+    receipt_reads: list[str] = []
+
+    def _progress_snapshot(value: object, *, request_kind: str = "flythrough") -> dict[str, object]:
+        receipt_reads.append(str(value or ""))
+        assert request_kind == "flythrough"
+        return {
+            "request_kind": "flythrough",
+            "status": "running",
+            "progress_pct": 71,
+            "detail": "Rendering room transitions from the active receipt.",
+            "provider_key": "magicfit",
+            "step_index": 3,
+            "step_total": 5,
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(landing_property_research, "_property_investment_research_snapshot", lambda **kwargs: {})
+    monkeypatch.setattr(
+        property_tour_hosting,
+        "_hosted_property_tour_verified_open_url",
+        lambda _url, *, principal_id="": verified_url,
+    )
+    monkeypatch.setattr(
+        property_tour_hosting,
+        "_hosted_property_tour_verified_provider",
+        lambda _url, *, principal_id="": "3dvista",
+    )
+    monkeypatch.setattr(
+        property_tour_hosting,
+        "_hosted_property_tour_walkthrough_open_url",
+        lambda _tour_url, _walkthrough_url="": "",
+    )
+    monkeypatch.setattr(
+        landing_property_research,
+        "_hosted_property_visual_progress_snapshot",
+        _progress_snapshot,
+    )
+    monkeypatch.setattr(
+        landing_routes,
+        "_hosted_property_visual_progress_snapshot",
+        lambda *_args, **_kwargs: pytest.fail("landing route re-read walkthrough progress after media normalization"),
+    )
+
+    response = client.get(
+        "/app/research/media-progress-boundary-ref",
+        params={"run_id": "run-media-progress-boundary"},
+        headers={"host": "propertyquarry.com"},
+    )
+
+    assert response.status_code == 200
+    # Run normalization may already have upgraded the stored base route to the
+    # canonical 3DVista control URL. The media boundary may read that reference
+    # once; the landing route must consume its normalized fields without a
+    # second filesystem receipt read.
+    assert receipt_reads == [verified_url]
+    assert "Preparing walkthrough" in response.text
+    assert verified_url in response.text
+
+
 def test_property_research_media_ignores_disabled_fallback_tour_record(monkeypatch) -> None:
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,

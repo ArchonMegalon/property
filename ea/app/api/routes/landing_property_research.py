@@ -22,6 +22,7 @@ from app.product.property_evidence_overlays import build_property_evidence_overl
 from app.product.projections.common import compact_text
 from app.product.service import (
     _hosted_property_visual_progress_snapshot,
+    _hosted_property_visual_progress_stage_label,
     _property_apply_location_hint_research,
     _property_currency_code_from_facts,
     _property_cooling_corridor_match_reason,
@@ -35,6 +36,7 @@ from app.product.service import (
     _property_money_amount_label,
     _safe_provider_live_360_url,
     _property_visual_eta_label,
+    _property_visual_progress_pct,
     _property_visual_terminal_status_for_reason,
     _property_visual_unavailable_detail,
 )
@@ -1006,8 +1008,23 @@ def _property_tour_retired_control_target(value: object) -> bool:
         parsed = urllib.parse.urlsplit(normalized)
     except (TypeError, ValueError):
         return True
-    path = urllib.parse.unquote(str(parsed.path or "")).rstrip("/").lower()
-    return path.endswith("/control/matterport")
+    path = str(parsed.path or "")
+    for _ in range(4):
+        decoded = urllib.parse.unquote(path)
+        if decoded == path:
+            break
+        path = decoded
+    path = path.replace("\\", "/")
+    normalized_parts: list[str] = []
+    for part in path.split("/"):
+        if part in {"", "."}:
+            continue
+        if part == "..":
+            if normalized_parts:
+                normalized_parts.pop()
+            continue
+        normalized_parts.append(part.lower())
+    return normalized_parts[-2:] == ["control", "matterport"]
 
 
 def _property_tour_verified_open_url(tour_url: object, *, principal_id: str = "") -> str:
@@ -1164,6 +1181,12 @@ def _property_tour_media_payload(
         or raw_tour_payload.get("embed_url")
         or ""
     ).strip()
+    untrusted_tour_target = bool(
+        tour_url
+        and not property_tour_hosting._hosted_property_tour_slug_from_url(tour_url)
+    )
+    if untrusted_tour_target:
+        tour_url = ""
     disabled_fallback_tour = bool(
         tour_url and _property_hosted_tour_disabled_fallback(tour_url)
     )
@@ -1310,7 +1333,11 @@ def _property_tour_media_payload(
         candidate.get("flythrough_url"),
     )
     walkthrough_ready = bool(verified_walkthrough_href)
-    walkthrough_status = str(candidate.get("flythrough_status") or "").strip().lower()
+    walkthrough_status = (
+        ""
+        if untrusted_tour_target
+        else str(candidate.get("flythrough_status") or "").strip().lower()
+    )
     walkthrough_reason = str(candidate.get("flythrough_reason") or "").strip()
     live_walkthrough_progress = _hosted_property_visual_progress_snapshot(
         tour_url,
@@ -1333,6 +1360,41 @@ def _property_tour_media_payload(
         and walkthrough_status in {"", "queued", "pending", "processing", "running", "in_progress", "started", "rendering", "repairing"}
     ):
         walkthrough_status = str(live_walkthrough_progress.get("status") or "").strip().lower()
+    walkthrough_eta_raw = str(candidate.get("flythrough_eta_minutes") or "").strip()
+    walkthrough_requested_at = str(candidate.get("flythrough_requested_at") or "").strip()
+    walkthrough_status_updated_at = str(candidate.get("flythrough_status_updated_at") or "").strip()
+    walkthrough_eta_label = _property_visual_eta_label(
+        request_kind="flythrough",
+        status=walkthrough_status,
+        eta_minutes=walkthrough_eta_raw,
+        requested_at=walkthrough_requested_at,
+        status_updated_at=walkthrough_status_updated_at,
+    )
+    try:
+        walkthrough_progress_pct = int(float(str(candidate.get("flythrough_progress_pct") or "").strip()))
+    except (TypeError, ValueError):
+        walkthrough_progress_pct = 0
+    if walkthrough_progress_pct <= 0:
+        walkthrough_progress_pct = _property_visual_progress_pct(
+            request_kind="flythrough",
+            status=walkthrough_status,
+            ready_url=verified_walkthrough_href,
+            eta_minutes=walkthrough_eta_raw,
+            requested_at=walkthrough_requested_at,
+            status_updated_at=walkthrough_status_updated_at,
+        )
+    try:
+        live_walkthrough_progress_pct = int(float(str(live_walkthrough_progress.get("progress_pct") or "").strip()))
+    except (TypeError, ValueError):
+        live_walkthrough_progress_pct = 0
+    if (
+        live_walkthrough_progress_pct > 0
+        and not walkthrough_ready
+        and walkthrough_status in _PROPERTY_TOUR_PENDING_STATES
+    ):
+        walkthrough_progress_pct = live_walkthrough_progress_pct
+        walkthrough_eta_label = _hosted_property_visual_progress_stage_label(live_walkthrough_progress) or walkthrough_eta_label
+    walkthrough_progress_pct = max(0, min(100, walkthrough_progress_pct))
     vendor_tour_provider = (
         _property_tour_verified_provider(vendor_tour_url, principal_id=normalized_principal_id)
         if vendor_tour_url
@@ -1488,6 +1550,8 @@ def _property_tour_media_payload(
             )
         ),
         "walkthrough_status": walkthrough_status,
+        "walkthrough_progress_pct": walkthrough_progress_pct,
+        "walkthrough_eta_label": walkthrough_eta_label,
     }
 
 

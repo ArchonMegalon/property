@@ -8002,7 +8002,11 @@ def property_research_packet(
     tour_status = str(tour_status_value or "").strip().lower()
     tour_reason = str(research_media.get("tour_reason_key") or "").strip()
     tour_requestable = bool(research_media.get("tour_requestable"))
-    flythrough_status = str(candidate.get("flythrough_status") or "").strip().lower()
+    flythrough_status = str(
+        research_media.get("walkthrough_status")
+        if "walkthrough_status" in research_media
+        else candidate.get("flythrough_status")
+    ).strip().lower()
     terminal_tour_status = _property_visual_terminal_status_for_reason(
         request_kind="tour",
         reason=tour_reason,
@@ -8010,11 +8014,7 @@ def property_research_packet(
     if terminal_tour_status and not tour_url and tour_status in {"", "queued", "pending", "processing", "running", "in_progress", "started", "rendering", "repairing"}:
         tour_status = terminal_tour_status
     flythrough_reason = str(candidate.get("flythrough_reason") or "").strip()
-    live_flythrough_progress = _hosted_property_visual_progress_snapshot(
-        tour_url,
-        request_kind="flythrough",
-    ) if tour_url else {}
-    live_flythrough_detail = str(live_flythrough_progress.get("detail") or "").strip()
+    flythrough_status_detail = str(research_media.get("walkthrough_status_detail") or "").strip()
     terminal_flythrough_status = _property_visual_terminal_status_for_reason(
         request_kind="flythrough",
         reason=flythrough_reason,
@@ -8036,7 +8036,12 @@ def property_research_packet(
     except Exception:
         tour_progress_pct = 0
     try:
-        flythrough_progress_pct = int(float(str(candidate.get("flythrough_progress_pct") or "").strip())) if str(candidate.get("flythrough_progress_pct") or "").strip() else 0
+        flythrough_progress_pct = int(float(str(
+            research_media.get("walkthrough_progress_pct")
+            if "walkthrough_progress_pct" in research_media
+            else candidate.get("flythrough_progress_pct")
+            or 0
+        ).strip()))
     except Exception:
         flythrough_progress_pct = 0
     tour_eta_label = str(research_media.get("tour_eta_label") or "").strip() or _property_visual_eta_label(
@@ -8046,7 +8051,7 @@ def property_research_packet(
         requested_at=tour_requested_at,
         status_updated_at=tour_status_updated_at,
     )
-    flythrough_eta_label = _property_visual_eta_label(
+    flythrough_eta_label = str(research_media.get("walkthrough_eta_label") or "").strip() or _property_visual_eta_label(
         request_kind="flythrough",
         status=flythrough_status,
         eta_minutes=flythrough_eta_raw,
@@ -8071,13 +8076,6 @@ def property_research_packet(
             requested_at=flythrough_requested_at,
             status_updated_at=flythrough_status_updated_at,
         )
-    try:
-        live_flythrough_progress_pct = int(float(str(live_flythrough_progress.get("progress_pct") or "").strip())) if str(live_flythrough_progress.get("progress_pct") or "").strip() else 0
-    except Exception:
-        live_flythrough_progress_pct = 0
-    if live_flythrough_progress_pct > 0 and not flythrough_url and flythrough_status in {"queued", "pending", "processing", "running", "in_progress", "started", "rendering", "repairing"}:
-        flythrough_progress_pct = live_flythrough_progress_pct
-        flythrough_eta_label = _hosted_property_visual_progress_stage_label(live_flythrough_progress) or ""
     hero_actions: list[dict[str, object]] = []
     if property_url:
         hero_actions.append({"href": property_url, "label": "Open listing", "external": True})
@@ -8134,9 +8132,9 @@ def property_research_packet(
     if flythrough_url:
         hero_actions.append({"href": flythrough_url, "label": "Open walkthrough", "external": False})
     elif flythrough_status in {"queued", "pending"} and property_url:
-        hero_actions.append({"kind": "flythrough", "label": "Walkthrough queued", "property_url": property_url, "state": "pending", "progress_pct": max(flythrough_progress_pct, 18), "eta_label": flythrough_eta_label, "status_detail": live_flythrough_detail or ("Still queued." if flythrough_eta_label.startswith("delayed") else "Queued.")})
+        hero_actions.append({"kind": "flythrough", "label": "Walkthrough queued", "property_url": property_url, "state": "pending", "progress_pct": max(flythrough_progress_pct, 18), "eta_label": flythrough_eta_label, "status_detail": flythrough_status_detail or ("Still queued." if flythrough_eta_label.startswith("delayed") else "Queued.")})
     elif flythrough_status in {"processing", "running", "in_progress", "started"} and property_url:
-        hero_actions.append({"kind": "flythrough", "label": "Walkthrough rendering", "property_url": property_url, "state": "rendering", "progress_pct": max(flythrough_progress_pct, 64), "eta_label": flythrough_eta_label, "status_detail": live_flythrough_detail or ("Still rendering." if flythrough_eta_label.startswith("delayed") else "Rendering.")})
+        hero_actions.append({"kind": "flythrough", "label": "Walkthrough rendering", "property_url": property_url, "state": "rendering", "progress_pct": max(flythrough_progress_pct, 64), "eta_label": flythrough_eta_label, "status_detail": flythrough_status_detail or ("Still rendering." if flythrough_eta_label.startswith("delayed") else "Rendering.")})
     elif flythrough_status in {"blocked", "failed", "skipped", "not_applicable"} and property_url:
         hero_actions.append(
             {
@@ -8146,7 +8144,7 @@ def property_research_packet(
                 "state": flythrough_status or "blocked",
                 "progress_pct": 0,
                 "eta_label": "",
-                "status_detail": live_flythrough_detail or _property_visual_unavailable_detail(request_kind="flythrough", reason=flythrough_reason),
+                "status_detail": flythrough_status_detail or _property_visual_unavailable_detail(request_kind="flythrough", reason=flythrough_reason),
             }
         )
     elif property_url:
@@ -8165,9 +8163,9 @@ def property_research_packet(
     elif flythrough_url:
         visual_status_line = str(research_media.get("walkthrough_status_detail") or "Walkthrough is ready.").strip()
     elif flythrough_status in {"queued", "pending"}:
-        visual_status_line = live_flythrough_detail or "Walkthrough queued."
+        visual_status_line = flythrough_status_detail or "Walkthrough queued."
     elif flythrough_status in {"processing", "running", "in_progress", "started"}:
-        visual_status_line = live_flythrough_detail or "Walkthrough rendering."
+        visual_status_line = flythrough_status_detail or "Walkthrough rendering."
     elif tour_status in {"queued", "pending"}:
         visual_status_line = "3D tour queued."
     elif tour_status in {"processing", "running", "in_progress", "started", "rendering", "repairing"}:

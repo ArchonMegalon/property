@@ -71,6 +71,7 @@ _KRPANO_PANORAMA_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 _KRPANO_FORBIDDEN_SCENE_STRATEGIES = {"generated_listing_summary", "photo_gallery_hosted", "floorplan_hosted", "pure_360_cube"}
 _KRPANO_FORBIDDEN_CREATION_MODES = {"hosted_listing_fallback", "hosted_photo_gallery_tour"}
 _CUSTOMER_FACING_TOUR_PROVIDERS = ("3dvista",)
+_PROPERTY_PUBLIC_TOUR_SLUG_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 _PROPERTY_GENERATED_RECONSTRUCTION_VIEWER_VERSION = "propertyquarry_3d_tour_viewer_v3"
 _AI_PANORAMA_CANONICAL_DISCLOSURE = (
     "AI-reconstructed from listing photos; not a captured 360 or measured survey."
@@ -1611,21 +1612,67 @@ def _property_tour_payload_is_disabled_fallback(structured_output: dict[str, obj
     return False
 
 
-def _hosted_property_tour_slug_from_url(value: object) -> str:
+def _hosted_property_tour_reference_parts(
+    value: object,
+) -> tuple[urllib.parse.SplitResult, str] | None:
+    """Validate a local public-tour reference before deriving a bundle slug.
+
+    A path that merely *looks* like a PropertyQuarry route must not grant an
+    arbitrary origin access to a same-named local bundle.  Keeping this check
+    at the shared slug boundary protects every manifest/asset helper that
+    resolves ``/tours/<slug>`` into ``EA_PUBLIC_TOUR_DIR``.
+    """
+
     normalized = str(value or "").strip()
     if not normalized:
-        return ""
+        return None
     try:
-        parsed = urllib.parse.urlparse(normalized)
-    except Exception:
-        return ""
-    path_parts = [part for part in str(parsed.path or "").split("/") if part]
-    for index, part in enumerate(path_parts):
-        if part == "tours" and index + 1 < len(path_parts):
-            if path_parts[index + 1] == "files" and index + 2 < len(path_parts):
-                return str(path_parts[index + 2] or "").strip()
-            return str(path_parts[index + 1] or "").strip()
-    return ""
+        parsed = urllib.parse.urlsplit(normalized)
+        port = parsed.port
+    except (TypeError, ValueError):
+        return None
+
+    if parsed.scheme or parsed.netloc:
+        if (
+            parsed.scheme.lower() != "https"
+            or not parsed.netloc
+            or parsed.username
+            or parsed.password
+            or port not in {None, 443}
+            or not _is_branded_public_tour_url(normalized)
+        ):
+            return None
+    elif not str(parsed.path or "").startswith("/tours/"):
+        return None
+
+    raw_path = str(parsed.path or "")
+    # Public tour routes do not need alternate path encodings. Rejecting them
+    # closes encoded separators, encoded dot segments, and multi-decode aliases
+    # before a filesystem slug is selected.
+    if "%" in raw_path or "\\" in raw_path or "\x00" in raw_path:
+        return None
+    path = raw_path.rstrip("/")
+    if not path.startswith("/tours/"):
+        return None
+    path_parts = path[1:].split("/")
+    if (
+        len(path_parts) < 2
+        or path_parts[0] != "tours"
+        or any(not part or part in {".", ".."} for part in path_parts)
+    ):
+        return None
+    slug_index = 2 if path_parts[1] == "files" else 1
+    if slug_index >= len(path_parts):
+        return None
+    slug = str(path_parts[slug_index] or "").strip()
+    if not _PROPERTY_PUBLIC_TOUR_SLUG_RE.fullmatch(slug):
+        return None
+    return parsed, slug
+
+
+def _hosted_property_tour_slug_from_url(value: object) -> str:
+    reference = _hosted_property_tour_reference_parts(value)
+    return reference[1] if reference is not None else ""
 
 
 def _hosted_property_tour_payload_for_url(
@@ -1636,15 +1683,10 @@ def _hosted_property_tour_payload_for_url(
     normalized_url = str(tour_url or "").strip()
     if not normalized_url:
         return {}
-    parsed = urllib.parse.urlparse(normalized_url)
-    if parsed.scheme or parsed.netloc:
-        if not _is_branded_public_tour_url(normalized_url):
-            return {}
-    elif not str(parsed.path or "").startswith("/tours/"):
+    reference = _hosted_property_tour_reference_parts(normalized_url)
+    if reference is None:
         return {}
-    slug = _hosted_property_tour_slug_from_url(normalized_url)
-    if not slug:
-        return {}
+    _parsed, slug = reference
     payload = _load_hosted_property_tour_payload(
         _public_tour_dir() / slug,
         principal_id=str(principal_id or "").strip(),
@@ -1654,7 +1696,8 @@ def _hosted_property_tour_payload_for_url(
 
 def _hosted_property_tour_control_url(tour_url: object, *, viewer: str = "") -> str:
     normalized = str(tour_url or "").strip()
-    if not normalized:
+    reference = _hosted_property_tour_reference_parts(normalized)
+    if reference is None:
         return ""
     viewer_slug = str(viewer or "").strip().lower()
     if viewer_slug == "metaport":
@@ -1666,17 +1709,16 @@ def _hosted_property_tour_control_url(tour_url: object, *, viewer: str = "") -> 
     if viewer_slug not in {"", "matterport", "3dvista", "pano2vr", "krpano"}:
         viewer_slug = ""
     try:
-        parsed = urllib.parse.urlparse(normalized)
+        parsed, _slug = reference
         path = str(parsed.path or "").rstrip("/")
         if any(path.endswith(f"/control/{mode}") for mode in ("matterport", "3dvista", "pano2vr", "krpano")):
             path = path.rsplit("/control/", 1)[0]
         elif path.endswith("/control"):
             path = path[: -len("/control")]
         path = f"{path}/control/{viewer_slug}" if viewer_slug else f"{path}/control"
-        return urllib.parse.urlunparse(parsed._replace(path=path, query="", fragment=""))
-    except Exception:
-        base = normalized.rstrip("/")
-        return f"{base}/control/{viewer_slug}" if viewer_slug else f"{base}/control"
+        return urllib.parse.urlunsplit(parsed._replace(path=path, query="", fragment=""))
+    except (TypeError, ValueError):
+        return ""
 
 
 def _hosted_property_tour_has_matterport_export(tour_url: object) -> bool:
@@ -2583,12 +2625,15 @@ def _hosted_property_tour_ai_panorama_open_url(
     normalized_url = str(tour_url or "").strip()
     if not normalized_url:
         return ""
+    reference = _hosted_property_tour_reference_parts(normalized_url)
+    if reference is None:
+        return ""
+    parsed, slug = reference
     payload = _hosted_property_tour_payload_for_url(
         normalized_url,
         principal_id=principal_id,
     )
-    slug = _hosted_property_tour_slug_from_url(normalized_url)
-    if not payload or not slug:
+    if not payload:
         return ""
     contract = _hosted_property_tour_ai_panorama_contract(
         bundle_dir=_public_tour_dir() / slug,
@@ -2597,11 +2642,10 @@ def _hosted_property_tour_ai_panorama_open_url(
     if not contract.get("ready"):
         return ""
     control_path = f"/tours/{urllib.parse.quote(slug, safe='')}/control"
-    parsed = urllib.parse.urlparse(normalized_url)
     if not parsed.scheme and not parsed.netloc:
         return control_path
-    return urllib.parse.urlunparse(
-        (parsed.scheme, parsed.netloc, control_path, "", "", "")
+    return urllib.parse.urlunsplit(
+        (parsed.scheme, parsed.netloc, control_path, "", "")
     )
 
 
@@ -2642,24 +2686,22 @@ def _hosted_property_tour_first_party_open_url(
         return ai_panorama_url
     generated_reconstruction_url = _hosted_property_tour_generated_reconstruction_open_url(normalized_url)
     if generated_reconstruction_url:
-        parsed = urllib.parse.urlparse(normalized_url)
-        slug = _hosted_property_tour_slug_from_url(normalized_url)
-        if not slug:
-            return generated_reconstruction_url
-        if not parsed.scheme and not parsed.netloc and str(parsed.path or "").startswith("/tours/"):
+        reference = _hosted_property_tour_reference_parts(normalized_url)
+        if reference is None:
+            return ""
+        parsed, slug = reference
+        if not parsed.scheme and not parsed.netloc:
             return f"/tours/{slug}"
-        if parsed.scheme and parsed.netloc:
-            return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, f"/tours/{slug}", "", "", ""))
+        return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, f"/tours/{slug}", "", ""))
     return ""
 
 
 def _hosted_property_tour_walkthrough_asset_url(tour_url: object) -> str:
     normalized_url = str(tour_url or "").strip()
-    if not normalized_url:
+    reference = _hosted_property_tour_reference_parts(normalized_url)
+    if reference is None:
         return ""
-    slug = _hosted_property_tour_slug_from_url(normalized_url)
-    if not slug:
-        return ""
+    parsed, slug = reference
     bundle_dir = _public_tour_dir() / slug
     manifest_path = bundle_dir / "tour.json"
     if not manifest_path.exists():
@@ -2677,13 +2719,10 @@ def _hosted_property_tour_walkthrough_asset_url(tour_url: object) -> str:
         eligibility = evaluate_magicfit_public_eligibility(bundle_dir, payload)
         if not (eligibility.declared and eligibility.eligible and eligibility.video_relpath):
             return ""
-        parsed = urllib.parse.urlparse(normalized_url)
         route_path = f"/tours/{urllib.parse.quote(slug, safe='')}/walkthrough"
-        if not parsed.scheme and not parsed.netloc and str(parsed.path or "").startswith("/tours/"):
+        if not parsed.scheme and not parsed.netloc:
             return route_path
-        if parsed.scheme and parsed.netloc:
-            return urllib.parse.urlunparse((parsed.scheme, parsed.netloc, route_path, "", "", ""))
-        return ""
+        return urllib.parse.urlunsplit((parsed.scheme, parsed.netloc, route_path, "", ""))
     generated_reconstruction = (
         dict(payload.get("generated_reconstruction") or {})
         if isinstance(payload.get("generated_reconstruction"), dict)
@@ -3903,15 +3942,10 @@ def _embedded_live_360_source_url(payload: dict[str, object]) -> str:
 
 def _hosted_property_tour_direct_360_url(tour_url: str) -> str:
     normalized_url = str(tour_url or "").strip()
-    if not normalized_url:
+    reference = _hosted_property_tour_reference_parts(normalized_url)
+    if reference is None:
         return ""
-    parsed = urllib.parse.urlparse(normalized_url)
-    path_parts = [part for part in str(parsed.path or "").split("/") if part]
-    if len(path_parts) < 2 or path_parts[-2] != "tours":
-        return ""
-    slug = str(path_parts[-1] or "").strip()
-    if not slug:
-        return ""
+    _parsed, slug = reference
     public_dir = _public_tour_dir()
     manifest_path = public_dir / slug / "tour.json"
     if not manifest_path.exists():
@@ -3954,7 +3988,13 @@ def _hosted_public_tour_asset_url(tour_url: str, *, slug: str, asset_relpath: st
     normalized_url = str(tour_url or "").strip()
     safe_slug = str(slug or "").strip()
     safe_relpath = str(asset_relpath or "").strip().lstrip("/")
-    if not normalized_url or not safe_slug or not safe_relpath:
+    reference = _hosted_property_tour_reference_parts(normalized_url)
+    if (
+        reference is None
+        or not safe_slug
+        or safe_slug != reference[1]
+        or not safe_relpath
+    ):
         return ""
     # Keep producer-side URLs byte-for-byte aligned with the public route's
     # component validation and encoding.  In particular, URI delimiters can
@@ -3964,17 +4004,14 @@ def _hosted_public_tour_asset_url(tour_url: str, *, slug: str, asset_relpath: st
     relative_asset_url = public_tour_file_url(safe_slug, safe_relpath)
     if not relative_asset_url:
         return ""
-    parsed = urllib.parse.urlparse(normalized_url)
-    if not parsed.scheme and not parsed.netloc and str(parsed.path or "").startswith("/tours/"):
+    parsed, _reference_slug = reference
+    if not parsed.scheme and not parsed.netloc:
         return relative_asset_url
-    if not parsed.scheme or not parsed.netloc:
-        return ""
-    return urllib.parse.urlunparse(
+    return urllib.parse.urlunsplit(
         (
             parsed.scheme,
             parsed.netloc,
             relative_asset_url,
-            "",
             "",
             "",
         )
@@ -3982,15 +4019,10 @@ def _hosted_public_tour_asset_url(tour_url: str, *, slug: str, asset_relpath: st
 
 def _hosted_property_tour_preview_image_url(tour_url: str) -> str:
     normalized_url = str(tour_url or "").strip()
-    if not normalized_url:
+    reference = _hosted_property_tour_reference_parts(normalized_url)
+    if reference is None:
         return ""
-    parsed = urllib.parse.urlparse(normalized_url)
-    path_parts = [part for part in str(parsed.path or "").split("/") if part]
-    if len(path_parts) < 2 or path_parts[-2] != "tours":
-        return ""
-    slug = str(path_parts[-1] or "").strip()
-    if not slug:
-        return ""
+    _parsed, slug = reference
     public_dir = _public_tour_dir()
     bundle_dir = public_dir / slug
     manifest_path = bundle_dir / "tour.json"

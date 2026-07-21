@@ -193,6 +193,7 @@ from app.product.property_tour_hosting import (
     _hosted_property_tour_public_base_url,
     _hosted_property_tour_slug,
     _hosted_property_tour_slug as _make_hosted_property_tour_slug,
+    _hosted_property_tour_slug_from_url,
     _hosted_property_tour_verified_provider,
     _hosted_property_tour_verified_open_url,
     _hosted_property_tour_walkthrough_asset_url,
@@ -21315,11 +21316,7 @@ def _hosted_property_tour_bundle_dir(tour_url: str) -> tuple[str, Path] | tuple[
     normalized_url = str(tour_url or "").strip()
     if not normalized_url:
         return ("", None)
-    parsed = urllib.parse.urlparse(normalized_url)
-    path_parts = [part for part in str(parsed.path or "").split("/") if part]
-    if len(path_parts) < 2 or path_parts[-2] != "tours":
-        return ("", None)
-    slug = str(path_parts[-1] or "").strip().lower()
+    slug = _hosted_property_tour_slug_from_url(normalized_url).lower()
     if re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,126}[a-z0-9])?", slug) is None:
         return ("", None)
     public_dir = Path(str(os.getenv("EA_PUBLIC_TOUR_DIR") or "/docker/property/state/public_property_tours")).expanduser()
