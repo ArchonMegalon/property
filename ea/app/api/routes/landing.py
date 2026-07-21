@@ -5053,6 +5053,7 @@ def _property_console_context(
         )
     country_provider_options = [dict(option) for option in property_provider_options(country_code=selected_country)]
     run_payload: dict[str, object] = {}
+    raw_requested_run_payload: dict[str, object] = {}
     normalized_run_id = str(run_id or "").strip()
     raw_recent_search_runs: list[dict[str, object]] = []
     recent_search_runs: list[dict[str, object]] = []
@@ -5255,7 +5256,7 @@ def _property_console_context(
                     product.get_property_search_run_status(
                         principal_id=principal_id,
                         run_id=normalized_run_id,
-                        lightweight=surface_scope.section in {"research", "shortlist"},
+                        lightweight=surface_scope.section == "shortlist",
                         account_email=access_email,
                     )
                     or {}
@@ -5266,7 +5267,7 @@ def _property_console_context(
                         product.get_property_search_run_status(
                             principal_id=principal_id,
                             run_id=normalized_run_id,
-                            lightweight=surface_scope.section in {"research", "shortlist"},
+                            lightweight=surface_scope.section == "shortlist",
                         )
                         or {}
                     )
@@ -5287,6 +5288,19 @@ def _property_console_context(
                 run_payload = active_run if isinstance(active_run, dict) else {}
         else:
             run_payload = dict(active_run or run_payload or {})
+    if (
+        surface_scope.section == "research"
+        and normalized_run_id
+        and _property_constant_text_equal(
+            run_payload.get("run_id"),
+            normalized_run_id,
+        )
+    ):
+        # Preserve the already-fetched, unprojected exact run only inside the
+        # server-side context. Research candidate normalization intentionally
+        # removes retired provider targets, while this private snapshot lets the
+        # page decide whether a scoped handoff exists without a second run read.
+        raw_requested_run_payload = dict(run_payload)
     if run_payload and not prefer_saved_brief_only:
         run_preferences_payload = (
             dict(run_payload.get("property_search_preferences") or run_payload.get("preferences") or {})
@@ -5495,6 +5509,7 @@ def _property_console_context(
 
     return {
         "_principal_id": str(principal_id or "").strip(),
+        "_raw_requested_run": raw_requested_run_payload,
         "platform_options": country_provider_options,
         "platform_catalog_by_country": dict(country_catalog_snapshot.get("platform_catalog_by_country") or {}),
         "platform_defaults_by_country_mode": dict(country_catalog_snapshot.get("platform_defaults_by_country_mode") or {}),
@@ -7254,19 +7269,33 @@ def _property_original_tour_candidate_target(
         if isinstance(normalized_candidate.get("tour"), dict)
         else {}
     )
-    provider_candidates: list[object] = [
+    property_facts = (
+        dict(normalized_candidate.get("property_facts") or {})
+        if isinstance(normalized_candidate.get("property_facts"), dict)
+        else {}
+    )
+    evidence_references: tuple[object, ...] = (
         raw_tour.get("provider_url"),
         normalized_candidate.get("vendor_tour_url"),
-    ]
-    local_references = (
         normalized_candidate.get("tour_url"),
         raw_tour.get("url"),
         raw_tour.get("embed_url"),
+        normalized_candidate.get("source_virtual_tour_url"),
+        normalized_candidate.get("source_virtual_tour_origin"),
+        raw_tour.get("source_virtual_tour_url"),
+        raw_tour.get("source_virtual_tour_origin"),
+        property_facts.get("source_virtual_tour_url"),
+        property_facts.get("source_virtual_tour_origin"),
     )
     normalized_principal_id = str(principal_id or "").strip()
-    for local_reference in local_references:
+    for evidence_reference in evidence_references:
+        canonical = property_tour_hosting._canonical_matterport_tour_url(
+            evidence_reference
+        )
+        if canonical:
+            return canonical
         payload = property_tour_hosting._hosted_property_tour_payload_for_url(
-            local_reference,
+            evidence_reference,
             principal_id=normalized_principal_id,
         )
         if not payload:
@@ -7281,13 +7310,16 @@ def _property_original_tour_candidate_target(
             )
         ):
             continue
-        provider_candidates.append(payload.get("matterport_url"))
-    for provider_candidate in provider_candidates:
-        canonical = property_tour_hosting._canonical_matterport_tour_url(
-            provider_candidate
-        )
-        if canonical:
-            return canonical
+        for provider_candidate in (
+            payload.get("source_virtual_tour_url"),
+            payload.get("source_virtual_tour_origin"),
+            payload.get("matterport_url"),
+        ):
+            canonical = property_tour_hosting._canonical_matterport_tour_url(
+                provider_candidate
+            )
+            if canonical:
+                return canonical
     return ""
 
 
@@ -7473,6 +7505,43 @@ def _property_research_media_with_original_tour_handoff(
     }
 
 
+def _property_original_tour_candidate_from_exact_run_payload(
+    *,
+    run_payload: Mapping[str, object],
+    principal_id: str,
+    run_id: str,
+    candidate_ref: str,
+) -> dict[str, object] | None:
+    normalized_principal_id = str(principal_id or "").strip()
+    normalized_run_id = str(run_id or "").strip()
+    normalized_candidate_ref = str(candidate_ref or "").strip()
+    returned_run_id = str(run_payload.get("run_id") or "").strip()
+    returned_principal_id = str(run_payload.get("principal_id") or "").strip()
+    if (
+        not normalized_principal_id
+        or not normalized_run_id
+        or not normalized_candidate_ref
+        or not returned_run_id
+        or not _property_constant_text_equal(returned_run_id, normalized_run_id)
+        or not returned_principal_id
+        or not _property_constant_text_equal(
+            returned_principal_id,
+            normalized_principal_id,
+        )
+    ):
+        return None
+    candidate = _property_lookup_candidate(
+        property_context={"run": dict(run_payload)},
+        candidate_ref=normalized_candidate_ref,
+    )
+    if candidate is None or not _property_constant_text_equal(
+        _property_candidate_ref(candidate),
+        normalized_candidate_ref,
+    ):
+        return None
+    return candidate
+
+
 def _property_original_tour_exact_run_candidate(
     *,
     product: Any,
@@ -7512,30 +7581,12 @@ def _property_original_tour_exact_run_candidate(
             return None
     except Exception:
         return None
-    returned_run_id = str(run_payload.get("run_id") or "").strip()
-    returned_principal_id = str(run_payload.get("principal_id") or "").strip()
-    if (
-        not returned_run_id
-        or not _property_constant_text_equal(returned_run_id, normalized_run_id)
-        or (
-            returned_principal_id
-            and not _property_constant_text_equal(
-                returned_principal_id,
-                normalized_principal_id,
-            )
-        )
-    ):
-        return None
-    candidate = _property_lookup_candidate(
-        property_context={"run": run_payload},
+    return _property_original_tour_candidate_from_exact_run_payload(
+        run_payload=run_payload,
+        principal_id=normalized_principal_id,
+        run_id=normalized_run_id,
         candidate_ref=normalized_candidate_ref,
     )
-    if candidate is None or not _property_constant_text_equal(
-        _property_candidate_ref(candidate),
-        normalized_candidate_ref,
-    ):
-        return None
-    return candidate
 
 
 def _property_original_tour_unavailable_response() -> PlainTextResponse:
@@ -7653,6 +7704,12 @@ def property_research_packet(
         selected_candidate_ref=candidate_ref,
         surface_mode="research",
         defer_run_hydration=release_probe_read_only,
+    )
+    raw_requested_run_value = property_context.pop("_raw_requested_run", {})
+    raw_requested_run_payload = (
+        dict(raw_requested_run_value)
+        if isinstance(raw_requested_run_value, dict)
+        else {}
     )
     normalized_candidate_ref = str(candidate_ref or "").strip()
     requested_run_id = str(run_id or "").strip()
@@ -8374,21 +8431,22 @@ def property_research_packet(
     )
     original_tour_handoff_href = ""
     if (
-        effective_run_id
+        requested_run_id
+        and effective_run_id
+        and _property_constant_text_equal(effective_run_id, requested_run_id)
         and _property_original_tour_authenticated(context)
     ):
-        original_tour_candidate = _property_original_tour_exact_run_candidate(
-            product=product,
+        original_tour_candidate = _property_original_tour_candidate_from_exact_run_payload(
+            run_payload=raw_requested_run_payload,
             principal_id=context.principal_id,
-            account_email=context.access_email,
-            run_id=effective_run_id,
+            run_id=requested_run_id,
             candidate_ref=normalized_candidate_ref,
         )
         if original_tour_candidate is not None:
             original_tour_handoff_href = _property_original_tour_handoff_href(
                 container=container,
                 principal_id=context.principal_id,
-                run_id=effective_run_id,
+                run_id=requested_run_id,
                 candidate_ref=normalized_candidate_ref,
                 candidate=original_tour_candidate,
             )
