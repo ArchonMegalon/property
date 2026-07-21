@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
+from app.product.property_fact_enrichment import property_fact_distance_specs
 from app.product.property_research_packet_links import (
     PROPERTY_RESEARCH_PACKET_SCHEMA_VERSION,
     PROPERTY_RESEARCH_PACKET_WRITER_CONTRACT_VERSION,
@@ -34,6 +35,51 @@ _PROPERTY_SEARCH_RUN_COMPACT_SOURCE_LIMIT = 64
 _PROPERTY_SEARCH_RUN_COMPACT_NESTED_LIST_LIMIT = 32
 _PROPERTY_SEARCH_RUN_COMPACT_TEXT_LIMIT = 2048
 _PROPERTY_SEARCH_ERASURE_KEY_DOMAIN = b"propertyquarry:property-search-erasure:v1\0"
+_PROPERTY_SEARCH_DISTANCE_FACT_KEYS = tuple(
+    dict.fromkeys(
+        str(alias or "").strip()
+        for spec in property_fact_distance_specs()
+        for alias in list(spec.get("aliases") or [])
+        if str(alias or "").strip()
+    )
+)
+_PROPERTY_SEARCH_FACT_EVIDENCE_KEYS = (
+    "provider",
+    "method",
+    "observed_at",
+    "expires_at",
+    "freshness",
+    "confidence",
+    "source_key",
+    "observed_key",
+    "listing_url",
+    "source_fingerprint",
+    "coordinate_basis",
+    "coordinate_observed_at",
+    "coordinate_precision",
+    "coordinate_source",
+    "coordinate_exact",
+    "listing_latitude",
+    "listing_longitude",
+    "coordinate_digest",
+    "query_endpoint_url",
+    "query_url",
+    "query_digest",
+    "query_schema",
+    "receipt_url",
+    "provider_object_id",
+    "provider_object_type",
+    "provider_object_version",
+    "provider_object_timestamp",
+    "provider_object_changeset",
+    "provider_observed_at",
+    "provider_expires_at",
+    "attestation_version",
+    "provider_attestation",
+    "poi_latitude",
+    "poi_longitude",
+    "poi_classification_tags",
+)
 
 
 def _property_search_principal_key(principal_id: object) -> str:
@@ -909,23 +955,36 @@ def _property_search_run_canonicalize_record(record: dict[str, object]) -> dict[
 def _compact_property_search_run_record(record: dict[str, object]) -> dict[str, object]:
     preserve_fact_candidate_state = False
 
-    def _bounded_compact_value(value: object, *, depth: int = 0) -> object:
+    def _bounded_compact_value(
+        value: object,
+        *,
+        depth: int = 0,
+        max_depth: int = 3,
+    ) -> object:
         if isinstance(value, str):
             return value[:_PROPERTY_SEARCH_RUN_COMPACT_TEXT_LIMIT]
         if value is None or isinstance(value, (bool, int, float)):
             return value
         if isinstance(value, dict):
-            if depth >= 3:
+            if depth >= max_depth:
                 return {}
             return {
-                str(key)[:160]: _bounded_compact_value(item, depth=depth + 1)
+                str(key)[:160]: _bounded_compact_value(
+                    item,
+                    depth=depth + 1,
+                    max_depth=max_depth,
+                )
                 for key, item in list(value.items())[:_PROPERTY_SEARCH_RUN_COMPACT_NESTED_LIST_LIMIT]
             }
         if isinstance(value, (list, tuple, set)):
-            if depth >= 3:
+            if depth >= max_depth:
                 return []
             return [
-                _bounded_compact_value(item, depth=depth + 1)
+                _bounded_compact_value(
+                    item,
+                    depth=depth + 1,
+                    max_depth=max_depth,
+                )
                 for item in list(value)[:_PROPERTY_SEARCH_RUN_COMPACT_NESTED_LIST_LIMIT]
             ]
         return str(value)[:_PROPERTY_SEARCH_RUN_COMPACT_TEXT_LIMIT]
@@ -937,6 +996,47 @@ def _compact_property_search_run_record(record: dict[str, object]) -> dict[str, 
             for key in _PROPERTY_SEARCH_RUN_COMPACT_PROVIDER_CACHE_KEYS
             if key in payload
         }
+
+    def _compact_fact_evidence_row(value: object) -> dict[str, object]:
+        """Preserve the complete signed contract instead of positional slices."""
+        payload = dict(value or {}) if isinstance(value, dict) else {}
+        compact = {
+            key: _bounded_compact_value(payload[key], max_depth=2)
+            for key in _PROPERTY_SEARCH_FACT_EVIDENCE_KEYS
+            if key in payload
+        }
+        tags = payload.get("poi_classification_tags")
+        if isinstance(tags, dict):
+            compact["poi_classification_tags"] = {
+                str(key)[:160]: _bounded_compact_value(item, max_depth=1)
+                for key, item in tags.items()
+            }
+        return compact
+
+    def _compact_fact_evidence_map(value: object) -> dict[str, object]:
+        payload = dict(value or {}) if isinstance(value, dict) else {}
+        return {
+            str(key)[:160]: _compact_fact_evidence_row(item)
+            for key, item in payload.items()
+            if isinstance(item, dict)
+        }
+
+    def _compact_fact_job_fields(value: object) -> list[object]:
+        rows: list[object] = []
+        for item in list(value or [])[:_PROPERTY_SEARCH_RUN_COMPACT_NESTED_LIST_LIMIT]:
+            if not isinstance(item, dict):
+                rows.append(_bounded_compact_value(item, max_depth=4))
+                continue
+            compact_item = dict(
+                _bounded_compact_value(item, max_depth=4) or {}
+            )
+            provenance = item.get("provenance")
+            if isinstance(provenance, dict):
+                compact_item["provenance"] = _compact_fact_evidence_row(
+                    provenance
+                )
+            rows.append(compact_item)
+        return rows
 
     def _compact_provider_repair_task_row(value: object) -> dict[str, object]:
         payload = dict(value or {}) if isinstance(value, dict) else {}
@@ -975,11 +1075,40 @@ def _compact_property_search_run_record(record: dict[str, object]) -> dict[str, 
             if not isinstance(raw_facts, dict):
                 compact_candidate.pop(facts_key, None)
                 continue
+            fact_priority_keys = (
+                "map_lat",
+                "map_lng",
+                "map_location_precision",
+                "map_location_source",
+                "map_coordinate_evidence",
+                "property_fact_evidence",
+                *_PROPERTY_SEARCH_DISTANCE_FACT_KEYS,
+            )
+            ordered_fact_items = [
+                (key, raw_facts[key])
+                for key in fact_priority_keys
+                if key in raw_facts
+            ]
+            remaining_fact_items = [
+                (key, item)
+                for key, item in raw_facts.items()
+                if key not in fact_priority_keys
+            ]
+            remaining_capacity = max(
+                0,
+                _PROPERTY_SEARCH_RUN_COMPACT_NESTED_LIST_LIMIT
+                - len(ordered_fact_items),
+            )
+            ordered_fact_items.extend(
+                remaining_fact_items[:remaining_capacity]
+            )
             compact_facts = {
-                str(key)[:160]: _bounded_compact_value(item)
-                for key, item in list(raw_facts.items())[
-                    :_PROPERTY_SEARCH_RUN_COMPACT_NESTED_LIST_LIMIT
-                ]
+                str(key)[:160]: (
+                    _compact_fact_evidence_map(item)
+                    if key == "property_fact_evidence"
+                    else _bounded_compact_value(item)
+                )
+                for key, item in ordered_fact_items
                 if "diagnostic" not in str(key).strip().lower()
                 and item not in (None, "", [], {})
             }
@@ -996,7 +1125,14 @@ def _compact_property_search_run_record(record: dict[str, object]) -> dict[str, 
     def _compact_fact_job_row(value: object) -> dict[str, object]:
         payload = dict(value or {}) if isinstance(value, dict) else {}
         return {
-            key: _bounded_compact_value(payload[key])
+            key: (
+                _compact_fact_job_fields(payload[key])
+                if key == "fields"
+                else _bounded_compact_value(
+                    payload[key],
+                    max_depth=4 if key == "provider_receipts" else 3,
+                )
+            )
             for key in _PROPERTY_SEARCH_RUN_COMPACT_FACT_JOB_KEYS
             if payload.get(key) not in (None, "", [], {})
         }

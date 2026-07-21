@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import importlib
 import inspect
+import hashlib
+import math
 import os
 import re
 import subprocess
@@ -31,12 +33,130 @@ from app.api.routes.landing_property_workspace_payload import _property_distance
 from app.product.service import ProductService
 from app.product.service import _property_alert_personal_fit_snapshot, _property_candidate_google_maps_url, _property_candidate_is_generic_listing_page, _property_candidate_matches_requested_location, _property_candidate_url_has_exact_location_probe, _property_candidate_url_has_location_probe, _property_search_location_hints
 from app.product.service import _property_investment_underwriting_payload
+from app.product.property_fact_enrichment import (
+    PROPERTY_FACT_PROVIDER_ATTESTATION_VERSION,
+    property_fact_distance_importance_key,
+    property_fact_distance_preference_keys,
+    property_fact_coordinate_digest,
+    property_fact_issue_provider_attestation,
+    property_fact_source_fingerprint,
+)
+from app.product.property_location_research import (
+    PROPERTY_FACT_OSM_QUERY_ENDPOINT,
+    PROPERTY_FACT_OSM_QUERY_SCHEMA,
+    property_fact_osm_nearby_query,
+)
 from app.services.fliplink import build_fliplink_packet_service
 from app.services.onboarding import OnboardingService, flatten_property_search_preferences_snapshot
 from app.services.property_billing import property_billing_event_updates, property_billing_invoice_handoffs, property_commercial_snapshot, property_worker_cap
 from app.services import property_market_catalog
 from app.services.heyy_whatsapp_service import redact_phone_number
 from tests.product_test_helpers import build_product_client, build_property_client, seed_product_state, start_workspace
+
+
+_TEST_DISTANCE_CLASSIFICATION_TAGS = {
+    "nearest_library_m": {"amenity": "library"},
+    "nearest_playground_m": {"leisure": "playground"},
+    "nearest_shopping_center_m": {"shop": "mall"},
+    "nearest_theatre_m": {"amenity": "theatre"},
+    "nearest_supermarket_m": {"shop": "supermarket"},
+}
+
+_CANONICAL_CATALOG_DISTANCE_RADIUS_KEYS = (
+    property_fact_distance_preference_keys(
+        search_supported_only=True,
+        canonical_only=True,
+    )
+)
+_CANONICAL_DISTANCE_IMPORTANCE_STATES = (
+    "must_have",
+    "strong_wish",
+    "nice_to_have",
+    "avoid",
+)
+
+
+def _attested_search_distance_facts(
+    *,
+    property_url: str,
+    distances: dict[str, int],
+    latitude: float = 48.2082,
+    longitude: float = 16.3738,
+) -> dict[str, object]:
+    observed_at = datetime.now(timezone.utc)
+    expires_at = observed_at + timedelta(hours=24)
+    coordinate_expires_at = observed_at + timedelta(hours=6)
+    query = property_fact_osm_nearby_query(latitude, longitude)
+    source_fingerprint = property_fact_source_fingerprint(property_url)
+    coordinate_digest = property_fact_coordinate_digest(latitude, longitude)
+    evidence: dict[str, dict[str, object]] = {}
+    for key, distance_m in distances.items():
+        object_id = str(20_000_000 + sum(ord(value) for value in key))
+        row: dict[str, object] = {
+            "provider": "openstreetmap_overpass",
+            "method": "straight_line_osm",
+            "observed_at": observed_at.isoformat(),
+            "expires_at": expires_at.isoformat(),
+            "freshness": "fresh",
+            "confidence": 0.95,
+            "source_key": key,
+            "observed_key": key,
+            "listing_url": urllib.parse.urldefrag(property_url)[0],
+            "source_fingerprint": source_fingerprint,
+            "coordinate_basis": "candidate_listing_coordinates",
+            "coordinate_observed_at": observed_at.isoformat(),
+            "coordinate_precision": "address",
+            "coordinate_source": "listing_structured_coordinates",
+            "coordinate_exact": True,
+            "listing_latitude": latitude,
+            "listing_longitude": longitude,
+            "coordinate_digest": coordinate_digest,
+            "query_endpoint_url": PROPERTY_FACT_OSM_QUERY_ENDPOINT,
+            "query_digest": "sha256:"
+            + hashlib.sha256(query.encode("utf-8")).hexdigest(),
+            "query_schema": PROPERTY_FACT_OSM_QUERY_SCHEMA,
+            "receipt_url": (
+                f"https://api.openstreetmap.org/api/0.6/node/{object_id}/1"
+            ),
+            "provider_object_id": object_id,
+            "provider_object_type": "node",
+            "provider_object_version": 1,
+            "provider_object_timestamp": observed_at.isoformat(),
+            "provider_object_changeset": "123456",
+            "provider_observed_at": observed_at.isoformat(),
+            "provider_expires_at": expires_at.isoformat(),
+            "poi_latitude": latitude
+            + math.degrees(float(distance_m) / 6_371_000.0),
+            "poi_longitude": longitude,
+            "poi_classification_tags": dict(
+                _TEST_DISTANCE_CLASSIFICATION_TAGS[key]
+            ),
+            "attestation_version": PROPERTY_FACT_PROVIDER_ATTESTATION_VERSION,
+        }
+        row["provider_attestation"] = property_fact_issue_provider_attestation(
+            row,
+            observed_value=distance_m,
+        )
+        evidence[key] = row
+    return {
+        "map_lat": latitude,
+        "map_lng": longitude,
+        "map_location_precision": "address",
+        "map_location_source": "listing_structured_coordinates",
+        "map_coordinate_evidence": {
+            "exact": True,
+            "trusted": True,
+            "provider": "listing_structured_coordinates",
+            "source_fingerprint": source_fingerprint,
+            "latitude": latitude,
+            "longitude": longitude,
+            "coordinate_digest": coordinate_digest,
+            "observed_at": observed_at.isoformat(),
+            "expires_at": coordinate_expires_at.isoformat(),
+        },
+        **distances,
+        "property_fact_evidence": evidence,
+    }
 
 
 def test_property_search_preferences_normalization_is_idempotent_and_preserves_raw_only_values() -> None:
@@ -1469,6 +1589,10 @@ def test_property_search_preferences_normalizer_keeps_what_matters_school_and_pa
             "max_distance_to_ganztags_volksschule_importance": "important",
             "max_distance_to_market_m": 1000,
             "max_distance_to_market_importance": "nice_to_have",
+            "max_distance_to_supermarket_m": 500,
+            "max_distance_to_supermarket_importance": "strong_wish",
+            "max_distance_to_playground_m": 450,
+            "max_distance_to_playground_importance": "avoid",
             "parking_pressure_preference": "low",
             "require_parking_pressure_check": True,
         }
@@ -1479,9 +1603,13 @@ def test_property_search_preferences_normalizer_keeps_what_matters_school_and_pa
     assert normalized["max_distance_to_kindergarten_m"] == 400
     assert normalized["max_distance_to_kindergarten_importance"] == "must_have"
     assert normalized["max_distance_to_ganztags_volksschule_m"] == 650
-    assert normalized["max_distance_to_ganztags_volksschule_importance"] == "important"
+    assert normalized["max_distance_to_ganztags_volksschule_importance"] == "strong_wish"
     assert normalized["max_distance_to_market_m"] == 1000
     assert normalized["max_distance_to_market_importance"] == "nice_to_have"
+    assert normalized["max_distance_to_supermarket_m"] == 500
+    assert normalized["max_distance_to_supermarket_importance"] == "strong_wish"
+    assert normalized["max_distance_to_playground_m"] == 450
+    assert normalized["max_distance_to_playground_importance"] == "avoid"
     assert normalized["parking_pressure_preference"] == "low"
     assert normalized["require_parking_pressure_check"] is True
 
@@ -2540,6 +2668,48 @@ def test_property_public_preview_cache_reuses_sanitized_public_facts() -> None:
                 "has_floorplan": True,
                 "exact_address": "Hidden 1",
                 "lat": 48.2,
+                "map_lat": 48.2082,
+                "map_lng": 16.3738,
+                "map_coordinate_evidence": {
+                    "latitude": 48.2082,
+                    "longitude": 16.3738,
+                    "coordinate_digest": "sha256:private",
+                },
+                "nearest_supermarket_m": 220,
+                "nearest_supermarket_name": "Private nearby shop",
+                "property_fact_evidence": {
+                    "nearest_supermarket_m": {
+                        "listing_latitude": 48.2082,
+                        "listing_longitude": 16.3738,
+                        "provider_attestation": "hmac-sha256:private",
+                    }
+                },
+                "listing_research_snapshot": {
+                    "map_lat": 48.2082,
+                    "map_lng": 16.3738,
+                    "nearest_supermarket_m": 220,
+                    "property_fact_evidence": {
+                        "nearest_supermarket_m": {
+                            "listing_latitude": 48.2082,
+                            "listing_longitude": 16.3738,
+                            "provider_attestation": "hmac-sha256:nested-private",
+                        }
+                    },
+                },
+                "address_lines": ["Hidden Street 1", "1200 Wien"],
+                "serialized_fragment": (
+                    '{"map_lat":48.2082,"map_lng":16.3738,'
+                    '"provider_attestation":"hmac-sha256:serialized-private"}'
+                ),
+                "official_risk_evidence": {
+                    "source": {"lat": 48.2082, "lon": 16.3738}
+                },
+                "public_nested_summary": {
+                    "rooms": 3,
+                    "map_lat": 48.2082,
+                    "listing_longitude": 16.3738,
+                    "cookie_debug": "nested-nope",
+                },
                 "cookie_debug": "nope",
             },
             "floorplan_urls_json": ["https://cdn.example.test/floorplan.png"],
@@ -2549,7 +2719,34 @@ def test_property_public_preview_cache_reuses_sanitized_public_facts() -> None:
     assert stored["property_facts_json"]["provider_channel"] == "findmyhome_at"
     assert "exact_address" not in stored["property_facts_json"]
     assert "lat" not in stored["property_facts_json"]
+    assert "map_lat" not in stored["property_facts_json"]
+    assert "map_lng" not in stored["property_facts_json"]
+    assert "map_coordinate_evidence" not in stored["property_facts_json"]
+    assert "nearest_supermarket_m" not in stored["property_facts_json"]
+    assert "nearest_supermarket_name" not in stored["property_facts_json"]
+    assert "property_fact_evidence" not in stored["property_facts_json"]
+    assert "listing_research_snapshot" not in stored["property_facts_json"]
+    assert "public_nested_summary" not in stored["property_facts_json"]
+    assert "address_lines" not in stored["property_facts_json"]
+    assert "serialized_fragment" not in stored["property_facts_json"]
+    assert "official_risk_evidence" not in stored["property_facts_json"]
     assert "cookie_debug" not in stored["property_facts_json"]
+    serialized_public_cache = json.dumps(
+        stored["property_facts_json"],
+        sort_keys=True,
+    )
+    for forbidden_fragment in (
+        "map_lat",
+        "map_lng",
+        "nearest_supermarket_m",
+        "listing_latitude",
+        "listing_longitude",
+        "provider_attestation",
+        "hmac-sha256:",
+        "Hidden Street 1",
+        "listing_longitude",
+    ):
+        assert forbidden_fragment not in serialized_public_cache
 
     indexed = service._property_public_preview_cache_index()
     loaded = service._property_public_preview_cache_lookup(
@@ -2560,6 +2757,116 @@ def test_property_public_preview_cache_reuses_sanitized_public_facts() -> None:
     assert loaded is not None
     assert loaded["title"] == "Quiet courtyard flat"
     assert loaded["property_facts_json"]["has_floorplan"] is True
+
+
+def test_property_public_preview_refresh_policy_keeps_nice_distance_facts_lazy() -> None:
+    nice_preferences = {
+        "max_distance_to_supermarket_m": 300,
+        "max_distance_to_supermarket_importance": "nice_to_have",
+    }
+    assert (
+        product_service._property_search_requires_fresh_distance_facts(
+            nice_preferences
+        )
+        is False
+    )
+
+    for importance in ("strong_wish", "must_have", "avoid"):
+        assert product_service._property_search_requires_fresh_distance_facts(
+            {
+                "max_distance_to_supermarket_m": 300,
+                "max_distance_to_supermarket_importance": importance,
+            }
+        ) is True
+
+
+def test_property_public_preview_cache_preserves_flat_hard_gate_aliases() -> None:
+    property_url = "https://example.test/listing/cache-parity"
+    original_facts = {
+        "provider_channel": "findmyhome_at",
+        "postal_name": "1020 Wien",
+        "object_type": "apartment",
+        "living_area_sqm": 81.5,
+        "available_from_iso": "2026-08-15",
+        "transaction_type": "rent",
+        "warm_rent_eur": 1650,
+        "has_floorplan": "yes",
+        "balcony_available": 1,
+        "has_garden": "false",
+        "source_platform": "willhaben",
+        "source_family": "marketplace",
+        "city": "Secretstraße 9, 1010 Wien",
+        "district_name": "Coordinates 48.2, 16.3",
+        "property_subtype": '{"latitude":48.2,"longitude":16.3}',
+    }
+    cached_facts = dict(
+        product_service._property_public_preview_cache_payload(
+            {
+                "property_url": property_url,
+                "property_facts_json": original_facts,
+            }
+        ).get("property_facts_json")
+        or {}
+    )
+
+    assert cached_facts == {
+        "provider_channel": "findmyhome_at",
+        "postal_name": "1020 Wien",
+        "object_type": "apartment",
+        "living_area_sqm": 81.5,
+        "available_from_iso": "2026-08-15",
+        "transaction_type": "rent",
+        "warm_rent_eur": 1650,
+        "has_floorplan": True,
+        "balcony_available": True,
+        "has_garden": False,
+        "source_platform": "willhaben",
+        "source_family": "marketplace",
+    }
+    for facts in (original_facts, cached_facts):
+        assert product_service._property_candidate_matches_requested_property_type(
+            property_type="apartment",
+            property_url=property_url,
+            property_facts=facts,
+        ) is True
+        assert product_service._property_candidate_min_area_status(
+            min_area_m2=80,
+            property_url=property_url,
+            property_facts=facts,
+        ) == "pass"
+        assert product_service._property_candidate_matches_availability_horizon(
+            available_within_years=1,
+            property_facts=facts,
+        ) is True
+        assert product_service._property_candidate_listing_mode_mismatch(
+            listing_mode="rent",
+            property_url=property_url,
+            property_facts=facts,
+        ) is False
+        assert product_service._property_candidate_listing_mode_mismatch(
+            listing_mode="buy",
+            property_url=property_url,
+            property_facts=facts,
+        ) is True
+
+    poisoned_facts = dict(
+        product_service._property_public_preview_cache_payload(
+            {
+                "property_url": property_url,
+                "property_facts_json": {
+                    "provider_channel": "findmyhome_at oauth_token=VERYSECRET",
+                    "source_platform": "willhaben session=private",
+                    "postal_name": "Secretstraße 9, 1010 Wien",
+                    "condition": "48.2082, 16.3738",
+                    "rooms_label": "lat=48.2082; lon=16.3738",
+                    "area_sqm": float("nan"),
+                    "price_eur": float("inf"),
+                },
+            }
+        ).get("property_facts_json")
+        or {}
+    )
+    assert poisoned_facts == {}
 
 
 def test_property_cached_floorplan_augments_current_derstandard_preview_without_replacing_fresher_data() -> None:
@@ -4398,26 +4705,22 @@ def test_property_distance_gate_treats_non_hard_preferences_as_score_only() -> N
 
 
 def test_property_distance_preference_score_adjustment_rewards_and_penalizes_soft_matches() -> None:
-    observed_at = datetime.now(timezone.utc)
+    property_url = (
+        "https://www.willhaben.at/iad/immobilien/d/score-home-1234567890/"
+    )
 
     def _with_exact_distance_evidence(
         facts: dict[str, object],
     ) -> dict[str, object]:
-        return {
-            **facts,
-            "property_fact_evidence": {
-                key: {
-                    "provider": "openstreetmap_overpass",
-                    "observed_at": observed_at.isoformat(),
-                    "expires_at": (observed_at + timedelta(hours=24)).isoformat(),
-                    "source_fingerprint": "sha256:" + "d" * 64,
-                    "source_key": key,
-                    "coordinate_exact": True,
-                }
-                for key in facts
-                if str(key).startswith("nearest_") and str(key).endswith("_m")
+        return _attested_search_distance_facts(
+            property_url=property_url,
+            distances={
+                str(key): int(value)
+                for key, value in facts.items()
+                if str(key).startswith("nearest_")
+                and str(key).endswith("_m")
             },
-        }
+        )
 
     positive_adjustment, positive_notes = product_service._property_distance_preference_score_adjustment(
         preferences={
@@ -4432,6 +4735,7 @@ def test_property_distance_preference_score_adjustment_rewards_and_penalizes_sof
                 "nearest_playground_m": 620,
             }
         ),
+        property_url=property_url,
     )
 
     assert positive_adjustment > 0
@@ -4450,6 +4754,7 @@ def test_property_distance_preference_score_adjustment_rewards_and_penalizes_sof
                 "nearest_library_m": 1800,
             }
         ),
+        property_url=property_url,
     )
 
     assert negative_adjustment < 0
@@ -4482,6 +4787,7 @@ def test_property_distance_preference_score_adjustment_rewards_and_penalizes_sof
                 "nearest_theatre_m": 360,
             }
         ),
+        property_url=property_url,
     )
 
     assert avoid_adjustment < 0
@@ -4490,41 +4796,52 @@ def test_property_distance_preference_score_adjustment_rewards_and_penalizes_sof
 
 
 def test_property_distance_preference_score_adjustment_tapers_to_zero_then_ramps_malus() -> None:
+    property_url = (
+        "https://www.willhaben.at/iad/immobilien/d/taper-home-1234567890/"
+    )
     boost_adjustment, boost_notes = product_service._property_distance_preference_score_adjustment(
         preferences={
             "max_distance_to_playground_m": 500,
             "max_distance_to_playground_importance": "nice_to_have",
         },
-        property_facts={
-            "nearest_playground_m": 180,
-        },
+        property_facts=_attested_search_distance_facts(
+            property_url=property_url,
+            distances={"nearest_playground_m": 180},
+        ),
+        property_url=property_url,
     )
     neutral_edge_adjustment, neutral_edge_notes = product_service._property_distance_preference_score_adjustment(
         preferences={
             "max_distance_to_playground_m": 500,
             "max_distance_to_playground_importance": "nice_to_have",
         },
-        property_facts={
-            "nearest_playground_m": 500,
-        },
+        property_facts=_attested_search_distance_facts(
+            property_url=property_url,
+            distances={"nearest_playground_m": 500},
+        ),
+        property_url=property_url,
     )
     soft_malus_adjustment, soft_malus_notes = product_service._property_distance_preference_score_adjustment(
         preferences={
             "max_distance_to_playground_m": 500,
             "max_distance_to_playground_importance": "nice_to_have",
         },
-        property_facts={
-            "nearest_playground_m": 720,
-        },
+        property_facts=_attested_search_distance_facts(
+            property_url=property_url,
+            distances={"nearest_playground_m": 720},
+        ),
+        property_url=property_url,
     )
     full_malus_adjustment, full_malus_notes = product_service._property_distance_preference_score_adjustment(
         preferences={
             "max_distance_to_playground_m": 500,
             "max_distance_to_playground_importance": "nice_to_have",
         },
-        property_facts={
-            "nearest_playground_m": 1200,
-        },
+        property_facts=_attested_search_distance_facts(
+            property_url=property_url,
+            distances={"nearest_playground_m": 1200},
+        ),
+        property_url=property_url,
     )
 
     assert boost_adjustment > 0
@@ -4718,7 +5035,7 @@ def test_property_filter_feedback_patch_disables_filter_and_reruns_search(monkey
     updated = client.app.state.container.onboarding.status(principal_id=principal_id)["property_search_preferences"]
     raw = updated["raw_preferences"]
     assert raw["max_distance_to_supermarket_m"] is None
-    assert raw["max_distance_to_supermarket_importance"] == "nice_to_have"
+    assert "max_distance_to_supermarket_importance" not in raw
 
 
 def test_property_filter_feedback_patch_ignores_unsupported_keys() -> None:
@@ -8690,6 +9007,18 @@ def test_property_search_keeps_soft_mismatch_candidates_visible_without_score_ga
         }
 
     monkeypatch.setattr(product_service, "_property_scout_page_preview_with_timeout", _fake_preview)
+    scored_fact_inputs: list[dict[str, object]] = []
+    original_score_candidate = product_service._property_search_score_candidate
+
+    def _capture_score_candidate(**kwargs: object) -> dict[str, object]:
+        scored_fact_inputs.append(dict(kwargs.get("property_facts") or {}))
+        return original_score_candidate(**kwargs)
+
+    monkeypatch.setattr(
+        product_service,
+        "_property_search_score_candidate",
+        _capture_score_candidate,
+    )
 
     def _fake_fit(**kwargs) -> dict[str, object]:
         listing_id = str(kwargs.get("listing_id") or kwargs.get("object_id") or "")
@@ -9182,8 +9511,8 @@ def test_property_search_soft_filters_do_not_change_discovered_hit_set(monkeypat
 
     source_url = "https://www.willhaben.at/iad/immobilien/mietwohnungen/wien/wien-1020-leopoldstadt"
     listing_urls = [
-        "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1020-leopoldstadt/soft-filter-a/",
-        "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1020-leopoldstadt/soft-filter-b/",
+        "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1020-leopoldstadt/soft-filter-a-1234567890/",
+        "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/wien-1020-leopoldstadt/soft-filter-b-1234567891/",
     ]
     facts_by_url = {
         listing_urls[0]: {
@@ -9191,6 +9520,7 @@ def test_property_search_soft_filters_do_not_change_discovered_hit_set(monkeypat
             "area_sqm": 78,
             "rooms": 3,
             "total_rent_eur": 1650,
+            "has_floorplan": True,
             "nearest_library_m": 1800,
             "nearest_playground_m": 1200,
             "nearest_shopping_center_m": 160,
@@ -9202,6 +9532,7 @@ def test_property_search_soft_filters_do_not_change_discovered_hit_set(monkeypat
             "area_sqm": 82,
             "rooms": 3,
             "total_rent_eur": 1720,
+            "has_floorplan": True,
             "nearest_library_m": 220,
             "nearest_playground_m": 420,
             "nearest_shopping_center_m": 900,
@@ -9237,24 +9568,30 @@ def test_property_search_soft_filters_do_not_change_discovered_hit_set(monkeypat
         },
     )
 
+    preview_calls: list[str] = []
+
     def _fake_preview(property_url: str, *, prefer_fast: bool = False) -> dict[str, object]:
-        facts = dict(facts_by_url[property_url])
-        observed_at = datetime.now(timezone.utc)
-        source_fingerprint = product_service._property_fact_source_fingerprint(
-            property_url
+        preview_calls.append(property_url)
+        raw_facts = dict(facts_by_url[property_url])
+        facts = _attested_search_distance_facts(
+            property_url=property_url,
+            distances={
+                str(key): int(value)
+                for key, value in raw_facts.items()
+                if str(key).startswith("nearest_")
+                and str(key).endswith("_m")
+            },
         )
-        facts["property_fact_evidence"] = {
-            key: {
-                "provider": "openstreetmap_overpass",
-                "observed_at": observed_at.isoformat(),
-                "expires_at": (observed_at + timedelta(hours=24)).isoformat(),
-                "source_key": key,
-                "source_fingerprint": source_fingerprint,
-                "coordinate_exact": True,
+        facts.update(
+            {
+                key: value
+                for key, value in raw_facts.items()
+                if not (
+                    str(key).startswith("nearest_")
+                    and str(key).endswith("_m")
+                )
             }
-            for key in facts
-            if str(key).startswith("nearest_") and str(key).endswith("_m")
-        }
+        )
         return {
             "listing_id": property_url.rsplit("/", 2)[-2],
             "title": f"Mietwohnung in 1020 Wien {property_url.rsplit('/', 2)[-2]}",
@@ -9267,7 +9604,7 @@ def test_property_search_soft_filters_do_not_change_discovered_hit_set(monkeypat
     def _fake_fit(**kwargs) -> dict[str, object]:
         property_url = str(kwargs.get("property_url") or "")
         return {
-            "fit_score": 54.0 if property_url.endswith("soft-filter-a/") else 58.0,
+            "fit_score": 54.0 if "soft-filter-a-" in property_url else 58.0,
             "recommendation": "review",
             "match_reasons_json": ["Hard search basics match"],
             "mismatch_reasons_json": ["Some soft preferences differ"],
@@ -9311,6 +9648,15 @@ def test_property_search_soft_filters_do_not_change_discovered_hit_set(monkeypat
         "avoid_flood_risk_area": True,
     }
 
+    def _urls(result: dict[str, object]) -> set[str]:
+        rows = list(
+            dict(list(result.get("sources") or [])[0]).get(
+                "research_candidates"
+            )
+            or []
+        )
+        return {str(row.get("property_url") or "") for row in rows}
+
     plain_result = service.sync_direct_property_scout(
         principal_id=principal_id,
         actor="test",
@@ -9319,24 +9665,63 @@ def test_property_search_soft_filters_do_not_change_discovered_hit_set(monkeypat
         max_results_per_source=5,
         force_refresh=True,
     )
+    cached_after_plain = service._property_public_preview_cache_index()
+    assert set(cached_after_plain) == set(listing_urls)
+    for cached_preview in cached_after_plain.values():
+        cached_facts = dict(cached_preview.get("property_facts_json") or {})
+        assert "map_lat" not in cached_facts
+        assert "map_lng" not in cached_facts
+        assert "map_coordinate_evidence" not in cached_facts
+        assert "property_fact_evidence" not in cached_facts
+        assert not any(
+            str(key).startswith(("nearest_", "distance_", "map_"))
+            for key in cached_facts
+        )
+    first_run_preview_calls = len(preview_calls)
+    plain_cached_result = service.sync_direct_property_scout(
+        principal_id=principal_id,
+        actor="test",
+        selected_platforms=("willhaben",),
+        property_search_preferences=hard_preferences,
+        max_results_per_source=5,
+        force_refresh=False,
+    )
+    assert len(preview_calls) == first_run_preview_calls
+    assert _urls(plain_cached_result) == set(listing_urls)
+    for cached_row in list(
+        dict(list(plain_cached_result.get("sources") or [])[0]).get(
+            "research_candidates"
+        )
+        or []
+    ):
+        cached_candidate_facts = dict(
+            dict(cached_row).get("property_facts") or {}
+        )
+        assert str(cached_candidate_facts.get("postal_name") or "").startswith(
+            "1020 Wien"
+        )
+        assert cached_candidate_facts.get("rooms") == 3
+        assert float(cached_candidate_facts.get("area_sqm") or 0) > 0
+        assert float(cached_candidate_facts.get("total_rent_eur") or 0) > 0
+        assert cached_candidate_facts.get("has_floorplan") is True
     soft_result = service.sync_direct_property_scout(
         principal_id=principal_id,
         actor="test",
         selected_platforms=("willhaben",),
         property_search_preferences=soft_preferences,
         max_results_per_source=5,
-        force_refresh=True,
+        force_refresh=False,
     )
-
-    def _urls(result: dict[str, object]) -> set[str]:
-        rows = list(dict(list(result.get("sources") or [])[0]).get("research_candidates") or [])
-        return {str(row.get("property_url") or "") for row in rows}
+    assert len(preview_calls) >= first_run_preview_calls + len(listing_urls)
 
     assert _urls(plain_result) == set(listing_urls)
     assert _urls(soft_result) == set(listing_urls)
     assert _urls(soft_result) == _urls(plain_result)
     soft_rows = list(dict(list(soft_result.get("sources") or [])[0]).get("research_candidates") or [])
-    assert any(dict(dict(row).get("property_facts") or {}).get("distance_preference_notes") for row in soft_rows)
+    assert any(
+        dict(dict(row).get("property_facts") or {}).get("distance_preference_notes")
+        for row in soft_rows
+    )
 
 
 def test_property_search_neutral_filter_importance_keeps_distance_candidates(monkeypatch) -> None:
@@ -15106,6 +15491,10 @@ def test_property_search_preferences_persist_what_matters_round_trip_fields() ->
             "max_distance_to_ganztags_volksschule_importance": "important",
             "max_distance_to_market_m": 1000,
             "max_distance_to_market_importance": "nice_to_have",
+            "max_distance_to_supermarket_m": 500,
+            "max_distance_to_supermarket_importance": "strong_wish",
+            "max_distance_to_playground_m": 450,
+            "max_distance_to_playground_importance": "avoid",
             "parking_pressure_preference": "low",
             "require_parking_pressure_check": True,
             "property_commercial": {
@@ -15124,9 +15513,13 @@ def test_property_search_preferences_persist_what_matters_round_trip_fields() ->
     assert preferences["max_distance_to_kindergarten_m"] == 400
     assert preferences["max_distance_to_kindergarten_importance"] == "must_have"
     assert preferences["max_distance_to_ganztags_volksschule_m"] == 650
-    assert preferences["max_distance_to_ganztags_volksschule_importance"] == "important"
+    assert preferences["max_distance_to_ganztags_volksschule_importance"] == "strong_wish"
     assert preferences["max_distance_to_market_m"] == 1000
     assert preferences["max_distance_to_market_importance"] == "nice_to_have"
+    assert preferences["max_distance_to_supermarket_m"] == 500
+    assert preferences["max_distance_to_supermarket_importance"] == "strong_wish"
+    assert preferences["max_distance_to_playground_m"] == 450
+    assert preferences["max_distance_to_playground_importance"] == "avoid"
     assert preferences["parking_pressure_preference"] == "low"
     assert preferences["require_parking_pressure_check"] is True
 
@@ -15139,11 +15532,226 @@ def test_property_search_preferences_persist_what_matters_round_trip_fields() ->
     assert persisted["max_distance_to_kindergarten_m"] == 400
     assert persisted["max_distance_to_kindergarten_importance"] == "must_have"
     assert persisted["max_distance_to_ganztags_volksschule_m"] == 650
-    assert persisted["max_distance_to_ganztags_volksschule_importance"] == "important"
+    assert persisted["max_distance_to_ganztags_volksschule_importance"] == "strong_wish"
     assert persisted["max_distance_to_market_m"] == 1000
     assert persisted["max_distance_to_market_importance"] == "nice_to_have"
+    assert persisted["max_distance_to_supermarket_m"] == 500
+    assert persisted["max_distance_to_supermarket_importance"] == "strong_wish"
+    assert persisted["max_distance_to_playground_m"] == 450
+    assert persisted["max_distance_to_playground_importance"] == "avoid"
     assert persisted["parking_pressure_preference"] == "low"
     assert persisted["require_parking_pressure_check"] is True
+
+
+@pytest.fixture(scope="module")
+def catalog_distance_preferences_client():
+    principal_id = "exec-property-search-catalog-distance-round-trip"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(
+        client,
+        mode="personal",
+        workspace_name="Property Search Catalog Distance Contract",
+    )
+    return client
+
+
+@pytest.mark.parametrize(
+    "distance_key",
+    _CANONICAL_CATALOG_DISTANCE_RADIUS_KEYS,
+    ids=lambda value: str(value).removeprefix("max_distance_to_").removesuffix("_m"),
+)
+@pytest.mark.parametrize(
+    "importance",
+    _CANONICAL_DISTANCE_IMPORTANCE_STATES,
+)
+def test_property_search_preferences_api_round_trips_every_catalog_distance_and_importance_state(
+    catalog_distance_preferences_client,
+    distance_key: str,
+    importance: str,
+) -> None:
+    importance_key = property_fact_distance_importance_key(distance_key)
+    stored = catalog_distance_preferences_client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "search_goal": "home",
+            "listing_mode": "rent",
+            "property_type": ["apartment"],
+            "location_query": "Vienna",
+            distance_key: 650,
+            importance_key: importance,
+        },
+    )
+
+    assert stored.status_code == 200, stored.text
+    stored_preferences = stored.json()["property_search_preferences"]
+    assert stored_preferences[distance_key] == 650
+    assert stored_preferences[importance_key] == importance
+
+    reloaded = catalog_distance_preferences_client.get(
+        "/v1/onboarding/property-search/preferences"
+    )
+    assert reloaded.status_code == 200, reloaded.text
+    reloaded_preferences = reloaded.json()["property_search_preferences"]
+    assert reloaded_preferences[distance_key] == 650
+    assert reloaded_preferences[importance_key] == importance
+
+
+def test_property_search_preferences_api_canonicalizes_legacy_distance_importance_alias() -> None:
+    principal_id = "exec-property-search-distance-important-alias"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Distance importance alias")
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "max_distance_to_supermarket_m": 500,
+            "max_distance_to_supermarket_importance": "important",
+        },
+    )
+
+    assert stored.status_code == 200, stored.text
+    assert (
+        stored.json()["property_search_preferences"]
+        ["max_distance_to_supermarket_importance"]
+        == "strong_wish"
+    )
+    persisted = client.get("/v1/onboarding/property-search/preferences")
+    assert persisted.status_code == 200, persisted.text
+    assert (
+        persisted.json()["property_search_preferences"]
+        ["max_distance_to_supermarket_importance"]
+        == "strong_wish"
+    )
+
+
+@pytest.mark.parametrize(
+    "invalid_patch",
+    (
+        {"max_distance_to_unicorn_m": 500},
+        {"max_distance_to_supermarket_importance": "critical"},
+        {"max_distance_to_supermarket_m": 7001},
+        {"max_distance_to_supermarket_m ": 500},
+        {"max_distance_to_supermarket_importance ": "strong_wish"},
+        {"MAX_DISTANCE_TO_SUPERMARKET_M": 500},
+        {"MAX_DISTANCE_TO_UNKNOWN_M": 500},
+        {"raw_preferences": {"max_distance_to_supermarket_m ": 500}},
+        {"raw_preferences": {"max_distance_to_supermarket_m": 7001}},
+    ),
+    ids=(
+        "unknown-field",
+        "unknown-importance",
+        "radius-out-of-range",
+        "radius-trailing-space",
+        "importance-trailing-space",
+        "uppercase-known",
+        "uppercase-unknown",
+        "nested-trailing-space",
+        "nested-radius-out-of-range",
+    ),
+)
+def test_property_search_preferences_api_rejects_invalid_distance_contract_fields(
+    invalid_patch: dict[str, object],
+) -> None:
+    principal_id = "exec-property-search-invalid-distance-contract"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Invalid distance contract")
+
+    response = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={"country_code": "AT", **invalid_patch},
+    )
+
+    assert response.status_code == 422, response.text
+
+
+@pytest.mark.parametrize(
+    "malformed_key",
+    (
+        "max_distance_to_supermarket_m ",
+        "max_distance_to_supermarket_importance ",
+        "MAX_DISTANCE_TO_SUPERMARKET_M",
+        "MAX_DISTANCE_TO_UNKNOWN_M",
+    ),
+)
+def test_property_search_preferences_service_drops_malformed_distance_keys(
+    malformed_key: str,
+) -> None:
+    normalized = OnboardingService._normalize_property_search_preferences(
+        {
+            "country_code": "AT",
+            malformed_key: 500,
+            "raw_preferences": {malformed_key: 500},
+        }
+    )
+
+    assert malformed_key not in normalized
+    assert malformed_key not in json.dumps(normalized, sort_keys=True)
+
+
+@pytest.mark.parametrize("importance", _CANONICAL_DISTANCE_IMPORTANCE_STATES)
+def test_property_search_preferences_api_drops_orphan_distance_importance(
+    importance: str,
+) -> None:
+    principal_id = f"exec-property-search-orphan-distance-{importance}"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Orphan distance importance")
+    importance_key = "max_distance_to_pharmacy_importance"
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={
+            "country_code": "AT",
+            "max_distance_to_pharmacy_m": None,
+            importance_key: importance,
+        },
+    )
+
+    assert stored.status_code == 200, stored.text
+    assert importance_key not in json.dumps(
+        stored.json()["property_search_preferences"],
+        sort_keys=True,
+    )
+    reloaded = client.get("/v1/onboarding/property-search/preferences")
+    assert reloaded.status_code == 200, reloaded.text
+    assert importance_key not in json.dumps(
+        reloaded.json()["property_search_preferences"],
+        sort_keys=True,
+    )
+
+
+def test_property_search_preferences_active_distance_defaults_missing_importance_and_migrates_alias() -> None:
+    normalized = OnboardingService._normalize_property_search_preferences(
+        {
+            "max_distance_to_supermarket_m": 500,
+            "max_distance_to_subway_m": 333,
+            "max_distance_to_underground_importance": "important",
+            "max_distance_to_pharmacy_importance": "avoid",
+        }
+    )
+
+    assert normalized["max_distance_to_supermarket_importance"] == "nice_to_have"
+    assert normalized["max_distance_to_subway_importance"] == "strong_wish"
+    assert "max_distance_to_underground_importance" not in normalized
+    assert "max_distance_to_pharmacy_importance" not in json.dumps(
+        normalized,
+        sort_keys=True,
+    )
+
+
+def test_property_search_preferences_api_active_distance_defaults_missing_importance() -> None:
+    principal_id = "exec-property-search-default-distance-importance"
+    client = build_property_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Default distance importance")
+
+    stored = client.post(
+        "/v1/onboarding/property-search/preferences",
+        json={"max_distance_to_supermarket_m": 500},
+    )
+
+    assert stored.status_code == 200, stored.text
+    preferences = stored.json()["property_search_preferences"]
+    assert preferences["max_distance_to_supermarket_m"] == 500
+    assert preferences["max_distance_to_supermarket_importance"] == "nice_to_have"
 
 
 def test_property_search_preferences_round_trip_all_hidden_what_matters_distance_backing_fields() -> None:
@@ -15153,20 +15761,23 @@ def test_property_search_preferences_round_trip_all_hidden_what_matters_distance
 
     search_response = client.get("/app/search")
     assert search_response.status_code == 200, search_response.text
-    hidden_field_names = sorted(
-        set(
-            re.findall(
-                r'data-property-field-name="(max_distance_to_[^"]+|school_evidence_priority)"[^>]*data-property-semantic-hidden="true"',
-                search_response.text,
-            )
-        )
+    contract_match = re.search(
+        r'<script type="application/json" data-property-distance-preference-contract>(.*?)</script>',
+        search_response.text,
+        re.S,
     )
-    assert hidden_field_names, "Expected hidden What matters backing fields on the search surface"
-
-    numeric_fields = [name for name in hidden_field_names if name.endswith("_m")]
-    importance_fields = [name for name in hidden_field_names if name.endswith("_importance")]
-    assert numeric_fields, "Expected hidden What matters distance fields"
-    assert importance_fields, "Expected hidden What matters importance fields"
+    assert contract_match is not None
+    compact_contract = json.loads(contract_match.group(1))
+    numeric_fields = [str(row[0]) for row in compact_contract]
+    importance_fields = [
+        property_fact_distance_importance_key(name) for name in numeric_fields
+    ]
+    assert tuple(numeric_fields) == _CANONICAL_CATALOG_DISTANCE_RADIUS_KEYS
+    assert all(
+        len(row) == 3
+        and row[2] in _CANONICAL_DISTANCE_IMPORTANCE_STATES
+        for row in compact_contract
+    )
     assert "max_distance_to_pharmacy_m" in numeric_fields
     assert "max_distance_to_pharmacy_importance" in importance_fields
     assert "max_distance_to_subway_m" in numeric_fields
@@ -15174,7 +15785,7 @@ def test_property_search_preferences_round_trip_all_hidden_what_matters_distance
     assert "max_distance_to_university_m" in numeric_fields
     assert "max_distance_to_university_importance" in importance_fields
 
-    importance_cycle = ("important", "nice_to_have", "must_have")
+    importance_cycle = _CANONICAL_DISTANCE_IMPORTANCE_STATES
     payload = {
         "country_code": "AT",
         "region_code": "vienna",

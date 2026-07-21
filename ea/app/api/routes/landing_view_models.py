@@ -26,6 +26,10 @@ from app.product.property_location_research import (
     _property_research_boundary_record,
     _property_research_geojson_outer_rings,
 )
+from app.product.property_fact_enrichment import (
+    normalize_property_fact_distance_importance,
+    property_fact_distance_specs,
+)
 from app.product.service import (
     _property_alert_fit_summary,
     _property_visible_mismatch_reasons,
@@ -3123,6 +3127,25 @@ def _property_keyword_options() -> list[dict[str, str]]:
             {"value": "must_have", "label": "Must avoid"},
         ],
     }
+    for options in preference_options.values():
+        for option in options:
+            if (
+                str(option.get("value") or "").strip() == "important"
+                and str(option.get("label") or "").strip() == "Strong wish"
+            ):
+                option["value"] = "strong_wish"
+    canonical_distance_preference_options = [
+        {"value": "any", "label": "Neutral"},
+        {"value": "avoid", "label": "Avoid"},
+        {"value": "nice_to_have", "label": "Nice to have"},
+        {"value": "strong_wish", "label": "Strong wish"},
+        {"value": "must_have", "label": "Must have"},
+    ]
+    for keyword in daily_life_keywords:
+        if keyword in preference_options:
+            preference_options[keyword] = [
+                dict(option) for option in canonical_distance_preference_options
+            ]
     default_distance_options = [
         {"value": "100", "label": "100 m"},
         {"value": "250", "label": "250 m"},
@@ -3210,9 +3233,9 @@ def _property_school_preference_options(
     if require_school_evidence and evidence_priority == "very_important":
         selected_state = "must_have"
     elif require_school_evidence and evidence_priority == "important":
-        selected_state = "important"
+        selected_state = "strong_wish"
     elif require_school_evidence:
-        selected_state = "important"
+        selected_state = "strong_wish"
     else:
         selected_state = "nice_to_have"
     distance_fields = {
@@ -3253,11 +3276,14 @@ def _property_school_preference_options(
                 distance_state = str(parsed_distance) if stored_distance_active else "500"
             except Exception:
                 distance_state = "500"
-            stored_importance = str(preferences.get(importance_field) or "").strip().lower()
-            if state == "any" and stored_importance in {"nice_to_have", "important", "must_have"}:
+            stored_importance = _normalized_property_distance_importance(
+                preferences.get(importance_field),
+                default="",
+            )
+            if stored_distance_active and stored_importance:
                 option["state"] = stored_importance
             elif state == "any" and stored_distance_active:
-                option["state"] = "important"
+                option["state"] = "nice_to_have"
             option.update(
                 {
                     "distance_options": distance_options,
@@ -3297,6 +3323,106 @@ def _property_school_preference_options(
             "state": selected_state if "gymnasium" in selected else "any",
         },
     ]
+
+
+_PROPERTY_DISTANCE_IMPORTANCE_OPTIONS: tuple[dict[str, str], ...] = (
+    {"value": "must_have", "label": "Must have"},
+    {"value": "strong_wish", "label": "Strong wish"},
+    {"value": "nice_to_have", "label": "Nice to have"},
+    {"value": "avoid", "label": "Avoid"},
+)
+
+
+def _normalized_property_distance_importance(
+    value: object,
+    *,
+    default: str = "nice_to_have",
+) -> str:
+    return normalize_property_fact_distance_importance(value, default=default)
+
+
+def _complete_property_distance_form_controls(
+    property_form: dict[str, object],
+    *,
+    preferences: dict[str, object],
+) -> None:
+    """Canonicalize rendered controls and attach a compact full catalog contract."""
+    fields = [
+        field
+        for field in list(property_form.get("fields") or [])
+        if isinstance(field, dict)
+    ]
+    by_name = {
+        str(field.get("name") or "").strip(): field
+        for field in fields
+        if str(field.get("name") or "").strip()
+    }
+    compact_contract: list[list[object]] = []
+    for spec in property_fact_distance_specs(search_supported_only=True):
+        preference_keys = [
+            str(value or "").strip()
+            for value in list(spec.get("required_preference_keys") or [])
+            if str(value or "").strip().startswith("max_distance_to_")
+        ]
+        preference_key = preference_keys[0] if preference_keys else ""
+        if not preference_key:
+            continue
+        stored_preference_key = next(
+            (
+                key
+                for key in preference_keys
+                if preferences.get(key) not in (None, "")
+            ),
+            preference_key,
+        )
+        stored_distance = preferences.get(stored_preference_key)
+        try:
+            compact_distance: int | None = int(float(stored_distance))
+        except (TypeError, ValueError, OverflowError):
+            compact_distance = None
+        if compact_distance is not None and not 0 <= compact_distance <= 7000:
+            compact_distance = None
+        range_field = by_name.get(preference_key)
+        if range_field is not None:
+            range_field["catalog_distance_control"] = True
+            range_field["value"] = str(compact_distance or 0)
+        importance_key = (
+            f"{preference_key[:-2]}_importance"
+            if preference_key.endswith("_m")
+            else f"{preference_key}_importance"
+        )
+        importance_field = by_name.get(importance_key)
+        stored_importance = next(
+            (
+                preferences.get(
+                    f"{candidate_key[:-2]}_importance"
+                    if candidate_key.endswith("_m")
+                    else f"{candidate_key}_importance"
+                )
+                for candidate_key in preference_keys
+                if preferences.get(
+                    f"{candidate_key[:-2]}_importance"
+                    if candidate_key.endswith("_m")
+                    else f"{candidate_key}_importance"
+                )
+                not in (None, "")
+            ),
+            None,
+        )
+        normalized_importance = _normalized_property_distance_importance(
+            stored_importance,
+        )
+        if importance_field is not None:
+            importance_field["value"] = normalized_importance
+            importance_field["options"] = [
+                dict(option) for option in _PROPERTY_DISTANCE_IMPORTANCE_OPTIONS
+            ]
+            importance_field["catalog_distance_control"] = True
+        compact_contract.append(
+            [preference_key, compact_distance, normalized_importance]
+        )
+    property_form["fields"] = fields
+    property_form["distance_preference_contract"] = compact_contract
 
 
 @lru_cache(maxsize=8)
@@ -3918,6 +4044,10 @@ def app_section_payload(
                     if str(key or "").strip() and str(value or "").strip()
                 }
             )
+    raw_keyword_preference_map = {
+        key: "important" if value == "strong_wish" else value
+        for key, value in raw_keyword_preference_map.items()
+    }
     region_options = _property_region_options(str(property_preferences.get("country_code") or "AT"))
     if not selected_region_code and region_options:
         selected_region_code = str(region_options[0].get("value") or "").strip().lower()
@@ -4017,41 +4147,53 @@ def app_section_payload(
     for option in keyword_options:
         option_value = str(option.get("value") or "").strip()
         state = str(raw_keyword_preference_map.get(option_value.lower()) or "").strip().lower()
+        if option_value in nearby_keyword_distance_fields:
+            state = _normalized_property_distance_importance(
+                state,
+                default="",
+            )
         distance_state = "500"
         if option_value == "playground nearby":
-            if state not in {"avoid", "nice_to_have", "important", "must_have"}:
+            if state not in {"avoid", "nice_to_have", "strong_wish", "must_have"}:
                 playground_distance = property_preferences.get("max_distance_to_playground_m")
-                playground_importance = str(property_preferences.get("max_distance_to_playground_importance") or "").strip().lower()
+                playground_importance = _normalized_property_distance_importance(
+                    property_preferences.get("max_distance_to_playground_importance"),
+                    default="",
+                )
                 try:
                     playground_distance = int(float(playground_distance)) if playground_distance not in (None, "") else 0
                 except Exception:
                     playground_distance = 0
                 if option_value in selected_avoid_keyword_values:
                     state = "avoid"
-                elif playground_importance in {"must_have", "important", "nice_to_have"}:
+                elif playground_distance and playground_importance in {"must_have", "strong_wish", "nice_to_have", "avoid"}:
                     state = playground_importance
+                elif playground_distance:
+                    state = "nice_to_have"
                 else:
                     state = "any"
         elif option_value == "underground nearby":
-            if state not in {"avoid", "nice_to_have", "important", "must_have"}:
+            if state not in {"avoid", "nice_to_have", "strong_wish", "must_have"}:
                 subway_distance = property_preferences.get("max_distance_to_subway_m")
+                subway_importance = _normalized_property_distance_importance(
+                    property_preferences.get("max_distance_to_subway_importance")
+                    or property_preferences.get("max_distance_to_underground_importance"),
+                    default="",
+                )
                 try:
                     subway_distance = int(float(subway_distance)) if subway_distance not in (None, "") else 0
                 except Exception:
                     subway_distance = 0
                 if option_value in selected_avoid_keyword_values:
                     state = "avoid"
+                elif subway_distance and subway_importance in {"must_have", "strong_wish", "nice_to_have", "avoid"}:
+                    state = subway_importance
                 elif subway_distance:
-                    if subway_distance <= 250:
-                        state = "must_have"
-                    elif subway_distance <= 500:
-                        state = "important"
-                    else:
-                        state = "nice_to_have"
+                    state = "nice_to_have"
                 else:
                     state = "any"
         elif option_value in {"library nearby", "zoo nearby", "public pool nearby", "medical care nearby", "supermarket nearby", "market nearby", "Baumarkt nearby", "shopping center nearby", "flaniermeile nearby", "theatre nearby", "pharmacy nearby"}:
-            if state not in {"avoid", "nice_to_have", "important", "must_have"}:
+            if state not in {"avoid", "nice_to_have", "strong_wish", "must_have"}:
                 distance_field = nearby_keyword_distance_fields.get(option_value) or ""
                 importance_field = nearby_keyword_importance_fields.get(option_value) or ""
                 stored_distance = property_preferences.get(distance_field) if distance_field else None
@@ -4059,18 +4201,20 @@ def app_section_payload(
                     stored_distance = int(float(stored_distance)) if stored_distance not in (None, "") else 0
                 except Exception:
                     stored_distance = 0
-                stored_importance = str(property_preferences.get(importance_field) or "").strip().lower() if importance_field else ""
+                stored_importance = (
+                    _normalized_property_distance_importance(
+                        property_preferences.get(importance_field),
+                        default="",
+                    )
+                    if importance_field
+                    else ""
+                )
                 if option_value in selected_avoid_keyword_values:
                     state = "avoid"
-                elif stored_importance in {"must_have", "important", "nice_to_have"}:
+                elif stored_distance and stored_importance in {"must_have", "strong_wish", "nice_to_have", "avoid"}:
                     state = stored_importance
                 elif stored_distance:
-                    if stored_distance <= 250:
-                        state = "must_have"
-                    elif stored_distance <= 500:
-                        state = "important"
-                    else:
-                        state = "nice_to_have"
+                    state = "nice_to_have"
                 else:
                     state = "any"
         elif option_value == "good air quality":
@@ -4147,11 +4291,21 @@ def app_section_payload(
                 stored_distance = 0
             if stored_distance in {100, 250, 500, 1000, 2000, 5000, 7000}:
                 distance_state = str(stored_distance)
+        if state == "important":
+            state = "strong_wish"
         keyword_preference_options.append(
             {
                 **option,
                 "state": state,
                 "distance_state": distance_state,
+                "distance_field": nearby_keyword_distance_fields.get(
+                    option_value,
+                    "",
+                ),
+                "importance_field": nearby_keyword_importance_fields.get(
+                    option_value,
+                    "",
+                ),
                 "hidden": (option_value == "baugrund" and not show_land_keywords) or (option_value in dwelling_only_keywords and land_only_search),
             }
         )
@@ -6002,6 +6156,10 @@ def app_section_payload(
             ],
         },
     }
+    _complete_property_distance_form_controls(
+        property_form,
+        preferences=property_preferences,
+    )
     mapping: dict[str, dict[str, object]] = {
         "today": {
             "title": "Today",

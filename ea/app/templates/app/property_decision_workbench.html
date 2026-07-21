@@ -4584,6 +4584,7 @@
     }
     .pqx-what-matters-panel .pqx-pref-row[data-preference-state="nice_to_have"],
     .pqx-what-matters-panel .pqx-pref-row[data-preference-state="important"],
+    .pqx-what-matters-panel .pqx-pref-row[data-preference-state="strong_wish"],
     .pqx-what-matters-panel .pqx-pref-row[data-preference-state="must_have"] {
       border-color: rgba(189, 139, 47, 0.32);
       background: rgba(255, 248, 230, 0.78);
@@ -11810,6 +11811,7 @@
             </div>
           </div>
           <form class="pqx-form" data-console-form-variant="{{ console_form.get('variant') }}">
+            <script type="application/json" data-property-distance-preference-contract>{{ (console_form.get('distance_preference_contract') or [])|tojson|safe }}</script>
             {% set wizard_steps = property_meta.get('wizard_steps') or [] %}
             {% if wizard_steps %}
             <div role="group" aria-label="PropertyQuarry view mode">
@@ -12007,12 +12009,12 @@
                               <option value="any" {% if (option.get('state') or 'any') == 'any' %}selected{% endif %}>Neutral</option>
                               <option value="avoid" {% if option.get('state') == 'avoid' %}selected{% endif %}>Avoid</option>
                               <option value="nice_to_have" {% if option.get('state') == 'nice_to_have' %}selected{% endif %}>Nice to have</option>
-                              <option value="important" {% if option.get('state') == 'important' %}selected{% endif %}>Strong wish</option>
+                              <option value="strong_wish" {% if option.get('state') == 'strong_wish' %}selected{% endif %}>Strong wish</option>
                               <option value="must_have" {% if option.get('state') == 'must_have' %}selected{% endif %}>Must have</option>
                               {% endif %}
                             </select>
                             {% if option.get('distance_options') %}
-                            <select name="keyword_distance__{{ option.get('value') }}" aria-label="{{ option.get('label') }} distance" data-keyword-distance-select data-keyword-value="{{ option.get('value') }}" {% if (option.get('state') or 'any') == 'any' %}disabled{% endif %}>
+                            <select name="keyword_distance__{{ option.get('value') }}" aria-label="{{ option.get('label') }} distance" data-keyword-distance-select data-keyword-value="{{ option.get('value') }}" data-distance-field="{{ option.get('distance_field') or '' }}" {% if (option.get('state') or 'any') == 'any' %}disabled{% endif %}>
                               {% for distance in option.get('distance_options') or [] %}
                               <option value="{{ distance.get('value') }}" {% if (option.get('distance_state') or '500') == (distance.get('value') or '500') %}selected{% endif %}>{{ distance.get('label') }}</option>
                               {% endfor %}
@@ -12046,8 +12048,9 @@
                           <div class="pqx-pref-row-controls"{% if option.get('distance_options') %} data-pref-row-controls-distance="true"{% endif %}>
                             <select name="school_preference__{{ option.get('value') }}" data-school-preference-select data-school-value="{{ option.get('value') }}">
                               <option value="any" {% if (option.get('state') or 'any') == 'any' %}selected{% endif %}>Neutral</option>
+                              <option value="avoid" {% if option.get('state') == 'avoid' %}selected{% endif %}>Avoid</option>
                               <option value="nice_to_have" {% if option.get('state') == 'nice_to_have' %}selected{% endif %}>Nice to have</option>
-                              <option value="important" {% if option.get('state') == 'important' %}selected{% endif %}>Strong wish</option>
+                              <option value="strong_wish" {% if option.get('state') == 'strong_wish' %}selected{% endif %}>Strong wish</option>
                               <option value="must_have" {% if option.get('state') == 'must_have' %}selected{% endif %}>Must have</option>
                             </select>
                             {% if option.get('distance_options') %}

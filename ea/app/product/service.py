@@ -128,6 +128,7 @@ from app.product.property_location_research import (
     _property_research_boundary_record,
     _property_research_distance_m,
     _property_research_forward_geocode,
+    _property_research_address_matches_query_area,
     _property_research_geojson_outer_rings,
     _property_research_point_to_geojson_distance_m,
     _property_research_point_to_geojson_interior_ratio,
@@ -154,10 +155,13 @@ from app.product.property_fact_enrichment import (
     PROPERTY_FACT_GEO_BUNDLE_KIND,
     PROPERTY_FACT_REQUIRED_GEO_BUNDLE_KIND,
     property_fact_candidate_ref,
+    property_fact_coordinate_digest,
+    property_fact_distance_evidence_is_valid,
     property_fact_distance_specs,
     property_fact_expiry,
     property_fact_input_digest,
     property_fact_job_id,
+    property_fact_provider_attestation_is_ready,
     property_fact_requirement_plan,
     property_fact_score_projection,
     property_fact_source_fingerprint,
@@ -4781,6 +4785,14 @@ def _property_fact_request_binding(
                         row.get("evidence_source_keys_by_provider") or {}
                     ).items()
                 },
+                "poi_keys": [
+                    str(value).strip()
+                    for value in list(row.get("poi_keys") or [])
+                    if str(value).strip()
+                ],
+                "strict_evidence_provider": bool(
+                    row.get("strict_evidence_provider")
+                ),
             }
             for row in plan
         ]
@@ -4802,6 +4814,94 @@ def _property_fact_request_binding(
         "requirement_digest": requirement_digest,
         "request_digest": request_digest,
     }
+
+
+def _property_fact_execution_plan(
+    plan: Iterable[Mapping[str, object]],
+    *,
+    required_only: bool,
+) -> list[dict[str, object]]:
+    """Keep required search work and optional detail work in separate lanes."""
+    wanted_priority = "required" if required_only else "lazy"
+    return [
+        dict(row)
+        for row in plan
+        if str(row.get("priority") or "lazy").strip().lower()
+        == wanted_priority
+    ]
+
+
+def _property_fact_runtime_provider(row: Mapping[str, object]) -> str:
+    """Return the real adapter available in this runtime for one plan row."""
+    evidence_providers = {
+        str(value or "").strip().lower()
+        for value in list(row.get("evidence_providers") or [])
+        if str(value or "").strip()
+    }
+    if "openstreetmap_overpass" not in evidence_providers:
+        return ""
+    source_keys_by_provider = row.get("evidence_source_keys_by_provider")
+    if not isinstance(source_keys_by_provider, Mapping):
+        return "openstreetmap_overpass"
+    allowed_keys = {
+        str(value or "").strip().lower()
+        for value in list(
+            source_keys_by_provider.get("openstreetmap_overpass") or []
+        )
+        if str(value or "").strip()
+    }
+    canonical_key = str(row.get("key") or "").strip().lower()
+    return (
+        "openstreetmap_overpass"
+        if not allowed_keys or canonical_key in allowed_keys
+        else ""
+    )
+
+
+def _property_fact_provider_adapter_unavailable_field(
+    row: Mapping[str, object],
+) -> dict[str, object]:
+    field = dict(row)
+    provider_label = str(
+        field.get("provider_label")
+        or field.get("provider")
+        or "The configured fact provider"
+    ).strip()
+    field.update(
+        {
+            "state": "unavailable",
+            "error": {
+                "code": "fact_provider_adapter_unavailable",
+                "message": (
+                    f"{provider_label} is not connected for this fact; "
+                    "no substitute evidence was fabricated."
+                ),
+                "retry_after_seconds": 0,
+            },
+        }
+    )
+    return field
+
+
+def _property_fact_attestation_secret_unavailable_field(
+    row: Mapping[str, object],
+) -> dict[str, object]:
+    """Return a permanent hold when durable provider evidence cannot be sealed."""
+    field = dict(row)
+    field.update(
+        {
+            "state": "unavailable",
+            "error": {
+                "code": "fact_attestation_secret_unavailable",
+                "message": (
+                    "Nearby-fact verification is held because the runtime "
+                    "cannot create durable evidence receipts."
+                ),
+                "retry_after_seconds": 0,
+            },
+        }
+    )
+    return field
 
 
 def _property_fact_job_evidence_is_fresh(job: Mapping[str, object]) -> bool:
@@ -4888,21 +4988,12 @@ def _property_fact_coordinate_snapshot(property_url: str) -> dict[str, object]:
     longitude = _float_or_none(facts.get("map_lng"))
     preview_coordinates_valid = _property_fact_coordinates_valid(latitude, longitude)
     if preview_coordinates_valid and _property_fact_coordinates_have_exact_provenance(
-        facts
+        facts,
+        expected_source_fingerprint=source_fingerprint,
     ):
         raw_evidence = facts.get("map_coordinate_evidence")
         coordinate_evidence = (
             dict(raw_evidence) if isinstance(raw_evidence, Mapping) else {}
-        )
-        coordinate_evidence.update(
-            {
-                "exact": True,
-                "trusted": True,
-                "provider": str(
-                    coordinate_evidence.get("provider") or "listing_preview"
-                ).strip(),
-                "source_fingerprint": source_fingerprint,
-            }
         )
         facts["map_coordinate_evidence"] = coordinate_evidence
         return facts
@@ -4914,9 +5005,16 @@ def _property_fact_coordinate_snapshot(property_url: str) -> dict[str, object]:
         title=title,
         summary=summary,
     )
+    expected_country_code = _property_fact_listing_country_code(
+        property_url,
+        facts,
+    )
     for query in tuple(dict.fromkeys(queries))[:4]:
         try:
-            geocoded = _property_research_forward_geocode(query)
+            geocoded = _property_research_forward_geocode(
+                query,
+                expected_country_code,
+            )
         except Exception:
             geocoded = {}
         if not isinstance(geocoded, dict):
@@ -4926,7 +5024,11 @@ def _property_fact_coordinate_snapshot(property_url: str) -> dict[str, object]:
         if not _property_fact_coordinates_valid(latitude, longitude):
             continue
         geocoded_facts = dict(facts)
-        coordinate_exact = _property_fact_geocode_is_exact(query, geocoded)
+        coordinate_exact = _property_fact_geocode_is_exact(
+            query,
+            geocoded,
+            expected_country_code=expected_country_code,
+        )
         geocoded_facts["map_lat"] = latitude
         geocoded_facts["map_lng"] = longitude
         geocoded_facts["map_location_precision"] = (
@@ -4934,15 +5036,42 @@ def _property_fact_coordinate_snapshot(property_url: str) -> dict[str, object]:
         )
         geocoded_facts["map_location_source"] = "nominatim_forward_geocode"
         if coordinate_exact:
+            coordinate_observed_at = datetime.now(timezone.utc)
             geocoded_facts["map_coordinate_evidence"] = {
                 "exact": True,
                 "trusted": True,
                 "provider": "nominatim_structured_result",
                 "source_fingerprint": source_fingerprint,
+                "latitude": latitude,
+                "longitude": longitude,
+                "coordinate_digest": property_fact_coordinate_digest(
+                    latitude,
+                    longitude,
+                ),
+                "observed_at": coordinate_observed_at.isoformat(),
+                "expires_at": property_fact_expiry(
+                    observed_at=coordinate_observed_at,
+                    hours=6,
+                ),
                 "result_type": str(
                     geocoded.get("addresstype") or geocoded.get("type") or ""
                 ).strip().lower(),
+                "country_code": expected_country_code,
+                "provider_object_type": str(
+                    geocoded.get("osm_type") or ""
+                ).strip().lower(),
+                "provider_object_id": str(
+                    geocoded.get("osm_id") or geocoded.get("place_id") or ""
+                ).strip(),
             }
+            returned_address = geocoded.get("address")
+            if isinstance(returned_address, Mapping):
+                geocoded_facts["map_address"] = dict(returned_address)
+                returned_house_number = str(
+                    returned_address.get("house_number") or ""
+                ).strip()
+                if returned_house_number:
+                    geocoded_facts["map_house_number"] = returned_house_number
         display_name = str(geocoded.get("display_name") or "").strip()
         if display_name:
             geocoded_facts["map_location_label"] = display_name
@@ -4964,6 +5093,44 @@ def _property_fact_coordinates_valid(latitude: object, longitude: object) -> boo
     )
 
 
+def _property_fact_listing_country_code(
+    property_url: object,
+    facts: Mapping[str, object],
+) -> str:
+    aliases = {
+        "austria": "at",
+        "österreich": "at",
+        "germany": "de",
+        "deutschland": "de",
+        "czech republic": "cz",
+        "czechia": "cz",
+        "česko": "cz",
+    }
+    for key in ("country_code", "country", "map_country_code"):
+        value = str(facts.get(key) or "").strip().lower()
+        normalized = aliases.get(value, value)
+        if re.fullmatch(r"[a-z]{2}", normalized):
+            return normalized
+    hostname = str(urllib.parse.urlsplit(str(property_url or "")).hostname or "").lower()
+    suffix = hostname.rsplit(".", 1)[-1] if "." in hostname else ""
+    return suffix if re.fullmatch(r"[a-z]{2}", suffix) else ""
+
+
+def _property_fact_coordinate_receipt_is_fresh(
+    evidence: Mapping[str, object],
+) -> bool:
+    observed_at = _parse_utcish(str(evidence.get("observed_at") or ""))
+    expires_at = _parse_utcish(str(evidence.get("expires_at") or ""))
+    now = datetime.now(timezone.utc)
+    return bool(
+        isinstance(observed_at, datetime)
+        and isinstance(expires_at, datetime)
+        and observed_at <= now + timedelta(minutes=5)
+        and expires_at > now
+        and expires_at <= observed_at + timedelta(hours=24)
+    )
+
+
 def _property_fact_coordinates_have_exact_provenance(
     facts: Mapping[str, object],
     *,
@@ -4971,41 +5138,49 @@ def _property_fact_coordinates_have_exact_provenance(
 ) -> bool:
     raw_evidence = facts.get("map_coordinate_evidence")
     evidence = dict(raw_evidence) if isinstance(raw_evidence, Mapping) else {}
-    if expected_source_fingerprint:
-        return bool(
-            evidence.get("exact") is True
-            and evidence.get("trusted") is True
-            and str(evidence.get("provider") or "").strip()
-            and hmac.compare_digest(
-                str(evidence.get("source_fingerprint") or "").strip(),
-                expected_source_fingerprint,
-            )
-        )
-    coordinate_source = str(facts.get("map_location_source") or "").strip().casefold()
-    if any(
-        marker in coordinate_source
-        for marker in (
-            "area",
-            "centroid",
-            "estimate",
-            "inferred",
-            "postal",
-            "query",
-        )
-    ):
-        return False
-    for key in ("house_number", "map_house_number"):
-        if str(facts.get(key) or "").strip():
-            return True
-    structured_address = facts.get("address") or facts.get("map_address")
-    if isinstance(structured_address, Mapping) and str(
-        structured_address.get("house_number") or ""
-    ).strip():
-        return True
+    latitude = _float_or_none(facts.get("map_lat"))
+    longitude = _float_or_none(facts.get("map_lng"))
+    coordinate_digest = property_fact_coordinate_digest(latitude, longitude)
+    evidence_coordinate_digest = str(
+        evidence.get("coordinate_digest") or ""
+    ).strip()
+    evidence_latitude = _float_or_none(evidence.get("latitude"))
+    evidence_longitude = _float_or_none(evidence.get("longitude"))
+    exact_coordinate_binding = bool(
+        coordinate_digest
+        and hmac.compare_digest(evidence_coordinate_digest, coordinate_digest)
+        and isinstance(latitude, float)
+        and isinstance(longitude, float)
+        and isinstance(evidence_latitude, float)
+        and isinstance(evidence_longitude, float)
+        and abs(latitude - evidence_latitude) <= 0.00000001
+        and abs(longitude - evidence_longitude) <= 0.00000001
+    )
+    provider = str(evidence.get("provider") or "").strip().lower()
+    precision = str(facts.get("map_location_precision") or "").strip().lower()
+    coordinate_source = str(facts.get("map_location_source") or "").strip().lower()
+    allowed_providers = {
+        "listing_json_ld",
+        "listing_provider_api",
+        "listing_structured_coordinates",
+        "nominatim_structured_result",
+    }
     return bool(
         evidence.get("exact") is True
         and evidence.get("trusted") is True
-        and str(evidence.get("provider") or "").strip()
+        and provider in allowed_providers
+        and precision in {"address", "building", "rooftop"}
+        and not any(
+            marker in coordinate_source
+            for marker in ("area", "centroid", "estimate", "inferred", "postal")
+        )
+        and exact_coordinate_binding
+        and _property_fact_coordinate_receipt_is_fresh(evidence)
+        and bool(expected_source_fingerprint)
+        and hmac.compare_digest(
+            str(evidence.get("source_fingerprint") or "").strip(),
+            expected_source_fingerprint,
+        )
     )
 
 
@@ -5020,12 +5195,64 @@ def _property_fact_location_query_is_exact(query: object) -> bool:
 def _property_fact_geocode_is_exact(
     query: object,
     geocoded: Mapping[str, object],
+    *,
+    expected_country_code: str = "",
 ) -> bool:
     if not _property_fact_location_query_is_exact(query):
         return False
     address = geocoded.get("address")
-    if isinstance(address, Mapping) and str(address.get("house_number") or "").strip():
-        return True
+    if not isinstance(address, Mapping):
+        return False
+    query_street = str(query or "").split(",", 1)[0].strip()
+    query_house_match = re.search(
+        r"(?:^|\s)(\d{1,4}[A-Za-z]?)(?:\s|$)",
+        query_street,
+    )
+    if not query_house_match:
+        return False
+    query_house = re.sub(r"\s+", "", query_house_match.group(1)).casefold()
+    returned_house = re.sub(
+        r"\s+",
+        "",
+        str(address.get("house_number") or ""),
+    ).casefold()
+    normalized_country = str(expected_country_code or "").strip().lower()
+    returned_country = str(address.get("country_code") or "").strip().lower()
+    if not normalized_country or returned_country != normalized_country:
+        return False
+    if not _property_research_address_matches_query_area(query, address):
+        return False
+    if not returned_house or returned_house != query_house:
+        return False
+    query_street_name = query_street[: query_house_match.start()].strip()
+    returned_street_name = next(
+        (
+            str(address.get(key) or "").strip()
+            for key in (
+                "road",
+                "pedestrian",
+                "residential",
+                "footway",
+                "street",
+            )
+            if str(address.get(key) or "").strip()
+        ),
+        "",
+    )
+    normalize_street = lambda value: re.sub(
+        r"[^a-z0-9]",
+        "",
+        str(value or "").casefold().replace("ß", "ss"),
+    )
+    normalized_query_street = normalize_street(query_street_name)
+    normalized_returned_street = normalize_street(returned_street_name)
+    if (
+        not normalized_query_street
+        or not normalized_returned_street
+        or normalized_query_street not in normalized_returned_street
+        and normalized_returned_street not in normalized_query_street
+    ):
+        return False
     result_type = str(
         geocoded.get("addresstype") or geocoded.get("type") or ""
     ).strip().casefold()
@@ -5045,27 +5272,21 @@ def _property_fact_fresh_geo_snapshot(
     coordinate_source = str(facts.get("map_location_source") or "").strip()
     coordinate_facts: Mapping[str, object] = facts
     expected_source_fingerprint = _property_fact_source_fingerprint(property_url)
-    coordinates_reusable = bool(
-        _property_fact_coordinates_valid(latitude, longitude)
-        and _property_fact_coordinates_have_exact_provenance(
-            facts,
-            expected_source_fingerprint=expected_source_fingerprint,
-        )
-    )
-    if not coordinates_reusable:
-        # Resolve coordinates only. Nearby POIs are fetched exactly once below.
-        coordinate_snapshot = _property_fact_coordinate_snapshot(property_url)
-        latitude = _float_or_none(coordinate_snapshot.get("map_lat"))
-        longitude = _float_or_none(coordinate_snapshot.get("map_lng"))
-        coordinate_basis = "listing_preview_coordinates"
-        coordinate_precision = str(
-            coordinate_snapshot.get("map_location_precision") or ""
-        ).strip().lower()
-        coordinate_source = str(
-            coordinate_snapshot.get("map_location_source") or ""
-        ).strip()
-        coordinate_facts = coordinate_snapshot
-        coordinate_observed_at = _now_iso()
+    # Score-affecting provider attestations must never be minted from persisted
+    # candidate-supplied coordinates. Re-derive the URL-bound listing point in
+    # the trusted listing/geocoder adapter for every provider execution.
+    coordinate_snapshot = _property_fact_coordinate_snapshot(property_url)
+    latitude = _float_or_none(coordinate_snapshot.get("map_lat"))
+    longitude = _float_or_none(coordinate_snapshot.get("map_lng"))
+    coordinate_basis = "listing_preview_coordinates"
+    coordinate_precision = str(
+        coordinate_snapshot.get("map_location_precision") or ""
+    ).strip().lower()
+    coordinate_source = str(
+        coordinate_snapshot.get("map_location_source") or ""
+    ).strip()
+    coordinate_facts = coordinate_snapshot
+    coordinate_observed_at = _now_iso()
     if not _property_fact_coordinates_valid(latitude, longitude):
         return {}, {
             "coordinate_basis": coordinate_basis,
@@ -5073,10 +5294,16 @@ def _property_fact_fresh_geo_snapshot(
             "coordinate_precision": coordinate_precision or "unknown",
             "coordinate_source": coordinate_source,
             "coordinate_exact": False,
+            "listing_latitude": latitude,
+            "listing_longitude": longitude,
+            "coordinate_digest": property_fact_coordinate_digest(
+                latitude,
+                longitude,
+            ),
             "coordinate_updates": {},
         }
     fresh_fetcher = getattr(_property_research_nearby_pois, "__wrapped__", _property_research_nearby_pois)
-    nearby = fresh_fetcher(latitude, longitude)
+    nearby = fresh_fetcher(latitude, longitude, property_url)
     return (
         dict(nearby) if isinstance(nearby, dict) else {},
         {
@@ -5087,6 +5314,12 @@ def _property_fact_fresh_geo_snapshot(
             "coordinate_exact": _property_fact_coordinates_have_exact_provenance(
                 coordinate_facts,
                 expected_source_fingerprint=expected_source_fingerprint,
+            ),
+            "listing_latitude": latitude,
+            "listing_longitude": longitude,
+            "coordinate_digest": property_fact_coordinate_digest(
+                latitude,
+                longitude,
             ),
             "coordinate_updates": (
                 {
@@ -5138,6 +5371,11 @@ def _property_fact_merge_geo_research(
     )
     observed = observed_at or datetime.now(timezone.utc)
     source_fingerprint = _property_fact_source_fingerprint(property_url)
+    provider_evidence_by_metric = (
+        dict(research.get("property_fact_geo_evidence") or {})
+        if isinstance(research.get("property_fact_geo_evidence"), Mapping)
+        else {}
+    )
     changed_labels: list[str] = []
     observed_keys: set[str] = set()
     for field in requested_plan:
@@ -5153,9 +5391,102 @@ def _property_fact_merge_geo_research(
         if value is None:
             continue
         coordinate_exact = geo_source_meta.get("coordinate_exact") is True
-        if (
-            str(field.get("priority") or "lazy").strip().lower() == "required"
-            and not coordinate_exact
+        raw_provider_evidence = provider_evidence_by_metric.get(key)
+        provider_evidence = (
+            dict(raw_provider_evidence)
+            if isinstance(raw_provider_evidence, Mapping)
+            else {}
+        )
+        if not coordinate_exact or not provider_evidence:
+            continue
+        field_evidence = {
+            "provider": "openstreetmap_overpass",
+            "method": "straight_line_osm",
+            "observed_at": str(
+                provider_evidence.get("provider_observed_at") or ""
+            ).strip(),
+            "expires_at": str(
+                provider_evidence.get("provider_expires_at") or ""
+            ).strip(),
+            "freshness": "fresh",
+            "confidence": 0.74,
+            "source_key": source_key,
+            "observed_key": str(
+                provider_evidence.get("observed_key") or ""
+            ).strip(),
+            "listing_url": property_url,
+            "source_fingerprint": source_fingerprint,
+            "coordinate_basis": str(
+                geo_source_meta.get("coordinate_basis") or ""
+            ).strip(),
+            "coordinate_observed_at": str(
+                geo_source_meta.get("coordinate_observed_at") or ""
+            ).strip(),
+            "coordinate_precision": str(
+                geo_source_meta.get("coordinate_precision") or "unknown"
+            ).strip(),
+            "coordinate_source": str(
+                geo_source_meta.get("coordinate_source") or ""
+            ).strip(),
+            "coordinate_exact": True,
+            "listing_latitude": geo_source_meta.get("listing_latitude"),
+            "listing_longitude": geo_source_meta.get("listing_longitude"),
+            "coordinate_digest": str(
+                geo_source_meta.get("coordinate_digest") or ""
+            ).strip(),
+            "query_endpoint_url": str(
+                provider_evidence.get("query_endpoint_url") or ""
+            ).strip(),
+            "query_digest": str(
+                provider_evidence.get("query_digest") or ""
+            ).strip(),
+            "query_schema": str(
+                provider_evidence.get("query_schema") or ""
+            ).strip(),
+            "receipt_url": str(
+                provider_evidence.get("receipt_url") or ""
+            ).strip(),
+            "provider_object_id": str(
+                provider_evidence.get("provider_object_id") or ""
+            ).strip(),
+            "provider_object_type": str(
+                provider_evidence.get("provider_object_type") or ""
+            ).strip(),
+            "provider_object_version": provider_evidence.get(
+                "provider_object_version"
+            ),
+            "provider_object_timestamp": str(
+                provider_evidence.get("provider_object_timestamp") or ""
+            ).strip(),
+            "provider_object_changeset": str(
+                provider_evidence.get("provider_object_changeset") or ""
+            ).strip(),
+            "provider_observed_at": str(
+                provider_evidence.get("provider_observed_at") or ""
+            ).strip(),
+            "provider_expires_at": str(
+                provider_evidence.get("provider_expires_at") or ""
+            ).strip(),
+            "attestation_version": str(
+                provider_evidence.get("attestation_version") or ""
+            ).strip(),
+            "provider_attestation": str(
+                provider_evidence.get("provider_attestation") or ""
+            ).strip(),
+            "poi_latitude": provider_evidence.get("poi_latitude"),
+            "poi_longitude": provider_evidence.get("poi_longitude"),
+            "poi_classification_tags": dict(
+                provider_evidence.get("poi_classification_tags") or {}
+            ),
+        }
+        validation_facts = {**merged_facts, key: value}
+        if not property_fact_distance_evidence_is_valid(
+            facts=validation_facts,
+            evidence=field_evidence,
+            spec=field,
+            observed_source_key=source_key,
+            observed_value=value,
+            property_url=property_url,
         ):
             continue
         observed_keys.add(key)
@@ -5167,27 +5498,7 @@ def _property_fact_merge_geo_research(
                 and research_value not in (None, "", (), [], {})
             ):
                 merged_facts[str(research_key)] = research_value
-        evidence[key] = {
-            "provider": "openstreetmap_overpass",
-            "method": "straight_line_osm",
-            "observed_at": observed.isoformat(),
-            "expires_at": property_fact_expiry(observed_at=observed, hours=24),
-            "freshness": "fresh",
-            "confidence": 0.74 if coordinate_exact else 0.45,
-            "source_key": source_key,
-            "source_fingerprint": source_fingerprint,
-            "coordinate_basis": str(geo_source_meta.get("coordinate_basis") or "").strip(),
-            "coordinate_observed_at": str(
-                geo_source_meta.get("coordinate_observed_at") or ""
-            ).strip(),
-            "coordinate_precision": str(
-                geo_source_meta.get("coordinate_precision") or "unknown"
-            ).strip(),
-            "coordinate_source": str(
-                geo_source_meta.get("coordinate_source") or ""
-            ).strip(),
-            "coordinate_exact": coordinate_exact,
-        }
+        evidence[key] = field_evidence
         changed_labels.append(str(field.get("label") or key).strip())
     if evidence:
         merged_facts["property_fact_evidence"] = evidence
@@ -5218,48 +5529,96 @@ def _property_search_resolve_required_facts(
             "unresolved_keys": [],
         }
     requested_keys = [str(row.get("key") or "").strip() for row in requested]
-    try:
-        validated_property_url = _property_fact_validated_source_url(property_url)
-        research, geo_source_meta = _property_fact_fresh_geo_snapshot(
-            property_url=validated_property_url,
-            facts=facts,
-        )
-        merged_facts, _changed_labels, observed_keys = _property_fact_merge_geo_research(
-            property_url=validated_property_url,
-            facts=facts,
-            requested_plan=requested,
-            research=research,
-            geo_source_meta=geo_source_meta,
-        )
-    except Exception:
-        provider_receipts = _property_fact_provider_receipts(
-            [
-                {
-                    **dict(row),
-                    "state": "retryable_error",
-                    "error": {
-                        "code": "required_fact_provider_unavailable",
-                        "message": (
-                            f"{str(row.get('provider_label') or row.get('provider') or 'The configured fact provider').strip()} "
-                            "could not verify this distance for the exact listing location."
-                        ),
-                        "retry_after_seconds": 30,
-                    },
-                }
-                for row in requested
-            ]
-        )
+    supported = [row for row in requested if _property_fact_runtime_provider(row)]
+    unsupported = [
+        _property_fact_provider_adapter_unavailable_field(row)
+        for row in requested
+        if not _property_fact_runtime_provider(row)
+    ]
+    if supported and not property_fact_provider_attestation_is_ready():
+        terminal_fields = [
+            *(
+                _property_fact_attestation_secret_unavailable_field(row)
+                for row in supported
+            ),
+            *unsupported,
+        ]
         return dict(facts or {}), {
-            "status": "retryable_error",
+            "status": "terminal_error",
+            "attempt": 1,
+            "requested_keys": requested_keys,
+            "resolved_keys": [],
+            "unresolved_keys": requested_keys,
+            "provider_receipts": _property_fact_provider_receipts(
+                terminal_fields
+            ),
+            "retryable": False,
+            "error": {
+                "code": "fact_attestation_secret_unavailable",
+                "message": (
+                    "Required nearby facts are held because durable evidence "
+                    "attestation is unavailable."
+                ),
+                "retry_after_seconds": 0,
+            },
+        }
+    merged_facts = dict(facts or {})
+    observed_keys: set[str] = set()
+    geo_source_meta: dict[str, object] = {}
+    try:
+        if supported:
+            validated_property_url = _property_fact_validated_source_url(property_url)
+            research, geo_source_meta = _property_fact_fresh_geo_snapshot(
+                property_url=validated_property_url,
+                facts=facts,
+            )
+            merged_facts, _changed_labels, observed_keys = _property_fact_merge_geo_research(
+                property_url=validated_property_url,
+                facts=facts,
+                requested_plan=supported,
+                research=research,
+                geo_source_meta=geo_source_meta,
+            )
+    except Exception:
+        retryable_fields = [
+            {
+                **dict(row),
+                "state": "retryable_error",
+                "error": {
+                    "code": "required_fact_provider_unavailable",
+                    "message": (
+                        f"{str(row.get('provider_label') or row.get('provider') or 'The configured fact provider').strip()} "
+                        "could not verify this distance for the exact listing location."
+                    ),
+                    "retry_after_seconds": 30,
+                },
+            }
+            for row in supported
+        ]
+        provider_receipts = _property_fact_provider_receipts(
+            [*retryable_fields, *unsupported]
+        )
+        adapter_terminal = bool(unsupported)
+        return dict(facts or {}), {
+            "status": "terminal_error" if adapter_terminal else "retryable_error",
             "attempt": 1,
             "requested_keys": requested_keys,
             "resolved_keys": [],
             "unresolved_keys": requested_keys,
             "provider_receipts": provider_receipts,
+            "retryable": not adapter_terminal,
             "error": {
-                "code": "required_fact_provider_unavailable",
-                "message": "Required nearby facts could not be verified from current sources.",
-                "retry_after_seconds": 30,
+                "code": (
+                    "fact_provider_adapter_unavailable"
+                    if adapter_terminal
+                    else "required_fact_provider_unavailable"
+                ),
+                "message": (
+                    "A required nearby-fact provider is not connected; no substitute evidence was fabricated."
+                    if adapter_terminal
+                    else "Required nearby facts could not be verified from current sources."
+                ),
+                "retry_after_seconds": 0 if adapter_terminal else 30,
             },
         }
     plan_after = property_fact_requirement_plan(
@@ -5289,6 +5648,11 @@ def _property_search_resolve_required_facts(
     provider_receipt_fields: list[dict[str, object]] = []
     for requested_row in requested:
         key = str(requested_row.get("key") or "").strip()
+        if not _property_fact_runtime_provider(requested_row):
+            provider_receipt_fields.append(
+                _property_fact_provider_adapter_unavailable_field(requested_row)
+            )
+            continue
         receipt_field = {
             **dict(requested_row),
             **dict(plan_after_by_key.get(key) or {}),
@@ -5313,10 +5677,21 @@ def _property_search_resolve_required_facts(
                 }
             )
         provider_receipt_fields.append(receipt_field)
+    unsupported_keys = [
+        str(row.get("key") or "").strip()
+        for row in unsupported
+        if str(row.get("key") or "").strip()
+    ]
     return merged_facts, {
-        "status": "resolved" if not unresolved_keys else "partial",
+        "status": (
+            "terminal_error"
+            if unsupported_keys
+            else "resolved"
+            if not unresolved_keys
+            else "partial"
+        ),
         "attempt": 1,
-        "provider": "openstreetmap_overpass",
+        "provider": "openstreetmap_overpass" if supported else "",
         "provider_receipts": _property_fact_provider_receipts(
             provider_receipt_fields
         ),
@@ -5329,13 +5704,22 @@ def _property_search_resolve_required_facts(
             if label_by_key.get(key)
         ],
         "unresolved_keys": unresolved_keys,
+        "retryable": bool(unresolved_keys) and not bool(unsupported_keys),
         "error": (
             {}
             if not unresolved_keys
             else {
-                "code": "required_fact_not_available_from_current_sources",
-                "message": "One or more required nearby facts still need verification.",
-                "retry_after_seconds": 30,
+                "code": (
+                    "fact_provider_adapter_unavailable"
+                    if unsupported_keys
+                    else "required_fact_not_available_from_current_sources"
+                ),
+                "message": (
+                    "A required nearby-fact provider is not connected; no substitute evidence was fabricated."
+                    if unsupported_keys
+                    else "One or more required nearby facts still need verification."
+                ),
+                "retry_after_seconds": 0 if unsupported_keys else 30,
             }
         ),
     }
@@ -5697,6 +6081,24 @@ def _property_fact_provider_receipts(
                 "source_fingerprint": str(
                     provenance.get("source_fingerprint") or ""
                 ).strip(),
+                "coordinate_digest": str(
+                    provenance.get("coordinate_digest") or ""
+                ).strip(),
+                "query_digest": str(
+                    provenance.get("query_digest") or ""
+                ).strip(),
+                "receipt_url": str(
+                    provenance.get("receipt_url") or ""
+                ).strip(),
+                "provider_object_id": str(
+                    provenance.get("provider_object_id") or ""
+                ).strip(),
+                "provider_object_type": str(
+                    provenance.get("provider_object_type") or ""
+                ).strip(),
+                "provider_object_version": str(
+                    provenance.get("provider_object_version") or ""
+                ).strip(),
                 "reason_code": str(error.get("code") or "").strip(),
             }
         )
@@ -5710,6 +6112,13 @@ def _property_fact_safe_job_payload(job: Mapping[str, object]) -> dict[str, obje
             return ""
         parsed = _parse_utcish(normalized)
         return normalized if isinstance(parsed, datetime) and parsed.tzinfo is not None else ""
+
+    def _safe_coordinate(value: object, *, latitude: bool) -> float | None:
+        parsed = _float_or_none(value)
+        limit = 90.0 if latitude else 180.0
+        if not isinstance(parsed, float) or not math.isfinite(parsed):
+            return None
+        return parsed if -limit <= parsed <= limit else None
 
     allowed_field_states = {
         "unknown",
@@ -5804,6 +6213,12 @@ def _property_fact_safe_job_payload(job: Mapping[str, object]) -> dict[str, obje
                     "freshness": freshness,
                     "confidence": max(0.0, min(confidence, 1.0)),
                     "source_key": str(provenance.get("source_key") or "").strip()[:80],
+                    "observed_key": str(
+                        provenance.get("observed_key") or ""
+                    ).strip()[:80],
+                    "listing_url": str(
+                        provenance.get("listing_url") or ""
+                    ).strip()[:2048],
                     "source_fingerprint": (
                         str(provenance.get("source_fingerprint") or "").strip()
                         if re.fullmatch(r"sha256:[0-9a-f]{64}", str(provenance.get("source_fingerprint") or "").strip())
@@ -5820,6 +6235,95 @@ def _property_fact_safe_job_payload(job: Mapping[str, object]) -> dict[str, obje
                         provenance.get("coordinate_source") or ""
                     ).strip()[:120],
                     "coordinate_exact": provenance.get("coordinate_exact") is True,
+                    "listing_latitude": _safe_coordinate(
+                        provenance.get("listing_latitude"),
+                        latitude=True,
+                    ),
+                    "listing_longitude": _safe_coordinate(
+                        provenance.get("listing_longitude"),
+                        latitude=False,
+                    ),
+                    "coordinate_digest": (
+                        str(provenance.get("coordinate_digest") or "").strip()
+                        if re.fullmatch(
+                            r"sha256:[0-9a-f]{64}",
+                            str(provenance.get("coordinate_digest") or "").strip(),
+                        )
+                        else ""
+                    ),
+                    "query_endpoint_url": str(
+                        provenance.get("query_endpoint_url") or ""
+                    ).strip()[:500],
+                    "query_url": str(
+                        provenance.get("query_url") or ""
+                    ).strip()[:2048],
+                    "query_digest": (
+                        str(provenance.get("query_digest") or "").strip()
+                        if re.fullmatch(
+                            r"sha256:[0-9a-f]{64}",
+                            str(provenance.get("query_digest") or "").strip(),
+                        )
+                        else ""
+                    ),
+                    "query_schema": str(
+                        provenance.get("query_schema") or ""
+                    ).strip()[:80],
+                    "receipt_url": str(
+                        provenance.get("receipt_url") or ""
+                    ).strip()[:2048],
+                    "provider_object_id": str(
+                        provenance.get("provider_object_id") or ""
+                    ).strip()[:120],
+                    "provider_object_type": str(
+                        provenance.get("provider_object_type") or ""
+                    ).strip()[:80],
+                    "provider_object_version": str(
+                        provenance.get("provider_object_version") or ""
+                    ).strip()[:80],
+                    "provider_object_timestamp": _safe_timestamp(
+                        provenance.get("provider_object_timestamp")
+                    ),
+                    "provider_object_changeset": str(
+                        provenance.get("provider_object_changeset") or ""
+                    ).strip()[:80],
+                    "provider_observed_at": _safe_timestamp(
+                        provenance.get("provider_observed_at")
+                    ),
+                    "provider_expires_at": _safe_timestamp(
+                        provenance.get("provider_expires_at")
+                    ),
+                    "attestation_version": str(
+                        provenance.get("attestation_version") or ""
+                    ).strip()[:96],
+                    "provider_attestation": (
+                        str(provenance.get("provider_attestation") or "").strip()
+                        if re.fullmatch(
+                            r"hmac-sha256:[0-9a-f]{64}",
+                            str(provenance.get("provider_attestation") or "").strip(),
+                        )
+                        else ""
+                    ),
+                    "poi_latitude": _safe_coordinate(
+                        provenance.get("poi_latitude"),
+                        latitude=True,
+                    ),
+                    "poi_longitude": _safe_coordinate(
+                        provenance.get("poi_longitude"),
+                        latitude=False,
+                    ),
+                    "poi_classification_tags": {
+                        re.sub(
+                            r"[^a-z0-9_:.-]",
+                            "_",
+                            str(tag_key).strip().lower(),
+                        )[:80]: str(tag_value).strip()[:160]
+                        for tag_key, tag_value in list(
+                            dict(
+                                provenance.get("poi_classification_tags") or {}
+                            ).items()
+                        )[:8]
+                        if str(tag_key).strip() and str(tag_value).strip()
+                    },
                 },
                 "error": {
                     "code": error_code,
@@ -5922,6 +6426,32 @@ def _property_fact_safe_job_payload(job: Mapping[str, object]) -> dict[str, obje
                     )
                     else ""
                 ),
+                "coordinate_digest": (
+                    str(row.get("coordinate_digest") or "").strip()
+                    if re.fullmatch(
+                        r"sha256:[0-9a-f]{64}",
+                        str(row.get("coordinate_digest") or "").strip(),
+                    )
+                    else ""
+                ),
+                "query_digest": (
+                    str(row.get("query_digest") or "").strip()
+                    if re.fullmatch(
+                        r"sha256:[0-9a-f]{64}",
+                        str(row.get("query_digest") or "").strip(),
+                    )
+                    else ""
+                ),
+                "receipt_url": str(row.get("receipt_url") or "").strip()[:2048],
+                "provider_object_id": str(
+                    row.get("provider_object_id") or ""
+                ).strip()[:120],
+                "provider_object_type": str(
+                    row.get("provider_object_type") or ""
+                ).strip()[:80],
+                "provider_object_version": str(
+                    row.get("provider_object_version") or ""
+                ).strip()[:80],
                 "reason_code": str(row.get("reason_code") or "").strip()[:96],
             }
             for row in list(job.get("provider_receipts") or [])[:32]
@@ -5937,6 +6467,7 @@ def _property_fact_full_snapshot_payload(
     *,
     job: Mapping[str, object],
     plan: list[dict[str, object]],
+    companion_job: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """Project sparse execution rows onto the current complete public fact plan."""
     job_fields = {
@@ -5944,7 +6475,18 @@ def _property_fact_full_snapshot_payload(
         for row in list(job.get("fields") or [])
         if isinstance(row, dict) and str(row.get("key") or "").strip()
     }
+    for row in list(
+        companion_job.get("fields")
+        if isinstance(companion_job, Mapping)
+        else []
+    ):
+        if not isinstance(row, Mapping):
+            continue
+        companion_key = str(row.get("key") or "").strip()
+        if companion_key:
+            job_fields.setdefault(companion_key, dict(row))
     raw_status = str(job.get("status") or "idle").strip().lower()
+    job_required_only = bool(job.get("required_only"))
     try:
         raw_attempt = int(job.get("attempt") or 0)
     except (TypeError, ValueError):
@@ -5980,7 +6522,11 @@ def _property_fact_full_snapshot_payload(
         job_row = job_fields.get(key)
         if not isinstance(job_row, dict):
             plan_state = str(plan_row.get("state") or "unknown").strip().lower()
-            if plan_state != "resolved" and job_status in {
+            row_is_in_job_mode = (
+                str(plan_row.get("priority") or "lazy").strip().lower()
+                == ("required" if job_required_only else "lazy")
+            )
+            if plan_state != "resolved" and row_is_in_job_mode and job_status in {
                 "queued",
                 "running",
                 "retryable_error",
@@ -13553,6 +14099,28 @@ def _property_search_canonical_distance_preferences(
         ) not in (None, "", 0, 0.0, False):
             payload[canonical_key] = payload.get(legacy_key)
     return payload
+
+
+def _property_search_requires_fresh_distance_facts(
+    preferences: Mapping[str, object] | None,
+) -> bool:
+    """Return whether search-time scoring needs a full-fidelity preview.
+
+    Public preview cache rows intentionally omit exact coordinates and all
+    paired distance evidence.  A must-have, strong-wish, or avoid preference
+    therefore has to bypass that cache before the candidate is gated/scored.
+    """
+    normalized_preferences = _property_search_canonical_distance_preferences(
+        preferences
+    )
+    return any(
+        str(row.get("priority") or "lazy").strip().lower() == "required"
+        for row in property_fact_requirement_plan(
+            facts={},
+            preferences=normalized_preferences,
+            include_resolved=True,
+        )
+    )
 
 
 def _property_candidate_passes_resolved_distance_gates(
@@ -28241,6 +28809,12 @@ class ProductService:
                 and bool(value.get("retryable"))
             )
 
+        unresolved_lazy = any(
+            str(row.get("priority") or "lazy").strip().lower() == "lazy"
+            and str(row.get("state") or "unknown").strip().lower()
+            != "resolved"
+            for row in plan
+        )
         if _job_is_active(required_job):
             job_id, job = required_job_id, required_job
         elif _job_is_active(optional_job):
@@ -28248,34 +28822,14 @@ class ProductService:
         elif isinstance(optional_job, dict):
             job_id, job = optional_job_id, optional_job
         else:
-            required_status = (
-                str(required_job.get("status") or "").strip().lower()
-                if isinstance(required_job, dict)
-                else ""
-            )
-            unresolved_lazy = any(
-                str(row.get("priority") or "lazy").strip().lower() == "lazy"
-                and str(row.get("state") or "unknown").strip().lower()
-                != "resolved"
-                for row in plan
-            )
-            if (
-                required_status in {"succeeded", "completed"}
-                and unresolved_lazy
-            ):
+            if unresolved_lazy:
                 job_id, job = "", None
             else:
                 job_id, job = required_job_id, required_job
         required_only = bool(job.get("required_only")) if isinstance(job, dict) else False
-        execution_plan = (
-            [
-                dict(row)
-                for row in plan
-                if str(row.get("priority") or "lazy").strip().lower()
-                == "required"
-            ]
-            if required_only
-            else [dict(row) for row in plan]
+        execution_plan = _property_fact_execution_plan(
+            plan,
+            required_only=required_only,
         )
         binding = _property_fact_request_binding(
             candidate=candidate,
@@ -28292,6 +28846,17 @@ class ProductService:
             request_digest=binding["request_digest"],
         )
         if not isinstance(job, dict):
+            companion_fields = [
+                dict(row)
+                for row in list(
+                    required_job.get("fields")
+                    if isinstance(required_job, dict)
+                    else []
+                )
+                if isinstance(row, dict)
+                and str(row.get("state") or "").strip().lower()
+                in {"retryable_error", "unavailable"}
+            ]
             job_id = computed_job_id
             job = {
                 "job_id": job_id,
@@ -28299,7 +28864,14 @@ class ProductService:
                 "attempt": 0,
                 "poll_after_ms": 1200,
                 "updated_at": str(record.get("updated_at") or ""),
-                "fields": [row for row in plan if str(row.get("state") or "") != "resolved"],
+                "fields": [
+                    *companion_fields,
+                    *[
+                        row
+                        for row in execution_plan
+                        if str(row.get("state") or "") != "resolved"
+                    ],
+                ],
                 "score": property_fact_score_projection(
                     candidate=candidate,
                     plan=plan,
@@ -28359,25 +28931,15 @@ class ProductService:
                         preferences=preferences,
                     ),
                 }
-        if (
-            isinstance(job, dict)
-            and str(job.get("status") or "").strip().lower() == "queued"
-            and str(job_id or "").strip()
-        ):
-            # Polling is the durable dispatch watchdog for lazy detail work. A
-            # capacity miss or process restart can leave a persisted optional
-            # job queued; each poll safely retries submission while the active
-            # job set prevents duplicate execution.
-            try:
-                self._launch_property_candidate_fact_enrichment(
-                    principal_id=normalized_principal,
-                    run_id=normalized_run_id,
-                    candidate_ref=normalized_candidate_ref,
-                    job_id=str(job_id),
-                )
-            except Exception:
-                pass
-        payload = _property_fact_full_snapshot_payload(job=job, plan=plan)
+        payload = _property_fact_full_snapshot_payload(
+            job=job,
+            plan=plan,
+            companion_job=(
+                required_job
+                if isinstance(job, dict) and not bool(job.get("required_only"))
+                else None
+            ),
+        )
         payload.update(
             {
                 "run_id": normalized_run_id,
@@ -28429,15 +28991,9 @@ class ProductService:
             include_resolved=True,
             property_url=property_url,
         )
-        initial_execution_plan = (
-            [
-                dict(row)
-                for row in initial_plan
-                if str(row.get("priority") or "lazy").strip().lower()
-                == "required"
-            ]
-            if required_only
-            else [dict(row) for row in initial_plan]
+        initial_execution_plan = _property_fact_execution_plan(
+            initial_plan,
+            required_only=required_only,
         )
         initial_binding = _property_fact_request_binding(
             candidate=initial_candidate,
@@ -28470,15 +29026,9 @@ class ProductService:
                 include_resolved=True,
                 property_url=current_url,
             )
-            execution_plan = (
-                [
-                    dict(row)
-                    for row in plan
-                    if str(row.get("priority") or "lazy").strip().lower()
-                    == "required"
-                ]
-                if required_only
-                else [dict(row) for row in plan]
+            execution_plan = _property_fact_execution_plan(
+                plan,
+                required_only=required_only,
             )
             binding = _property_fact_request_binding(
                 candidate=candidate,
@@ -28493,6 +29043,16 @@ class ProductService:
                 row
                 for row in execution_plan
                 if str(row.get("state") or "") != "resolved"
+            ]
+            supported_missing = [
+                dict(row)
+                for row in missing
+                if _property_fact_runtime_provider(row)
+            ]
+            unsupported_missing = [
+                _property_fact_provider_adapter_unavailable_field(row)
+                for row in missing
+                if not _property_fact_runtime_provider(row)
             ]
             summary = dict(record.get("summary") or {})
             jobs = dict(summary.get("fact_enrichment_jobs") or {})
@@ -28526,6 +29086,50 @@ class ProductService:
                 and hmac.compare_digest(str(active_job.get("preference_digest") or ""), binding["preference_digest"])
                 and hmac.compare_digest(str(active_job.get("requirement_digest") or ""), binding["requirement_digest"])
             )
+            attestation_ready = property_fact_provider_attestation_is_ready()
+            active_has_recoverable_attestation_field = (
+                attestation_ready
+                and any(
+                    isinstance(row, Mapping)
+                    and str(row.get("state") or "").strip().lower()
+                    == "unavailable"
+                    and str(dict(row.get("error") or {}).get("code") or "")
+                    == "fact_attestation_secret_unavailable"
+                    for row in list(active_job.get("fields") or [])
+                )
+            )
+            active_has_permanent_unavailable = (
+                not active_has_recoverable_attestation_field
+                and any(
+                isinstance(row, Mapping)
+                and str(row.get("state") or "").strip().lower() == "unavailable"
+                and (
+                    str(dict(row.get("error") or {}).get("code") or "")
+                    == "fact_provider_adapter_unavailable"
+                    or (
+                        str(dict(row.get("error") or {}).get("code") or "")
+                        == "fact_attestation_secret_unavailable"
+                        and not attestation_ready
+                    )
+                )
+                for row in list(active_job.get("fields") or [])
+                )
+            )
+            if (
+                active_binding_valid
+                and active_has_permanent_unavailable
+                and active_status
+                in {"succeeded", "completed", "failed", "terminal_error"}
+                and hmac.compare_digest(
+                    str(active_job.get("result_facts_digest") or ""),
+                    binding["facts_digest"],
+                )
+            ):
+                return {
+                    "job": active_job,
+                    "launch": False,
+                    "job_id": active_job_id,
+                }
             retry_partial = False
             retry_lineage = False
             if active_status in {"succeeded", "completed"}:
@@ -28539,19 +29143,27 @@ class ProductService:
                     )
                 )
                 if active_binding_valid and not (
-                    retry_failed
-                    and (
-                        bool(active_job.get("retryable"))
-                        or active_score_incomplete
+                    active_has_recoverable_attestation_field
+                    or (
+                        retry_failed
+                        and (
+                            bool(active_job.get("retryable"))
+                            or active_score_incomplete
+                        )
                     )
                 ):
                     return {"job": active_job, "launch": False, "job_id": active_job_id}
                 if (
                     active_binding_valid
-                    and retry_failed
                     and (
-                        bool(active_job.get("retryable"))
-                        or active_score_incomplete
+                        active_has_recoverable_attestation_field
+                        or (
+                            retry_failed
+                            and (
+                                bool(active_job.get("retryable"))
+                                or active_score_incomplete
+                            )
+                        )
                     )
                 ):
                     retry_partial = True
@@ -28647,7 +29259,60 @@ class ProductService:
                 )
                 record["summary"] = summary
                 return {"job": terminal, "launch": False, "job_id": job_id}
-            requested_plan = missing
+            if supported_missing and not property_fact_provider_attestation_is_ready():
+                terminal_fields = [
+                    *(
+                        _property_fact_attestation_secret_unavailable_field(row)
+                        for row in supported_missing
+                    ),
+                    *unsupported_missing,
+                ]
+                terminal = {
+                    "job_id": job_id,
+                    "bundle_kind": (
+                        PROPERTY_FACT_REQUIRED_GEO_BUNDLE_KIND
+                        if required_only
+                        else PROPERTY_FACT_GEO_BUNDLE_KIND
+                    ),
+                    "status": "terminal_error" if required_only else "succeeded",
+                    "attempt": attempt,
+                    "poll_after_ms": 1200,
+                    "created_at": str(existing.get("created_at") or _now_iso()),
+                    "updated_at": _now_iso(),
+                    "fields": terminal_fields,
+                    "all_facts_resolved": False,
+                    "score": property_fact_score_projection(
+                        candidate=candidate,
+                        plan=plan,
+                        preferences=preferences,
+                    ),
+                    "retryable": False,
+                    "score_recompute_required": False,
+                    "result_facts_digest": binding["facts_digest"],
+                    "candidate_ref": normalized_candidate_ref,
+                    "required_only": bool(required_only),
+                    "root_job_id": str(
+                        existing.get("root_job_id") or active_job_id or job_id
+                    ).strip(),
+                    "source_fingerprint": source_fingerprint,
+                    **binding,
+                    "lease_token": "",
+                    "lease_expires_at": "",
+                }
+                terminal["provider_receipts"] = _property_fact_provider_receipts(
+                    terminal_fields
+                )
+                jobs[job_id] = terminal
+                candidate_jobs[normalized_candidate_ref] = job_id
+                summary["fact_enrichment_jobs"] = jobs
+                _property_fact_store_candidate_jobs_for_mode(
+                    summary,
+                    required_only=required_only,
+                    candidate_jobs=candidate_jobs,
+                )
+                record["summary"] = summary
+                return {"job": terminal, "launch": False, "job_id": job_id}
+            requested_plan = supported_missing
             zero_work_score = property_fact_score_projection(
                 candidate=candidate,
                 plan=plan,
@@ -28668,6 +29333,49 @@ class ProductService:
                 ).strip().lower()
                 == "evaluating"
             )
+            if not requested_plan and unsupported_missing:
+                terminal_status = "terminal_error" if required_only else "succeeded"
+                terminal = {
+                    "job_id": job_id,
+                    "bundle_kind": (
+                        PROPERTY_FACT_REQUIRED_GEO_BUNDLE_KIND
+                        if required_only
+                        else PROPERTY_FACT_GEO_BUNDLE_KIND
+                    ),
+                    "status": terminal_status,
+                    "attempt": 1,
+                    "poll_after_ms": 1200,
+                    "created_at": str(existing.get("created_at") or _now_iso()),
+                    "updated_at": _now_iso(),
+                    "fields": unsupported_missing,
+                    "all_facts_resolved": False,
+                    "score": zero_work_score,
+                    "retryable": False,
+                    "score_recompute_required": False,
+                    "result_facts_digest": binding["facts_digest"],
+                    "candidate_ref": normalized_candidate_ref,
+                    "required_only": bool(required_only),
+                    "root_job_id": str(
+                        existing.get("root_job_id") or active_job_id or job_id
+                    ).strip(),
+                    "source_fingerprint": source_fingerprint,
+                    **binding,
+                    "lease_token": "",
+                    "lease_expires_at": "",
+                }
+                terminal["provider_receipts"] = _property_fact_provider_receipts(
+                    unsupported_missing
+                )
+                jobs[job_id] = terminal
+                candidate_jobs[normalized_candidate_ref] = job_id
+                summary["fact_enrichment_jobs"] = jobs
+                _property_fact_store_candidate_jobs_for_mode(
+                    summary,
+                    required_only=required_only,
+                    candidate_jobs=candidate_jobs,
+                )
+                record["summary"] = summary
+                return {"job": terminal, "launch": False, "job_id": job_id}
             if not requested_plan and not assessment_only:
                 completed = {
                     "job_id": job_id,
@@ -28714,6 +29422,7 @@ class ProductService:
                 if str(previous.get("state") or "") == "resolved":
                     field = previous
                 fields.append(field)
+            fields.extend(unsupported_missing)
             queued = {
                 "job_id": job_id,
                 "bundle_kind": (
@@ -28769,9 +29478,34 @@ class ProductService:
                 candidate_ref=normalized_candidate_ref,
                 job_id=launch_job_id,
             )
+        companion_job: dict[str, object] | None = None
+        if not required_only:
+            latest_record = _load_property_search_run_record(
+                run_id=normalized_run_id,
+                principal_id=normalized_principal,
+            )
+            if isinstance(latest_record, dict):
+                latest_summary = dict(latest_record.get("summary") or {})
+                latest_jobs = dict(
+                    latest_summary.get("fact_enrichment_jobs") or {}
+                )
+                required_candidate_jobs = _property_fact_candidate_jobs_for_mode(
+                    latest_summary,
+                    required_only=True,
+                    jobs=latest_jobs,
+                )
+                companion_job_id = str(
+                    required_candidate_jobs.get(normalized_candidate_ref) or ""
+                ).strip()
+                if companion_job_id and isinstance(
+                    latest_jobs.get(companion_job_id),
+                    dict,
+                ):
+                    companion_job = dict(latest_jobs[companion_job_id])
         payload = _property_fact_full_snapshot_payload(
             job=dict(outcome.get("job") or {}),
             plan=initial_plan,
+            companion_job=companion_job,
         )
         payload.update(
             {
@@ -28865,15 +29599,9 @@ class ProductService:
                     include_resolved=True,
                     property_url=current_url,
                 )
-                execution_plan = (
-                    [
-                        dict(row)
-                        for row in plan
-                        if str(row.get("priority") or "lazy").strip().lower()
-                        == "required"
-                    ]
-                    if bool(job.get("required_only"))
-                    else plan
+                execution_plan = _property_fact_execution_plan(
+                    plan,
+                    required_only=bool(job.get("required_only")),
                 )
                 binding = _property_fact_request_binding(
                     candidate=candidate,
@@ -28910,7 +29638,9 @@ class ProductService:
                         "retryable": False,
                         "fields": [
                             {**dict(row), "state": "running", "error": {}}
-                            if isinstance(row, dict) and str(row.get("state") or "") != "resolved"
+                            if isinstance(row, dict)
+                            and str(row.get("state") or "")
+                            not in {"resolved", "unavailable"}
                             else dict(row)
                             for row in list(job.get("fields") or [])
                             if isinstance(row, dict)
@@ -28946,6 +29676,13 @@ class ProductService:
                 for row in list(current_job.get("fields") or [])
                 if isinstance(row, dict)
             ]
+            provider_requested_fields = [
+                dict(row)
+                for row in requested_fields
+                if str(row.get("state") or "").strip().lower()
+                != "unavailable"
+                and _property_fact_runtime_provider(row)
+            ]
             if (
                 str(current_job.get("status") or "").strip().lower() != "running"
                 or not lease_token
@@ -28954,7 +29691,7 @@ class ProductService:
                 or not hmac.compare_digest(str(current_job.get("source_fingerprint") or ""), source_fingerprint)
             ):
                 return
-            if requested_fields:
+            if provider_requested_fields:
                 research, geo_source_meta = _property_fact_fresh_geo_snapshot(
                     property_url=property_url,
                     facts=before_facts,
@@ -28964,7 +29701,7 @@ class ProductService:
             merged_facts, changed_labels, observed_keys = _property_fact_merge_geo_research(
                 property_url=property_url,
                 facts=before_facts,
-                requested_plan=requested_fields,
+                requested_plan=provider_requested_fields,
                 research=research,
                 geo_source_meta=geo_source_meta,
             )
@@ -29025,7 +29762,7 @@ class ProductService:
             assessment_refresh_succeeded = bool(
                 isinstance(refreshed_score, float) and math.isfinite(refreshed_score)
             )
-            assessment_recompute_required = bool(requested_fields) or bool(
+            assessment_recompute_required = bool(provider_requested_fields) or bool(
                 current_job.get("score_recompute_required")
             ) or not isinstance(_float_or_none(candidate.get("fit_score")), float)
             assessment_failed = assessment_recompute_required and not assessment_refresh_succeeded
@@ -29072,7 +29809,11 @@ class ProductService:
             for requested in requested_fields:
                 key = str(requested.get("key") or "").strip()
                 field = dict(plan_by_key.get(key) or requested)
-                if key not in observed_keys or str(field.get("state") or "") != "resolved":
+                if not _property_fact_runtime_provider(requested):
+                    field = _property_fact_provider_adapter_unavailable_field(
+                        requested
+                    )
+                elif key not in observed_keys or str(field.get("state") or "") != "resolved":
                     provider_label = str(
                         field.get("provider_label")
                         or field.get("provider")
@@ -29106,9 +29847,23 @@ class ProductService:
                 for row in unresolved
                 if str(row.get("priority") or "lazy").strip().lower() == "required"
             ]
+            terminal_unresolved_required = [
+                row
+                for row in unresolved_required
+                if str(row.get("state") or "").strip().lower()
+                == "unavailable"
+            ]
+            retryable_unresolved_required = [
+                row
+                for row in unresolved_required
+                if str(row.get("state") or "").strip().lower()
+                != "unavailable"
+            ]
             terminal_status = (
-                "retryable_error"
-                if unresolved_required or assessment_failed
+                "terminal_error"
+                if terminal_unresolved_required
+                else "retryable_error"
+                if retryable_unresolved_required or assessment_failed
                 else "succeeded"
             )
 
@@ -29153,15 +29908,9 @@ class ProductService:
                     include_resolved=True,
                     property_url=latest_url,
                 )
-                latest_execution_plan = (
-                    [
-                        dict(row)
-                        for row in latest_plan
-                        if str(row.get("priority") or "lazy").strip().lower()
-                        == "required"
-                    ]
-                    if bool(job.get("required_only"))
-                    else latest_plan
+                latest_execution_plan = _property_fact_execution_plan(
+                    latest_plan,
+                    required_only=bool(job.get("required_only")),
                 )
                 latest_binding = _property_fact_request_binding(
                     candidate=latest_candidate,
@@ -29331,8 +30080,16 @@ class ProductService:
                 jobs = dict(summary.get("fact_enrichment_jobs") or jobs)
                 final_status = terminal_status
                 final_fields = response_fields
-                retryable = bool(unresolved or assessment_failed) and claimed_attempt < _PROPERTY_FACT_ENRICHMENT_MAX_ATTEMPTS
-                if (unresolved or assessment_failed) and not retryable:
+                retryable = (
+                    not terminal_unresolved_required
+                    and bool(unresolved or assessment_failed)
+                    and claimed_attempt < _PROPERTY_FACT_ENRICHMENT_MAX_ATTEMPTS
+                )
+                if (
+                    (unresolved or assessment_failed)
+                    and not retryable
+                    and not terminal_unresolved_required
+                ):
                     final_status = "terminal_error" if unresolved_required or assessment_failed else "succeeded"
                     final_fields = [
                         {
@@ -29410,15 +30167,9 @@ class ProductService:
                     include_resolved=True,
                     property_url=current_url,
                 )
-                current_execution_plan = (
-                    [
-                        dict(row)
-                        for row in current_plan
-                        if str(row.get("priority") or "lazy").strip().lower()
-                        == "required"
-                    ]
-                    if bool(job.get("required_only"))
-                    else current_plan
+                current_execution_plan = _property_fact_execution_plan(
+                    current_plan,
+                    required_only=bool(job.get("required_only")),
                 )
                 current_binding = _property_fact_request_binding(
                     candidate=current_candidate,
@@ -29437,7 +30188,21 @@ class ProductService:
                         ("request_digest", "request_digest"),
                     )
                 )
-                retryable = claimed_attempt < _PROPERTY_FACT_ENRICHMENT_MAX_ATTEMPTS
+                adapter_terminal = any(
+                    isinstance(row, Mapping)
+                    and str(row.get("state") or "").strip().lower()
+                    == "unavailable"
+                    and str(dict(row.get("error") or {}).get("code") or "")
+                    in {
+                        "fact_provider_adapter_unavailable",
+                        "fact_attestation_secret_unavailable",
+                    }
+                    for row in list(job.get("fields") or [])
+                )
+                retryable = (
+                    not adapter_terminal
+                    and claimed_attempt < _PROPERTY_FACT_ENRICHMENT_MAX_ATTEMPTS
+                )
                 failure_code = "fact_provider_temporarily_unavailable" if retryable else "fact_provider_unavailable"
                 failure_message = "The configured nearby-fact provider could not finish safely."
                 if not binding_matches:
@@ -29445,7 +30210,13 @@ class ProductService:
                     failure_message = "The property changed while nearby facts were being checked."
                 job.update(
                     {
-                        "status": "retryable_error" if retryable else "terminal_error",
+                        "status": (
+                            "retryable_error"
+                            if retryable
+                            else "terminal_error"
+                            if bool(job.get("required_only"))
+                            else "succeeded"
+                        ),
                         "updated_at": _now_iso(),
                         "lease_token": "",
                         "lease_expires_at": "",
@@ -29453,13 +30224,14 @@ class ProductService:
                         "fields": [
                             {
                                 **dict(row),
-                                "state": (
-                                    str(row.get("state") or "resolved")
-                                    if str(row.get("state") or "") == "resolved"
-                                    else ("retryable_error" if retryable else "unavailable")
-                                ),
+                                "state": str(row.get("state") or "resolved")
+                                if str(row.get("state") or "")
+                                in {"resolved", "unavailable"}
+                                else ("retryable_error" if retryable else "unavailable"),
                                 "error": (
-                                    {}
+                                    dict(row.get("error") or {})
+                                    if str(row.get("state") or "") == "unavailable"
+                                    else {}
                                     if str(row.get("state") or "") == "resolved"
                                     else {
                                         "code": failure_code,
@@ -32552,11 +33324,25 @@ class ProductService:
         prefetched_source_results: dict[tuple[str, str], dict[str, object]],
         cache_index: dict[str, dict[str, object]],
         plan_key: str = "free",
+        force_refresh: bool = False,
     ) -> dict[str, object]:
         warm_limit = _property_search_provider_worker_warm_limit()
         worker_cap = _property_search_provider_worker_concurrency_for_plan(plan_key)
         if warm_limit <= 0 or worker_cap <= 0 or not specs or not prefetched_source_results:
             return {"enabled": False, "warmed_total": 0, "sources_touched": 0}
+        if force_refresh:
+            # The normal source-prefetch lane returns the fresh, full-fidelity
+            # preview to this search while storing only its public-safe copy.
+            # Warming first would fetch it twice and could only hand the next
+            # stage the sanitized cache representation.
+            return {
+                "enabled": False,
+                "warmed_total": 0,
+                "sources_touched": 0,
+                "worker_concurrency": worker_cap,
+                "warm_limit": warm_limit,
+                "reason": "full_fidelity_preview_refresh_required",
+            }
 
         cache_lock = threading.Lock()
         lane_semaphores = {
@@ -32645,6 +33431,7 @@ class ProductService:
         listing_urls: list[str],
         cache_index: dict[str, dict[str, object]],
         worker_cap: int,
+        force_refresh: bool = False,
     ) -> dict[str, object]:
         normalized_urls: list[str] = []
         for property_url in listing_urls:
@@ -32667,11 +33454,13 @@ class ProductService:
         cache_refresh_total = 0
 
         def _task(property_url: str) -> tuple[str, dict[str, object] | None, str]:
-            with cache_lock:
-                cached_preview = self._property_public_preview_cache_lookup(
-                    cache_index=cache_index,
-                    property_url=property_url,
-                )
+            cached_preview: dict[str, object] | None = None
+            if not force_refresh:
+                with cache_lock:
+                    cached_preview = self._property_public_preview_cache_lookup(
+                        cache_index=cache_index,
+                        property_url=property_url,
+                    )
             if cached_preview:
                 return property_url, dict(cached_preview), "hit"
             preview = _property_scout_page_preview_with_timeout(property_url, prefer_fast=True)
@@ -32723,6 +33512,7 @@ class ProductService:
         source_jobs: list[dict[str, object]],
         cache_index: dict[str, dict[str, object]],
         worker_cap: int,
+        force_refresh: bool = False,
         on_source_started: callable | None = None,
         on_source_progress: callable | None = None,
         on_source_finished: callable | None = None,
@@ -32774,11 +33564,13 @@ class ProductService:
 
         def _task(job_index: int, property_url: str) -> tuple[int, str, dict[str, object] | None, str, str]:
             try:
-                with cache_lock:
-                    cached_preview = self._property_public_preview_cache_lookup(
-                        cache_index=cache_index,
-                        property_url=property_url,
-                    )
+                cached_preview: dict[str, object] | None = None
+                if not force_refresh:
+                    with cache_lock:
+                        cached_preview = self._property_public_preview_cache_lookup(
+                            cache_index=cache_index,
+                            property_url=property_url,
+                        )
                 if cached_preview:
                     return job_index, property_url, dict(cached_preview), "hit", ""
                 preview = _property_scout_page_preview_with_timeout(property_url, prefer_fast=True)
@@ -49874,6 +50666,12 @@ class ProductService:
                 "sources": [],
             }
         effective_force_refresh = bool(force_refresh)
+        public_preview_force_refresh = bool(
+            effective_force_refresh
+            or _property_search_requires_fresh_distance_facts(
+                request_preferences
+            )
+        )
         resolved_max_results = _property_search_resolve_max_results_per_source(
             request_preferences,
             max_results_per_source,
@@ -50159,6 +50957,7 @@ class ProductService:
             prefetched_source_results=prefetched_source_results,
             cache_index=public_preview_cache,
             plan_key=plan_key,
+            force_refresh=public_preview_force_refresh,
         )
 
         for source_spec in specs:
@@ -50502,6 +51301,7 @@ class ProductService:
             source_jobs=source_preview_jobs,
             cache_index=public_preview_cache,
             worker_cap=provider_preview_worker_cap,
+            force_refresh=public_preview_force_refresh,
             on_source_started=_source_preview_prefetch_started if source_preview_jobs else None,
             on_source_progress=_source_preview_prefetch_progress if source_preview_jobs else None,
             on_source_finished=_source_preview_prefetch_finished if source_preview_jobs else None,

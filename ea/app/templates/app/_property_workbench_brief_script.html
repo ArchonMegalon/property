@@ -57,6 +57,53 @@
       const parsed = Number.parseInt(fieldValue(form, name), 10);
       return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
     };
+    const compactPropertyDistancePreferences = (form) => {
+      const node = form?.querySelector('[data-property-distance-preference-contract]');
+      let rows = [];
+      try {
+        rows = JSON.parse(String(node?.textContent || '[]'));
+      } catch (_error) {
+        return {};
+      }
+      if (!Array.isArray(rows)) return {};
+      const preferences = {};
+      const importanceStates = new Set(['must_have', 'strong_wish', 'nice_to_have', 'avoid']);
+      rows.forEach((row) => {
+        if (!Array.isArray(row) || row.length !== 3) return;
+        const distanceKey = String(row[0] || '').trim();
+        if (!/^max_distance_to_[a-z0-9_]+_m$/.test(distanceKey)) return;
+        const parsedDistance = Number.parseInt(String(row[1] ?? ''), 10);
+        if (!Number.isFinite(parsedDistance) || parsedDistance <= 0 || parsedDistance > 7000) return;
+        preferences[distanceKey] = parsedDistance;
+        const importance = String(row[2] || '').trim().toLowerCase();
+        preferences[`${distanceKey.slice(0, -2)}_importance`] = importanceStates.has(importance)
+          ? importance
+          : 'nice_to_have';
+      });
+      return preferences;
+    };
+    const updateCompactPropertyDistancePreference = (form, distanceKey, distanceValue, importanceValue) => {
+      const node = form?.querySelector('[data-property-distance-preference-contract]');
+      if (!(node instanceof HTMLScriptElement)) return;
+      let rows = [];
+      try {
+        rows = JSON.parse(String(node.textContent || '[]'));
+      } catch (_error) {
+        return;
+      }
+      if (!Array.isArray(rows)) return;
+      const row = rows.find((candidate) => (
+        Array.isArray(candidate) && candidate.length === 3 && candidate[0] === distanceKey
+      ));
+      const importance = String(importanceValue || '').trim().toLowerCase();
+      if (!row || !['must_have', 'strong_wish', 'nice_to_have', 'avoid'].includes(importance)) return;
+      const parsedDistance = Number.parseInt(String(distanceValue ?? ''), 10);
+      row[1] = Number.isFinite(parsedDistance) && parsedDistance > 0 && parsedDistance <= 7000
+        ? parsedDistance
+        : null;
+      row[2] = importance;
+      node.textContent = JSON.stringify(rows);
+    };
     const hasUnlimitedProviderResults = () => currentResultCap() <= 0;
     const maxResultsPerSourceValue = (form) => (
       hasUnlimitedProviderResults()
@@ -162,7 +209,7 @@
       });
       return map;
     };
-    const setKeywordPreferenceValues = (form, values, state = 'important') => {
+    const setKeywordPreferenceValues = (form, values, state = 'strong_wish') => {
       const selected = new Set((values || []).map((item) => String(item || '').trim().toLowerCase()).filter(Boolean));
       if (!selected.size) return;
       form?.querySelectorAll('[data-keyword-preference-select]').forEach((node) => {
@@ -238,6 +285,16 @@
         row.classList.toggle('is-hard', state === 'must_have');
         if (distanceSelect instanceof HTMLSelectElement) {
           distanceSelect.disabled = !enabled;
+          const distanceFieldName = String(distanceSelect.getAttribute('data-distance-field') || '').trim();
+          const importance = enabled
+            ? (state === 'must_have' ? 'must_have' : state === 'avoid' ? 'avoid' : state === 'nice_to_have' ? 'nice_to_have' : 'strong_wish')
+            : 'nice_to_have';
+          updateCompactPropertyDistancePreference(
+            form,
+            distanceFieldName,
+            enabled ? String(distanceSelect.value || '500') : null,
+            importance,
+          );
         }
       });
       syncWhatMattersGroupDistanceActivity(form);
@@ -259,7 +316,7 @@
         if (!schoolValue || state === 'any') return;
         selectedStages.push(schoolValue);
         if (state === 'must_have') strongest = 'very_important';
-        else if (state === 'important' && strongest !== 'very_important') strongest = 'important';
+        else if (['strong_wish', 'important'].includes(state) && strongest !== 'very_important') strongest = 'important';
       });
       setCheckboxValues(form, 'school_stage_preferences', selectedStages);
       const schoolEvidenceField = form?.querySelector('input[name="require_school_evidence"]');
@@ -281,11 +338,21 @@
           if (distanceField instanceof HTMLInputElement || distanceField instanceof HTMLSelectElement || distanceField instanceof HTMLTextAreaElement) {
             distanceField.value = enabled ? String(distanceSelect.value || '500') : '0';
           }
+          updateCompactPropertyDistancePreference(
+            form,
+            distanceFieldName,
+            enabled ? String(distanceSelect.value || '500') : null,
+            enabled
+              ? (state === 'must_have' ? 'must_have' : state === 'avoid' ? 'avoid' : state === 'nice_to_have' ? 'nice_to_have' : 'strong_wish')
+              : 'nice_to_have',
+          );
         }
         const schoolValue = String(preferenceSelect.getAttribute('data-school-value') || '').trim();
         const importanceField = schoolValue ? form.querySelector(`[name="max_distance_to_${CSS.escape(schoolValue)}_importance"]`) : null;
         if (importanceField instanceof HTMLSelectElement) {
-          importanceField.value = enabled ? (state === 'must_have' ? 'must_have' : state === 'nice_to_have' ? 'nice_to_have' : 'important') : 'important';
+          importanceField.value = enabled
+            ? (state === 'must_have' ? 'must_have' : state === 'avoid' ? 'avoid' : state === 'nice_to_have' ? 'nice_to_have' : 'strong_wish')
+            : 'nice_to_have';
         }
       });
       syncWhatMattersGroupDistanceActivity(form);
@@ -378,17 +445,17 @@
         }
       });
     };
-    const nearbyPreferenceConfig = (state, distanceValue, defaultDistance = 500) => {
+      const nearbyPreferenceConfig = (state, distanceValue, defaultDistance = 500) => {
       const normalized = String(state || '').trim().toLowerCase();
       const parsedDistance = Number.parseInt(String(distanceValue || ''), 10);
       const effectiveDistance = Number.isFinite(parsedDistance) && parsedDistance > 0 ? parsedDistance : defaultDistance;
       if (normalized === 'must_have') return { distance: effectiveDistance, importance: 'must_have' };
-      if (normalized === 'important') return { distance: effectiveDistance, importance: 'important' };
+        if (normalized === 'important' || normalized === 'strong_wish') return { distance: effectiveDistance, importance: 'strong_wish' };
       if (normalized === 'nice_to_have') return { distance: effectiveDistance, importance: 'nice_to_have' };
       if (normalized === 'avoid') return { distance: effectiveDistance, importance: 'avoid' };
       return { distance: null, importance: 'any' };
     };
-    const nearbyImportanceValue = (preference, fallback = 'important') => {
+      const nearbyImportanceValue = (preference, fallback = 'strong_wish') => {
       const importance = String(preference?.importance || 'any').trim().toLowerCase();
       return importance === 'any' ? fallback : importance;
     };
@@ -547,7 +614,7 @@
       if (nodeValues.get('prefer_high_quality_drinking_water') === true) keywordValues.push('high quality drinking water');
       if (nodeValues.get('prefer_balcony') === true || nodeValues.get('prefer_outdoor_space') === true) keywordValues.push('balcony');
       if (nodeValues.get('prefer_lift') === true || nodeValues.get('require_lift') === true) keywordValues.push('lift');
-      setKeywordPreferenceValues(form, keywordValues, 'important');
+      setKeywordPreferenceValues(form, keywordValues, 'strong_wish');
       if (nodeValues.get('prefer_bike_infrastructure') === true) {
         setCheckboxValues(form, 'preferred_reachability_modes', briefUniqueValues(checkedValues(form, 'preferred_reachability_modes'), ['bike']));
       }
@@ -981,6 +1048,7 @@
         : 0;
       const minDscrRaw = integerValue(form, 'min_dscr');
       const customKeywords = fieldValue(form, 'custom_keywords');
+      briefSyncKeywordDistanceSelects(form);
       const keywordSelections = keywordPreferenceValues(form);
       const keywordDistances = keywordDistanceValues(form);
       briefSyncSchoolPreferenceFields(form);
@@ -1032,9 +1100,11 @@
         const searchAgentEnabled = Boolean(form.querySelector('input[name="search_agent_enabled"]')?.checked);
         const publicHousingSignalsEnabled = rentMode && Boolean(form.querySelector('input[name="include_public_housing_signals"]')?.checked);
         const distressedSignalsEnabled = buyMode && Boolean(form.querySelector('input[name="include_distressed_sale_signals"]')?.checked);
+        const catalogDistancePreferences = compactPropertyDistancePreferences(form);
         return {
         selected_platforms: effectiveSelectedPlatforms,
         property_preferences: {
+          ...catalogDistancePreferences,
           selected_platforms: effectiveSelectedPlatforms,
           country_code: countryCode,
           region_code: regionCode,
@@ -1088,11 +1158,11 @@
           school_evidence_priority: schoolEvidenceEnabled ? (fieldValue(form, 'school_evidence_priority') || 'any') : 'any',
           require_school_evidence: schoolEvidenceEnabled ? Boolean(form.querySelector('input[name="require_school_evidence"]')?.checked) : false,
           max_distance_to_kindergarten_m: schoolEvidenceEnabled ? integerValue(form, 'max_distance_to_kindergarten_m') : null,
-          max_distance_to_kindergarten_importance: schoolEvidenceEnabled ? (fieldValue(form, 'max_distance_to_kindergarten_importance') || 'important') : 'important',
+          max_distance_to_kindergarten_importance: schoolEvidenceEnabled ? (fieldValue(form, 'max_distance_to_kindergarten_importance') || 'strong_wish') : 'strong_wish',
           max_distance_to_ganztags_volksschule_m: schoolEvidenceEnabled ? integerValue(form, 'max_distance_to_ganztags_volksschule_m') : null,
-          max_distance_to_ganztags_volksschule_importance: schoolEvidenceEnabled ? (fieldValue(form, 'max_distance_to_ganztags_volksschule_importance') || 'important') : 'important',
+          max_distance_to_ganztags_volksschule_importance: schoolEvidenceEnabled ? (fieldValue(form, 'max_distance_to_ganztags_volksschule_importance') || 'strong_wish') : 'strong_wish',
           max_distance_to_halbtags_volksschule_m: schoolEvidenceEnabled ? integerValue(form, 'max_distance_to_halbtags_volksschule_m') : null,
-          max_distance_to_halbtags_volksschule_importance: schoolEvidenceEnabled ? (fieldValue(form, 'max_distance_to_halbtags_volksschule_importance') || 'important') : 'important',
+          max_distance_to_halbtags_volksschule_importance: schoolEvidenceEnabled ? (fieldValue(form, 'max_distance_to_halbtags_volksschule_importance') || 'strong_wish') : 'strong_wish',
           university_name: Boolean(form.querySelector('input[name="enable_lifestyle_research"]')?.checked) && searchGoal !== 'investment' ? (fieldValue(form, 'university_name') || '') : '',
           desired_project_stages: Boolean(form.querySelector('input[name="include_developer_project_signals"]')?.checked) ? checkedValues(form, 'desired_project_stages') : [],
           apply_unknowns_penalty: Boolean(form.querySelector('input[name="apply_unknowns_penalty"]')?.checked),
@@ -1107,13 +1177,13 @@
           max_commute_minutes_bike: Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked) ? integerValue(form, 'max_commute_minutes_bike') : null,
           max_commute_minutes_walk: Boolean(form.querySelector('input[name="enable_commute_research"]')?.checked) ? integerValue(form, 'max_commute_minutes_walk') : null,
           max_distance_to_playground_m: searchGoal === 'investment' ? null : (playgroundPreference.distance !== null ? playgroundPreference.distance : integerValue(form, 'max_distance_to_playground_m')),
-          max_distance_to_playground_importance: searchGoal === 'investment' ? 'important' : nearbyImportanceValue(playgroundPreference, 'important'),
+          max_distance_to_playground_importance: searchGoal === 'investment' ? 'strong_wish' : nearbyImportanceValue(playgroundPreference, 'strong_wish'),
           max_distance_to_library_m: searchGoal === 'investment' ? null : (libraryPreference.distance !== null ? libraryPreference.distance : integerValue(form, 'max_distance_to_library_m')),
           max_distance_to_library_importance: searchGoal === 'investment' || libraryPreference.importance === 'any'
             ? (integerValue(form, 'max_distance_to_library_m') === null ? 'nice_to_have' : (fieldValue(form, 'max_distance_to_library_importance') || 'nice_to_have'))
             : libraryPreference.importance,
           max_distance_to_zoo_m: searchGoal === 'investment' ? null : (zooPreference.distance !== null ? zooPreference.distance : integerValue(form, 'max_distance_to_zoo_m')),
-          max_distance_to_zoo_importance: searchGoal === 'investment' ? 'important' : nearbyImportanceValue(zooPreference, 'nice_to_have'),
+          max_distance_to_zoo_importance: searchGoal === 'investment' ? 'strong_wish' : nearbyImportanceValue(zooPreference, 'nice_to_have'),
           max_distance_to_university_m: Boolean(form.querySelector('input[name="enable_lifestyle_research"]')?.checked) && searchGoal !== 'investment' ? integerValue(form, 'max_distance_to_university_m') : null,
           max_distance_to_starbucks_m: Boolean(form.querySelector('input[name="enable_lifestyle_research"]')?.checked) && searchGoal !== 'investment' ? integerValue(form, 'max_distance_to_starbucks_m') : null,
           max_distance_to_fitness_center_m: Boolean(form.querySelector('input[name="enable_lifestyle_research"]')?.checked) && searchGoal !== 'investment' ? integerValue(form, 'max_distance_to_fitness_center_m') : null,
@@ -1122,9 +1192,9 @@
           max_distance_to_dog_park_m: Boolean(form.querySelector('input[name="enable_lifestyle_research"]')?.checked) && searchGoal !== 'investment' ? integerValue(form, 'max_distance_to_dog_park_m') : null,
           max_distance_to_good_cafe_m: Boolean(form.querySelector('input[name="enable_lifestyle_research"]')?.checked) && searchGoal !== 'investment' ? integerValue(form, 'max_distance_to_good_cafe_m') : null,
           max_distance_to_supermarket_m: supermarketPreference.distance !== null ? supermarketPreference.distance : integerValue(form, 'max_distance_to_supermarket_m'),
-          max_distance_to_supermarket_importance: supermarketPreference.importance === 'any' ? (integerValue(form, 'max_distance_to_supermarket_m') === null ? 'important' : (fieldValue(form, 'max_distance_to_supermarket_importance') || 'important')) : supermarketPreference.importance,
+          max_distance_to_supermarket_importance: supermarketPreference.importance === 'any' ? (integerValue(form, 'max_distance_to_supermarket_m') === null ? 'strong_wish' : (fieldValue(form, 'max_distance_to_supermarket_importance') || 'strong_wish')) : supermarketPreference.importance,
           max_distance_to_subway_m: searchGoal === 'investment' ? null : subwayPreference.distance,
-          max_distance_to_subway_importance: searchGoal === 'investment' ? 'important' : nearbyImportanceValue(subwayPreference, 'nice_to_have'),
+          max_distance_to_subway_importance: searchGoal === 'investment' ? 'strong_wish' : nearbyImportanceValue(subwayPreference, 'nice_to_have'),
           max_distance_to_market_m: marketPreference.distance !== null ? marketPreference.distance : integerValue(form, 'max_distance_to_market_m'),
           max_distance_to_market_importance: nearbyImportanceValue(marketPreference, 'nice_to_have'),
           max_distance_to_hardware_store_m: hardwareStorePreference.distance !== null ? hardwareStorePreference.distance : integerValue(form, 'max_distance_to_hardware_store_m'),
@@ -1136,9 +1206,9 @@
           max_distance_to_theatre_m: theatrePreference.distance !== null ? theatrePreference.distance : integerValue(form, 'max_distance_to_theatre_m'),
           max_distance_to_theatre_importance: nearbyImportanceValue(theatrePreference, 'nice_to_have'),
           max_distance_to_public_pool_m: searchGoal === 'investment' ? null : (publicPoolPreference.distance !== null ? publicPoolPreference.distance : integerValue(form, 'max_distance_to_public_pool_m')),
-          max_distance_to_public_pool_importance: searchGoal === 'investment' ? 'important' : nearbyImportanceValue(publicPoolPreference, 'nice_to_have'),
+          max_distance_to_public_pool_importance: searchGoal === 'investment' ? 'strong_wish' : nearbyImportanceValue(publicPoolPreference, 'nice_to_have'),
           max_distance_to_medical_care_m: searchGoal === 'investment' ? null : ((medicalCareNearbyPreference.distance !== null ? medicalCareNearbyPreference.distance : medicalCarePreference.distance) !== null ? (medicalCareNearbyPreference.distance !== null ? medicalCareNearbyPreference.distance : medicalCarePreference.distance) : integerValue(form, 'max_distance_to_medical_care_m')),
-          max_distance_to_medical_care_importance: searchGoal === 'investment' ? 'important' : nearbyImportanceValue(medicalCareNearbyPreference.importance !== 'any' ? medicalCareNearbyPreference : medicalCarePreference, 'nice_to_have'),
+          max_distance_to_medical_care_importance: searchGoal === 'investment' ? 'strong_wish' : nearbyImportanceValue(medicalCareNearbyPreference.importance !== 'any' ? medicalCareNearbyPreference : medicalCarePreference, 'nice_to_have'),
           prefer_good_air_quality: goodAirQualityEnabled || Boolean(form.querySelector('input[name="prefer_good_air_quality"]')?.checked),
           avoid_noise_risk_area: avoidNoiseRiskEnabled || Boolean(form.querySelector('input[name="avoid_noise_risk_area"]')?.checked),
           require_high_speed_internet: highSpeedInternetEnabled || Boolean(form.querySelector('input[name="require_high_speed_internet"]')?.checked),

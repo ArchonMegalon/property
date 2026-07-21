@@ -9,6 +9,13 @@ import re
 import urllib.parse
 import unicodedata
 
+from app.property_distance_preferences import (
+    normalize_property_distance_importance,
+    normalize_property_distance_preference_pairs,
+    property_distance_importance_key,
+    property_distance_preference_keys,
+)
+
 
 @dataclass(frozen=True)
 class PropertyCountrySpec:
@@ -4137,7 +4144,15 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
     payload["keywords"] = str(payload.get("keywords") or "").strip()
     payload["avoid_keywords"] = str(payload.get("avoid_keywords") or "").strip()
     payload["keyword_preferences"] = _normalize_keyword_preferences(payload.get("keyword_preferences"))
-    positive_keyword_preference_states = {"nice_to_have", "important", "must_have", "hard", "required", "strict"}
+    positive_keyword_preference_states = {
+        "nice_to_have",
+        "important",
+        "strong_wish",
+        "must_have",
+        "hard",
+        "required",
+        "strict",
+    }
     heat_preference_state = str(payload["keyword_preferences"].get("klimaerwaermungsfit") or "").strip().lower()
     if heat_preference_state in positive_keyword_preference_states:
         payload["prefer_heat_resilient_home"] = True
@@ -4242,15 +4257,37 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
         payload["max_results_per_source"] = max(1, min(plan_result_cap or 10, requested_max_results))
     else:
         payload.pop("max_results_per_source", None)
-    distance_numeric_keys = tuple(
-        key
-        for key in dict.fromkeys(
-            str(raw_key or "").strip()
-            for raw_key in dict(payload).keys()
-            if str(raw_key or "").strip().startswith("max_distance_to_")
-            and str(raw_key or "").strip().endswith("_m")
+    catalog_distance_keys = property_distance_preference_keys()
+    catalog_importance_keys = {
+        property_distance_importance_key(key)
+        for key in catalog_distance_keys
+    }
+    catalog_input_keys = set(catalog_distance_keys) | catalog_importance_keys
+    for raw_key in tuple(payload):
+        raw_key_text = str(raw_key or "")
+        normalized_key = raw_key_text.strip()
+        if (
+            normalized_key.casefold().startswith("max_distance_to_")
+            and (
+                not isinstance(raw_key, str)
+                or raw_key != normalized_key
+                or normalized_key not in catalog_input_keys
+            )
+        ):
+            payload.pop(raw_key, None)
+    for importance_key in catalog_importance_keys:
+        if importance_key not in payload:
+            continue
+        normalized_importance = normalize_property_distance_importance(
+            payload.get(importance_key),
+            default="",
         )
-        if key
+        if normalized_importance:
+            payload[importance_key] = normalized_importance
+        else:
+            payload.pop(importance_key, None)
+    distance_numeric_keys = tuple(
+        key for key in catalog_distance_keys if key in payload
     )
     for numeric_key in (
         "min_price_eur",
@@ -4288,17 +4325,7 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
             }:
                 payload[numeric_key] = max(5, min(180, numeric_value))
             elif numeric_key.startswith("max_distance_to_") and numeric_key.endswith("_m"):
-                if numeric_key in {
-                    "max_distance_to_hardware_store_m",
-                    "max_distance_to_shopping_center_m",
-                    "max_distance_to_shopping_street_m",
-                    "max_distance_to_theatre_m",
-                    "max_distance_to_public_pool_m",
-                    "max_distance_to_medical_care_m",
-                }:
-                    payload[numeric_key] = max(50, min(7000, numeric_value))
-                else:
-                    payload[numeric_key] = max(50, min(5000, numeric_value))
+                payload[numeric_key] = max(50, min(7000, numeric_value))
             else:
                 payload[numeric_key] = numeric_value
         else:
@@ -4514,7 +4541,7 @@ def normalize_property_search_preferences(preferences: dict[str, object] | None)
                 for key, value in dict(payload.get("keyword_preferences") or {}).items()
                 if str(key or "").strip() and _canonical_keyword_preference_key(key) not in blocked_land_keywords
             }
-    return payload
+    return normalize_property_distance_preference_pairs(payload)
 
 
 def investment_research_mode_options() -> list[dict[str, str]]:

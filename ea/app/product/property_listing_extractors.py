@@ -4,6 +4,7 @@ import hashlib
 import html
 import io
 import json
+import math
 import os
 import re
 import shutil
@@ -33,8 +34,6 @@ from app.services.property_market_catalog import (
     provider_host_markers,
     provider_listing_markers_for_host,
 )
-from app.services.propertyquarry_teable_projection import _safe_teable_facts
-
 _PROPERTY_SCOUT_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0 Safari/537.36"
 _PROPERTY_SCOUT_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".avif")
 _PROPERTY_SCOUT_FLOORPLAN_ASSET_EXTENSIONS = (*_PROPERTY_SCOUT_IMAGE_EXTENSIONS, ".pdf")
@@ -895,9 +894,273 @@ def _property_public_preview_cache_key(
     ]
     return hashlib.sha256("|".join(coarse_parts).encode("utf-8", errors="ignore")).hexdigest()
 
+
+def _property_public_preview_safe_facts(
+    property_facts: dict[str, object] | None,
+) -> dict[str, object]:
+    """Project coarse scalar facts into the cross-principal preview cache.
+
+    Distance values and their signed receipts are one inseparable trust unit:
+    without the exact listing coordinates the receipt cannot be revalidated,
+    while keeping the nested receipt would also disclose the coordinates that
+    this public cache is designed to omit.  Public previews therefore retain
+    coarse listing facts only; principal-scoped search/detail paths re-fetch
+    exact nearby facts when they are needed.
+    """
+    allowed_scalar_keys = {
+        "accessible",
+        "area_label",
+        "area_m2",
+        "area_sqm",
+        "availability_date",
+        "availability_label",
+        "available_from",
+        "available_from_iso",
+        "balcony_available",
+        "barrier_free",
+        "bathrooms",
+        "bedrooms",
+        "buy_price_display",
+        "buy_price_eur",
+        "category",
+        "cold_rent_display",
+        "cold_rent_eur",
+        "condition",
+        "country_code",
+        "currency",
+        "deal_type",
+        "elevator_available",
+        "energy_class",
+        "floor",
+        "floorplan_available",
+        "floorplan_count",
+        "floorplans_count",
+        "furnished",
+        "garden_available",
+        "has_balcony",
+        "has_elevator",
+        "has_floorplan",
+        "has_garden",
+        "has_parking",
+        "has_terrace",
+        "heating_type",
+        "is_new_build",
+        "kaufpreis_display",
+        "kaufpreis_eur",
+        "listing_mode",
+        "listing_type",
+        "living_area_m2",
+        "living_area_sqm",
+        "marketing_type",
+        "monthly_rent_eur",
+        "monthly_rent_display",
+        "move_in",
+        "move_in_date",
+        "object_type",
+        "offer_type",
+        "parking_available",
+        "pets_allowed",
+        "postal_code",
+        "postal_name",
+        "price",
+        "price_display",
+        "price_eur",
+        "property_subtype",
+        "property_type",
+        "provider_channel",
+        "purchase_price_display",
+        "purchase_price_eur",
+        "quiet_layout_signal",
+        "region_code",
+        "rent_display",
+        "rent_eur",
+        "reserve_price_eur",
+        "rooms",
+        "rooms_label",
+        "source_family",
+        "source_platform",
+        "terrace_available",
+        "total_rent_display",
+        "total_rent_eur",
+        "transaction_type",
+        "usable_area_m2",
+        "usable_area_sqm",
+        "valuation_eur",
+        "warm_rent_display",
+        "warm_rent_eur",
+        "wohnflaeche_sqm",
+        "wohnfläche_sqm",
+        "year_built",
+    }
+    unsafe_serialized_geo = re.compile(
+        r"(?:map[_ -]?(?:lat|lng)|listing_(?:lat|lng|lon|latitude|longitude)|"
+        r"poi_(?:lat|lng|lon|latitude|longitude)|location_(?:lat|lng|lon|latitude|longitude)|"
+        r"property_fact_evidence|provider_attestation|exact_address|street_address|"
+        r"house_number|[\"']?(?:lat|lng|lon|latitude|longitude)[\"']?\s*[:=])",
+        flags=re.IGNORECASE,
+    )
+    unsafe_credential_text = re.compile(
+        r"(?:api[_ -]?key|authorization|bearer|cookie|credential|internal|"
+        r"oauth|password|secret|session|token)",
+        flags=re.IGNORECASE,
+    )
+    coordinate_pair_text = re.compile(
+        r"[-+]?\d{1,3}\.\d+\s*[,;/]\s*[-+]?\d{1,3}\.\d+",
+    )
+    exact_street_text = re.compile(
+        r"(?:\b\d{1,5}[A-Za-z]?\s+[A-Za-zÀ-ž.' -]+\s+"
+        r"(?:avenue|boulevard|drive|gasse|lane|platz|road|strasse|straße|street|weg)\b|"
+        r"\b[A-Za-zÀ-ž.' -]*(?:gasse|platz|strasse|straße|street|weg)\s+\d{1,5}[A-Za-z]?\b)",
+        flags=re.IGNORECASE,
+    )
+    provider_identifier_keys = {
+        "provider_channel",
+        "source_family",
+        "source_platform",
+    }
+    bounded_coarse_place_keys = {"postal_name"}
+    numeric_fact_keys = {
+        "area_m2",
+        "area_sqm",
+        "bathrooms",
+        "bedrooms",
+        "buy_price_eur",
+        "cold_rent_eur",
+        "floorplan_count",
+        "floorplans_count",
+        "kaufpreis_eur",
+        "living_area_m2",
+        "living_area_sqm",
+        "monthly_rent_eur",
+        "price_eur",
+        "purchase_price_eur",
+        "rent_eur",
+        "reserve_price_eur",
+        "rooms",
+        "total_rent_eur",
+        "usable_area_m2",
+        "usable_area_sqm",
+        "valuation_eur",
+        "warm_rent_eur",
+        "wohnflaeche_sqm",
+        "wohnfläche_sqm",
+        "year_built",
+    }
+    boolean_fact_keys = {
+        "accessible",
+        "balcony_available",
+        "barrier_free",
+        "elevator_available",
+        "floorplan_available",
+        "furnished",
+        "garden_available",
+        "has_balcony",
+        "has_elevator",
+        "has_floorplan",
+        "has_garden",
+        "has_parking",
+        "has_terrace",
+        "is_new_build",
+        "parking_available",
+        "pets_allowed",
+        "terrace_available",
+    }
+    projected: dict[str, object] = {}
+    for raw_key, value in dict(property_facts or {}).items():
+        key = str(raw_key or "").strip().casefold()
+        if key not in allowed_scalar_keys or value is None or isinstance(
+            value,
+            (dict, list, tuple, set, bytes),
+        ):
+            continue
+        if not isinstance(value, (str, int, float, bool)):
+            continue
+        if key in boolean_fact_keys:
+            if isinstance(value, bool):
+                pass
+            elif isinstance(value, (int, float)) and not isinstance(value, bool):
+                if not math.isfinite(float(value)) or float(value) not in {0.0, 1.0}:
+                    continue
+                value = bool(int(value))
+            elif isinstance(value, str):
+                normalized_boolean = value.strip().casefold()
+                if normalized_boolean in {"1", "true", "yes"}:
+                    value = True
+                elif normalized_boolean in {"0", "false", "no"}:
+                    value = False
+                else:
+                    continue
+            else:
+                continue
+        if key in numeric_fact_keys and isinstance(value, bool):
+            continue
+        if isinstance(value, float) and not math.isfinite(value):
+            continue
+        if isinstance(value, str):
+            normalized_value = value.strip()
+            if (
+                not normalized_value
+                or len(normalized_value) > 160
+                or unsafe_serialized_geo.search(normalized_value)
+                or unsafe_credential_text.search(normalized_value)
+                or coordinate_pair_text.search(normalized_value)
+                or exact_street_text.search(normalized_value)
+            ):
+                continue
+            if normalized_value[:1] in {"{", "["}:
+                try:
+                    decoded = json.loads(normalized_value)
+                except (TypeError, ValueError):
+                    decoded = None
+                if isinstance(decoded, (dict, list)):
+                    continue
+            if key in provider_identifier_keys and not re.fullmatch(
+                r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}",
+                normalized_value,
+            ):
+                continue
+            if key == "postal_code" and not re.fullmatch(
+                r"[A-Za-z0-9][A-Za-z0-9 -]{0,11}",
+                normalized_value,
+            ):
+                continue
+            if key in bounded_coarse_place_keys and (
+                len(normalized_value) > 80
+                or not re.fullmatch(
+                    r"[A-Za-zÀ-ž0-9 .()'/-]+",
+                    normalized_value,
+                )
+                or re.search(
+                    r"\b(?:avenue|boulevard|drive|gasse|house|lane|platz|road|"
+                    r"strasse|straße|street|weg)\b",
+                    normalized_value,
+                    flags=re.IGNORECASE,
+                )
+            ):
+                continue
+            if key in numeric_fact_keys and not re.fullmatch(
+                r"[-+]?\d+(?:[.,]\d+)?",
+                normalized_value.replace(" ", ""),
+            ):
+                continue
+            if key in numeric_fact_keys:
+                try:
+                    if not math.isfinite(
+                        float(normalized_value.replace(" ", "").replace(",", "."))
+                    ):
+                        continue
+                except ValueError:
+                    continue
+            value = normalized_value
+        projected[key] = value
+    return projected
+
+
 def _property_public_preview_cache_payload(preview: dict[str, object] | None) -> dict[str, object]:
     payload = dict(preview or {})
-    facts = _safe_teable_facts(dict(payload.get("property_facts_json") or {}))
+    facts = _property_public_preview_safe_facts(
+        dict(payload.get("property_facts_json") or {})
+    )
     return {
         "property_url": urllib.parse.urldefrag(str(payload.get("property_url") or payload.get("listing_id") or "").strip())[0],
         "listing_id": str(payload.get("listing_id") or "").strip(),

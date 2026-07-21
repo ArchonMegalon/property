@@ -5666,7 +5666,34 @@
           row.classList.toggle('is-active', enabled);
           row.classList.toggle('is-avoid', state === 'avoid');
           row.classList.toggle('is-hard', state === 'must_have');
-          if (distanceSelect instanceof HTMLSelectElement) distanceSelect.disabled = !enabled;
+          const keywordValue = String(row.getAttribute('data-keyword-value') || '').trim();
+          if (distanceSelect instanceof HTMLSelectElement) {
+            distanceSelect.disabled = !enabled;
+            const distanceFieldName = keywordDistancePreferenceKey(keywordValue);
+            const distanceField = distanceFieldName
+              ? form.querySelector(`[name="${CSS.escape(distanceFieldName)}"]`)
+              : null;
+            if (distanceField instanceof HTMLInputElement || distanceField instanceof HTMLSelectElement || distanceField instanceof HTMLTextAreaElement) {
+              const nextDistanceValue = enabled ? String(distanceSelect.value || '500') : '0';
+              if (String(distanceField.value || '') !== nextDistanceValue) {
+                distanceField.value = nextDistanceValue;
+                distanceField.dispatchEvent(new Event('input', { bubbles: false }));
+                distanceField.dispatchEvent(new Event('change', { bubbles: false }));
+              }
+            }
+          }
+          const importanceFieldName = keywordImportancePreferenceKey(keywordValue);
+          const importanceField = importanceFieldName
+            ? form.querySelector(`[name="${CSS.escape(importanceFieldName)}"]`)
+            : null;
+          if (importanceField instanceof HTMLSelectElement) {
+            const nextImportanceValue = enabled
+              ? (state === 'must_have' ? 'must_have' : state === 'avoid' ? 'avoid' : state === 'nice_to_have' ? 'nice_to_have' : 'strong_wish')
+              : 'nice_to_have';
+            if (String(importanceField.value || '') !== nextImportanceValue) {
+              importanceField.value = nextImportanceValue;
+            }
+          }
         });
         if (typeof syncWhatMattersGroupDistanceActivity === 'function') syncWhatMattersGroupDistanceActivity(form);
         if (typeof syncWhatMattersMobileGroups === 'function') syncWhatMattersMobileGroups(form, { preferredGroup });
@@ -5733,7 +5760,9 @@
           }
           const importanceField = form.querySelector(`[name="max_distance_to_${CSS.escape(String(preferenceSelect.getAttribute('data-school-value') || ''))}_importance"]`);
           if (importanceField instanceof HTMLSelectElement) {
-            const nextImportanceValue = enabled ? (state === 'must_have' ? 'must_have' : state === 'nice_to_have' ? 'nice_to_have' : 'important') : 'important';
+            const nextImportanceValue = enabled
+              ? (state === 'must_have' ? 'must_have' : state === 'avoid' ? 'avoid' : state === 'nice_to_have' ? 'nice_to_have' : 'strong_wish')
+              : 'nice_to_have';
             if (String(importanceField.value || '') !== nextImportanceValue) {
               importanceField.value = nextImportanceValue;
             }
@@ -5759,7 +5788,7 @@
           if (!schoolValue || state === 'any') return;
           selectedStages.push(schoolValue);
           if (state === 'must_have') strongest = 'very_important';
-          else if (state === 'important' && strongest !== 'very_important') strongest = 'important';
+          else if (['strong_wish', 'important'].includes(state) && strongest !== 'very_important') strongest = 'important';
         });
         setCheckboxValues(form, 'school_stage_preferences', selectedStages);
         const schoolEvidenceField = form.querySelector('input[name="require_school_evidence"]');
@@ -5874,7 +5903,7 @@
         'flaniermeile nearby': 'max_distance_to_shopping_street_m',
         'shopping street nearby': 'max_distance_to_shopping_street_m',
         'theatre nearby': 'max_distance_to_theatre_m',
-        'pharmacy nearby': 'max_distance_to_medical_care_m',
+        'pharmacy nearby': 'max_distance_to_pharmacy_m',
         'underground nearby': 'max_distance_to_subway_m',
       }[String(keywordValue || '').trim()] || '');
       const keywordImportancePreferenceKey = (keywordValue) => ({
@@ -5891,7 +5920,7 @@
         'flaniermeile nearby': 'max_distance_to_shopping_street_importance',
         'shopping street nearby': 'max_distance_to_shopping_street_importance',
         'theatre nearby': 'max_distance_to_theatre_importance',
-        'pharmacy nearby': 'max_distance_to_medical_care_importance',
+        'pharmacy nearby': 'max_distance_to_pharmacy_importance',
         'underground nearby': 'max_distance_to_subway_importance',
       }[String(keywordValue || '').trim()] || '');
       const csvPreferenceValueSet = (value) => new Set(
@@ -5903,7 +5932,7 @@
       const normalizeKeywordPreferenceState = (value) => {
         const normalized = String(value || '').trim().toLowerCase();
         if (normalized === 'hard' || normalized === 'required' || normalized === 'strict') return 'must_have';
-        if (normalized === 'preferred') return 'important';
+        if (normalized === 'preferred' || normalized === 'important') return 'strong_wish';
         if (normalized === 'neutral') return 'any';
         return normalized;
       };
@@ -5932,8 +5961,6 @@
       const nearbyKeywordPreferenceStateFromDistance = (distance) => {
         const parsedDistance = Number.parseInt(String(distance || ''), 10);
         if (!Number.isFinite(parsedDistance) || parsedDistance <= 0) return 'any';
-        if (parsedDistance <= 250) return 'must_have';
-        if (parsedDistance <= 500) return 'important';
         return 'nice_to_have';
       };
       const keywordPreferenceStateFromSaved = (
@@ -5949,7 +5976,7 @@
         if ([
           'avoid',
           'nice_to_have',
-          'important',
+          'strong_wish',
           'must_have',
           'low',
           'medium',
@@ -5960,11 +5987,13 @@
         const nearbyImportanceKey = keywordImportancePreferenceKey(keywordValue);
         const nearbyImportance = normalizeKeywordPreferenceState(nearbyImportanceKey ? preferences?.[nearbyImportanceKey] : '');
         const nearbyDistance = preferences?.[keywordDistancePreferenceKey(keywordValue)];
+        const nearbyDistanceActive = Number.parseInt(String(nearbyDistance || ''), 10) > 0;
         if (selectedAvoidKeywordValues.has(normalizedKeyword)) return 'avoid';
-        if (normalizedKeyword === 'playground nearby' && ['must_have', 'important', 'nice_to_have'].includes(nearbyImportance)) {
+        if (normalizedKeyword === 'playground nearby' && nearbyDistanceActive && ['must_have', 'strong_wish', 'nice_to_have', 'avoid'].includes(nearbyImportance)) {
           return nearbyImportance;
         }
         if (normalizedKeyword === 'underground nearby') {
+          if (nearbyDistanceActive && ['must_have', 'strong_wish', 'nice_to_have', 'avoid'].includes(nearbyImportance)) return nearbyImportance;
           const distanceState = nearbyKeywordPreferenceStateFromDistance(nearbyDistance);
           return distanceState === 'any' ? 'any' : distanceState;
         }
@@ -5983,22 +6012,22 @@
           'theatre nearby',
           'pharmacy nearby',
         ].includes(normalizedKeyword)) {
-          if (['must_have', 'important', 'nice_to_have'].includes(nearbyImportance)) return nearbyImportance;
+          if (nearbyDistanceActive && ['must_have', 'strong_wish', 'nice_to_have', 'avoid'].includes(nearbyImportance)) return nearbyImportance;
           return nearbyKeywordPreferenceStateFromDistance(nearbyDistance);
         }
-        if (normalizedKeyword === 'good air quality') return preferences?.prefer_good_air_quality ? 'important' : 'any';
-        if (normalizedKeyword === 'klimaerwaermungsfit') return preferences?.prefer_heat_resilient_home ? 'important' : 'any';
+        if (normalizedKeyword === 'good air quality') return preferences?.prefer_good_air_quality ? 'strong_wish' : 'any';
+        if (normalizedKeyword === 'klimaerwaermungsfit') return preferences?.prefer_heat_resilient_home ? 'strong_wish' : 'any';
         if (normalizedKeyword === 'avoid noise-risk area') return preferences?.avoid_noise_risk_area ? 'avoid' : 'any';
         if (normalizedKeyword === 'high-speed internet') return preferences?.require_high_speed_internet ? 'must_have' : 'any';
-        if (normalizedKeyword === 'low crime area') return preferences?.prefer_low_crime_area ? 'important' : 'any';
-        if (normalizedKeyword === 'water and groundwater check') return preferences?.require_drinking_water_quality_research ? 'important' : 'any';
+        if (normalizedKeyword === 'low crime area') return preferences?.prefer_low_crime_area ? 'strong_wish' : 'any';
+        if (normalizedKeyword === 'water and groundwater check') return preferences?.require_drinking_water_quality_research ? 'strong_wish' : 'any';
         if (normalizedKeyword === 'parking pressure check') {
           const storedPressure = String(preferences?.parking_pressure_preference || preferences?.parking_pressure_tolerance || '').trim().toLowerCase();
           if (storedPressure === 'low' || storedPressure === 'medium' || storedPressure === 'high') return storedPressure;
           return preferences?.require_parking_pressure_check ? 'medium' : 'any';
         }
         if (normalizedKeyword === 'avoid septic risk') return preferences?.avoid_cesspit_or_septic_risk ? 'avoid' : 'any';
-        if (normalizedKeyword === 'winter driving check') return preferences?.require_winter_access_research ? 'important' : 'any';
+        if (normalizedKeyword === 'winter driving check') return preferences?.require_winter_access_research ? 'strong_wish' : 'any';
         if (normalizedKeyword === 'avoid flood-risk area') return preferences?.avoid_flood_risk_area ? 'avoid' : 'any';
         if (normalizedKeyword === 'barrier-free') return preferences?.require_barrier_free ? 'must_have' : 'any';
         if (selectedKeywordValues.has(normalizedKeyword)) return 'must_have';
@@ -6015,13 +6044,18 @@
           ganztags_volksschule: 'max_distance_to_ganztags_volksschule_importance',
           halbtags_volksschule: 'max_distance_to_halbtags_volksschule_importance',
         })[String(schoolValue || '').trim().toLowerCase()] || '';
-        const directPriority = String(directPriorityKey ? preferences?.[directPriorityKey] : '').trim().toLowerCase();
-        if (directPriority === 'must_have' || directPriority === 'very_important') return 'must_have';
-        if (directPriority === 'important') return 'important';
-        if (directPriority === 'nice_to_have') return 'nice_to_have';
+        const directPriority = normalizeKeywordPreferenceState(
+          directPriorityKey ? preferences?.[directPriorityKey] : '',
+        );
+        const directDistanceKey = directPriorityKey.replace(/_importance$/, '_m');
+        const directDistanceActive = Number.parseInt(String(preferences?.[directDistanceKey] || ''), 10) > 0;
+        if (directDistanceActive && (directPriority === 'must_have' || directPriority === 'very_important')) return 'must_have';
+        if (directDistanceActive && directPriority === 'strong_wish') return 'strong_wish';
+        if (directDistanceActive && directPriority === 'nice_to_have') return 'nice_to_have';
+        if (directDistanceActive && directPriority === 'avoid') return 'avoid';
         const priority = String(preferences?.school_evidence_priority || '').trim().toLowerCase();
         if (priority === 'very_important' || priority === 'must_have') return 'must_have';
-        if (priority === 'important') return 'important';
+        if (priority === 'important' || priority === 'strong_wish') return 'strong_wish';
         return 'nice_to_have';
       };
       const whatMattersSnapshotFromPreferences = (preferences) => {
@@ -6287,7 +6321,7 @@
         }
         if (integerValue(form, 'max_distance_to_playground_m') === null) {
           const playgroundImportanceField = form.querySelector('[name="max_distance_to_playground_importance"]');
-          if (playgroundImportanceField) playgroundImportanceField.value = 'important';
+          if (playgroundImportanceField) playgroundImportanceField.value = 'nice_to_have';
         }
         if (integerValue(form, 'max_distance_to_library_m') === null) {
           const libraryImportanceField = form.querySelector('[name="max_distance_to_library_importance"]');
@@ -6295,7 +6329,7 @@
         }
         if (integerValue(form, 'max_distance_to_supermarket_m') === null) {
           const supermarketImportanceField = form.querySelector('[name="max_distance_to_supermarket_importance"]');
-          if (supermarketImportanceField) supermarketImportanceField.value = 'important';
+          if (supermarketImportanceField) supermarketImportanceField.value = 'nice_to_have';
         }
         if (!searchAgentEnabled) {
           const searchAgentDurationField = form.querySelector('[name="search_agent_duration_days"]');

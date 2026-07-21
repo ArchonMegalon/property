@@ -4,6 +4,7 @@ import base64
 import hashlib
 import hmac
 import json
+import math
 import os
 import secrets
 import time
@@ -11,11 +12,16 @@ import urllib.parse
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.api.dependencies import RequestContext, get_container, get_request_context, resolve_principal_id
 from app.api.routes.landing import _normalize_browser_return_to
 from app.container import AppContainer
+from app.property_distance_preferences import (
+    normalize_property_distance_importance,
+    property_distance_importance_key,
+    property_distance_preference_keys,
+)
 from app.product.service import build_product_service
 from app.services.google_oauth import (
     complete_google_oauth_callback,
@@ -275,7 +281,23 @@ class OnboardingWhatsappExportAckOut(OnboardingEnvelopeOut):
     whatsapp_export: dict[str, object] = Field(default_factory=dict)
 
 
+_PROPERTY_SEARCH_DISTANCE_RADIUS_KEYS = frozenset(
+    property_distance_preference_keys()
+)
+_PROPERTY_SEARCH_DISTANCE_IMPORTANCE_KEYS = frozenset(
+    property_distance_importance_key(key)
+    for key in _PROPERTY_SEARCH_DISTANCE_RADIUS_KEYS
+)
+_PROPERTY_SEARCH_DISTANCE_INPUT_KEYS = (
+    _PROPERTY_SEARCH_DISTANCE_RADIUS_KEYS
+    | _PROPERTY_SEARCH_DISTANCE_IMPORTANCE_KEYS
+)
+
+
 class OnboardingPropertySearchPreferencesIn(BaseModel):
+    # This endpoint has a large backwards-compatible non-distance preference
+    # surface. Dynamic distance fields are nevertheless fail-closed against
+    # the shared fact registry in the pre-validator below.
     model_config = ConfigDict(extra="allow")
 
     country_code: str = "AT"
@@ -294,6 +316,73 @@ class OnboardingPropertySearchPreferencesIn(BaseModel):
     use_stored_feedback_preferences: bool = True
     alert_frequency: str = "daily"
     alert_channels: list[str] = Field(default_factory=lambda: ["telegram"])
+
+    @model_validator(mode="before")
+    @classmethod
+    def _validate_registry_distance_preferences(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        seen: set[int] = set()
+
+        def _validated_layer(source: dict[object, object], *, depth: int) -> dict[object, object]:
+            if depth > 32 or id(source) in seen:
+                raise ValueError("invalid nested property search preferences")
+            seen.add(id(source))
+            payload = dict(source)
+            for raw_key in tuple(payload):
+                raw_key_text = str(raw_key or "")
+                key = raw_key_text.strip()
+                if not key.casefold().startswith("max_distance_to_"):
+                    continue
+                if (
+                    not isinstance(raw_key, str)
+                    or raw_key != key
+                    or key not in _PROPERTY_SEARCH_DISTANCE_INPUT_KEYS
+                ):
+                    raise ValueError(
+                        f"unknown property distance preference: {raw_key_text}"
+                    )
+                raw_value = payload[raw_key]
+                if key in _PROPERTY_SEARCH_DISTANCE_IMPORTANCE_KEYS:
+                    if raw_value in (None, ""):
+                        continue
+                    normalized = normalize_property_distance_importance(
+                        raw_value,
+                        default="",
+                    )
+                    if not normalized:
+                        raise ValueError(
+                            f"invalid property distance importance for {key}"
+                        )
+                    payload[raw_key] = normalized
+                    continue
+                if raw_value in (None, ""):
+                    continue
+                if isinstance(raw_value, bool):
+                    raise ValueError(f"invalid property distance radius for {key}")
+                try:
+                    numeric_value = float(str(raw_value).strip())
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(
+                        f"invalid property distance radius for {key}"
+                    ) from exc
+                if (
+                    not math.isfinite(numeric_value)
+                    or not numeric_value.is_integer()
+                    or numeric_value < 0
+                    or numeric_value > 7000
+                ):
+                    raise ValueError(f"invalid property distance radius for {key}")
+                payload[raw_key] = int(numeric_value)
+            nested = payload.get("raw_preferences")
+            if isinstance(nested, dict):
+                payload["raw_preferences"] = _validated_layer(
+                    nested,
+                    depth=depth + 1,
+                )
+            return payload
+
+        return _validated_layer(value, depth=0)
 
 
 class OnboardingPropertySearchPreferencesOut(OnboardingEnvelopeOut):

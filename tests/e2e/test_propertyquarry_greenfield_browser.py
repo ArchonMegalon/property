@@ -31,6 +31,10 @@ Server = uvicorn.Server
 from app.api.app import create_app
 from app.api.routes import landing as landing_routes
 from app.api.routes.public_tours import _tour_control_panorama_html
+from app.property_distance_preferences import (
+    property_distance_importance_key,
+    property_distance_preference_keys,
+)
 from app.product import property_evidence_overlays as evidence_overlays
 from app.product.models import HandoffNote
 from app.product.service import ProductService
@@ -53,6 +57,19 @@ _PROPERTYQUARRY_CHROMIUM_LAUNCH_ARGS = (
     "--disable-software-rasterizer",
     "--no-proxy-server",
     "--autoplay-policy=no-user-gesture-required",
+)
+_CATALOG_DISTANCE_RADIUS_KEYS = property_distance_preference_keys(
+    canonical_only=True
+)
+_CATALOG_DISTANCE_IMPORTANCE_KEYS = tuple(
+    property_distance_importance_key(key)
+    for key in _CATALOG_DISTANCE_RADIUS_KEYS
+)
+_CANONICAL_DISTANCE_IMPORTANCE_VALUES = (
+    "must_have",
+    "strong_wish",
+    "nice_to_have",
+    "avoid",
 )
 
 
@@ -6751,6 +6768,75 @@ def test_propertyquarry_what_matters_save_and_load_round_trip_visible_keyword_co
         response = page.goto(f"{base_url}/app/search", wait_until="domcontentloaded")
         assert response is not None and response.ok
         page.locator('[data-console-form-variant="property_search"]').wait_for(state="visible")
+        catalog_distance_contract = page.evaluate(
+            """
+            () => JSON.parse(String(document.querySelector(
+              '[data-property-distance-preference-contract]'
+            )?.textContent || '[]'))
+            """
+        )
+        assert len(catalog_distance_contract) == len(_CATALOG_DISTANCE_RADIUS_KEYS)
+        assert all(
+            row[0] == expected_distance_key
+            and row[2] in _CANONICAL_DISTANCE_IMPORTANCE_VALUES
+            and (
+                row[1] is None
+                or isinstance(row[1], int)
+                and 0 <= row[1] <= 7000
+            )
+            for row, expected_distance_key in zip(
+                catalog_distance_contract,
+                _CATALOG_DISTANCE_RADIUS_KEYS,
+                strict=True,
+            )
+        ), catalog_distance_contract
+        assert tuple(
+            property_distance_importance_key(str(row[0]))
+            for row in catalog_distance_contract
+        ) == _CATALOG_DISTANCE_IMPORTANCE_KEYS
+        rendered_catalog_importance_contract = page.evaluate(
+            """
+            (expectedNames) => Array.from(document.querySelectorAll('select'))
+              .filter((node) => expectedNames.includes(node.getAttribute('name')))
+              .map((node) => ({
+                name: node.getAttribute('name'),
+                values: Array.from(node.options).map((option) => option.value),
+              }))
+            """,
+            list(_CATALOG_DISTANCE_IMPORTANCE_KEYS),
+        )
+        assert rendered_catalog_importance_contract
+        assert all(
+            row["name"] in _CATALOG_DISTANCE_IMPORTANCE_KEYS
+            and row["values"] == list(_CANONICAL_DISTANCE_IMPORTANCE_VALUES)
+            for row in rendered_catalog_importance_contract
+        ), rendered_catalog_importance_contract
+        visible_distance_importance_contract = page.evaluate(
+            """
+            () => Array.from(document.querySelectorAll(
+              '[data-keyword-priority-row], [data-school-priority-row]'
+            )).flatMap((row) => {
+              const hasDistance = row.querySelector(
+                '[data-keyword-distance-select], [data-school-distance-select]'
+              );
+              const select = row.querySelector(
+                '[data-keyword-preference-select], [data-school-preference-select]'
+              );
+              if (!hasDistance || !(select instanceof HTMLSelectElement)) return [];
+              return [{
+                label: row.getAttribute('aria-label') || '',
+                values: Array.from(select.options).map((option) => option.value),
+              }];
+            })
+            """
+        )
+        assert visible_distance_importance_contract
+        for row in visible_distance_importance_contract:
+            values = list(row["values"])
+            assert "important" not in values, row
+            assert set(values) - {"any"} == set(
+                _CANONICAL_DISTANCE_IMPORTANCE_VALUES
+            ), row
         set_select_value = """
             (node, value) => {
               if (!(node instanceof HTMLSelectElement)) return;
@@ -6802,6 +6888,14 @@ def test_propertyquarry_what_matters_save_and_load_round_trip_visible_keyword_co
             row.scroll_into_view_if_needed()
             return row, row.locator("[data-keyword-preference-select]"), row.locator("[data-keyword-distance-select]")
 
+        def _open_pharmacy_controls() -> tuple[object, object, object]:
+            page.wait_for_function(ensure_children_step)
+            row = page.locator('[data-keyword-priority-row][data-keyword-value="pharmacy nearby"]')
+            row.evaluate(open_details_group)
+            expect(row).to_be_visible()
+            row.scroll_into_view_if_needed()
+            return row, row.locator("[data-keyword-preference-select]"), row.locator("[data-keyword-distance-select]")
+
         def _open_kindergarten_controls() -> tuple[object, object, object]:
             page.wait_for_function(ensure_children_step)
             row = page.locator('[data-school-priority-row][data-school-value="kindergarten"]')
@@ -6813,6 +6907,7 @@ def test_propertyquarry_what_matters_save_and_load_round_trip_visible_keyword_co
         playground_row, preference, distance = _open_playground_controls()
         market_row, market_preference, market_distance = _open_market_controls()
         subway_row, subway_preference, subway_distance = _open_subway_controls()
+        pharmacy_row, pharmacy_preference, pharmacy_distance = _open_pharmacy_controls()
         kindergarten_row, kindergarten_preference, kindergarten_distance = _open_kindergarten_controls()
         parking_pressure = page.locator('[data-keyword-priority-row][data-keyword-value="parking pressure check"] [data-keyword-preference-select]')
         low_crime = page.locator('[data-keyword-priority-row][data-keyword-value="low crime area"] [data-keyword-preference-select]')
@@ -6835,22 +6930,26 @@ def test_propertyquarry_what_matters_save_and_load_round_trip_visible_keyword_co
         page.evaluate("() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))")
         distance.evaluate(set_select_value, "500")
         expect(distance).to_have_value("500")
-        market_preference.evaluate(set_select_value, "important")
-        expect(market_preference).to_have_value("important")
+        market_preference.evaluate(set_select_value, "strong_wish")
+        expect(market_preference).to_have_value("strong_wish")
         market_distance.evaluate(set_select_value, "1000")
         expect(market_distance).to_have_value("1000")
-        subway_preference.evaluate(set_select_value, "important")
-        expect(subway_preference).to_have_value("important")
+        subway_preference.evaluate(set_select_value, "strong_wish")
+        expect(subway_preference).to_have_value("strong_wish")
         subway_distance.evaluate(set_select_value, "500")
         expect(subway_distance).to_have_value("500")
+        pharmacy_preference.evaluate(set_select_value, "nice_to_have")
+        expect(pharmacy_preference).to_have_value("nice_to_have")
+        pharmacy_distance.evaluate(set_select_value, "500")
+        expect(pharmacy_distance).to_have_value("500")
         kindergarten_preference.evaluate(set_select_value, "must_have")
         expect(kindergarten_preference).to_have_value("must_have")
         kindergarten_distance.evaluate(set_select_value, "500")
         expect(kindergarten_distance).to_have_value("500")
         parking_pressure.evaluate(set_select_value, "high")
         expect(parking_pressure).to_have_value("high")
-        low_crime.evaluate(set_select_value, "important")
-        expect(low_crime).to_have_value("important")
+        low_crime.evaluate(set_select_value, "strong_wish")
+        expect(low_crime).to_have_value("strong_wish")
         flood_risk.evaluate(set_select_value, "avoid")
         expect(flood_risk).to_have_value("avoid")
         _click_visible_what_matters_action(page, "save")
@@ -6859,16 +6958,17 @@ def test_propertyquarry_what_matters_save_and_load_round_trip_visible_keyword_co
         playground_row, preference, distance = _open_playground_controls()
         market_row, market_preference, market_distance = _open_market_controls()
         subway_row, subway_preference, subway_distance = _open_subway_controls()
+        pharmacy_row, pharmacy_preference, pharmacy_distance = _open_pharmacy_controls()
         kindergarten_row, kindergarten_preference, kindergarten_distance = _open_kindergarten_controls()
         parking_pressure = page.locator('[data-keyword-priority-row][data-keyword-value="parking pressure check"] [data-keyword-preference-select]')
         low_crime = page.locator('[data-keyword-priority-row][data-keyword-value="low crime area"] [data-keyword-preference-select]')
         flood_risk = page.locator('[data-keyword-priority-row][data-keyword-value="avoid flood-risk area"] [data-keyword-preference-select]')
-        preference.select_option("important")
-        expect(preference).to_have_value("important")
+        preference.select_option("strong_wish")
+        expect(preference).to_have_value("strong_wish")
         page.wait_for_function(
             """
             () => document.querySelector('[data-keyword-priority-row][data-keyword-value="playground nearby"]')
-              ?.getAttribute('data-preference-state') === 'important'
+              ?.getAttribute('data-preference-state') === 'strong_wish'
             """
         )
         distance.evaluate(set_select_value, "2000")
@@ -6881,6 +6981,10 @@ def test_propertyquarry_what_matters_save_and_load_round_trip_visible_keyword_co
         expect(subway_preference).to_have_value("nice_to_have")
         subway_distance.evaluate(set_select_value, "1000")
         expect(subway_distance).to_have_value("1000")
+        pharmacy_preference.evaluate(set_select_value, "avoid")
+        expect(pharmacy_preference).to_have_value("avoid")
+        pharmacy_distance.evaluate(set_select_value, "2000")
+        expect(pharmacy_distance).to_have_value("2000")
         kindergarten_preference.evaluate(set_select_value, "nice_to_have")
         expect(kindergarten_preference).to_have_value("nice_to_have")
         kindergarten_distance.evaluate(set_select_value, "2000")
@@ -6896,19 +7000,22 @@ def test_propertyquarry_what_matters_save_and_load_round_trip_visible_keyword_co
         expect(page.locator('[data-property-inline-status]').first).to_contain_text("Loaded saved what matters.")
         expect(preference).to_have_value("nice_to_have")
         expect(distance).to_have_value("500")
-        expect(market_preference).to_have_value("important")
+        expect(market_preference).to_have_value("strong_wish")
         expect(market_distance).to_have_value("1000")
-        expect(subway_preference).to_have_value("important")
+        expect(subway_preference).to_have_value("strong_wish")
         expect(subway_distance).to_have_value("500")
+        expect(pharmacy_preference).to_have_value("nice_to_have")
+        expect(pharmacy_distance).to_have_value("500")
         expect(kindergarten_preference).to_have_value("must_have")
         expect(kindergarten_distance).to_have_value("500")
         expect(parking_pressure).to_have_value("high")
-        expect(low_crime).to_have_value("important")
+        expect(low_crime).to_have_value("strong_wish")
         expect(flood_risk).to_have_value("avoid")
 
         playground_row, preference, distance = _open_playground_controls()
         market_row, market_preference, market_distance = _open_market_controls()
         subway_row, subway_preference, subway_distance = _open_subway_controls()
+        pharmacy_row, pharmacy_preference, pharmacy_distance = _open_pharmacy_controls()
         kindergarten_row, kindergarten_preference, kindergarten_distance = _open_kindergarten_controls()
         parking_pressure = page.locator('[data-keyword-priority-row][data-keyword-value="parking pressure check"] [data-keyword-preference-select]')
         low_crime = page.locator('[data-keyword-priority-row][data-keyword-value="low crime area"] [data-keyword-preference-select]')
@@ -6930,22 +7037,26 @@ def test_propertyquarry_what_matters_save_and_load_round_trip_visible_keyword_co
         page.evaluate("() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))")
         distance.evaluate(set_select_value, "1000")
         expect(distance).to_have_value("1000")
-        market_preference.evaluate(set_select_value, "important")
-        expect(market_preference).to_have_value("important")
+        market_preference.evaluate(set_select_value, "strong_wish")
+        expect(market_preference).to_have_value("strong_wish")
         market_distance.evaluate(set_select_value, "2000")
         expect(market_distance).to_have_value("2000")
-        subway_preference.evaluate(set_select_value, "must_have")
-        expect(subway_preference).to_have_value("must_have")
+        subway_preference.evaluate(set_select_value, "nice_to_have")
+        expect(subway_preference).to_have_value("nice_to_have")
         subway_distance.evaluate(set_select_value, "250")
         expect(subway_distance).to_have_value("250")
-        kindergarten_preference.evaluate(set_select_value, "important")
-        expect(kindergarten_preference).to_have_value("important")
+        pharmacy_preference.evaluate(set_select_value, "strong_wish")
+        expect(pharmacy_preference).to_have_value("strong_wish")
+        pharmacy_distance.evaluate(set_select_value, "250")
+        expect(pharmacy_distance).to_have_value("250")
+        kindergarten_preference.evaluate(set_select_value, "avoid")
+        expect(kindergarten_preference).to_have_value("avoid")
         kindergarten_distance.evaluate(set_select_value, "1000")
         expect(kindergarten_distance).to_have_value("1000")
         parking_pressure.evaluate(set_select_value, "medium")
         expect(parking_pressure).to_have_value("medium")
-        low_crime.evaluate(set_select_value, "important")
-        expect(low_crime).to_have_value("important")
+        low_crime.evaluate(set_select_value, "strong_wish")
+        expect(low_crime).to_have_value("strong_wish")
         flood_risk.evaluate(set_select_value, "avoid")
         expect(flood_risk).to_have_value("avoid")
         _click_visible_what_matters_action(page, "save")
@@ -6964,19 +7075,53 @@ def test_propertyquarry_what_matters_save_and_load_round_trip_visible_keyword_co
         expect(reloaded_row.locator("[data-keyword-distance-select]")).to_have_value("1000")
         reloaded_market_row = page.locator('[data-keyword-priority-row][data-keyword-value="market nearby"]')
         reloaded_market_row.evaluate("node => node.closest('details[data-what-matters-group]')?.setAttribute('open', '')")
-        expect(reloaded_market_row.locator("[data-keyword-preference-select]")).to_have_value("important")
+        expect(reloaded_market_row.locator("[data-keyword-preference-select]")).to_have_value("strong_wish")
         expect(reloaded_market_row.locator("[data-keyword-distance-select]")).to_have_value("2000")
         reloaded_subway_row = page.locator('[data-keyword-priority-row][data-keyword-value="underground nearby"]')
         reloaded_subway_row.evaluate("node => node.closest('details[data-what-matters-group]')?.setAttribute('open', '')")
-        expect(reloaded_subway_row.locator("[data-keyword-preference-select]")).to_have_value("must_have")
+        expect(reloaded_subway_row.locator("[data-keyword-preference-select]")).to_have_value("nice_to_have")
         expect(reloaded_subway_row.locator("[data-keyword-distance-select]")).to_have_value("250")
+        reloaded_pharmacy_row = page.locator('[data-keyword-priority-row][data-keyword-value="pharmacy nearby"]')
+        reloaded_pharmacy_row.evaluate("node => node.closest('details[data-what-matters-group]')?.setAttribute('open', '')")
+        expect(reloaded_pharmacy_row.locator("[data-keyword-preference-select]")).to_have_value("strong_wish")
+        expect(reloaded_pharmacy_row.locator("[data-keyword-distance-select]")).to_have_value("250")
+        untouched_theatre_row = page.locator('[data-keyword-priority-row][data-keyword-value="theatre nearby"]')
+        untouched_theatre_row.evaluate("node => node.closest('details[data-what-matters-group]')?.setAttribute('open', '')")
+        expect(untouched_theatre_row.locator("[data-keyword-preference-select]")).to_have_value("any")
+        expect(untouched_theatre_row.locator("[data-keyword-distance-select]")).to_be_disabled()
         reloaded_kindergarten_row = page.locator('[data-school-priority-row][data-school-value="kindergarten"]')
         reloaded_kindergarten_row.evaluate("node => node.closest('details[data-what-matters-group]')?.setAttribute('open', '')")
-        expect(reloaded_kindergarten_row.locator("[data-school-preference-select]")).to_have_value("important")
+        expect(reloaded_kindergarten_row.locator("[data-school-preference-select]")).to_have_value("avoid")
         expect(reloaded_kindergarten_row.locator("[data-school-distance-select]")).to_have_value("1000")
         expect(page.locator('[data-keyword-priority-row][data-keyword-value="parking pressure check"] [data-keyword-preference-select]')).to_have_value("medium")
-        expect(page.locator('[data-keyword-priority-row][data-keyword-value="low crime area"] [data-keyword-preference-select]')).to_have_value("important")
+        expect(page.locator('[data-keyword-priority-row][data-keyword-value="low crime area"] [data-keyword-preference-select]')).to_have_value("strong_wish")
         expect(page.locator('[data-keyword-priority-row][data-keyword-value="avoid flood-risk area"] [data-keyword-preference-select]')).to_have_value("avoid")
+        stored_distance_contract = page.evaluate(
+            """
+            async () => {
+              const response = await fetch('/v1/onboarding/property-search/preferences', {
+                credentials: 'same-origin',
+                headers: { accept: 'application/json' },
+              });
+              const payload = await response.json();
+              const preferences = payload.property_search_preferences || {};
+              return {
+                theatreDistancePresent: Object.hasOwn(preferences, 'max_distance_to_theatre_m'),
+                theatreImportancePresent: Object.hasOwn(preferences, 'max_distance_to_theatre_importance'),
+                orphanImportanceKeys: Object.keys(preferences).filter((key) => {
+                  if (!/^max_distance_to_[a-z0-9_]+_importance$/.test(key)) return false;
+                  const distanceKey = key.replace(/_importance$/, '_m');
+                  return !(Number(preferences[distanceKey]) > 0);
+                }),
+              };
+            }
+            """
+        )
+        assert stored_distance_contract == {
+            "theatreDistancePresent": False,
+            "theatreImportancePresent": False,
+            "orphanImportanceKeys": [],
+        }
     finally:
         context.close()
 

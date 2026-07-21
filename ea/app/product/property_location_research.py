@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -7,6 +8,8 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
+import unicodedata
+from typing import Mapping
 
 import requests
 from datetime import datetime, timezone
@@ -71,16 +74,95 @@ def _property_research_reverse_geocode(lat: float, lon: float) -> dict[str, obje
         return {}
     return payload if isinstance(payload, dict) else {}
 
+
+def _property_research_normalized_locality(value: object) -> str:
+    folded = "".join(
+        character
+        for character in unicodedata.normalize("NFKD", str(value or "").casefold())
+        if not unicodedata.combining(character)
+    ).replace("ß", "ss")
+    normalized = re.sub(r"[^a-z0-9]", "", folded)
+    aliases = {
+        "vienna": "wien",
+    }
+    return aliases.get(normalized, normalized)
+
+
+def _property_research_query_postcode_and_locality(
+    query: object,
+) -> tuple[str, str]:
+    normalized = str(query or "").strip()
+    tail = normalized.split(",", 1)[1].strip() if "," in normalized else ""
+    postcode_match = re.search(r"(?:^|\D)(\d{4,6})(?:\D|$)", tail)
+    postcode = postcode_match.group(1) if postcode_match else ""
+    locality_text = ""
+    if postcode_match:
+        locality_text = tail[postcode_match.end(1) :].split(",", 1)[0].strip()
+    elif tail:
+        locality_text = tail.split(",", 1)[0].strip()
+    normalized_locality = _property_research_normalized_locality(locality_text)
+    if normalized_locality in {
+        "at",
+        "austria",
+        "osterreich",
+        "de",
+        "germany",
+        "deutschland",
+    }:
+        normalized_locality = ""
+    return postcode, normalized_locality
+
+
+def _property_research_address_matches_query_area(
+    query: object,
+    address: Mapping[str, object],
+) -> bool:
+    query_postcode, query_locality = _property_research_query_postcode_and_locality(
+        query
+    )
+    returned_postcode = re.sub(
+        r"[^0-9]",
+        "",
+        str(address.get("postcode") or "").strip(),
+    )
+    if query_postcode and returned_postcode != query_postcode:
+        return False
+    returned_locality = next(
+        (
+            _property_research_normalized_locality(address.get(key))
+            for key in ("city", "town", "village", "municipality")
+            if _property_research_normalized_locality(address.get(key))
+        ),
+        "",
+    )
+    if query_locality:
+        return bool(returned_locality) and query_locality == returned_locality
+    return True
+
 @lru_cache(maxsize=128)
-def _property_research_forward_geocode(query: str) -> dict[str, object]:
+def _property_research_forward_geocode(
+    query: str,
+    country_code: str = "",
+) -> dict[str, object]:
     normalized = str(query or "").strip()
     if not normalized:
         return {}
+    normalized_country = re.sub(
+        r"[^a-z]",
+        "",
+        str(country_code or "").strip().lower(),
+    )[:2]
+    params = {
+        "format": "jsonv2",
+        "limit": "5",
+        "addressdetails": "1",
+        "q": normalized,
+    }
+    if normalized_country:
+        params["countrycodes"] = normalized_country
     request = urllib.request.Request(
-        (
-            "https://nominatim.openstreetmap.org/search?"
-            f"format=jsonv2&limit=1&q={urllib.parse.quote(normalized)}"
-        ),
+        "https://nominatim.openstreetmap.org/search?"
+        + urllib.parse.urlencode(params),
         headers=_property_location_research_headers(),
     )
     try:
@@ -90,8 +172,37 @@ def _property_research_forward_geocode(query: str) -> dict[str, object]:
         return {}
     if not isinstance(payload, list) or not payload:
         return {}
-    row = payload[0]
-    return row if isinstance(row, dict) else {}
+    query_number_match = re.search(
+        r"(?:^|\s)(\d{1,4}[A-Za-z]?)(?:\s|,|$)",
+        normalized.split(",", 1)[0],
+    )
+    query_number = (
+        re.sub(r"\s+", "", query_number_match.group(1)).casefold()
+        if query_number_match
+        else ""
+    )
+    rows = [row for row in payload if isinstance(row, dict)]
+    for row in rows:
+        address = row.get("address")
+        if not isinstance(address, dict):
+            continue
+        returned_number = re.sub(
+            r"\s+",
+            "",
+            str(address.get("house_number") or ""),
+        ).casefold()
+        returned_country = str(address.get("country_code") or "").strip().lower()
+        if query_number and returned_number != query_number:
+            continue
+        if normalized_country and returned_country != normalized_country:
+            continue
+        if not _property_research_address_matches_query_area(
+            normalized,
+            address,
+        ):
+            continue
+        return row
+    return rows[0] if rows else {}
 
 
 @lru_cache(maxsize=128)
@@ -578,9 +689,13 @@ def _property_cooling_corridor_summary(*, name: str, kind: str, distance_m: int)
     return f"A broader cooling-corridor hint is present because {label} is about {distance_m} m away."
 
 
-@lru_cache(maxsize=128)
-def _property_research_nearby_pois(lat: float, lon: float) -> dict[str, object]:
-    query = f"""
+PROPERTY_FACT_OSM_QUERY_SCHEMA = "propertyquarry.osm-nearby.v2"
+PROPERTY_FACT_OSM_QUERY_ENDPOINT = "https://overpass-api.de/api/interpreter"
+
+
+def property_fact_osm_nearby_query(lat: float, lon: float) -> str:
+    """Return the canonical coordinate-bound Overpass request used for facts."""
+    return f"""
 [out:json][timeout:20];
 (
   node["shop"="supermarket"](around:5000,{lat:.8f},{lon:.8f});
@@ -653,11 +768,25 @@ def _property_research_nearby_pois(lat: float, lon: float) -> dict[str, object]:
   way["natural"="water"]["water"~"^(river|canal|stream|brook)$"](around:3500,{lat:.8f},{lon:.8f});
   relation["natural"="water"]["water"~"^(river|canal|stream|brook)$"](around:3500,{lat:.8f},{lon:.8f});
 );
-out center tags;
-"""
+out meta center tags;
+""".strip()
+
+
+@lru_cache(maxsize=128)
+def _property_research_nearby_pois(
+    lat: float,
+    lon: float,
+    property_url: str = "",
+) -> dict[str, object]:
+    normalized_property_url = urllib.parse.urldefrag(
+        str(property_url or "").strip()
+    )[0]
+    query = property_fact_osm_nearby_query(lat, lon)
+    query_digest = "sha256:" + hashlib.sha256(query.encode("utf-8")).hexdigest()
+    provider_observed_at = datetime.now(timezone.utc)
     try:
         response = requests.post(
-            "https://overpass-api.de/api/interpreter",
+            PROPERTY_FACT_OSM_QUERY_ENDPOINT,
             data="data=" + urllib.parse.quote(query, safe=""),
             headers={
                 **_property_location_research_headers(),
@@ -732,6 +861,37 @@ out center tags;
             metric_key, name_key = "nearest_flowing_water_m", "nearest_flowing_water_name"
         else:
             continue
+        object_type = str(row.get("type") or "").strip().lower()
+        object_id = str(row.get("id") or "").strip()
+        try:
+            object_version = int(row.get("version") or 0)
+        except (TypeError, ValueError):
+            object_version = 0
+        classification_keys_by_metric = {
+            "nearest_supermarket_m": ("shop",),
+            "nearest_pharmacy_m": ("amenity",),
+            "nearest_library_m": ("amenity",),
+            "nearest_playground_m": ("leisure",),
+            "nearest_kindergarten_m": ("amenity",),
+            "nearest_university_m": ("amenity",),
+            "nearest_zoo_m": ("tourism",),
+            "nearest_hardware_store_m": ("shop",),
+            "nearest_market_m": ("amenity",),
+            "nearest_shopping_center_m": ("shop",),
+            "nearest_shopping_street_m": ("highway",),
+            "nearest_theatre_m": ("amenity",),
+            "nearest_public_pool_m": ("leisure",),
+            "nearest_medical_care_m": ("amenity",),
+            "nearest_starbucks_m": ("brand", "name"),
+            "nearest_fitness_center_m": ("leisure", "amenity", "sport"),
+            "nearest_cinema_m": ("amenity",),
+            "nearest_bouldering_m": ("sport", "name"),
+            "nearest_dog_park_m": ("leisure", "amenity"),
+            "nearest_tram_bus_m": ("railway", "highway"),
+            "nearest_subway_m": ("railway",),
+            "nearest_flowing_water_m": ("waterway", "natural", "water"),
+        }
+        classification_keys = classification_keys_by_metric.get(metric_key, ())
         current = closest.get(metric_key)
         if current is None or distance_m < int(current.get("distance_m") or 0):
             closest[metric_key] = {
@@ -740,8 +900,20 @@ out center tags;
                 "lat": float(point_lat),
                 "lng": float(point_lon),
                 "kind": _property_flowing_water_kind(tags),
+                "object_type": object_type,
+                "object_id": object_id,
+                "object_version": object_version,
+                "object_timestamp": str(row.get("timestamp") or "").strip(),
+                "object_changeset": str(row.get("changeset") or "").strip(),
+                "classification_tags": {
+                    str(tag_key): str(tag_value)
+                    for tag_key, tag_value in tags.items()
+                    if str(tag_key).strip() in classification_keys
+                    and str(tag_value).strip()
+                },
             }
     result: dict[str, object] = {}
+    evidence_by_metric: dict[str, dict[str, object]] = {}
     for key, value in closest.items():
         result[key] = int(value.get("distance_m") or 0)
         prefix = key[:-2] if key.endswith("_m") else key
@@ -750,6 +922,82 @@ out center tags;
         result[f"{prefix}_lng"] = float(value.get("lng") or 0.0)
         if str(value.get("kind") or "").strip():
             result[f"{prefix}_kind"] = str(value.get("kind") or "").strip()
+        object_type = str(value.get("object_type") or "").strip().lower()
+        object_id = str(value.get("object_id") or "").strip()
+        try:
+            object_version = int(value.get("object_version") or 0)
+        except (TypeError, ValueError):
+            object_version = 0
+        if (
+            object_type in {"node", "way", "relation"}
+            and object_id.isdigit()
+            and object_version > 0
+        ):
+            from app.product.property_fact_enrichment import (
+                PROPERTY_FACT_PROVIDER_ATTESTATION_VERSION,
+                property_fact_coordinate_digest,
+                property_fact_expiry,
+                property_fact_issue_provider_attestation,
+                property_fact_source_fingerprint,
+            )
+
+            provider_evidence: dict[str, object] = {
+                "provider": "openstreetmap_overpass",
+                "source_key": key,
+                "observed_key": key,
+                "listing_url": normalized_property_url,
+                "source_fingerprint": property_fact_source_fingerprint(
+                    normalized_property_url
+                ),
+                "listing_latitude": lat,
+                "listing_longitude": lon,
+                "coordinate_digest": property_fact_coordinate_digest(lat, lon),
+                "query_endpoint_url": PROPERTY_FACT_OSM_QUERY_ENDPOINT,
+                "query_digest": query_digest,
+                "query_schema": PROPERTY_FACT_OSM_QUERY_SCHEMA,
+                "receipt_url": (
+                    "https://api.openstreetmap.org/api/0.6/"
+                    f"{object_type}/{object_id}/{object_version}"
+                ),
+                "provider_object_id": object_id,
+                "provider_object_type": object_type,
+                "provider_object_version": object_version,
+                "provider_object_timestamp": str(
+                    value.get("object_timestamp") or ""
+                ).strip(),
+                "provider_object_changeset": str(
+                    value.get("object_changeset") or ""
+                ).strip(),
+                "provider_observed_at": provider_observed_at.isoformat(),
+                "provider_expires_at": property_fact_expiry(
+                    observed_at=provider_observed_at,
+                    hours=24,
+                ),
+                "poi_latitude": float(value.get("lat") or 0.0),
+                "poi_longitude": float(value.get("lng") or 0.0),
+                "poi_classification_tags": dict(
+                    value.get("classification_tags") or {}
+                ),
+            }
+            provider_evidence["observed_at"] = provider_evidence[
+                "provider_observed_at"
+            ]
+            provider_evidence["expires_at"] = provider_evidence[
+                "provider_expires_at"
+            ]
+            if normalized_property_url:
+                provider_evidence["attestation_version"] = (
+                    PROPERTY_FACT_PROVIDER_ATTESTATION_VERSION
+                )
+                provider_evidence["provider_attestation"] = (
+                    property_fact_issue_provider_attestation(
+                        provider_evidence,
+                        observed_value=result[key],
+                    )
+                )
+            evidence_by_metric[key] = provider_evidence
+    if evidence_by_metric:
+        result["property_fact_geo_evidence"] = evidence_by_metric
     flowing_water_distance_m = _float_or_none(result.get("nearest_flowing_water_m"))
     if isinstance(flowing_water_distance_m, float) and flowing_water_distance_m > 0.0:
         signal = _property_cooling_corridor_signal_for_distance(flowing_water_distance_m)

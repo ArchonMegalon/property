@@ -68,6 +68,7 @@ from app.api.routes.landing_view_models import (
     list_rows as _list_rows,
     _clean_property_candidate_copy as _shared_clean_property_candidate_copy,
     _clean_property_candidate_detail_copy as _shared_clean_property_candidate_detail_copy,
+    _normalized_property_distance_importance,
     _property_customer_candidate_summary,
     _property_result_title_display,
     property_workspace_payload as _property_workspace_payload,
@@ -130,6 +131,7 @@ from app.product.property_score_methodology import (
 )
 from app.product.property_fact_enrichment import (
     PROPERTY_FACT_ENRICHMENT_SCHEMA_VERSION,
+    property_fact_distance_specs,
     property_fact_requirement_plan,
     property_fact_score_projection,
 )
@@ -3344,6 +3346,13 @@ def _property_research_distance_preference_entry_active(key: str, value: object)
     normalized_key = str(key or "").strip()
     if not normalized_key:
         return False
+    if normalized_key.startswith("max_distance_to_") and normalized_key.endswith("_importance"):
+        return bool(
+            _normalized_property_distance_importance(
+                value,
+                default="",
+            )
+        )
     if normalized_key.startswith("max_distance_to_"):
         try:
             return float(str(value or "").strip()) > 0
@@ -3387,7 +3396,11 @@ def _property_research_distance_preference_overlay(
         if active_only and not _property_research_distance_preference_entry_active(normalized_key, value):
             continue
         if normalized_key.startswith("max_distance_to_"):
-            overlay[normalized_key] = value
+            overlay[normalized_key] = (
+                _normalized_property_distance_importance(value, default="")
+                if normalized_key.endswith("_importance")
+                else value
+            )
             continue
         if normalized_key.startswith("prefer_") and normalized_key.endswith("_nearby"):
             overlay[normalized_key] = value
@@ -7433,6 +7446,32 @@ def property_research_packet(
         **dict(candidate),
         "property_facts": facts,
     }
+    projected_fact_fields: list[dict[str, object]] = []
+    for raw_row in fact_plan:
+        row = dict(raw_row)
+        priority = str(row.get("priority") or "lazy").strip().lower() or "lazy"
+        state = str(row.get("state") or "unknown").strip().lower() or "unknown"
+        if state != "resolved":
+            row["value"] = None
+            row["display_value"] = ""
+            row["evidence"] = {}
+        if priority == "required" and state != "resolved":
+            row["state"] = "unavailable"
+            row["error"] = {
+                "code": "required_fact_not_resolved_during_search",
+                "message": (
+                    "This required distance was not verified during search. "
+                    "Run the search again to verify it before ranking."
+                ),
+                "retry_after_seconds": 0,
+            }
+        projected_fact_fields.append(row)
+    lazy_fact_pending = any(
+        str(row.get("priority") or "lazy").strip().lower() != "required"
+        and str(row.get("state") or "unknown").strip().lower()
+        in {"unknown", "stale", "queued", "running"}
+        for row in projected_fact_fields
+    )
     fact_enrichment: dict[str, object] = {
         "schema_version": PROPERTY_FACT_ENRICHMENT_SCHEMA_VERSION,
         "job_id": "",
@@ -7441,7 +7480,7 @@ def property_research_packet(
         "attempt": 0,
         "poll_after_ms": 1200,
         "updated_at": "",
-        "fields": [row for row in fact_plan if str(row.get("state") or "") != "resolved"],
+        "fields": projected_fact_fields,
         "score": property_fact_score_projection(
             candidate=fact_candidate,
             plan=fact_plan,
@@ -7466,7 +7505,8 @@ def property_research_packet(
         )
         if fact_enrichment_requests_allowed:
             fact_enrichment["status_url"] = fact_endpoint
-            fact_enrichment["start_url"] = fact_endpoint
+            if lazy_fact_pending:
+                fact_enrichment["start_url"] = fact_endpoint
         try:
             persisted_fact_enrichment = product.get_property_candidate_fact_enrichment(
                 principal_id=context.principal_id,
@@ -7476,9 +7516,96 @@ def property_research_packet(
         except Exception:
             persisted_fact_enrichment = None
         if isinstance(persisted_fact_enrichment, dict):
+            persisted_fields_by_key = {
+                str(row.get("key") or "").strip(): dict(row)
+                for row in list(persisted_fact_enrichment.get("fields") or [])
+                if isinstance(row, dict) and str(row.get("key") or "").strip()
+            }
+            persisted_bundle_kind = str(
+                persisted_fact_enrichment.get("bundle_kind") or ""
+            ).strip().lower()
+            merged_fact_fields: list[dict[str, object]] = []
+            for projected_row in projected_fact_fields:
+                key = str(projected_row.get("key") or "").strip()
+                persisted_row = persisted_fields_by_key.get(key)
+                if persisted_row is None:
+                    merged_fact_fields.append(dict(projected_row))
+                    continue
+                priority = str(
+                    projected_row.get("priority") or "lazy"
+                ).strip().lower() or "lazy"
+                persisted_state = str(
+                    persisted_row.get("state") or "unknown"
+                ).strip().lower() or "unknown"
+                genuine_required_job = persisted_bundle_kind == "required-geo-v1"
+                if (
+                    priority == "required"
+                    and not genuine_required_job
+                    and persisted_state != "resolved"
+                ):
+                    merged_fact_fields.append(dict(projected_row))
+                    continue
+                merged_row = {**projected_row, **persisted_row}
+                merged_row["key"] = key
+                merged_row["priority"] = priority
+                merged_fact_fields.append(merged_row)
             fact_enrichment.update(persisted_fact_enrichment)
+            fact_enrichment["fields"] = merged_fact_fields
             fact_enrichment["status_url"] = fact_endpoint if fact_enrichment_requests_allowed else ""
-            fact_enrichment["start_url"] = fact_endpoint if fact_enrichment_requests_allowed else ""
+            fact_enrichment["start_url"] = (
+                fact_endpoint
+                if fact_enrichment_requests_allowed and lazy_fact_pending
+                else ""
+            )
+    presentation_facts = dict(facts)
+    fact_specs_by_key = {
+        str(spec.get("key") or "").strip(): spec
+        for spec in property_fact_distance_specs()
+        if str(spec.get("key") or "").strip()
+    }
+    presentation_evidence = (
+        dict(presentation_facts.get("property_fact_evidence") or {})
+        if isinstance(presentation_facts.get("property_fact_evidence"), dict)
+        else {}
+    )
+    for row in fact_plan:
+        if str(row.get("state") or "unknown").strip().lower() == "resolved":
+            continue
+        key = str(row.get("key") or "").strip()
+        spec = fact_specs_by_key.get(key, {})
+        aliases = {
+            key,
+            str(row.get("source_key") or "").strip(),
+            *(
+                str(alias or "").strip()
+                for alias in list(spec.get("aliases") or [])
+            ),
+        }
+        for alias in aliases:
+            if not alias:
+                continue
+            presentation_facts.pop(alias, None)
+            presentation_evidence.pop(alias, None)
+            prefix = alias[:-2] if alias.endswith("_m") else alias
+            for suffix in (
+                "name",
+                "source",
+                "lat",
+                "lng",
+                "latitude",
+                "longitude",
+                "distance_method",
+            ):
+                presentation_facts.pop(f"{prefix}_{suffix}", None)
+    if presentation_evidence:
+        presentation_facts["property_fact_evidence"] = presentation_evidence
+    else:
+        presentation_facts.pop("property_fact_evidence", None)
+    facts = presentation_facts
+    candidate = {
+        **dict(candidate),
+        "property_facts": facts,
+    }
     commercial = dict(property_context.get("commercial") or {})
     match_reasons = [
         _clean_property_candidate_detail_copy(item)

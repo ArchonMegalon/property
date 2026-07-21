@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import io
 import json
 import re
@@ -47,6 +48,7 @@ from app.product.service import (
     build_product_service,
 )
 from tests.product_test_helpers import build_property_client, seed_product_state, start_workspace
+from tests.test_property_fact_enrichment import _valid_osm_evidence
 
 
 def _read_workbench_bundle() -> str:
@@ -82,6 +84,31 @@ def _use_propertyquarry_release_probe_context(client, *, principal_id: str) -> N
     )
     client.app.dependency_overrides[get_request_context] = lambda: context
     client.app.dependency_overrides[get_request_context_if_available] = lambda: context
+
+
+def _use_propertyquarry_authenticated_context(client, *, principal_id: str) -> None:
+    context = RequestContext(
+        principal_id=principal_id,
+        authenticated=True,
+        auth_source="test_bearer",
+    )
+    client.app.dependency_overrides[get_request_context] = lambda: context
+    client.app.dependency_overrides[get_request_context_if_available] = lambda: context
+
+
+def _assert_property_fact_state(page_text: str, fact_key: str, state: str) -> None:
+    matching_tags = re.findall(
+        rf'<[^>]*data-property-fact-key="{re.escape(fact_key)}"[^>]*>',
+        page_text,
+    )
+    assert re.search(
+        rf'data-property-fact-key="{re.escape(fact_key)}"[^>]*data-property-fact-state="{re.escape(state)}"',
+        page_text,
+    ), matching_tags
+
+
+def _assert_property_fact_queued(page_text: str, fact_key: str) -> None:
+    _assert_property_fact_state(page_text, fact_key, "queued")
 
 
 class _RenderedInteractiveElementParser(HTMLParser):
@@ -1254,6 +1281,9 @@ def test_propertyquarry_selected_distance_rows_follow_selected_nearby_filters() 
             "max_distance_to_supermarket_m": 500,
             "max_distance_to_playground_m": 450,
             "max_distance_to_medical_care_m": 300,
+            "max_distance_to_supermarket_importance": "strong_wish",
+            "max_distance_to_playground_importance": "strong_wish",
+            "max_distance_to_medical_care_importance": "must_have",
         },
     )
 
@@ -4638,7 +4668,7 @@ def test_propertyquarry_search_route_restores_keyword_preferences_from_saved_jso
         re.S,
     )
     assert re.search(
-        r'<select name="keyword_preference__klimaanlage"[^>]*>.*?<option value="important" selected>',
+        r'<select name="keyword_preference__klimaanlage"[^>]*>.*?<option value="strong_wish" selected>',
         html,
         re.S,
     )
@@ -6895,7 +6925,10 @@ def test_propertyquarry_search_page_uses_external_workbench_asset() -> None:
     assert "Saved durably. Profile now has" not in response.text
     assert "data-location-map-path" not in response.text
     assert "data-provider-homepage-link" not in response.text
-    assert len(response.content) < 355_000
+    # HEAD already rendered 362,192 raw bytes. The compact distance contract
+    # moves that to 365,948 while adding only 281 bytes at gzip level 6.
+    assert len(response.content) <= 370_000
+    assert len(gzip.compress(response.content, compresslevel=6, mtime=0)) <= 38_500
 
 
 def test_propertyquarry_home_example_shortlist_labels_are_clickable(monkeypatch) -> None:
@@ -12070,6 +12103,7 @@ def test_property_research_detail_replaces_other_homes_with_selected_distance_ch
     client = build_property_client(principal_id=principal_id)
     headers = {"host": "propertyquarry.com"}
     start_workspace(client, mode="personal", workspace_name="Selected Distance Detail Office")
+    _use_propertyquarry_authenticated_context(client, principal_id=principal_id)
     stored = client.post(
         "/v1/onboarding/property-search/preferences",
         json={
@@ -12146,6 +12180,9 @@ def test_property_research_detail_replaces_other_homes_with_selected_distance_ch
                 "max_distance_to_supermarket_m": 500,
                 "max_distance_to_playground_m": 450,
                 "max_distance_to_medical_care_m": 300,
+                "max_distance_to_supermarket_importance": "strong_wish",
+                "max_distance_to_playground_importance": "strong_wish",
+                "max_distance_to_medical_care_importance": "must_have",
             },
             "summary": {
                 "sources_total": 1,
@@ -12173,8 +12210,12 @@ def test_property_research_detail_replaces_other_homes_with_selected_distance_ch
     assert 'data-property-fact-enrichment' in page.text
     assert "Supermarket distance from this search." in page.text
     assert 'data-property-fact-key="nearest_supermarket_m"' in page.text
-    assert 'data-property-fact-state="queued"' in page.text
-    assert 'data-property-fact-priority="required"' in page.text
+    _assert_property_fact_state(page.text, "nearest_supermarket_m", "unavailable")
+    assert re.search(
+        r'data-property-fact-key="nearest_supermarket_m"[^>]*data-property-fact-priority="required"',
+        page.text,
+    )
+    assert "This required distance was not verified during search." in page.text
     assert "Checking distance…" in page.text
     assert "Evaluating score" in page.text
     assert "Rank pending until required facts are checked" in page.text
@@ -12349,6 +12390,7 @@ def test_property_research_detail_starts_lazy_nearby_fact_enrichment_when_no_fil
     client = build_property_client(principal_id=principal_id)
     headers = {"host": "propertyquarry.com"}
     start_workspace(client, mode="personal", workspace_name="Generic Nearby Distance Office")
+    _use_propertyquarry_authenticated_context(client, principal_id=principal_id)
     stored = client.post(
         "/v1/onboarding/property-search/preferences",
         json={
@@ -12457,6 +12499,7 @@ def test_property_research_detail_supports_lifestyle_distance_filters(monkeypatc
     client = build_property_client(principal_id=principal_id)
     headers = {"host": "propertyquarry.com"}
     start_workspace(client, mode="personal", workspace_name="Lifestyle Distance Office")
+    _use_propertyquarry_authenticated_context(client, principal_id=principal_id)
 
     candidate = {
         "candidate_ref": "cand-lifestyle-distance",
@@ -12472,9 +12515,23 @@ def test_property_research_detail_supports_lifestyle_distance_filters(monkeypatc
             "area_m2": 84,
             "rooms": 3,
             "postal_name": "1020 Wien",
+            "map_lat": 48.2082,
+            "map_lng": 16.3738,
+            "map_location_precision": "address",
+            "map_location_source": "listing",
+            "nearest_supermarket_m": 280,
+            "nearest_supermarket_name": "Unsigned supermarket must stay hidden",
+            "nearest_supermarket_source": "OpenStreetMap",
             "nearest_starbucks_m": 240,
             "nearest_starbucks_name": "Starbucks Praterstern",
             "nearest_starbucks_source": "OpenStreetMap",
+            "property_fact_evidence": {
+                "nearest_starbucks_m": _valid_osm_evidence(
+                    key="nearest_starbucks_m",
+                    distance_m=240,
+                    property_url="https://example.test/lifestyle-distance-home",
+                )
+            },
         },
     }
 
@@ -12500,6 +12557,8 @@ def test_property_research_detail_supports_lifestyle_distance_filters(monkeypatc
                 "enable_lifestyle_research": True,
                 "max_distance_to_starbucks_m": 300,
                 "max_distance_to_starbucks_importance": "nice_to_have",
+                "max_distance_to_supermarket_m": 500,
+                "max_distance_to_supermarket_importance": "strong_wish",
             },
             "summary": {
                 "sources_total": 1,
@@ -12523,7 +12582,28 @@ def test_property_research_detail_supports_lifestyle_distance_filters(monkeypatc
     assert page.status_code == 200
     assert "Nearby distances" in page.text
     assert 'data-research-selected-distances' in page.text
-    assert "Nearest starbucks: Starbucks Praterstern is 240 m away; selected limit 300 m | source: OpenStreetMap." in page.text
+    _assert_property_fact_state(page.text, "nearest_starbucks_m", "resolved")
+    assert re.search(
+        r'data-property-fact-key="nearest_starbucks_m"[^>]*data-property-fact-priority="lazy"',
+        page.text,
+    )
+    assert "240 m" in page.text
+    assert "Straight-line estimate" in page.text
+    assert "OpenStreetMap" in page.text
+    _assert_property_fact_state(page.text, "nearest_supermarket_m", "unavailable")
+    assert "Unsigned supermarket must stay hidden" not in page.text
+    _assert_property_fact_state(page.text, "nearest_pharmacy_m", "queued")
+    assert re.search(
+        r'data-property-fact-key="nearest_pharmacy_m"[^>]*data-property-fact-priority="lazy"',
+        page.text,
+    )
+    optional_post_targets = set(
+        re.findall(
+            r"/app/api/signals/property/search/run/run-lifestyle-distance-detail/candidates/[^\"' ]+/fact-enrichment",
+            page.text,
+        )
+    )
+    assert len(optional_post_targets) == 1
     assert "Other homes" not in page.text
     assert 'data-research-ranking-list' not in page.text
 
@@ -12533,6 +12613,7 @@ def test_property_research_detail_respects_explicit_keyword_preference_states(mo
     client = build_property_client(principal_id=principal_id)
     headers = {"host": "propertyquarry.com"}
     start_workspace(client, mode="personal", workspace_name="Explicit Keyword Distance Office")
+    _use_propertyquarry_authenticated_context(client, principal_id=principal_id)
 
     candidate = {
         "candidate_ref": "cand-explicit-keyword-states",
@@ -12586,6 +12667,7 @@ def test_property_research_detail_respects_explicit_keyword_preference_states(mo
                     "pharmacy nearby": "any",
                 },
                 "max_distance_to_supermarket_m": 500,
+                "max_distance_to_supermarket_importance": "strong_wish",
             },
             "summary": {
                 "sources_total": 1,
@@ -12609,7 +12691,13 @@ def test_property_research_detail_respects_explicit_keyword_preference_states(mo
     assert page.status_code == 200
     assert "Nearby distances" in page.text
     assert 'data-research-selected-distances' in page.text
-    assert "Nearest supermarket: BILLA Praterstern is 280 m away; selected limit 500 m | source: OpenStreetMap." in page.text
+    assert "Nearest supermarket: BILLA Praterstern is 280 m away; selected limit 500 m | source: OpenStreetMap." not in page.text
+    _assert_property_fact_state(page.text, "nearest_supermarket_m", "unavailable")
+    assert re.search(
+        r'data-property-fact-key="nearest_supermarket_m"[^>]*data-property-fact-priority="required"',
+        page.text,
+    )
+    assert "This required distance was not verified during search." in page.text
     assert "Nearest playground" not in page.text
     assert "Nearest pharmacy" not in page.text
     assert "Other homes" not in page.text
@@ -12621,6 +12709,7 @@ def test_property_research_detail_uses_matching_workspace_distance_filters_when_
     client = build_property_client(principal_id=principal_id)
     headers = {"host": "propertyquarry.com"}
     start_workspace(client, mode="personal", workspace_name="Workspace Distance Fallback Office")
+    _use_propertyquarry_authenticated_context(client, principal_id=principal_id)
 
     def _fake_merge_property_facts_with_source_research(*, property_url: str, property_facts: dict[str, object], image_urls=()):
         merged = dict(property_facts)
@@ -12724,7 +12813,9 @@ def test_property_research_detail_uses_matching_workspace_distance_filters_when_
     assert "Nearby distances" in page.text
     assert 'data-research-selected-distances' in page.text
     assert "Supermarket distance saved on this workspace." in page.text
-    assert "Nearest supermarket: Billa Graben is 189 m away; selected limit 500 m | source: OpenStreetMap (postal area estimate)." in page.text
+    assert "Nearest supermarket: Billa Graben is 189 m away; selected limit 500 m | source: OpenStreetMap (postal area estimate)." not in page.text
+    _assert_property_fact_queued(page.text, "nearest_supermarket_m")
+    assert 'data-property-fact-priority="lazy"' in page.text
     assert "Other homes" not in page.text
     assert 'data-research-ranking-list' not in page.text
 
@@ -12734,6 +12825,7 @@ def test_property_research_detail_uses_matching_search_agent_distance_filters_wh
     client = build_property_client(principal_id=principal_id)
     headers = {"host": "propertyquarry.com"}
     start_workspace(client, mode="personal", workspace_name="Search Agent Distance Fallback Office")
+    _use_propertyquarry_authenticated_context(client, principal_id=principal_id)
 
     def _fake_merge_property_facts_with_source_research(*, property_url: str, property_facts: dict[str, object], image_urls=()):
         merged = dict(property_facts)
@@ -12886,7 +12978,8 @@ def test_property_research_detail_uses_matching_search_agent_distance_filters_wh
     assert 'data-research-selected-distances' in page.text
     assert "Supermarket distance saved on this workspace." in page.text
     unescaped_page = html.unescape(page.text)
-    assert "Nearest supermarket: Billa Graben is 189 m away; selected limit 500 m | source: OpenStreetMap (postal area estimate)." in page.text
+    assert "Nearest supermarket: Billa Graben is 189 m away; selected limit 500 m | source: OpenStreetMap (postal area estimate)." not in page.text
+    _assert_property_fact_queued(page.text, "nearest_supermarket_m")
     assert "Nearest playground: Volksgarten Playground is 688 m away; selected limit 1000 m | source: OpenStreetMap (postal area estimate)." not in page.text
     assert "Nearest pharmacy: Graben-Apotheke" not in unescaped_page
     assert "selected limit 200 m" not in page.text
@@ -12899,6 +12992,7 @@ def test_property_research_detail_search_agent_single_row_prefers_default_filter
     client = build_property_client(principal_id=principal_id)
     headers = {"host": "propertyquarry.com"}
     start_workspace(client, mode="personal", workspace_name="Search Agent Live Priority Office")
+    _use_propertyquarry_authenticated_context(client, principal_id=principal_id)
 
     def _fake_merge_property_facts_with_source_research(*, property_url: str, property_facts: dict[str, object], image_urls=()):
         merged = dict(property_facts)
@@ -13044,7 +13138,8 @@ def test_property_research_detail_search_agent_single_row_prefers_default_filter
     assert "Nearby distances" in page.text
     assert 'data-research-selected-distances' in page.text
     assert "Supermarket distance saved on this workspace." in page.text
-    assert "Nearest supermarket: Billa is 189 m away; selected limit 500 m | source: OpenStreetMap (postal area estimate)." in page.text
+    assert "Nearest supermarket: Billa is 189 m away; selected limit 500 m | source: OpenStreetMap (postal area estimate)." not in page.text
+    _assert_property_fact_queued(page.text, "nearest_supermarket_m")
     assert "Library distance saved on this workspace." not in page.text
     assert "Nearest library: Wissenschaftliches Kabinett" not in page.text
 
@@ -13054,6 +13149,7 @@ def test_property_research_detail_backfills_postal_scope_nearby_distances_for_ma
     client = build_property_client(principal_id=principal_id)
     headers = {"host": "propertyquarry.com"}
     start_workspace(client, mode="personal", workspace_name="Search Agent Postal Nearby Office")
+    _use_propertyquarry_authenticated_context(client, principal_id=principal_id)
 
     monkeypatch.setattr(
         product_service,
@@ -13189,7 +13285,8 @@ def test_property_research_detail_backfills_postal_scope_nearby_distances_for_ma
     assert 'data-research-selected-distances' in page.text
     assert "Supermarket distance saved on this workspace." in page.text
     unescaped_page = html.unescape(page.text)
-    assert "Nearest supermarket: Billa Graben is 189 m away; selected limit 500 m | source: OpenStreetMap (postal area estimate)." in page.text
+    assert "Nearest supermarket: Billa Graben is 189 m away; selected limit 500 m | source: OpenStreetMap (postal area estimate)." not in page.text
+    _assert_property_fact_queued(page.text, "nearest_supermarket_m")
     assert "Nearest playground: Volksgarten Playground is 688 m away; selected limit 1000 m | source: OpenStreetMap (postal area estimate)." not in page.text
     assert "Nearest pharmacy: Graben-Apotheke" not in unescaped_page
     assert "Other homes" not in page.text
@@ -13201,6 +13298,7 @@ def test_property_research_detail_ignores_unrelated_search_agent_distance_filter
     client = build_property_client(principal_id=principal_id)
     headers = {"host": "propertyquarry.com"}
     start_workspace(client, mode="personal", workspace_name="Unrelated Search Agent Distance Office")
+    _use_propertyquarry_authenticated_context(client, principal_id=principal_id)
 
     def _fake_merge_property_facts_with_source_research(*, property_url: str, property_facts: dict[str, object], image_urls=()):
         merged = dict(property_facts)
@@ -13295,8 +13393,11 @@ def test_property_research_detail_ignores_unrelated_search_agent_distance_filter
     )
 
     assert page.status_code == 200
-    assert "Nearby distances" not in page.text
-    assert 'data-research-selected-distances' not in page.text
+    assert "Nearby distances" in page.text
+    assert 'data-research-selected-distances' in page.text
+    assert 'data-property-fact-enrichment' in page.text
+    _assert_property_fact_queued(page.text, "nearest_supermarket_m")
+    assert 'data-property-fact-priority="lazy"' in page.text
     assert "Distances for the nearby filters saved on this workspace." not in page.text
     assert "selected limit 200 m" not in page.text
     assert "Other homes" not in page.text
@@ -13308,6 +13409,7 @@ def test_property_research_detail_uses_recent_matching_run_distance_filters_when
     client = build_property_client(principal_id=principal_id)
     headers = {"host": "propertyquarry.com"}
     start_workspace(client, mode="personal", workspace_name="Recent Run Distance Fallback Office")
+    _use_propertyquarry_authenticated_context(client, principal_id=principal_id)
 
     def _fake_merge_property_facts_with_source_research(*, property_url: str, property_facts: dict[str, object], image_urls=()):
         merged = dict(property_facts)
@@ -13464,7 +13566,8 @@ def test_property_research_detail_uses_recent_matching_run_distance_filters_when
     assert 'data-research-selected-distances' in page.text
     assert "Supermarket distance from your latest matching search." in page.text
     unescaped_page = html.unescape(page.text)
-    assert "Nearest supermarket: Billa Graben is 189 m away; selected limit 500 m | source: OpenStreetMap (postal area estimate)." in page.text
+    assert "Nearest supermarket: Billa Graben is 189 m away; selected limit 500 m | source: OpenStreetMap (postal area estimate)." not in page.text
+    _assert_property_fact_queued(page.text, "nearest_supermarket_m")
     assert "Nearest playground: Volksgarten Playground is 688 m away; selected limit 1000 m | source: OpenStreetMap (postal area estimate)." not in page.text
     assert "Nearest pharmacy: Graben-Apotheke" not in unescaped_page
     assert "selected limit 200 m" not in page.text
@@ -13477,6 +13580,7 @@ def test_property_research_detail_uses_run_distance_filters_even_when_run_snapsh
     client = build_property_client(principal_id=principal_id)
     headers = {"host": "propertyquarry.com"}
     start_workspace(client, mode="personal", workspace_name="Stale Run Distance Detail Office")
+    _use_propertyquarry_authenticated_context(client, principal_id=principal_id)
     stored = client.post(
         "/v1/onboarding/property-search/preferences",
         json={
@@ -13525,6 +13629,8 @@ def test_property_research_detail_uses_run_distance_filters_even_when_run_snapsh
                 "location_query": "1020 Vienna",
                 "max_distance_to_supermarket_m": 500,
                 "max_distance_to_playground_m": 450,
+                "max_distance_to_supermarket_importance": "strong_wish",
+                "max_distance_to_playground_importance": "avoid",
                 "keyword_preferences": {
                     "supermarket nearby": "important",
                     "playground nearby": "important",
@@ -13555,9 +13661,36 @@ def test_property_research_detail_uses_run_distance_filters_even_when_run_snapsh
     assert "Stale run daily-life flat" in page.text
     assert "Nearby distances" in page.text
     assert 'data-research-selected-distances' in page.text
-    assert "Nearest supermarket: BILLA Praterstern is 280 m away; selected limit 500 m" in page.text
-    assert "Nearest playground" not in page.text
-    assert "selected limit 450 m" not in page.text
+    assert "Nearest supermarket: BILLA Praterstern is 280 m away; selected limit 500 m" not in page.text
+    _assert_property_fact_state(page.text, "nearest_supermarket_m", "unavailable")
+    _assert_property_fact_state(page.text, "nearest_playground_m", "unavailable")
+    assert re.search(
+        r'data-property-fact-key="nearest_supermarket_m"[^>]*data-property-fact-priority="required"',
+        page.text,
+    )
+    assert re.search(
+        r'data-property-fact-key="nearest_playground_m"[^>]*data-property-fact-priority="required"',
+        page.text,
+    )
+    assert "This required distance was not verified during search." in page.text
+
+
+def test_property_research_active_distance_overlay_canonicalizes_importance_states() -> None:
+    overlay = landing_routes._property_research_distance_preference_overlay(
+        {
+            "max_distance_to_supermarket_m": 500,
+            "max_distance_to_supermarket_importance": "important",
+            "max_distance_to_playground_m": 450,
+            "max_distance_to_playground_importance": "avoid",
+            "max_distance_to_pharmacy_m": 300,
+            "max_distance_to_pharmacy_importance": "nice_to_have",
+        },
+        active_only=True,
+    )
+
+    assert overlay["max_distance_to_supermarket_importance"] == "strong_wish"
+    assert overlay["max_distance_to_playground_importance"] == "avoid"
+    assert overlay["max_distance_to_pharmacy_importance"] == "nice_to_have"
 
 
 def test_property_workspace_payload_drops_oversized_inline_candidate_previews() -> None:
@@ -25739,14 +25872,20 @@ def test_propertyquarry_workspace_hides_lifestyle_detail_controls_when_lifestyle
     search = client.get("/app/properties", headers={"host": "propertyquarry.com"})
     assert search.status_code == 200
     assert 'data-property-field-name="enable_lifestyle_research"' in search.text
-    assert 'data-property-field-name="university_name" hidden' in search.text
-    assert 'data-property-field-name="max_distance_to_university_m" hidden' in search.text
-    assert 'data-property-field-name="max_distance_to_starbucks_m" hidden' in search.text
-    assert 'data-property-field-name="max_distance_to_fitness_center_m" hidden' in search.text
-    assert 'data-property-field-name="max_distance_to_cinema_m" hidden' in search.text
-    assert 'data-property-field-name="max_distance_to_bouldering_m" hidden' in search.text
-    assert 'data-property-field-name="max_distance_to_dog_park_m" hidden' in search.text
-    assert 'data-property-field-name="max_distance_to_good_cafe_m" hidden' in search.text
+    for field_name in (
+        "university_name",
+        "max_distance_to_university_m",
+        "max_distance_to_starbucks_m",
+        "max_distance_to_fitness_center_m",
+        "max_distance_to_cinema_m",
+        "max_distance_to_bouldering_m",
+        "max_distance_to_dog_park_m",
+        "max_distance_to_good_cafe_m",
+    ):
+        assert re.search(
+            rf'data-property-field-name="{re.escape(field_name)}"[^>]*\shidden(?:\s|>)',
+            search.text,
+        ), field_name
 
 
 def test_propertyquarry_workspace_hides_school_evidence_priority_when_school_evidence_is_inactive() -> None:

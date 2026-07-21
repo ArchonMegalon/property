@@ -1,17 +1,27 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
+import math
+import re
 import urllib.parse
 from datetime import datetime, timedelta, timezone
 from types import MappingProxyType
 from typing import Mapping, Sequence
+
+from app.property_distance_preferences import (
+    normalize_property_distance_importance as _normalize_property_distance_importance,
+    property_distance_importance_key as _property_distance_importance_key,
+    property_distance_preference_keys as _property_distance_preference_keys,
+)
 
 
 PROPERTY_FACT_ENRICHMENT_SCHEMA_VERSION = "propertyquarry.fact-enrichment.v1"
 PROPERTY_FACT_SCORE_ALGORITHM_VERSION = "propertyquarry.fact-score-state.v1"
 PROPERTY_FACT_GEO_BUNDLE_KIND = "optional-geo-v1"
 PROPERTY_FACT_REQUIRED_GEO_BUNDLE_KIND = "required-geo-v1"
+PROPERTY_FACT_PROVIDER_ATTESTATION_VERSION = "propertyquarry.provider-fact-attestation.v1"
 
 _PROPERTY_FACT_PROVIDER_LABELS = MappingProxyType(
     {
@@ -360,6 +370,56 @@ def property_fact_distance_specs(
     )
 
 
+def property_fact_distance_preference_keys(
+    *,
+    search_supported_only: bool = False,
+    canonical_only: bool = False,
+) -> tuple[str, ...]:
+    """Return the registry-backed radius keys accepted by search preferences.
+
+    The first required preference key on each row is the canonical form shown
+    by the search UI.  Remaining keys are bounded compatibility aliases (for
+    example, ``max_distance_to_underground_m``).
+    """
+    keys: list[str] = []
+    for spec in PROPERTY_FACT_DISTANCE_SPECS:
+        if search_supported_only and not bool(spec.get("search_supported")):
+            continue
+        preference_keys = tuple(
+            str(value or "").strip()
+            for value in tuple(spec.get("required_preference_keys") or ())
+            if str(value or "").strip().startswith("max_distance_to_")
+            and str(value or "").strip().endswith("_m")
+        )
+        if canonical_only:
+            preference_keys = preference_keys[:1]
+        for key in preference_keys:
+            if key not in keys:
+                keys.append(key)
+    registry_keys = tuple(keys)
+    if search_supported_only:
+        contract_keys = _property_distance_preference_keys(
+            canonical_only=canonical_only,
+        )
+        if registry_keys != contract_keys:
+            raise RuntimeError("property_distance_preference_registry_contract_mismatch")
+    return registry_keys
+
+
+def property_fact_distance_importance_key(preference_key: object) -> str:
+    """Return the importance companion for one registry radius key."""
+    return _property_distance_importance_key(preference_key)
+
+
+def normalize_property_fact_distance_importance(
+    value: object,
+    *,
+    default: str = "nice_to_have",
+) -> str:
+    """Canonicalize the four search/detail distance-importance states."""
+    return _normalize_property_distance_importance(value, default=default)
+
+
 def _normalized_text(value: object) -> str:
     return str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
 
@@ -417,6 +477,168 @@ def property_fact_source_fingerprint(property_url: object) -> str:
     """Bind evidence to the exact defragmented listing URL it describes."""
     normalized = urllib.parse.urldefrag(str(property_url or "").strip())[0]
     return "sha256:" + hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _finite_coordinate(value: object, *, latitude: bool) -> float | None:
+    try:
+        parsed = float(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    limit = 90.0 if latitude else 180.0
+    return parsed if math.isfinite(parsed) and -limit <= parsed <= limit else None
+
+
+def property_fact_coordinate_digest(latitude: object, longitude: object) -> str:
+    """Canonical digest for the exact coordinate pair used by a fact query."""
+    lat = _finite_coordinate(latitude, latitude=True)
+    lon = _finite_coordinate(longitude, latitude=False)
+    if lat is None or lon is None:
+        return ""
+    encoded = f"{lat:.8f},{lon:.8f}".encode("ascii")
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def _property_fact_provider_attestation_payload(
+    evidence: Mapping[str, object],
+    *,
+    observed_value: object,
+) -> dict[str, object]:
+    """Canonical response-derived fields covered by the internal trust seal."""
+    try:
+        normalized_value: object = int(round(float(observed_value)))
+    except (TypeError, ValueError):
+        normalized_value = ""
+    return {
+        "version": PROPERTY_FACT_PROVIDER_ATTESTATION_VERSION,
+        "provider": _normalized_text(evidence.get("provider")),
+        "listing_url": urllib.parse.urldefrag(
+            str(evidence.get("listing_url") or "").strip()
+        )[0],
+        "source_fingerprint": str(
+            evidence.get("source_fingerprint") or ""
+        ).strip(),
+        "source_key": str(evidence.get("source_key") or "").strip(),
+        "observed_key": str(evidence.get("observed_key") or "").strip(),
+        "observed_value_m": normalized_value,
+        "listing_latitude": _finite_coordinate(
+            evidence.get("listing_latitude"), latitude=True
+        ),
+        "listing_longitude": _finite_coordinate(
+            evidence.get("listing_longitude"), latitude=False
+        ),
+        "coordinate_digest": str(
+            evidence.get("coordinate_digest") or ""
+        ).strip(),
+        "query_endpoint_url": str(
+            evidence.get("query_endpoint_url") or ""
+        ).strip(),
+        "query_url": str(evidence.get("query_url") or "").strip(),
+        "query_digest": str(evidence.get("query_digest") or "").strip(),
+        "query_schema": str(evidence.get("query_schema") or "").strip(),
+        "receipt_url": str(evidence.get("receipt_url") or "").strip(),
+        "provider_object_id": str(
+            evidence.get("provider_object_id") or ""
+        ).strip(),
+        "provider_object_type": _normalized_text(
+            evidence.get("provider_object_type")
+        ),
+        "provider_object_version": str(
+            evidence.get("provider_object_version") or ""
+        ).strip(),
+        "provider_object_timestamp": str(
+            evidence.get("provider_object_timestamp") or ""
+        ).strip(),
+        "provider_object_changeset": str(
+            evidence.get("provider_object_changeset") or ""
+        ).strip(),
+        "provider_observed_at": str(
+            evidence.get("provider_observed_at") or ""
+        ).strip(),
+        "provider_expires_at": str(
+            evidence.get("provider_expires_at") or ""
+        ).strip(),
+        "observed_at": str(evidence.get("observed_at") or "").strip(),
+        "expires_at": str(evidence.get("expires_at") or "").strip(),
+        "poi_latitude": _finite_coordinate(
+            evidence.get("poi_latitude"), latitude=True
+        ),
+        "poi_longitude": _finite_coordinate(
+            evidence.get("poi_longitude"), latitude=False
+        ),
+        "poi_classification_tags": {
+            str(key).strip(): str(value).strip()
+            for key, value in sorted(
+                dict(evidence.get("poi_classification_tags") or {}).items()
+            )
+            if str(key).strip() and str(value).strip()
+        },
+    }
+
+
+def _property_fact_provider_attestation_secret() -> bytes:
+    # A process-local key is acceptable only in dev/test. Production evidence
+    # must remain valid across API/worker processes and restarts, so fail closed
+    # unless the operator configured the shared signing secret explicitly.
+    from app.settings import get_settings, is_prod_mode, resolve_signing_secret
+
+    secret = resolve_signing_secret(
+        settings := get_settings(),
+        purpose=PROPERTY_FACT_PROVIDER_ATTESTATION_VERSION,
+    )
+    if is_prod_mode(getattr(getattr(settings, "runtime", None), "mode", "")):
+        configured = str(
+            getattr(getattr(settings, "auth", None), "signing_secret", "")
+            or ""
+        ).strip()
+        if not configured:
+            return b""
+    return str(secret or "").encode("utf-8")
+
+
+def property_fact_provider_attestation_is_ready() -> bool:
+    """Whether this process can mint and verify durable provider evidence."""
+    return bool(_property_fact_provider_attestation_secret())
+
+
+def property_fact_issue_provider_attestation(
+    evidence: Mapping[str, object],
+    *,
+    observed_value: object,
+) -> str:
+    """Seal evidence only after a trusted provider adapter parsed its response."""
+    secret = _property_fact_provider_attestation_secret()
+    if not secret:
+        return ""
+    payload = _property_fact_provider_attestation_payload(
+        evidence,
+        observed_value=observed_value,
+    )
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("utf-8")
+    return "hmac-sha256:" + hmac.new(secret, encoded, hashlib.sha256).hexdigest()
+
+
+def property_fact_provider_attestation_is_valid(
+    evidence: Mapping[str, object],
+    *,
+    observed_value: object,
+) -> bool:
+    version = str(evidence.get("attestation_version") or "").strip()
+    supplied = str(evidence.get("provider_attestation") or "").strip()
+    if (
+        version != PROPERTY_FACT_PROVIDER_ATTESTATION_VERSION
+        or not re.fullmatch(r"hmac-sha256:[0-9a-f]{64}", supplied)
+    ):
+        return False
+    expected = property_fact_issue_provider_attestation(
+        evidence,
+        observed_value=observed_value,
+    )
+    return bool(expected) and hmac.compare_digest(supplied, expected)
 
 
 def _explicit_priority_keys(preferences: Mapping[str, object], priority: str) -> set[str]:
@@ -480,6 +702,7 @@ def _explicit_importance_priority(
         "avoid",
         "critical",
         "high",
+        "important",
         "must",
         "must_have",
         "required",
@@ -534,9 +757,6 @@ def _fact_priority(
     )
     if importance_priority is not None:
         return importance_priority
-    for preference_key in tuple(spec.get("required_preference_keys") or ()):
-        if _active_preference(preferences.get(str(preference_key))):
-            return "required"
     strength_map = preferences.get("preference_strengths")
     if isinstance(strength_map, Mapping):
         for preference_key in preference_keys:
@@ -650,26 +870,281 @@ def _evidence_provider_is_allowed(
     )
 
 
-def _required_evidence_is_fresh(
+def _distance_between_coordinates_m(
+    latitude_a: float,
+    longitude_a: float,
+    latitude_b: float,
+    longitude_b: float,
+) -> float:
+    radius_m = 6_371_000.0
+    lat_a = math.radians(latitude_a)
+    lat_b = math.radians(latitude_b)
+    delta_lat = math.radians(latitude_b - latitude_a)
+    delta_lon = math.radians(longitude_b - longitude_a)
+    arc = (
+        math.sin(delta_lat / 2.0) ** 2
+        + math.cos(lat_a)
+        * math.cos(lat_b)
+        * math.sin(delta_lon / 2.0) ** 2
+    )
+    return 2.0 * radius_m * math.atan2(
+        math.sqrt(arc),
+        math.sqrt(max(0.0, 1.0 - arc)),
+    )
+
+
+def _classification_tags_match_spec(
+    tags: Mapping[str, object],
+    spec: Mapping[str, object],
+) -> bool:
+    normalized_tags = {
+        str(key).strip().lower(): str(value).strip().lower()
+        for key, value in tags.items()
+        if str(key).strip() and str(value).strip()
+    }
+    if not normalized_tags:
+        return False
+    for raw_criterion in tuple(spec.get("poi_keys") or ()):
+        criterion = str(raw_criterion or "").strip().lower()
+        if "~=" in criterion:
+            tag_key, pattern = criterion.split("~=", 1)
+            observed = normalized_tags.get(tag_key)
+            if observed and re.search(pattern, observed, flags=re.IGNORECASE):
+                return True
+            continue
+        if "=" not in criterion:
+            continue
+        tag_key, expected = criterion.split("=", 1)
+        if normalized_tags.get(tag_key) == expected:
+            return True
+    return False
+
+
+def _https_url(value: object) -> urllib.parse.SplitResult | None:
+    try:
+        parsed = urllib.parse.urlsplit(str(value or "").strip())
+    except ValueError:
+        return None
+    if (
+        parsed.scheme.lower() != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.fragment
+    ):
+        return None
+    return parsed
+
+
+def _provider_receipt_is_structurally_valid(
+    evidence: Mapping[str, object],
+    *,
+    provider: str,
+) -> bool:
+    object_id = str(evidence.get("provider_object_id") or "").strip()
+    object_type = _normalized_text(evidence.get("provider_object_type"))
+    object_version = str(evidence.get("provider_object_version") or "").strip()
+    receipt = _https_url(evidence.get("receipt_url"))
+    if not object_id or not object_type or not object_version or receipt is None:
+        return False
+    if provider == "openstreetmap_overpass":
+        if (
+            object_type not in {"node", "way", "relation"}
+            or not object_id.isdigit()
+            or not object_version.isdigit()
+            or int(object_version) <= 0
+            or str(receipt.hostname or "").lower() != "api.openstreetmap.org"
+        ):
+            return False
+        expected_path = f"/api/0.6/{object_type}/{object_id}/{int(object_version)}"
+        return receipt.path == expected_path and not receipt.query
+    receipt_text = urllib.parse.unquote(receipt.geturl()).casefold()
+    return object_id.casefold() in receipt_text and object_version.casefold() in receipt_text
+
+
+def _provider_query_binding_is_valid(
+    evidence: Mapping[str, object],
+    *,
+    provider: str,
+    listing_latitude: float,
+    listing_longitude: float,
+) -> bool:
+    query_digest = str(evidence.get("query_digest") or "").strip()
+    if not re.fullmatch(r"sha256:[0-9a-f]{64}", query_digest):
+        return False
+    if provider == "openstreetmap_overpass":
+        endpoint = _https_url(evidence.get("query_endpoint_url"))
+        if (
+            endpoint is None
+            or str(endpoint.hostname or "").lower() != "overpass-api.de"
+            or endpoint.path != "/api/interpreter"
+            or endpoint.query
+            or str(evidence.get("query_schema") or "").strip()
+            != "propertyquarry.osm-nearby.v2"
+        ):
+            return False
+        # The producer and validator share the deterministic query builder, so
+        # a plausible-looking digest cannot be detached from the exact point.
+        from app.product.property_location_research import property_fact_osm_nearby_query
+
+        query = property_fact_osm_nearby_query(
+            listing_latitude,
+            listing_longitude,
+        )
+        expected = "sha256:" + hashlib.sha256(query.encode("utf-8")).hexdigest()
+        return query_digest == expected
+    query_url = _https_url(evidence.get("query_url"))
+    query_schema = str(evidence.get("query_schema") or "").strip()
+    if query_url is None or not query_schema:
+        return False
+    expected = "sha256:" + hashlib.sha256(
+        query_url.geturl().encode("utf-8")
+    ).hexdigest()
+    return query_digest == expected
+
+
+def property_fact_distance_evidence_is_valid(
+    *,
+    facts: Mapping[str, object],
     evidence: Mapping[str, object],
     spec: Mapping[str, object],
-    *,
     observed_source_key: str,
-    expected_source_fingerprint: str = "",
+    observed_value: object,
+    property_url: object,
 ) -> bool:
-    evidence_source_fingerprint = str(evidence.get("source_fingerprint") or "").strip()
+    """Verify evidence strongly enough for a distance to affect score or rank."""
+    normalized_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
+    expected_source_fingerprint = (
+        property_fact_source_fingerprint(normalized_url) if normalized_url else ""
+    )
+    provider = _normalized_text(evidence.get("provider"))
+    listing_latitude = _finite_coordinate(
+        evidence.get("listing_latitude"), latitude=True
+    )
+    listing_longitude = _finite_coordinate(
+        evidence.get("listing_longitude"), latitude=False
+    )
+    current_latitude = _finite_coordinate(facts.get("map_lat"), latitude=True)
+    current_longitude = _finite_coordinate(facts.get("map_lng"), latitude=False)
+    poi_latitude = _finite_coordinate(evidence.get("poi_latitude"), latitude=True)
+    poi_longitude = _finite_coordinate(
+        evidence.get("poi_longitude"), latitude=False
+    )
     if (
-        evidence.get("coordinate_exact") is not True
-        or not str(evidence.get("provider") or "").strip()
-        or not evidence_source_fingerprint.startswith("sha256:")
-        or (
-            expected_source_fingerprint
-            and evidence_source_fingerprint != expected_source_fingerprint
-        )
+        not normalized_url
+        or not expected_source_fingerprint
+        or str(evidence.get("listing_url") or "").strip() != normalized_url
+        or str(evidence.get("source_fingerprint") or "").strip()
+        != expected_source_fingerprint
+        or evidence.get("coordinate_exact") is not True
+        or listing_latitude is None
+        or listing_longitude is None
+        or current_latitude is None
+        or current_longitude is None
+        or poi_latitude is None
+        or poi_longitude is None
+        or abs(listing_latitude - current_latitude) > 0.00000001
+        or abs(listing_longitude - current_longitude) > 0.00000001
+        or str(evidence.get("coordinate_digest") or "").strip()
+        != property_fact_coordinate_digest(current_latitude, current_longitude)
+        or _normalized_text(evidence.get("observed_key"))
+        != _normalized_text(observed_source_key)
+        or _normalized_text(evidence.get("source_key"))
+        != _normalized_text(observed_source_key)
         or not _evidence_provider_is_allowed(
             evidence,
             spec,
             observed_source_key=observed_source_key,
+        )
+        or not _provider_receipt_is_structurally_valid(
+            evidence,
+            provider=provider,
+        )
+        or not _provider_query_binding_is_valid(
+            evidence,
+            provider=provider,
+            listing_latitude=listing_latitude,
+            listing_longitude=listing_longitude,
+        )
+    ):
+        return False
+    if not property_fact_provider_attestation_is_valid(
+        evidence,
+        observed_value=observed_value,
+    ):
+        return False
+    observed_at = str(evidence.get("observed_at") or "").strip()
+    expires_at = str(evidence.get("expires_at") or "").strip()
+    provider_observed_at = str(
+        evidence.get("provider_observed_at") or ""
+    ).strip()
+    provider_expires_at = str(
+        evidence.get("provider_expires_at") or ""
+    ).strip()
+    if (
+        not observed_at
+        or not expires_at
+        or observed_at != provider_observed_at
+        or expires_at != provider_expires_at
+    ):
+        return False
+    try:
+        observed = datetime.fromisoformat(observed_at.replace("Z", "+00:00"))
+        expires = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+        if observed.tzinfo is None or expires.tzinfo is None:
+            return False
+        observed = observed.astimezone(timezone.utc)
+        expires = expires.astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        return False
+    now = datetime.now(timezone.utc)
+    if (
+        observed > now
+        or now >= expires
+        or expires <= observed
+        or expires - observed > timedelta(hours=24)
+    ):
+        return False
+    classification_tags = evidence.get("poi_classification_tags")
+    if not isinstance(classification_tags, Mapping) or not _classification_tags_match_spec(
+        classification_tags,
+        spec,
+    ):
+        return False
+    try:
+        observed_distance = float(observed_value)
+    except (TypeError, ValueError):
+        return False
+    if not math.isfinite(observed_distance) or observed_distance <= 0.0:
+        return False
+    recomputed_distance = _distance_between_coordinates_m(
+        listing_latitude,
+        listing_longitude,
+        poi_latitude,
+        poi_longitude,
+    )
+    # Provider distances are rounded to the nearest metre. Nothing wider than
+    # rounding tolerance is accepted into score or gate calculations.
+    return abs(recomputed_distance - observed_distance) <= 1.0
+
+
+def _score_evidence_is_fresh(
+    evidence: Mapping[str, object],
+    spec: Mapping[str, object],
+    *,
+    facts: Mapping[str, object],
+    observed_source_key: str,
+    observed_value: object,
+    property_url: object,
+) -> bool:
+    if (
+        not property_fact_distance_evidence_is_valid(
+            facts=facts,
+            evidence=evidence,
+            spec=spec,
+            observed_source_key=observed_source_key,
+            observed_value=observed_value,
+            property_url=property_url,
         )
     ):
         return False
@@ -725,11 +1200,6 @@ def property_fact_requirement_plan(
     property_url: object = "",
 ) -> list[dict[str, object]]:
     normalized_preferences = dict(preferences or {})
-    expected_source_fingerprint = (
-        property_fact_source_fingerprint(property_url)
-        if str(property_url or "").strip()
-        else ""
-    )
     plan: list[dict[str, object]] = []
     for spec in PROPERTY_FACT_DISTANCE_SPECS:
         if not _fact_spec_is_relevant(
@@ -754,40 +1224,19 @@ def property_fact_requirement_plan(
             nodes=preference_nodes,
         )
         state = "resolved" if value is not None else "unknown"
-        if (
-            value is not None
-            and priority == "required"
-            and not _required_evidence_is_fresh(
+        if value is not None and not _score_evidence_is_fresh(
+            evidence,
+            spec,
+            facts=facts,
+            observed_source_key=source_key,
+            observed_value=value,
+            property_url=property_url,
+        ):
+            state = "stale"
+        elif value is not None and not _evidence_provider_is_allowed(
                 evidence,
                 spec,
                 observed_source_key=source_key,
-                expected_source_fingerprint=expected_source_fingerprint,
-            )
-        ):
-            state = "stale"
-        elif (
-            value is not None
-            and bool(expected_source_fingerprint)
-            and (
-                not evidence
-                or str(evidence.get("source_fingerprint") or "").strip()
-                != expected_source_fingerprint
-                or not _evidence_provider_is_allowed(
-                    evidence,
-                    spec,
-                    observed_source_key=source_key,
-                )
-            )
-        ):
-            state = "stale"
-        elif (
-            value is not None
-            and (bool(evidence) or bool(spec.get("strict_evidence_provider")))
-            and not _evidence_provider_is_allowed(
-                evidence,
-                spec,
-                observed_source_key=source_key,
-            )
         ):
             state = "stale"
         elif value is not None and _distance_is_coordinate_estimate(facts, evidence):
@@ -808,6 +1257,11 @@ def property_fact_requirement_plan(
                 "display_value": f"{value:,} m".replace(",", " ") if value is not None else "",
                 "source_key": source_key,
                 "provider": str(spec.get("provider") or "").strip(),
+                "poi_keys": [
+                    str(value)
+                    for value in tuple(spec.get("poi_keys") or ())
+                    if str(value).strip()
+                ],
                 "evidence_providers": [
                     str(value)
                     for value in tuple(spec.get("evidence_providers") or ())

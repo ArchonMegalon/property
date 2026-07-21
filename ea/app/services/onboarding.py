@@ -7,6 +7,12 @@ import os
 from datetime import datetime, timezone
 
 from app.domain.models import ConnectorBinding, OnboardingState
+from app.property_distance_preferences import (
+    normalize_property_distance_importance,
+    normalize_property_distance_preference_pairs,
+    property_distance_importance_key,
+    property_distance_preference_keys,
+)
 from app.repositories.onboarding_state import InMemoryOnboardingStateRepository, OnboardingStateRepository
 from app.repositories.onboarding_state_postgres import PostgresOnboardingStateRepository
 from app.services.assistant_onboarding_service import AssistantOnboardingService
@@ -1999,6 +2005,25 @@ class OnboardingService(AssistantOnboardingService):
             **raw,
             **normalize_property_search_preferences_contract(raw),
         }
+        catalog_distance_keys = property_distance_preference_keys()
+        catalog_importance_keys = {
+            property_distance_importance_key(key)
+            for key in catalog_distance_keys
+        }
+        catalog_input_keys = set(catalog_distance_keys) | catalog_importance_keys
+        for raw_key in tuple(raw):
+            raw_key_text = str(raw_key or "")
+            normalized_key = raw_key_text.strip()
+            if (
+                normalized_key.casefold().startswith("max_distance_to_")
+                and (
+                    not isinstance(raw_key, str)
+                    or raw_key != normalized_key
+                    or normalized_key not in catalog_input_keys
+                )
+            ):
+                raw.pop(raw_key, None)
+        raw = normalize_property_distance_preference_pairs(raw)
         selected_platforms: list[str] = []
         raw_selected_platforms = raw.get("selected_platforms")
         if isinstance(raw_selected_platforms, (list, tuple, set)):
@@ -2123,10 +2148,9 @@ class OnboardingService(AssistantOnboardingService):
                 (
                     *promoted_numeric_keys,
                     *(
-                        str(key or "").strip()
-                        for key in dict(raw).keys()
-                        if str(key or "").strip().startswith("max_distance_to_")
-                        and str(key or "").strip().endswith("_m")
+                        key
+                        for key in catalog_distance_keys
+                        if key in raw
                     ),
                 )
             )
@@ -2157,10 +2181,9 @@ class OnboardingService(AssistantOnboardingService):
                     (
                         *promoted_string_keys,
                         *(
-                            str(key or "").strip()
-                            for key in dict(raw).keys()
-                            if str(key or "").strip().startswith("max_distance_to_")
-                            and str(key or "").strip().endswith("_importance")
+                            key
+                            for key in catalog_importance_keys
+                            if key in raw
                         ),
                     )
                 )

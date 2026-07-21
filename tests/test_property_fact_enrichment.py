@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
+import math
 import time
 import urllib.parse
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
@@ -13,16 +17,30 @@ from starlette.requests import Request
 import app.product.property_location_research as property_location_research
 import app.product.property_search_storage as property_search_storage
 import app.product.service as product_service
+import app.settings as app_settings
+import app.api.routes.landing_view_models as landing_view_models
 from app.api.dependencies import RequestContext
-from app.api.routes.product_api_contracts import PropertyFactEnrichmentOut
+from app.api.routes.product_api_contracts import (
+    PropertyFactEnrichmentOut,
+    PropertyFactProvenanceOut,
+)
 from app.api.routes.product_api_delivery import _require_property_fact_same_origin
 from app.product.property_fact_enrichment import (
     PROPERTY_FACT_DISTANCE_SPECS,
     PROPERTY_FACT_ENRICHMENT_SCHEMA_VERSION,
+    PROPERTY_FACT_PROVIDER_ATTESTATION_VERSION,
+    property_fact_coordinate_digest,
+    property_fact_distance_evidence_is_valid,
     property_fact_distance_specs,
+    property_fact_issue_provider_attestation,
     property_fact_requirement_plan,
     property_fact_score_projection,
     property_fact_source_fingerprint,
+)
+from app.product.property_location_research import (
+    PROPERTY_FACT_OSM_QUERY_ENDPOINT,
+    PROPERTY_FACT_OSM_QUERY_SCHEMA,
+    property_fact_osm_nearby_query,
 )
 from app.product.service import (
     ProductService,
@@ -33,6 +51,172 @@ from app.product.service import (
     _property_search_ranked_candidates_from_sources,
 )
 from tests.product_test_helpers import build_property_operator_client, start_workspace
+
+
+_OSM_CLASSIFICATION_BY_FACT: dict[str, dict[str, str]] = {
+    "nearest_supermarket_m": {"shop": "supermarket"},
+    "nearest_playground_m": {"leisure": "playground"},
+    "nearest_pharmacy_m": {"amenity": "pharmacy"},
+    "nearest_medical_care_m": {"amenity": "clinic"},
+    "nearest_subway_m": {"railway": "subway_entrance"},
+    "nearest_university_m": {"amenity": "university"},
+    "nearest_kindergarten_m": {"amenity": "kindergarten"},
+    "nearest_library_m": {"amenity": "library"},
+    "nearest_zoo_m": {"tourism": "zoo"},
+    "nearest_market_m": {"amenity": "marketplace"},
+    "nearest_hardware_store_m": {"shop": "hardware"},
+    "nearest_shopping_center_m": {"shop": "mall"},
+    "nearest_shopping_street_m": {"highway": "pedestrian"},
+    "nearest_theatre_m": {"amenity": "theatre"},
+    "nearest_public_pool_m": {"leisure": "swimming_pool"},
+    "nearest_starbucks_m": {"brand": "starbucks"},
+    "nearest_fitness_center_m": {"leisure": "fitness_centre"},
+    "nearest_cinema_m": {"amenity": "cinema"},
+    "nearest_bouldering_m": {"sport": "bouldering"},
+    "nearest_dog_park_m": {"leisure": "dog_park"},
+    "nearest_full_day_primary_school_m": {
+        "schoolatlas": "full_day_primary_school"
+    },
+    "nearest_half_day_primary_school_m": {
+        "schoolatlas": "half_day_primary_school"
+    },
+    "nearest_good_cafe_m": {
+        "amenity": "cafe+independent_quality_evidence"
+    },
+}
+
+
+def _valid_osm_evidence(
+    *,
+    key: str,
+    distance_m: int,
+    property_url: str,
+    latitude: float = 48.2082,
+    longitude: float = 16.3738,
+    source_key: str | None = None,
+    observed_at: datetime | None = None,
+) -> dict[str, object]:
+    observed = observed_at or datetime.now(timezone.utc)
+    expires = observed + timedelta(hours=24)
+    query = property_fact_osm_nearby_query(latitude, longitude)
+    object_id = str(10_000_000 + sum(ord(value) for value in key))
+    poi_latitude = latitude + math.degrees(float(distance_m) / 6_371_000.0)
+    evidence: dict[str, object] = {
+        "provider": "openstreetmap_overpass",
+        "method": "straight_line_osm",
+        "observed_at": observed.isoformat(),
+        "expires_at": expires.isoformat(),
+        "freshness": "fresh",
+        "confidence": 0.95,
+        "source_key": source_key or key,
+        "observed_key": source_key or key,
+        "listing_url": urllib.parse.urldefrag(property_url)[0],
+        "source_fingerprint": property_fact_source_fingerprint(property_url),
+        "coordinate_basis": "candidate_listing_coordinates",
+        "coordinate_observed_at": observed.isoformat(),
+        "coordinate_precision": "address",
+        "coordinate_source": "listing",
+        "coordinate_exact": True,
+        "listing_latitude": latitude,
+        "listing_longitude": longitude,
+        "coordinate_digest": property_fact_coordinate_digest(latitude, longitude),
+        "query_endpoint_url": PROPERTY_FACT_OSM_QUERY_ENDPOINT,
+        "query_digest": "sha256:" + hashlib.sha256(query.encode("utf-8")).hexdigest(),
+        "query_schema": PROPERTY_FACT_OSM_QUERY_SCHEMA,
+        "receipt_url": f"https://api.openstreetmap.org/api/0.6/node/{object_id}/1",
+        "provider_object_id": object_id,
+        "provider_object_type": "node",
+        "provider_object_version": 1,
+        "provider_object_timestamp": observed.isoformat(),
+        "provider_object_changeset": "123456",
+        "provider_observed_at": observed.isoformat(),
+        "provider_expires_at": expires.isoformat(),
+        "poi_latitude": poi_latitude,
+        "poi_longitude": longitude,
+        "poi_classification_tags": dict(_OSM_CLASSIFICATION_BY_FACT[key]),
+    }
+    evidence["attestation_version"] = (
+        PROPERTY_FACT_PROVIDER_ATTESTATION_VERSION
+    )
+    evidence["provider_attestation"] = property_fact_issue_provider_attestation(
+        evidence,
+        observed_value=distance_m,
+    )
+    return evidence
+
+
+def _valid_osm_research(
+    distances: dict[str, int],
+    *,
+    property_url: str,
+    latitude: float = 48.2082,
+    longitude: float = 16.3738,
+) -> tuple[dict[str, object], dict[str, object]]:
+    evidence = {
+        key: _valid_osm_evidence(
+            key=key,
+            distance_m=distance,
+            property_url=property_url,
+            latitude=latitude,
+            longitude=longitude,
+        )
+        for key, distance in distances.items()
+    }
+    research: dict[str, object] = {
+        **distances,
+        "property_fact_geo_evidence": {
+            key: dict(row)
+            for key, row in evidence.items()
+        },
+    }
+    meta = {
+        "coordinate_basis": "candidate_listing_coordinates",
+        "coordinate_observed_at": datetime.now(timezone.utc).isoformat(),
+        "coordinate_precision": "address",
+        "coordinate_source": "listing",
+        "coordinate_exact": True,
+        "listing_latitude": latitude,
+        "listing_longitude": longitude,
+        "coordinate_digest": property_fact_coordinate_digest(latitude, longitude),
+        "coordinate_updates": {},
+    }
+    return research, meta
+
+
+def _valid_strict_evidence(
+    *,
+    provider: str,
+    key: str,
+    distance_m: int,
+    property_url: str,
+) -> dict[str, object]:
+    evidence = _valid_osm_evidence(
+        key=key,
+        distance_m=distance_m,
+        property_url=property_url,
+    )
+    evidence.pop("query_endpoint_url", None)
+    evidence.pop("provider_attestation", None)
+    evidence["provider"] = provider
+    evidence["provider_object_type"] = "record"
+    query_url = (
+        f"https://{provider.replace('_', '-')}.example/query"
+        f"?lat={evidence['listing_latitude']}&lon={evidence['listing_longitude']}&key={key}"
+    )
+    evidence["query_url"] = query_url
+    evidence["query_schema"] = f"propertyquarry.{provider}.v1"
+    evidence["query_digest"] = "sha256:" + hashlib.sha256(
+        query_url.encode("utf-8")
+    ).hexdigest()
+    evidence["receipt_url"] = (
+        f"https://{provider.replace('_', '-')}.example/records/"
+        f"{evidence['provider_object_id']}/versions/1"
+    )
+    evidence["provider_attestation"] = property_fact_issue_provider_attestation(
+        evidence,
+        observed_value=distance_m,
+    )
+    return evidence
 
 
 def _candidate(*, candidate_ref: str = "candidate-facts") -> dict[str, object]:
@@ -318,6 +502,13 @@ def _resolved_geo_facts(
 ) -> dict[str, object]:
     observed_at = datetime.now(timezone.utc)
     source_fingerprint = property_fact_source_fingerprint(property_url)
+    coordinate_digest = property_fact_coordinate_digest(48.2082, 16.3738)
+    distances = {
+        "nearest_supermarket_m": 280,
+        "nearest_pharmacy_m": 530,
+        "nearest_medical_care_m": 570,
+        "nearest_subway_m": 640,
+    }
     facts: dict[str, object] = {
         "map_lat": 48.2082,
         "map_lng": 16.3738,
@@ -327,43 +518,33 @@ def _resolved_geo_facts(
         "map_coordinate_evidence": {
             "exact": True,
             "trusted": True,
-            "provider": "listing_preview",
+            "provider": "listing_structured_coordinates",
             "source_fingerprint": source_fingerprint,
+            "latitude": 48.2082,
+            "longitude": 16.3738,
+            "coordinate_digest": coordinate_digest,
+            "observed_at": observed_at.isoformat(),
+            "expires_at": (observed_at + timedelta(hours=6)).isoformat(),
         },
-        "nearest_supermarket_m": 280,
-        "nearest_pharmacy_m": 530,
-        "nearest_medical_care_m": 570,
-        "nearest_subway_m": 640,
+        **distances,
         "property_fact_evidence": {
-            key: {
-                "provider": "openstreetmap_overpass",
-                "method": "straight_line_osm",
-                "observed_at": observed_at.isoformat(),
-                "expires_at": (observed_at + timedelta(hours=24)).isoformat(),
-                "freshness": "fresh",
-                "confidence": 0.95,
-                "source_key": key,
-                "source_fingerprint": source_fingerprint,
-                "coordinate_basis": "candidate_listing_coordinates",
-                "coordinate_observed_at": observed_at.isoformat(),
-                "coordinate_precision": "address",
-                "coordinate_source": "listing",
-                "coordinate_exact": True,
-            }
-            for key in (
-                "nearest_supermarket_m",
-                "nearest_pharmacy_m",
-                "nearest_medical_care_m",
-                "nearest_subway_m",
+            key: _valid_osm_evidence(
+                key=key,
+                distance_m=value,
+                property_url=property_url,
+                observed_at=observed_at,
             )
+            for key, value in distances.items()
         },
     }
     if include_playground:
         facts["nearest_playground_m"] = 410
-        facts["property_fact_evidence"]["nearest_playground_m"] = {
-            **dict(facts["property_fact_evidence"]["nearest_supermarket_m"]),
-            "source_key": "nearest_playground_m",
-        }
+        facts["property_fact_evidence"]["nearest_playground_m"] = _valid_osm_evidence(
+            key="nearest_playground_m",
+            distance_m=410,
+            property_url=property_url,
+            observed_at=observed_at,
+        )
     return facts
 
 
@@ -396,9 +577,25 @@ def test_fact_priority_preserves_unknown_and_holds_required_facts_out_of_ranking
 
 
 def test_nice_to_have_unknown_is_provisional_and_distance_alias_resolves() -> None:
+    property_url = (
+        "https://www.willhaben.at/iad/immobilien/d/alias-home-1234567890/"
+    )
     plan = property_fact_requirement_plan(
-        facts={"distance_supermarket_m": 325},
+        facts={
+            "map_lat": 48.2082,
+            "map_lng": 16.3738,
+            "distance_supermarket_m": 325,
+            "property_fact_evidence": {
+                "distance_supermarket_m": _valid_osm_evidence(
+                    key="nearest_supermarket_m",
+                    source_key="distance_supermarket_m",
+                    distance_m=325,
+                    property_url=property_url,
+                )
+            },
+        },
         preferences={"prefer_supermarket_nearby": True},
+        property_url=property_url,
     )
     supermarket = next(row for row in plan if row["key"] == "nearest_supermarket_m")
     projection = property_fact_score_projection(
@@ -462,20 +659,30 @@ def test_distance_fact_registry_exhaustively_covers_search_preferences() -> None
     assert all(spec["evidence_source_keys_by_provider"] for spec in registry)
 
 
-def test_every_search_distance_preference_maps_to_required_or_lazy_plan() -> None:
+def test_every_search_distance_preference_defaults_lazy_and_explicit_strong_is_required() -> None:
     for spec in property_fact_distance_specs(search_supported_only=True):
         preference_key = next(
             str(value)
             for value in list(spec["preference_keys"])
             if str(value).startswith("max_distance_to_")
         )
-        required_plan = property_fact_requirement_plan(
+        default_plan = property_fact_requirement_plan(
             facts={},
             preferences={preference_key: 750},
         )
+        default_row = next(row for row in default_plan if row["key"] == spec["key"])
+        assert default_row["priority"] == "lazy", preference_key
+        assert default_row["state"] == "unknown", preference_key
+
+        required_plan = property_fact_requirement_plan(
+            facts={},
+            preferences={
+                preference_key: 750,
+                f"{preference_key[:-2]}_importance": "strong_wish",
+            },
+        )
         required = next(row for row in required_plan if row["key"] == spec["key"])
         assert required["priority"] == "required", preference_key
-        assert required["state"] == "unknown", preference_key
 
         lazy_plan = property_fact_requirement_plan(
             facts={},
@@ -500,6 +707,9 @@ def test_distance_fact_registry_accessor_returns_defensive_copies() -> None:
 
 def test_quality_cafe_and_school_classification_require_honest_provenance() -> None:
     observed_at = datetime.now(timezone.utc)
+    property_url = (
+        "https://www.willhaben.at/iad/immobilien/d/provider-home-1234567890/"
+    )
 
     def _evidence(provider: str, *, source_key: str = "") -> dict[str, object]:
         return {
@@ -514,15 +724,19 @@ def test_quality_cafe_and_school_classification_require_honest_provenance() -> N
     kindergarten_preferences = {"max_distance_to_kindergarten_m": 700}
     exact_osm_kindergarten = property_fact_requirement_plan(
         facts={
+            "map_lat": 48.2082,
+            "map_lng": 16.3738,
             "nearest_kindergarten_m": 260,
             "property_fact_evidence": {
-                "nearest_kindergarten_m": _evidence(
-                    "openstreetmap_overpass",
-                    source_key="nearest_kindergarten_m",
+                "nearest_kindergarten_m": _valid_osm_evidence(
+                    key="nearest_kindergarten_m",
+                    distance_m=260,
+                    property_url=property_url,
                 ),
             },
         },
         preferences=kindergarten_preferences,
+        property_url=property_url,
     )
     assert next(
         row
@@ -565,15 +779,20 @@ def test_quality_cafe_and_school_classification_require_honest_provenance() -> N
 
     schoolatlas = property_fact_requirement_plan(
         facts={
+            "map_lat": 48.2082,
+            "map_lng": 16.3738,
             "nearest_full_day_primary_school_m": 420,
             "property_fact_evidence": {
-                "nearest_full_day_primary_school_m": _evidence(
-                    "schoolatlas",
-                    source_key="nearest_full_day_primary_school_m",
+                "nearest_full_day_primary_school_m": _valid_strict_evidence(
+                    provider="schoolatlas",
+                    key="nearest_full_day_primary_school_m",
+                    distance_m=420,
+                    property_url=property_url,
                 ),
             },
         },
         preferences=school_preferences,
+        property_url=property_url,
     )
     assert next(
         row for row in schoolatlas if row["key"] == "nearest_full_day_primary_school_m"
@@ -595,15 +814,20 @@ def test_quality_cafe_and_school_classification_require_honest_provenance() -> N
 
     verified_cafe = property_fact_requirement_plan(
         facts={
+            "map_lat": 48.2082,
+            "map_lng": 16.3738,
             "nearest_good_cafe_m": 180,
             "property_fact_evidence": {
-                "nearest_good_cafe_m": _evidence(
-                    "quality_verified_cafe_source",
-                    source_key="nearest_good_cafe_m",
+                "nearest_good_cafe_m": _valid_strict_evidence(
+                    provider="quality_verified_cafe_source",
+                    key="nearest_good_cafe_m",
+                    distance_m=180,
+                    property_url=property_url,
                 ),
             },
         },
         preferences=cafe_preferences,
+        property_url=property_url,
     )
     assert next(
         row for row in verified_cafe if row["key"] == "nearest_good_cafe_m"
@@ -611,7 +835,6 @@ def test_quality_cafe_and_school_classification_require_honest_provenance() -> N
 
 
 def test_distance_evidence_is_bound_to_the_exact_listing_url() -> None:
-    observed_at = datetime.now(timezone.utc)
     original_url = (
         "https://www.willhaben.at/iad/immobilien/d/"
         "exact-source-home-1234567890/"
@@ -621,16 +844,15 @@ def test_distance_evidence_is_bound_to_the_exact_listing_url() -> None:
         "different-source-home-1234567891/"
     )
     facts = {
+        "map_lat": 48.2082,
+        "map_lng": 16.3738,
         "nearest_supermarket_m": 240,
         "property_fact_evidence": {
-            "nearest_supermarket_m": {
-                "provider": "openstreetmap_overpass",
-                "observed_at": observed_at.isoformat(),
-                "expires_at": (observed_at + timedelta(hours=24)).isoformat(),
-                "source_key": "nearest_supermarket_m",
-                "source_fingerprint": property_fact_source_fingerprint(original_url),
-                "coordinate_exact": True,
-            }
+            "nearest_supermarket_m": _valid_osm_evidence(
+                key="nearest_supermarket_m",
+                distance_m=240,
+                property_url=original_url,
+            )
         },
     }
     preferences = {"max_distance_to_supermarket_m": 500}
@@ -655,7 +877,6 @@ def test_distance_evidence_is_bound_to_the_exact_listing_url() -> None:
 
 
 def test_lazy_distance_cannot_borrow_another_listing_or_alias_evidence() -> None:
-    observed_at = datetime.now(timezone.utc)
     original_url = (
         "https://www.willhaben.at/iad/immobilien/d/"
         "lazy-source-home-1234567890/"
@@ -665,26 +886,23 @@ def test_lazy_distance_cannot_borrow_another_listing_or_alias_evidence() -> None
         "lazy-source-home-1234567891/"
     )
     facts = {
+        "map_lat": 48.2082,
+        "map_lng": 16.3738,
         "distance_supermarket_m": 240,
         "property_fact_evidence": {
             # Evidence for the canonical value must not authenticate the alias
             # value that was actually observed.
-            "nearest_supermarket_m": {
-                "provider": "openstreetmap_overpass",
-                "observed_at": observed_at.isoformat(),
-                "expires_at": (observed_at + timedelta(hours=24)).isoformat(),
-                "source_key": "nearest_supermarket_m",
-                "source_fingerprint": property_fact_source_fingerprint(original_url),
-                "coordinate_exact": True,
-            },
-            "distance_supermarket_m": {
-                "provider": "openstreetmap_overpass",
-                "observed_at": observed_at.isoformat(),
-                "expires_at": (observed_at + timedelta(hours=24)).isoformat(),
-                "source_key": "distance_supermarket_m",
-                "source_fingerprint": property_fact_source_fingerprint(original_url),
-                "coordinate_exact": True,
-            },
+            "nearest_supermarket_m": _valid_osm_evidence(
+                key="nearest_supermarket_m",
+                distance_m=240,
+                property_url=original_url,
+            ),
+            "distance_supermarket_m": _valid_osm_evidence(
+                key="nearest_supermarket_m",
+                source_key="distance_supermarket_m",
+                distance_m=240,
+                property_url=original_url,
+            ),
         },
     }
     preferences = {
@@ -744,22 +962,33 @@ def test_ordinary_osm_fact_rejects_wrong_provider_or_wrong_classification(
     provider: str,
     source_key: str,
 ) -> None:
-    observed_at = datetime.now(timezone.utc)
+    property_url = (
+        "https://www.willhaben.at/iad/immobilien/d/adversarial-home-1234567890/"
+    )
+    invalid_evidence = _valid_osm_evidence(
+        key="nearest_supermarket_m",
+        distance_m=240,
+        property_url=property_url,
+    )
+    invalid_evidence["provider"] = provider
+    invalid_evidence["source_key"] = source_key
     facts = {
+        "map_lat": 48.2082,
+        "map_lng": 16.3738,
         "nearest_supermarket_m": 240,
         "property_fact_evidence": {
-            "nearest_supermarket_m": {
-                "provider": provider,
-                "observed_at": observed_at.isoformat(),
-                "expires_at": (observed_at + timedelta(hours=24)).isoformat(),
-                "source_key": source_key,
-                "source_fingerprint": "sha256:" + "6" * 64,
-                "coordinate_exact": True,
-            }
+            "nearest_supermarket_m": invalid_evidence
         },
     }
-    preferences = {"max_distance_to_supermarket_m": 500}
-    plan = property_fact_requirement_plan(facts=facts, preferences=preferences)
+    preferences = {
+        "max_distance_to_supermarket_m": 500,
+        "max_distance_to_supermarket_importance": "must_have",
+    }
+    plan = property_fact_requirement_plan(
+        facts=facts,
+        preferences=preferences,
+        property_url=property_url,
+    )
     supermarket = next(
         row for row in plan if row["key"] == "nearest_supermarket_m"
     )
@@ -832,14 +1061,16 @@ def test_required_resolution_receipt_names_unavailable_strict_provider(
         if row["field_key"] == "nearest_full_day_primary_school_m"
     )
 
-    assert strict_field["state"] == "stale"
-    assert receipt["status"] == "partial"
+    assert strict_field["state"] == "unknown"
+    assert receipt["status"] == "terminal_error"
     assert provider_receipt["provider"] == "schoolatlas"
-    assert provider_receipt["status"] == "pending"
+    assert provider_receipt["status"] == "unavailable"
 
 
 def test_legacy_underground_preference_canonicalizes_to_subway_hard_gate() -> None:
-    observed_at = datetime.now(timezone.utc)
+    property_url = (
+        "https://www.willhaben.at/iad/immobilien/d/subway-home-1234567890/"
+    )
     preferences = {
         "max_distance_to_underground_m": 500,
         "max_distance_to_underground_importance": "must_have",
@@ -848,22 +1079,22 @@ def test_legacy_underground_preference_canonicalizes_to_subway_hard_gate() -> No
         preferences
     )
     facts = {
+        "map_lat": 48.2082,
+        "map_lng": 16.3738,
         "nearest_subway_m": 720,
         "property_fact_evidence": {
-            "nearest_subway_m": {
-                "provider": "openstreetmap_overpass",
-                "observed_at": observed_at.isoformat(),
-                "expires_at": (observed_at + timedelta(hours=24)).isoformat(),
-                "source_key": "nearest_subway_m",
-                "source_fingerprint": "sha256:" + "7" * 64,
-                "coordinate_exact": True,
-            }
+            "nearest_subway_m": _valid_osm_evidence(
+                key="nearest_subway_m",
+                distance_m=720,
+                property_url=property_url,
+            )
         },
     }
     plan = property_fact_requirement_plan(
         facts=facts,
         preferences=normalized,
         include_resolved=True,
+        property_url=property_url,
     )
 
     assert normalized["max_distance_to_subway_m"] == 500
@@ -994,6 +1225,394 @@ def test_nearby_provider_queries_supported_specialty_pois_but_not_unverified_goo
     assert '["amenity"="cafe"]' not in decoded_query
 
 
+def test_live_parser_merge_and_compact_restart_preserve_resolved_attested_fact(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    property_url = (
+        "https://www.willhaben.at/iad/immobilien/d/compact-home-1234567890/"
+    )
+    latitude = 48.2082
+    longitude = 16.3738
+
+    class _Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {
+                "elements": [
+                    {
+                        "type": "node",
+                        "id": 424242,
+                        "version": 7,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "changeset": 99,
+                        "lat": latitude + 0.002,
+                        "lon": longitude,
+                        "tags": {"shop": "supermarket", "name": "Signed Market"},
+                    }
+                ]
+            }
+
+    monkeypatch.setattr(
+        property_location_research.requests,
+        "post",
+        lambda *args, **kwargs: _Response(),
+    )
+    property_location_research._property_research_nearby_pois.cache_clear()
+    research = property_location_research._property_research_nearby_pois(
+        latitude,
+        longitude,
+        property_url,
+    )
+    property_location_research._property_research_nearby_pois.cache_clear()
+    preferences = {
+        "max_distance_to_supermarket_m": 700,
+        "max_distance_to_supermarket_importance": "must_have",
+    }
+    base_facts = {"map_lat": latitude, "map_lng": longitude}
+    requested_plan = property_fact_requirement_plan(
+        facts=base_facts,
+        preferences=preferences,
+        property_url=property_url,
+    )
+    merged, _labels, observed_keys = product_service._property_fact_merge_geo_research(
+        property_url=property_url,
+        facts=base_facts,
+        requested_plan=requested_plan,
+        research=research,
+        geo_source_meta={
+            "coordinate_basis": "candidate_listing_coordinates",
+            "coordinate_observed_at": datetime.now(timezone.utc).isoformat(),
+            "coordinate_precision": "address",
+            "coordinate_source": "listing_structured_coordinates",
+            "coordinate_exact": True,
+            "listing_latitude": latitude,
+            "listing_longitude": longitude,
+            "coordinate_digest": property_fact_coordinate_digest(
+                latitude,
+                longitude,
+            ),
+        },
+    )
+    assert observed_keys == {"nearest_supermarket_m"}
+    plan_before = property_fact_requirement_plan(
+        facts=merged,
+        preferences=preferences,
+        property_url=property_url,
+    )
+    resolved_before = next(
+        row for row in plan_before if row["key"] == "nearest_supermarket_m"
+    )
+    assert resolved_before["state"] == "resolved"
+
+    facts_with_fillers = {
+        **merged,
+        **{f"filler_{index}": f"value-{index}" for index in range(45)},
+    }
+    raw_job = {
+        "job_id": "pfe_" + "a" * 24,
+        "status": "succeeded",
+        "attempt": 1,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "candidate_ref": "candidate-compact",
+        "required_only": True,
+        "fields": plan_before,
+        "score": property_fact_score_projection(
+            candidate={"fit_score": 70.0},
+            plan=plan_before,
+            preferences=preferences,
+        ),
+        "provider_receipts": product_service._property_fact_provider_receipts(
+            plan_before
+        ),
+        "retryable": False,
+    }
+    compact = property_search_storage._compact_property_search_run_record(
+        {
+            "run_id": "run-compact",
+            "principal_id": "principal-compact",
+            "property_search_preferences": preferences,
+            "summary": {
+                "ranked_candidates": [
+                    {
+                        "candidate_ref": "candidate-compact",
+                        "property_url": property_url,
+                        "property_facts": facts_with_fillers,
+                    }
+                ],
+                "fact_enrichment_jobs": {raw_job["job_id"]: raw_job},
+                "required_fact_enrichment_candidate_jobs": {
+                    "candidate-compact": raw_job["job_id"]
+                },
+            },
+        }
+    )
+    restarted_candidate = compact["summary"]["ranked_candidates"][0]
+    restarted_facts = restarted_candidate["property_facts"]
+    restarted_plan = property_fact_requirement_plan(
+        facts=restarted_facts,
+        preferences=preferences,
+        property_url=property_url,
+    )
+    restarted_row = next(
+        row for row in restarted_plan if row["key"] == "nearest_supermarket_m"
+    )
+    assert restarted_facts["nearest_supermarket_m"] == merged[
+        "nearest_supermarket_m"
+    ]
+    assert restarted_row["state"] == "resolved"
+    restarted_job = compact["summary"]["fact_enrichment_jobs"][raw_job["job_id"]]
+    assert _property_fact_safe_job_payload(restarted_job)["fields"][0][
+        "provenance"
+    ] == _property_fact_safe_job_payload(raw_job)["fields"][0]["provenance"]
+    public_payload = _property_fact_safe_job_payload(restarted_job)
+    public_payload.update(
+        {
+            "run_id": "run-compact",
+            "candidate_ref": "candidate-compact",
+            "status_url": "/app/api/signals/property/search/run/run-compact/candidates/candidate-compact/fact-enrichment",
+        }
+    )
+    PropertyFactEnrichmentOut.model_validate(public_payload)
+
+
+def test_provider_attestation_rejects_every_bound_field_mutation_and_replay() -> None:
+    property_url = (
+        "https://www.willhaben.at/iad/immobilien/d/sealed-home-1234567890/"
+    )
+    evidence = _valid_osm_evidence(
+        key="nearest_supermarket_m",
+        distance_m=280,
+        property_url=property_url,
+    )
+    facts = {
+        "map_lat": 48.2082,
+        "map_lng": 16.3738,
+        "nearest_supermarket_m": 280,
+    }
+    spec = next(
+        row
+        for row in property_fact_distance_specs()
+        if row["key"] == "nearest_supermarket_m"
+    )
+
+    def is_valid(candidate: dict[str, object], value: int = 280) -> bool:
+        return property_fact_distance_evidence_is_valid(
+            facts={**facts, "nearest_supermarket_m": value},
+            evidence=candidate,
+            spec=spec,
+            observed_source_key="nearest_supermarket_m",
+            observed_value=value,
+            property_url=property_url,
+        )
+
+    assert is_valid(evidence) is True
+    mutations: dict[str, object] = {
+        "provider": "wrong_provider",
+        "listing_url": property_url + "other",
+        "source_fingerprint": "sha256:" + "0" * 64,
+        "source_key": "nearest_playground_m",
+        "observed_key": "nearest_playground_m",
+        "listing_latitude": 48.3,
+        "listing_longitude": 16.4,
+        "coordinate_digest": "sha256:" + "1" * 64,
+        "query_endpoint_url": "https://overpass-api.de/api/other",
+        "query_digest": "sha256:" + "2" * 64,
+        "query_schema": "propertyquarry.osm-nearby.v999",
+        "receipt_url": "https://api.openstreetmap.org/api/0.6/node/1/1",
+        "provider_object_id": "1",
+        "provider_object_type": "way",
+        "provider_object_version": 2,
+        "provider_object_timestamp": "2020-01-01T00:00:00+00:00",
+        "provider_object_changeset": "654321",
+        "provider_observed_at": "2020-01-01T00:00:00+00:00",
+        "provider_expires_at": "2030-01-01T00:00:00+00:00",
+        "observed_at": "2020-01-01T00:00:00+00:00",
+        "expires_at": "2030-01-01T00:00:00+00:00",
+        "poi_latitude": 48.4,
+        "poi_longitude": 16.5,
+        "attestation_version": "propertyquarry.provider-fact-attestation.v0",
+        "provider_attestation": "hmac-sha256:" + "f" * 64,
+    }
+    for field, replacement in mutations.items():
+        tampered = copy.deepcopy(evidence)
+        tampered[field] = replacement
+        assert is_valid(tampered) is False, field
+    tampered_tags = copy.deepcopy(evidence)
+    tampered_tags["poi_classification_tags"] = {"shop": "convenience"}
+    assert is_valid(tampered_tags) is False
+    assert is_valid(copy.deepcopy(evidence), value=281) is False
+    unsigned = copy.deepcopy(evidence)
+    unsigned.pop("provider_attestation")
+    assert is_valid(unsigned) is False
+
+    future = _valid_osm_evidence(
+        key="nearest_supermarket_m",
+        distance_m=280,
+        property_url=property_url,
+        observed_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+    )
+    assert is_valid(future) is False
+    oversized = copy.deepcopy(evidence)
+    oversized_expiry = (
+        datetime.fromisoformat(str(oversized["observed_at"]))
+        + timedelta(hours=25)
+    ).isoformat()
+    oversized["expires_at"] = oversized_expiry
+    oversized["provider_expires_at"] = oversized_expiry
+    oversized["provider_attestation"] = property_fact_issue_provider_attestation(
+        oversized,
+        observed_value=280,
+    )
+    assert is_valid(oversized) is False
+
+
+def test_provider_attestation_prod_secret_is_durable_and_rotation_invalidates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original = app_settings.get_settings()
+    prod_runtime = replace(original.runtime, mode="prod")
+    missing = replace(
+        original,
+        runtime=prod_runtime,
+        auth=replace(original.auth, signing_secret=""),
+    )
+    monkeypatch.setattr(app_settings, "get_settings", lambda: missing)
+    unsigned = _valid_osm_evidence(
+        key="nearest_supermarket_m",
+        distance_m=280,
+        property_url=(
+            "https://www.willhaben.at/iad/immobilien/d/secret-home-1234567890/"
+        ),
+    )
+    assert unsigned["provider_attestation"] == ""
+
+    first_process = replace(
+        missing,
+        auth=replace(original.auth, signing_secret="a" * 48),
+    )
+    monkeypatch.setattr(app_settings, "get_settings", lambda: first_process)
+    sealed = _valid_osm_evidence(
+        key="nearest_supermarket_m",
+        distance_m=280,
+        property_url=(
+            "https://www.willhaben.at/iad/immobilien/d/secret-home-1234567890/"
+        ),
+    )
+    restarted_process = replace(
+        original,
+        runtime=prod_runtime,
+        auth=replace(original.auth, signing_secret="a" * 48),
+    )
+    monkeypatch.setattr(app_settings, "get_settings", lambda: restarted_process)
+    assert product_service.property_fact_distance_evidence_is_valid(
+        facts={
+            "map_lat": 48.2082,
+            "map_lng": 16.3738,
+            "nearest_supermarket_m": 280,
+        },
+        evidence=sealed,
+        spec=next(
+            row
+            for row in property_fact_distance_specs()
+            if row["key"] == "nearest_supermarket_m"
+        ),
+        observed_source_key="nearest_supermarket_m",
+        observed_value=280,
+        property_url=sealed["listing_url"],
+    ) is True
+    rotated = replace(
+        restarted_process,
+        auth=replace(original.auth, signing_secret="b" * 48),
+    )
+    monkeypatch.setattr(app_settings, "get_settings", lambda: rotated)
+    assert property_fact_distance_evidence_is_valid(
+        facts={
+            "map_lat": 48.2082,
+            "map_lng": 16.3738,
+            "nearest_supermarket_m": 280,
+        },
+        evidence=sealed,
+        spec=next(
+            row
+            for row in property_fact_distance_specs()
+            if row["key"] == "nearest_supermarket_m"
+        ),
+        observed_source_key="nearest_supermarket_m",
+        observed_value=280,
+        property_url=sealed["listing_url"],
+    ) is False
+
+
+def test_safe_public_fact_projection_bounds_untrusted_classification_tags() -> None:
+    provenance = _valid_osm_evidence(
+        key="nearest_supermarket_m",
+        distance_m=280,
+        property_url=(
+            "https://www.willhaben.at/iad/immobilien/d/tag-home-1234567890/"
+        ),
+    )
+    provenance["poi_classification_tags"] = {
+        f"tag_{index}": f"value_{index}" for index in range(20)
+    }
+    safe = _property_fact_safe_job_payload(
+        {
+            "job_id": "pfe_" + "c" * 24,
+            "status": "succeeded",
+            "attempt": 1,
+            "fields": [
+                {
+                    "key": "nearest_supermarket_m",
+                    "label": "Supermarket distance",
+                    "provider": "openstreetmap_overpass",
+                    "state": "stale",
+                    "priority": "lazy",
+                    "affects_score": True,
+                    "provenance": provenance,
+                }
+            ],
+            "score": {},
+        }
+    )
+    projected = safe["fields"][0]["provenance"]
+    assert len(projected["poi_classification_tags"]) == 8
+    PropertyFactProvenanceOut.model_validate(projected)
+
+
+def test_legacy_underground_and_pharmacy_controls_roundtrip_exact_fields() -> None:
+    form: dict[str, object] = {"fields": []}
+    landing_view_models._complete_property_distance_form_controls(
+        form,
+        preferences={
+            "max_distance_to_underground_m": 333,
+            "max_distance_to_underground_importance": "important",
+            "max_distance_to_pharmacy_m": 444,
+            "max_distance_to_pharmacy_importance": "avoid",
+        },
+    )
+    contract = {
+        str(row[0]): list(row)
+        for row in list(form["distance_preference_contract"])
+        if isinstance(row, list) and len(row) == 3
+    }
+    assert contract["max_distance_to_subway_m"] == [
+        "max_distance_to_subway_m",
+        333,
+        "strong_wish",
+    ]
+    assert contract["max_distance_to_pharmacy_m"] == [
+        "max_distance_to_pharmacy_m",
+        444,
+        "avoid",
+    ]
+    script = Path(
+        "ea/app/templates/app/_property_workbench_script.html"
+    ).read_text(encoding="utf-8")
+    assert "'pharmacy nearby': 'max_distance_to_pharmacy_m'" in script
+    assert "'pharmacy nearby': 'max_distance_to_pharmacy_importance'" in script
+
+
 @pytest.mark.parametrize("importance", ("must_have", "strong_wish", "avoid"))
 def test_explicit_blocking_distance_importance_holds_ranking(
     importance: str,
@@ -1089,7 +1708,7 @@ def test_query_inferred_address_coordinates_cannot_finalize_required_distance(
     monkeypatch.setattr(
         product_service,
         "_property_research_nearby_pois",
-        lambda _lat, _lng: {"nearest_supermarket_m": 240},
+        lambda _lat, _lng, _property_url: {"nearest_supermarket_m": 240},
     )
 
     nearby, coordinate_meta = _property_fact_fresh_geo_snapshot(
@@ -1109,14 +1728,20 @@ def test_query_inferred_address_coordinates_cannot_finalize_required_distance(
     }
     plan = property_fact_requirement_plan(
         facts=facts,
-        preferences={"max_distance_to_supermarket_m": 800},
+        preferences={
+            "max_distance_to_supermarket_m": 800,
+            "max_distance_to_supermarket_importance": "must_have",
+        },
         property_url=property_url,
     )
     supermarket = next(row for row in plan if row["key"] == "nearest_supermarket_m")
     projection = property_fact_score_projection(
         candidate={"fit_score": 91.0},
         plan=plan,
-        preferences={"max_distance_to_supermarket_m": 800},
+        preferences={
+            "max_distance_to_supermarket_m": 800,
+            "max_distance_to_supermarket_importance": "must_have",
+        },
     )
 
     assert coordinate_meta["coordinate_exact"] is False
@@ -1157,11 +1782,17 @@ def test_coordinate_snapshot_improves_valid_but_inexact_preview_coordinates(
     monkeypatch.setattr(
         product_service,
         "_property_research_forward_geocode",
-        lambda _query: {
+        lambda _query, country_code="": {
             "lat": "48.211",
             "lon": "16.381",
             "addresstype": "house",
-            "address": {"house_number": "12"},
+            "address": {
+                "house_number": "12",
+                "road": "Example Street",
+                "postcode": "1020",
+                "city": "Vienna",
+                "country_code": "at",
+            },
             "display_name": "Example Street 12, 1020 Vienna",
         },
     )
@@ -1171,13 +1802,97 @@ def test_coordinate_snapshot_improves_valid_but_inexact_preview_coordinates(
     assert snapshot["map_lat"] == 48.211
     assert snapshot["map_lng"] == 16.381
     assert snapshot["map_location_precision"] == "address"
-    assert dict(snapshot["map_coordinate_evidence"]) == {
-        "exact": True,
-        "trusted": True,
-        "provider": "nominatim_structured_result",
-        "source_fingerprint": property_fact_source_fingerprint(property_url),
-        "result_type": "house",
+    coordinate_evidence = dict(snapshot["map_coordinate_evidence"])
+    assert coordinate_evidence["exact"] is True
+    assert coordinate_evidence["trusted"] is True
+    assert coordinate_evidence["provider"] == "nominatim_structured_result"
+    assert coordinate_evidence["source_fingerprint"] == (
+        property_fact_source_fingerprint(property_url)
+    )
+    assert coordinate_evidence["result_type"] == "house"
+    assert coordinate_evidence["country_code"] == "at"
+    assert snapshot["map_house_number"] == "12"
+    assert coordinate_evidence["coordinate_digest"] == (
+        property_fact_coordinate_digest(48.211, 16.381)
+    )
+
+
+def test_exact_geocoder_rejects_same_house_and_street_in_wrong_city(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    query = "Hauptstraße 12, 1010 Wien"
+    wrong = {
+        "lat": "47.0707",
+        "lon": "15.4395",
+        "addresstype": "house",
+        "address": {
+            "house_number": "12",
+            "road": "Hauptstraße",
+            "postcode": "8010",
+            "city": "Graz",
+            "country_code": "at",
+        },
     }
+    correct = {
+        "lat": "48.2082",
+        "lon": "16.3738",
+        "addresstype": "house",
+        "address": {
+            "house_number": "12",
+            "road": "Hauptstraße",
+            "postcode": "1010",
+            "city": "Wien",
+            "country_code": "at",
+        },
+    }
+    wrong_locality = copy.deepcopy(correct)
+    wrong_locality["address"]["city"] = "Graz"
+    missing_locality = copy.deepcopy(correct)
+    missing_locality["address"].pop("city")
+    assert product_service._property_fact_geocode_is_exact(
+        query,
+        wrong,
+        expected_country_code="at",
+    ) is False
+    assert product_service._property_fact_geocode_is_exact(
+        query,
+        wrong_locality,
+        expected_country_code="at",
+    ) is False
+    assert product_service._property_fact_geocode_is_exact(
+        query,
+        missing_locality,
+        expected_country_code="at",
+    ) is False
+    assert product_service._property_fact_geocode_is_exact(
+        query,
+        correct,
+        expected_country_code="at",
+    ) is True
+
+    class _Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return json.dumps([wrong, correct]).encode("utf-8")
+
+    property_location_research._property_research_forward_geocode.cache_clear()
+    monkeypatch.setattr(
+        property_location_research.urllib.request,
+        "urlopen",
+        lambda *_args, **_kwargs: _Response(),
+    )
+    selected = property_location_research._property_research_forward_geocode(
+        query,
+        "at",
+    )
+    property_location_research._property_research_forward_geocode.cache_clear()
+    assert selected["address"]["postcode"] == "1010"
+    assert selected["address"]["city"] == "Wien"
 
 
 def test_fresh_geo_snapshot_never_relabels_coordinates_from_another_listing(
@@ -1208,12 +1923,19 @@ def test_fresh_geo_snapshot_never_relabels_coordinates_from_another_listing(
         "map_lat": 48.22,
         "map_lng": 16.39,
         "map_location_precision": "address",
-        "map_location_source": "listing_preview",
+        "map_location_source": "listing_structured_coordinates",
         "map_coordinate_evidence": {
             "exact": True,
             "trusted": True,
-            "provider": "listing_preview",
+            "provider": "listing_structured_coordinates",
             "source_fingerprint": property_fact_source_fingerprint(current_url),
+            "latitude": 48.22,
+            "longitude": 16.39,
+            "coordinate_digest": property_fact_coordinate_digest(48.22, 16.39),
+            "observed_at": datetime.now(timezone.utc).isoformat(),
+            "expires_at": (
+                datetime.now(timezone.utc) + timedelta(hours=6)
+            ).isoformat(),
         },
     }
     observed_coordinates: list[tuple[float, float]] = []
@@ -1225,7 +1947,7 @@ def test_fresh_geo_snapshot_never_relabels_coordinates_from_another_listing(
     monkeypatch.setattr(
         product_service,
         "_property_research_nearby_pois",
-        lambda latitude, longitude: (
+        lambda latitude, longitude, _property_url: (
             observed_coordinates.append((latitude, longitude))
             or {"nearest_supermarket_m": 220}
         ),
@@ -1245,7 +1967,7 @@ def test_fresh_geo_snapshot_never_relabels_coordinates_from_another_listing(
     )
 
 
-def test_fresh_geo_snapshot_reuses_current_url_bound_exact_coordinates(
+def test_fresh_geo_snapshot_rederives_even_current_url_bound_coordinates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     property_url = (
@@ -1265,15 +1987,32 @@ def test_fresh_geo_snapshot_reuses_current_url_bound_exact_coordinates(
         },
     }
     observed_coordinates: list[tuple[float, float]] = []
+    refreshed_at = datetime.now(timezone.utc)
+    refreshed = {
+        **facts,
+        "map_location_source": "listing_structured_coordinates",
+        "map_coordinate_evidence": {
+            "exact": True,
+            "trusted": True,
+            "provider": "listing_structured_coordinates",
+            "source_fingerprint": property_fact_source_fingerprint(property_url),
+            "latitude": 48.2082,
+            "longitude": 16.3738,
+            "coordinate_digest": property_fact_coordinate_digest(48.2082, 16.3738),
+            "observed_at": refreshed_at.isoformat(),
+            "expires_at": (refreshed_at + timedelta(hours=6)).isoformat(),
+        },
+    }
+    refresh_calls: list[str] = []
     monkeypatch.setattr(
         product_service,
         "_property_fact_coordinate_snapshot",
-        lambda _property_url: pytest.fail("bound coordinates must be reused"),
+        lambda current_url: refresh_calls.append(current_url) or dict(refreshed),
     )
     monkeypatch.setattr(
         product_service,
         "_property_research_nearby_pois",
-        lambda latitude, longitude: (
+        lambda latitude, longitude, _property_url: (
             observed_coordinates.append((latitude, longitude)) or {}
         ),
     )
@@ -1284,8 +2023,11 @@ def test_fresh_geo_snapshot_reuses_current_url_bound_exact_coordinates(
     )
 
     assert observed_coordinates == [(48.2082, 16.3738)]
+    assert refresh_calls == [property_url]
     assert meta["coordinate_exact"] is True
-    assert meta["coordinate_updates"] == {}
+    assert dict(meta["coordinate_updates"])["map_coordinate_evidence"] == (
+        refreshed["map_coordinate_evidence"]
+    )
 
 
 @pytest.mark.parametrize("importance", ("must_have", "strong_wish", "avoid"))
@@ -1458,14 +2200,12 @@ def test_required_fact_search_pass_blocks_terminal_ranking_until_resolved(
     def _fresh_required_facts(*, property_url: str, facts: dict[str, object]):
         provider_calls.append(property_url)
         return (
-            ({"nearest_supermarket_m": 280} if provider_resolves else {}),
-            {
-                "coordinate_basis": "candidate_listing_coordinates",
-                "coordinate_observed_at": "",
-                "coordinate_precision": "address",
-                "coordinate_source": "listing",
-                "coordinate_exact": True,
-            },
+            _valid_osm_research(
+                {"nearest_supermarket_m": 280},
+                property_url=property_url,
+            )
+            if provider_resolves
+            else ({}, {})
         )
 
     monkeypatch.setattr(
@@ -1565,15 +2305,11 @@ def test_required_fact_scheduler_survives_restart_and_unblocks_ranking(
 
     def _provider(*, property_url: str, facts: dict[str, object]):
         provider_calls.append(property_url)
+        result = provider_results.pop(0)
         return (
-            provider_results.pop(0),
-            {
-                "coordinate_basis": "candidate_listing_coordinates",
-                "coordinate_observed_at": "",
-                "coordinate_precision": "address",
-                "coordinate_source": "listing",
-                "coordinate_exact": True,
-            },
+            _valid_osm_research(result, property_url=property_url)
+            if result
+            else ({}, {})
         )
 
     monkeypatch.setattr(
@@ -1782,15 +2518,9 @@ def test_resolved_required_fact_outside_must_have_limit_is_excluded(
     monkeypatch.setattr(
         product_service,
         "_property_fact_fresh_geo_snapshot",
-        lambda **kwargs: (
+        lambda **kwargs: _valid_osm_research(
             {"nearest_supermarket_m": 900},
-            {
-                "coordinate_basis": "candidate_listing_coordinates",
-                "coordinate_observed_at": "",
-                "coordinate_precision": "address",
-                "coordinate_source": "listing",
-                "coordinate_exact": True,
-            },
+            property_url=str(kwargs.get("property_url") or ""),
         ),
     )
     monkeypatch.setattr(
@@ -1843,14 +2573,10 @@ def test_score_recompute_failure_keeps_required_hold_across_restart(
         "_property_fact_fresh_geo_snapshot",
         lambda **kwargs: (
             provider_calls.append(str(kwargs.get("property_url") or ""))
-            or {"nearest_supermarket_m": 280},
-            {
-                "coordinate_basis": "candidate_listing_coordinates",
-                "coordinate_observed_at": "",
-                "coordinate_precision": "address",
-                "coordinate_source": "listing",
-                "coordinate_exact": True,
-            },
+            or _valid_osm_research(
+                {"nearest_supermarket_m": 280},
+                property_url=str(kwargs.get("property_url") or ""),
+            )
         ),
     )
     assessment_results = [
@@ -1951,14 +2677,10 @@ def test_stale_succeeded_required_job_requeues_with_bounded_attempt(
         "_property_fact_fresh_geo_snapshot",
         lambda **kwargs: (
             provider_calls.append(str(kwargs.get("property_url") or ""))
-            or {"nearest_supermarket_m": 260},
-            {
-                "coordinate_basis": "candidate_listing_coordinates",
-                "coordinate_observed_at": "",
-                "coordinate_precision": "address",
-                "coordinate_source": "listing",
-                "coordinate_exact": True,
-            },
+            or _valid_osm_research(
+                {"nearest_supermarket_m": 260},
+                property_url=str(kwargs.get("property_url") or ""),
+            )
         ),
     )
     monkeypatch.setattr(
@@ -2052,14 +2774,10 @@ def test_expired_running_lease_consumes_attempt_and_never_runs_a_fourth_time(
         "_property_fact_fresh_geo_snapshot",
         lambda **kwargs: (
             provider_calls.append(str(kwargs.get("property_url") or ""))
-            or {"nearest_supermarket_m": 250},
-            {
-                "coordinate_basis": "candidate_listing_coordinates",
-                "coordinate_observed_at": "",
-                "coordinate_precision": "address",
-                "coordinate_source": "listing",
-                "coordinate_exact": True,
-            },
+            or _valid_osm_research(
+                {"nearest_supermarket_m": 250},
+                property_url=str(kwargs.get("property_url") or ""),
+            )
         ),
     )
     monkeypatch.setattr(
@@ -2108,15 +2826,9 @@ def test_required_and_optional_fact_jobs_keep_independent_mode_pointers(
     monkeypatch.setattr(
         product_service,
         "_property_fact_fresh_geo_snapshot",
-        lambda **kwargs: (
+        lambda **kwargs: _valid_osm_research(
             {"nearest_supermarket_m": 240},
-            {
-                "coordinate_basis": "candidate_listing_coordinates",
-                "coordinate_observed_at": "",
-                "coordinate_precision": "address",
-                "coordinate_source": "listing",
-                "coordinate_exact": True,
-            },
+            property_url=str(kwargs.get("property_url") or ""),
         ),
     )
     monkeypatch.setattr(
@@ -2186,6 +2898,208 @@ def test_required_and_optional_fact_jobs_keep_independent_mode_pointers(
         _clear_run(run_id)
 
 
+def test_attestation_readiness_recovers_supported_field_once_in_mixed_terminal_job(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-attestation-recovery"
+    run_id = "run-attestation-recovery"
+    candidate_ref = "candidate-required-durable"
+    record = _required_fact_run_record(
+        principal_id=principal_id,
+        run_id=run_id,
+        candidate_ref=candidate_ref,
+    )
+    preferences = dict(record["property_search_preferences"])
+    preferences.update(
+        {
+            "max_distance_to_ganztags_volksschule_m": 900,
+            "max_distance_to_ganztags_volksschule_importance": "must_have",
+        }
+    )
+    record["property_search_preferences"] = preferences
+    store = _install_durable_required_fact_store(monkeypatch, record=record)
+    client = build_property_operator_client(principal_id=principal_id)
+    service = ProductService(client.app.state.container)
+    readiness = {"ready": False}
+    provider_calls: list[str] = []
+    monkeypatch.setattr(
+        product_service,
+        "property_fact_provider_attestation_is_ready",
+        lambda: readiness["ready"],
+    )
+
+    def _provider(**kwargs: object):
+        property_url = str(kwargs.get("property_url") or "")
+        provider_calls.append(property_url)
+        return _valid_osm_research(
+            {"nearest_supermarket_m": 240},
+            property_url=property_url,
+        )
+
+    monkeypatch.setattr(
+        product_service,
+        "_property_fact_fresh_geo_snapshot",
+        _provider,
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_alert_personal_fit_from_facts",
+        lambda **kwargs: {"fit_score": 72.0, "recommendation": "shortlist"},
+    )
+    try:
+        held = service.start_property_candidate_fact_enrichment(
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref=candidate_ref,
+            required_only=True,
+            launch_worker=False,
+        )
+        assert held["status"] == "terminal_error"
+        assert held["attempt"] == 1
+        assert provider_calls == []
+        assert {
+            dict(row.get("error") or {}).get("code")
+            for row in held["fields"]
+            if row["state"] == "unavailable"
+        } == {
+            "fact_attestation_secret_unavailable",
+            "fact_provider_adapter_unavailable",
+        }
+
+        readiness["ready"] = True
+        queued = service.start_property_candidate_fact_enrichment(
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref=candidate_ref,
+            required_only=True,
+            retry_failed=True,
+            launch_worker=False,
+        )
+        assert queued["status"] == "queued"
+        service._run_property_candidate_fact_enrichment(
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref=candidate_ref,
+            job_id=queued["job_id"],
+        )
+        _job_id, final_job = _active_required_fact_job(
+            store,
+            candidate_ref=candidate_ref,
+        )
+        assert final_job["status"] == "terminal_error"
+        assert len(provider_calls) == 1
+        assert next(
+            row
+            for row in final_job["fields"]
+            if row["key"] == "nearest_supermarket_m"
+        )["state"] == "resolved"
+        assert next(
+            row
+            for row in final_job["fields"]
+            if row["key"] == "nearest_full_day_primary_school_m"
+        )["state"] == "unavailable"
+
+        retried_terminal = service.start_property_candidate_fact_enrichment(
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref=candidate_ref,
+            required_only=True,
+            retry_failed=True,
+            launch_worker=False,
+        )
+        assert retried_terminal["status"] == "terminal_error"
+        assert len(provider_calls) == 1
+    finally:
+        _clear_run(run_id)
+
+
+def test_optional_succeeded_attestation_hold_recovers_on_explicit_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    principal_id = "exec-optional-attestation-recovery"
+    run_id = "run-optional-attestation-recovery"
+    candidate = _candidate(candidate_ref="candidate-optional-recovery")
+    candidate["property_facts"] = {
+        "map_lat": 48.2082,
+        "map_lng": 16.3738,
+        "map_location_precision": "address",
+        "map_location_source": "listing_structured_coordinates",
+    }
+    record = _run_record(
+        principal_id=principal_id,
+        run_id=run_id,
+        candidate=candidate,
+    )
+    record["property_search_preferences"] = {
+        "max_distance_to_supermarket_m": 700,
+        "max_distance_to_supermarket_importance": "nice_to_have",
+    }
+    store = _install_durable_required_fact_store(monkeypatch, record=record)
+    client = build_property_operator_client(principal_id=principal_id)
+    service = ProductService(client.app.state.container)
+    readiness = {"ready": False}
+    provider_calls: list[str] = []
+    monkeypatch.setattr(
+        product_service,
+        "property_fact_provider_attestation_is_ready",
+        lambda: readiness["ready"],
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_fact_fresh_geo_snapshot",
+        lambda **kwargs: (
+            provider_calls.append(str(kwargs.get("property_url") or ""))
+            or _valid_osm_research(
+                {"nearest_supermarket_m": 240},
+                property_url=str(kwargs.get("property_url") or ""),
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        product_service,
+        "_property_alert_personal_fit_from_facts",
+        lambda **kwargs: {"fit_score": 72.0, "recommendation": "shortlist"},
+    )
+    try:
+        held = service.start_property_candidate_fact_enrichment(
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref="candidate-optional-recovery",
+            required_only=False,
+            launch_worker=False,
+        )
+        assert held["status"] == "succeeded"
+        assert provider_calls == []
+        assert next(
+            row for row in held["fields"] if row["key"] == "nearest_supermarket_m"
+        )["error"]["code"] == "fact_attestation_secret_unavailable"
+
+        readiness["ready"] = True
+        queued = service.start_property_candidate_fact_enrichment(
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref="candidate-optional-recovery",
+            required_only=False,
+            launch_worker=False,
+        )
+        assert queued["status"] == "queued"
+        service._run_property_candidate_fact_enrichment(
+            principal_id=principal_id,
+            run_id=run_id,
+            candidate_ref="candidate-optional-recovery",
+            job_id=queued["job_id"],
+        )
+        summary = dict(dict(store["record"])["summary"])
+        job = dict(summary["fact_enrichment_jobs"][queued["job_id"]])
+        assert job["status"] == "succeeded"
+        assert len(provider_calls) == 1
+        assert next(
+            row for row in job["fields"] if row["key"] == "nearest_supermarket_m"
+        )["state"] == "resolved"
+    finally:
+        _clear_run(run_id)
+
+
 def test_required_success_projects_optional_idle_for_lazy_detail_handoff(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2205,16 +3119,9 @@ def test_required_success_projects_optional_idle_for_lazy_detail_handoff(
     monkeypatch.setattr(
         product_service,
         "_property_fact_fresh_geo_snapshot",
-        lambda **kwargs: (
+        lambda **kwargs: _valid_osm_research(
             {"nearest_supermarket_m": 240},
-            {
-                "coordinate_basis": "candidate_listing_coordinates",
-                "coordinate_observed_at": "",
-                "coordinate_precision": "address",
-                "coordinate_source": "listing",
-                "coordinate_exact": True,
-                "coordinate_updates": {},
-            },
+            property_url=str(kwargs.get("property_url") or ""),
         ),
     )
     monkeypatch.setattr(
@@ -2270,7 +3177,7 @@ def test_required_success_projects_optional_idle_for_lazy_detail_handoff(
         _clear_run(run_id)
 
 
-def test_optional_queued_job_poll_retries_dispatch_after_capacity_miss_and_restart(
+def test_optional_queued_job_get_is_read_only_after_capacity_miss_and_restart(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     principal_id = "exec-optional-dispatch-watchdog"
@@ -2305,6 +3212,7 @@ def test_optional_queued_job_poll_retries_dispatch_after_capacity_miss_and_resta
         assert started["status"] == "queued"
         assert dispatch_attempts == [started["job_id"]]
 
+        persisted_before_get = copy.deepcopy(dict(store["record"]))
         _clear_run(run_id)
         restarted_service = ProductService(client.app.state.container)
         polled = restarted_service.get_property_candidate_fact_enrichment(
@@ -2316,7 +3224,8 @@ def test_optional_queued_job_poll_retries_dispatch_after_capacity_miss_and_resta
         assert polled is not None
         assert polled["status"] == "queued"
         assert polled["job_id"] == started["job_id"]
-        assert dispatch_attempts == [started["job_id"], started["job_id"]]
+        assert dispatch_attempts == [started["job_id"]]
+        assert dict(store["record"]) == persisted_before_get
         assert dict(store["record"])["summary"][
             "optional_fact_enrichment_candidate_jobs"
         ][candidate_ref] == started["job_id"]
@@ -2656,16 +3565,9 @@ def test_required_scheduler_isolates_start_failure_and_advances_next_candidate(
     monkeypatch.setattr(
         product_service,
         "_property_fact_fresh_geo_snapshot",
-        lambda **kwargs: (
+        lambda **kwargs: _valid_osm_research(
             {"nearest_supermarket_m": 240},
-            {
-                "coordinate_basis": "candidate_listing_coordinates",
-                "coordinate_observed_at": "",
-                "coordinate_precision": "address",
-                "coordinate_source": "listing",
-                "coordinate_exact": True,
-                "coordinate_updates": {},
-            },
+            property_url=str(kwargs.get("property_url") or ""),
         ),
     )
     monkeypatch.setattr(
@@ -2949,23 +3851,34 @@ def test_fact_enrichment_job_is_idempotent_persistent_and_recomputes_score(
     calls = {"research": 0}
     observed_coordinates: list[tuple[float, float]] = []
 
-    def _research(_latitude: float, _longitude: float) -> dict[str, object]:
+    def _research(
+        _latitude: float,
+        _longitude: float,
+        property_url: str,
+    ) -> dict[str, object]:
         calls["research"] += 1
         observed_coordinates.append((_latitude, _longitude))
-        return {
-            "nearest_supermarket_m": 280,
-            "nearest_supermarket_name": "Daily Market",
-            "nearest_playground_m": 410,
-            "nearest_pharmacy_m": 530,
-            "nearest_medical_care_m": 570,
-            "nearest_subway_m": 640,
-        }
+        research, _meta = _valid_osm_research(
+            {
+                "nearest_supermarket_m": 280,
+                "nearest_playground_m": 410,
+                "nearest_pharmacy_m": 530,
+                "nearest_medical_care_m": 570,
+                "nearest_subway_m": 640,
+            },
+            property_url=property_url,
+            latitude=_latitude,
+            longitude=_longitude,
+        )
+        research["nearest_supermarket_name"] = "Daily Market"
+        return research
 
     refreshed_latitude = 48.215
     refreshed_longitude = 16.385
     source_fingerprint = property_fact_source_fingerprint(
         str(candidate["property_url"])
     )
+    coordinate_observed_at = datetime.now(timezone.utc)
     monkeypatch.setattr(
         product_service,
         "_property_fact_coordinate_snapshot",
@@ -2973,13 +3886,23 @@ def test_fact_enrichment_job_is_idempotent_persistent_and_recomputes_score(
             "map_lat": refreshed_latitude,
             "map_lng": refreshed_longitude,
             "map_location_precision": "address",
-            "map_location_source": "listing_preview",
+            "map_location_source": "listing_structured_coordinates",
             "house_number": "22",
             "map_coordinate_evidence": {
                 "exact": True,
                 "trusted": True,
-                "provider": "listing_preview",
+                "provider": "listing_structured_coordinates",
                 "source_fingerprint": source_fingerprint,
+                "latitude": refreshed_latitude,
+                "longitude": refreshed_longitude,
+                "coordinate_digest": property_fact_coordinate_digest(
+                    refreshed_latitude,
+                    refreshed_longitude,
+                ),
+                "observed_at": coordinate_observed_at.isoformat(),
+                "expires_at": (
+                    coordinate_observed_at + timedelta(hours=6)
+                ).isoformat(),
             },
         },
     )

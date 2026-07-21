@@ -2076,14 +2076,46 @@ class PropertyFactProvenanceOut(BaseModel):
     freshness: Literal["", "fresh", "stale", "unknown"] = ""
     confidence: float = Field(default=0.0, ge=0.0, le=1.0, allow_inf_nan=False)
     source_key: str = Field(default="", max_length=80)
+    observed_key: str = Field(default="", max_length=80)
+    listing_url: str = Field(default="", max_length=2048)
     source_fingerprint: str = Field(default="", pattern=r"^(|sha256:[0-9a-f]{64})$")
     coordinate_basis: Literal["", "candidate_listing_coordinates", "listing_preview_coordinates"] = ""
     coordinate_observed_at: str = Field(default="", max_length=64)
     coordinate_precision: str = Field(default="unknown", min_length=1, max_length=40)
     coordinate_source: str = Field(default="", max_length=120)
     coordinate_exact: StrictBool = False
+    listing_latitude: float | None = Field(default=None, ge=-90.0, le=90.0, allow_inf_nan=False)
+    listing_longitude: float | None = Field(default=None, ge=-180.0, le=180.0, allow_inf_nan=False)
+    coordinate_digest: str = Field(default="", pattern=r"^(|sha256:[0-9a-f]{64})$")
+    query_endpoint_url: str = Field(default="", max_length=500)
+    query_url: str = Field(default="", max_length=2048)
+    query_digest: str = Field(default="", pattern=r"^(|sha256:[0-9a-f]{64})$")
+    query_schema: str = Field(default="", max_length=80)
+    receipt_url: str = Field(default="", max_length=2048)
+    provider_object_id: str = Field(default="", max_length=120)
+    provider_object_type: str = Field(default="", max_length=80)
+    provider_object_version: str = Field(default="", max_length=80)
+    provider_object_timestamp: str = Field(default="", max_length=64)
+    provider_object_changeset: str = Field(default="", max_length=80)
+    provider_observed_at: str = Field(default="", max_length=64)
+    provider_expires_at: str = Field(default="", max_length=64)
+    attestation_version: str = Field(default="", max_length=96)
+    provider_attestation: str = Field(
+        default="",
+        pattern=r"^(|hmac-sha256:[0-9a-f]{64})$",
+    )
+    poi_latitude: float | None = Field(default=None, ge=-90.0, le=90.0, allow_inf_nan=False)
+    poi_longitude: float | None = Field(default=None, ge=-180.0, le=180.0, allow_inf_nan=False)
+    poi_classification_tags: dict[str, str] = Field(default_factory=dict, max_length=8)
 
-    @field_validator("observed_at", "expires_at", "coordinate_observed_at")
+    @field_validator(
+        "observed_at",
+        "expires_at",
+        "coordinate_observed_at",
+        "provider_object_timestamp",
+        "provider_observed_at",
+        "provider_expires_at",
+    )
     @classmethod
     def _validate_optional_timestamp(cls, value: str) -> str:
         normalized = str(value or "").strip()
@@ -2096,6 +2128,19 @@ class PropertyFactProvenanceOut(BaseModel):
         if parsed.tzinfo is None:
             raise ValueError("fact_timestamp_timezone_required")
         return normalized
+
+    @field_validator("poi_classification_tags")
+    @classmethod
+    def _validate_classification_tags(cls, value: dict[str, str]) -> dict[str, str]:
+        if any(
+            not str(key).strip()
+            or len(str(key)) > 80
+            or not str(tag_value).strip()
+            or len(str(tag_value)) > 160
+            for key, tag_value in value.items()
+        ):
+            raise ValueError("invalid_fact_classification_tags")
+        return value
 
 
 class PropertyFactErrorOut(BaseModel):
@@ -2164,6 +2209,12 @@ class PropertyFactProviderReceiptOut(BaseModel):
     status: Literal["verified", "pending", "unavailable"]
     evidence_source_key: str = Field(default="", max_length=80)
     source_fingerprint: str = Field(default="", pattern=r"^(|sha256:[0-9a-f]{64})$")
+    coordinate_digest: str = Field(default="", pattern=r"^(|sha256:[0-9a-f]{64})$")
+    query_digest: str = Field(default="", pattern=r"^(|sha256:[0-9a-f]{64})$")
+    receipt_url: str = Field(default="", max_length=2048)
+    provider_object_id: str = Field(default="", max_length=120)
+    provider_object_type: str = Field(default="", max_length=80)
+    provider_object_version: str = Field(default="", max_length=80)
     reason_code: str = Field(default="", pattern=r"^[a-z0-9_]{0,96}$")
 
 
