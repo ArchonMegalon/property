@@ -17186,8 +17186,12 @@ def test_propertyquarry_workspace_routes_render_greenfield_surfaces(monkeypatch)
     assert 'data-research-selected-distances' in packet.text
     assert 'data-property-fact-enrichment' in packet.text
     assert 'data-property-fact-priority="lazy"' in packet.text
-    assert 'data-property-fact-state="queued"' in packet.text
-    assert 'aria-busy="true"' in packet.text
+    # This source-render fixture intentionally uses loopback_no_auth. Protected
+    # enrichment does not auto-start until a real workspace session is present;
+    # the authenticated browser proof covers the queued/running transition.
+    assert 'data-property-fact-state="unknown"' in packet.text
+    assert 'aria-busy="false"' in packet.text
+    assert "Not checked yet" in packet.text
     assert "Provisional score" in packet.text
     assert "Can rank while nice-to-have facts are checked" in packet.text
     assert " · Score " not in packet.text
