@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import io
 import html
 import json
@@ -29,6 +30,7 @@ Server = uvicorn.Server
 
 from app.api.app import create_app
 from app.api.routes import landing as landing_routes
+from app.api.routes.public_tours import _tour_control_panorama_html
 from app.product import property_evidence_overlays as evidence_overlays
 from app.product.models import HandoffNote
 from app.product.service import ProductService
@@ -78,6 +80,21 @@ def _wait_for_http(base_url: str, *, timeout_seconds: float = 30.0) -> None:
         except Exception:
             time.sleep(0.1)
     raise AssertionError(f"server at {base_url} did not become ready in time")
+
+
+def _wait_for_what_matters_interaction_stabilization(page: Page) -> None:
+    # What-matters controls restore their interaction snapshot immediately,
+    # across two animation frames, and once more on a 64 ms late tail. Keep
+    # synthetic test navigation from racing that product-visible sequence.
+    page.evaluate(
+        """
+        () => new Promise((resolve) => {
+          window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => window.setTimeout(resolve, 80));
+          });
+        })
+        """
+    )
 
 
 def _stop_uvicorn_server(*, server: Server, thread: threading.Thread, label: str) -> None:
@@ -1078,6 +1095,383 @@ def _assert_no_horizontal_overflow(page: Page) -> None:
     )
     assert overflow["scrollWidth"] <= overflow["innerWidth"] + 1, overflow
     assert overflow["bodyScrollWidth"] <= overflow["innerWidth"] + 1, overflow
+
+
+def test_propertyquarry_ai_panorama_mobile_hotspot_labels_stay_inside_viewport(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    def _panorama_data_url(
+        fill: tuple[int, int, int],
+        *,
+        size: tuple[int, int] = (1024, 512),
+    ) -> str:
+        image = Image.new("RGB", size, fill)
+        draw = ImageDraw.Draw(image)
+        draw.rectangle(
+            (30, 30, size[0] - 30, size[1] - 30),
+            outline=(248, 245, 240),
+            width=10,
+        )
+        draw.line(
+            (size[0] // 2, 30, size[0] // 2, size[1] - 30),
+            fill=(151, 111, 77),
+            width=8,
+        )
+        buffer = io.BytesIO()
+        image.save(buffer, format="JPEG", quality=90)
+        return "data:image/jpeg;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
+
+    disclosure = "AI-reconstructed from listing photos; not a captured 360 or measured survey."
+    top_label = "Upper landing"
+    bottom_label = "Lower landing"
+    floorplan_label = "Floor plan edge"
+    center_label = "Center option A"
+    second_center_label = "Center option B"
+    long_label = "Upstairs dining gallery with a deliberately long mobile navigation label that remains fully accessible"
+    document = _tour_control_panorama_html(
+        {
+            "title": "Mobile hotspot containment",
+            "display_title": "Mobile hotspot containment",
+        },
+        panorama_spec={
+            "representation_kind": "ai_reconstruction",
+            "representation_disclosure": disclosure,
+            "initial_scene_id": "hall",
+            "scenes": [
+                {
+                    "id": "hall",
+                    "label": "Main level · Hall and stair",
+                    "image_url": _panorama_data_url((226, 220, 210)),
+                    "start_yaw": 65,
+                    "start_pitch": 0,
+                    "start_fov": 72,
+                    "hotspots": [
+                        {
+                            "target": "upper-room",
+                            "label": top_label,
+                            "yaw": 65,
+                            "pitch": 35,
+                        },
+                        {
+                            "target": "lower-room",
+                            "label": bottom_label,
+                            "yaw": 65,
+                            "pitch": -35,
+                        },
+                        {
+                            "target": "floorplan-room",
+                            "label": floorplan_label,
+                            "yaw": 76,
+                            "pitch": -17,
+                        },
+                        {
+                            "target": "center-room",
+                            "label": center_label,
+                            "yaw": 65,
+                            "pitch": 0,
+                        },
+                        {
+                            "target": "second-center-room",
+                            "label": second_center_label,
+                            "yaw": 65,
+                            "pitch": 0,
+                        },
+                        {
+                            "target": "long-label-room",
+                            "label": long_label,
+                            "yaw": 65,
+                            "pitch": 0,
+                        },
+                    ],
+                },
+                *[
+                    {
+                        "id": scene_id,
+                        "label": scene_label,
+                        "image_url": _panorama_data_url(fill),
+                        "start_yaw": 0,
+                        "start_pitch": 0,
+                        "start_fov": 72,
+                        "hotspots": [],
+                    }
+                    for scene_id, scene_label, fill in (
+                        ("upper-room", "Upper destination", (205, 216, 226)),
+                        ("lower-room", "Lower destination", (214, 205, 226)),
+                        ("floorplan-room", "Floor plan destination", (226, 210, 205)),
+                        ("center-room", "Center destination A", (205, 226, 212)),
+                        ("second-center-room", "Center destination B", (226, 224, 205)),
+                        ("long-label-room", "Long-label destination", (210, 220, 226)),
+                    )
+                ],
+            ],
+            "floorplan_url": _panorama_data_url((245, 242, 236), size=(512, 512)),
+            "spatial_model": {},
+        },
+        provider_label="PropertyQuarry AI 360",
+        viewer_name="propertyquarry-ai-panorama",
+        nonce="mobile-hotspot-test-nonce",
+    )
+    three_module = """
+      export const SRGBColorSpace = 'srgb';
+      export const MathUtils = { degToRad: value => Number(value) * Math.PI / 180 };
+      const normalizedAngle = value => Math.atan2(Math.sin(value), Math.cos(value));
+      export class Vector3 {
+        constructor(x = 0, y = 0, z = 0) { this.set(x, y, z); }
+        set(x, y, z) { this.x = x; this.y = y; this.z = z; return this; }
+        clone() { return new Vector3(this.x, this.y, this.z); }
+        normalize() {
+          const length = Math.hypot(this.x, this.y, this.z) || 1;
+          this.x /= length; this.y /= length; this.z /= length;
+          return this;
+        }
+        dot(other) { return this.x * other.x + this.y * other.y + this.z * other.z; }
+        project(camera) {
+          const normalized = this.clone().normalize();
+          const target = camera._forward.clone().normalize();
+          const vectorYaw = Math.atan2(-normalized.z, -normalized.x);
+          const cameraYaw = Math.atan2(-target.z, -target.x);
+          const vectorPitch = Math.asin(normalized.y);
+          const cameraPitch = Math.asin(target.y);
+          const verticalScale = Math.tan((camera.fov * Math.PI / 180) / 2);
+          this.x = Math.tan(normalizedAngle(vectorYaw - cameraYaw)) / (verticalScale * camera.aspect);
+          this.y = Math.tan(vectorPitch - cameraPitch) / verticalScale;
+          this.z = 0;
+          return this;
+        }
+      }
+      class Positioned {
+        constructor() { this.position = new Vector3(); this.rotation = { y: 0 }; this.userData = {}; }
+      }
+      export class PerspectiveCamera extends Positioned {
+        constructor(fov, aspect) { super(); this.fov = fov; this.aspect = aspect; this._forward = new Vector3(0, 0, -1); }
+        lookAt(target) { this._forward = target.clone().normalize(); }
+        getWorldDirection(target) { return target.set(this._forward.x, this._forward.y, this._forward.z); }
+        updateProjectionMatrix() {}
+      }
+      export class WebGLRenderer {
+        constructor() {
+          this.domElement = document.createElement('canvas');
+          this.capabilities = { getMaxAnisotropy: () => 1 };
+        }
+        setPixelRatio() {}
+        setSize(width, height) {
+          this.domElement.width = width; this.domElement.height = height;
+          this.domElement.style.width = `${width}px`; this.domElement.style.height = `${height}px`;
+        }
+        render() {}
+        setAnimationLoop(callback) {
+          const tick = () => { callback(); this._frame = requestAnimationFrame(tick); };
+          tick();
+        }
+      }
+      export class Scene { add() {} }
+      export class Group { add() {} }
+      export class SphereGeometry { scale() {} }
+      export class BoxGeometry {}
+      export class MeshBasicMaterial { constructor(values = {}) { Object.assign(this, values); this.color = { setHex() {} }; } }
+      export class MeshStandardMaterial extends MeshBasicMaterial {}
+      export class Mesh extends Positioned { constructor(geometry, material) { super(); this.geometry = geometry; this.material = material; } }
+      export class Color { constructor(value) { this.value = value; } }
+      export class Fog { constructor(color, near, far) { this.color = color; this.near = near; this.far = far; } }
+      export class HemisphereLight extends Positioned {}
+      export class DirectionalLight extends Positioned {}
+      export class Raycaster { setFromCamera() {} intersectObjects() { return []; } }
+      export class Vector2 { constructor(x = 0, y = 0) { this.x = x; this.y = y; } }
+      export class TextureLoader {
+        setCrossOrigin() {}
+        load(_url, onLoad) { queueMicrotask(() => onLoad({ dispose() {} })); }
+      }
+    """
+
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_public_context(browser, mobile=True, width=390, height=844)
+    page = context.new_page()
+    page_errors: list[str] = []
+    failed_requests: list[str] = []
+    page.on("pageerror", lambda error: page_errors.append(str(error)))
+    page.on("requestfailed", lambda request: failed_requests.append(request.url))
+    try:
+        test_path = "/__renderer_mobile_hotspot_test"
+        page.route(
+            f"**{test_path}",
+            lambda route: route.fulfill(
+                status=200,
+                content_type="text/html; charset=utf-8",
+                body=document,
+            ),
+        )
+        page.route(
+            "**/tours/runtime/three-*.module.js",
+            lambda route: route.fulfill(
+                status=200,
+                content_type="text/javascript; charset=utf-8",
+                body=three_module,
+            ),
+        )
+        response = page.goto(f"{base_url}{test_path}", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        try:
+            page.locator("#viewer canvas").wait_for(state="visible", timeout=15_000)
+        except PlaywrightTimeoutError:
+            pytest.fail(
+                f"panorama renderer did not start; page_errors={page_errors}, "
+                f"failed_requests={failed_requests}"
+            )
+        page.locator("#status").wait_for(state="hidden", timeout=60_000)
+
+        def _layout() -> dict[str, object]:
+            return page.evaluate(
+                """() => {
+                  const row = element => {
+                    const rect = element.getBoundingClientRect();
+                    return {
+                      label: element.textContent.trim(),
+                      left: rect.left, right: rect.right,
+                      top: rect.top, bottom: rect.bottom,
+                      width: rect.width, height: rect.height,
+                    };
+                  };
+                  const visible = element => {
+                    const style = getComputedStyle(element);
+                    const rect = element.getBoundingClientRect();
+                    return !element.hidden && style.display !== 'none' && style.visibility !== 'hidden'
+                      && Number(style.opacity || 1) > 0 && rect.width > 0 && rect.height > 0;
+                  };
+                  const layer = document.getElementById('hotspots');
+                  const safeStyle = getComputedStyle(layer);
+                  const safe = side => Math.max(0, parseFloat(safeStyle.getPropertyValue(`--pq-safe-${side}`)) || 0);
+                  const viewport = window.visualViewport;
+                  const left = viewport && Number.isFinite(viewport.offsetLeft) ? viewport.offsetLeft : 0;
+                  const top = viewport && Number.isFinite(viewport.offsetTop) ? viewport.offsetTop : 0;
+                  const width = viewport && Number.isFinite(viewport.width) ? viewport.width : innerWidth;
+                  const height = viewport && Number.isFinite(viewport.height) ? viewport.height : innerHeight;
+                  const obstacleSelectors = {
+                    identity: '.identity', top_actions: '.top-actions', zoom_controls: '.zoom-controls',
+                    scene_rail: '.scene-rail:not([hidden])',
+                    floorplan: '.floorplan:not([hidden]):not(.collapsed)',
+                  };
+                  const obstacles = {};
+                  for (const [name, selector] of Object.entries(obstacleSelectors)) {
+                    const element = document.querySelector(selector);
+                    if (element && visible(element)) obstacles[name] = row(element);
+                  }
+                  return {
+                    bounds: {
+                      left: Math.max(0, left) + safe('left') + 10,
+                      right: Math.min(innerWidth, left + width) - safe('right') - 10,
+                      top: Math.max(0, top) + safe('top') + 10,
+                      bottom: Math.min(innerHeight, top + height) - safe('bottom') - 10,
+                    },
+                    hotspots: [...document.querySelectorAll('.hotspot')].filter(visible).map(row),
+                    obstacles,
+                  };
+                }"""
+            )
+
+        def _intersects(left: dict[str, object], right: dict[str, object], gap: float = 0) -> bool:
+            return (
+                float(left["left"]) < float(right["right"]) + gap
+                and float(left["right"]) > float(right["left"]) - gap
+                and float(left["top"]) < float(right["bottom"]) + gap
+                and float(left["bottom"]) > float(right["top"]) - gap
+            )
+
+        def _assert_collision_free(expected_labels: set[str]) -> dict[str, object]:
+            layout = _layout()
+            bounds = dict(layout["bounds"])
+            hotspots = [dict(row) for row in list(layout["hotspots"])]
+            obstacles = {name: dict(row) for name, row in dict(layout["obstacles"]).items()}
+            labels = {str(row["label"]) for row in hotspots}
+            assert expected_labels <= labels, {"missing": expected_labels - labels, "layout": layout}
+            for hotspot_row in hotspots:
+                assert float(hotspot_row["left"]) >= float(bounds["left"]) - 0.5, layout
+                assert float(hotspot_row["right"]) <= float(bounds["right"]) + 0.5, layout
+                assert float(hotspot_row["top"]) >= float(bounds["top"]) - 0.5, layout
+                assert float(hotspot_row["bottom"]) <= float(bounds["bottom"]) + 0.5, layout
+                for obstacle_name, obstacle in obstacles.items():
+                    assert not _intersects(hotspot_row, obstacle, 7), {
+                        "hotspot": hotspot_row,
+                        "obstacle_name": obstacle_name,
+                        "obstacle": obstacle,
+                    }
+            for index, hotspot_row in enumerate(hotspots):
+                for other in hotspots[index + 1 :]:
+                    assert not _intersects(hotspot_row, other, 7), {
+                        "hotspot": hotspot_row,
+                        "other": other,
+                    }
+            return layout
+
+        page.locator("#hotspots").evaluate(
+            """element => {
+              element.style.setProperty('--pq-safe-top', '24px');
+              element.style.setProperty('--pq-safe-right', '18px');
+              element.style.setProperty('--pq-safe-bottom', '22px');
+              element.style.setProperty('--pq-safe-left', '16px');
+            }"""
+        )
+        map_toggle = page.locator("#map-toggle")
+        map_toggle.click()
+        expect(map_toggle).to_have_attribute("aria-pressed", "true")
+        expect(page.locator("#floorplan")).to_be_visible()
+        page.wait_for_timeout(300)
+
+        expected = {
+            top_label,
+            bottom_label,
+            floorplan_label,
+            center_label,
+            second_center_label,
+            long_label,
+        }
+        portrait_layout = _assert_collision_free(expected)
+        assert "floorplan" in dict(portrait_layout["obstacles"]), portrait_layout
+
+        long_hotspot = page.locator('.hotspot[data-target-scene-id="long-label-room"]')
+        expect(long_hotspot).to_be_visible()
+        expect(long_hotspot).to_have_accessible_name(long_label)
+        assert long_hotspot.text_content() == long_label
+        assert long_hotspot.evaluate("element => getComputedStyle(element).textOverflow") == "ellipsis"
+        assert long_hotspot.evaluate("element => element.scrollWidth > element.clientWidth") is True
+
+        center_hotspot = page.locator('.hotspot[data-target-scene-id="center-room"]')
+        expect(center_hotspot).to_have_accessible_name(center_label)
+        center_hotspot.click()
+        expect(page.locator("#scene-title")).to_have_text("Center destination A")
+        expect(page.locator("#announcer")).to_have_text("Now viewing Center destination A")
+
+        page.locator('.scene-button[data-scene-id="hall"]').click()
+        expect(page.locator("#scene-title")).to_have_text("Main level · Hall and stair")
+        map_toggle.click()
+        expect(map_toggle).to_have_attribute("aria-pressed", "false")
+        page.set_viewport_size({"width": 667, "height": 375})
+        page.locator("#hotspots").evaluate(
+            """element => {
+              element.style.setProperty('--pq-safe-top', '18px');
+              element.style.setProperty('--pq-safe-right', '18px');
+              element.style.setProperty('--pq-safe-bottom', '20px');
+              element.style.setProperty('--pq-safe-left', '16px');
+            }"""
+        )
+        page.wait_for_timeout(300)
+        landscape_layout = _assert_collision_free({top_label, bottom_label})
+        landscape_bounds = dict(landscape_layout["bounds"])
+        assert float(landscape_bounds["left"]) >= 26
+        assert float(landscape_bounds["right"]) <= 639
+        assert float(landscape_bounds["top"]) >= 28
+        assert float(landscape_bounds["bottom"]) <= 345
+        expect(long_hotspot).not_to_be_visible()
+        expect(long_hotspot).to_have_attribute("aria-hidden", "true")
+        expect(long_hotspot).to_have_attribute("tabindex", "-1")
+        assert long_hotspot.text_content() == long_label
+
+        assert page.locator("body").get_attribute("data-viewer") == "propertyquarry-ai-panorama"
+        assert disclosure in page.locator(".identity span").inner_text()
+        assert not page_errors
+        assert not failed_requests
+    finally:
+        context.close()
 
 
 def _assert_propertyquarry_billing_redirect_lands_on_account(page: Page) -> None:
@@ -4833,6 +5227,7 @@ def test_propertyquarry_mobile_what_matters_select_changes_keep_current_group_st
               ?.getAttribute('data-keyword-distance-enabled') === 'true'
             """
         )
+        _wait_for_what_matters_interaction_stabilization(page)
         after_keyword = page.evaluate(capture_keyword_state, "playground nearby")
         assert after_keyword["activeStep"] == "children", after_keyword
         assert after_keyword["groupKey"] == "daily_life", after_keyword
@@ -4848,6 +5243,7 @@ def test_propertyquarry_mobile_what_matters_select_changes_keep_current_group_st
         playground_distance = playground_row.locator("[data-keyword-distance-select]")
         playground_distance.select_option("500")
         expect(playground_distance).to_have_value("500")
+        _wait_for_what_matters_interaction_stabilization(page)
         after_keyword_distance = page.evaluate(capture_keyword_state, "playground nearby")
         assert after_keyword_distance["activeStep"] == "children", after_keyword_distance
         assert after_keyword_distance["groupKey"] == "daily_life", after_keyword_distance
@@ -4873,6 +5269,7 @@ def test_propertyquarry_mobile_what_matters_select_changes_keep_current_group_st
               ?.getAttribute('data-school-distance-enabled') === 'true'
             """
         )
+        _wait_for_what_matters_interaction_stabilization(page)
         after_school = page.evaluate(capture_school_state, "kindergarten")
         assert after_school["activeStep"] == "children", after_school
         assert after_school["groupKey"] == before_school["groupKey"], {
@@ -4891,6 +5288,7 @@ def test_propertyquarry_mobile_what_matters_select_changes_keep_current_group_st
         kindergarten_distance = kindergarten_row.locator("[data-school-distance-select]")
         kindergarten_distance.select_option("500")
         expect(kindergarten_distance).to_have_value("500")
+        _wait_for_what_matters_interaction_stabilization(page)
         after_school_distance = page.evaluate(capture_school_state, "kindergarten")
         assert after_school_distance["activeStep"] == "children", after_school_distance
         assert after_school_distance["groupKey"] == before_school["groupKey"], {
@@ -4922,6 +5320,7 @@ def test_propertyquarry_mobile_what_matters_select_changes_keep_current_group_st
               ?.getAttribute('data-preference-state') === 'low'
             """
         )
+        _wait_for_what_matters_interaction_stabilization(page)
         after_parking = page.evaluate(capture_keyword_state, "parking pressure check")
         assert after_parking["activeStep"] == "children", after_parking
         assert after_parking["groupKey"] == "risk_evidence", after_parking
@@ -4977,6 +5376,7 @@ def test_propertyquarry_mobile_stale_what_matters_restore_does_not_override_new_
             () => new Promise((resolve) => {
               const form = document.querySelector('[data-console-form-variant="property_search"]');
               const playground = document.querySelector('[data-keyword-priority-row][data-keyword-value="playground nearby"]');
+              const preference = playground?.querySelector('[data-keyword-preference-select]');
               const distance = playground?.querySelector('[data-keyword-distance-select]');
               const kindergarten = document.querySelector('[data-school-priority-row][data-school-value="kindergarten"]');
               const group = kindergarten?.closest?.('details[data-what-matters-group]');
@@ -4984,6 +5384,7 @@ def test_propertyquarry_mobile_stale_what_matters_restore_does_not_override_new_
               const owner = panel?.querySelector?.('.pqx-advanced-panel-grid');
               if (
                 !(form instanceof HTMLFormElement)
+                || !(preference instanceof HTMLSelectElement)
                 || !(distance instanceof HTMLSelectElement)
                 || !(kindergarten instanceof HTMLElement)
                 || !(group instanceof HTMLDetailsElement)
@@ -5000,28 +5401,38 @@ def test_propertyquarry_mobile_stale_what_matters_restore_does_not_override_new_
                   rowTop: Number(rect.top || 0),
                   windowScrollY: Number(window.scrollY || window.pageYOffset || 0),
                   ownerScrollTop: Number(owner.scrollTop || 0),
+                  preferenceFocused: document.activeElement === preference,
                 };
               };
               group.open = true;
               distance.value = '2000';
               distance.dispatchEvent(new Event('change', { bubbles: true }));
               const restoreBaseline = capture();
-              kindergarten.scrollIntoView({ block: 'center', inline: 'nearest' });
-              const before = capture();
-              window.setTimeout(() => resolve({ restoreBaseline, before, after: capture() }), 180);
+              preference.focus({ preventScroll: true });
+              window.dispatchEvent(new WheelEvent('wheel', { deltaY: 240 }));
+              const intentBaseline = capture();
+              window.setTimeout(() => {
+                kindergarten.scrollIntoView({ block: 'center', inline: 'nearest' });
+                const before = capture();
+                window.setTimeout(() => resolve({ restoreBaseline, intentBaseline, before, after: capture() }), 180);
+              }, 48);
             })
             """
         )
         assert state.get("error") is None, state
         restore_baseline = state["restoreBaseline"]
+        intent_baseline = state["intentBaseline"]
         before = state["before"]
         after = state["after"]
+        assert abs(float(intent_baseline["windowScrollY"]) - float(restore_baseline["windowScrollY"])) <= 2.0, state
+        assert abs(float(intent_baseline["ownerScrollTop"]) - float(restore_baseline["ownerScrollTop"])) <= 2.0, state
         assert (
             abs(float(before["windowScrollY"]) - float(restore_baseline["windowScrollY"])) > 20.0
             or abs(float(before["ownerScrollTop"]) - float(restore_baseline["ownerScrollTop"])) > 20.0
         ), state
         assert after["activeStep"] == "children", state
         assert after["groupOpen"] is True, state
+        assert after["preferenceFocused"] is True, state
         assert abs(float(after["rowTop"]) - float(before["rowTop"])) <= 2.0, state
         assert abs(float(after["windowScrollY"]) - float(before["windowScrollY"])) <= 2.0, state
         assert abs(float(after["ownerScrollTop"]) - float(before["ownerScrollTop"])) <= 2.0, state
@@ -5409,6 +5820,26 @@ def test_propertyquarry_desktop_what_matters_select_changes_preserve_open_groups
             assert before_state["bodyOverflowAnchor"] != "none", before_state
             assert before_state["formOverflowAnchor"] != "none", before_state
 
+        # Hosted Chromium can apply a focus/layout scroll after the change
+        # handler returns. Model that browser-owned drift without user input.
+        page.evaluate(
+            """
+            () => {
+              const preference = document.querySelector(
+                '[data-keyword-priority-row][data-keyword-value="playground nearby"] [data-keyword-preference-select]'
+              );
+              const scrollRange = document.createElement('div');
+              scrollRange.style.height = '480px';
+              scrollRange.setAttribute('aria-hidden', 'true');
+              document.body.appendChild(scrollRange);
+              preference?.addEventListener('change', () => {
+                window.setTimeout(() => {
+                  window.scrollBy({ top: 140, left: 0, behavior: 'instant' });
+                }, 0);
+              }, { once: true });
+            }
+            """
+        )
         playground_row.locator("[data-keyword-preference-select]").select_option("nice_to_have")
         page.wait_for_function(
             """
@@ -5449,6 +5880,111 @@ def test_propertyquarry_desktop_what_matters_select_changes_preserve_open_groups
         assert after_state["homeOpen"] is False, after_state
         assert after_state["dailyLifeOpen"] is True, after_state
         assert after_state["riskOpen"] is False, after_state
+        assert abs(float(after_state["rowTop"]) - float(before_state["rowTop"])) <= 72.0, {
+            "before": before_state,
+            "after": after_state,
+        }
+        assert abs(float(after_state["scrollY"]) - float(before_state["scrollY"])) <= 72.0, {
+            "before": before_state,
+            "after": after_state,
+        }
+    finally:
+        context.close()
+
+
+@pytest.mark.parametrize("initiator", ("pointer", "keyboard"))
+def test_propertyquarry_desktop_initiated_what_matters_change_restores_delayed_browser_drift(
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+    initiator: str,
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False, width=1360, height=1000)
+    page = context.new_page()
+    try:
+        response = page.goto(f"{base_url}/app/search", wait_until="domcontentloaded")
+        assert response is not None and response.ok
+        page.locator('[data-console-form-variant="property_search"]').wait_for(state="visible")
+        page.locator('[data-property-step-trigger="children"]').click()
+        page.wait_for_function(
+            "() => document.querySelector('[data-console-form-variant=\"property_search\"]')?.dataset.propertyActiveStep === 'children'"
+        )
+
+        before_state = page.evaluate(
+            """
+            () => {
+              const row = document.querySelector('[data-keyword-priority-row][data-keyword-value="playground nearby"]');
+              const preference = row?.querySelector('[data-keyword-preference-select]');
+              const dailyLife = row?.closest?.('details[data-what-matters-group]');
+              const home = document.querySelector('details[data-what-matters-group="home_basics"]');
+              const risk = document.querySelector('details[data-what-matters-group="risk_evidence"]');
+              if (!(row instanceof HTMLElement) || !(preference instanceof HTMLSelectElement)) return { error: 'missing_test_target' };
+              if (home instanceof HTMLDetailsElement) home.open = false;
+              if (risk instanceof HTMLDetailsElement) risk.open = false;
+              if (dailyLife instanceof HTMLDetailsElement) dailyLife.open = true;
+              row.scrollIntoView({ block: 'center', inline: 'nearest' });
+              const scrollRange = document.createElement('div');
+              scrollRange.style.height = '480px';
+              scrollRange.setAttribute('aria-hidden', 'true');
+              document.body.appendChild(scrollRange);
+              preference.addEventListener('change', () => {
+                window.setTimeout(() => window.scrollBy({ top: 140, left: 0, behavior: 'instant' }), 0);
+              }, { once: true });
+              return {
+                rowTop: Number(row.getBoundingClientRect().top || 0),
+                scrollY: Number(window.scrollY || window.pageYOffset || 0),
+              };
+            }
+            """
+        )
+        assert before_state.get("error") is None, before_state
+
+        page.evaluate(
+            """
+            (initiator) => {
+              const preference = document.querySelector(
+                '[data-keyword-priority-row][data-keyword-value="playground nearby"] [data-keyword-preference-select]'
+              );
+              if (!(preference instanceof HTMLSelectElement)) return;
+              if (initiator === 'pointer') {
+                const pointer = { bubbles: true, pointerId: 1, pointerType: 'mouse', isPrimary: true };
+                preference.dispatchEvent(new PointerEvent('pointerdown', pointer));
+                preference.focus({ preventScroll: true });
+                preference.dispatchEvent(new PointerEvent('pointerup', pointer));
+              } else {
+                preference.focus({ preventScroll: true });
+                preference.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowDown' }));
+              }
+              preference.value = 'nice_to_have';
+              preference.dispatchEvent(new Event('input', { bubbles: true }));
+              preference.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            """,
+            initiator,
+        )
+        page.wait_for_function(
+            """
+            () => document.querySelector('[data-keyword-priority-row][data-keyword-value="playground nearby"]')
+              ?.getAttribute('data-keyword-distance-enabled') === 'true'
+            """
+        )
+        _wait_for_what_matters_interaction_stabilization(page)
+        after_state = page.evaluate(
+            """
+            () => {
+              const row = document.querySelector('[data-keyword-priority-row][data-keyword-value="playground nearby"]');
+              const preference = row?.querySelector('[data-keyword-preference-select]');
+              return {
+                rowTop: Number(row?.getBoundingClientRect().top || 0),
+                scrollY: Number(window.scrollY || window.pageYOffset || 0),
+                distanceEnabled: row?.getAttribute('data-keyword-distance-enabled') === 'true',
+                preferenceFocused: document.activeElement === preference,
+              };
+            }
+            """
+        )
+        assert after_state["distanceEnabled"] is True, after_state
+        assert after_state["preferenceFocused"] is True, after_state
         assert abs(float(after_state["rowTop"]) - float(before_state["rowTop"])) <= 72.0, {
             "before": before_state,
             "after": after_state,

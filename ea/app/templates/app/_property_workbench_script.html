@@ -5335,6 +5335,14 @@
         const group = target?.closest?.('details[data-what-matters-group]');
         return group instanceof HTMLDetailsElement ? group : null;
       };
+      let whatMattersViewportIntentGeneration = 0;
+      const markWhatMattersViewportIntent = () => {
+        whatMattersViewportIntentGeneration += 1;
+      };
+      window.addEventListener('wheel', markWhatMattersViewportIntent, { capture: true, passive: true });
+      window.addEventListener('touchstart', markWhatMattersViewportIntent, { capture: true, passive: true });
+      window.addEventListener('pointerdown', markWhatMattersViewportIntent, { capture: true, passive: true });
+      window.addEventListener('keydown', markWhatMattersViewportIntent, { capture: true });
       const currentWhatMattersWindowScrollY = () => Number(
         window.scrollY
         || window.pageYOffset
@@ -5381,6 +5389,7 @@
           target: target instanceof HTMLElement ? target : null,
           restoreFocus: restoreFocus !== false,
           preserveScroll: preserveScroll !== false,
+          viewportIntentGeneration: whatMattersViewportIntentGeneration,
           groupStates,
         };
       };
@@ -5500,35 +5509,15 @@
           whatMattersInteractionRestoreLateTimeout = 0;
         }
       };
-      const captureWhatMattersAppliedViewport = (snapshot) => ({
-        scrollY: currentWhatMattersWindowScrollY(),
-        scrollOwners: (Array.isArray(snapshot?.scrollOwners) ? snapshot.scrollOwners : [])
-          .filter((entry) => entry?.node instanceof HTMLElement && entry.node.isConnected)
-          .map((entry) => ({
-            node: entry.node,
-            scrollTop: Number(entry.node.scrollTop || 0),
-            scrollLeft: Number(entry.node.scrollLeft || 0),
-          })),
-      });
-      const whatMattersAppliedViewportIsCurrent = (snapshot) => {
-        const expected = snapshot?.lastAppliedViewport;
-        if (!expected) return true;
-        const tolerance = 2;
-        if (Math.abs(currentWhatMattersWindowScrollY() - Number(expected.scrollY || 0)) > tolerance) return false;
-        const expectedOwners = Array.isArray(expected.scrollOwners) ? expected.scrollOwners : [];
-        return expectedOwners.every((entry) => (
-          entry?.node instanceof HTMLElement
-          && entry.node.isConnected
-          && Math.abs(Number(entry.node.scrollTop || 0) - Number(entry.scrollTop || 0)) <= tolerance
-          && Math.abs(Number(entry.node.scrollLeft || 0) - Number(entry.scrollLeft || 0)) <= tolerance
-        ));
-      };
+      const whatMattersViewportIntentIsCurrent = (snapshot) => (
+        Number(snapshot?.viewportIntentGeneration || 0) === whatMattersViewportIntentGeneration
+      );
       const applyWhatMattersInteractionRestore = (
         snapshot,
         { generation = whatMattersInteractionRestoreGeneration, guardViewport = false } = {},
       ) => {
         if (generation !== whatMattersInteractionRestoreGeneration) return false;
-        if (guardViewport && !whatMattersAppliedViewportIsCurrent(snapshot)) {
+        if (guardViewport && !whatMattersViewportIntentIsCurrent(snapshot)) {
           cancelPendingWhatMattersInteractionRestore();
           return false;
         }
@@ -5536,7 +5525,6 @@
           cancelPendingWhatMattersInteractionRestore();
           return false;
         }
-        snapshot.lastAppliedViewport = captureWhatMattersAppliedViewport(snapshot);
         refreshLastWhatMattersInteractionSnapshot(snapshot);
         return true;
       };

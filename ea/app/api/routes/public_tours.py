@@ -11033,8 +11033,9 @@ def _tour_control_panorama_html(
       .scene-rail::-webkit-scrollbar { display: none; }
       .scene-button { flex: 0 0 auto; min-height: 42px; border: 1px solid rgba(255,255,255,.18); background: rgba(255,255,255,.09); color: white; border-radius: 10px; padding: 0 14px; cursor: pointer; font: inherit; }
       .scene-button.active { color: #10151a; background: #fff; border-color: #fff; }
-      .hotspot-layer { position: fixed; inset: 0; z-index: 12; pointer-events: none; overflow: hidden; }
-      .hotspot { position: absolute; transform: translate(-50%,-50%); pointer-events: auto; border: 0; color: #111820; background: #fff; min-height: 38px; border-radius: 999px; padding: 0 14px 0 11px; font: 700 12px/1 Inter,system-ui,sans-serif; box-shadow: 0 9px 30px rgba(0,0,0,.38); cursor: pointer; white-space: nowrap; }
+      .hotspot-layer { position: fixed; inset: 0; z-index: 12; pointer-events: none; overflow: hidden; --pq-safe-top: env(safe-area-inset-top, 0px); --pq-safe-right: env(safe-area-inset-right, 0px); --pq-safe-bottom: env(safe-area-inset-bottom, 0px); --pq-safe-left: env(safe-area-inset-left, 0px); }
+      .hotspot { position: absolute; transform: translate(-50%,-50%); pointer-events: auto; max-width: calc(100vw - var(--pq-safe-left) - var(--pq-safe-right) - 20px); overflow: hidden; border: 0; color: #111820; background: #fff; min-height: 38px; border-radius: 999px; padding: 0 14px 0 11px; font: 700 12px/1 Inter,system-ui,sans-serif; box-shadow: 0 9px 30px rgba(0,0,0,.38); cursor: pointer; white-space: nowrap; text-overflow: ellipsis; }
+      .hotspot.unplaced { visibility: hidden; pointer-events: none; }
       .hotspot::before { content: '→'; display: inline-grid; place-items: center; width: 22px; height: 22px; margin-right: 7px; border-radius: 50%; color: white; background: #111820; }
       .floorplan { position: fixed; z-index: 19; right: 12px; bottom: 76px; width: min(260px, 36vw); padding: 8px; transition: opacity .2s ease, transform .2s ease; }
       .floorplan[hidden] { display: none; }
@@ -11387,8 +11388,11 @@ def _tour_control_panorama_html(
           if (!byId.has(String(hotspot.target))) continue;
           const button = document.createElement('button');
           button.type = 'button';
-          button.className = 'hotspot';
+          button.className = 'hotspot unplaced';
           button.textContent = hotspot.label || 'Continue';
+          button.setAttribute('aria-label', button.textContent);
+          button.setAttribute('aria-hidden', 'true');
+          button.tabIndex = -1;
           button.dataset.targetSceneId = String(hotspot.target);
           button.dataset.yaw = String(hotspot.yaw || 0);
           button.dataset.pitch = String(hotspot.pitch || 0);
@@ -11399,15 +11403,121 @@ def _tour_control_panorama_html(
       function updateHotspots() {
         const forward = new THREE.Vector3();
         panoramaCamera.getWorldDirection(forward);
+        const visualViewport = window.visualViewport;
+        const viewportLeft = visualViewport && Number.isFinite(visualViewport.offsetLeft) ? visualViewport.offsetLeft : 0;
+        const viewportTop = visualViewport && Number.isFinite(visualViewport.offsetTop) ? visualViewport.offsetTop : 0;
+        const viewportWidth = visualViewport && Number.isFinite(visualViewport.width) ? visualViewport.width : innerWidth;
+        const viewportHeight = visualViewport && Number.isFinite(visualViewport.height) ? visualViewport.height : innerHeight;
+        const safeStyle = getComputedStyle(hotspotLayer);
+        const safeInset = side => Math.max(0, parseFloat(safeStyle.getPropertyValue(`--pq-safe-${side}`)) || 0);
+        const bounds = {
+          left: Math.max(0, viewportLeft) + safeInset('left') + 10,
+          right: Math.min(innerWidth, viewportLeft + viewportWidth) - safeInset('right') - 10,
+          top: Math.max(0, viewportTop) + safeInset('top') + 10,
+          bottom: Math.min(innerHeight, viewportTop + viewportHeight) - safeInset('bottom') - 10,
+        };
+        const obstacleSelectors = [
+          '.identity',
+          '.top-actions',
+          '.zoom-controls',
+          '.scene-rail:not([hidden])',
+          '.floorplan:not([hidden]):not(.collapsed)',
+        ];
+        const obstacleElements = [...new Set(obstacleSelectors.flatMap(selector => [...document.querySelectorAll(selector)]))];
+        const obstacleRects = obstacleElements.flatMap(element => {
+          const style = getComputedStyle(element);
+          const rect = element.getBoundingClientRect();
+          if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity || 1) <= 0
+            || rect.width <= 0 || rect.height <= 0) return [];
+          return [{ left: rect.left - 8, right: rect.right + 8, top: rect.top - 8, bottom: rect.bottom + 8 }];
+        });
+        const measured = [];
         for (const button of hotspotLayer.children) {
           const vector = direction(radians(button.dataset.yaw), radians(button.dataset.pitch), 9.7);
           const visible = forward.dot(vector.clone().normalize()) > .08;
           const projected = vector.project(panoramaCamera);
-          button.hidden = !visible || projected.z < -1 || projected.z > 1;
-          if (!button.hidden) {
-            button.style.left = `${(projected.x * .5 + .5) * innerWidth}px`;
-            button.style.top = `${(-projected.y * .5 + .5) * innerHeight}px`;
+          const inFrame = Number.isFinite(projected.x) && Number.isFinite(projected.y)
+            && projected.x >= -1 && projected.x <= 1
+            && projected.y >= -1 && projected.y <= 1;
+          const rect = button.getBoundingClientRect();
+          measured.push({
+            button,
+            eligible: visible && inFrame && projected.z >= -1 && projected.z <= 1,
+            baseX: (projected.x * .5 + .5) * innerWidth,
+            baseY: (-projected.y * .5 + .5) * innerHeight,
+            width: rect.width,
+            height: rect.height,
+          });
+        }
+        const intersects = (left, right) => left.left < right.right && left.right > right.left
+          && left.top < right.bottom && left.bottom > right.top;
+        const placements = new Map();
+        const occupied = [];
+        for (const item of measured) {
+          if (!item.eligible || item.width <= 0 || item.height <= 0
+            || item.width > bounds.right - bounds.left || item.height > bounds.bottom - bounds.top) continue;
+          const halfWidth = item.width / 2;
+          const halfHeight = item.height / 2;
+          const clampCandidate = (x, y) => ({
+            x: Math.max(bounds.left + halfWidth, Math.min(bounds.right - halfWidth, x)),
+            y: Math.max(bounds.top + halfHeight, Math.min(bounds.bottom - halfHeight, y)),
+          });
+          const blockers = [...obstacleRects, ...occupied];
+          const rawCandidates = [
+            { x: item.baseX, y: item.baseY },
+            { x: item.baseX - item.width - 8, y: item.baseY },
+            { x: item.baseX + item.width + 8, y: item.baseY },
+            { x: item.baseX, y: item.baseY - item.height - 8 },
+            { x: item.baseX, y: item.baseY + item.height + 8 },
+          ];
+          for (const blocker of blockers) {
+            rawCandidates.push(
+              { x: blocker.left - halfWidth, y: item.baseY },
+              { x: blocker.right + halfWidth, y: item.baseY },
+              { x: item.baseX, y: blocker.top - halfHeight },
+              { x: item.baseX, y: blocker.bottom + halfHeight },
+            );
           }
+          const seen = new Set();
+          let placement = null;
+          for (const rawCandidate of rawCandidates) {
+            const candidate = clampCandidate(rawCandidate.x, rawCandidate.y);
+            const key = `${candidate.x.toFixed(2)}:${candidate.y.toFixed(2)}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            const box = {
+              left: candidate.x - halfWidth,
+              right: candidate.x + halfWidth,
+              top: candidate.y - halfHeight,
+              bottom: candidate.y + halfHeight,
+            };
+            if (box.left < bounds.left || box.right > bounds.right || box.top < bounds.top || box.bottom > bounds.bottom
+              || blockers.some(blocker => intersects(box, blocker))) continue;
+            placement = { ...candidate, box };
+            break;
+          }
+          if (!placement) continue;
+          placements.set(item.button, placement);
+          occupied.push({
+            left: placement.box.left - 8,
+            right: placement.box.right + 8,
+            top: placement.box.top - 8,
+            bottom: placement.box.bottom + 8,
+          });
+        }
+        for (const item of measured) {
+          const placement = placements.get(item.button);
+          if (!placement) {
+            item.button.classList.add('unplaced');
+            item.button.setAttribute('aria-hidden', 'true');
+            item.button.tabIndex = -1;
+            continue;
+          }
+          item.button.style.left = `${placement.x}px`;
+          item.button.style.top = `${placement.y}px`;
+          item.button.classList.remove('unplaced');
+          item.button.removeAttribute('aria-hidden');
+          item.button.removeAttribute('tabindex');
         }
       }
       function markActive(id) {
