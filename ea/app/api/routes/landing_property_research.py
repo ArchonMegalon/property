@@ -996,6 +996,20 @@ def _property_tour_source_gap_detail(candidate: dict[str, object]) -> str:
     return "A real 3D tour needs a floor plan or verified 360 source."
 
 
+def _property_tour_retired_control_target(value: object) -> bool:
+    """Identify retired first-party controls that must never reach a customer."""
+
+    normalized = str(value or "").strip()
+    if not normalized:
+        return False
+    try:
+        parsed = urllib.parse.urlsplit(normalized)
+    except (TypeError, ValueError):
+        return True
+    path = urllib.parse.unquote(str(parsed.path or "")).rstrip("/").lower()
+    return path.endswith("/control/matterport")
+
+
 def _property_tour_verified_open_url(tour_url: object, *, principal_id: str = "") -> str:
     normalized_principal_id = str(principal_id or "").strip()
     resolved_url = (
@@ -1006,7 +1020,10 @@ def _property_tour_verified_open_url(tour_url: object, *, principal_id: str = ""
         if normalized_principal_id
         else property_tour_hosting._hosted_property_tour_verified_open_url(tour_url)
     )
-    return str(resolved_url or "").strip()
+    normalized_url = str(resolved_url or "").strip()
+    if _property_tour_retired_control_target(normalized_url):
+        return ""
+    return normalized_url
 
 
 def _property_tour_verified_provider(tour_url: object, *, principal_id: str = "") -> str:
@@ -1032,7 +1049,10 @@ def _property_tour_first_party_open_url(tour_url: object, *, principal_id: str =
         if normalized_principal_id
         else property_tour_hosting._hosted_property_tour_first_party_open_url(tour_url)
     )
-    return str(resolved_url or "").strip()
+    normalized_url = str(resolved_url or "").strip()
+    if _property_tour_retired_control_target(normalized_url):
+        return ""
+    return normalized_url
 
 
 def _property_ai_360_control_href(
@@ -1368,6 +1388,7 @@ def _property_tour_media_payload(
         "tour_eta_label": eta_label,
         "tour_progress_pct": tour_progress_pct,
         "embed_href": embed_href,
+        "canonical_tour_url": verified_tour_href,
         "has_live_viewer": bool(embed_href),
         "hosted_ready": hosted_tour_ready,
         "vendor_ready": bool(vendor_tour_url),

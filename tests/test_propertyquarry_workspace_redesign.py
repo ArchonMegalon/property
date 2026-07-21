@@ -15240,21 +15240,19 @@ def test_property_research_media_does_not_embed_stale_hosted_tour_record(monkeyp
         "_hosted_property_tour_verified_provider",
         lambda _url: "matterport",
     )
-    ready_payload = landing_property_research._property_tour_media_payload(
+    retired_payload = landing_property_research._property_tour_media_payload(
         {
-            "tour_url": "https://propertyquarry.com/tours/ready-tour",
-            "flythrough_provider": "magicfit",
-            "flythrough_url": "https://propertyquarry.com/tours/files/ready-tour/walkthrough.mp4",
+            "tour_url": "https://propertyquarry.com/tours/ready-tour/control/matterport",
+            "tour_status": "ready",
         }
     )
-    assert ready_payload["has_live_viewer"] is True
-    assert ready_payload["hosted_ready"] is True
-    assert ready_payload["embed_href"] == "https://propertyquarry.com/tours/ready-tour/control/matterport"
-    assert ready_payload["primary_href"] == "https://propertyquarry.com/tours/ready-tour/control/matterport"
-    assert ready_payload["primary_label"] == "Open 3D tour"
-    assert ready_payload["status_label"] == "3D tour available"
-    assert ready_payload["status_detail"] == "3D tour is ready."
-    assert ready_payload["walkthrough_status_detail"] == "Walkthrough is ready."
+    assert retired_payload["canonical_tour_url"] == ""
+    assert retired_payload["has_live_viewer"] is False
+    assert retired_payload["hosted_ready"] is False
+    assert retired_payload["embed_href"] == ""
+    assert retired_payload["primary_href"] == ""
+    assert retired_payload["provider_key"] == ""
+    assert retired_payload["tour_status"] == "unavailable"
 
 
 def test_property_research_media_ignores_disabled_fallback_tour_record(monkeypatch) -> None:
@@ -28289,7 +28287,7 @@ def test_property_research_packet_does_not_offer_3d_retry_for_expired_flat_previ
     assert "listing_expired" not in visible_text
 
 
-def test_property_research_packet_uses_hosted_tour_href_for_ready_hero_action(monkeypatch) -> None:
+def test_property_research_packet_does_not_promote_retired_matterport_target(monkeypatch) -> None:
     principal_id = "pq-research-packet-hosted-tour-ready"
     client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Office")
@@ -28300,7 +28298,7 @@ def test_property_research_packet_uses_hosted_tour_href_for_ready_hero_action(mo
         "property_url": "https://www.willhaben.at/iad/immobilien/d/mietwohnungen/wien/hosted-tour-penthouse",
         "source_ref": "willhaben:hosted-tour-penthouse",
         "tour_status": "ready",
-        "tour_url": "https://propertyquarry.com/tours/hosted-tour-penthouse",
+        "tour_url": "https://propertyquarry.com/tours/hosted-tour-penthouse/control/matterport",
         "flythrough_status": "",
         "flythrough_url": "",
         "property_facts": {
@@ -28359,12 +28357,12 @@ def test_property_research_packet_uses_hosted_tour_href_for_ready_hero_action(mo
     assert 'href="/app/shortlist?run_id=run-hosted-tour"' in packet.text
     rendered_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", packet.text, flags=re.IGNORECASE | re.DOTALL)
     rendered_html = re.sub(r"<style\b[^>]*>.*?</style>", " ", rendered_html, flags=re.IGNORECASE | re.DOTALL)
-    assert f'href="{hosted_href}"' in rendered_html
-    assert '>Open 3D tour</a>' in rendered_html
-    assert "3D tour is ready." in rendered_html
-    assert "Open now." in rendered_html
-    assert 'data-prd-visual-card="tour"' in packet.text
-    assert '<div class="prd-actions prd-media-actions" aria-label="Media requests">' in rendered_html
+    assert hosted_href not in rendered_html
+    assert f'href="{hosted_href}"' not in rendered_html
+    assert f'src="{hosted_href}"' not in rendered_html
+    assert '>Open 3D tour</a>' not in rendered_html
+    assert "3D tour unavailable" in rendered_html
+    assert 'data-prd-visual-card="tour"' not in packet.text
     assert 'data-pw-visual-request="tour"' not in rendered_html
 
 
@@ -28373,7 +28371,7 @@ def test_property_research_packet_uses_nested_ready_tour_payload_for_hero_action
     client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Office")
 
-    hosted_href = "https://propertyquarry.com/tours/nested-tour-penthouse/control/matterport"
+    hosted_href = "https://propertyquarry.com/tours/nested-tour-penthouse/control/3dvista"
     candidate = {
         "title": "Nested-tour penthouse",
         "summary": "EUR 2,780 · 101 m² · 1070 Wien",
@@ -28423,7 +28421,7 @@ def test_property_research_packet_uses_nested_ready_tour_payload_for_hero_action
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
         "_hosted_property_tour_verified_provider",
-        lambda _url, *, principal_id="": "matterport",
+        lambda _url, *, principal_id="": "3dvista",
     )
 
     packet_ref = landing_property_research._property_candidate_ref(
@@ -28797,7 +28795,7 @@ def test_property_research_packet_shows_ready_walkthrough_inside_visual_console(
             "postal_name": "1060 Wien",
         },
     }
-    hosted_href = "https://propertyquarry.com/tours/walkthrough-ready-loft/control/matterport"
+    hosted_href = "https://propertyquarry.com/tours/walkthrough-ready-loft/control/3dvista"
 
     def _fake_run_status(self, *, principal_id: str, run_id: str):
         return {
@@ -28832,7 +28830,7 @@ def test_property_research_packet_shows_ready_walkthrough_inside_visual_console(
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
         "_hosted_property_tour_verified_provider",
-        lambda _url, *, principal_id="": "matterport",
+        lambda _url, *, principal_id="": "3dvista",
     )
     verified_walkthrough_href = "https://propertyquarry.com/tours/walkthrough-ready-loft?pane=flythrough-pane&autoplay=1"
     monkeypatch.setattr(
@@ -28887,7 +28885,7 @@ def test_property_research_packet_keeps_ready_tour_in_visual_rail_while_walkthro
             "postal_name": "1010 Wien",
         },
     }
-    hosted_href = "https://propertyquarry.com/tours/tour-ready-walkthrough-queued/control/matterport"
+    hosted_href = "https://propertyquarry.com/tours/tour-ready-walkthrough-queued/control/3dvista"
 
     def _fake_run_status(self, *, principal_id: str, run_id: str):
         return {
@@ -28922,7 +28920,7 @@ def test_property_research_packet_keeps_ready_tour_in_visual_rail_while_walkthro
     monkeypatch.setattr(
         landing_property_research.property_tour_hosting,
         "_hosted_property_tour_verified_provider",
-        lambda _url, *, principal_id="": "matterport",
+        lambda _url, *, principal_id="": "3dvista",
     )
 
     packet_ref = landing_property_research._property_candidate_ref(

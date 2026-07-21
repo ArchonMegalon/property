@@ -7937,6 +7937,10 @@ def property_research_packet(
         candidate,
         principal_id=context.principal_id,
     )
+    # From this boundary onward, raw persisted tour targets are diagnostic
+    # inputs only. Ready, progress, embed, and action state must use the
+    # canonical route returned by the verified tour contract.
+    tour_url = str(research_media.get("canonical_tour_url") or "").strip()
     orientation_preview = _property_candidate_orientation_preview(candidate)
     preview_image = _property_candidate_preview_image(candidate)
     diorama_preview_image = _property_candidate_diorama_preview_image(candidate)
