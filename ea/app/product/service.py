@@ -4801,6 +4801,52 @@ def _property_fact_job_evidence_is_fresh(job: Mapping[str, object]) -> bool:
     return True
 
 
+def _property_fact_retry_delay_seconds(attempt: object) -> int:
+    """Bound automatic retries while allowing a short first recovery pass."""
+    try:
+        normalized_attempt = max(1, min(int(attempt or 1), _PROPERTY_FACT_ENRICHMENT_MAX_ATTEMPTS))
+    except (TypeError, ValueError):
+        normalized_attempt = 1
+    return min(300, 30 * (2 ** (normalized_attempt - 1)))
+
+
+def _property_fact_retry_remaining_seconds(
+    job: Mapping[str, object],
+    *,
+    now: datetime | None = None,
+) -> int | None:
+    status = str(job.get("status") or "").strip().lower()
+    try:
+        attempt = max(0, int(job.get("attempt") or 0))
+    except (TypeError, ValueError):
+        attempt = 0
+    if (
+        status not in {"succeeded", "completed", "retryable_error", "failed"}
+        or not bool(job.get("retryable"))
+        or attempt >= _PROPERTY_FACT_ENRICHMENT_MAX_ATTEMPTS
+    ):
+        return None
+    retry_delays: list[int] = []
+    for row in list(job.get("fields") or []):
+        if not isinstance(row, Mapping) or str(row.get("state") or "").strip().lower() != "retryable_error":
+            continue
+        error = row.get("error")
+        if not isinstance(error, Mapping):
+            continue
+        try:
+            retry_delays.append(max(0, min(int(error.get("retry_after_seconds") or 0), 86_400)))
+        except (TypeError, ValueError):
+            continue
+    if not retry_delays:
+        return None
+    retry_after = max(retry_delays)
+    updated_at = _parse_utcish(str(job.get("updated_at") or ""))
+    if not isinstance(updated_at, datetime):
+        return retry_after
+    current = now or datetime.now(timezone.utc)
+    return max(0, int(math.ceil(retry_after - max(0.0, (current - updated_at).total_seconds()))))
+
+
 def _property_fact_coordinate_snapshot(property_url: str) -> dict[str, object]:
     """Resolve listing coordinates without running the nearby-POI provider."""
     try:
@@ -5197,8 +5243,13 @@ def _property_fact_safe_job_payload(job: Mapping[str, object]) -> dict[str, obje
         "retryable_error",
         "unavailable",
     }
+    try:
+        job_attempt = max(0, int(job.get("attempt") or 0))
+    except (TypeError, ValueError):
+        job_attempt = 0
     fields: list[dict[str, object]] = []
-    for raw_row in list(job.get("fields") or [])[:16]:
+    retry_remaining = _property_fact_retry_remaining_seconds(job)
+    for raw_row in list(job.get("fields") or [])[:32]:
         if not isinstance(raw_row, dict):
             continue
         key = re.sub(r"[^a-z0-9_]", "_", str(raw_row.get("key") or "").strip().lower())[:80]
@@ -5211,6 +5262,8 @@ def _property_fact_safe_job_payload(job: Mapping[str, object]) -> dict[str, obje
         state = str(raw_row.get("state") or "unknown").strip().lower()
         if state not in allowed_field_states:
             state = "unknown"
+        if state == "retryable_error" and job_attempt >= _PROPERTY_FACT_ENRICHMENT_MAX_ATTEMPTS:
+            state = "unavailable"
         priority = str(raw_row.get("priority") or "lazy").strip().lower()
         if priority not in {"required", "lazy"}:
             priority = "lazy"
@@ -5238,10 +5291,16 @@ def _property_fact_safe_job_payload(job: Mapping[str, object]) -> dict[str, obje
             "_",
             str(error.get("code") or "").strip().lower(),
         )[:96]
+        if state == "unavailable" and job_attempt >= _PROPERTY_FACT_ENRICHMENT_MAX_ATTEMPTS:
+            error_code = "fact_enrichment_attempts_exhausted"
+            error["message"] = "Nearby facts are unavailable from the current sources."
+            error["retry_after_seconds"] = 0
         try:
             retry_after_seconds = max(0, min(int(error.get("retry_after_seconds") or 0), 86_400))
         except (TypeError, ValueError):
             retry_after_seconds = 0
+        if state == "retryable_error" and retry_remaining is not None:
+            retry_after_seconds = retry_remaining
         fields.append(
             {
                 "key": key,
@@ -5302,10 +5361,7 @@ def _property_fact_safe_job_payload(job: Mapping[str, object]) -> dict[str, obje
     if not re.fullmatch(r"sha256:[0-9a-f]{64}", preference_digest):
         preference_digest = fallback_digest
     raw_status = str(job.get("status") or "idle").strip().lower()
-    try:
-        raw_attempt = int(job.get("attempt") or 0)
-    except (TypeError, ValueError):
-        raw_attempt = 0
+    raw_attempt = job_attempt
     if raw_status == "completed":
         status = "succeeded"
     elif raw_status == "failed":
@@ -5314,6 +5370,8 @@ def _property_fact_safe_job_payload(job: Mapping[str, object]) -> dict[str, obje
             if bool(job.get("retryable")) and raw_attempt < _PROPERTY_FACT_ENRICHMENT_MAX_ATTEMPTS
             else "terminal_error"
         )
+    elif raw_status == "retryable_error" and raw_attempt >= _PROPERTY_FACT_ENRICHMENT_MAX_ATTEMPTS:
+        status = "terminal_error"
     elif raw_status in {
         "idle",
         "queued",
@@ -5357,7 +5415,9 @@ def _property_fact_safe_job_payload(job: Mapping[str, object]) -> dict[str, obje
             "facts_digest": facts_digest,
             "preference_digest": preference_digest,
         },
-        "retryable": bool(job.get("retryable")),
+        "retryable": bool(job.get("retryable"))
+        and attempt < _PROPERTY_FACT_ENRICHMENT_MAX_ATTEMPTS
+        and status != "terminal_error",
     }
 
 
@@ -5397,6 +5457,8 @@ def _property_fact_full_snapshot_payload(
         job_status = raw_status
     else:
         job_status = "retryable_error"
+    if job_status == "retryable_error" and raw_attempt >= _PROPERTY_FACT_ENRICHMENT_MAX_ATTEMPTS:
+        job_status = "terminal_error"
     projected_fields: list[dict[str, object]] = []
     for raw_plan_row in plan:
         plan_row = dict(raw_plan_row)
@@ -5443,6 +5505,8 @@ def _property_fact_full_snapshot_payload(
             continue
         plan_state = str(plan_row.get("state") or "unknown").strip().lower()
         job_state = str(job_row.get("state") or plan_state).strip().lower()
+        if job_status == "terminal_error" and job_state == "retryable_error":
+            job_state = "unavailable"
         if job_state in {"queued", "running"}:
             if job_status in {"idle", "succeeded"}:
                 job_state = plan_state
@@ -27671,7 +27735,9 @@ class ProductService:
                             "error": {
                                 "code": "fact_not_available_from_current_sources",
                                 "message": "Could not verify this distance from the current listing and map sources.",
-                                "retry_after_seconds": 30,
+                                "retry_after_seconds": _property_fact_retry_delay_seconds(
+                                    claimed_attempt
+                                ),
                             },
                         }
                     )
@@ -27962,7 +28028,11 @@ class ProductService:
                                     else {
                                         "code": failure_code,
                                         "message": failure_message,
-                                        "retry_after_seconds": 30 if retryable else 0,
+                                        "retry_after_seconds": (
+                                            _property_fact_retry_delay_seconds(claimed_attempt)
+                                            if retryable
+                                            else 0
+                                        ),
                                     }
                                 ),
                             }

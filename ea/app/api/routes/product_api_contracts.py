@@ -2166,7 +2166,7 @@ class PropertyFactEnrichmentOut(BaseModel):
     poll_after_ms: int = Field(ge=500, le=10_000)
     updated_at: str = Field(default="", max_length=64)
     retryable: StrictBool
-    fields: list[PropertyFactFieldOut] = Field(default_factory=list, max_length=16)
+    fields: list[PropertyFactFieldOut] = Field(default_factory=list, max_length=32)
     score: PropertyFactScoreOut
 
     @field_validator("updated_at")

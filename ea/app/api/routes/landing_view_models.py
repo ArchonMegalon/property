@@ -3996,7 +3996,7 @@ def app_section_payload(
         "shopping center nearby": "max_distance_to_shopping_center_m",
         "flaniermeile nearby": "max_distance_to_shopping_street_m",
         "theatre nearby": "max_distance_to_theatre_m",
-        "pharmacy nearby": "max_distance_to_medical_care_m",
+        "pharmacy nearby": "max_distance_to_pharmacy_m",
         "underground nearby": "max_distance_to_subway_m",
     }
     nearby_keyword_importance_fields = {
@@ -4011,7 +4011,7 @@ def app_section_payload(
         "shopping center nearby": "max_distance_to_shopping_center_importance",
         "flaniermeile nearby": "max_distance_to_shopping_street_importance",
         "theatre nearby": "max_distance_to_theatre_importance",
-        "pharmacy nearby": "max_distance_to_medical_care_importance",
+        "pharmacy nearby": "max_distance_to_pharmacy_importance",
         "underground nearby": "max_distance_to_subway_importance",
     }
     for option in keyword_options:

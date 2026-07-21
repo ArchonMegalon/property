@@ -1846,6 +1846,120 @@ def test_propertyquarry_lazy_distance_error_retries_without_blocking_provisional
         context.close()
 
 
+def test_propertyquarry_authenticated_reopen_resumes_retryable_facts_after_backoff(
+    monkeypatch: pytest.MonkeyPatch,
+    browser: Browser,
+    propertyquarry_browser_server: dict[str, object],
+) -> None:
+    base_url = str(propertyquarry_browser_server["base_url"])
+    context = _new_context(browser, mobile=False)
+    page: Page = context.new_page()
+    observed_posts: list[dict[str, object]] = []
+    allow_resolution = {"value": False}
+
+    def _persisted_retryable(self, *, principal_id: str, run_id: str, candidate_ref: str):
+        assert principal_id == "pq-greenfield-browser"
+        status_url = (
+            f"/app/api/signals/property/search/run/{run_id}/candidates/"
+            f"{candidate_ref}/fact-enrichment"
+        )
+        return _property_fact_browser_payload(
+            status_url=status_url,
+            status="retryable_error",
+            fields=_property_fact_browser_fields(
+                state="retryable_error",
+                required=False,
+                error_message="Map sources timed out. Retrying shortly.",
+            ),
+            score_state="provisional",
+            previous_score=72,
+            current_score=72,
+            delta=0,
+            ranking_eligible=True,
+            retryable=True,
+        )
+
+    monkeypatch.setattr(
+        ProductService,
+        "get_property_candidate_fact_enrichment",
+        _persisted_retryable,
+    )
+
+    def _fact_route(route) -> None:
+        request = route.request
+        status_url = request.url
+        if request.method == "POST":
+            posted = request.post_data_json
+            observed_posts.append(posted if isinstance(posted, dict) else {})
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=json.dumps(
+                    _property_fact_browser_payload(
+                        status_url=status_url,
+                        status="queued",
+                        fields=_property_fact_browser_fields(state="queued", required=False),
+                        score_state="provisional",
+                        previous_score=72,
+                        current_score=72,
+                        delta=0,
+                        ranking_eligible=True,
+                    )
+                ),
+            )
+            return
+        payload = _property_fact_browser_payload(
+            status_url=status_url,
+            status="succeeded" if allow_resolution["value"] else "running",
+            fields=_property_fact_browser_fields(
+                state="resolved" if allow_resolution["value"] else "running",
+                required=False,
+                resolved=allow_resolution["value"],
+            ),
+            score_state="final" if allow_resolution["value"] else "provisional",
+            previous_score=72,
+            current_score=74 if allow_resolution["value"] else 72,
+            delta=2 if allow_resolution["value"] else 0,
+            ranking_eligible=True,
+        )
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(payload))
+
+    page.route("**/fact-enrichment", _fact_route)
+    try:
+        _open_authenticated_property_fact_session(
+            page,
+            base_url=base_url,
+            propertyquarry_browser_server=propertyquarry_browser_server,
+        )
+        _open_family_research_packet(page, base_url=base_url)
+        root = page.locator("[data-property-fact-enrichment]")
+        supermarket = root.locator('[data-property-fact-key="nearest_supermarket_m"]')
+
+        expect(supermarket).to_have_attribute("data-property-fact-state", "retryable_error")
+        expect(supermarket.locator("[data-property-fact-status]")).to_contain_text(
+            "Retrying shortly"
+        )
+        page.wait_for_timeout(400)
+        assert observed_posts == []
+
+        expect(supermarket).to_have_attribute(
+            "data-property-fact-state",
+            re.compile(r"queued|running"),
+            timeout=3000,
+        )
+        expect(supermarket.locator("[data-property-fact-spinner]")).to_be_visible()
+        expect(root).to_have_attribute("aria-busy", "true")
+        assert observed_posts == [{"retry_failed": True}]
+
+        allow_resolution["value"] = True
+        expect(supermarket).to_have_attribute("data-property-fact-state", "resolved", timeout=5000)
+        expect(supermarket.locator("[data-property-fact-spinner]")).to_be_hidden()
+        expect(root).to_have_attribute("aria-busy", "false")
+        assert observed_posts == [{"retry_failed": True}]
+    finally:
+        context.close()
+
+
 def _assert_propertyquarry_billing_redirect_lands_on_account(page: Page) -> None:
     expect(page.locator("body", has_text="Billing portal unavailable")).to_have_count(0)
     assert "/app/account" in page.url

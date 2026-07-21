@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime, timedelta, timezone
+from types import MappingProxyType
 from typing import Mapping, Sequence
 
 
@@ -11,43 +12,272 @@ PROPERTY_FACT_SCORE_ALGORITHM_VERSION = "propertyquarry.fact-score-state.v1"
 PROPERTY_FACT_GEO_BUNDLE_KIND = "optional-geo-v1"
 
 
-_GEO_FACT_SPECS: tuple[dict[str, object], ...] = (
-    {
-        "key": "nearest_supermarket_m",
-        "aliases": ("nearest_supermarket_m", "distance_supermarket_m"),
-        "label": "Supermarket distance",
-        "preference_keys": ("max_distance_to_supermarket_m", "prefer_supermarket_nearby"),
-        "required_preference_keys": ("max_distance_to_supermarket_m",),
-    },
-    {
-        "key": "nearest_playground_m",
-        "aliases": ("nearest_playground_m", "distance_playground_m"),
-        "label": "Playground distance",
-        "preference_keys": ("max_distance_to_playground_m", "prefer_playgrounds_nearby"),
-        "required_preference_keys": ("max_distance_to_playground_m",),
-    },
-    {
-        "key": "nearest_pharmacy_m",
-        "aliases": ("nearest_pharmacy_m", "distance_pharmacy_m"),
-        "label": "Pharmacy distance",
-        "preference_keys": ("max_distance_to_pharmacy_m", "prefer_pharmacy_nearby"),
-        "required_preference_keys": ("max_distance_to_pharmacy_m",),
-    },
-    {
-        "key": "nearest_medical_care_m",
-        "aliases": ("nearest_medical_care_m",),
-        "label": "Medical-care distance",
-        "preference_keys": ("max_distance_to_medical_care_m", "prefer_medical_care_nearby"),
-        "required_preference_keys": ("max_distance_to_medical_care_m",),
-    },
-    {
-        "key": "nearest_subway_m",
-        "aliases": ("nearest_subway_m", "nearest_transit_m", "distance_underground_m"),
-        "label": "Underground distance",
-        "preference_keys": ("max_distance_to_subway_m", "prefer_subway_nearby"),
-        "required_preference_keys": ("max_distance_to_subway_m",),
-    },
+def _distance_fact_spec(
+    *,
+    key: str,
+    aliases: Sequence[str],
+    label: str,
+    search_label: str,
+    preference_keys: Sequence[str] = (),
+    poi_keys: Sequence[str] = (),
+    provider: str = "openstreetmap_overpass",
+    evidence_providers: Sequence[str] = (),
+    strict_evidence_provider: bool = False,
+    default_lazy: bool = False,
+    search_supported: bool = True,
+) -> Mapping[str, object]:
+    """Build one immutable row in the shared distance-fact registry."""
+    normalized_preferences = tuple(str(value) for value in preference_keys)
+    required_preferences = tuple(
+        value for value in normalized_preferences if value.startswith("max_distance_to_")
+    )
+    return MappingProxyType(
+        {
+            "key": key,
+            "aliases": tuple(dict.fromkeys((key, *(str(value) for value in aliases)))),
+            "label": label,
+            "search_label": search_label,
+            "preference_keys": normalized_preferences,
+            "required_preference_keys": required_preferences,
+            "poi_keys": tuple(str(value) for value in poi_keys),
+            "provider": provider,
+            "evidence_providers": tuple(str(value) for value in evidence_providers),
+            "strict_evidence_provider": bool(strict_evidence_provider),
+            "default_lazy": bool(default_lazy),
+            "search_supported": bool(search_supported),
+        }
+    )
+
+
+# Canonical distance-fact registry shared by detail enrichment and search-time
+# gating. Keep provider keys here so a new distance preference cannot silently
+# become rankable without a corresponding fact source.
+PROPERTY_FACT_DISTANCE_SPECS: tuple[Mapping[str, object], ...] = (
+    _distance_fact_spec(
+        key="nearest_supermarket_m",
+        aliases=("distance_supermarket_m",),
+        label="Supermarket distance",
+        search_label="supermarket",
+        preference_keys=("max_distance_to_supermarket_m", "prefer_supermarket_nearby"),
+        poi_keys=("shop=supermarket", "shop=convenience", "shop=greengrocer"),
+        default_lazy=True,
+    ),
+    _distance_fact_spec(
+        key="nearest_playground_m",
+        aliases=("distance_playground_m",),
+        label="Playground distance",
+        search_label="playground",
+        preference_keys=("max_distance_to_playground_m", "prefer_playgrounds_nearby"),
+        poi_keys=("leisure=playground",),
+        default_lazy=True,
+    ),
+    _distance_fact_spec(
+        key="nearest_pharmacy_m",
+        aliases=("distance_pharmacy_m",),
+        label="Pharmacy distance",
+        search_label="pharmacy",
+        preference_keys=("max_distance_to_pharmacy_m", "prefer_pharmacy_nearby"),
+        poi_keys=("amenity=pharmacy",),
+        default_lazy=True,
+    ),
+    _distance_fact_spec(
+        key="nearest_medical_care_m",
+        aliases=("distance_medical_care_m",),
+        label="Medical-care distance",
+        search_label="medical care",
+        preference_keys=("max_distance_to_medical_care_m", "prefer_medical_care_nearby"),
+        poi_keys=("amenity=doctors", "amenity=clinic", "amenity=hospital"),
+        default_lazy=True,
+    ),
+    _distance_fact_spec(
+        key="nearest_subway_m",
+        aliases=("nearest_transit_m", "distance_underground_m", "distance_subway_m"),
+        label="Underground distance",
+        search_label="underground",
+        preference_keys=("max_distance_to_subway_m", "prefer_subway_nearby"),
+        poi_keys=("railway=subway_entrance",),
+        default_lazy=True,
+    ),
+    _distance_fact_spec(
+        key="nearest_kindergarten_m",
+        aliases=("nearest_school_m", "distance_kindergarten_m"),
+        label="Kindergarten distance",
+        search_label="kindergarten",
+        preference_keys=("max_distance_to_kindergarten_m",),
+        poi_keys=("schoolatlas=kindergarten",),
+        provider="schoolatlas",
+        evidence_providers=("schoolatlas",),
+        strict_evidence_provider=True,
+    ),
+    _distance_fact_spec(
+        key="nearest_full_day_primary_school_m",
+        aliases=("nearest_school_m", "distance_full_day_primary_school_m"),
+        label="Full-day primary-school distance",
+        search_label="full-day primary school",
+        preference_keys=("max_distance_to_ganztags_volksschule_m",),
+        poi_keys=("schoolatlas=full_day_primary_school",),
+        provider="schoolatlas",
+        evidence_providers=("schoolatlas",),
+        strict_evidence_provider=True,
+    ),
+    _distance_fact_spec(
+        key="nearest_half_day_primary_school_m",
+        aliases=("nearest_school_m", "distance_half_day_primary_school_m"),
+        label="Half-day primary-school distance",
+        search_label="half-day primary school",
+        preference_keys=("max_distance_to_halbtags_volksschule_m",),
+        poi_keys=("schoolatlas=half_day_primary_school",),
+        provider="schoolatlas",
+        evidence_providers=("schoolatlas",),
+        strict_evidence_provider=True,
+    ),
+    _distance_fact_spec(
+        key="nearest_library_m",
+        aliases=("distance_library_m",),
+        label="Library distance",
+        search_label="library",
+        preference_keys=("max_distance_to_library_m", "prefer_libraries_nearby"),
+        poi_keys=("amenity=library",),
+    ),
+    _distance_fact_spec(
+        key="nearest_zoo_m",
+        aliases=("distance_zoo_m",),
+        label="Zoo distance",
+        search_label="zoo",
+        preference_keys=("max_distance_to_zoo_m", "prefer_zoo_nearby"),
+        poi_keys=("tourism=zoo",),
+    ),
+    _distance_fact_spec(
+        key="nearest_market_m",
+        aliases=("distance_market_m",),
+        label="Market distance",
+        search_label="market",
+        preference_keys=("max_distance_to_market_m", "prefer_markets_nearby"),
+        poi_keys=("amenity=marketplace",),
+    ),
+    _distance_fact_spec(
+        key="nearest_hardware_store_m",
+        aliases=("nearest_baumarkt_m", "distance_hardware_store_m"),
+        label="Hardware-store distance",
+        search_label="hardware store",
+        preference_keys=("max_distance_to_hardware_store_m", "prefer_hardware_store_nearby"),
+        poi_keys=("shop=doityourself", "shop=hardware"),
+    ),
+    _distance_fact_spec(
+        key="nearest_shopping_center_m",
+        aliases=("nearest_shopping_centre_m", "distance_shopping_center_m"),
+        label="Shopping-center distance",
+        search_label="shopping center",
+        preference_keys=("max_distance_to_shopping_center_m", "prefer_shopping_center_nearby"),
+        poi_keys=("shop=mall",),
+    ),
+    _distance_fact_spec(
+        key="nearest_shopping_street_m",
+        aliases=("distance_shopping_street_m",),
+        label="Shopping-street distance",
+        search_label="shopping street",
+        preference_keys=("max_distance_to_shopping_street_m", "prefer_shopping_street_nearby"),
+        poi_keys=("highway=pedestrian",),
+    ),
+    _distance_fact_spec(
+        key="nearest_theatre_m",
+        aliases=("nearest_theater_m", "distance_theatre_m", "distance_theater_m"),
+        label="Theatre distance",
+        search_label="theatre",
+        preference_keys=("max_distance_to_theatre_m", "prefer_theatre_nearby"),
+        poi_keys=("amenity=theatre",),
+    ),
+    _distance_fact_spec(
+        key="nearest_public_pool_m",
+        aliases=("nearest_swimming_pool_m", "distance_public_pool_m"),
+        label="Public-pool distance",
+        search_label="public pool",
+        preference_keys=("max_distance_to_public_pool_m", "prefer_public_pool_nearby"),
+        poi_keys=("leisure=swimming_pool",),
+    ),
+    _distance_fact_spec(
+        key="nearest_starbucks_m",
+        aliases=("distance_starbucks_m",),
+        label="Starbucks distance",
+        search_label="Starbucks",
+        preference_keys=("max_distance_to_starbucks_m", "prefer_starbucks_nearby"),
+        poi_keys=("brand=starbucks", "name~=starbucks"),
+    ),
+    _distance_fact_spec(
+        key="nearest_fitness_center_m",
+        aliases=("nearest_fitness_centre_m", "nearest_gym_m", "distance_fitness_center_m"),
+        label="Fitness-center distance",
+        search_label="fitness center",
+        preference_keys=("max_distance_to_fitness_center_m", "prefer_fitness_center_nearby"),
+        poi_keys=("leisure=fitness_centre", "amenity=gym", "sport=fitness"),
+    ),
+    _distance_fact_spec(
+        key="nearest_cinema_m",
+        aliases=("distance_cinema_m",),
+        label="Cinema distance",
+        search_label="cinema",
+        preference_keys=("max_distance_to_cinema_m", "prefer_cinema_nearby"),
+        poi_keys=("amenity=cinema",),
+    ),
+    _distance_fact_spec(
+        key="nearest_bouldering_m",
+        aliases=("nearest_climbing_m", "distance_bouldering_m"),
+        label="Bouldering distance",
+        search_label="bouldering",
+        preference_keys=("max_distance_to_bouldering_m", "prefer_bouldering_nearby"),
+        poi_keys=("sport=climbing", "sport=bouldering", "name~=boulder"),
+    ),
+    _distance_fact_spec(
+        key="nearest_dog_park_m",
+        aliases=("distance_dog_park_m",),
+        label="Dog-park distance",
+        search_label="dog park",
+        preference_keys=("max_distance_to_dog_park_m", "prefer_dog_park_nearby"),
+        poi_keys=("leisure=dog_park", "amenity=dog_park"),
+    ),
+    _distance_fact_spec(
+        key="nearest_good_cafe_m",
+        aliases=("nearest_cafe_m", "distance_good_cafe_m"),
+        label="Quality-verified café distance",
+        search_label="quality-verified café",
+        preference_keys=("max_distance_to_good_cafe_m", "prefer_good_cafe_nearby"),
+        poi_keys=("amenity=cafe+independent_quality_evidence",),
+        provider="quality_verified_cafe_source",
+        evidence_providers=("quality_verified_cafe_source",),
+        strict_evidence_provider=True,
+    ),
+    _distance_fact_spec(
+        key="nearest_tram_bus_m",
+        aliases=("nearest_surface_transit_m", "distance_tram_bus_m"),
+        label="Tram/bus distance",
+        search_label="tram or bus",
+        poi_keys=("railway=tram_stop", "highway=bus_stop"),
+        search_supported=False,
+    ),
+    _distance_fact_spec(
+        key="nearest_flowing_water_m",
+        aliases=("distance_flowing_water_m",),
+        label="Flowing-water distance",
+        search_label="flowing water",
+        poi_keys=("waterway~=river|riverbank|canal|stream|brook", "natural=water"),
+        search_supported=False,
+    ),
 )
+
+
+def property_fact_distance_specs(
+    *,
+    search_supported_only: bool = False,
+) -> tuple[dict[str, object], ...]:
+    """Return defensive copies of the shared bounded distance-fact registry."""
+    return tuple(
+        {
+            key: list(value) if isinstance(value, tuple) else value
+            for key, value in spec.items()
+        }
+        for spec in PROPERTY_FACT_DISTANCE_SPECS
+        if not search_supported_only or bool(spec.get("search_supported"))
+    )
 
 
 def _normalized_text(value: object) -> str:
@@ -235,12 +465,55 @@ def _fact_priority(
     return _node_priority(preference_keys=preference_keys, nodes=nodes)
 
 
-def _evidence_for_fact(facts: Mapping[str, object], key: str) -> dict[str, object]:
+def _fact_spec_is_relevant(
+    *,
+    spec: Mapping[str, object],
+    facts: Mapping[str, object],
+    preferences: Mapping[str, object],
+    nodes: Sequence[Mapping[str, object]],
+) -> bool:
+    """Limit detail work to baseline facts plus facts selected by the user."""
+    if bool(spec.get("default_lazy")):
+        return True
+    canonical_key = _normalized_text(spec.get("key"))
+    aliases = tuple(str(value) for value in tuple(spec.get("aliases") or ()))
+    preference_keys = tuple(str(value) for value in tuple(spec.get("preference_keys") or ()))
+    if property_fact_value(facts, aliases)[0] is not None:
+        return True
+    all_keys = {
+        canonical_key,
+        *(_normalized_text(value) for value in aliases),
+        *(_normalized_text(value) for value in preference_keys),
+    }
+    if _explicit_priority_keys(preferences, "required").intersection(all_keys):
+        return True
+    if _explicit_priority_keys(preferences, "lazy").intersection(all_keys):
+        return True
+    if any(_active_preference(preferences.get(key)) for key in preference_keys):
+        return True
+    for node in nodes:
+        node_key = _normalized_text(
+            node.get("key") or node.get("preference_key") or node.get("name")
+        )
+        node_value = node.get("value") if "value" in node else node.get("value_json", True)
+        if node_key in all_keys and _active_preference(node_value):
+            return True
+    return False
+
+
+def _evidence_for_fact(
+    facts: Mapping[str, object],
+    key: str,
+    aliases: Sequence[str] = (),
+) -> dict[str, object]:
     evidence_map = facts.get("property_fact_evidence")
     if not isinstance(evidence_map, Mapping):
         return {}
-    raw = evidence_map.get(key)
-    return dict(raw) if isinstance(raw, Mapping) else {}
+    for evidence_key in tuple(dict.fromkeys((key, *(str(value) for value in aliases)))):
+        raw = evidence_map.get(evidence_key)
+        if isinstance(raw, Mapping):
+            return dict(raw)
+    return {}
 
 
 def _evidence_is_stale(evidence: Mapping[str, object]) -> bool:
@@ -256,11 +529,27 @@ def _evidence_is_stale(evidence: Mapping[str, object]) -> bool:
     return expires <= datetime.now(timezone.utc)
 
 
-def _required_evidence_is_fresh(evidence: Mapping[str, object]) -> bool:
+def _evidence_provider_is_allowed(
+    evidence: Mapping[str, object],
+    spec: Mapping[str, object],
+) -> bool:
+    allowed = {
+        _normalized_text(value)
+        for value in tuple(spec.get("evidence_providers") or ())
+        if _normalized_text(value)
+    }
+    return not allowed or _normalized_text(evidence.get("provider")) in allowed
+
+
+def _required_evidence_is_fresh(
+    evidence: Mapping[str, object],
+    spec: Mapping[str, object],
+) -> bool:
     if (
         evidence.get("coordinate_exact") is not True
         or not str(evidence.get("provider") or "").strip()
         or not str(evidence.get("source_fingerprint") or "").startswith("sha256:")
+        or not _evidence_provider_is_allowed(evidence, spec)
     ):
         return False
     observed_at = str(evidence.get("observed_at") or "").strip()
@@ -315,11 +604,18 @@ def property_fact_requirement_plan(
 ) -> list[dict[str, object]]:
     normalized_preferences = dict(preferences or {})
     plan: list[dict[str, object]] = []
-    for spec in _GEO_FACT_SPECS:
+    for spec in PROPERTY_FACT_DISTANCE_SPECS:
+        if not _fact_spec_is_relevant(
+            spec=spec,
+            facts=facts,
+            preferences=normalized_preferences,
+            nodes=preference_nodes,
+        ):
+            continue
         aliases = tuple(str(value) for value in tuple(spec.get("aliases") or ()))
         value, source_key = property_fact_value(facts, aliases)
         key = str(spec.get("key") or "").strip()
-        evidence = _evidence_for_fact(facts, key)
+        evidence = _evidence_for_fact(facts, key, aliases)
         priority = _fact_priority(
             spec=spec,
             preferences=normalized_preferences,
@@ -329,7 +625,13 @@ def property_fact_requirement_plan(
         if (
             value is not None
             and priority == "required"
-            and not _required_evidence_is_fresh(evidence)
+            and not _required_evidence_is_fresh(evidence, spec)
+        ):
+            state = "stale"
+        elif (
+            value is not None
+            and bool(spec.get("strict_evidence_provider"))
+            and not _evidence_provider_is_allowed(evidence, spec)
         ):
             state = "stale"
         elif value is not None and _distance_is_coordinate_estimate(facts, evidence):

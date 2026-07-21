@@ -1,19 +1,23 @@
 from __future__ import annotations
 
-import time
 import copy
+import time
+import urllib.parse
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi import HTTPException
 from starlette.requests import Request
 
+import app.product.property_location_research as property_location_research
 import app.product.service as product_service
 from app.api.dependencies import RequestContext
 from app.api.routes.product_api_contracts import PropertyFactEnrichmentOut
 from app.api.routes.product_api_delivery import _require_property_fact_same_origin
 from app.product.property_fact_enrichment import (
+    PROPERTY_FACT_DISTANCE_SPECS,
     PROPERTY_FACT_ENRICHMENT_SCHEMA_VERSION,
+    property_fact_distance_specs,
     property_fact_requirement_plan,
     property_fact_score_projection,
 )
@@ -21,6 +25,7 @@ from app.product.service import (
     ProductService,
     _property_fact_fresh_geo_snapshot,
     _property_fact_location_query_is_exact,
+    _property_fact_retry_remaining_seconds,
     _property_fact_safe_job_payload,
     _property_search_ranked_candidates_from_sources,
 )
@@ -157,6 +162,198 @@ def test_nice_to_have_unknown_is_provisional_and_distance_alias_resolves() -> No
     assert projection["state"] == "provisional"
     assert projection["current"] == 64.0
     assert projection["ranking_eligible"] is True
+
+
+def test_distance_fact_registry_exhaustively_covers_search_preferences() -> None:
+    expected_search_preferences = {
+        "max_distance_to_supermarket_m",
+        "max_distance_to_pharmacy_m",
+        "max_distance_to_subway_m",
+        "max_distance_to_kindergarten_m",
+        "max_distance_to_ganztags_volksschule_m",
+        "max_distance_to_halbtags_volksschule_m",
+        "max_distance_to_playground_m",
+        "max_distance_to_library_m",
+        "max_distance_to_zoo_m",
+        "max_distance_to_market_m",
+        "max_distance_to_hardware_store_m",
+        "max_distance_to_shopping_center_m",
+        "max_distance_to_shopping_street_m",
+        "max_distance_to_theatre_m",
+        "max_distance_to_public_pool_m",
+        "max_distance_to_medical_care_m",
+        "max_distance_to_starbucks_m",
+        "max_distance_to_fitness_center_m",
+        "max_distance_to_cinema_m",
+        "max_distance_to_bouldering_m",
+        "max_distance_to_dog_park_m",
+        "max_distance_to_good_cafe_m",
+    }
+    registry = property_fact_distance_specs(search_supported_only=True)
+    actual_preferences = {
+        str(preference_key)
+        for spec in registry
+        for preference_key in list(spec["preference_keys"])
+        if str(preference_key).startswith("max_distance_to_")
+    }
+
+    assert actual_preferences == expected_search_preferences
+    assert len(actual_preferences) == len(registry)
+    assert len({str(spec["key"]) for spec in registry}) == len(registry)
+    assert all(spec["aliases"] for spec in registry)
+    assert all(str(spec["label"]).strip() for spec in registry)
+    assert all(str(spec["search_label"]).strip() for spec in registry)
+    assert all(spec["poi_keys"] for spec in registry)
+    assert all(str(spec["provider"]).strip() for spec in registry)
+
+
+def test_every_search_distance_preference_maps_to_required_or_lazy_plan() -> None:
+    for spec in property_fact_distance_specs(search_supported_only=True):
+        preference_key = next(
+            str(value)
+            for value in list(spec["preference_keys"])
+            if str(value).startswith("max_distance_to_")
+        )
+        required_plan = property_fact_requirement_plan(
+            facts={},
+            preferences={preference_key: 750},
+        )
+        required = next(row for row in required_plan if row["key"] == spec["key"])
+        assert required["priority"] == "required", preference_key
+        assert required["state"] == "unknown", preference_key
+
+        lazy_plan = property_fact_requirement_plan(
+            facts={},
+            preferences={
+                preference_key: 750,
+                f"{preference_key[:-2]}_importance": "nice_to_have",
+            },
+        )
+        lazy = next(row for row in lazy_plan if row["key"] == spec["key"])
+        assert lazy["priority"] == "lazy", preference_key
+        assert lazy["state"] == "unknown", preference_key
+
+
+def test_distance_fact_registry_accessor_returns_defensive_copies() -> None:
+    first = property_fact_distance_specs()
+    first[0]["aliases"].append("mutated_alias")
+    second = property_fact_distance_specs()
+
+    assert "mutated_alias" not in second[0]["aliases"]
+    assert isinstance(PROPERTY_FACT_DISTANCE_SPECS, tuple)
+
+
+def test_quality_cafe_and_school_classification_require_honest_provenance() -> None:
+    observed_at = datetime.now(timezone.utc)
+
+    def _evidence(provider: str) -> dict[str, object]:
+        return {
+            "provider": provider,
+            "observed_at": observed_at.isoformat(),
+            "expires_at": (observed_at + timedelta(hours=24)).isoformat(),
+            "source_fingerprint": "sha256:" + "c" * 64,
+            "coordinate_exact": True,
+        }
+
+    school_preferences = {"max_distance_to_ganztags_volksschule_m": 900}
+    school_from_osm = property_fact_requirement_plan(
+        facts={
+            "nearest_full_day_primary_school_m": 420,
+            "property_fact_evidence": {
+                "nearest_full_day_primary_school_m": _evidence("openstreetmap_overpass"),
+            },
+        },
+        preferences=school_preferences,
+    )
+    school_row = next(
+        row for row in school_from_osm if row["key"] == "nearest_full_day_primary_school_m"
+    )
+    assert school_row["state"] == "stale"
+
+    schoolatlas = property_fact_requirement_plan(
+        facts={
+            "nearest_full_day_primary_school_m": 420,
+            "property_fact_evidence": {
+                "nearest_full_day_primary_school_m": _evidence("schoolatlas"),
+            },
+        },
+        preferences=school_preferences,
+    )
+    assert next(
+        row for row in schoolatlas if row["key"] == "nearest_full_day_primary_school_m"
+    )["state"] == "resolved"
+
+    cafe_preferences = {"max_distance_to_good_cafe_m": 700}
+    generic_cafe = property_fact_requirement_plan(
+        facts={
+            "nearest_good_cafe_m": 180,
+            "property_fact_evidence": {
+                "nearest_good_cafe_m": _evidence("openstreetmap_overpass"),
+            },
+        },
+        preferences=cafe_preferences,
+    )
+    cafe_row = next(row for row in generic_cafe if row["key"] == "nearest_good_cafe_m")
+    assert cafe_row["label"] == "Quality-verified café distance"
+    assert cafe_row["state"] == "stale"
+
+    verified_cafe = property_fact_requirement_plan(
+        facts={
+            "nearest_good_cafe_m": 180,
+            "property_fact_evidence": {
+                "nearest_good_cafe_m": _evidence("quality_verified_cafe_source"),
+            },
+        },
+        preferences=cafe_preferences,
+    )
+    assert next(
+        row for row in verified_cafe if row["key"] == "nearest_good_cafe_m"
+    )["state"] == "resolved"
+
+
+def test_nearby_provider_queries_supported_specialty_pois_but_not_unverified_good_cafes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed_request: dict[str, str] = {}
+
+    class _Response:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {
+                "elements": [
+                    {"lat": 48.2090, "lon": 16.3738, "tags": {"brand": "Starbucks"}},
+                    {"lat": 48.2100, "lon": 16.3738, "tags": {"leisure": "fitness_centre"}},
+                    {"lat": 48.2110, "lon": 16.3738, "tags": {"amenity": "cinema"}},
+                    {"lat": 48.2120, "lon": 16.3738, "tags": {"sport": "bouldering"}},
+                    {"lat": 48.2130, "lon": 16.3738, "tags": {"leisure": "dog_park"}},
+                ]
+            }
+
+    def _post(url: str, *, data: str, headers: dict[str, str], timeout: float):
+        observed_request.update({"url": url, "data": data})
+        return _Response()
+
+    property_location_research._property_research_nearby_pois.cache_clear()
+    monkeypatch.setattr(property_location_research.requests, "post", _post)
+    result = property_location_research._property_research_nearby_pois(48.2082, 16.3738)
+    property_location_research._property_research_nearby_pois.cache_clear()
+
+    assert {
+        "nearest_starbucks_m",
+        "nearest_fitness_center_m",
+        "nearest_cinema_m",
+        "nearest_bouldering_m",
+        "nearest_dog_park_m",
+    }.issubset(result)
+    decoded_query = urllib.parse.unquote(observed_request["data"])
+    assert '["brand"~"^starbucks$",i]' in decoded_query
+    assert '["leisure"="fitness_centre"]' in decoded_query
+    assert '["amenity"="cinema"]' in decoded_query
+    assert '["sport"~"^(climbing|bouldering)$"]' in decoded_query
+    assert '["leisure"="dog_park"]' in decoded_query
+    assert '["amenity"="cafe"]' not in decoded_query
 
 
 @pytest.mark.parametrize("importance", ("must_have", "strong_wish", "avoid"))
@@ -568,6 +765,49 @@ def test_fact_enrichment_partial_retry_api_preserves_complete_snapshot(
         assert retried_playground["error"]["code"] == ""
     finally:
         _clear_run(run_id)
+
+
+def test_fact_enrichment_retry_backoff_and_exhaustion_are_bounded() -> None:
+    now = datetime.now(timezone.utc)
+    retryable_job = {
+        "job_id": "pfe_" + "a" * 24,
+        "status": "retryable_error",
+        "attempt": 2,
+        "retryable": True,
+        "updated_at": (now - timedelta(seconds=17)).isoformat(),
+        "fields": [
+            {
+                "key": "nearest_supermarket_m",
+                "label": "Supermarket distance",
+                "state": "retryable_error",
+                "priority": "lazy",
+                "affects_score": True,
+                "value": None,
+                "display_value": "",
+                "provenance": {},
+                "error": {
+                    "code": "fact_provider_temporarily_unavailable",
+                    "message": "Map provider unavailable.",
+                    "retry_after_seconds": 60,
+                },
+            }
+        ],
+        "score": {},
+    }
+
+    assert _property_fact_retry_remaining_seconds(retryable_job, now=now) == 43
+    safe_retryable = _property_fact_safe_job_payload(retryable_job)
+    assert safe_retryable["status"] == "retryable_error"
+    assert safe_retryable["retryable"] is True
+    assert safe_retryable["fields"][0]["error"]["retry_after_seconds"] in {42, 43}
+
+    exhausted_job = {**retryable_job, "attempt": 3}
+    assert _property_fact_retry_remaining_seconds(exhausted_job, now=now) is None
+    safe_exhausted = _property_fact_safe_job_payload(exhausted_job)
+    assert safe_exhausted["status"] == "terminal_error"
+    assert safe_exhausted["retryable"] is False
+    assert safe_exhausted["fields"][0]["state"] == "unavailable"
+    assert safe_exhausted["fields"][0]["error"]["code"] == "fact_enrichment_attempts_exhausted"
 
 
 def test_fact_enrichment_run_mutation_retries_durable_compare_and_swap(

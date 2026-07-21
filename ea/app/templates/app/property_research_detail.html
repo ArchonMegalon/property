@@ -4504,6 +4504,7 @@
   const fieldStore = new Map();
   let currentPayload = {};
   let pollTimer = 0;
+  let autoRetryTimer = 0;
   let pollFailures = 0;
   let pollDeferred = false;
   let pollController = null;
@@ -4774,6 +4775,35 @@
     if (pollTimer) window.clearTimeout(pollTimer);
     pollTimer = 0;
   };
+  const clearAutoRetryTimer = () => {
+    if (autoRetryTimer) window.clearTimeout(autoRetryTimer);
+    autoRetryTimer = 0;
+  };
+  const autoRetryDelay = (payload = currentPayload) => {
+    const fields = Array.isArray(payload?.fields) ? payload.fields : [];
+    const delays = fields
+      .filter((field) => normalizedState(field?.state) === 'retryable_error')
+      .map((field) => Number(field?.error?.retry_after_seconds || 0))
+      .filter((value) => Number.isFinite(value) && value >= 0);
+    return Math.min(86_400_000, Math.max(0, ...(delays.map((value) => value * 1000))));
+  };
+  const canAutoRetry = (payload = currentPayload) => {
+    const attempt = Number(payload?.attempt || 0);
+    const fields = Array.isArray(payload?.fields) ? payload.fields : [];
+    return Boolean(payload?.retryable)
+      && Number.isFinite(attempt)
+      && attempt < 3
+      && fields.some((field) => normalizedState(field?.state) === 'retryable_error')
+      && Boolean(sameOriginUrl(root.getAttribute('data-start-url')));
+  };
+  const scheduleAutoRetry = (payload = currentPayload) => {
+    clearAutoRetryTimer();
+    if (!canAutoRetry(payload) || document.visibilityState === 'hidden') return;
+    autoRetryTimer = window.setTimeout(() => {
+      autoRetryTimer = 0;
+      if (canAutoRetry(currentPayload)) void startEnrichment(true);
+    }, autoRetryDelay(payload));
+  };
   const hasPendingWork = () => {
     const status = normalizedState(currentPayload.status, normalizedState(root.getAttribute('data-property-fact-job-status'), 'idle'));
     return !terminalStatuses.has(status) && Array.from(fieldStore.values()).some(
@@ -4844,6 +4874,7 @@
       pollFailures = 0;
       applyPayload(payload);
       if (hasPendingWork()) schedulePoll(generation, pollDelay(payload));
+      else scheduleAutoRetry(payload);
     } catch (error) {
       if (generation !== requestGeneration) return;
       if (error instanceof DOMException && error.name === 'AbortError') {
@@ -4865,6 +4896,7 @@
     if (!startUrl) return;
     const generation = ++requestGeneration;
     clearPollTimer();
+    clearAutoRetryTimer();
     pollFailures = 0;
     queueFields({ retry: retryFailed });
     try {
@@ -4881,6 +4913,7 @@
       if (generation !== requestGeneration) return;
       applyPayload(payload);
       if (hasPendingWork()) schedulePoll(generation, pollDelay(payload));
+      else scheduleAutoRetry(payload);
     } catch (error) {
       if (generation !== requestGeneration) return;
       showLocalRetryableError(error instanceof Error ? error.message : 'The nearby-facts check could not finish.');
@@ -4904,19 +4937,23 @@
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') {
       clearPollTimer();
+      clearAutoRetryTimer();
       if (pollController) pollController.abort();
       pollDeferred = hasPendingWork();
       return;
     }
     if (pollDeferred && hasPendingWork()) schedulePoll(requestGeneration, 0);
+    else scheduleAutoRetry(currentPayload);
   });
   window.addEventListener('pagehide', () => {
     clearPollTimer();
+    clearAutoRetryTimer();
     if (pollController) pollController.abort();
     pollDeferred = hasPendingWork();
   });
   window.addEventListener('pageshow', () => {
     if (pollDeferred && hasPendingWork()) schedulePoll(requestGeneration, 0);
+    else scheduleAutoRetry(currentPayload);
   });
 
   const initialStatus = normalizedState(currentPayload.status, 'idle');
@@ -4927,6 +4964,8 @@
     });
     updateBusyState();
     schedulePoll(requestGeneration, pollDelay(currentPayload));
+  } else if (canAutoRetry(currentPayload)) {
+    scheduleAutoRetry(currentPayload);
   } else if (!terminalStatuses.has(initialStatus) && sameOriginUrl(root.getAttribute('data-start-url'))) {
     void startEnrichment(false);
   }
