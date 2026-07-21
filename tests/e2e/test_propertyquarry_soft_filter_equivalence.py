@@ -1,13 +1,36 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import math
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import time
+import urllib.parse
 
 import app.product.service as product_service
+from app.product.property_fact_enrichment import (
+    PROPERTY_FACT_PROVIDER_ATTESTATION_VERSION,
+    property_fact_coordinate_digest,
+    property_fact_issue_provider_attestation,
+    property_fact_source_fingerprint,
+)
+from app.product.property_location_research import (
+    PROPERTY_FACT_OSM_QUERY_ENDPOINT,
+    PROPERTY_FACT_OSM_QUERY_SCHEMA,
+    property_fact_osm_nearby_query,
+)
 from app.product.service import ProductService
 from tests.product_test_helpers import build_property_client, start_workspace
+
+
+_OSM_CLASSIFICATION_BY_FACT: dict[str, dict[str, str]] = {
+    "nearest_library_m": {"amenity": "library"},
+    "nearest_playground_m": {"leisure": "playground"},
+    "nearest_shopping_center_m": {"shop": "mall"},
+    "nearest_supermarket_m": {"shop": "supermarket"},
+    "nearest_theatre_m": {"amenity": "theatre"},
+}
 
 
 def _poll_search_run(client, run_id: str) -> dict[str, object]:
@@ -57,22 +80,62 @@ def _with_fresh_exact_distance_evidence(
     facts: dict[str, object],
 ) -> dict[str, object]:
     observed_at = datetime.now(timezone.utc)
+    expires_at = observed_at + timedelta(hours=24)
+    latitude = 48.2082
+    longitude = 16.3738
+    query = property_fact_osm_nearby_query(latitude, longitude)
+    evidence_by_key: dict[str, dict[str, object]] = {}
+    for key, raw_distance in facts.items():
+        if key not in _OSM_CLASSIFICATION_BY_FACT:
+            continue
+        distance_m = int(raw_distance)
+        object_id = str(10_000_000 + sum(ord(value) for value in key))
+        evidence: dict[str, object] = {
+            "provider": "openstreetmap_overpass",
+            "method": "straight_line_osm",
+            "observed_at": observed_at.isoformat(),
+            "expires_at": expires_at.isoformat(),
+            "freshness": "fresh",
+            "confidence": 0.95,
+            "source_key": key,
+            "observed_key": key,
+            "listing_url": urllib.parse.urldefrag(property_url)[0],
+            "source_fingerprint": property_fact_source_fingerprint(property_url),
+            "coordinate_basis": "candidate_listing_coordinates",
+            "coordinate_observed_at": observed_at.isoformat(),
+            "coordinate_precision": "address",
+            "coordinate_source": "listing",
+            "coordinate_exact": True,
+            "listing_latitude": latitude,
+            "listing_longitude": longitude,
+            "coordinate_digest": property_fact_coordinate_digest(latitude, longitude),
+            "query_endpoint_url": PROPERTY_FACT_OSM_QUERY_ENDPOINT,
+            "query_digest": "sha256:" + hashlib.sha256(query.encode("utf-8")).hexdigest(),
+            "query_schema": PROPERTY_FACT_OSM_QUERY_SCHEMA,
+            "receipt_url": f"https://api.openstreetmap.org/api/0.6/node/{object_id}/1",
+            "provider_object_id": object_id,
+            "provider_object_type": "node",
+            "provider_object_version": 1,
+            "provider_object_timestamp": observed_at.isoformat(),
+            "provider_object_changeset": "123456",
+            "provider_observed_at": observed_at.isoformat(),
+            "provider_expires_at": expires_at.isoformat(),
+            "poi_latitude": latitude + math.degrees(float(distance_m) / 6_371_000.0),
+            "poi_longitude": longitude,
+            "poi_classification_tags": dict(_OSM_CLASSIFICATION_BY_FACT[key]),
+            "attestation_version": PROPERTY_FACT_PROVIDER_ATTESTATION_VERSION,
+        }
+        evidence["provider_attestation"] = property_fact_issue_provider_attestation(
+            evidence,
+            observed_value=distance_m,
+        )
+        evidence_by_key[key] = evidence
     return {
         **facts,
-        "property_fact_evidence": {
-            key: {
-                "provider": "openstreetmap_overpass",
-                "observed_at": observed_at.isoformat(),
-                "expires_at": (observed_at + timedelta(hours=24)).isoformat(),
-                "source_fingerprint": product_service._property_fact_source_fingerprint(
-                    property_url
-                ),
-                "source_key": key,
-                "coordinate_exact": True,
-            }
-            for key in facts
-            if str(key).startswith("nearest_") and str(key).endswith("_m")
-        },
+        "map_lat": latitude,
+        "map_lng": longitude,
+        "map_location_precision": "address",
+        "property_fact_evidence": evidence_by_key,
     }
 
 
