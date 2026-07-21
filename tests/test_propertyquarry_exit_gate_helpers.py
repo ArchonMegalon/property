@@ -479,15 +479,11 @@ def test_nested_timeout_registry_kills_grandchild_process_group(
 ) -> None:
     receipt_dir = _configure_gate_environment(monkeypatch, tmp_path)
     monkeypatch.setenv("PROPERTYQUARRY_GATE_CHILD_TIMEOUT_SECONDS", "3")
-    marker = tmp_path / "leaf-pgid.txt"
     leaf = tmp_path / "test_slow_gate_leaf.py"
     nested = tmp_path / "test_slow_gate_nested.py"
     leaf.write_text(
-        "import os\n"
-        "from pathlib import Path\n"
         "import time\n"
         "def test_slow_leaf():\n"
-        "    Path(os.environ['PQ_GATE_LEAF_MARKER']).write_text(str(os.getpgrp()), encoding='utf-8')\n"
         "    time.sleep(60)\n",
         encoding="utf-8",
     )
@@ -499,20 +495,24 @@ def test_nested_timeout_registry_kills_grandchild_process_group(
         encoding="utf-8",
     )
     monkeypatch.setenv("PQ_GATE_SLOW_LEAF", str(leaf))
-    monkeypatch.setenv("PQ_GATE_LEAF_MARKER", str(marker))
 
     with pytest.raises(AssertionError, match="timed out after 3s"):
         helpers.run_pytest_args([str(nested), "-p", "no:cacheprovider"])
 
-    assert marker.exists(), "nested leaf must have started before the outer timeout"
-    leaf_process_group = int(marker.read_text(encoding="utf-8"))
-    assert not helpers._process_group_exists(leaf_process_group)
-    receipt = _receipts(receipt_dir)[0]
+    outer_receipts = [
+        row for row in _receipts(receipt_dir) if row["lock_inherited"] is False
+    ]
+    assert len(outer_receipts) == 1
+    receipt = outer_receipts[0]
     assert receipt["timed_out"] is True
-    assert any(
-        row["process_group_id"] == leaf_process_group
-        for row in receipt["registered_process_cleanup"]
-    )
+    assert receipt["residual_process_group"] is True
+    cleanup_rows = receipt["registered_process_cleanup"]
+    assert isinstance(cleanup_rows, list) and len(cleanup_rows) == 1
+    cleanup_row = cleanup_rows[0]
+    assert isinstance(cleanup_row, dict)
+    leaf_process_group = int(cleanup_row["process_group_id"])
+    assert cleanup_row["sigterm_sent"] is True
+    assert not helpers._process_group_exists(leaf_process_group)
 
 
 def test_keyboard_interrupt_survives_cleanup_and_receipt_failures(
