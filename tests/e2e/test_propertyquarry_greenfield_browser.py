@@ -987,6 +987,8 @@ def propertyquarry_browser_server(
     test_client.headers.update({"X-EA-Principal-ID": "pq-greenfield-browser", "host": "propertyquarry.com"})
 
     port = _free_port()
+    browser_base_url = f"http://propertyquarry.localhost:{port}"
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", browser_base_url)
     config = Config(app=app, host="127.0.0.1", port=port, log_level="warning")
     server = Server(config)
     server.install_signal_handlers = lambda: None  # type: ignore[method-assign]
@@ -999,8 +1001,6 @@ def propertyquarry_browser_server(
         label="propertyquarry browser fixture",
     )
     local_base_url = f"http://127.0.0.1:{port}"
-    browser_base_url = f"http://propertyquarry.localhost:{port}"
-    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", browser_base_url)
     _wait_for_http(local_base_url)
     yield {"base_url": browser_base_url, "client": test_client, "bundle_root": bundle_root}
 

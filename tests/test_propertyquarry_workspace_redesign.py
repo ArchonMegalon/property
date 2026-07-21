@@ -7123,7 +7123,18 @@ def test_propertyquarry_example_shortlist_page_opens_sample_without_internal_lan
     assert "queued" not in response.text.lower()
 
 
-def test_propertyquarry_example_media_targets_use_real_public_tour_assets(monkeypatch, tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "public_base_url",
+    (
+        "https://propertyquarry.com",
+        "http://propertyquarry.localhost:43210",
+    ),
+)
+def test_propertyquarry_example_media_targets_use_real_public_tour_assets(
+    monkeypatch,
+    tmp_path: Path,
+    public_base_url: str,
+) -> None:
     false_bundle_dir = tmp_path / "public_tours" / "aaa-photo-gallery"
     false_bundle_dir.mkdir(parents=True)
     (false_bundle_dir / "tour.json").write_text(
@@ -7192,7 +7203,7 @@ def test_propertyquarry_example_media_targets_use_real_public_tour_assets(monkey
     )
     monkeypatch.setenv("PROPERTYQUARRY_ENABLE_PUBLIC_TOURS", "1")
     monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(bundle_dir.parent))
-    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", "https://propertyquarry.com")
+    monkeypatch.setenv("EA_PUBLIC_APP_BASE_URL", public_base_url)
 
     targets = landing_routes._propertyquarry_example_media_targets()
 
@@ -7203,6 +7214,14 @@ def test_propertyquarry_example_media_targets_use_real_public_tour_assets(monkey
         "walkthrough_href": "/tours/demo-home-tour?pane=flythrough-pane&autoplay=1",
         "walkthrough_label": "Walkthrough available",
     }
+
+    manifest_path = bundle_dir / "tour.json"
+    mismatched_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    mismatched_manifest["slug"] = "different-bundle"
+    manifest_path.write_text(json.dumps(mismatched_manifest), encoding="utf-8")
+    landing_routes._propertyquarry_example_media_targets_cached.cache_clear()
+
+    assert landing_routes._propertyquarry_example_media_targets() == {}
 
 
 def test_propertyquarry_root_ignores_unreadable_optional_example_media(
@@ -9665,7 +9684,7 @@ def test_property_console_context_skips_recent_run_hydration_for_explicit_shortl
     assert calls == [True]
 
 
-def test_property_console_context_uses_lightweight_status_for_explicit_research_run(monkeypatch) -> None:
+def test_property_console_context_uses_full_status_for_explicit_research_run(monkeypatch) -> None:
     client = build_property_client(principal_id="pq-research-lightweight-run")
     calls: list[bool] = []
 
@@ -9701,7 +9720,7 @@ def test_property_console_context_uses_lightweight_status_for_explicit_research_
         surface_mode="research",
     )
 
-    assert calls == [True]
+    assert calls == [False]
     assert context["recent_search_runs"] == []
     assert context["run"]["summary"]["ranked_candidates"][0]["candidate_ref"] == "research-cand-1"
 
@@ -15159,7 +15178,7 @@ def test_property_research_route_uses_research_surface_contract(monkeypatch) -> 
     assert "PropertyQuarry Shortlist" not in research.text
 
 
-def test_property_research_packet_uses_lightweight_run_status_for_explicit_run(monkeypatch) -> None:
+def test_property_research_packet_uses_full_run_status_for_explicit_run(monkeypatch) -> None:
     principal_id = "pq-research-packet-lightweight"
     client = build_property_client(principal_id=principal_id)
     start_workspace(client, mode="personal", workspace_name="Property Office")
@@ -15210,7 +15229,7 @@ def test_property_research_packet_uses_lightweight_run_status_for_explicit_run(m
     )
 
     assert response.status_code == 200
-    assert calls == [True]
+    assert calls == [False]
     assert "Lightweight packet flat" in response.text
 
 

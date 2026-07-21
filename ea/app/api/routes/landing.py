@@ -1725,10 +1725,22 @@ def _propertyquarry_example_media_targets_scan(root: Path) -> dict[str, str]:
         bundle_tour_href = str(payload.get("public_url") or payload.get("hosted_url") or "").strip()
         if not bundle_tour_href:
             continue
-        bundle_tour_url = _propertyquarry_absolute_public_url(bundle_tour_href)
         slug = str(payload.get("slug") or bundle_dir.name).strip()
+        # Keep first-party manifest routes relative while verifying them. Turning
+        # `/tours/<slug>` into the current request origin can manufacture an
+        # absolute HTTP URL in local/runtime probes, which the trusted-origin
+        # validator correctly rejects. Bind the route to both manifest and
+        # directory identity before any provider helper reads the bundle.
+        bundle_tour_reference = bundle_tour_href
+        reference_slug = property_tour_hosting._hosted_property_tour_slug_from_url(
+            bundle_tour_reference
+        )
+        if slug != bundle_dir.name or reference_slug != slug:
+            continue
         try:
-            resolved_tour_href = property_tour_hosting._hosted_property_tour_verified_open_url(bundle_tour_url)
+            resolved_tour_href = property_tour_hosting._hosted_property_tour_verified_open_url(
+                bundle_tour_reference
+            )
         except Exception:
             # Example media is optional; an unreadable or partial bundle must
             # not break the public landing page or expose its filesystem path.
@@ -1737,7 +1749,7 @@ def _propertyquarry_example_media_targets_scan(root: Path) -> dict[str, str]:
         if not resolved_tour_href:
             continue
         targets = {
-            "demo_href": _propertyquarry_public_href(bundle_tour_url),
+            "demo_href": _propertyquarry_public_href(bundle_tour_reference),
             "tour_href": _propertyquarry_public_href(resolved_tour_href),
             "tour_label": tour_label or "3D tour available",
         }
@@ -1753,7 +1765,7 @@ def _propertyquarry_example_media_targets_scan(root: Path) -> dict[str, str]:
                 if not asset_relpath or asset_relpath.startswith(("http://", "https://", "/")):
                     continue
                 asset_href = property_tour_hosting._hosted_public_tour_asset_url(
-                    bundle_tour_url,
+                    bundle_tour_reference,
                     slug=slug,
                     asset_relpath=asset_relpath,
                 )
@@ -1782,14 +1794,16 @@ def _propertyquarry_example_media_targets_scan(root: Path) -> dict[str, str]:
             preview_image_href = diorama_preview_href
             if not preview_image_href:
                 for candidate_preview_href in (
-                    _hosted_property_tour_telegram_preview_image_url_for_style(bundle_tour_url),
-                    property_tour_hosting._hosted_property_tour_preview_image_url(bundle_tour_url),
+                    _hosted_property_tour_telegram_preview_image_url_for_style(bundle_tour_reference),
+                    property_tour_hosting._hosted_property_tour_preview_image_url(bundle_tour_reference),
                     _scene_preview_href("photo", "hero", "staging"),
                 ):
                     if _preview_asset_is_diorama_like(candidate_preview_href):
                         preview_image_href = candidate_preview_href
                         break
-            walkthrough_open_href = property_tour_hosting._hosted_property_tour_walkthrough_open_url(bundle_tour_url)
+            walkthrough_open_href = property_tour_hosting._hosted_property_tour_walkthrough_open_url(
+                bundle_tour_reference
+            )
         except Exception:
             continue
         if preview_image_href:
@@ -5055,6 +5069,7 @@ def _property_console_context(
     run_payload: dict[str, object] = {}
     raw_requested_run_payload: dict[str, object] = {}
     normalized_run_id = str(run_id or "").strip()
+    explicit_run_requested = bool(normalized_run_id)
     raw_recent_search_runs: list[dict[str, object]] = []
     recent_search_runs: list[dict[str, object]] = []
     lightweight_active_run: dict[str, object] = {}
@@ -5251,12 +5266,15 @@ def _property_console_context(
         if surface_scope.section == "shortlist" and active_summary.get("ranked_candidates"):
             should_hydrate_run_status = False
         if should_hydrate_run_status:
+            lightweight_run_status = surface_scope.section == "shortlist" or (
+                surface_scope.section == "research" and not explicit_run_requested
+            )
             try:
                 run_payload = dict(
                     product.get_property_search_run_status(
                         principal_id=principal_id,
                         run_id=normalized_run_id,
-                        lightweight=surface_scope.section == "shortlist",
+                        lightweight=lightweight_run_status,
                         account_email=access_email,
                     )
                     or {}
@@ -5267,7 +5285,7 @@ def _property_console_context(
                         product.get_property_search_run_status(
                             principal_id=principal_id,
                             run_id=normalized_run_id,
-                            lightweight=surface_scope.section == "shortlist",
+                            lightweight=lightweight_run_status,
                         )
                         or {}
                     )
