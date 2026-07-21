@@ -47,7 +47,12 @@ from app.product.service import (
     _property_scout_brief_text,
     build_product_service,
 )
-from tests.product_test_helpers import build_property_client, seed_product_state, start_workspace
+from tests.product_test_helpers import (
+    build_property_client,
+    build_property_operator_client,
+    seed_product_state,
+    start_workspace,
+)
 from tests.test_property_fact_enrichment import _valid_osm_evidence
 
 
@@ -15378,6 +15383,518 @@ def test_property_tour_matterport_only_bundle_stays_unavailable(monkeypatch) -> 
     assert payload["canonical_tour_url"] == ""
     assert payload["primary_href"] == ""
     assert payload["tour_status"] == "unavailable"
+
+
+@pytest.mark.parametrize(
+    ("environment_name", "configured_url", "expected_host"),
+    (
+        (
+            "PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL",
+            "https://Tours.Property.example:443/tours/",
+            "tours.property.example",
+        ),
+        (
+            "PROPERTYQUARRY_PUBLIC_BASE_URL",
+            "https://App.Property.example:443/",
+            "app.property.example",
+        ),
+        (
+            "EA_PUBLIC_TOUR_BASE_URL",
+            "https://Tours.EA.example:443/tours",
+            "tours.ea.example",
+        ),
+        (
+            "EA_PUBLIC_APP_BASE_URL",
+            "https://App.EA.example:443",
+            "app.ea.example",
+        ),
+    ),
+)
+def test_configured_public_tour_hosts_accepts_strict_all_four_environment_bases(
+    monkeypatch,
+    environment_name: str,
+    configured_url: str,
+    expected_host: str,
+) -> None:
+    environment_names = (
+        "PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL",
+        "PROPERTYQUARRY_PUBLIC_BASE_URL",
+        "EA_PUBLIC_TOUR_BASE_URL",
+        "EA_PUBLIC_APP_BASE_URL",
+    )
+    for name in environment_names:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv(environment_name, configured_url)
+
+    assert property_tour_hosting._configured_public_tour_hosts() == (expected_host,)
+
+
+@pytest.mark.parametrize(
+    "environment_name",
+    (
+        "PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL",
+        "PROPERTYQUARRY_PUBLIC_BASE_URL",
+        "EA_PUBLIC_TOUR_BASE_URL",
+        "EA_PUBLIC_APP_BASE_URL",
+    ),
+)
+@pytest.mark.parametrize(
+    "malformed_url",
+    (
+        "http://public.example/tours",
+        "https://user@public.example/tours",
+        "https://public.example:444/tours",
+        "https://public.example/tours?next=https://evil.example",
+        "https://public.example/tours#fragment",
+        "https://public.example/%74ours",
+        "https://public.example/tours/extra",
+    ),
+)
+def test_configured_public_tour_hosts_ignores_malformed_all_four_environment_bases(
+    monkeypatch,
+    environment_name: str,
+    malformed_url: str,
+) -> None:
+    environment_names = (
+        "PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL",
+        "PROPERTYQUARRY_PUBLIC_BASE_URL",
+        "EA_PUBLIC_TOUR_BASE_URL",
+        "EA_PUBLIC_APP_BASE_URL",
+    )
+    for name in environment_names:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv(environment_name, malformed_url)
+
+    assert property_tour_hosting._configured_public_tour_hosts() == ()
+
+
+def test_property_original_tour_helpers_canonicalize_nested_and_top_level_matterport_urls() -> None:
+    raw_provider_url = "https://share.matterport.com/show/?m=ABCdef_12&play=1"
+    canonical_url = "https://my.matterport.com/show?m=ABCdef_12"
+
+    assert property_tour_hosting._canonical_matterport_tour_url(raw_provider_url) == canonical_url
+    assert landing_routes._property_original_tour_candidate_target(
+        {"tour": {"provider_url": raw_provider_url}},
+        principal_id="principal-a",
+    ) == canonical_url
+    assert landing_routes._property_original_tour_candidate_target(
+        {"vendor_tour_url": raw_provider_url},
+        principal_id="principal-a",
+    ) == canonical_url
+
+
+@pytest.mark.parametrize(
+    "spoofed_url",
+    (
+        "https://my.matterport.com@evil.example/show?m=ABCdef12",
+        "https://evil.example@my.matterport.com/show?m=ABCdef12",
+        "https://my.matterport.com:444/show?m=ABCdef12",
+        "https://my.matterport.com/%73how?m=ABCdef12",
+        "https://my.matterport.com/show/%2e%2e/show?m=ABCdef12",
+        "https://my.matterport.com/show?%6d=ABCdef12",
+    ),
+)
+def test_property_original_tour_helpers_reject_spoofed_provider_authority_and_paths(
+    spoofed_url: str,
+) -> None:
+    assert property_tour_hosting._canonical_matterport_tour_url(spoofed_url) == ""
+    assert landing_routes._property_original_tour_candidate_target(
+        {"tour": {"provider_url": spoofed_url}},
+        principal_id="principal-a",
+    ) == ""
+
+
+def test_property_original_tour_handoff_keeps_existing_3dvista_primary_and_adds_secondary() -> None:
+    primary_href = "https://propertyquarry.com/tours/dual-provider/control/3dvista"
+    handoff_href = "/app/research-tour-handoff/opaque-token"
+
+    media = landing_routes._property_research_media_with_original_tour_handoff(
+        {
+            "hosted_ready": True,
+            "generated_reconstruction_ready": False,
+            "ai_360_ready": False,
+            "status_label": "3D tour available",
+            "status_detail": "3D tour is ready.",
+            "primary_href": primary_href,
+            "primary_label": "Open 3D tour",
+            "provider_label": "3D tour",
+            "provider_key": "3dvista",
+        },
+        handoff_href=handoff_href,
+    )
+
+    assert media["primary_href"] == primary_href
+    assert media["primary_label"] == "Open 3D tour"
+    assert media["provider_key"] == "3dvista"
+    assert media["status_label"] == "3D tour available"
+    assert media["vendor_tour_href"] == handoff_href
+    assert media["tertiary_href"] == handoff_href
+    assert media["tertiary_label"] == "Open original tour"
+
+
+def test_property_research_top_level_vendor_handoff_does_not_replace_or_duplicate_3dvista_action(
+    monkeypatch,
+) -> None:
+    principal_id = "pq-dual-provider-tour-owner"
+    run_id = "run-dual-provider-tour"
+    candidate_ref = "dual-provider-tour-candidate"
+    primary_href = "https://propertyquarry.com/tours/dual-provider/control/3dvista"
+    raw_provider_url = "https://share.matterport.com/show?m=ABCdef12&play=1"
+    candidate = {
+        "candidate_ref": candidate_ref,
+        "title": "Dual-provider home",
+        "property_url": "https://listing.example/dual-provider-home",
+        "tour_url": "https://propertyquarry.com/tours/dual-provider",
+        "tour_status": "ready",
+        "vendor_tour_url": raw_provider_url,
+        "property_facts": {"price_eur": 2600, "area_m2": 91},
+    }
+    monkeypatch.setenv("EA_SIGNING_SECRET", "dual-provider-tour-signing-secret")
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str, **_kwargs):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "processed",
+            "summary": {
+                "ranked_candidates": [candidate],
+                "sources": [{"source_label": "Source", "top_candidates": [candidate]}],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(
+        landing_routes,
+        "_property_tour_media_payload",
+        lambda _candidate, *, principal_id="": {
+            "hosted_ready": True,
+            "generated_reconstruction_ready": False,
+            "ai_360_ready": False,
+            "vendor_ready": False,
+            "vendor_tour_href": "",
+            "canonical_tour_url": primary_href,
+            "embed_href": primary_href,
+            "primary_href": primary_href,
+            "primary_label": "Open 3D tour",
+            "provider_label": "3D tour",
+            "provider_key": "3dvista",
+            "status_label": "3D tour available",
+            "status_detail": "3D tour is ready.",
+            "tour_status": "ready",
+            "tour_requestable": False,
+            "show_status_line": True,
+            "walkthrough_href": "",
+            "walkthrough_status": "",
+            "walkthrough_status_detail": "",
+        },
+    )
+    monkeypatch.setattr(
+        landing_property_research,
+        "_property_investment_research_snapshot",
+        lambda **_kwargs: {},
+    )
+    captured_snapshot: dict[str, object] = {}
+    original_snapshot_builder = landing_routes.build_property_research_packet_snapshot
+
+    def _capture_snapshot(**kwargs):
+        captured_snapshot["actions"] = list(kwargs.get("actions") or [])
+        captured_snapshot["media"] = dict(kwargs.get("media") or {})
+        return original_snapshot_builder(**kwargs)
+
+    monkeypatch.setattr(
+        landing_routes,
+        "build_property_research_packet_snapshot",
+        _capture_snapshot,
+    )
+    client = build_property_operator_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Dual provider tour")
+
+    page = client.get(
+        f"/app/research/{candidate_ref}",
+        params={"run_id": run_id},
+        headers={"host": "propertyquarry.com"},
+    )
+
+    assert page.status_code == 200
+    assert raw_provider_url not in page.text
+    actions = [dict(row) for row in list(captured_snapshot.get("actions") or [])]
+    primary_actions = [row for row in actions if row.get("href") == primary_href]
+    original_actions = [
+        row
+        for row in actions
+        if str(row.get("href") or "").startswith("/app/research-tour-handoff/")
+    ]
+    assert primary_actions == [
+        {"href": primary_href, "label": "Open 3D tour", "external": False}
+    ]
+    assert len(original_actions) == 1
+    assert original_actions[0]["label"] == "Open original tour"
+    media = dict(captured_snapshot.get("media") or {})
+    assert media["primary_href"] == primary_href
+    assert media["primary_label"] == "Open 3D tour"
+    assert media["provider_key"] == "3dvista"
+    assert media["status_label"] == "3D tour available"
+    assert media["tertiary_href"] == original_actions[0]["href"]
+
+
+def test_property_research_matterport_bundle_uses_authenticated_exact_run_handoff(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    principal_id = "pq-original-tour-owner"
+    other_principal_id = "pq-original-tour-other"
+    run_id = "run-original-tour-a"
+    other_run_id = "run-original-tour-b"
+    candidate_ref = "matterport-original-candidate"
+    slug = "legacy-matterport-original"
+    raw_provider_url = "https://share.matterport.com/show/?m=ABCdef12&play=1"
+    canonical_provider_url = "https://my.matterport.com/show?m=ABCdef12"
+    retired_local_url = f"https://propertyquarry.com/tours/{slug}/control/matterport"
+    monkeypatch.setenv("EA_SIGNING_SECRET", "property-original-tour-test-signing-secret")
+    monkeypatch.setenv("EA_PUBLIC_TOUR_DIR", str(tmp_path))
+    property_tour_hosting._write_hosted_property_tour_payload(
+        tmp_path / slug,
+        {
+            "slug": slug,
+            "hosted_url": f"https://propertyquarry.com/tours/{slug}",
+            "public_url": f"https://propertyquarry.com/tours/{slug}",
+            "principal_id": principal_id,
+            "search_run_id": run_id,
+            "matterport_url": raw_provider_url,
+            "title": "Legacy Matterport home",
+            "scene_strategy": "matterport_source",
+            "creation_mode": "provider_source",
+            "scenes": [],
+        },
+    )
+    candidate_a = {
+        "candidate_ref": candidate_ref,
+        "title": "Run A legacy Matterport home",
+        "summary": "The owned legacy bundle should open only through a handoff.",
+        "property_url": "https://listing.example/run-a-home",
+        "source_ref": "source:run-a-home",
+        "tour_url": retired_local_url,
+        "tour_status": "ready",
+        "property_facts": {
+            "price_eur": 2400,
+            "area_m2": 84,
+            "postal_name": "1070 Wien",
+            "market_country_code": "AT",
+        },
+    }
+    candidate_b = {
+        **candidate_a,
+        "title": "Run B same-ref home",
+        "property_url": "https://listing.example/run-b-home",
+        "tour": {
+            "provider_url": "https://my.matterport.com/show?m=ZZZdef99",
+        },
+        "tour_url": "",
+    }
+    run_candidates = {
+        run_id: candidate_a,
+        other_run_id: candidate_b,
+    }
+    run_reads: list[tuple[str, str]] = []
+
+    def _fake_run_status(
+        self,
+        *,
+        principal_id: str,
+        run_id: str,
+        **_kwargs,
+    ) -> dict[str, object]:
+        run_reads.append((principal_id, run_id))
+        candidate = run_candidates.get(run_id)
+        if not candidate:
+            return {}
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "processed",
+            "progress": 100,
+            "summary": {
+                "status": "processed",
+                "ranked_candidates": [candidate],
+                "sources": [
+                    {
+                        "source_label": "Exact run source",
+                        "listing_total": 1,
+                        "top_candidates": [candidate],
+                    }
+                ],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(
+        landing_property_research,
+        "_property_investment_research_snapshot",
+        lambda **_kwargs: {},
+    )
+    client = build_property_operator_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="Original tour handoff")
+    assert landing_routes._property_original_tour_handoff_secret(client.app.state.container)
+    assert landing_routes._property_original_tour_candidate_target(
+        candidate_a,
+        principal_id=principal_id,
+    ) == canonical_provider_url
+
+    page = client.get(
+        f"/app/research/{candidate_ref}",
+        params={"run_id": run_id},
+        headers={"host": "propertyquarry.com"},
+    )
+
+    assert page.status_code == 200
+    assert "Original tour available" in page.text
+    assert "Open original tour" in page.text
+    assert raw_provider_url not in page.text
+    assert canonical_provider_url not in page.text
+    assert retired_local_url not in page.text
+    assert "/control/matterport" not in page.text
+    handoff_match = re.search(
+        r'href="(?P<href>/app/research-tour-handoff/[A-Za-z0-9_.-]+)"',
+        page.text,
+    )
+    assert handoff_match is not None
+    handoff_href = html.unescape(handoff_match.group("href"))
+    assert "run-original-tour" not in handoff_href
+    assert candidate_ref not in handoff_href
+
+    run_reads.clear()
+    redirect = client.get(handoff_href, follow_redirects=False)
+    assert redirect.status_code == 303
+    assert redirect.headers["location"] == canonical_provider_url
+    assert redirect.headers["cache-control"] == "no-store, max-age=0"
+    assert redirect.headers["pragma"] == "no-cache"
+    assert redirect.headers["referrer-policy"] == "no-referrer"
+    assert redirect.headers["x-robots-tag"] == "noindex, nofollow, noarchive, nosnippet"
+    assert run_reads == [(principal_id, run_id)]
+
+    run_candidates[run_id] = {
+        **candidate_a,
+        "tour_url": "",
+        "tour": {
+            "provider_url": "https://my.matterport.com@evil.example/show?m=ABCdef12",
+        },
+    }
+    spoofed_target = client.get(handoff_href, follow_redirects=False)
+    assert spoofed_target.status_code == 404
+    assert spoofed_target.text == "Original tour unavailable."
+
+    run_candidates[run_id] = {
+        **candidate_a,
+        "property_url": "https://listing.example/run-a-home-replaced",
+    }
+    changed_candidate = client.get(handoff_href, follow_redirects=False)
+    assert changed_candidate.status_code == 404
+    assert changed_candidate.text == "Original tour unavailable."
+
+    other_client = build_property_operator_client(principal_id=other_principal_id)
+    start_workspace(other_client, mode="personal", workspace_name="Other owner")
+    wrong_principal = other_client.get(handoff_href, follow_redirects=False)
+    assert wrong_principal.status_code == 404
+    assert wrong_principal.text == "Original tour unavailable."
+
+
+def test_property_original_tour_handoff_missing_signing_authority_stays_unavailable(
+    monkeypatch,
+) -> None:
+    principal_id = "pq-original-tour-no-signing"
+    candidate_ref = "original-tour-no-signing-candidate"
+    candidate = {
+        "candidate_ref": candidate_ref,
+        "title": "Matterport home without signing authority",
+        "property_url": "https://listing.example/no-signing-home",
+        "tour": {
+            "provider_url": "https://my.matterport.com/show?m=ABCdef12",
+        },
+        "tour_status": "ready",
+        "property_facts": {"price_eur": 2200, "area_m2": 77},
+    }
+    monkeypatch.delenv("EA_SIGNING_SECRET", raising=False)
+
+    def _fake_run_status(self, *, principal_id: str, run_id: str, **_kwargs):
+        return {
+            "run_id": run_id,
+            "principal_id": principal_id,
+            "status": "processed",
+            "summary": {
+                "ranked_candidates": [candidate],
+                "sources": [{"source_label": "Source", "top_candidates": [candidate]}],
+            },
+            "events": [],
+        }
+
+    monkeypatch.setattr(ProductService, "get_property_search_run_status", _fake_run_status)
+    monkeypatch.setattr(
+        landing_property_research,
+        "_property_investment_research_snapshot",
+        lambda **_kwargs: {},
+    )
+    client = build_property_operator_client(principal_id=principal_id)
+    start_workspace(client, mode="personal", workspace_name="No signing authority")
+
+    page = client.get(
+        f"/app/research/{candidate_ref}",
+        params={"run_id": "run-no-signing"},
+        headers={"host": "propertyquarry.com"},
+    )
+
+    assert page.status_code == 200
+    assert "/app/research-tour-handoff/" not in page.text
+    assert "Original tour available" not in page.text
+    assert "3D tour unavailable" in page.text
+
+
+def test_property_original_tour_handoff_token_rejects_tampering_expiry_and_oversize(
+    monkeypatch,
+) -> None:
+    principal_id = "pq-original-tour-token-owner"
+    candidate = {
+        "candidate_ref": "token-candidate",
+        "property_url": "https://listing.example/token-candidate",
+        "vendor_tour_url": "https://my.matterport.com/show?m=ABCdef12",
+    }
+    monkeypatch.setenv("EA_SIGNING_SECRET", "property-original-tour-token-secret")
+    client = build_property_operator_client(principal_id=principal_id)
+    container = client.app.state.container
+    href = landing_routes._property_original_tour_handoff_href(
+        container=container,
+        principal_id=principal_id,
+        run_id="run-token",
+        candidate_ref="token-candidate",
+        candidate=candidate,
+        now_epoch=1000,
+    )
+    token = href.rsplit("/", 1)[-1]
+
+    assert landing_routes._property_original_tour_handoff_claims(
+        container=container,
+        principal_id=principal_id,
+        token=token,
+        now_epoch=1001,
+    )["run_id"] == "run-token"
+    for invalid_token in (
+        token[:-1] + ("A" if token[-1] != "A" else "B"),
+        "not-base64.not-base64",
+        "A" * (landing_routes._PROPERTY_ORIGINAL_TOUR_HANDOFF_MAX_TOKEN_CHARS + 1),
+    ):
+        assert landing_routes._property_original_tour_handoff_claims(
+            container=container,
+            principal_id=principal_id,
+            token=invalid_token,
+            now_epoch=1001,
+        ) == {}
+    assert landing_routes._property_original_tour_handoff_claims(
+        container=container,
+        principal_id=principal_id,
+        token=token,
+        now_epoch=1000 + landing_routes._PROPERTY_ORIGINAL_TOUR_HANDOFF_TTL_SECONDS + 1,
+    ) == {}
 
 
 def test_property_research_media_normalizes_active_walkthrough_receipt_for_ready_3dvista(

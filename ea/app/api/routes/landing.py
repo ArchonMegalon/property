@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import contextlib
 import concurrent.futures
 import hashlib
@@ -197,6 +199,7 @@ from app.services.public_rybbit import rybbit_head_snippet as _rybbit_head_snipp
 from app.services.registration_email import email_delivery_enabled, property_notification_preview
 from app.services.fliplink import build_fliplink_packet_service
 from app.services import brilliant_directories as brilliant_directories_service
+from app.settings import resolve_signing_secret
 
 
 _PROPERTY_ACCOUNT_PREFERENCE_PROFILE_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
@@ -228,6 +231,9 @@ _PROPERTY_BILLING_DIRECT_VERIFICATION_CACHE: dict[str, object] = {
 _PROPERTYQUARRY_EXAMPLE_SHORTLIST_DIORAMA_VERSION = "20260707d1"
 _PROPERTY_CURATED_DIORAMA_MANIFEST_PATH = Path(__file__).resolve().parents[2] / "data" / "property_diorama_previews.json"
 _PROPERTY_CURATED_DIORAMA_STATIC_ROOT = Path(__file__).resolve().parents[2] / "static"
+_PROPERTY_ORIGINAL_TOUR_HANDOFF_PURPOSE = "property-original-tour-handoff-v1"
+_PROPERTY_ORIGINAL_TOUR_HANDOFF_TTL_SECONDS = 15 * 60
+_PROPERTY_ORIGINAL_TOUR_HANDOFF_MAX_TOKEN_CHARS = 1536
 
 
 def _property_first_paint_timeout_seconds() -> float:
@@ -7169,9 +7175,438 @@ def get_started() -> RedirectResponse:
     return RedirectResponse("/sign-in?signing_in=1", status_code=307)
 
 
+def _property_original_tour_authenticated(context: RequestContext) -> bool:
+    return bool(
+        context.authenticated is True
+        and str(context.auth_source or "").strip().lower()
+        not in {
+            "",
+            "anonymous",
+            "loopback_no_auth",
+            "propertyquarry_release_probe",
+        }
+    )
+
+
+def _property_original_tour_handoff_secret(container: AppContainer) -> bytes:
+    configured = str(
+        getattr(getattr(container.settings, "auth", None), "signing_secret", "")
+        or ""
+    ).strip()
+    if not configured:
+        return b""
+    return resolve_signing_secret(
+        container.settings,
+        purpose=_PROPERTY_ORIGINAL_TOUR_HANDOFF_PURPOSE,
+    ).encode("utf-8")
+
+
+def _property_original_tour_b64encode(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
+
+
+def _property_constant_text_equal(left: object, right: object) -> bool:
+    return hmac.compare_digest(
+        str(left or "").encode("utf-8"),
+        str(right or "").encode("utf-8"),
+    )
+
+
+def _property_original_tour_b64decode(value: str, *, max_bytes: int) -> bytes | None:
+    normalized = str(value or "").strip()
+    if (
+        not normalized
+        or len(normalized) > max_bytes * 2
+        or re.fullmatch(r"[A-Za-z0-9_-]+", normalized) is None
+    ):
+        return None
+    try:
+        decoded = base64.b64decode(
+            normalized + ("=" * (-len(normalized) % 4)),
+            altchars=b"-_",
+            validate=True,
+        )
+    except (binascii.Error, TypeError, ValueError):
+        return None
+    return decoded if len(decoded) <= max_bytes else None
+
+
+def _property_candidate_current_url(candidate: Mapping[str, object]) -> str:
+    return str(
+        candidate.get("property_url")
+        or candidate.get("listing_url")
+        or candidate.get("source_url")
+        or candidate.get("url")
+        or ""
+    ).strip()
+
+
+def _property_original_tour_candidate_target(
+    candidate: Mapping[str, object],
+    *,
+    principal_id: str,
+) -> str:
+    """Resolve only explicitly supported Matterport evidence for one candidate."""
+
+    normalized_candidate = dict(candidate)
+    raw_tour = (
+        dict(normalized_candidate.get("tour") or {})
+        if isinstance(normalized_candidate.get("tour"), dict)
+        else {}
+    )
+    provider_candidates: list[object] = [
+        raw_tour.get("provider_url"),
+        normalized_candidate.get("vendor_tour_url"),
+    ]
+    local_references = (
+        normalized_candidate.get("tour_url"),
+        raw_tour.get("url"),
+        raw_tour.get("embed_url"),
+    )
+    normalized_principal_id = str(principal_id or "").strip()
+    for local_reference in local_references:
+        payload = property_tour_hosting._hosted_property_tour_payload_for_url(
+            local_reference,
+            principal_id=normalized_principal_id,
+        )
+        if not payload:
+            continue
+        bundle_principal_id = str(payload.get("principal_id") or "").strip()
+        if (
+            not bundle_principal_id
+            or not normalized_principal_id
+            or not _property_constant_text_equal(
+                bundle_principal_id,
+                normalized_principal_id,
+            )
+        ):
+            continue
+        provider_candidates.append(payload.get("matterport_url"))
+    for provider_candidate in provider_candidates:
+        canonical = property_tour_hosting._canonical_matterport_tour_url(
+            provider_candidate
+        )
+        if canonical:
+            return canonical
+    return ""
+
+
+def _property_original_tour_handoff_href(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    run_id: str,
+    candidate_ref: str,
+    candidate: Mapping[str, object],
+    now_epoch: int | None = None,
+) -> str:
+    secret = _property_original_tour_handoff_secret(container)
+    normalized_principal_id = str(principal_id or "").strip()
+    normalized_run_id = str(run_id or "").strip()
+    normalized_candidate_ref = str(candidate_ref or "").strip()
+    current_property_url = _property_candidate_current_url(candidate)
+    if (
+        not secret
+        or not normalized_principal_id
+        or not normalized_run_id
+        or not normalized_candidate_ref
+        or not current_property_url
+        or len(normalized_run_id) > 256
+        or len(normalized_candidate_ref) > 256
+        or not _property_constant_text_equal(
+            _property_candidate_ref(dict(candidate)),
+            normalized_candidate_ref,
+        )
+        or not _property_original_tour_candidate_target(
+            candidate,
+            principal_id=normalized_principal_id,
+        )
+    ):
+        return ""
+    issued_at = int(time.time() if now_epoch is None else now_epoch)
+    claims = {
+        "v": 1,
+        "p": hashlib.sha256(normalized_principal_id.encode("utf-8")).hexdigest(),
+        "r": normalized_run_id,
+        "c": normalized_candidate_ref,
+        "u": hashlib.sha256(current_property_url.encode("utf-8")).hexdigest(),
+        "e": issued_at + _PROPERTY_ORIGINAL_TOUR_HANDOFF_TTL_SECONDS,
+    }
+    payload = json.dumps(
+        claims,
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    encoded_payload = _property_original_tour_b64encode(payload)
+    signature = hmac.new(secret, encoded_payload.encode("ascii"), hashlib.sha256).digest()
+    token = f"{encoded_payload}.{_property_original_tour_b64encode(signature)}"
+    if len(token) > _PROPERTY_ORIGINAL_TOUR_HANDOFF_MAX_TOKEN_CHARS:
+        return ""
+    return f"/app/research-tour-handoff/{token}"
+
+
+def _property_original_tour_handoff_claims(
+    *,
+    container: AppContainer,
+    principal_id: str,
+    token: str,
+    now_epoch: int | None = None,
+) -> dict[str, object]:
+    normalized_token = str(token or "").strip()
+    secret = _property_original_tour_handoff_secret(container)
+    if (
+        not secret
+        or not normalized_token
+        or len(normalized_token) > _PROPERTY_ORIGINAL_TOUR_HANDOFF_MAX_TOKEN_CHARS
+        or normalized_token.count(".") != 1
+    ):
+        return {}
+    encoded_payload, encoded_signature = normalized_token.split(".", 1)
+    supplied_signature = _property_original_tour_b64decode(
+        encoded_signature,
+        max_bytes=64,
+    )
+    if supplied_signature is None or len(supplied_signature) != hashlib.sha256().digest_size:
+        return {}
+    try:
+        signature_message = encoded_payload.encode("ascii")
+    except UnicodeEncodeError:
+        return {}
+    expected_signature = hmac.new(
+        secret,
+        signature_message,
+        hashlib.sha256,
+    ).digest()
+    if not hmac.compare_digest(expected_signature, supplied_signature):
+        return {}
+    payload = _property_original_tour_b64decode(encoded_payload, max_bytes=1024)
+    if payload is None:
+        return {}
+    try:
+        claims = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
+        return {}
+    if not isinstance(claims, dict) or set(claims) != {"v", "p", "r", "c", "u", "e"}:
+        return {}
+    normalized_principal_id = str(principal_id or "").strip()
+    principal_digest = str(claims.get("p") or "")
+    property_digest = str(claims.get("u") or "")
+    run_id = str(claims.get("r") or "").strip()
+    candidate_ref = str(claims.get("c") or "").strip()
+    try:
+        expires_at = int(claims.get("e"))
+        version = int(claims.get("v"))
+    except (TypeError, ValueError, OverflowError):
+        return {}
+    current_epoch = int(time.time() if now_epoch is None else now_epoch)
+    expected_principal_digest = hashlib.sha256(
+        normalized_principal_id.encode("utf-8")
+    ).hexdigest()
+    if (
+        version != 1
+        or not normalized_principal_id
+        or not run_id
+        or not candidate_ref
+        or len(run_id) > 256
+        or len(candidate_ref) > 256
+        or re.fullmatch(r"[0-9a-f]{64}", principal_digest) is None
+        or re.fullmatch(r"[0-9a-f]{64}", property_digest) is None
+        or not _property_constant_text_equal(
+            principal_digest,
+            expected_principal_digest,
+        )
+        or expires_at < current_epoch
+        or expires_at > current_epoch + _PROPERTY_ORIGINAL_TOUR_HANDOFF_TTL_SECONDS
+    ):
+        return {}
+    return {
+        "run_id": run_id,
+        "candidate_ref": candidate_ref,
+        "property_url_sha256": property_digest,
+    }
+
+
+def _property_research_media_with_original_tour_handoff(
+    research_media: Mapping[str, object],
+    *,
+    handoff_href: str,
+) -> dict[str, object]:
+    normalized_media = dict(research_media)
+    normalized_handoff_href = str(handoff_href or "").strip()
+    if not normalized_handoff_href:
+        return normalized_media
+    original_tour_updates: dict[str, object] = {
+        "vendor_ready": True,
+        "vendor_tour_href": normalized_handoff_href,
+        "show_status_line": True,
+    }
+    existing_first_party_tour = bool(
+        normalized_media.get("hosted_ready")
+        or normalized_media.get("generated_reconstruction_ready")
+        or normalized_media.get("ai_360_ready")
+    )
+    if existing_first_party_tour:
+        original_tour_updates.update(
+            {
+                "tertiary_href": normalized_handoff_href,
+                "tertiary_label": "Open original tour",
+            }
+        )
+    else:
+        original_tour_updates.update(
+            {
+                "status_label": "Original tour available",
+                "status_detail": (
+                    "The original tour is available through a secure PropertyQuarry link. "
+                    "The in-page 3D viewer is still unavailable."
+                ),
+                "primary_href": normalized_handoff_href,
+                "primary_label": "Open original tour",
+                "provider_label": "Original 3D tour",
+                "provider_key": "matterport",
+            }
+        )
+    return {
+        **normalized_media,
+        **original_tour_updates,
+    }
+
+
+def _property_original_tour_exact_run_candidate(
+    *,
+    product: Any,
+    principal_id: str,
+    account_email: str,
+    run_id: str,
+    candidate_ref: str,
+) -> dict[str, object] | None:
+    normalized_principal_id = str(principal_id or "").strip()
+    normalized_run_id = str(run_id or "").strip()
+    normalized_candidate_ref = str(candidate_ref or "").strip()
+    if (
+        not normalized_principal_id
+        or not normalized_run_id
+        or not normalized_candidate_ref
+    ):
+        return None
+    try:
+        run_payload = dict(
+            product.get_property_search_run_status(
+                principal_id=normalized_principal_id,
+                run_id=normalized_run_id,
+                account_email=str(account_email or "").strip(),
+            )
+            or {}
+        )
+    except TypeError:
+        try:
+            run_payload = dict(
+                product.get_property_search_run_status(
+                    principal_id=normalized_principal_id,
+                    run_id=normalized_run_id,
+                )
+                or {}
+            )
+        except Exception:
+            return None
+    except Exception:
+        return None
+    returned_run_id = str(run_payload.get("run_id") or "").strip()
+    returned_principal_id = str(run_payload.get("principal_id") or "").strip()
+    if (
+        not returned_run_id
+        or not _property_constant_text_equal(returned_run_id, normalized_run_id)
+        or (
+            returned_principal_id
+            and not _property_constant_text_equal(
+                returned_principal_id,
+                normalized_principal_id,
+            )
+        )
+    ):
+        return None
+    candidate = _property_lookup_candidate(
+        property_context={"run": run_payload},
+        candidate_ref=normalized_candidate_ref,
+    )
+    if candidate is None or not _property_constant_text_equal(
+        _property_candidate_ref(candidate),
+        normalized_candidate_ref,
+    ):
+        return None
+    return candidate
+
+
+def _property_original_tour_unavailable_response() -> PlainTextResponse:
+    return PlainTextResponse(
+        "Original tour unavailable.",
+        status_code=404,
+        headers={
+            "Cache-Control": "no-store, max-age=0",
+            "Pragma": "no-cache",
+            "Referrer-Policy": "no-referrer",
+            "X-Robots-Tag": "noindex, nofollow, noarchive, nosnippet",
+        },
+    )
+
+
 @router.get("/app", response_class=HTMLResponse)
 def app_root(request: Request) -> RedirectResponse:
     return RedirectResponse(str(request_brand(request).get("app_home") or "/app/search"), status_code=307)
+
+
+@router.get("/app/research-tour-handoff/{token}", include_in_schema=False)
+def property_original_tour_handoff(
+    token: str,
+    container: AppContainer = Depends(get_container),
+    context: RequestContext = Depends(get_request_context),
+) -> Response:
+    if not _property_original_tour_authenticated(context):
+        return _property_original_tour_unavailable_response()
+    claims = _property_original_tour_handoff_claims(
+        container=container,
+        principal_id=context.principal_id,
+        token=token,
+    )
+    run_id = str(claims.get("run_id") or "").strip()
+    candidate_ref = str(claims.get("candidate_ref") or "").strip()
+    if not run_id or not candidate_ref:
+        return _property_original_tour_unavailable_response()
+    product = build_product_service(container)
+    candidate = _property_original_tour_exact_run_candidate(
+        product=product,
+        principal_id=context.principal_id,
+        account_email=context.access_email,
+        run_id=run_id,
+        candidate_ref=candidate_ref,
+    )
+    if candidate is None:
+        return _property_original_tour_unavailable_response()
+    current_property_url = _property_candidate_current_url(candidate)
+    current_property_digest = hashlib.sha256(
+        current_property_url.encode("utf-8")
+    ).hexdigest()
+    if (
+        not current_property_url
+        or not _property_constant_text_equal(
+            current_property_digest,
+            str(claims.get("property_url_sha256") or ""),
+        )
+    ):
+        return _property_original_tour_unavailable_response()
+    target = _property_original_tour_candidate_target(
+        candidate,
+        principal_id=context.principal_id,
+    )
+    if not target:
+        return _property_original_tour_unavailable_response()
+    response = RedirectResponse(target, status_code=303)
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive, nosnippet"
+    return response
 
 
 @router.get("/app/research/{run_id}/{candidate_ref}", response_class=HTMLResponse)
@@ -7937,6 +8372,33 @@ def property_research_packet(
         candidate,
         principal_id=context.principal_id,
     )
+    original_tour_handoff_href = ""
+    if (
+        effective_run_id
+        and _property_original_tour_authenticated(context)
+    ):
+        original_tour_candidate = _property_original_tour_exact_run_candidate(
+            product=product,
+            principal_id=context.principal_id,
+            account_email=context.access_email,
+            run_id=effective_run_id,
+            candidate_ref=normalized_candidate_ref,
+        )
+        if original_tour_candidate is not None:
+            original_tour_handoff_href = _property_original_tour_handoff_href(
+                container=container,
+                principal_id=context.principal_id,
+                run_id=effective_run_id,
+                candidate_ref=normalized_candidate_ref,
+                candidate=original_tour_candidate,
+            )
+    if original_tour_handoff_href:
+        # A legacy Matterport source remains unavailable for local embedding;
+        # only an authenticated, run-scoped first-party handoff is exposed.
+        research_media = _property_research_media_with_original_tour_handoff(
+            research_media,
+            handoff_href=original_tour_handoff_href,
+        )
     # From this boundary onward, raw persisted tour targets are diagnostic
     # inputs only. Ready, progress, embed, and action state must use the
     # canonical route returned by the verified tour contract.
@@ -8129,6 +8591,22 @@ def property_research_packet(
         )
     elif property_url and tour_requestable:
         hero_actions.append({"kind": "tour", "label": "Request 3D tour", "property_url": property_url, "state": "idle", "progress_pct": 0, "eta_label": "", "status_detail": "Use the floor plan and photos to build one."})
+    if (
+        (hosted_tour_ready or generated_reconstruction_ready)
+        and vendor_tour_ready
+        and vendor_tour_action_href
+        and not any(
+            str(action.get("href") or "").strip() == vendor_tour_action_href
+            for action in hero_actions
+        )
+    ):
+        hero_actions.append(
+            {
+                "href": vendor_tour_action_href,
+                "label": "Open original tour",
+                "external": False,
+            }
+        )
     if flythrough_url:
         hero_actions.append({"href": flythrough_url, "label": "Open walkthrough", "external": False})
     elif flythrough_status in {"queued", "pending"} and property_url:

@@ -1450,17 +1450,44 @@ def revoke_hosted_property_tour_bundle(*, slug: str, principal_id: str = "", act
 
 
 def _configured_public_tour_hosts() -> tuple[str, ...]:
+    """Return hosts from syntactically valid first-party public base URLs.
+
+    App bases own the origin root while tour bases own the ``/tours`` mount.
+    Treating either value as a loose hostname allowlist would let malformed
+    deployment configuration silently widen local-bundle lookup authority.
+    """
+
     hosts: list[str] = []
-    for raw in (
-        str(os.getenv("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL") or "").strip(),
-        str(os.getenv("PROPERTYQUARRY_PUBLIC_BASE_URL") or "").strip(),
-        str(os.getenv("EA_PUBLIC_TOUR_BASE_URL") or "").strip(),
-        str(os.getenv("EA_PUBLIC_APP_BASE_URL") or "").strip(),
+    for environment_name, expected_path in (
+        ("PROPERTYQUARRY_PUBLIC_TOUR_BASE_URL", "/tours"),
+        ("PROPERTYQUARRY_PUBLIC_BASE_URL", "/"),
+        ("EA_PUBLIC_TOUR_BASE_URL", "/tours"),
+        ("EA_PUBLIC_APP_BASE_URL", "/"),
     ):
+        raw = str(os.getenv(environment_name) or "").strip()
         if not raw:
             continue
-        parsed = urllib.parse.urlparse(raw if "://" in raw else f"https://{raw}")
-        host = str(parsed.hostname or "").strip().lower()
+        try:
+            parsed = urllib.parse.urlsplit(raw)
+            port = parsed.port
+        except (TypeError, ValueError):
+            continue
+        raw_path = str(parsed.path or "")
+        normalized_path = raw_path.rstrip("/") or "/"
+        if (
+            parsed.scheme.lower() != "https"
+            or not parsed.netloc
+            or parsed.username
+            or parsed.password
+            or port not in {None, 443}
+            or parsed.query
+            or parsed.fragment
+            or "%" in raw_path
+            or "\\" in raw_path
+            or normalized_path != expected_path
+        ):
+            continue
+        host = str(parsed.hostname or "").strip().lower().rstrip(".")
         if host and host not in hosts:
             hosts.append(host)
     return tuple(hosts)
@@ -3506,6 +3533,43 @@ def _property_tour_provider_url_shape_valid(value: object) -> bool:
             and re.fullmatch(r"[A-Za-z0-9._~/-]+", identifier)
         )
     return False
+
+
+def _canonical_matterport_tour_url(value: object) -> str:
+    """Reduce an accepted Matterport share URL to its public model identity."""
+
+    normalized = str(value or "").strip()
+    if (
+        _property_tour_provider_host_kind(normalized) != "matterport"
+        or not _property_tour_provider_url_shape_valid(normalized)
+    ):
+        return ""
+    try:
+        parsed = urllib.parse.urlsplit(normalized)
+        raw_path = str(parsed.path or "")
+        raw_query = str(parsed.query or "")
+        if (
+            "%" in raw_path
+            or "\\" in raw_path
+            or raw_path.rstrip("/").lower() != "/show"
+            or "%" in raw_query
+        ):
+            return ""
+        model_values = urllib.parse.parse_qs(
+            raw_query,
+            keep_blank_values=True,
+        ).get("m", [])
+    except (TypeError, ValueError):
+        return ""
+    if len(model_values) != 1:
+        return ""
+    model_id = str(model_values[0] or "").strip()
+    if re.fullmatch(r"[A-Za-z0-9_-]{6,64}", model_id) is None:
+        return ""
+    return (
+        "https://my.matterport.com/show?m="
+        + urllib.parse.quote(model_id, safe="-_")
+    )
 
 
 def _prefer_hosted_live_360_embed(source_virtual_tour_url: object) -> bool:
