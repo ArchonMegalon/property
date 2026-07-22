@@ -22,6 +22,8 @@ def test_schema_readme_lists_latest_migrations() -> None:
     assert "20260305_v0_34_assistant_onboarding_canonical_schema.sql" in text
     assert "20260305_v0_35_execution_ledger_legacy_compat.sql" in text
     assert "20260305_v0_36_propertyquarry_property_passport.sql" in text
+    assert "20260305_v0_37_runtime_repository_contract.sql" in text
+    assert "20260305_v0_36_propertyquarry_property_passport.sql" in text
 
 
 def test_db_bootstrap_includes_latest_migrations() -> None:
@@ -37,6 +39,8 @@ def test_db_bootstrap_includes_latest_migrations() -> None:
     assert "20260305_v0_33_task_contract_runtime_policy.sql" in text
     assert "20260305_v0_34_assistant_onboarding_canonical_schema.sql" in text
     assert "20260305_v0_35_execution_ledger_legacy_compat.sql" in text
+    assert "20260305_v0_36_propertyquarry_property_passport.sql" in text
+    assert "20260305_v0_37_runtime_repository_contract.sql" in text
     assert "20260305_v0_36_propertyquarry_property_passport.sql" in text
 
 

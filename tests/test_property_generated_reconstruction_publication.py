@@ -14,6 +14,7 @@ from starlette.requests import Request
 from app.api.routes import public_tour_payloads, public_tours
 from app.product import property_tour_hosting
 from app.product import service as product_service
+from scripts import property_reconstruction_render_bridge
 
 
 _PUBLICATION_ARGS: dict[str, object] = {
@@ -37,6 +38,30 @@ def _publication_slug() -> str:
         variant_key=str(_PUBLICATION_ARGS["variant_key"]),
         principal_id=str(_PUBLICATION_ARGS["principal_id"]),
     )
+
+
+def test_generated_reconstruction_slug_fits_public_and_render_contracts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        property_tour_hosting,
+        "_hosted_property_tour_identity_secret",
+        lambda: b"deterministic-test-secret",
+    )
+
+    slug = product_service._make_hosted_property_tour_slug(
+        title=(
+            "AB 1.8 Modern and fully furnished loft apartment top moderne und "
+            "voll möblierte Loft Wohnung Naschmarkt with an intentionally long title"
+        ),
+        listing_id="807462086",
+        property_url="https://www.willhaben.at/iad/immobilien/d/807462086/",
+        variant_key="layout_first",
+        principal_id="cf-email:principal.user@example.test",
+    )
+
+    assert len(slug) == 128
+    assert property_reconstruction_render_bridge._valid_generated_bundle_slug(slug) == slug
 
 
 def _tree_snapshot(root: Path) -> dict[str, tuple[object, ...]]:
@@ -63,6 +88,20 @@ def _tree_snapshot(root: Path) -> dict[str, tuple[object, ...]]:
         for name in file_names:
             _record(current / name)
     return snapshot
+
+
+def _published_bundle_names(public_dir: Path) -> list[str]:
+    return sorted(
+        path.name
+        for path in public_dir.iterdir()
+        if not path.name.startswith(".")
+    )
+
+
+def _assert_no_pending_publication_transactions(public_dir: Path) -> None:
+    transactions_root = public_dir / ".publication-control" / "transactions"
+    assert transactions_root.is_dir()
+    assert list(transactions_root.iterdir()) == []
 
 
 def _write_previous_bundle(bundle_dir: Path) -> None:
@@ -457,7 +496,8 @@ def test_generated_reconstruction_publication_restores_or_cleans_on_base_excepti
         assert _tree_snapshot(bundle_dir) == previous_snapshot
         assert not (bundle_dir / "new-bundle-only.bin").exists()
         assert not (bundle_dir / "propertyquarry-reconstruction-source-private").exists()
-    assert sorted(path.name for path in public_dir.iterdir()) == ([slug] if bundle_existed else [])
+    assert _published_bundle_names(public_dir) == ([slug] if bundle_existed else [])
+    _assert_no_pending_publication_transactions(public_dir)
 
 
 def test_generated_reconstruction_publication_rejects_generating_manifest_even_if_readiness_claims_ready(
@@ -510,7 +550,8 @@ def test_generated_reconstruction_publication_rejects_generating_manifest_even_i
         product_service._write_generated_reconstruction_property_tour_bundle(**_PUBLICATION_ARGS)
 
     assert _tree_snapshot(bundle_dir) == previous_snapshot
-    assert sorted(path.name for path in public_dir.iterdir()) == [slug]
+    assert _published_bundle_names(public_dir) == [slug]
+    _assert_no_pending_publication_transactions(public_dir)
 
 
 def test_generated_reconstruction_readiness_rejects_generating_before_asset_validation(
@@ -568,7 +609,8 @@ def test_generated_reconstruction_publication_restores_when_initial_backup_renam
         product_service._write_generated_reconstruction_property_tour_bundle(**_PUBLICATION_ARGS)
 
     assert _tree_snapshot(bundle_dir) == previous_snapshot
-    assert sorted(path.name for path in public_dir.iterdir()) == [slug]
+    assert _published_bundle_names(public_dir) == [slug]
+    _assert_no_pending_publication_transactions(public_dir)
 
 
 @pytest.mark.parametrize("bundle_existed", [True, False], ids=["prior-bundle", "new-bundle"])
@@ -827,11 +869,7 @@ def test_generated_reconstruction_publication_retains_private_backup_if_rollback
     ):
         product_service._write_generated_reconstruction_property_tour_bundle(**_PUBLICATION_ARGS)
 
-    transaction_root = (
-        public_dir.parent
-        / f".{public_dir.name}.publication-control"
-        / "transactions"
-    )
+    transaction_root = public_dir / ".publication-control" / "transactions"
     transaction_dirs = [
         path
         for path in transaction_root.iterdir()

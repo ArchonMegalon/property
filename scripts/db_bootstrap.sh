@@ -45,6 +45,8 @@ Applies kernel migrations in order:
   - v0_34 assistant onboarding canonical schema
   - v0_35 execution ledger legacy compatibility
   - v0_36 PropertyQuarry property passport
+  - v0_37 canonical runtime repository contract
+  - v0_38 operator profile principal scope
 EOF
   exit 0
 fi
@@ -95,6 +97,8 @@ SQL_FILES=(
   "ea/schema/20260305_v0_34_assistant_onboarding_canonical_schema.sql"
   "ea/schema/20260305_v0_35_execution_ledger_legacy_compat.sql"
   "ea/schema/20260305_v0_36_propertyquarry_property_passport.sql"
+  "ea/schema/20260305_v0_37_runtime_repository_contract.sql"
+  "ea/schema/20260305_v0_38_operator_profile_principal_scope.sql"
 )
 
 echo "== PropertyQuarry DB bootstrap =="

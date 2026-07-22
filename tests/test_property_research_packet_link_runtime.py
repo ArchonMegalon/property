@@ -56,6 +56,8 @@ def _writer_heartbeat_payload(
             "dead_lettered": 0,
             "failed": 0,
         }
+    if role == "worker":
+        payload["property_search_work_queue"] = {"observed": False}
     return payload
 
 
@@ -750,6 +752,103 @@ def test_apply_backfill_requires_fleet_proof_and_activates_only_after_verificati
     assert receipt["expected_ref_digest_sha256"] == receipt["verified_ref_digest_sha256"]
 
 
+def test_backfill_projects_reported_legacy_f412_packet_for_indexed_resolution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate_ref = "f41235f024333ab5"
+    principal_id = "tenant-legacy-property"
+    run_id = "legacy-run-outside-latest-twelve"
+    timestamp = "2026-07-17T09:00:00+00:00"
+    row = (
+        principal_id,
+        run_id,
+        {
+            "principal_id": principal_id,
+            "run_id": run_id,
+            "updated_at": timestamp,
+            "summary": {
+                "ranked_candidates": [
+                    {
+                        "candidate_ref": candidate_ref,
+                        "title": "Reported legacy property",
+                        "property_url": "https://example.test/legacy-property",
+                    }
+                ]
+            },
+        },
+        timestamp,
+        timestamp,
+    )
+    expected_link = backfill.project_property_research_packet_links(
+        backfill._run_payload(row)
+    )[0]
+    connection = _AuditConnection([[row], []])
+    connection.verification_count = (1, 1)
+    connection.verification_identities = [
+        (
+            principal_id,
+            run_id,
+            candidate_ref,
+            expected_link["packet_sha256"],
+            expected_link["packet_size_bytes"],
+        )
+    ]
+    captured_links: list[dict[str, object]] = []
+
+    def _capture_links(_cursor: object, links: object) -> int:
+        rows = [dict(link) for link in links]  # type: ignore[arg-type]
+        captured_links.extend(rows)
+        return len(rows)
+
+    monkeypatch.setattr(backfill, "upsert_property_research_packet_links", _capture_links)
+    monkeypatch.setattr(
+        backfill,
+        "sync_property_research_packet_run_memberships",
+        lambda *_args, **_kwargs: 1,
+    )
+    monkeypatch.setattr(
+        backfill,
+        "_verify_run_memberships",
+        lambda *_args, **_kwargs: True,
+    )
+
+    receipt = backfill.run_backfill(
+        connection,
+        apply=True,
+        fleet_proof=_fleet_proof(),
+    )
+
+    assert receipt["status"] == "complete"
+    assert receipt["coverage_complete"] is True
+    indexed_link = next(
+        link for link in captured_links if link["candidate_ref"] == candidate_ref
+    )
+
+    class _IndexedProduct:
+        def get_property_research_packet_link(
+            self,
+            **kwargs: object,
+        ) -> dict[str, object]:
+            assert kwargs["principal_id"] == principal_id
+            assert kwargs["candidate_ref"] == candidate_ref
+            return {
+                "candidate": dict(indexed_link["packet_json"]),
+                "last_run_id": indexed_link["last_run_id"],
+            }
+
+        def list_property_search_runs(self, **_kwargs: object) -> object:
+            raise AssertionError("the indexed legacy packet must avoid the latest-12 scan")
+
+    candidate, resolved_run_id = landing._property_lookup_candidate_across_runs(
+        _IndexedProduct(),
+        principal_id=principal_id,
+        candidate_ref=candidate_ref,
+        max_runs=12,
+    )
+    assert candidate and candidate["candidate_ref"] == candidate_ref
+    assert resolved_run_id == run_id
+
+
 def test_apply_backfill_rejects_equal_counts_for_the_wrong_tenant_ref_set(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -815,6 +914,47 @@ def test_runner_heartbeat_receipts_current_writer_contract(
         "property_search_schema_version": property_search_schema.LATEST_PROPERTY_SEARCH_SCHEMA_VERSION,
     }
     assert runner._property_search_writer_contract() == payload["property_search_writer_contract"]
+
+
+def test_checker_accepts_actual_worker_heartbeat_with_queue_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    started_at = now - timedelta(seconds=5)
+    instance_id = "worker-current-runner-payload"
+    heartbeat_dir = tmp_path / "writer-fleet"
+    monkeypatch.setenv("EA_WORKER_HEARTBEAT_PATH", str(tmp_path / "worker.json"))
+    monkeypatch.setenv("EA_PROPERTY_SEARCH_WRITER_HEARTBEAT_DIR", str(heartbeat_dir))
+    monkeypatch.setattr(runner, "_EXECUTION_INSTANCE_ID", instance_id)
+    monkeypatch.setattr(runner, "_EXECUTION_STARTED_AT_EPOCH", started_at.timestamp())
+    monkeypatch.setattr(runner, "_PROPERTY_SEARCH_QUEUE_METRICS", {"observed": False})
+
+    assert runner._record_property_search_queue_metrics(
+        SimpleNamespace(depth=7, oldest_item_age_seconds=12.5)
+    ) is True
+    runner._write_scheduler_heartbeat(role="worker", status="loop")
+
+    instance_path = runner._execution_role_heartbeat_path("worker")
+    assert instance_path is not None
+    payload = json.loads(instance_path.read_text(encoding="utf-8"))
+    assert payload["property_search_work_queue"] == {
+        "observed": True,
+        "depth": 7,
+        "oldest_item_age_seconds": 12.5,
+    }
+    assert schema_check._validate_writer_fleet(
+        heartbeat_dir=heartbeat_dir,
+        expected_instances=(("worker", instance_id),),
+        not_before=started_at - timedelta(seconds=1),
+        max_age_seconds=120,
+    ) == [
+        {
+            "role": "worker",
+            "instance_id": instance_id,
+            "started_at_epoch": started_at.timestamp(),
+        }
+    ]
 
 
 def test_checker_fails_closed_when_live_database_is_required(
@@ -953,6 +1093,78 @@ def test_checker_rejects_noncanonical_scheduler_metrics_and_contract_types(
         schema_check._validate_writer_fleet(
             heartbeat_dir=tmp_path,
             expected_instances=(("scheduler", "scheduler-1"),),
+            not_before=now - timedelta(seconds=10),
+            max_age_seconds=120,
+        )
+
+
+@pytest.mark.parametrize(
+    ("role", "case", "expected_error"),
+    (
+        ("worker", "missing_role_payload", "writer_heartbeat_schema_invalid"),
+        (
+            "worker",
+            "unknown_queue_key",
+            "writer_heartbeat_property_search_work_queue_invalid",
+        ),
+        (
+            "worker",
+            "unobserved_with_metrics",
+            "writer_heartbeat_property_search_work_queue_invalid",
+        ),
+        (
+            "worker",
+            "invalid_observed_metrics",
+            "writer_heartbeat_property_search_work_queue_invalid",
+        ),
+        ("scheduler", "cross_role_payload", "writer_heartbeat_schema_invalid"),
+        ("api", "cross_role_payload", "writer_heartbeat_schema_invalid"),
+    ),
+)
+def test_checker_enforces_closed_role_specific_heartbeat_schemas(
+    tmp_path: Path,
+    role: str,
+    case: str,
+    expected_error: str,
+) -> None:
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    instance_id = f"{role}-1"
+    payload = _writer_heartbeat_payload(
+        role=role,
+        instance_id=instance_id,
+        observed_at=now,
+    )
+    if case == "missing_role_payload":
+        payload.pop("property_search_work_queue")
+    elif case == "unknown_queue_key":
+        queue_metrics = dict(payload["property_search_work_queue"])
+        queue_metrics["forged"] = 1
+        payload["property_search_work_queue"] = queue_metrics
+    elif case == "unobserved_with_metrics":
+        payload["property_search_work_queue"] = {
+            "observed": False,
+            "depth": 0,
+            "oldest_item_age_seconds": 0.0,
+        }
+    elif case == "invalid_observed_metrics":
+        payload["property_search_work_queue"] = {
+            "observed": True,
+            "depth": True,
+            "oldest_item_age_seconds": -1.0,
+        }
+    elif case == "cross_role_payload":
+        payload["property_search_work_queue"] = {"observed": False}
+    else:  # pragma: no cover - parametrization is closed above.
+        raise AssertionError(case)
+    (tmp_path / f"{role}-{instance_id}.json").write_text(
+        json.dumps(payload),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match=expected_error):
+        schema_check._validate_writer_fleet(
+            heartbeat_dir=tmp_path,
+            expected_instances=((role, instance_id),),
             not_before=now - timedelta(seconds=10),
             max_age_seconds=120,
         )

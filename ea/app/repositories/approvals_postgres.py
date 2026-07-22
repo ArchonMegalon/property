@@ -49,6 +49,10 @@ class PostgresApprovalRepository:
         return {str(row[0] or "").strip() for row in cur.fetchall()}
 
     def _ensure_schema(self) -> None:
+        from app.repositories.postgres_schema import repository_schema_ddl_enabled
+
+        if not repository_schema_ddl_enabled():
+            return
         with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(

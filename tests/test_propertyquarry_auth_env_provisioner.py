@@ -1,0 +1,157 @@
+from __future__ import annotations
+
+import importlib.util
+import json
+from pathlib import Path
+import stat
+
+import pytest
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = ROOT / "scripts" / "provision_propertyquarry_auth_env.py"
+
+
+def _load_module():
+    spec = importlib.util.spec_from_file_location(
+        "provision_propertyquarry_auth_env", SCRIPT
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _write_source(path: Path, *, sender: str = "access@propertyquarry.com") -> None:
+    path.write_text(
+        "\n".join(
+            (
+                "EMAILIT_API_KEY=emailit-private-key",
+                f"EA_EMAIL_DEFAULT_FROM={sender}",
+                "EA_EMAIL_DEFAULT_NAME=PropertyQuarry",
+                f"EA_REGISTRATION_EMAIL_FROM={sender}",
+                "EA_REGISTRATION_EMAIL_NAME=PropertyQuarry",
+                "EA_GOOGLE_OAUTH_CLIENT_ID=google-client-id",
+                "EA_GOOGLE_OAUTH_CLIENT_SECRET=google-client-secret",
+                "EA_GOOGLE_OAUTH_STATE_SECRET=shared-state-secret-that-must-not-be-copied",
+                "EA_PROVIDER_SECRET_KEY=shared-provider-secret-that-must-not-be-copied",
+                "UNRELATED_ROOT_TOKEN=must-not-cross-boundary",
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def test_provisioner_writes_narrow_mode_0600_environment(tmp_path: Path) -> None:
+    module = _load_module()
+    source = tmp_path / "source.env"
+    output = tmp_path / "runtime" / "propertyquarry_auth.env"
+    receipt_path = tmp_path / "runtime" / "propertyquarry_auth_receipt.json"
+    _write_source(source)
+
+    receipt = module.provision_auth_environment(
+        source_env=source,
+        output_env=output,
+        receipt_path=receipt_path,
+    )
+
+    values = module.parse_env_file(output)
+    assert stat.S_IMODE(output.stat().st_mode) == 0o600
+    assert stat.S_IMODE(receipt_path.stat().st_mode) == 0o600
+    assert (
+        values["EA_GOOGLE_OAUTH_REDIRECT_URI"]
+        == "https://propertyquarry.com/google/callback"
+    )
+    assert values["EMAILIT_API_KEY"] == "emailit-private-key"
+    assert values["EA_GOOGLE_OAUTH_CLIENT_SECRET"] == "google-client-secret"
+    assert (
+        values["EA_GOOGLE_OAUTH_STATE_SECRET"]
+        != "shared-state-secret-that-must-not-be-copied"
+    )
+    assert (
+        values["EA_PROVIDER_SECRET_KEY"]
+        != "shared-provider-secret-that-must-not-be-copied"
+    )
+    assert "UNRELATED_ROOT_TOKEN" not in values
+    assert receipt["status"] == "ready"
+    receipt_text = receipt_path.read_text(encoding="utf-8")
+    assert "emailit-private-key" not in receipt_text
+    assert "google-client-secret" not in receipt_text
+    assert json.loads(receipt_text)["unrelated_source_keys_copied"] is False
+
+
+def test_provisioner_replay_preserves_dedicated_secrets(tmp_path: Path) -> None:
+    module = _load_module()
+    source = tmp_path / "source.env"
+    output = tmp_path / "propertyquarry_auth.env"
+    receipt_path = tmp_path / "propertyquarry_auth_receipt.json"
+    _write_source(source)
+
+    module.provision_auth_environment(
+        source_env=source, output_env=output, receipt_path=receipt_path
+    )
+    first = module.parse_env_file(output)
+    module.provision_auth_environment(
+        source_env=source, output_env=output, receipt_path=receipt_path
+    )
+    second = module.parse_env_file(output)
+
+    assert (
+        second["EA_GOOGLE_OAUTH_STATE_SECRET"] == first["EA_GOOGLE_OAUTH_STATE_SECRET"]
+    )
+    assert second["EA_PROVIDER_SECRET_KEY"] == first["EA_PROVIDER_SECRET_KEY"]
+
+
+def test_provisioner_rejects_non_propertyquarry_sender(tmp_path: Path) -> None:
+    module = _load_module()
+    source = tmp_path / "source.env"
+    _write_source(source, sender="access@example.test")
+
+    with pytest.raises(
+        module.AuthEnvProvisionError, match="propertyquarry_sender_domain_required"
+    ):
+        module.provision_auth_environment(
+            source_env=source,
+            output_env=tmp_path / "output.env",
+            receipt_path=tmp_path / "receipt.json",
+        )
+
+
+def test_provisioner_rejects_symlink_output(tmp_path: Path) -> None:
+    module = _load_module()
+    source = tmp_path / "source.env"
+    target = tmp_path / "target.env"
+    output = tmp_path / "output.env"
+    _write_source(source)
+    target.write_text("sentinel=1\n", encoding="utf-8")
+    output.symlink_to(target)
+
+    with pytest.raises(
+        module.AuthEnvProvisionError, match="output_path_symlink_rejected"
+    ):
+        module.provision_auth_environment(
+            source_env=source,
+            output_env=output,
+            receipt_path=tmp_path / "receipt.json",
+        )
+    assert target.read_text(encoding="utf-8") == "sentinel=1\n"
+
+
+def test_provisioner_rejects_receipt_overwriting_auth_environment(
+    tmp_path: Path,
+) -> None:
+    module = _load_module()
+    source = tmp_path / "source.env"
+    output = tmp_path / "propertyquarry_auth.env"
+    _write_source(source)
+
+    with pytest.raises(
+        module.AuthEnvProvisionError, match="auth_env_paths_must_be_distinct"
+    ):
+        module.provision_auth_environment(
+            source_env=source,
+            output_env=output,
+            receipt_path=output,
+        )
+    assert not output.exists()

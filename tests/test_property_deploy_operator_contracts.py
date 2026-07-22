@@ -2517,7 +2517,7 @@ def test_schema_migration_docs_reserve_production_for_signed_controller() -> Non
     assert "disposable local development database" in disposable
     assert "EA_RUNTIME_MODE=dev" in disposable
     assert "docker compose -f docker-compose.property.yml up -d --build" in disposable
-    assert "python3 scripts/migrate_property_search_storage.py" in disposable
+    assert "python3 -m app.product.propertyquarry_schema migrate" in disposable
     assert "run the candidate release's deploy migration" not in migration_docs
 
 
@@ -2547,6 +2547,36 @@ def test_schema_v11_docs_require_contained_homogeneous_cutover() -> None:
     env_example = _read(".env.example")
     assert "PROPERTYQUARRY_PROPERTY_SEARCH_ERASURE_SECRET=" in env_example
     assert "Do not rotate it without a governed database key migration" in env_example
+
+
+def test_packet_index_docs_hold_ingress_through_new_image_activation() -> None:
+    migration_docs = _read("docs/PROPERTYQUARRY_SCHEMA_MIGRATIONS.md")
+    activation = " ".join(
+        migration_docs.split("### Legacy research-packet index activation\n", 1)[1]
+        .split("## Disposable development and test targets\n", 1)[0]
+        .split()
+    )
+
+    for required in (
+        "research-packet index remains held",
+        "new immutable web image",
+        "coordinated writer fleet",
+        "complete `api`, `worker`, and `scheduler` instance manifest",
+        "/app/scripts/check_property_search_storage_schema.py",
+        "--phase pre-backfill",
+        "property_search_work_queue",
+        "delivery_outbox",
+        "/app/scripts/backfill_property_research_packet_links.py",
+        "--apply --batch-size 25 --max-batches 0 --max-batch-bytes 33554432",
+        "status=complete",
+        "coverage_complete=true",
+        "fleet-proof SHA-256 equal to the pre-backfill proof",
+        "--phase activate",
+        "status=activation_ready",
+        "reopen ingress",
+        "Direct invocation from the checkout remains forbidden for production",
+    ):
+        assert required in activation
 
 
 def test_environment_matrix_separates_local_compose_from_production_handoff() -> None:
@@ -3110,6 +3140,16 @@ def test_property_web_dockerfile_keeps_reconstruction_lightweight_and_excludes_b
     assert "COPY . /tmp/src" not in dockerfile
     assert "COPY ea/requirements.txt /app/requirements.txt" in dockerfile
     assert "COPY ea/requirements.lock /app/requirements.lock" in dockerfile
+    assert (
+        "COPY scripts/check_property_search_storage_schema.py "
+        "/app/scripts/check_property_search_storage_schema.py"
+        in dockerfile
+    )
+    assert (
+        "COPY scripts/backfill_property_research_packet_links.py "
+        "/app/scripts/backfill_property_research_packet_links.py"
+        in dockerfile
+    )
     assert "COPY scripts/willhaben_property_packet.py /app/scripts/willhaben_property_packet.py" in dockerfile
     assert (
         "COPY scripts/property_magicfit_contact_sheet.py "
@@ -3250,7 +3290,7 @@ def test_property_web_services_keep_the_fixed_image_identity_and_entrypoint() ->
     assert "\n    command:" not in api
     assert (
         'command: ["/usr/local/bin/python", "-m", '
-        '"app.product.property_search_schema", "migrate"]'
+        '"app.product.propertyquarry_schema", "migrate"]'
         in migrate
     )
     assert "\n    command:" not in worker
@@ -3316,7 +3356,7 @@ def test_property_compose_container_names_are_recoverable() -> None:
     assert "property_scene_video_shared.env" not in migration_section
     assert "env_file:" not in migration_section
     assert "EA_ROLE: property-search-migrate" in migration_section
-    assert 'command: ["/usr/local/bin/python", "-m", "app.product.property_search_schema", "migrate"]' in migration_section
+    assert 'command: ["/usr/local/bin/python", "-m", "app.product.propertyquarry_schema", "migrate"]' in migration_section
     assert 'restart: "no"' in migration_section
     worker_section = compose.split("  propertyquarry-worker:", 1)[1].split(
         "  propertyquarry-scheduler:", 1

@@ -4331,6 +4331,37 @@ def _property_visual_sanitize_tour_url(
     return str(tour_url or "").strip()
 
 
+def _property_visual_layout_preview_url(
+    generated_reconstruction_url: object,
+    *,
+    principal_id: object = "",
+) -> str:
+    """Return the first-party launch page for a ready generated layout.
+
+    Generated reconstructions are useful, walkable visual aids, but they are
+    not provider-captured 3D tours.  Keeping this resolver separate prevents a
+    reconstruction from satisfying the verified-tour gate while still giving
+    the workbench a safe URL it can open.
+    """
+    normalized_url = str(generated_reconstruction_url or "").strip()
+    if not normalized_url:
+        return ""
+    if _hosted_property_tour_verified_open_url(
+        normalized_url,
+        principal_id=principal_id,
+    ):
+        return ""
+    if not _hosted_property_tour_generated_reconstruction_bundle_ready(normalized_url):
+        return ""
+    return str(
+        _hosted_property_tour_first_party_open_url(
+            normalized_url,
+            principal_id=principal_id,
+        )
+        or ""
+    ).strip()
+
+
 def _property_visual_initial_eta_minutes(*, status: object, eta_minutes: object = "") -> int:
     normalized_status = str(status or "").strip().lower()
     raw_eta = str(eta_minutes or "").strip()
@@ -6885,6 +6916,8 @@ def _property_search_apply_visual_state_to_run_record(
     present_fields = (
         "tour_eta_minutes",
         "generated_reconstruction_url",
+        "layout_preview_url",
+        "layout_preview_status",
         "blocked_reason",
         "flythrough_eta_minutes",
         "flythrough_reason",
@@ -6940,14 +6973,13 @@ def _property_search_apply_visual_state_to_run_record(
                     matches = row_property_url == property_url
                 if matches:
                     row.setdefault("candidate_ref", candidate_ref or hashed_identity)
-                    tour_url = str(visual_state.get("tour_url") or "").strip()
-                    if tour_url:
-                        row["tour_url"] = tour_url
+                    if "tour_url" in visual_state:
+                        row["tour_url"] = str(visual_state.get("tour_url") or "").strip()
+                    if "vendor_tour_url" in visual_state:
                         vendor_tour_url = str(
                             visual_state.get("vendor_tour_url") or ""
                         ).strip()
-                        if vendor_tour_url:
-                            row["vendor_tour_url"] = vendor_tour_url
+                        row["vendor_tour_url"] = vendor_tour_url
                     for field in nonempty_fields:
                         normalized = str(visual_state.get(field) or "").strip()
                         if normalized:
@@ -20896,10 +20928,11 @@ def _write_generated_reconstruction_property_tour_bundle_with_lock_held(
         ):
             return existing_payload
 
-    # Publication transactions remain outside the web-served tour root.  This
-    # preserves e4's authority boundary while retaining the candidate's
-    # serialized rollback and erasure-fence checks.
-    control_root = public_dir.parent / f".{public_dir.name}.publication-control"
+    # Keep rollback transactions on the same mounted filesystem as canonical
+    # bundles so every os.replace remains atomic.  The leading dot keeps this
+    # directory outside the public slug namespace: routed tour slugs must begin
+    # with an ASCII alphanumeric character.
+    control_root = public_dir / ".publication-control"
     if control_root.is_symlink():
         raise RuntimeError("property_reconstruction_publication_control_invalid")
     control_root.mkdir(mode=0o700, exist_ok=True)
@@ -45061,6 +45094,46 @@ class ProductService:
         normalized_property_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
         if not normalized_run_id or not normalized_principal:
             return
+        if normalized_candidate_ref:
+            try:
+                indexed_link = _property_search_storage._load_property_research_packet_link_for_run(
+                    principal_id=normalized_principal,
+                    run_id=normalized_run_id,
+                    candidate_ref=normalized_candidate_ref,
+                )
+            except Exception:
+                indexed_link = None
+            indexed_candidate = (
+                dict(indexed_link.get("candidate") or {})
+                if isinstance(indexed_link, dict)
+                and isinstance(indexed_link.get("candidate"), dict)
+                else {}
+            )
+            indexed_source_ref = str(indexed_candidate.get("source_ref") or "").strip()
+            indexed_property_url = urllib.parse.urldefrag(
+                str(indexed_candidate.get("property_url") or "").strip()
+            )[0]
+            indexed_matches = bool(indexed_candidate)
+            if indexed_matches and normalized_source_ref:
+                indexed_matches = indexed_source_ref == normalized_source_ref
+            if indexed_matches and normalized_property_url:
+                indexed_matches = indexed_property_url == normalized_property_url
+            if indexed_matches:
+                try:
+                    _property_fact_mutate_run_record(
+                        principal_id=normalized_principal,
+                        run_id=normalized_run_id,
+                        mutate=lambda current: _property_search_apply_visual_state_to_run_record(
+                            current,
+                            candidate_ref=normalized_candidate_ref,
+                            source_ref=normalized_source_ref,
+                            property_url=normalized_property_url,
+                            visual_state=visual_state,
+                        ),
+                    )
+                except Exception:
+                    return
+                return
         snapshot = self._snapshot_property_search_run(
             run_id=normalized_run_id,
             principal_id=normalized_principal,
@@ -45119,11 +45192,11 @@ class ProductService:
                                 ).encode("utf-8")
                             ).hexdigest()[:16],
                         )
-                        if str(visual_state.get("tour_url") or "").strip():
+                        if "tour_url" in visual_state:
                             candidate_row["tour_url"] = str(visual_state.get("tour_url") or "").strip()
+                        if "vendor_tour_url" in visual_state:
                             vendor_tour_url = str(visual_state.get("vendor_tour_url") or "").strip()
-                            if vendor_tour_url:
-                                candidate_row["vendor_tour_url"] = vendor_tour_url
+                            candidate_row["vendor_tour_url"] = vendor_tour_url
                         if str(visual_state.get("tour_status") or "").strip():
                             candidate_row["tour_status"] = str(visual_state.get("tour_status") or "").strip()
                         if "tour_eta_minutes" in visual_state:
@@ -45138,6 +45211,14 @@ class ProductService:
                             candidate_row["generated_reconstruction_url"] = str(
                                 visual_state.get("generated_reconstruction_url") or ""
                             ).strip()
+                        if "layout_preview_url" in visual_state:
+                            candidate_row["layout_preview_url"] = str(
+                                visual_state.get("layout_preview_url") or ""
+                            ).strip()
+                        if "layout_preview_status" in visual_state:
+                            candidate_row["layout_preview_status"] = str(
+                                visual_state.get("layout_preview_status") or ""
+                            ).strip().lower()
                         if "blocked_reason" in visual_state:
                             candidate_row["blocked_reason"] = str(visual_state.get("blocked_reason") or "").strip()
                         if str(visual_state.get("flythrough_url") or "").strip():
@@ -45203,15 +45284,24 @@ class ProductService:
         normalized_property_url = urllib.parse.urldefrag(str(property_url or "").strip())[0]
         if not normalized_run_id or not normalized_principal:
             return {}
-        snapshot = self._snapshot_property_search_run(
-            run_id=normalized_run_id,
-            principal_id=normalized_principal,
-            allow_finalization_notifications=False,
-        )
-        if not isinstance(snapshot, dict):
-            return {}
-        summary = dict(snapshot.get("summary") or {})
-        sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
+        indexed_candidate: dict[str, object] = {}
+        captured_at = ""
+        if normalized_candidate_ref:
+            try:
+                indexed_link = _property_search_storage._load_property_research_packet_link_for_run(
+                    principal_id=normalized_principal,
+                    run_id=normalized_run_id,
+                    candidate_ref=normalized_candidate_ref,
+                )
+            except Exception:
+                indexed_link = None
+            if isinstance(indexed_link, dict):
+                packet_candidate = indexed_link.get("candidate")
+                if isinstance(packet_candidate, dict):
+                    indexed_candidate = dict(packet_candidate)
+                    captured_at = str(
+                        indexed_candidate.get("packet_source_observed_at") or ""
+                    ).strip()
 
         def _candidate_identity(candidate_row: dict[str, object], source_label: str) -> str:
             return hashlib.sha1(
@@ -45229,7 +45319,10 @@ class ProductService:
         def _matching_state(candidate_row: dict[str, object], source_label: str) -> dict[str, object]:
             candidate_source_ref = str(candidate_row.get("source_ref") or "").strip()
             candidate_property_url = urllib.parse.urldefrag(str(candidate_row.get("property_url") or "").strip())[0]
-            candidate_identity = _candidate_identity(candidate_row, source_label)
+            candidate_identity = str(candidate_row.get("candidate_ref") or "").strip() or _candidate_identity(
+                candidate_row,
+                source_label,
+            )
             candidate_refs = {
                 candidate_identity,
                 str(candidate_row.get("candidate_ref") or "").strip(),
@@ -45253,27 +45346,67 @@ class ProductService:
                     or candidate_identity
                 ),
                 source_ref=candidate_source_ref,
-                captured_at=str(snapshot.get("created_at") or "").strip(),
+                captured_at=captured_at,
+            )
+            candidate_external_id = str(
+                candidate_row.get("external_id")
+                or candidate_row.get("listing_id")
+                or candidate_row.get("listing_uuid")
+                or ""
+            ).strip()
+            generated_reconstruction_url = str(
+                candidate_row.get("generated_reconstruction_url") or ""
+            ).strip()
+            layout_preview_url = _property_visual_layout_preview_url(
+                candidate_row.get("layout_preview_url")
+                or generated_reconstruction_url,
+                principal_id=normalized_principal,
             )
             tour_url = str(candidate_row.get("tour_url") or "").strip()
+            legacy_layout_preview_url = _property_visual_layout_preview_url(
+                tour_url,
+                principal_id=normalized_principal,
+            )
+            if legacy_layout_preview_url:
+                generated_reconstruction_url = generated_reconstruction_url or tour_url
+                layout_preview_url = layout_preview_url or legacy_layout_preview_url
+                tour_url = ""
             if not tour_url:
                 tour_url = _existing_hosted_property_tour_url_for_identity(
                     property_url=candidate_property_url,
                     source_ref=candidate_source_ref,
-                    external_id=(
-                        candidate_row.get("external_id")
-                        or candidate_row.get("listing_id")
-                        or candidate_row.get("listing_uuid")
-                        or ""
-                    ),
+                    external_id=candidate_external_id,
                     principal_id=normalized_principal,
                 )
+            if not layout_preview_url:
+                recovered_reconstruction_url = (
+                    _existing_generated_reconstruction_tour_url_for_identity(
+                        property_url=candidate_property_url,
+                        source_ref=candidate_source_ref,
+                        external_id=candidate_external_id,
+                        principal_id=normalized_principal,
+                    )
+                )
+                recovered_layout_preview_url = _property_visual_layout_preview_url(
+                    recovered_reconstruction_url,
+                    principal_id=normalized_principal,
+                )
+                if recovered_layout_preview_url:
+                    generated_reconstruction_url = recovered_reconstruction_url
+                    layout_preview_url = recovered_layout_preview_url
             vendor_tour_url = str(candidate_row.get("vendor_tour_url") or "").strip()
             if not vendor_tour_url and tour_url:
                 vendor_tour_url = _hosted_property_tour_verified_open_url(
                     tour_url,
                     principal_id=normalized_principal,
                 )
+            layout_preview_status = str(
+                candidate_row.get("layout_preview_status") or ""
+            ).strip().lower()
+            if layout_preview_url:
+                layout_preview_status = "ready"
+            elif layout_preview_status == "ready":
+                layout_preview_status = ""
             return {
                 "tour_url": tour_url,
                 "vendor_tour_url": vendor_tour_url,
@@ -45281,7 +45414,9 @@ class ProductService:
                 "tour_status_updated_at": str(candidate_row.get("tour_status_updated_at") or "").strip(),
                 "tour_eta_minutes": str(candidate_row.get("tour_eta_minutes") or "").strip(),
                 "tour_progress_pct": str(candidate_row.get("tour_progress_pct") or "").strip(),
-                "generated_reconstruction_url": str(candidate_row.get("generated_reconstruction_url") or "").strip(),
+                "generated_reconstruction_url": generated_reconstruction_url,
+                "layout_preview_url": layout_preview_url,
+                "layout_preview_status": layout_preview_status,
                 "tour_repair_queued_at": str(candidate_row.get("tour_repair_queued_at") or "").strip(),
                 "tour_repair_started_at": str(candidate_row.get("tour_repair_started_at") or "").strip(),
                 "flythrough_url": str(candidate_row.get("flythrough_url") or "").strip(),
@@ -45302,6 +45437,27 @@ class ProductService:
                     max_length=180,
                 ),
             }
+
+        if indexed_candidate:
+            indexed_source_label = str(
+                indexed_candidate.get("source_label")
+                or indexed_candidate.get("source_url")
+                or "Source"
+            ).strip()
+            matched = _matching_state(indexed_candidate, indexed_source_label)
+            if matched:
+                return matched
+
+        snapshot = self._snapshot_property_search_run(
+            run_id=normalized_run_id,
+            principal_id=normalized_principal,
+            allow_finalization_notifications=False,
+        )
+        if not isinstance(snapshot, dict):
+            return {}
+        captured_at = str(snapshot.get("created_at") or "").strip()
+        summary = dict(snapshot.get("summary") or {})
+        sources = [dict(row) for row in list(summary.get("sources") or []) if isinstance(row, dict)]
 
         for candidate in list(summary.get("ranked_candidates") or []):
             if not isinstance(candidate, dict):
@@ -45608,8 +45764,11 @@ class ProductService:
                 "tour_url": str(result_payload.get("tour_url") or "").strip(),
                 "open_tour_url": str(result_payload.get("open_tour_url") or "").strip(),
                 "generated_reconstruction_url": str(result_payload.get("generated_reconstruction_url") or "").strip(),
+                "layout_preview_url": str(result_payload.get("layout_preview_url") or "").strip(),
+                "layout_preview_status": str(result_payload.get("layout_preview_status") or "").strip().lower(),
                 "vendor_tour_url": str(result_payload.get("vendor_tour_url") or "").strip(),
                 "flythrough_url": str(result_payload.get("flythrough_url") or "").strip(),
+                "tour_media_mode": str(result_payload.get("tour_media_mode") or "").strip(),
             }
             if normalized_kind == "flythrough":
                 payload["flythrough_status"] = str(
@@ -45680,11 +45839,33 @@ class ProductService:
                 if request_kind == "flythrough"
                 else str(existing_visual_state.get("tour_status") or "").strip().lower()
             )
+            existing_generated_reconstruction_url = str(
+                existing_visual_state.get("generated_reconstruction_url") or ""
+            ).strip()
+            existing_layout_preview_url = (
+                _property_visual_layout_preview_url(
+                    existing_generated_reconstruction_url,
+                    principal_id=normalized_principal,
+                )
+                if request_kind == "tour"
+                else ""
+            )
+            existing_provider_tour_url = str(existing_visual_state.get("tour_url") or "").strip()
+            if request_kind == "tour" and not existing_layout_preview_url:
+                legacy_layout_preview_url = _property_visual_layout_preview_url(
+                    existing_provider_tour_url,
+                    principal_id=normalized_principal,
+                )
+                if legacy_layout_preview_url:
+                    existing_generated_reconstruction_url = existing_provider_tour_url
+                    existing_layout_preview_url = legacy_layout_preview_url
+                    existing_provider_tour_url = ""
             existing_ready_url = (
                 str(existing_visual_state.get("flythrough_url") or "").strip()
                 if request_kind == "flythrough"
-                else _hosted_property_tour_first_party_open_url(
-                    existing_visual_state.get("tour_url"),
+                else _property_visual_ready_tour_url(
+                    tour_url=existing_provider_tour_url,
+                    open_tour_url=existing_visual_state.get("open_tour_url"),
                     principal_id=normalized_principal,
                 )
             )
@@ -45741,14 +45922,83 @@ class ProductService:
                     }
                 )
                 continue
-            if _property_tour_status_is_terminal(existing_status) and existing_status not in {"created", "existing", "ready"}:
+            if existing_layout_preview_url:
+                layout_resolution = (
+                    existing_status
+                    if existing_status in {"blocked", "failed", "skipped", "not_applicable"}
+                    else "blocked"
+                )
+                existing_reason = str(existing_visual_state.get("blocked_reason") or "").strip() or "listing_360_media_missing"
+                completed = self.complete_handoff(
+                    principal_id=normalized_principal,
+                    handoff_ref=f"human_task:{task.human_task_id}",
+                    operator_id=str(task.assigned_operator_id or followup_operator_id).strip() or followup_operator_id,
+                    actor=actor,
+                    resolution=layout_resolution,
+                    returned_payload_json=_visual_return_payload(
+                        task=task,
+                        request_kind=request_kind,
+                        resolution=layout_resolution,
+                        property_url=property_url,
+                        source_ref=source_ref,
+                        external_id=external_id,
+                        run_id=run_id,
+                        candidate_ref=candidate_ref,
+                        diorama_style_hint=diorama_style_hint,
+                        blocked_reason=existing_reason,
+                        result={
+                            "status": layout_resolution,
+                            "tour_status": layout_resolution,
+                            "status_label": "Open layout tour",
+                            "status_detail": "Generated from the floor plan and listing photos. It is a layout aid, not a captured 3D tour.",
+                            "generated_reconstruction_url": existing_generated_reconstruction_url,
+                            "layout_preview_url": existing_layout_preview_url,
+                            "layout_preview_status": "ready",
+                            "tour_media_mode": "generated_reconstruction",
+                        },
+                    ),
+                )
+                blocked_total += int(layout_resolution in {"blocked", "failed", "skipped", "not_applicable"})
+                resolved.append(
+                    {
+                        "human_task_id": f"human_task:{task.human_task_id}",
+                        "handoff_ref": f"human_task:{task.human_task_id}",
+                        "property_url": property_url,
+                        "request_kind": request_kind,
+                        "resolution": layout_resolution,
+                        "status": layout_resolution,
+                        "status_label": "Open layout tour",
+                        "tour_url": "",
+                        "generated_reconstruction_url": existing_generated_reconstruction_url,
+                        "layout_preview_url": existing_layout_preview_url,
+                        "flythrough_url": "",
+                        "returned": completed is not None,
+                    }
+                )
+                continue
+            existing_reason = (
+                str(existing_visual_state.get("flythrough_reason") or "").strip()
+                if request_kind == "flythrough"
+                else str(existing_visual_state.get("blocked_reason") or "").strip()
+            )
+            retry_generated_reconstruction = bool(
+                request_kind == "tour"
+                and existing_status in {"blocked", "failed", "skipped", "not_applicable"}
+                and existing_reason
+                in {
+                    "listing_360_media_missing",
+                    "property_tour_fallback_disabled",
+                    "property_tour_rebuild_required",
+                    "provider_export_missing",
+                }
+            )
+            if (
+                _property_tour_status_is_terminal(existing_status)
+                and existing_status not in {"created", "existing", "ready"}
+                and not retry_generated_reconstruction
+            ):
                 if existing_status in {"blocked", "failed", "skipped", "not_applicable"}:
                     blocked_total += 1
-                existing_reason = (
-                    str(existing_visual_state.get("flythrough_reason") or "").strip()
-                    if request_kind == "flythrough"
-                    else str(existing_visual_state.get("blocked_reason") or "").strip()
-                )
                 completed = self.complete_handoff(
                     principal_id=normalized_principal,
                     handoff_ref=f"human_task:{task.human_task_id}",
@@ -45824,6 +46074,8 @@ class ProductService:
                         "tour_eta_minutes": "10",
                         "tour_requested_at": tour_requested_at,
                         "tour_status_updated_at": started_at,
+                        "layout_preview_url": "",
+                        "layout_preview_status": "processing",
                         "tour_progress_pct": str(
                             _property_visual_progress_pct(
                                 request_kind="tour",
@@ -45886,6 +46138,8 @@ class ProductService:
                             "tour_eta_minutes": "",
                             "tour_requested_at": str(existing_visual_state.get("tour_requested_at") or "").strip() or started_at,
                             "tour_status_updated_at": started_at,
+                            "layout_preview_url": "",
+                            "layout_preview_status": "blocked",
                             "tour_progress_pct": "0",
                         }
                     )
@@ -45957,24 +46211,69 @@ class ProductService:
                 result.get("flythrough_url") if request_kind == "flythrough" else result.get("tour_url") or ""
             ).strip()
             requested_generated_reconstruction_url = (
-                _property_visual_sanitize_tour_url(
+                str(result.get("generated_reconstruction_url") or "").strip()
+                if request_kind != "flythrough"
+                else ""
+            )
+            raw_requested_generated_bundle_url = (
+                _property_visual_generated_reconstruction_bundle_url(raw_requested_url)
+                if request_kind != "flythrough"
+                else ""
+            )
+            raw_requested_layout_preview_url = (
+                _property_visual_layout_preview_url(
                     raw_requested_url,
-                    generated_reconstruction_url=str(result.get("generated_reconstruction_url") or "").strip(),
+                    principal_id=normalized_principal,
+                )
+                if request_kind != "flythrough" and raw_requested_url
+                else ""
+            )
+            if (
+                request_kind != "flythrough"
+                and not requested_generated_reconstruction_url
+                and (raw_requested_generated_bundle_url or raw_requested_layout_preview_url)
+            ):
+                requested_generated_reconstruction_url = _property_visual_sanitize_tour_url(
+                    raw_requested_url,
+                    generated_reconstruction_url=raw_requested_generated_bundle_url,
+                )
+            reported_layout_preview_url = (
+                str(result.get("layout_preview_url") or "").strip()
+                if request_kind != "flythrough"
+                else ""
+            )
+            if (
+                request_kind != "flythrough"
+                and not requested_generated_reconstruction_url
+                and _property_visual_layout_preview_url(
+                    reported_layout_preview_url,
+                    principal_id=normalized_principal,
+                )
+            ):
+                requested_generated_reconstruction_url = reported_layout_preview_url
+            requested_layout_preview_url = (
+                _property_visual_layout_preview_url(
+                    requested_generated_reconstruction_url,
+                    principal_id=normalized_principal,
                 )
                 if request_kind != "flythrough"
                 else ""
             )
             raw_requested_is_generated_reconstruction = bool(
                 request_kind != "flythrough"
-                and _property_visual_generated_reconstruction_bundle_url(raw_requested_url)
+                and requested_generated_reconstruction_url
+                and (
+                    raw_requested_generated_bundle_url
+                    or raw_requested_url == requested_generated_reconstruction_url
+                )
             )
             if raw_requested_is_generated_reconstruction:
                 result = {
                     **dict(result or {}),
-                    "tour_url": requested_generated_reconstruction_url,
+                    "tour_url": "",
                     "generated_reconstruction_url": requested_generated_reconstruction_url,
                 }
-                raw_requested_url = str(result.get("tour_url") or "").strip()
+                raw_requested_url = ""
             requested_open_tour_url = (
                 _property_visual_ready_tour_url(
                     tour_url=raw_requested_url,
@@ -45984,6 +46283,29 @@ class ProductService:
                 if request_kind != "flythrough"
                 else ""
             )
+            if (
+                request_kind != "flythrough"
+                and requested_generated_reconstruction_url
+                and not requested_open_tour_url
+            ):
+                result = {
+                    **dict(result or {}),
+                    "status_label": (
+                        "Open layout tour"
+                        if requested_layout_preview_url
+                        else "3D tour not ready"
+                    ),
+                    "status_detail": (
+                        "Generated from the floor plan and listing photos. It is a layout aid, not a captured 3D tour."
+                        if requested_layout_preview_url
+                        else "The generated layout is not published yet."
+                    ),
+                    "tour_media_mode": (
+                        "generated_reconstruction"
+                        if requested_layout_preview_url
+                        else str(result.get("tour_media_mode") or "").strip()
+                    ),
+                }
             requested_url = raw_requested_url if request_kind == "flythrough" else requested_open_tour_url
             requested_reason = str(
                 result.get("flythrough_reason") if request_kind == "flythrough" else result.get("blocked_reason") or ""
@@ -46009,7 +46331,8 @@ class ProductService:
                 resolution = "blocked"
                 requested_reason = requested_reason or (
                     "listing_360_media_missing"
-                    if _is_branded_public_tour_url(raw_requested_url)
+                    if requested_generated_reconstruction_url
+                    or _is_branded_public_tour_url(raw_requested_url)
                     else "property_tour_rebuild_required"
                 )
             if resolution in {"blocked", "failed", "skipped", "not_applicable"}:
@@ -46046,6 +46369,9 @@ class ProductService:
                         **dict(result or {}),
                         "tour_url": resolved_tour_url,
                         "open_tour_url": requested_open_tour_url if request_kind != "flythrough" else "",
+                        "generated_reconstruction_url": requested_generated_reconstruction_url,
+                        "layout_preview_url": requested_layout_preview_url,
+                        "layout_preview_status": "ready" if requested_layout_preview_url else "",
                         "flythrough_url": resolved_flythrough_url,
                     },
                     blocked_reason=requested_reason,
@@ -46063,6 +46389,8 @@ class ProductService:
                     "status_label": str(result.get("status_label") or "").strip(),
                     "tour_url": resolved_tour_url,
                     "open_tour_url": requested_open_tour_url if request_kind != "flythrough" else "",
+                    "generated_reconstruction_url": requested_generated_reconstruction_url,
+                    "layout_preview_url": requested_layout_preview_url,
                     "flythrough_url": resolved_flythrough_url,
                 },
                 source_id=source_ref or property_url,
@@ -46078,6 +46406,8 @@ class ProductService:
                     "status": str(result.get("status") or "").strip().lower() or resolution,
                     "status_label": str(result.get("status_label") or "").strip(),
                     "tour_url": resolved_tour_url,
+                    "generated_reconstruction_url": requested_generated_reconstruction_url,
+                    "layout_preview_url": requested_layout_preview_url,
                     "flythrough_url": resolved_flythrough_url,
                     "returned": completed is not None,
                 }
@@ -46139,6 +46469,30 @@ class ProductService:
             external_id=str(external_id or normalized_property_url).strip(),
             principal_id=principal_id,
         )
+        existing_generated_reconstruction_url = str(
+            existing_visual_state.get("generated_reconstruction_url") or ""
+        ).strip()
+        existing_layout_preview_url = _property_visual_layout_preview_url(
+            existing_generated_reconstruction_url,
+            principal_id=principal_id,
+        )
+        if normalized_kind == "tour":
+            for existing_candidate_url in (
+                existing_visual_tour_url,
+                existing_identity_tour_url,
+            ):
+                candidate_layout_preview_url = _property_visual_layout_preview_url(
+                    existing_candidate_url,
+                    principal_id=principal_id,
+                )
+                if not candidate_layout_preview_url:
+                    continue
+                existing_generated_reconstruction_url = existing_candidate_url
+                existing_layout_preview_url = candidate_layout_preview_url
+                if existing_candidate_url == existing_visual_tour_url:
+                    existing_visual_tour_url = ""
+                if existing_candidate_url == existing_identity_tour_url:
+                    existing_identity_tour_url = ""
         existing_hosted_tour_url = existing_visual_tour_url or existing_identity_tour_url
         existing_verified_tour_url = (
             _hosted_property_tour_verified_open_url(
@@ -46181,7 +46535,9 @@ class ProductService:
                     "tour_progress_pct": "100",
                     "flythrough_url": str(existing_walkthrough_url or "").strip(),
                     "blocked_reason": "",
-                    "generated_reconstruction_url": str(existing_visual_state.get("generated_reconstruction_url") or "").strip(),
+                    "generated_reconstruction_url": existing_generated_reconstruction_url,
+                    "layout_preview_url": existing_layout_preview_url,
+                    "layout_preview_status": "ready" if existing_layout_preview_url else "",
                     "diorama_style_hint": resolved_style_hint,
                 },
             )
@@ -46197,7 +46553,13 @@ class ProductService:
                 "connector_binding_id": str(binding_id or "").strip(),
                 "tour_url": str(existing_hosted_tour_url or existing_open_tour_url).strip(),
                 "verified_tour_url": str(existing_verified_tour_url or "").strip(),
-                "generated_reconstruction_url": str(existing_visual_state.get("generated_reconstruction_url") or "").strip(),
+                "generated_reconstruction_url": existing_generated_reconstruction_url,
+                "layout_preview_url": existing_layout_preview_url,
+                "layout_preview_status": (
+                    "ready"
+                    if existing_layout_preview_url
+                    else "queued" if normalized_kind == "tour" else ""
+                ),
                 "open_tour_url": str(existing_open_tour_url).strip(),
                 "vendor_tour_url": str(existing_verified_tour_url or "").strip(),
                 "editor_url": "",
@@ -46219,6 +46581,75 @@ class ProductService:
                 "progress_pct": 100,
                 "poll_after_seconds": 0,
                 "tour_media_mode": "stored_visual_state",
+                "personal_fit_assessment": {},
+                "diorama_style_hint": resolved_style_hint,
+            }
+        if normalized_kind == "tour" and existing_layout_preview_url:
+            status_timestamp = _now_iso()
+            provider_tour_status = str(existing_visual_state.get("tour_status") or "").strip().lower()
+            if provider_tour_status not in {"blocked", "failed", "skipped", "not_applicable"}:
+                provider_tour_status = "blocked"
+            provider_blocked_reason = str(existing_visual_state.get("blocked_reason") or "").strip()
+            if not provider_blocked_reason:
+                provider_blocked_reason = "listing_360_media_missing"
+            self._persist_property_search_visual_state(
+                principal_id=principal_id,
+                run_id=str(run_id or "").strip(),
+                candidate_ref=str(candidate_ref or "").strip(),
+                source_ref=normalized_source_ref,
+                property_url=normalized_property_url,
+                visual_state={
+                    "tour_url": str(existing_hosted_tour_url or "").strip(),
+                    "vendor_tour_url": str(existing_verified_tour_url or "").strip(),
+                    "tour_status": provider_tour_status,
+                    "tour_eta_minutes": "",
+                    "tour_requested_at": str(existing_visual_state.get("tour_requested_at") or "").strip() or status_timestamp,
+                    "tour_status_updated_at": status_timestamp,
+                    "tour_progress_pct": "0",
+                    "flythrough_url": str(existing_walkthrough_url or "").strip(),
+                    "blocked_reason": provider_blocked_reason,
+                    "generated_reconstruction_url": existing_generated_reconstruction_url,
+                    "layout_preview_url": existing_layout_preview_url,
+                    "layout_preview_status": "ready",
+                    "diorama_style_hint": resolved_style_hint,
+                },
+            )
+            return {
+                "generated_at": status_timestamp,
+                "status": provider_tour_status,
+                "property_url": normalized_property_url,
+                "title": "Selected property",
+                "listing_id": "",
+                "variant_key": str(variant_key or "layout_first").strip() or "layout_first",
+                "artifact_id": "",
+                "execution_session_id": "",
+                "connector_binding_id": str(binding_id or "").strip(),
+                "tour_url": str(existing_hosted_tour_url or "").strip(),
+                "open_tour_url": "",
+                "verified_tour_url": str(existing_verified_tour_url or "").strip(),
+                "generated_reconstruction_url": existing_generated_reconstruction_url,
+                "layout_preview_url": existing_layout_preview_url,
+                "layout_preview_status": "ready",
+                "vendor_tour_url": str(existing_verified_tour_url or "").strip(),
+                "editor_url": "",
+                "delivery_email": str(recipient_email or "").strip().lower(),
+                "delivery_status": "skipped",
+                "blocked_reason": provider_blocked_reason,
+                "human_task_id": "",
+                "source_ref": normalized_source_ref,
+                "external_id": str(external_id or normalized_property_url).strip(),
+                "request_kind": normalized_kind,
+                "run_id": str(run_id or "").strip(),
+                "candidate_ref": str(candidate_ref or "").strip(),
+                "flythrough_url": str(existing_walkthrough_url or "").strip(),
+                "flythrough_status": "ready" if str(existing_walkthrough_url or "").strip() else "",
+                "tour_status": provider_tour_status,
+                "status_label": "Open layout tour",
+                "status_detail": "Generated from the floor plan and listing photos. It is a layout aid, not a captured 3D tour.",
+                "eta_label": "",
+                "progress_pct": 0,
+                "poll_after_seconds": 0,
+                "tour_media_mode": "generated_reconstruction",
                 "personal_fit_assessment": {},
                 "diorama_style_hint": resolved_style_hint,
             }
@@ -46488,7 +46919,13 @@ class ProductService:
                 "flythrough_status_updated_at": request_opened_at if normalized_kind == "flythrough" else "",
                 "flythrough_progress_pct": str(_property_visual_progress_pct(request_kind="flythrough", status="queued", requested_at=(persisted_requested_at if normalized_kind == "flythrough" else str(existing_visual_state.get("flythrough_requested_at") or "").strip()), status_updated_at=request_opened_at)) if normalized_kind == "flythrough" else "",
                 "blocked_reason": "",
-                "generated_reconstruction_url": str(existing_visual_state.get("generated_reconstruction_url") or "").strip(),
+                "generated_reconstruction_url": existing_generated_reconstruction_url,
+                "layout_preview_url": existing_layout_preview_url,
+                "layout_preview_status": (
+                    "ready"
+                    if existing_layout_preview_url
+                    else "queued" if normalized_kind == "tour" else ""
+                ),
                 "diorama_style_hint": resolved_style_hint,
             }
             self._persist_property_search_visual_state(
@@ -46515,7 +46952,13 @@ class ProductService:
                 "delivery_email": str(recipient_email or "").strip().lower(),
                 "delivery_status": "queued",
                 "blocked_reason": "",
-                "generated_reconstruction_url": str(existing_visual_state.get("generated_reconstruction_url") or "").strip(),
+                "generated_reconstruction_url": existing_generated_reconstruction_url,
+                "layout_preview_url": existing_layout_preview_url,
+                "layout_preview_status": (
+                    "ready"
+                    if existing_layout_preview_url
+                    else "queued" if normalized_kind == "tour" else ""
+                ),
                 "human_task_id": human_task_id,
                 "source_ref": normalized_source_ref,
                 "external_id": str(external_id or normalized_property_url).strip(),
@@ -46656,11 +47099,13 @@ class ProductService:
             payload["tour_status"] = "blocked"
             payload["blocked_reason"] = "provider_export_missing"
             payload["tour_url"] = ""
+        generated_reconstruction_attempted = False
         if (
             normalized_kind == "tour"
             and str(payload.get("status") or "").strip().lower() in {"blocked", "failed", "skipped"}
             and not generated_reconstruction_url
         ):
+            generated_reconstruction_attempted = True
             generated_reconstruction_url = self._materialize_property_generated_reconstruction_url(
                 principal_id=principal_id,
                 property_url=normalized_property_url,
@@ -46674,13 +47119,17 @@ class ProductService:
             payload["generated_reconstruction_url"] = generated_reconstruction_url
         generated_reconstruction_open_url = ""
         if normalized_kind == "tour" and effective_allow_floorplan_only:
-            generated_reconstruction_open_url = _hosted_property_tour_first_party_open_url(
-                generated_reconstruction_url or payload.get("tour_url"),
+            generated_reconstruction_open_url = _property_visual_layout_preview_url(
+                generated_reconstruction_url,
                 principal_id=principal_id,
             )
             if generated_reconstruction_open_url:
-                payload["tour_url"] = str(generated_reconstruction_url or payload.get("tour_url") or "").strip()
-                payload["open_tour_url"] = generated_reconstruction_open_url
+                payload["layout_preview_url"] = generated_reconstruction_open_url
+                payload["layout_preview_status"] = "ready"
+                payload["tour_media_mode"] = "generated_reconstruction"
+                payload.pop("open_tour_url", None)
+            elif generated_reconstruction_attempted:
+                payload["layout_preview_status"] = "blocked"
         title = str(payload.get("title") or normalized_property_url or "Property").strip()
         tour_status = str(payload.get("status") or "").strip().lower()
         flythrough_status = ""
@@ -46776,6 +47225,9 @@ class ProductService:
                 payload["blocked_reason"] = ""
                 status_label = "3D tour available"
                 status_detail = "3D tour is ready."
+            elif generated_reconstruction_open_url:
+                status_label = "Open layout tour"
+                status_detail = "Generated from the floor plan and listing photos. It is a layout aid, not a captured 3D tour."
             elif str(payload.get("tour_url") or "").strip():
                 payload["tour_status"] = "repairing"
                 status_label = "3D tour unavailable"
@@ -46891,6 +47343,8 @@ class ProductService:
                 "flythrough_reason": str(payload.get("flythrough_reason") or "").strip(),
                 "blocked_reason": str(payload.get("blocked_reason") or "").strip(),
                 "generated_reconstruction_url": str(payload.get("generated_reconstruction_url") or "").strip(),
+                "layout_preview_url": str(payload.get("layout_preview_url") or "").strip(),
+                "layout_preview_status": str(payload.get("layout_preview_status") or "").strip().lower(),
                 "diorama_style_hint": resolved_style_hint,
             },
         )
@@ -46950,11 +47404,22 @@ class ProductService:
 
         def _candidate_priority(candidate_row: dict[str, object]) -> tuple[int, int, int]:
             tour_url = str(candidate_row.get("tour_url") or "").strip()
+            generated_reconstruction_url = str(candidate_row.get("generated_reconstruction_url") or "").strip()
+            layout_preview_url = str(candidate_row.get("layout_preview_url") or "").strip()
             flythrough_url = str(candidate_row.get("flythrough_url") or "").strip()
             tour_status = str(candidate_row.get("tour_status") or "").strip().lower()
+            layout_preview_status = str(candidate_row.get("layout_preview_status") or "").strip().lower()
             flythrough_status = str(candidate_row.get("flythrough_status") or "").strip().lower()
-            ready_score = int(bool(tour_url)) + int(bool(flythrough_url))
-            active_score = int(tour_status == "ready") + int(flythrough_status == "ready")
+            ready_score = (
+                int(bool(tour_url))
+                + int(bool(generated_reconstruction_url or layout_preview_url))
+                + int(bool(flythrough_url))
+            )
+            active_score = (
+                int(tour_status == "ready")
+                + int(layout_preview_status == "ready")
+                + int(flythrough_status == "ready")
+            )
             if active_score <= 0:
                 active_score += int(tour_status in {"created", "completed", "published"}) + int(
                     flythrough_status in {"created", "completed", "published"}
@@ -47037,6 +47502,8 @@ class ProductService:
                 "tour_url": str(followup_payload.get("tour_url") or "").strip(),
                 "open_tour_url": str(followup_payload.get("open_tour_url") or "").strip(),
                 "generated_reconstruction_url": str(followup_payload.get("generated_reconstruction_url") or "").strip(),
+                "layout_preview_url": str(followup_payload.get("layout_preview_url") or "").strip(),
+                "layout_preview_status": str(followup_payload.get("layout_preview_status") or "").strip().lower(),
                 "vendor_tour_url": str(followup_payload.get("vendor_tour_url") or "").strip(),
                 "tour_status": str(
                     followup_payload.get("tour_status")
@@ -47085,8 +47552,33 @@ class ProductService:
         )
         if normalized_generated_reconstruction_tour_url != tour_url and normalized_generated_reconstruction_tour_url:
             generated_reconstruction_url = normalized_generated_reconstruction_tour_url
-            tour_url = normalized_generated_reconstruction_tour_url
+            tour_url = ""
+        layout_preview_url = _property_visual_layout_preview_url(
+            generated_reconstruction_url,
+            principal_id=normalized_principal,
+        )
+        if tour_url:
+            legacy_layout_preview_url = _property_visual_layout_preview_url(
+                tour_url,
+                principal_id=normalized_principal,
+            )
+            if legacy_layout_preview_url:
+                generated_reconstruction_url = tour_url
+                layout_preview_url = legacy_layout_preview_url
+                tour_url = ""
+        layout_preview_status = (
+            "ready"
+            if layout_preview_url
+            else str(matched_candidate.get("layout_preview_status") or "").strip().lower()
+        )
+        if layout_preview_status == "ready" and not layout_preview_url:
+            layout_preview_status = "blocked"
         open_tour_url = str(matched_candidate.get("open_tour_url") or "").strip()
+        if layout_preview_url and open_tour_url in {
+            layout_preview_url,
+            generated_reconstruction_url,
+        }:
+            open_tour_url = ""
         flythrough_url = str(matched_candidate.get("flythrough_url") or "").strip()
         tour_status = str(matched_candidate.get("tour_status") or "").strip().lower()
         flythrough_status = str(matched_candidate.get("flythrough_status") or "").strip().lower()
@@ -47104,12 +47596,6 @@ class ProductService:
                 )
                 if ready_tour_url:
                     return ready_tour_url
-                ready_generated_reconstruction_url = _property_visual_ready_tour_url(
-                    tour_url=generated_reconstruction_url,
-                    principal_id=normalized_principal,
-                )
-                if ready_generated_reconstruction_url:
-                    return ready_generated_reconstruction_url
             if normalized_kind == "flythrough":
                 return _hosted_property_tour_walkthrough_asset_url(tour_url) or _published_walkthrough_asset_url(flythrough_url)
             return ""
@@ -47191,6 +47677,18 @@ class ProductService:
                     str(followup_payload.get("diorama_style_hint") or followup_input.get("diorama_style_hint") or ""),
                     max_length=180,
                 )
+            followup_generated_reconstruction_url = str(
+                followup_payload.get("generated_reconstruction_url") or ""
+            ).strip()
+            if followup_generated_reconstruction_url:
+                followup_layout_preview_url = _property_visual_layout_preview_url(
+                    followup_generated_reconstruction_url,
+                    principal_id=normalized_principal,
+                )
+                if followup_layout_preview_url:
+                    generated_reconstruction_url = followup_generated_reconstruction_url
+                    layout_preview_url = followup_layout_preview_url
+                    layout_preview_status = "ready"
             if not ready_url and followup_status in {"returned", "completed"} and followup_resolution:
                 request_status_updated_at = str(getattr(latest_followup, "updated_at", "") or "").strip() or request_status_updated_at
                 followup_reason = str(
@@ -47209,11 +47707,19 @@ class ProductService:
                 elif followup_resolution in {"ready", "sent"}:
                     followup_tour_url = str(followup_payload.get("tour_url") or "").strip()
                     followup_open_tour_url = str(followup_payload.get("open_tour_url") or "").strip()
-                    followup_generated_reconstruction_url = str(followup_payload.get("generated_reconstruction_url") or "").strip()
                     followup_tour_url = _property_visual_sanitize_tour_url(
                         followup_tour_url,
                         generated_reconstruction_url=followup_generated_reconstruction_url or generated_reconstruction_url,
                     )
+                    followup_legacy_layout_preview_url = _property_visual_layout_preview_url(
+                        followup_tour_url,
+                        principal_id=normalized_principal,
+                    )
+                    if followup_legacy_layout_preview_url:
+                        generated_reconstruction_url = followup_tour_url
+                        layout_preview_url = followup_legacy_layout_preview_url
+                        layout_preview_status = "ready"
+                        followup_tour_url = ""
                     followup_flythrough_url = str(followup_payload.get("flythrough_url") or "").strip()
                     if normalized_kind == "tour" and followup_tour_url:
                         tour_url = followup_tour_url
@@ -47232,24 +47738,8 @@ class ProductService:
                 generated_reconstruction_url = str(followup_payload.get("generated_reconstruction_url") or "").strip()
             elif not ready_url and followup_status == "pending":
                 status_value = "processing" if normalized_kind == "tour" else "queued"
-        generated_reconstruction_ready_url = ""
-        if normalized_kind == "tour" and generated_reconstruction_url:
-            generated_reconstruction_ready_url = str(
-                _hosted_property_tour_first_party_open_url(
-                    generated_reconstruction_url,
-                    principal_id=normalized_principal,
-                )
-                or ""
-            ).strip()
-            if _hosted_property_tour_verified_open_url(
-                generated_reconstruction_url,
-                principal_id=normalized_principal,
-            ):
-                generated_reconstruction_ready_url = ""
         generated_reconstruction_ready = bool(
-            ready_url
-            and generated_reconstruction_ready_url
-            and ready_url == generated_reconstruction_ready_url
+            normalized_kind == "tour" and layout_preview_url
         )
         if (
             normalized_kind == "tour"
@@ -47297,12 +47787,12 @@ class ProductService:
             if normalized_kind == "flythrough":
                 status_label = "Open walkthrough"
                 status_detail = "Walkthrough is ready."
-            elif generated_reconstruction_ready:
-                status_label = "Open layout tour"
-                status_detail = "Layout tour generated from the floor plan and listing photos is ready."
             else:
                 status_label = "Open 3D tour"
                 status_detail = "3D tour is ready."
+        elif generated_reconstruction_ready:
+            status_label = "Open layout tour"
+            status_detail = "Generated from the floor plan and listing photos. It is a layout aid, not a captured 3D tour."
         elif status_value in {"queued", "pending"}:
             status_label = "Walkthrough queued" if normalized_kind == "flythrough" else "3D tour queued"
             status_detail = "Queued."
@@ -47390,9 +47880,12 @@ class ProductService:
             "request_kind": normalized_kind,
             "run_id": normalized_run_id,
             "candidate_ref": normalized_candidate_ref,
-            "tour_url": str(tour_url or generated_reconstruction_url or "").strip() if normalized_kind == "tour" else tour_url,
+            "tour_url": tour_url,
             "open_tour_url": ready_url if normalized_kind == "tour" else "",
-            "generated_reconstruction_url": generated_reconstruction_ready_url or generated_reconstruction_url,
+            "verified_tour_url": ready_url if normalized_kind == "tour" else "",
+            "generated_reconstruction_url": generated_reconstruction_url,
+            "layout_preview_url": layout_preview_url if normalized_kind == "tour" else "",
+            "layout_preview_status": layout_preview_status if normalized_kind == "tour" else "",
             "flythrough_url": ready_url if normalized_kind == "flythrough" else _published_walkthrough_asset_url(flythrough_url),
             "tour_status": status_value if normalized_kind == "tour" else tour_status,
             "flythrough_status": status_value if normalized_kind == "flythrough" else flythrough_status,
@@ -47402,7 +47895,11 @@ class ProductService:
             "status_detail": status_detail,
             "eta_label": eta_label,
             "progress_pct": progress_pct,
-            "poll_after_seconds": 10 if status_value == "repairing" or _property_tour_status_is_pending(status_value) else 0,
+            "poll_after_seconds": (
+                0
+                if generated_reconstruction_ready
+                else 10 if status_value == "repairing" or _property_tour_status_is_pending(status_value) else 0
+            ),
             "tour_media_mode": "generated_reconstruction" if generated_reconstruction_ready else "stored_visual_state",
             "personal_fit_assessment": {},
             "diorama_style_hint": visual_style_hint,

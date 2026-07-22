@@ -1,10 +1,17 @@
-# PropertyQuarry Property-Search Schema Migrations
+# PropertyQuarry Schema Migrations
 
 Property-search database changes are deploy operations, not application
 startup behavior. API, worker, and scheduler processes only verify the schema
 ledger and required relations; they never create or alter the run, durable
 queue, source-cache, delivery-outbox, property-content ledger, or account
 privacy-lifecycle schema.
+
+The same boundary now covers the shared EA kernel schema used by runtime
+repositories. `app.kernel_schema` owns the checked-in `ea/schema/*.sql`
+manifest (v0.2 through v0.38), records immutable checksums in
+`ea_kernel_schema_migrations`, and verifies every declared table after the
+transaction commits. Production repository constructors are read/write only;
+they never use `CREATE`, `ALTER`, or `DROP` as a startup fallback.
 
 Database identities and post-migration grants are governed by
 [`PROPERTYQUARRY_DATABASE_ROLE_BOUNDARIES.md`](PROPERTYQUARRY_DATABASE_ROLE_BOUNDARIES.md).
@@ -13,6 +20,12 @@ admission readiness uses a separately named, standalone two-table DSN rather
 than probing admission state with the API's general runtime credential.
 
 ## Versioned contract
+
+`app.product.propertyquarry_schema` is the one-shot combined deploy gate. It
+applies and verifies the EA kernel manifest first, then applies and verifies
+the property-search manifest below. A kernel failure prevents property-search
+migration, and either failure leaves API, worker, scheduler, and render
+services blocked by Compose's `service_completed_successfully` dependency.
 
 `app.product.property_search_schema` owns the ordered migration manifest:
 
@@ -132,6 +145,58 @@ forward repair. Changing the erasure secret is a separately designed key
 migration, not an environment-variable rotation; without that migration the
 database intentionally fails closed.
 
+### Legacy research-packet index activation
+
+The research-packet index remains held until the new immutable web image is
+running as one coordinated writer fleet and the controller has completed all
+three phases below. A source checkout, an old image, a partial writer restart,
+or a backfill receipt alone cannot authorize activation or traffic.
+
+While ingress remains contained, the installed controller must derive the
+complete `api`, `worker`, and `scheduler` instance manifest from its pinned
+topology and record the coordinated restart boundary. It then executes the
+packaged checker inside the new database-authorized web image:
+
+```text
+/usr/local/bin/python /app/scripts/check_property_search_storage_schema.py \
+  --require-live-db --phase pre-backfill \
+  --heartbeat-dir /data/artifacts/propertyquarry-writer-heartbeats \
+  --expected-writers <controller-derived-role-instance-manifest> \
+  --not-before <controller-recorded-coordinated-restart-boundary> \
+  --heartbeat-max-age-seconds 120 \
+  --fleet-proof-path /data/artifacts/property-research-packet-fleet-proof.json
+```
+
+Every expected instance must have a fresh, role-correct heartbeat from the new
+image. The worker heartbeat includes the closed
+`property_search_work_queue` observation contract; the scheduler heartbeat
+includes the closed `delivery_outbox` contract. The proof must be a private
+mode-`0600` file and the controller records its canonical SHA-256.
+
+Only a successful proof permits the controller to execute the bounded apply:
+
+```text
+/usr/local/bin/python /app/scripts/backfill_property_research_packet_links.py \
+  --apply --batch-size 25 --max-batches 0 --max-batch-bytes 33554432 \
+  --checkpoint-path /data/artifacts/property-research-packet-backfill.checkpoint.json \
+  --receipt-path /data/artifacts/property-research-packet-backfill.receipt.json \
+  --fleet-proof-path /data/artifacts/property-research-packet-fleet-proof.json
+```
+
+The index remains held unless that command exits zero and the private receipt
+reports `status=complete`, `coverage_complete=true`, `scan_complete=true`, zero
+compact-only rows and failures, exact source/scan and expected/verified count
+equality, verified identity digest and link coverage, zero orphan counts, and a
+fleet-proof SHA-256 equal to the pre-backfill proof. Partial, resumable, failed,
+a proof expired before apply, or mismatched evidence leaves ingress contained.
+
+Finally, with the identical manifest, restart boundary, heartbeat directory,
+and proof path, the controller reruns the first checker command with
+`--phase activate`. Only an exit-zero `status=activation_ready` receipt whose
+counts and proof hash match the completed index state permits the controller to
+continue release validation and reopen ingress. Direct invocation from the
+checkout remains forbidden for production.
+
 ## Disposable development and test targets
 
 The standalone Compose topology includes a one-shot
@@ -167,11 +232,11 @@ login and must not equal the API runtime DSN. Do not put any of those values on
 the command line or in shell history.
 
 For an explicitly disposable, separately orchestrated development database,
-run the same migration boundary before starting any application role:
+run the same combined migration boundary before starting any application role:
 
 ```bash
 PYTHONPATH=ea DATABASE_URL='<private-disposable-development-dsn>' \
-  python3 scripts/migrate_property_search_storage.py
+  python3 -m app.product.propertyquarry_schema migrate
 ```
 
 The command is idempotent. A successful no-op reports the current version and
@@ -187,6 +252,14 @@ PYTHONPATH=ea env -u DATABASE_URL \
 
 With `DATABASE_URL` deliberately supplied, the check performs read-only ledger
 and relation probes. It does not migrate.
+
+To probe both ledgers and their required relations in a disposable or
+controller-contained environment, use:
+
+```bash
+PYTHONPATH=ea DATABASE_URL='<private-contained-dsn>' \
+  python3 -m app.product.propertyquarry_schema check
+```
 
 ## Runtime readiness
 

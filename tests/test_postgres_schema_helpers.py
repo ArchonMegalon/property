@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import ast
+from pathlib import Path
+
 from app.repositories.postgres_schema import (
     add_column_if_missing,
     create_index_if_missing,
     drop_index_if_present,
+    repository_schema_ddl_enabled,
 )
+
+
+ROOT = Path(__file__).resolve().parents[1]
+DDL_MARKERS = ("CREATE TABLE", "ALTER TABLE", "CREATE INDEX", "DROP INDEX")
 
 
 class _Cursor:
@@ -60,3 +68,68 @@ def test_index_helpers_skip_existing_indexes_and_drop_only_present_indexes() -> 
     assert "CREATE INDEX idx_observation_events_created" not in statements
     assert "DROP INDEX idx_missing" not in statements
     assert "DROP INDEX idx_old" in statements
+
+
+def test_repository_schema_ddl_is_fail_closed_for_production_runtime_roles() -> None:
+    for role in ("", "api", "worker", "scheduler", "render-tools", "unknown-runtime"):
+        assert not repository_schema_ddl_enabled(runtime_mode="prod", role=role)
+        assert not repository_schema_ddl_enabled(runtime_mode="production", role=role)
+
+
+def test_repository_schema_ddl_remains_available_to_bootstrap_and_non_production() -> None:
+    for role in ("bootstrap", "migrate", "migration", "property-search-migrate"):
+        assert repository_schema_ddl_enabled(runtime_mode="prod", role=role)
+    assert repository_schema_ddl_enabled(runtime_mode="dev", role="api")
+    assert repository_schema_ddl_enabled(runtime_mode="test", role="worker")
+    assert repository_schema_ddl_enabled(runtime_mode="", role="scheduler")
+
+
+def test_provider_binding_constructor_does_not_connect_for_production_runtime_roles(monkeypatch) -> None:
+    from app.repositories.provider_bindings_postgres import (
+        PostgresProviderBindingRepository,
+    )
+
+    def _unexpected_connect(_self):  # type: ignore[no-untyped-def]
+        raise AssertionError("production runtime attempted repository schema DDL")
+
+    monkeypatch.setattr(PostgresProviderBindingRepository, "_connect", _unexpected_connect)
+    monkeypatch.setenv("EA_RUNTIME_MODE", "prod")
+    for role in ("api", "worker", "scheduler"):
+        monkeypatch.setenv("EA_ROLE", role)
+        repository = PostgresProviderBindingRepository(
+            "postgresql://runtime.invalid/property"
+        )
+
+        assert repository._database_url == "postgresql://runtime.invalid/property"
+
+
+def test_every_runtime_schema_initializer_has_production_role_guard() -> None:
+    guarded: list[str] = []
+    unguarded: list[str] = []
+    for path in sorted((ROOT / "ea" / "app").rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if node.name not in {"__init__", "_ensure_schema", "ensure_schema"}:
+                continue
+            strings = (
+                value.value.upper()
+                for value in ast.walk(node)
+                if isinstance(value, ast.Constant) and isinstance(value.value, str)
+            )
+            if not any(marker in sql for sql in strings for marker in DDL_MARKERS):
+                continue
+            label = f"{path.relative_to(ROOT)}:{node.name}"
+            calls = {
+                call.func.id
+                for call in ast.walk(node)
+                if isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+            }
+            if "repository_schema_ddl_enabled" in calls:
+                guarded.append(label)
+            else:
+                unguarded.append(label)
+
+    assert guarded
+    assert unguarded == []

@@ -1,8 +1,45 @@
 from __future__ import annotations
 
+import os
+
 
 DEFAULT_SCHEMA_LOCK_TIMEOUT_MS = 1500
 DEFAULT_SCHEMA_STATEMENT_TIMEOUT_MS = 7000
+_PRODUCTION_RUNTIME_MODES = frozenset({"prod", "production"})
+_SCHEMA_DDL_ROLES = frozenset(
+    {
+        "bootstrap",
+        "migrate",
+        "migration",
+        "property-search-migrate",
+    }
+)
+
+
+def repository_schema_ddl_enabled(
+    *,
+    runtime_mode: str | None = None,
+    role: str | None = None,
+) -> bool:
+    """Keep repository DDL out of long-lived production processes.
+
+    Local development retains the historical self-bootstrap behavior. In
+    production, only a dedicated one-shot migration/bootstrap role may create
+    or alter schema objects; API, worker, scheduler, and other runtime roles
+    must start with data-plane privileges only.
+    """
+
+    resolved_mode = str(
+        runtime_mode
+        if runtime_mode is not None
+        else os.environ.get("EA_RUNTIME_MODE") or ""
+    ).strip().lower()
+    if resolved_mode not in _PRODUCTION_RUNTIME_MODES:
+        return True
+    resolved_role = str(
+        role if role is not None else os.environ.get("EA_ROLE") or ""
+    ).strip().lower()
+    return resolved_role in _SCHEMA_DDL_ROLES
 
 
 def configure_schema_timeouts(

@@ -27,6 +27,8 @@ RUN python /usr/local/libexec/verify_propertyquarry_python_wheelhouse.py \
     rm -f /usr/local/libexec/verify_propertyquarry_python_wheelhouse.py
 
 RUN mkdir -p /app/scripts /app/docs /data/artifacts /data/public_property_tours /data/provider-ledger /data/governed-render-consents /home/ea
+COPY scripts/check_property_search_storage_schema.py /app/scripts/check_property_search_storage_schema.py
+COPY scripts/backfill_property_research_packet_links.py /app/scripts/backfill_property_research_packet_links.py
 COPY scripts/willhaben_property_packet.py /app/scripts/willhaben_property_packet.py
 COPY scripts/property_magicfit_env.py /app/scripts/property_magicfit_env.py
 COPY scripts/propertyquarry_playwright_runtime.py /app/scripts/propertyquarry_playwright_runtime.py
@@ -69,6 +71,7 @@ COPY scripts/property_tour_host_safety.py /app/scripts/property_tour_host_safety
 COPY scripts/intake_3dvista_gold_artifact.py /app/scripts/intake_3dvista_gold_artifact.py
 COPY vendor/three /app/vendor/three
 COPY ea/app /app/app
+COPY ea/schema /app/schema
 COPY docs/PROPERTYQUARRY_RELEASE_MANIFEST.md /app/docs/PROPERTYQUARRY_RELEASE_MANIFEST.md
 COPY --chmod=0555 ea/property_web_entrypoint.py /usr/local/libexec/property_web_entrypoint.py
 COPY --chmod=0555 ea/property_web_elf_validator.py /usr/local/libexec/property_web_elf_validator.py

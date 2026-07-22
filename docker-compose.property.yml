@@ -22,6 +22,22 @@ services:
       EA_RUNTIME_MODE: "${EA_RUNTIME_MODE:-prod}"
       EA_API_TOKEN: "${EA_API_TOKEN:-}"
       EA_SIGNING_SECRET: "${EA_SIGNING_SECRET:?Set EA_SIGNING_SECRET for the PropertyQuarry API}"
+      # Registration delivery and Google identity are API-only authorities.
+      # Compose receives values by reference; no provider secret is baked into
+      # the image or forwarded to background/runtime-only services.
+      EMAILIT_API_KEY: "${EMAILIT_API_KEY:-}"
+      EA_EMAIL_DEFAULT_FROM: "${EA_EMAIL_DEFAULT_FROM:-}"
+      EA_EMAIL_DEFAULT_NAME: "${EA_EMAIL_DEFAULT_NAME:-}"
+      EA_REGISTRATION_EMAIL_FROM: "${EA_REGISTRATION_EMAIL_FROM:-}"
+      EA_REGISTRATION_EMAIL_NAME: "${EA_REGISTRATION_EMAIL_NAME:-}"
+      EA_REGISTRATION_EMAIL_FROM_FALLBACK: "${EA_REGISTRATION_EMAIL_FROM_FALLBACK:-}"
+      EA_REGISTRATION_EMAIL_NAME_FALLBACK: "${EA_REGISTRATION_EMAIL_NAME_FALLBACK:-}"
+      EA_REGISTRATION_EMAIL_FORCE_FALLBACK: "${EA_REGISTRATION_EMAIL_FORCE_FALLBACK:-0}"
+      EA_GOOGLE_OAUTH_CLIENT_ID: "${EA_GOOGLE_OAUTH_CLIENT_ID:-}"
+      EA_GOOGLE_OAUTH_CLIENT_SECRET: "${EA_GOOGLE_OAUTH_CLIENT_SECRET:-}"
+      EA_GOOGLE_OAUTH_REDIRECT_URI: "${EA_GOOGLE_OAUTH_REDIRECT_URI:-https://propertyquarry.com/google/callback}"
+      EA_GOOGLE_OAUTH_STATE_SECRET: "${EA_GOOGLE_OAUTH_STATE_SECRET:-}"
+      EA_PROVIDER_SECRET_KEY: "${EA_PROVIDER_SECRET_KEY:-}"
       EA_CF_ACCESS_TEAM_DOMAIN: "${EA_CF_ACCESS_TEAM_DOMAIN:-}"
       EA_CF_ACCESS_AUD: "${EA_CF_ACCESS_AUD:-}"
       EA_CF_ACCESS_CERTS_URL: "${EA_CF_ACCESS_CERTS_URL:-}"
@@ -176,7 +192,7 @@ services:
       PROPERTYQUARRY_RELEASE_IMAGE_DIGEST: "${PROPERTYQUARRY_RELEASE_IMAGE_DIGEST:-}"
       HOME: /home/ea
       TZ: Europe/Vienna
-    command: ["/usr/local/bin/python", "-m", "app.product.property_search_schema", "migrate"]
+    command: ["/usr/local/bin/python", "-m", "app.product.propertyquarry_schema", "migrate"]
     cpu_shares: ${PROPERTYQUARRY_MIGRATE_CPU_SHARES:-256}
     cpus: ${PROPERTYQUARRY_MIGRATE_CPUS:-0.5}
     mem_limit: "${PROPERTYQUARRY_MIGRATE_MEMORY_LIMIT:-768m}"
@@ -523,13 +539,14 @@ services:
         max-file: "3"
     environment:
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD for property compose}"
+      POSTGRES_DB: "propertyquarry"
     networks:
       - default
       - propertyquarry_render_internal
     volumes:
       - propertyquarry_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d propertyquarry"]
       interval: 30s
       timeout: 5s
       retries: 3

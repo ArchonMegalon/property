@@ -32,6 +32,10 @@ class PostgresProviderBindingRepository:
         return Json(value)
 
     def _ensure_schema(self) -> None:
+        from app.repositories.postgres_schema import repository_schema_ddl_enabled
+
+        if not repository_schema_ddl_enabled():
+            return
         with self._connect() as conn:
             with conn.cursor() as cur:
                 cur.execute(

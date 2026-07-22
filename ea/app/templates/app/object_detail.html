@@ -2424,9 +2424,12 @@
     }
     const payloadStatusLabel = String(payload?.status_label || fallbackLabel || '').trim();
     const rawTourState = String(payload?.tour_status || payload?.status || '').trim().toLowerCase();
-    const generatedReconstructionReadyUrl = rawTourState === 'ready'
-      ? directGeneratedReconstructionLaunchUrl(payload?.generated_reconstruction_url)
-      : '';
+    const rawLayoutPreviewState = String(payload?.layout_preview_status || '').trim().toLowerCase();
+    const generatedReconstructionReadyUrl = rawLayoutPreviewState === 'ready'
+      ? directGeneratedReconstructionLaunchUrl(payload?.layout_preview_url || payload?.generated_reconstruction_url)
+      : (rawTourState === 'ready'
+        ? directGeneratedReconstructionLaunchUrl(payload?.generated_reconstruction_url)
+        : '');
     const resolvedTourUrl = directHostedTourUrl(
       payload?.verified_tour_url,
       payload?.open_tour_url,

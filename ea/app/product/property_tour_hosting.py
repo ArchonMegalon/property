@@ -3595,9 +3595,20 @@ def _hosted_property_tour_slug(
     seed = _first_non_empty_text(title, listing_id, property_url, "property tour")
     normalized = seed.encode("ascii", "ignore").decode("ascii").lower()
     base = re.sub(r"[^a-z0-9]+", "-", normalized).strip("-") or "property-tour"
-    variant = re.sub(r"[^a-z0-9]+", "-", str(variant_key or "layout_first").lower()).strip("-") or "layout-first"
+    normalized_variant = re.sub(
+        r"[^a-z0-9]+",
+        "-",
+        str(variant_key or "layout_first").lower(),
+    ).strip("-") or "layout-first"
+    # The public route and governed render bridge both cap slugs at 128
+    # characters.  Keep the full normalized variant in the identity digest,
+    # but bound its human-readable segment and shrink only long title segments
+    # so existing short slugs remain stable.
+    variant = normalized_variant[:32].strip("-") or "layout-first"
     normalized_principal = str(principal_id or "").strip()
-    identity_material = f"{property_url}|{listing_id}|{variant}".encode("utf-8")
+    identity_material = (
+        f"{property_url}|{listing_id}|{normalized_variant}".encode("utf-8")
+    )
     if normalized_principal:
         digest = hmac.new(
             _hosted_property_tour_identity_secret(),
@@ -3607,7 +3618,10 @@ def _hosted_property_tour_slug(
     else:
         # Legacy slugs remain computable for exact-owner migration-safe reuse.
         digest = hashlib.sha256(identity_material).hexdigest()[:10]
-    return f"{base[:96].strip('-') or 'property-tour'}-{variant}-{digest}"
+    suffix = f"-{variant}-{digest}"
+    base_limit = min(96, 128 - len(suffix))
+    bounded_base = base[:base_limit].strip("-") or "property-tour"[:base_limit]
+    return f"{bounded_base}{suffix}"
 
 
 def _assert_hosted_property_tour_bundle_write_owner(bundle_dir: Path, *, principal_id: str) -> None:

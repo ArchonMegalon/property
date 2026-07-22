@@ -2074,6 +2074,47 @@ def _load_property_research_packet_link(
             )
 
 
+def _load_property_research_packet_link_for_run(
+    *,
+    principal_id: str,
+    run_id: str,
+    candidate_ref: str,
+) -> dict[str, object] | None:
+    """Load one indexed packet only when it belongs to the requested run."""
+
+    if not _property_search_run_database_url():
+        return None
+    normalized_principal_id = str(principal_id or "").strip()
+    normalized_run_id = str(run_id or "").strip()
+    normalized_candidate_ref = str(candidate_ref or "").strip()
+    if not normalized_principal_id or not normalized_run_id or not normalized_candidate_ref:
+        return None
+    _require_property_search_run_schema()
+    with _property_search_run_connect() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT 1
+                FROM property_research_packet_run_memberships
+                WHERE principal_id = %s
+                  AND run_id = %s
+                  AND candidate_ref = %s
+                """,
+                (
+                    normalized_principal_id,
+                    normalized_run_id,
+                    normalized_candidate_ref,
+                ),
+            )
+            if cur.fetchone() is None:
+                return None
+            return load_property_research_packet_link(
+                cur,
+                principal_id=normalized_principal_id,
+                candidate_ref=normalized_candidate_ref,
+            )
+
+
 def _property_research_packet_index_coverage_complete() -> bool:
     """Return true only for the DB-backed, current writer/packet coverage receipt."""
 

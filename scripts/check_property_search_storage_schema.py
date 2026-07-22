@@ -13,17 +13,26 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 EA_ROOT = ROOT / "ea"
-if str(EA_ROOT) not in sys.path:
-    sys.path.insert(0, str(EA_ROOT))
+APP_SOURCE_ROOT = EA_ROOT if (EA_ROOT / "app").is_dir() else ROOT
+if str(APP_SOURCE_ROOT) not in sys.path:
+    sys.path.insert(0, str(APP_SOURCE_ROOT))
 
-STORAGE_SOURCE = ROOT / "ea" / "app" / "product" / "property_search_storage.py"
-QUEUE_SOURCE = ROOT / "ea" / "app" / "product" / "property_search_work_queue.py"
-SCHEMA_SOURCE = ROOT / "ea" / "app" / "product" / "property_search_schema.py"
-DELIVERY_OUTBOX_SOURCE = ROOT / "ea" / "app" / "repositories" / "delivery_outbox_postgres.py"
-CONTENT_LEDGER_SOURCE = ROOT / "ea" / "app" / "services" / "property_content_job_ledger.py"
-SERVICE_SOURCE = ROOT / "ea" / "app" / "product" / "service.py"
-PACKET_LINK_SOURCE = ROOT / "ea" / "app" / "product" / "property_research_packet_links.py"
-PRIVACY_STORAGE_SOURCE = ROOT / "ea" / "app" / "product" / "privacy_lifecycle_storage.py"
+STORAGE_SOURCE = APP_SOURCE_ROOT / "app" / "product" / "property_search_storage.py"
+QUEUE_SOURCE = APP_SOURCE_ROOT / "app" / "product" / "property_search_work_queue.py"
+SCHEMA_SOURCE = APP_SOURCE_ROOT / "app" / "product" / "property_search_schema.py"
+DELIVERY_OUTBOX_SOURCE = (
+    APP_SOURCE_ROOT / "app" / "repositories" / "delivery_outbox_postgres.py"
+)
+CONTENT_LEDGER_SOURCE = (
+    APP_SOURCE_ROOT / "app" / "services" / "property_content_job_ledger.py"
+)
+SERVICE_SOURCE = APP_SOURCE_ROOT / "app" / "product" / "service.py"
+PACKET_LINK_SOURCE = (
+    APP_SOURCE_ROOT / "app" / "product" / "property_research_packet_links.py"
+)
+PRIVACY_STORAGE_SOURCE = (
+    APP_SOURCE_ROOT / "app" / "product" / "privacy_lifecycle_storage.py"
+)
 from app.product.property_research_packet_fleet_proof import (  # noqa: E402
     PROPERTY_RESEARCH_PACKET_FLEET_PROOF_CONTRACT,
     PROPERTY_RESEARCH_PACKET_WRITER_READY_STATUSES,
@@ -59,6 +68,45 @@ _HEARTBEAT_DELIVERY_OUTBOX_KEYS = frozenset(
         "failed",
     }
 )
+_HEARTBEAT_ROLE_KEYS = {
+    "api": frozenset(),
+    "worker": frozenset({"property_search_work_queue"}),
+    "scheduler": frozenset({"delivery_outbox"}),
+}
+_HEARTBEAT_PROPERTY_SEARCH_WORK_QUEUE_KEYS = {
+    False: frozenset({"observed"}),
+    True: frozenset({"observed", "depth", "oldest_item_age_seconds"}),
+}
+_HEARTBEAT_PROPERTY_SEARCH_WORK_QUEUE_MAX_DEPTH = (2**63) - 1
+_HEARTBEAT_PROPERTY_SEARCH_WORK_QUEUE_MAX_AGE_SECONDS = 10 * 365 * 24 * 60 * 60
+
+
+def _validate_property_search_work_queue_heartbeat(value: object) -> None:
+    if not isinstance(value, dict):
+        raise RuntimeError("writer_heartbeat_property_search_work_queue_invalid")
+    observed = value.get("observed")
+    if type(observed) is not bool:
+        raise RuntimeError("writer_heartbeat_property_search_work_queue_invalid")
+    if frozenset(value) != _HEARTBEAT_PROPERTY_SEARCH_WORK_QUEUE_KEYS[observed]:
+        raise RuntimeError("writer_heartbeat_property_search_work_queue_invalid")
+    if not observed:
+        return
+    depth = value.get("depth")
+    oldest_item_age_seconds = value.get("oldest_item_age_seconds")
+    if (
+        type(depth) is not int
+        or depth < 0
+        or depth > _HEARTBEAT_PROPERTY_SEARCH_WORK_QUEUE_MAX_DEPTH
+        or isinstance(oldest_item_age_seconds, bool)
+        or not isinstance(oldest_item_age_seconds, (int, float))
+        or not math.isfinite(float(oldest_item_age_seconds))
+        or oldest_item_age_seconds < 0
+        or oldest_item_age_seconds
+        > _HEARTBEAT_PROPERTY_SEARCH_WORK_QUEUE_MAX_AGE_SECONDS
+    ):
+        raise RuntimeError("writer_heartbeat_property_search_work_queue_invalid")
+
+
 def _declared_migration_contracts(source: str) -> tuple[tuple[int, str], ...]:
     """Read the version/name ledger without depending on source formatting."""
 
@@ -427,11 +475,9 @@ def _validate_writer_fleet(
         if not isinstance(payload, dict):
             raise RuntimeError("writer_heartbeat_not_object")
         role = payload.get("role")
-        if not isinstance(role, str) or role not in {"api", "worker", "scheduler"}:
+        if not isinstance(role, str) or role not in _HEARTBEAT_ROLE_KEYS:
             raise RuntimeError("writer_heartbeat_role_invalid")
-        expected_keys = _HEARTBEAT_COMMON_KEYS | (
-            {"delivery_outbox"} if role == "scheduler" else set()
-        )
+        expected_keys = _HEARTBEAT_COMMON_KEYS | _HEARTBEAT_ROLE_KEYS[role]
         if frozenset(payload) != expected_keys:
             raise RuntimeError("writer_heartbeat_schema_invalid")
         if role == "scheduler":
@@ -445,6 +491,10 @@ def _validate_writer_fleet(
                 )
             ):
                 raise RuntimeError("writer_heartbeat_delivery_outbox_invalid")
+        if role == "worker":
+            _validate_property_search_work_queue_heartbeat(
+                payload.get("property_search_work_queue")
+            )
         instance_id = payload.get("instance_id")
         if (
             not isinstance(instance_id, str)
