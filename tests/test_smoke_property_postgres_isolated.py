@@ -1260,6 +1260,20 @@ def test_prod_runtime_has_fresh_erasure_secret_and_only_temp_state(
     assert "PROPERTYQUARRY_PLAYWRIGHT_BROWSERS_PATH" not in first
 
 
+def test_isolated_postgres_lane_uses_combined_schema_gate() -> None:
+    source = Path("scripts/smoke_property_postgres_isolated.py").read_text(
+        encoding="utf-8"
+    )
+    for action in ("migrate", "check"):
+        assert source.count(
+            f'[python, "-m", "app.product.propertyquarry_schema", "{action}"]'
+        ) == 1
+        assert (
+            f'[python, "-m", "app.product.property_search_schema", "{action}"]'
+            not in source
+        )
+
+
 def test_browser_launcher_has_one_exact_headless_shell_override_and_static_args() -> None:
     browser_test = Path("tests/e2e/test_propertyquarry_postgres_browser.py").read_text(
         encoding="utf-8"

@@ -2863,7 +2863,7 @@ def _execute_guarded(
             _write_env_file(runtime_env_file, runtime_values)
             runtime_environment = _read_env_file(runtime_env_file)
             _run_host(
-                [python, "-m", "app.product.property_search_schema", "migrate"],
+                [python, "-m", "app.product.propertyquarry_schema", "migrate"],
                 phase="schema-migrate",
                 repo_root=repo_root,
                 environment=runtime_environment,
@@ -2882,7 +2882,7 @@ def _execute_guarded(
             )
             database_relay.assert_healthy()
             _run_host(
-                [python, "-m", "app.product.property_search_schema", "check"],
+                [python, "-m", "app.product.propertyquarry_schema", "check"],
                 phase="schema-check",
                 repo_root=repo_root,
                 environment=runtime_environment,
